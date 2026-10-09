@@ -29,8 +29,7 @@ def test_independent_adapter_builtin_stage_and_many_resources(board, monkeypatch
     monkeypatch.setattr(service_module, "APP_MANIFESTS", registry)
     with DbSession.use(readonly=False) as db:
         role.actions = ["read", "update"]
-        for row in (role, columns[0], stages[0]):
-            db.update(row)
+        db.update(role)
     draft = stage_service.prepare_app_mapping(actor, project.get_uid(), adapter.key)
     assert draft.workflow_mapping == {"active": columns[0].get_uid()}
     snapshot = stage_service.get_app_mapping(actor, project.get_uid(), adapter.key)
