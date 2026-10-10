@@ -6,7 +6,6 @@
   "artifacts": {
     "langboard-app-panel-0.2.1.tgz": "25fb4a48a63c44c6b204eb161dc89cace57fabc1f264e9a7a13c8a1296c2a3e0",
     "langboard_sdk-0.2.13-py3-none-any.whl": "d856a8a0cb6a47e7d758da718d6fcd1247f39c113caae5114eba90ef50473c76",
-    ".gitignore": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
     "langboard_sdk-0.2.13.tar.gz": "a3ba5c75290412bf4b8794a99ae742281e92a1d0920c73fcaa3558d250be77e3"
   },
   "python_source_commit": "5bf55aafb690ac8d35dcc10c46bf20574b06e519",
