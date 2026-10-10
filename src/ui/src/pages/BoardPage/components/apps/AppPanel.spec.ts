@@ -26,18 +26,21 @@ test("independent resource panel pins authority, rejects identity injection and 
         r.fulfill({
             contentType: "text/html",
             body: `
+        <button id="save">Save draft</button>
         <button id="read">Read</button><button id="inject">Inject identity</button><pre id="result">Connecting</pre>
         <script type="module">
         import {connectPanel} from './sdk.mjs';
         const output = document.querySelector('#result');
         const session = await connectPanel({expectedHostOrigin: 'http://127.0.0.1:4181',
-            onShow: () => {output.textContent = 'Ready';}, onDispose: () => {}});
+            onShow: () => {}, onDispose: () => {}});
         async function read(params) {
             try {output.textContent = JSON.stringify(await session.request('resources.list', params));}
             catch (error) {output.textContent = 'Denied: ' + error.message;}
         }
+        document.querySelector('#save').onclick = () => session.saveState({draft:'preserved'});
         document.querySelector('#read').onclick = () => read({});
         document.querySelector('#inject').onclick = () => read({app_key:'other-app'});
+        output.textContent = 'Ready';
         </script>`,
         })
     );
@@ -49,6 +52,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
     await expect(panel.locator("#result")).toHaveText("Ready");
+    await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
     await panel.getByRole("button", { name: "Read", exact: true }).click();
     await expect(panel.locator("#result")).toContainText("issue-1", { timeout: 7000 });
     expect(writes).toEqual([{ app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
@@ -71,14 +75,32 @@ test("independent resource panel pins authority, rejects identity injection and 
         status = denial;
         await page.reload();
         await expect(panel.locator("#result")).toHaveText("Ready");
+        await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
         await panel.getByRole("button", { name: "Read", exact: true }).click();
         await expect(page.getByRole("alert")).toContainText("App panel unavailable");
         await expect(page.locator("iframe")).toHaveCount(0);
     }
     expect(writes).toHaveLength(5);
+    status = 200;
+    await page.reload();
+    await expect(panel.locator("#result")).toHaveText("Ready");
+    await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
+    await panel.getByRole("button", { name: "Save draft" }).click();
+    await expect
+        .poll(async () => {
+            await page.getByRole("button", { name: "Inspect sessions" }).click();
+            return page.locator("output").textContent();
+        })
+        .toContain("preserved");
+    await page.getByRole("button", { name: "Revoke panel sessions" }).click();
+    await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+    await expect(page.locator("iframe")).toHaveCount(0);
+    await page.getByRole("button", { name: "Inspect sessions" }).click();
+    await expect(page.locator("output")).toHaveText(JSON.stringify({ state: null, active: 0 }));
     status = 500;
     await page.reload();
     await expect(panel.locator("#result")).toHaveText("Ready");
+    await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
     await panel.getByRole("button", { name: "Read", exact: true }).click();
     await expect(panel.locator("#result")).toContainText("Denied");
     await expect(page.locator("iframe")).toHaveCount(1);

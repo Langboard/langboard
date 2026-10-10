@@ -1022,3 +1022,11 @@ The actual iframe/SDK regression covers 403, 404 and 409 teardown, close-time
 in-flight cancellation, identity injection rejection, and 500 frame retention.
 This is local host evidence; deployment and push-time revocation coverage remain
 separate acceptance gates.
+
+External session invalidation now uses that same failure path, rather than only
+removing the iframe while leaving its host status ready. The iframe regression
+saves a draft through the real SDK, invokes the production session invalidator,
+and verifies the unavailable message, no iframe, no cached draft, and no active
+session. The existing global `apps:changed` handler also clears the selected panel
+and refreshes the catalog; this test verifies its invalidator, not live socket
+transport or a deployed policy-change round trip.
