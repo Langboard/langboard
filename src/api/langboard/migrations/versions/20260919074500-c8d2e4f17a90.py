@@ -26,19 +26,21 @@ def _column_names() -> set[str]:
 def upgrade() -> None:
     if "organization_id" in _column_names():
         return
-    op.add_column("project", sa.Column("organization_id", SnowflakeIDType, nullable=True))
-    op.create_index(op.f("ix_project_organization_id"), "project", ["organization_id"], unique=False)
-    op.create_foreign_key(
-        op.f("fk_project_organization_id_organization"),
-        "project",
-        "organization",
-        ["organization_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    # Batch mode rebuilds SQLite tables and uses ordinary ALTER on PostgreSQL.
+    with op.batch_alter_table("project") as batch:
+        batch.add_column(sa.Column("organization_id", SnowflakeIDType, nullable=True))
+        batch.create_foreign_key(
+            op.f("fk_project_organization_id_organization"),
+            "organization",
+            ["organization_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
+        batch.create_index(op.f("ix_project_organization_id"), ["organization_id"], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_constraint(op.f("fk_project_organization_id_organization"), "project", type_="foreignkey")
-    op.drop_index(op.f("ix_project_organization_id"), table_name="project")
-    op.drop_column("project", "organization_id")
+    with op.batch_alter_table("project") as batch:
+        batch.drop_constraint(op.f("fk_project_organization_id_organization"), type_="foreignkey")
+        batch.drop_index(op.f("ix_project_organization_id"))
+        batch.drop_column("organization_id")

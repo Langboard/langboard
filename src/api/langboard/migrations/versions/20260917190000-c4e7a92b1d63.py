@@ -20,15 +20,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     conn = op.get_bind()
-    column_exists = conn.execute(
-        sa.text("SELECT 1 FROM information_schema.columns WHERE table_name = 'checklist' AND column_name = 'is_system'")
-    ).scalar()
-    if not column_exists:
+    inspector = sa.inspect(conn)
+    if "is_system" not in {column["name"] for column in inspector.get_columns("checklist")}:
         op.add_column('checklist', sa.Column('is_system', sa.Boolean(), nullable=False, server_default=sa.false()))
-    index_exists = conn.execute(
-        sa.text("SELECT 1 FROM pg_indexes WHERE indexname = 'ix_checklist_is_system'")
-    ).scalar()
-    if not index_exists:
+    if "ix_checklist_is_system" not in {index["name"] for index in inspector.get_indexes("checklist")}:
         op.create_index(op.f('ix_checklist_is_system'), 'checklist', ['is_system'])
 
 

@@ -24,12 +24,12 @@ def upgrade() -> None:
     op.create_table(
         "project_user_relationship",
         sa.Column("id", SnowflakeIDType, autoincrement=False, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("project_id", SnowflakeIDType, nullable=False),
         sa.Column("user_id", SnowflakeIDType, nullable=False),
         sa.Column("related_user_id", SnowflakeIDType, nullable=False),
-        sa.Column("last_related_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("last_related_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(
             ["project_id"],
             ["project.id"],

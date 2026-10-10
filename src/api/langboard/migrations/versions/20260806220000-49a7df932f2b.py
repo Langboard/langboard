@@ -22,8 +22,8 @@ def upgrade() -> None:
     op.create_table(
         "project_template",
         sa.Column("id", sa.BigInteger(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("columns", sa.JSON(), nullable=False),
         sa.Column("internal_bots", sa.JSON(), nullable=False),

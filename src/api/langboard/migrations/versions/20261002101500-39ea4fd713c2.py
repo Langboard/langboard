@@ -12,16 +12,16 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("project_label", sa.Column("global_label_id", SnowflakeIDType(), nullable=True))
-    op.add_column("project_label", sa.Column("global_display", sa.JSON(), nullable=True))
-    op.create_foreign_key(
-        "fk_project_label_global_source", "project_label", "global_label", ["global_label_id"], ["id"]
-    )
-    op.create_unique_constraint("uq_project_label_global_source", "project_label", ["project_id", "global_label_id"])
+    with op.batch_alter_table("project_label") as batch:
+        batch.add_column(sa.Column("global_label_id", SnowflakeIDType(), nullable=True))
+        batch.add_column(sa.Column("global_display", sa.JSON(), nullable=True))
+        batch.create_foreign_key("fk_project_label_global_source", "global_label", ["global_label_id"], ["id"])
+        batch.create_unique_constraint("uq_project_label_global_source", ["project_id", "global_label_id"])
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_project_label_global_source", "project_label", type_="unique")
-    op.drop_constraint("fk_project_label_global_source", "project_label", type_="foreignkey")
-    op.drop_column("project_label", "global_display")
-    op.drop_column("project_label", "global_label_id")
+    with op.batch_alter_table("project_label") as batch:
+        batch.drop_constraint("uq_project_label_global_source", type_="unique")
+        batch.drop_constraint("fk_project_label_global_source", type_="foreignkey")
+        batch.drop_column("global_display")
+        batch.drop_column("global_label_id")
