@@ -137,6 +137,31 @@ def test_valid_heartbeat_renews_and_stopped_never_resumes(board, monkeypatch):
         authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
 
 
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_lost_response_recovery_does_not_renew_runtime_permit(board, monkeypatch):
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.services.AppExecutionLeases import recover_app_runtime, runtime_timestamp
+
+    _, card, token, request, ack_id = permit_scope(board, monkeypatch)
+    runtime_token = token_hex(32)
+    first = authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
+    lease_id = SnowflakeID.from_short_code(first["lease_uid"])
+    with DbSession.atomic() as db:
+        row = db.exec(SqlBuilder.select.table(AppExecutionLease)).first()
+        row.expires_at = SafeDateTime.now() + timedelta(seconds=20)
+        expected_expiry = runtime_timestamp(row.expires_at)
+        db.update(row)
+    recovered = recover_app_runtime(request.id, runtime_token)
+    with DbSession.atomic() as db:
+        row = db.exec(SqlBuilder.select.table(AppExecutionLease)).first()
+        assert _expired(row.expires_at, SafeDateTime.now() + timedelta(seconds=21))
+        assert [entry["state"] for entry in row.history] == ["authorized"]
+    assert recovered["permit_execution"] is True
+    assert recovered["expires_at"] == expected_expiry
+    heartbeat = check_app_runtime(lease_id, runtime_token)
+    assert heartbeat["expires_at"] > recovered["expires_at"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
 async def test_packaged_sdk_runtime_authorize_check_stop_native_http(board, monkeypatch):
