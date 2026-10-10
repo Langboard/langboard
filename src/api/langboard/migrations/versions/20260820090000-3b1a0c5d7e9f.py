@@ -28,8 +28,8 @@ def upgrade() -> None:
     op.create_table(
         "project_email_notification_policy",
         sa.Column("id", sa.BigInteger(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("project_id", sa.BigInteger(), nullable=False),
         sa.Column("is_enabled", sa.Boolean(), nullable=False),
         sa.Column("notify_all_members", sa.Boolean(), nullable=False),
@@ -53,8 +53,8 @@ def upgrade() -> None:
     op.create_table(
         "project_email_notification_recipient",
         sa.Column("id", sa.BigInteger(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("policy_id", sa.BigInteger(), nullable=False),
         sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.ForeignKeyConstraint(

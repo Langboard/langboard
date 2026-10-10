@@ -32,7 +32,8 @@ def _index_names(table: str) -> set[str]:
 
 
 def upgrade() -> None:
-    op.execute("CREATE SEQUENCE IF NOT EXISTS content_change_seq")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("CREATE SEQUENCE IF NOT EXISTS content_change_seq")
 
     card_columns = _column_names("card")
     if "last_change_seq" not in card_columns:
@@ -58,8 +59,8 @@ def upgrade() -> None:
         op.create_table(
             "user_card_read_state",
             sa.Column("id", SnowflakeIDType, autoincrement=False, nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
             sa.Column("user_id", SnowflakeIDType, nullable=False),
             sa.Column("card_id", SnowflakeIDType, nullable=False),
             sa.Column("seen_change_seq", sa.BigInteger(), server_default="0", nullable=False),
@@ -86,4 +87,5 @@ def downgrade() -> None:
     op.drop_column("card", "last_change_target_id")
     op.drop_column("card", "last_change_target_type")
     op.drop_column("card", "last_change_seq")
-    op.execute("DROP SEQUENCE IF EXISTS content_change_seq")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("DROP SEQUENCE IF EXISTS content_change_seq")

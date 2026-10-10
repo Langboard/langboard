@@ -33,8 +33,8 @@ def upgrade() -> None:
     op.create_table(
         "card_content_block",
         sa.Column("id", SnowflakeIDType, autoincrement=False, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("card_id", SnowflakeIDType, nullable=False),
         sa.Column("block_type", sa.String(), nullable=False),
         sa.Column("order", sa.Integer(), server_default="0", nullable=False),
