@@ -59,12 +59,13 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
             disposeHost?.();
             frame?.remove();
         };
-        activePanelDisposals.set(stateKey, teardown);
         const fail = () => {
+            activePanelDisposals.delete(stateKey);
             panelStateCache.delete(stateKey);
             teardown();
             setStatus("error");
         };
+        activePanelDisposals.set(stateKey, fail);
         const onHidden = () => {
             if (document.hidden) teardown();
         };
@@ -80,7 +81,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                 if (controller.signal.aborted || document.hidden || !container.current) return;
                 activePanelDisposals.delete(stateKey);
                 stateKey = JSON.stringify([userUID, projectUID, app.key, data.version]);
-                activePanelDisposals.set(stateKey, teardown);
+                activePanelDisposals.set(stateKey, fail);
                 frame = document.createElement("iframe");
                 frame.setAttribute("sandbox", "allow-scripts allow-forms");
                 frame.referrerPolicy = "no-referrer";
