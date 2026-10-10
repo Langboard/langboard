@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 const sdk = readFileSync("node_modules/@langboard/app-panel/index.mjs", "utf8");
 test("independent resource panel pins authority, rejects identity injection and cancels on close", async ({ page }) => {
     const writes: unknown[] = [];
+    const signalReads: unknown[] = [];
     let release: () => void = () => {};
     let pending = false;
     let status = 200;
@@ -26,7 +27,7 @@ test("independent resource panel pins authority, rejects identity injection and 
         r.fulfill({
             contentType: "text/html",
             body: `
-        <button id="save">Save draft</button>
+        <button id="signals">Signals</button><button id="save">Save draft</button>
         <button id="read">Read</button><button id="inject">Inject identity</button><pre id="result">Connecting</pre>
         <script type="module">
         import {connectPanel} from './sdk.mjs';
@@ -37,6 +38,9 @@ test("independent resource panel pins authority, rejects identity injection and 
             try {output.textContent = JSON.stringify(await session.request('resources.list', params));}
             catch (error) {output.textContent = 'Denied: ' + error.message;}
         }
+        document.querySelector('#signals').onclick = async () => {
+            output.textContent = JSON.stringify(await session.request('signals.list', {provider:'github'}));
+        };
         document.querySelector('#save').onclick = () => session.saveState({draft:'preserved'});
         document.querySelector('#read').onclick = () => read({});
         document.querySelector('#inject').onclick = () => read({app_key:'other-app'});
@@ -49,6 +53,10 @@ test("independent resource panel pins authority, rejects identity injection and 
         if (pending) await delayed;
         await r.fulfill({ status, json: { items: [{ external_resource_id: "issue-1" }], next_cursor: null } }).catch(() => {});
     });
+    await page.route("**/board/board/apps/example-app/panel/signals", async (route) => {
+        signalReads.push(route.request().postDataJSON());
+        await route.fulfill({ json: { items: [{ signal_uid: "signal-1" }], next_cursor: null } });
+    });
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
     await expect(panel.locator("#result")).toHaveText("Ready");
@@ -59,6 +67,9 @@ test("independent resource panel pins authority, rejects identity injection and 
     await panel.getByRole("button", { name: "Inject identity" }).click();
     await expect(panel.locator("#result")).toContainText("Denied");
     expect(writes).toHaveLength(1);
+    await panel.getByRole("button", { name: "Signals", exact: true }).click();
+    await expect(panel.locator("#result")).toContainText("signal-1");
+    expect(signalReads).toEqual([{ provider: "github", app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
     pending = true;
     const next = page.waitForRequest("**/panel/resources");
     await panel.getByRole("button", { name: "Read", exact: true }).click();

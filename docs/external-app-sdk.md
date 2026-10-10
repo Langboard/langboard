@@ -1030,3 +1030,10 @@ and verifies the unavailable message, no iframe, no cached draft, and no active
 session. The existing global `apps:changed` handler also clears the selected panel
 and refreshes the catalog; this test verifies its invalidator, not live socket
 transport or a deployed policy-change round trip.
+
+Panel resource and signal requests now share one validated host bridge. Each
+operation still has its own strict parameter allowlist and endpoint; both carry
+the current app and binding revisions and the same combined abort signal. This
+removes duplicate HTTP/authority boilerplate without merging the two server
+contracts. The iframe regression now exercises both `resources.list` and
+`signals.list`, including revision metadata.
