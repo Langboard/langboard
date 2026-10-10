@@ -1,3 +1,5 @@
+import CardAppResources from "./CardAppResources";
+import { ProjectRole } from "@/core/models/roles";
 import CardSignalEvidence from "./CardSignalEvidence";
 import CardFlipTray from "./CardFlipTray";
 import { useCardFlipStore } from "./CardFlipStore";
@@ -576,6 +578,7 @@ function BoardTaskCardResult({
                                     >
                                         <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
                                             {visibility !== "PRIVATE" && <BoardCardSignalSection />}
+                                            <BoardCardAppResourceSection />
                                             {isCheckCardView ? (
                                                 <BoardCardCheckBody key={`board-card-check-body-${card.uid}`} scrollParentRef={contentViewportRef} />
                                             ) : (
@@ -1106,4 +1109,10 @@ function BoardCardSignalSection() {
             }}
         />
     );
+}
+
+function BoardCardAppResourceSection() {
+    const { projectUID, card, currentUser, hasRoleAction } = useBoardCard();
+    if (!hasRoleAction(ProjectRole.EAction.Update)) return null;
+    return <CardAppResources projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} />;
 }
