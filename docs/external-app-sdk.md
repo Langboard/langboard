@@ -964,3 +964,20 @@ Runtime wire timestamps (`expires_at` and start `reported_at`) always include a
 UTC offset. The database writer stores UTC; SQLite's naive reloaded values are
 normalized to UTC at the shared runtime response boundary. Receivers should
 continue rejecting offset-free timestamps rather than guessing local time.
+
+
+### Registered app connection context
+
+`get_connection_context` discovers approved registered apps alongside built-in
+adapters. Resource types and `resources.read` come from the current approved app
+declaration; board grants, connection state, resource selection/access and actor
+ownership are rechecked on the primary before pagination. An instance administrator
+does not inherit another user's personal connection. Organization connections
+require the matching active organization. Pages remain bounded to 25 candidate
+resources and retain the existing board-scoped cursor and metadata projection.
+
+Built-in adapters continue to validate their upstream secret references. Registered
+inbound apps use host connection identity and have no upstream secret requirement.
+Discovery returns no credential or secret locator, performs no provider call and
+does not grant execution or create consent. Card resource configuration still
+requires its separate current administrator/connection-owner checks.
