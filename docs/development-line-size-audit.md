@@ -29,4 +29,4 @@ The earlier card snapshot (493 commits / 300 files / net +12,744 lines) does not
 
 Reproduce with `git rev-list --left-right --count BASE...HEAD`, `git diff --numstat BASE HEAD`, and `git show REF:PATH | wc -l`. Use the fixed revisions above; do not silently compare with a changing branch name.
 
-Follow-up cleanup removes 24 superseded SDK binary artifacts (797,081 bytes) from the current checkout after checking tracked consumers. Current panel 0.2.1 and Python 0.2.12 wheel/sdist remain. Historical revisions retain their packages. Panel CI now resolves the UI-declared archive and verifies provenance digest and installed version. This is artifact/delivery cleanup, not production LOC reduction.
+Follow-up cleanup removes 24 superseded SDK binary artifacts (797,081 bytes) from the current checkout after checking tracked consumers. Current panel 0.2.1 and Python 0.2.13 wheel/sdist remain. Historical revisions retain their packages. Panel CI now resolves the UI-declared archive and verifies provenance digest and installed version. This is artifact/delivery cleanup, not production LOC reduction.
