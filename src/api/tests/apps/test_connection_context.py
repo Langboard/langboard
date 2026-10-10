@@ -2,8 +2,8 @@
 """Generic App context reuses current host authority without provider calls."""
 
 import pytest
-from langboard_shared.core.db import DbSession
-from langboard_shared.domain.models import AppResourceBinding
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.domain.models import AppDefinition, AppResourceBinding
 from langboard_shared.helpers import InfraHelper
 from test_github_installation import board, installation, secrets  # noqa: F401
 from test_github_lifecycle import lifecycle  # noqa: F401
@@ -18,6 +18,10 @@ def prepare(state, provider):
         resource.resource_type = "repository" if provider == "github" else "project"
         for row in (connection, binding, resource):
             db.update(row)
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == provider)).first()
+        if definition is not None:
+            definition.declaration = {"capabilities": ["resources.read"]}
+            db.update(definition)
     return state[0].workflow_stage, state[1][1], state[1][2].get_uid()
 
 
