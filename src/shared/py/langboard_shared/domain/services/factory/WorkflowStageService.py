@@ -113,6 +113,7 @@ class WorkflowStageService(BaseDomainService):
 
     def get_connection_context(self, user: User, project_uid: str, after: str | None = None) -> dict | None:
         """Current approved resource facts only; no credentials, provider I/O or cached authority."""
+        from ..AppGovernance import connection_discovery_scope
         from ..AppSignalProjection import authorized_signal_rows, signal_resource_conditions
 
         after_id = None
@@ -129,9 +130,11 @@ class WorkflowStageService(BaseDomainService):
             board = self._authorized_app_board(user, project_uid, ProjectRoleAction.Read)
             if board is None:
                 return None
+            manifests = approved_manifests()
             scopes = [
                 and_(*signal_resource_conditions(app_key=key, resource_type=kind, capability="resources.read"))
-                for key, manifest in APP_MANIFESTS.items()
+                for key, manifest in manifests.items()
+                if "resources.read" in manifest.capabilities
                 for kind in manifest.resource_types
             ]
             statement = (
@@ -140,12 +143,17 @@ class WorkflowStageService(BaseDomainService):
                 .join(Project, Project.id == BoardAppBinding.project_id)
                 .join(AppConnection, AppConnection.id == AppResourceBinding.connection_id)
                 .join(User, User.id == AppConnection.owner_id)
-                .where(Project.id == board.id, or_(*scopes))
+                .where(Project.id == board.id, connection_discovery_scope(user.id), or_(False, *scopes))
             )
             if after_id is not None:
                 statement = statement.where(AppResourceBinding.id > after_id)
             rows = db.exec(statement.order_by(AppResourceBinding.id).limit(26)).all()
-            allowed = {row.id for row in authorized_signal_rows(db, rows[:25])}
+            # Native adapters require current upstream secret authority. Registered
+            # inbound apps have no upstream secret and use explicit host connection
+            # identity, declaration and board consent instead.
+            native_rows = [row for row in rows[:25] if row[2].app_key in APP_MANIFESTS]
+            allowed = {row.id for row in authorized_signal_rows(db, native_rows)}
+            allowed.update(resource.id for resource, _, binding in rows[:25] if binding.app_key not in APP_MANIFESTS)
             return {
                 "items": [
                     {
