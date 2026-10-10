@@ -1,6 +1,6 @@
 """Human configuration of existing generic card resources; never execution authority."""
 
-from fastapi import Request
+from fastapi import Query, Request
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -86,3 +86,20 @@ def select_resources(
         form.resource_uids,
         form.expected_revision,
     )
+
+
+@AppRouter.api.get("/board/{project_uid}/apps/resource-context", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def read_resource_context(
+    project_uid: str,
+    cursor: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_-]{23}$"),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    try:
+        result = service.workflow_stage.get_connection_context(user, project_uid, cursor)
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+    if result is None:
+        raise ApiException.NotFound_404()
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})

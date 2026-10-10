@@ -259,5 +259,16 @@
   "Private": "私密",
   "Whisper": "内部协作",
   "Private visibility guidance": "仅本人可见。",
-  "Whisper visibility guidance": "内部协作卡片。外部成员无法访问。"
+  "Whisper visibility guidance": "内部协作卡片。外部成员无法访问。",
+  "appResources": {
+    "title": "应用资源",
+    "help": "选择此看板已批准的资源。不会启动工作或更改应用权限。",
+    "refresh": "无法确认更改结果。请先刷新当前选择，再进行更改。",
+    "connection": "应用连接",
+    "choose": "选择连接",
+    "selected": "已选资源",
+    "clear": "清除选择",
+    "more": "更多资源",
+    "first": "第一页"
+  }
 }

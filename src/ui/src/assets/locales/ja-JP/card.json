@@ -259,5 +259,16 @@
   "Private": "プライベート",
   "Whisper": "ウィスパー",
   "Private visibility guidance": "自分だけが閲覧できます。",
-  "Whisper visibility guidance": "内部協業用カードです。外部メンバーはアクセスできません。"
+  "Whisper visibility guidance": "内部協業用カードです。外部メンバーはアクセスできません。",
+  "appResources": {
+    "title": "アプリリソース",
+    "help": "このボードで承認済みのリソースを選択します。作業開始や権限変更は行いません。",
+    "refresh": "変更結果を確認できません。次の変更前に現在の選択を更新してください。",
+    "connection": "アプリ接続",
+    "choose": "接続を選択",
+    "selected": "選択したリソース",
+    "clear": "選択を解除",
+    "more": "その他のリソース",
+    "first": "最初のページ"
+  }
 }
