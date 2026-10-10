@@ -203,6 +203,18 @@ still rejects adapters that are not installed in the host and rechecks current
 board, connection and capability authority. Registering an external panel does
 not install a signal adapter or grant access to another connection.
 
+Panel package 0.2.1 adds `resources.list` for independently registered apps.
+The host forwards only an optional bounded `cursor` to
+`POST /board/{project_uid}/apps/{app_key}/panel/resources`, supplies the current
+app and binding revisions, and cancels requests when the panel is disposed.
+The panel cannot choose another board, app, owner, or authority revision.
+The native route requires current `panels.render` and explicitly granted
+`resources.read`, and reuses the existing connection-context read with an app
+filter before its 25-row pagination limit. Every page rechecks current owner,
+connection, declared resource types, selected resources, and board policy.
+No credentials or execution authority are returned; this is not an export
+outbox. Protocol v1 is unchanged. Earlier hosts reject the new operation.
+
 Card evidence reads its outcome-to-state mapping and timestamp basis from the
 installed adapter's `AppSignalPolicy`. The shared projection has no provider-name
 branches. Unmapped outcomes remain `unknown`; conflicting observations remain

@@ -96,6 +96,24 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                 state: panelStateCache.get(stateKey),
                                 design: { ...readPanelDesign(), resources },
                                 onRequest: async (operation: string, params: JsonValue, signal: AbortSignal) => {
+                                    if (operation === "resources.list") {
+                                        if (
+                                            !params ||
+                                            typeof params !== "object" ||
+                                            Array.isArray(params) ||
+                                            Object.keys(params).some((key) => key !== "cursor") ||
+                                            (params.cursor !== undefined &&
+                                                params.cursor !== null &&
+                                                (typeof params.cursor !== "string" || !/^[A-Za-z0-9_-]{23}$/.test(params.cursor)))
+                                        )
+                                            throw new Error("Invalid resource request parameters");
+                                        const response = await api.post<JsonValue>(
+                                            `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/resources`,
+                                            { ...params, app_revision: data.app_revision, binding_revision: data.binding_revision },
+                                            { signal: AbortSignal.any([signal, controller.signal]), env: { interceptToast: true } as never }
+                                        );
+                                        return response.data;
+                                    }
                                     if (operation !== "signals.list") throw new Error("Unsupported panel operation");
                                     if (
                                         !params ||

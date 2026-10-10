@@ -23,6 +23,32 @@ class PanelSignalsForm(BaseModel):
     after: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{1,11}$")
 
 
+class PanelResourcesForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    app_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{23}$")
+
+
+@AppRouter.api.post("/board/{project_uid}/apps/{app_key}/panel/resources", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def read_panel_resources(project_uid: str, app_key: str, form: PanelResourcesForm,
+                         user: User = Auth.scope("user"), service: DomainService = DomainService.scope()):
+    with DbSession.atomic():
+        panel = get_panel(service.workflow_stage, user, project_uid, app_key, lock=True)
+        if panel is None or "resources.read" not in panel["granted_capabilities"]:
+            raise ApiException.NotFound_404()
+        if panel["app_revision"] != form.app_revision or panel["binding_revision"] != form.binding_revision:
+            raise ApiException.Conflict_409()
+        try:
+            result = service.workflow_stage.get_connection_context(user, project_uid, form.cursor, app_key=app_key)
+        except ValueError:
+            raise ApiException.BadRequest_400() from None
+        if result is None:
+            raise ApiException.NotFound_404()
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
 @AppRouter.api.post("/board/{project_uid}/apps/{app_key}/panel/signals", tags=["Board.Apps"])
 @AuthFilter.add("user")
 def read_panel_signals(request: Request, project_uid: str, app_key: str, form: PanelSignalsForm,
