@@ -754,8 +754,9 @@ was received, `check_runtime` can confirm its current permit. SDK 0.2.9 adds
 `recover_runtime(request_uid, runtime_token)` for an entirely lost response.
 It looks up the existing permit on the primary database and uses the same
 current-authority and expiry fence. It never creates a permit, rotates its
-token, or resumes a stopped runtime. The scoped runtime token allows recovery
-after app credential revocation, but only the stop state is then returned.
+token, extends its expiry, or resumes a stopped runtime. Only an explicit
+`check_runtime` heartbeat renews a still-current permit. The scoped runtime token
+allows recovery after app credential revocation, but only the stop state is then returned.
 A failed/unknown recovery still grants no permission; do not dispatch.
 
 The native permit/check endpoints are app-independent and do not alter cards or
