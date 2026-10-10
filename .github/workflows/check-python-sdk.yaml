@@ -6,6 +6,9 @@ on:
     paths:
       - .github/workflows/check-python-sdk.yaml
       - src/sdk/vendor/**
+      - scripts/sdk/verify_python_artifact*.py
+      - pyproject.toml
+      - uv.lock
   workflow_dispatch:
 
 permissions:
@@ -28,8 +31,10 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Verify pinned independent SDK distribution
         run: |
+          python -m unittest discover -s scripts/sdk -p "verify_python_artifact_test.py" -q
+          artifact="$(python scripts/sdk/verify_python_artifact.py)"
           mkdir sdk-dist
-          cp src/sdk/vendor/*.whl sdk-dist/
+          cp "$artifact" sdk-dist/
           cp src/sdk/vendor/provenance.json sdk-dist/
       - name: Verify installed wheel has no runtime dependencies
         run: |
@@ -38,7 +43,11 @@ jobs:
           sdk-env/bin/python - <<'PY'
           import sys
           from importlib.metadata import metadata
-          from langboard_sdk import AppManager, HttpTransport, GlitchTipManager, DokployManager, GlitchTipProject, DokployResource, LangboardClient, McpTransport, WorkflowRequirements, WorkflowStage
+          import json
+          from pathlib import Path
+          from langboard_sdk import AppManager, CardResources, HttpTransport, GlitchTipManager, DokployManager, GlitchTipProject, DokployResource, LangboardClient, McpTransport, WorkflowRequirements, WorkflowStage
+          assert callable(CardResources.list_selections)
+          assert metadata("langboard-sdk")["Version"] == json.loads(Path("sdk-dist/provenance.json").read_text())["packages"]["langboard-sdk"]
           assert WorkflowRequirements((WorkflowStage.ACTIVE,)).to_dict() == {"required": ["active"], "optional": []}
           assert metadata("langboard-sdk").get_all("Requires-Dist") is None
           assert not any(name.startswith(("langboard_chatgpt_plugin", "langboard_shared", "fastmcp", "httpx")) for name in sys.modules)
@@ -50,7 +59,12 @@ jobs:
           from pathlib import Path
           root = Path("sdk-dist")
           files = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(root.iterdir()) if path.name.endswith(".whl")}
-          (root / "provenance.json").write_text(json.dumps({"source_sha": os.environ["GITHUB_SHA"], "files": files}, indent=2) + "\n")
+          reviewed = json.loads((root / "provenance.json").read_text())
+          assert len(files) == 1
+          for name, actual in files.items():
+              assert reviewed["artifacts"].get(name) == actual
+          reviewed.update(source_sha=os.environ["GITHUB_SHA"], files=files)
+          (root / "provenance.json").write_text(json.dumps(reviewed, indent=2) + "\n")
           PYTHON
       - uses: actions/upload-artifact@v4
         with:
