@@ -259,5 +259,16 @@
   "Private": "Private",
   "Whisper": "Whisper",
   "Private visibility guidance": "Visible only to you.",
-  "Whisper visibility guidance": "Internal collaboration. External members cannot access this card."
+  "Whisper visibility guidance": "Internal collaboration. External members cannot access this card.",
+  "appResources": {
+    "title": "App resources",
+    "help": "Choose resources already approved for this board. This does not start work or change app permissions.",
+    "refresh": "Update could not be confirmed. Refresh the current selection before another change.",
+    "connection": "App connection",
+    "choose": "Choose a connection",
+    "selected": "Selected resources",
+    "clear": "Clear selection",
+    "more": "More resources",
+    "first": "First page"
+  }
 }
