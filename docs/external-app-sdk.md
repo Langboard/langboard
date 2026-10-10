@@ -1038,3 +1038,38 @@ the current app and binding revisions and the same combined abort signal. This
 removes duplicate HTTP/authority boilerplate without merging the two server
 contracts. The iframe regression now exercises both `resources.list` and
 `signals.list`, including revision metadata.
+
+## Optional app-owned human interaction contract (implementation pending)
+
+Apps that embed an agent may opt into human interaction on their own cards.
+Supported product requirements are a native comment requesting a specific
+reaction, an approval button on the card, or a structured choice card using host
+widgets. A choice may map to an existing board column through the built-in
+workflow stage mapping. Apps must not create their own workflow stage types.
+
+Approval, a question response and an instruction are distinct request purposes.
+Automatic seen receipts are separate from acknowledgment or approval. No new
+card-wide acknowledgment state is required. An AI-generated request or comment
+must carry the existing AI attribution and explain the required response.
+
+The host must retain a request identity, owning app and connection, card, execution
+generation, allowed responders, stable choice identifiers, response presentation
+and the requested stage mapping. The server validates the current responder and
+app authority when accepting a response and again before resuming execution or
+moving the card. The destination must still be an existing authorized column.
+Responses and transitions need durable receipts and duplicate suppression.
+Historical reactions must not approve a new request; duplicate clicks or reaction
+removal must not replay or reverse an already accepted response. Expired, canceled
+or revoked requests cannot resume an agent. Concurrent responses must yield one
+accepted outcome with an inspectable conflict for the others.
+
+This is an agreed requirement, not an available generic SDK method. Native
+LangGraph approval endpoints do not establish the external-app contract.
+
+## Retained resource selection enumeration (SDK 0.2.13)
+
+`CardResources.list_selections` exposes the existing human-authenticated card
+resource-selection listing as a single explicit page. It returns the current
+owner's retained selections and revisions, including disconnected connections for
+cleanup, without exposing credentials or granting execution. Follow `next_cursor`
+explicitly; the SDK does not scan every page or retry mutations.

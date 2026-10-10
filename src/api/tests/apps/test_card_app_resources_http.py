@@ -1,6 +1,8 @@
 # ruff: noqa: F811
 """Native human resource configuration preserves CAS, cleanup and visibility boundaries."""
 
+import asyncio
+from types import SimpleNamespace
 import jwt
 import pytest
 from fastapi import FastAPI
@@ -41,9 +43,18 @@ def test_native_resource_selection_cas_cleanup_and_denial(board, monkeypatch):
         assert saved.json()["revision"] == 1 and saved.json()["changed"] is True
         assert client.get(path, headers=headers).json()["resource_uids"] == form["resource_uids"]
         listing = f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/resource-selections"
+        from langboard_sdk import CardResources, HttpTransport
+
+        async def sdk_request(method, url, **kwargs):
+            return client.request(method, url, headers=headers, **kwargs)
+
+        sdk = CardResources(HttpTransport(SimpleNamespace(request=sdk_request)))
         selected_connections = client.get(listing, headers=headers)
         assert selected_connections.status_code == 200, selected_connections.text
         assert selected_connections.json()["items"][0]["connection_uid"] == connection.get_uid()
+        sdk_page = asyncio.run(sdk.list_selections(board[2].get_uid(), card.get_uid()))
+        assert sdk_page == selected_connections.json()
+        assert sdk_page["next_cursor"] is None
         assert client.put(path, headers=headers, json=form).status_code == 409
         assert client.put(path, headers=headers, json={**form, "expected_revision": 1}).json()["changed"] is False
         assert client.put(path, headers=headers, json={**form, "resource_uids": ["invalid"]}).status_code == 400
@@ -60,6 +71,9 @@ def test_native_resource_selection_cas_cleanup_and_denial(board, monkeypatch):
             connection.state = "disconnected"
             db.update(connection)
         assert client.get(listing, headers=headers).json()["items"][0]["revision"] == 1
+        retained = asyncio.run(sdk.list_selections(board[2].get_uid(), card.get_uid()))
+        assert retained["items"][0]["connection_uid"] == connection.get_uid()
+        assert retained["items"][0]["revision"] == 1
         cleared = client.put(path, headers=headers, json={"resource_uids": [], "expected_revision": 1})
         assert cleared.status_code == 200 and cleared.json()["revision"] == 2, cleared.text
         assert client.get(path, headers=headers).json()["resource_uids"] == []
