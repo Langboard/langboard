@@ -269,6 +269,9 @@
     "selected": "Selected resources",
     "clear": "Clear selection",
     "more": "More resources",
-    "first": "First page"
+    "first": "First page",
+    "retained": "Saved selection",
+    "moreRetained": "More saved connections",
+    "firstRetained": "First saved connections"
   }
 }

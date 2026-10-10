@@ -269,6 +269,9 @@
     "selected": "선택한 리소스",
     "clear": "선택 해제",
     "more": "리소스 더 보기",
-    "first": "첫 페이지"
+    "first": "첫 페이지",
+    "retained": "저장된 선택",
+    "moreRetained": "저장된 연결 더 보기",
+    "firstRetained": "저장된 연결 첫 페이지"
   }
 }

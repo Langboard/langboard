@@ -11,6 +11,7 @@ from langboard_shared.domain.services.CardAppGovernance import CardAppOwnershipC
 from langboard_shared.domain.services.CardAppResources import (
     CardAppResourcesUnavailable,
     configure_card_app_resources,
+    list_card_app_resource_selections,
     read_card_app_resources,
     set_card_app_resources,
 )
@@ -103,3 +104,16 @@ def read_resource_context(
     if result is None:
         raise ApiException.NotFound_404()
     return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+@AppRouter.api.get("/board/{project_uid}/card/{card_uid}/apps/resource-selections", tags=["Board.Card"])
+@AuthFilter.add("user")
+def list_resource_selections(
+    request: Request,
+    project_uid: str,
+    card_uid: str,
+    after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    return _configure(list_card_app_resource_selections, request, service, user, project_uid, card_uid, None, after)
