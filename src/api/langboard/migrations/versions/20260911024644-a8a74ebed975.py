@@ -23,8 +23,9 @@ def upgrade() -> None:
         "project_activity",
         ["project_id", "created_at"],
         unique=False,
+        if_not_exists=True,
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_project_activity_project_id_created_at", table_name="project_activity")
+    op.drop_index("ix_project_activity_project_id_created_at", table_name="project_activity", if_exists=True)
