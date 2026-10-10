@@ -82,7 +82,7 @@ attestation separately from `active_report`; stopped, expired or revoked
 permits cannot appear active. This is an app-attestation projection, not
 independent process health. Use explicit heartbeat calls for renewal.
 
-Python SDK 0.2.12 adds `CardResources.read/select` for human administrator
+Python SDK 0.2.13 adds `CardResources.read/select` for human administrator
 configuration through the native card-resource GET/PUT routes. Use a user
 transport separately from app-scoped `AppResources`. Read current revision
 before replacement; an empty selection unlinks resources. No automatic retry,
@@ -93,7 +93,7 @@ Panel SDK 0.2.1 adds `resources.list` over the existing bounded request bridge.
 The host supplies board/app identity and authority revisions; panels send only
 an optional cursor. Reads require current panel and resource consent and are
 limited to the current app before pagination. Disposal cancels in-flight work.
-The artifact digest is recorded in `vendor/provenance.json`; Python SDK 0.2.12
+The artifact digest is recorded in `vendor/provenance.json`; Python SDK 0.2.13
 is unchanged. This read operation does not implement the app export outbox.
 
 The current checkout retains only the consumed panel package and current Python
