@@ -111,7 +111,7 @@ class WorkflowStageService(BaseDomainService):
                 })
             return items
 
-    def get_connection_context(self, user: User, project_uid: str, after: str | None = None) -> dict | None:
+    def get_connection_context(self, user: User, project_uid: str, after: str | None = None, *, app_key: str | None = None) -> dict | None:
         """Current approved resource facts only; no credentials, provider I/O or cached authority."""
         from ..AppGovernance import connection_discovery_scope
         from ..AppSignalProjection import authorized_signal_rows, signal_resource_conditions
@@ -147,6 +147,8 @@ class WorkflowStageService(BaseDomainService):
             )
             if after_id is not None:
                 statement = statement.where(AppResourceBinding.id > after_id)
+            if app_key is not None:
+                statement = statement.where(BoardAppBinding.app_key == app_key)
             rows = db.exec(statement.order_by(AppResourceBinding.id).limit(26)).all()
             # Native adapters require current upstream secret authority. Registered
             # inbound apps have no upstream secret and use explicit host connection

@@ -23,7 +23,7 @@ Python SDK 0.2.1 adds `GlitchTipManager.disable_read` and
 the same wheel SHA256 recorded in provenance. Integration tests import that wheel
 directly and exercise authenticated native read, revocation, denied refresh and
 explicit re-consent with persistent observations. No SDK source-directory import
-or editable installation is used. The panel package remains 0.2.0/protocol v1.
+or editable installation is used. The panel package is 0.2.1/protocol v1.
 This local package update is not a registry publication or deployed host claim.
 
 Python SDK 0.2.2 adds `ConnectionCredentials` for explicit owner-managed inbound
@@ -88,3 +88,10 @@ transport separately from app-scoped `AppResources`. Read current revision
 before replacement; an empty selection unlinks resources. No automatic retry,
 execution grant or workflow transition is performed. The reviewed wheel is
 pinned with its digest in `vendor/provenance.json`.
+
+Panel SDK 0.2.1 adds `resources.list` over the existing bounded request bridge.
+The host supplies board/app identity and authority revisions; panels send only
+an optional cursor. Reads require current panel and resource consent and are
+limited to the current app before pagination. Disposal cancels in-flight work.
+The artifact digest is recorded in `vendor/provenance.json`; Python SDK 0.2.12
+is unchanged. This read operation does not implement the app export outbox.
