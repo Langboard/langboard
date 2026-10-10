@@ -95,3 +95,8 @@ an optional cursor. Reads require current panel and resource consent and are
 limited to the current app before pagination. Disposal cancels in-flight work.
 The artifact digest is recorded in `vendor/provenance.json`; Python SDK 0.2.12
 is unchanged. This read operation does not implement the app export outbox.
+
+The current checkout retains only the consumed panel package and current Python
+wheel/sdist. Superseded binary packages and their digest entries are recoverable
+from Git history; they are not current dependency candidates. Panel CI resolves
+its archive from the UI manifest and verifies the recorded digest/version.
