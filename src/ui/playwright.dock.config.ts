@@ -2,7 +2,13 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
     testDir: "./src",
-    testMatch: ["refreshProjectColumnDock.spec.ts", "Api.auth.spec.ts", "useGetCards.spec.ts", "useMarkCardSeen.spec.ts"],
+    testMatch: [
+        "refreshProjectColumnDock.spec.ts",
+        "Api.auth.spec.ts",
+        "useGetCards.spec.ts",
+        "useMarkCardSeen.spec.ts",
+        "useGetCardDetails.spec.ts",
+    ],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4181", channel: "chrome", headless: true },
