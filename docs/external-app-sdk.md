@@ -1041,6 +1041,13 @@ contracts. The iframe regression now exercises both `resources.list` and
 
 ## Optional app-owned human interaction contract (implementation pending)
 
+An app-owned workflow card retains native card features. Users and user-delegated
+MCP clients use the existing comment, reaction, relationship, checklist, timer,
+attachment, label and editing APIs with their current permissions. App ownership
+must not replace these APIs or hide their UI controls. App credentials remain
+separately scoped; an ordinary native edit does not implicitly approve a pending
+app interaction. See [native card compatibility](app-human-interactions.md#native-card-compatibility).
+
 Apps that embed an agent may opt into human interaction on their own cards.
 Supported product requirements are a native comment requesting a specific
 reaction, an approval button on the card, or a structured choice card using host

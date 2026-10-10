@@ -75,6 +75,25 @@ resolved by name or by whichever column is found first.
 
 ## Authority and state
 
+### Native card compatibility
+
+App ownership is additive integration metadata, not a replacement card model.
+Authorized users and user-delegated MCP clients retain the native comment,
+reaction, relationship, checklist/checkitem, attachment, label and card editing
+operations under their existing visibility and action permissions. They do not
+need the owning app installed, running or connected to use these native features.
+An app panel or interaction request must not hide or replace those controls.
+Relationships may connect readable app-owned and ordinary cards through the
+existing relationship API; checklists retain native completion and timer semantics.
+
+Owning-app credentials authorize only explicitly granted app operations; they
+cannot impersonate a user or acquire general native write authority from an app
+badge. Unbound automation remains subject to the existing ownership fence.
+Ordinary comments, reactions and checklist changes never implicitly answer an
+interaction or approve an external action. Only the specifically bound reaction
+and currently authorized responder can satisfy a pending interaction. Native
+card edits must be reflected by subsequent app reads and current execution checks.
+
 App creation/read/cancel requires its current credential, declared and granted
 interaction capability, matching own card, connection ownership/organization,
 resources and execution identity. Human response requires current card visibility,
