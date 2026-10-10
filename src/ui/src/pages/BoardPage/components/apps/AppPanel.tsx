@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isAxiosError } from "axios";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
@@ -96,41 +97,47 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                 state: panelStateCache.get(stateKey),
                                 design: { ...readPanelDesign(), resources },
                                 onRequest: async (operation: string, params: JsonValue, signal: AbortSignal) => {
-                                    if (operation === "resources.list") {
+                                    try {
+                                        if (operation === "resources.list") {
+                                            if (
+                                                !params ||
+                                                typeof params !== "object" ||
+                                                Array.isArray(params) ||
+                                                Object.keys(params).some((key) => key !== "cursor") ||
+                                                (params.cursor !== undefined &&
+                                                    params.cursor !== null &&
+                                                    (typeof params.cursor !== "string" || !/^[A-Za-z0-9_-]{23}$/.test(params.cursor)))
+                                            )
+                                                throw new Error("Invalid resource request parameters");
+                                            const response = await api.post<JsonValue>(
+                                                `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/resources`,
+                                                { ...params, app_revision: data.app_revision, binding_revision: data.binding_revision },
+                                                { signal: AbortSignal.any([signal, controller.signal]), env: { interceptToast: true } as never }
+                                            );
+                                            return response.data;
+                                        }
+                                        if (operation !== "signals.list") throw new Error("Unsupported panel operation");
                                         if (
                                             !params ||
                                             typeof params !== "object" ||
                                             Array.isArray(params) ||
-                                            Object.keys(params).some((key) => key !== "cursor") ||
-                                            (params.cursor !== undefined &&
-                                                params.cursor !== null &&
-                                                (typeof params.cursor !== "string" || !/^[A-Za-z0-9_-]{23}$/.test(params.cursor)))
+                                            Object.keys(params).some((key) => key !== "provider" && key !== "after") ||
+                                            typeof params.provider !== "string" ||
+                                            !/^[a-z][a-z0-9_-]{0,31}$/.test(params.provider) ||
+                                            (params.after !== undefined && typeof params.after !== "string")
                                         )
-                                            throw new Error("Invalid resource request parameters");
+                                            throw new Error("Invalid signal request parameters");
                                         const response = await api.post<JsonValue>(
-                                            `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/resources`,
+                                            `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/signals`,
                                             { ...params, app_revision: data.app_revision, binding_revision: data.binding_revision },
                                             { signal: AbortSignal.any([signal, controller.signal]), env: { interceptToast: true } as never }
                                         );
                                         return response.data;
+                                    } catch (error) {
+                                        // An authority denial invalidates this pinned frame immediately.
+                                        if (isAxiosError(error) && [401, 403, 404, 409].includes(error.response?.status ?? 0)) fail();
+                                        throw error;
                                     }
-                                    if (operation !== "signals.list") throw new Error("Unsupported panel operation");
-                                    if (
-                                        !params ||
-                                        typeof params !== "object" ||
-                                        Array.isArray(params) ||
-                                        Object.keys(params).some((key) => key !== "provider" && key !== "after") ||
-                                        typeof params.provider !== "string" ||
-                                        !/^[a-z][a-z0-9_-]{0,31}$/.test(params.provider) ||
-                                        (params.after !== undefined && typeof params.after !== "string")
-                                    )
-                                        throw new Error("Invalid signal request parameters");
-                                    const response = await api.post<JsonValue>(
-                                        `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/signals`,
-                                        { ...params, app_revision: data.app_revision, binding_revision: data.binding_revision },
-                                        { signal: AbortSignal.any([signal, controller.signal]), env: { interceptToast: true } as never }
-                                    );
-                                    return response.data;
                                 },
                                 onState: (state) => panelStateCache.set(stateKey, state),
                                 onReady: () => {
