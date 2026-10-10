@@ -1008,3 +1008,17 @@ inbound apps use host connection identity and have no upstream secret requiremen
 Discovery returns no credential or secret locator, performs no provider call and
 does not grant execution or create consent. Card resource configuration still
 requires its separate current administrator/connection-owner checks.
+
+### Panel authority revocation
+
+Resource and signal bridge requests pin the app and binding revisions. A server
+401/403/404/409 invalidates that frame: the host removes cached panel state,
+disposes its message channel, aborts pending HTTP requests, removes the iframe,
+and shows the existing unavailable message. Reopening requires a new permission
+read. Transport failures and server 5xx errors remain request failures and do not
+silently destroy an otherwise authorized panel.
+
+The actual iframe/SDK regression covers 403, 404 and 409 teardown, close-time
+in-flight cancellation, identity injection rejection, and 500 frame retention.
+This is local host evidence; deployment and push-time revocation coverage remain
+separate acceptance gates.

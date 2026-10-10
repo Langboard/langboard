@@ -5,7 +5,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     const writes: unknown[] = [];
     let release: () => void = () => {};
     let pending = false;
-    let denied = false;
+    let status = 200;
     const delayed = new Promise<void>((resolve) => (release = resolve));
     await page.route("**/panel-sdk-resources.json", (r) => r.fulfill({ json: { version: 1, module_url: "/widgets.mjs", css_url: "/widgets.css" } }));
     await page.route("**/board/board/apps/example-app/panel", (r) =>
@@ -44,7 +44,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     await page.route("**/board/board/apps/example-app/panel/resources", async (r) => {
         writes.push(r.request().postDataJSON());
         if (pending) await delayed;
-        await r.fulfill({ status: denied ? 404 : 200, json: { items: [{ external_resource_id: "issue-1" }], next_cursor: null } }).catch(() => {});
+        await r.fulfill({ status, json: { items: [{ external_resource_id: "issue-1" }], next_cursor: null } }).catch(() => {});
     });
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
@@ -55,11 +55,6 @@ test("independent resource panel pins authority, rejects identity injection and 
     await panel.getByRole("button", { name: "Inject identity" }).click();
     await expect(panel.locator("#result")).toContainText("Denied");
     expect(writes).toHaveLength(1);
-    denied = true;
-    await panel.getByRole("button", { name: "Read", exact: true }).click();
-    await expect(panel.locator("#result")).toContainText("Denied");
-    expect(writes).toHaveLength(2);
-    denied = false;
     pending = true;
     const next = page.waitForRequest("**/panel/resources");
     await panel.getByRole("button", { name: "Read", exact: true }).click();
@@ -70,5 +65,21 @@ test("independent resource panel pins authority, rejects identity injection and 
     expect((await aborted).failure()?.errorText).toContain("ERR_ABORTED");
     release();
     await expect(page.locator("iframe")).toHaveCount(0);
-    expect(writes).toHaveLength(3);
+    expect(writes).toHaveLength(2);
+    pending = false;
+    for (const denial of [403, 404, 409]) {
+        status = denial;
+        await page.reload();
+        await expect(panel.locator("#result")).toHaveText("Ready");
+        await panel.getByRole("button", { name: "Read", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+        await expect(page.locator("iframe")).toHaveCount(0);
+    }
+    expect(writes).toHaveLength(5);
+    status = 500;
+    await page.reload();
+    await expect(panel.locator("#result")).toHaveText("Ready");
+    await panel.getByRole("button", { name: "Read", exact: true }).click();
+    await expect(panel.locator("#result")).toContainText("Denied");
+    await expect(page.locator("iframe")).toHaveCount(1);
 });
