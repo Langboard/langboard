@@ -186,4 +186,4 @@ def recover_app_runtime(request_id, runtime_token):
         lease_id = row.id
     # Return only after the normal current-authority/expiry fence. Stop-only
     # recovery survives app credential revocation and cannot authorize a new lease.
-    return check_app_runtime(lease_id, runtime_token)
+    return _check_app_runtime(lease_id, runtime_token, renew=False)
