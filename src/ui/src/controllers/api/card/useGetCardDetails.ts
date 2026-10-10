@@ -51,15 +51,18 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             } as never,
         });
 
-        ProjectCheckitem.Model.fromArray(
+        const checkitems = ProjectCheckitem.Model.fromArray(
             res.data.checklists.flatMap((checklist: { checkitems?: ProjectCheckitem.Interface[] }) => checklist.checkitems ?? []),
             true
         );
-        const checklists = ProjectChecklist.Model.fromArray(res.data.checklists, true);
-        checklists.forEach((checklist, index) => {
-            const checkitems = ProjectCheckitem.Model.fromArray(res.data.checklists[index]?.checkitems ?? [], true);
-            checklist.checkitems = checkitems;
-        });
+        const itemsByUID = new Map(checkitems.map((item) => [item.uid, item]));
+        const checklists = ProjectChecklist.Model.fromArray(
+            res.data.checklists.map((checklist: ProjectChecklist.IStore) => ({
+                ...checklist,
+                checkitems: (checklist.checkitems ?? []).map((item) => itemsByUID.get(item.uid)!),
+            })),
+            true
+        );
 
         return {
             card: ProjectCard.Model.fromOne(res.data.card),
