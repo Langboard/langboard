@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 import sqlalchemy as sa
 from alembic.config import Config
@@ -38,7 +39,7 @@ def test_fresh_sqlite_upgrade_and_repeated_head_preserve_seed_data(tmp_path):
             for path in (
                 "src/shared/py",
                 "src/api",
-                "src/sdk/vendor/langboard_sdk-0.2.12-py3-none-any.whl",
+                tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["uv"]["sources"]["langboard-sdk"]["path"],
             )
         ),
     }
