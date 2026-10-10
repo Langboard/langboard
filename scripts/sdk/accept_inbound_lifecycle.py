@@ -318,7 +318,7 @@ with tempfile.TemporaryDirectory(prefix="langboard-sdk-http-") as tmp:
         JWT_SECRET_KEY="disposable-acceptance-" + os.urandom(32).hex(),
         CACHE_TYPE="in-memory",
         BROADCAST_TYPE="in-memory",
-        PYTHONPATH=str(ROOT / "src/sdk/vendor/langboard_sdk-0.2.13-py3-none-any.whl"),
+        PYTHONPATH=str(ROOT / "src/sdk/vendor/langboard_sdk-0.2.14-py3-none-any.whl"),
     )
     broadcast = ROOT / "local/broadcast"
     broadcast.mkdir(parents=True, exist_ok=True)
