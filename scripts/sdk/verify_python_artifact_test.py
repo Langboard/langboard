@@ -50,7 +50,14 @@ class ArtifactVerificationTests(unittest.TestCase):
 
     def test_lock_drift(self):
         path = self.root / "uv.lock"
-        path.write_text(path.read_text().replace('version = "0.2.13"', 'version = "0.0.0"'))
+        path.write_text(
+            path.read_text().replace(
+                'name = "langboard-sdk"\nversion = "'
+                + json.loads((self.vendor / "provenance.json").read_text())["packages"]["langboard-sdk"]
+                + '"',
+                'name = "langboard-sdk"\nversion = "0.0.0"',
+            )
+        )
         with self.assertRaisesRegex(ValueError, "lock identity mismatch"):
             verify(self.root)
 
