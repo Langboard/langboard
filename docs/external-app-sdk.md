@@ -1073,3 +1073,5 @@ resource-selection listing as a single explicit page. It returns the current
 owner's retained selections and revisions, including disconnected connections for
 cleanup, without exposing credentials or granting execution. Follow `next_cursor`
 explicitly; the SDK does not scan every page or retry mutations.
+
+Detailed agreed contract and consumer acceptance: [App human interactions v1](app-human-interactions.md). No generic HITL methods are currently available.
