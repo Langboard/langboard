@@ -44,7 +44,7 @@ function Fixture() {
     const { readers } = useCardReadState(projectUID, cardUID);
     const seen = useMarkCardSeen();
     const start = (scenario: string) => {
-        setCard(10, scenario === "Unread");
+        setCard(10, ["Unread", "Missing receipt", "Wrong card"].includes(scenario));
         receipt = scenario === "Missing receipt" ? undefined : { card_uid: scenario === "Wrong card" ? "other-card" : cardUID, seen_change_seq: 10 };
         setResult(`${scenario}: pending`);
         seen.mutate({ project_uid: projectUID, card_uid: cardUID }, { onSuccess: () => setResult(`${scenario}: complete`) });
@@ -53,6 +53,7 @@ function Fixture() {
         <>
             <h1>Seen receipt fixture</h1>
             <p>{result}</p>
+            <p>Unread: {String(ProjectCard.Model.getModel(cardUID)!.has_unread_change)}</p>
             <p>Board reads: {board.data ?? 0}</p>
             <p>Reader reads: {readers.data ? readerReads : 0}</p>
             {["Unchanged", "Unread", "New change", "Missing receipt", "Wrong card"].map((scenario) => (
