@@ -545,7 +545,13 @@ without granting other administrators access. Safe unavailable/conflict errors
 are explicit FastMCP `ToolError` messages; internal exceptions remain masked.
 The commands are optional searchable native tools, not added to the default
 pinned catalog. Configured tool groups still control discovery and execution.
-UI configuration and deployed external-app acceptance remain pending.
+The card detail provides a lazy administrator resource editor using existing
+host buttons/checkboxes and a bounded `GET /board/{board_uid}/apps/resource-context`
+projection. Save uses explicit revision checks; unknown outcomes block another
+change until readback. No grant or execution is inferred. English, Korean,
+Japanese and Chinese text is provided. Fully revoked connections that disappear
+from discovery still need retained-connection cleanup discovery when reopening
+the editor. Deployed external-app acceptance remains pending.
 
 ### Current execution authority inspection
 
