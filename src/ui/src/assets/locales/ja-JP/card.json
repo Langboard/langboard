@@ -269,6 +269,9 @@
     "selected": "選択したリソース",
     "clear": "選択を解除",
     "more": "その他のリソース",
-    "first": "最初のページ"
+    "first": "最初のページ",
+    "retained": "保存された選択",
+    "moreRetained": "保存された接続を表示",
+    "firstRetained": "保存された接続の最初のページ"
   }
 }
