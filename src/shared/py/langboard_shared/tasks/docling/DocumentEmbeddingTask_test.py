@@ -32,8 +32,10 @@ def fixture(monkeypatch, tmp_path):
     service = SimpleNamespace(
         card_attachment=SimpleNamespace(get_by_id_like=Mock(return_value=attachment)),
         card=SimpleNamespace(get_by_id_like=Mock(return_value=card)),
-        project=SimpleNamespace(get_by_id_like=Mock(return_value=SimpleNamespace(get_uid=lambda: "board-uid"))),
-        internal_bot=SimpleNamespace(get_by_id_like=Mock(return_value=binding)),
+        project=SimpleNamespace(
+            get_by_id_like=Mock(return_value=SimpleNamespace(deleted_at=None, get_uid=lambda: "board-uid"))
+        ),
+        internal_bot=SimpleNamespace(get_current_by_id_like=Mock(return_value=binding)),
         docling_metadata=metadata,
     )
     monkeypatch.setattr(
@@ -61,7 +63,7 @@ def fixture(monkeypatch, tmp_path):
     return service, document, attachment
 
 
-@pytest.mark.parametrize("invalid", ["deleted", "stale", "missing-board"])
+@pytest.mark.parametrize("invalid", ["deleted", "stale", "missing-board", "deleted-board"])
 def test_invalid_sources_never_send_document(monkeypatch, tmp_path, invalid):
     service, document, attachment = fixture(monkeypatch, tmp_path)
     if invalid == "deleted":
@@ -70,6 +72,8 @@ def test_invalid_sources_never_send_document(monkeypatch, tmp_path, invalid):
         document["generation"] = "newer"
     if invalid == "missing-board":
         service.project.get_by_id_like.return_value = None
+    if invalid == "deleted-board":
+        service.project.get_by_id_like.return_value.deleted_at = "deleted"
     task.embed_transcription(service, "attachment", "current")
     task.create_document_embeddings.assert_not_called()
     task.stage_vector_generation.assert_not_called()
@@ -129,7 +133,7 @@ def test_database_publication_error_removes_staged_vectors(monkeypatch, tmp_path
 
 def test_missing_binding_reports_safe_failure_without_inference(monkeypatch, tmp_path):
     service, _, _ = fixture(monkeypatch, tmp_path)
-    service.internal_bot.get_by_id_like.return_value = None
+    service.internal_bot.get_current_by_id_like.return_value = None
     task.embed_transcription(service, "attachment", "current")
     task.create_document_embeddings.assert_not_called()
     assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "failed"
@@ -246,3 +250,166 @@ def test_cleanup_dispatch_outage_cannot_downgrade_committed_generation(monkeypat
     task.embed_transcription(service, "attachment", "current")
     assert service.docling_metadata.publish_document_embedding.call_count == 1
     assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "indexed"
+
+
+@pytest.mark.parametrize("change", ["deleted", "type", "endpoint", "vector-endpoint"])
+def test_binding_changed_during_inference_discards_stage_and_keeps_prior_pointer(monkeypatch, tmp_path, change):
+    from json import dumps
+    from langboard_shared.tasks.docling.DocumentEmbedding import resolve_embedding_snapshot, snapshot_embedding_config
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    value = {
+        "agent_llm": "OpenAI Compatible",
+        "base_url": "https://fixture.invalid",
+        "model_name": "fixture-model",
+        "retrieval": {"enabled": True},
+    }
+    document["embedding_config"] = snapshot_embedding_config(dumps(value), "binding")
+    binding = service.internal_bot.get_current_by_id_like.return_value
+    binding.value = dumps(value)
+    monkeypatch.setattr(task, "resolve_embedding_snapshot", resolve_embedding_snapshot)
+    pointer = task.stage_vector_generation.return_value
+
+    def infer(*args, **kwargs):
+        if change == "deleted":
+            service.internal_bot.get_current_by_id_like.return_value = None
+        elif change == "type":
+            binding.bot_type = None
+        else:
+            if change == "endpoint":
+                value["base_url"] = "https://changed.invalid"
+            else:
+                value["retrieval"].update(store="qdrant", external_url="https://vectors.invalid")
+            binding.value = dumps(value)
+        return pointer
+
+    task.stage_vector_generation.side_effect = infer
+    task.embed_transcription(service, "attachment", "current")
+    task.delete_vector_generation.assert_called_once()
+    assert task.delete_vector_generation.call_args.args[1] is pointer
+    publication = service.docling_metadata.publish_document_embedding.call_args.args[-1]
+    assert publication["status"] == "failed"
+    assert publication["pointer"]["generation"] == "old"
+    assert service.docling_metadata.publish_document_embedding.call_count == 1
+
+
+def test_explicit_reindex_preserves_off_and_snapshotted_model_after_global_edit(monkeypatch, tmp_path):
+    from json import dumps, loads
+    from langboard_shared.tasks.docling.DocumentEmbedding import resolve_embedding_snapshot, snapshot_embedding_config
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    value = {
+        "agent_llm": "OpenAI Compatible",
+        "base_url": "https://fixture.invalid",
+        "model_name": "old-model",
+        "retrieval": {"enabled": False},
+    }
+    document["embedding_config"] = snapshot_embedding_config(dumps(value), "binding", explicit=True)
+    document["embedding"]["request_uid"] = "explicit-request"
+    value["model_name"] = "new-model"
+    service.internal_bot.get_current_by_id_like.return_value.value = dumps(value)
+    monkeypatch.setattr(task, "resolve_embedding_snapshot", resolve_embedding_snapshot)
+    task.embed_transcription(service, "attachment", "current", "explicit-request")
+    assert loads(task.create_document_embeddings.call_args.args[0])["model_name"] == "old-model"
+    assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "indexed"
+    task.delete_vector_generation.assert_not_called()
+
+
+def test_explicit_splitter_reindex_applies_snapshot_in_persistent_store(monkeypatch, tmp_path):
+    from json import dumps, loads
+    from langboard_shared.tasks.docling.DocumentEmbedding import (
+        resolve_embedding_snapshot,
+        snapshot_embedding_config,
+        validate_embedding_config,
+    )
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentVectorStore import (
+        delete_vector_generation,
+        open_document_vector_store,
+        stage_vector_generation,
+    )
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    text = "alpha 한국어 문서 日本語の資料 中文资料 beta " * 24
+    document["content"]["markdown"] = text
+    document["embedding"] = {}
+    for name, implementation in (
+        ("resolve_embedding_snapshot", resolve_embedding_snapshot),
+        ("validate_embedding_config", validate_embedding_config),
+        ("open_document_vector_store", open_document_vector_store),
+        ("stage_vector_generation", stage_vector_generation),
+        ("delete_vector_generation", delete_vector_generation),
+    ):
+        monkeypatch.setattr(task, name, implementation)
+    from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
+
+    requests = []
+
+    class RecordingEmbeddings(Fixture):
+        def embed_documents(self, texts):
+            requests.extend(texts)
+            return super().embed_documents(texts)
+
+    def embeddings(value, allowed):
+        config = loads(value)
+        assert config["model_name"] == "frozen-model"
+        assert config["api_key"] == "rotated-secret"
+        assert config["base_url"] in allowed
+        return RecordingEmbeddings()
+
+    monkeypatch.setattr(task, "create_document_embeddings", embeddings)
+
+    def publish(_card, _attachment, _generation, _hash, embedding, *, expected_embedding):
+        assert expected_embedding == document["embedding"]
+        document["embedding"] = embedding
+        return True
+
+    service.docling_metadata.publish_document_embedding.side_effect = publish
+    pointers = []
+    for chunk_size in (128, 64):
+        value = {
+            "agent_llm": "OpenAI Compatible",
+            "base_url": "https://fixture.invalid",
+            "model_name": "frozen-model",
+            "api_key": "original-secret",
+            "retrieval": {
+                "enabled": False,
+                "dimensions": 3,
+                "splitter": {"chunk_size": chunk_size, "chunk_overlap": 0},
+            },
+        }
+        document["embedding_config"] = snapshot_embedding_config(dumps(value), "binding", explicit=True)
+        assert "original-secret" not in dumps(document["embedding_config"])
+        request_uid = f"explicit-{chunk_size}"
+        document["embedding"] = {**document["embedding"], "status": "pending", "request_uid": request_uid}
+        # Later global edits must not alter this request's model or splitter.
+        service.internal_bot.get_current_by_id_like.return_value.value = dumps(
+            {
+                **value,
+                "model_name": "later-global-model",
+                "api_key": "rotated-secret",
+                "retrieval": {"enabled": False},
+            }
+        )
+        start = len(requests)
+        task.embed_transcription(service, "attachment", "current", request_uid)
+        assert document["embedding"]["status"] == "indexed"
+        pointer = document["embedding"]["pointer"]
+        pointers.append(pointer)
+        path = tmp_path / "document-retrieval" / (pointer["embedding_fingerprint"] + ".sqlite")
+        with open_sqlite_vector_store(path, None, dimensions=3) as store:
+            chunks = store.get_by_ids(pointer["chunk_ids"])
+            assert len(chunks) == pointer["chunk_count"] > 1
+            assert sorted(chunk.page_content for chunk in chunks) == sorted(requests[start:])
+            assert all(len(chunk.page_content) <= chunk_size for chunk in chunks)
+            assert all(chunk.metadata["attachment_uid"] == "attachment" for chunk in chunks)
+            assert all(chunk.metadata["board_uid"] == "board-uid" for chunk in chunks)
+            if len(pointers) == 2:
+                assert not store.get_by_ids(pointers[0]["chunk_ids"])
+        # Duplicate delivery is a no-op after authoritative publication.
+        call_count = len(requests)
+        task.embed_transcription(service, "attachment", "current", request_uid)
+        assert len(requests) == call_count
+    assert pointers[0]["embedding_fingerprint"] == pointers[1]["embedding_fingerprint"]
+    assert pointers[1]["chunk_count"] > pointers[0]["chunk_count"]
+    assert document["content"]["markdown"] == text

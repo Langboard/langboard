@@ -13,6 +13,7 @@ from langboard_shared.domain.models import (
     BoardAppBinding,
     DokployNotificationReceipt,
     DokployWebhookBinding,
+    Organization,
     SecretReference,
     User,
 )
@@ -31,6 +32,16 @@ def configured(setup):
     for model in (DokployWebhookBinding, DokployNotificationReceipt, AppSignal):
         model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     conn = connect(setup)
+    with DbSession.atomic() as db:
+        organization = Organization(name="Webhook fixture", slug="webhook-fixture", owner_user_id=board[1].id)
+        db.insert(organization)
+        board[2].organization_id = organization.id
+        saved = db.exec(SqlBuilder.select.table(AppConnection)).first()
+        saved.ownership = "organization"
+        saved.organization_id = organization.id
+        db.update(board[2])
+        db.update(saved)
+        conn["revision"] = dk._revision(saved)
     dk.bind_resource(
         service,
         board[1],
@@ -69,6 +80,47 @@ def accept(configured, body=BODY, authorization="Bearer receiver-token"):
     config = configured[3]
     revision = webhook.authenticate(service, config["config_uid"], authorization)
     return webhook.receive(service, config["config_uid"], authorization, body, revision)
+
+
+@pytest.mark.parametrize("scope", ["personal", "private-personal", "foreign", "inactive", "suspended"])
+def test_notification_receipt_rechecks_unattended_connection_scope(configured, scope):
+    from langboard_shared.core.types import SafeDateTime
+
+    service, board, *_ = configured[0]
+    config = configured[3]
+    # Authenticate first, then change authority before the streaming body is saved.
+    revision = webhook.authenticate(service, config["config_uid"], "Bearer receiver-token")
+    with DbSession.atomic() as db:
+        saved = db.exec(SqlBuilder.select.table(AppConnection)).first()
+        organization = db.exec(SqlBuilder.select.table(Organization).where(Organization.id == saved.organization_id)).first()
+        if scope in {"personal", "private-personal"}:
+            saved.ownership = "personal"
+            saved.organization_id = None
+            db.update(saved)
+            current = db.exec(SqlBuilder.select.table(DokployWebhookBinding)).first()
+            current.connection_revision = dk._revision(saved)
+            db.update(current)
+            if scope == "private-personal":
+                board[2].organization_id = None
+                board[2].owner_id = board[1].id
+                db.update(board[2])
+        elif scope == "foreign":
+            board[2].organization_id = None
+            db.update(board[2])
+        elif scope == "inactive":
+            organization.is_active = False
+            db.update(organization)
+        else:
+            organization.suspended_at = SafeDateTime.now()
+            db.update(organization)
+    if scope == "private-personal":
+        result = webhook.receive(service, config["config_uid"], "Bearer receiver-token", BODY, revision)
+        assert not result["duplicate"]
+    else:
+        with pytest.raises(dk.DokployUnavailable):
+            webhook.receive(service, config["config_uid"], "Bearer receiver-token", BODY, revision)
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(DokployNotificationReceipt)).all()) == (1 if scope == "private-personal" else 0)
 
 
 def test_durable_minimal_deduplicated_health_no_provider_io(configured):
@@ -456,3 +508,56 @@ def test_app_registry_revocation_blocks_webhook_without_losing_receipts(configur
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(DokployNotificationReceipt)).all()
         assert len(rows) == 1 and rows[0].get_uid() == first["receipt_uid"]
+
+
+@pytest.mark.parametrize("change", ["policy", "registry", "connection", "secret", "receiver-secret"])
+def test_notification_disable_survives_revocation_with_current_revision(configured, change):
+    from langboard_shared.domain.models import AppDefinition, AppGovernancePolicy
+
+    setup, conn, _, config = configured
+    service, board, *_ = setup
+    first = accept(configured)
+    with DbSession.atomic() as db:
+        saved = db.exec(SqlBuilder.select.table(AppConnection)).first()
+        if change == "policy":
+            db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
+        elif change == "registry":
+            db.insert(AppDefinition(key="dokploy", approved_by=board[1].id, declaration={"capabilities": []}, is_enabled=False))
+        elif change == "connection":
+            saved.state = "revoked"
+            db.update(saved)
+        else:
+            reference = configured[2]["uri"] if change == "receiver-secret" else saved.credential_reference
+            metadata = service.secret_reference.get_metadata(board[1], reference)
+            service.secret_reference.revoke(board[1], reference, metadata["revision"])
+        revision = dk._revision(saved)
+    with pytest.raises(dk.DokployUnavailable):
+        accept(configured)
+    retained = webhook.health(service, board[1], board[2].get_uid(), conn["connection_uid"])
+    assert retained["connection_revision"] == revision and retained["resources"] == []
+    assert retained["can_configure"] is False
+    args = (service, board[1], board[2].get_uid(), conn["connection_uid"], revision, config["binding_revision"])
+    with pytest.raises(dk.DokployConflict):
+        webhook.disable(*args, config["config_revision"] + 1)
+    result = webhook.disable(*args, config["config_revision"])
+    assert result["state"] == "disabled"
+    assert result["last_received_at"] == first["received_at"]
+    with pytest.raises(dk.DokployUnavailable):
+        webhook.configure(*args, result["config_revision"], configured[2]["uri"])
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(DokployNotificationReceipt)).all()) == 1
+
+
+def test_notification_disable_still_requires_board_update_and_connection_owner(configured):
+    setup, conn, _, config = configured
+    service, board, *_ = setup
+    with DbSession.atomic() as db:
+        board[4].actions = ["read"]
+        db.update(board[4])
+        owner = db.exec(SqlBuilder.select.table(User).where(User.id == board[2].owner_id)).first()
+        owner.is_admin = True
+        db.update(owner)
+    for actor in (board[1], owner):
+        with pytest.raises(dk.DokployUnavailable):
+            webhook.disable(service, actor, board[2].get_uid(), conn["connection_uid"], conn["revision"],
+                            config["binding_revision"], config["config_revision"])

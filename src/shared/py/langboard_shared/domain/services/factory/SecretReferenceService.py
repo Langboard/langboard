@@ -1,5 +1,6 @@
 """Trusted host secret resolution; intentionally absent from MCP/value-read routes."""
 
+import hashlib
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -52,8 +53,13 @@ class SecretAuditSource:
     reason_code: (
         Literal[
             "user_input",
+            "integration_setup",
+            "routine_rotation",
+            "credential_expired",
+            "security_response",
             "runtime_use",
             "reference_created",
+            "reference_copied",
             "reference_renamed",
             "reference_moved",
             "reference_revoked",
@@ -78,8 +84,13 @@ class SecretAuditSource:
         if self.reason_code not in {
             None,
             "user_input",
+            "integration_setup",
+            "routine_rotation",
+            "credential_expired",
+            "security_response",
             "runtime_use",
             "reference_created",
+            "reference_copied",
             "reference_renamed",
             "reference_moved",
             "reference_revoked",
@@ -136,6 +147,8 @@ class SecretReferenceService(BaseDomainService):
                         current,
                         scope_id,
                         ProjectRoleAction.Update,
+                        lock=True,
+                        revocation=True,
                     )
                     is not None
                 )
@@ -189,6 +202,47 @@ class SecretReferenceService(BaseDomainService):
         except Exception:
             if locator is not None:
                 KeyVault.delete_key(locator)
+            raise
+
+    def copy(self, actor: User, uri: str, name: str, expected_revision: int) -> dict:
+        """Explicit native copy within the current scope; material never leaves the vault boundary."""
+        if DbSession.has_active_transaction():
+            raise RuntimeError("Credential storage must own its transaction")
+        name = validate_secret_name(name)
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("Invalid secret copy revision")
+        provider = KeyVault.provider
+        new_locator = None
+        try:
+            with DbSession.atomic() as db:
+                original = self._find(actor, uri, lock=True)
+                if original.revision != expected_revision:
+                    raise SecretReferenceConflict()
+                if original.state != "active" or original.provider != provider.name():
+                    raise SecretReferenceUnavailable()
+                try:
+                    material = provider.get_key(original.locator)
+                except KeyError:
+                    raise SecretReferenceUnavailable() from None
+                if not isinstance(material, str) or not material:
+                    raise SecretReferenceUnavailable()
+                new_locator = provider.store_secret(uuid4().hex, material)
+                reference = SecretReference(
+                    scope=original.scope,
+                    scope_id=original.scope_id,
+                    name=name,
+                    creator_id=actor.id,
+                    provider=provider.name(),
+                    locator=new_locator,
+                )
+                db.insert(reference)
+                source = SecretAuditSource("api", "secret_copy", request_id=uuid4().hex, reason_code="reference_copied")
+                self._audit(db, actor, original, "copied", source)
+                self._audit(db, actor, reference, "created", source)
+                return reference.metadata()
+        except Exception:
+            if new_locator is not None:
+                provider.delete_key(new_locator)
             raise
 
     def _find(self, actor: User, uri: str, *, lock=False) -> SecretReference:
@@ -250,7 +304,7 @@ class SecretReferenceService(BaseDomainService):
         for card in cards:
             if card.project_id not in contexts:
                 board = self._get_service(WorkflowStageService)._authorized_app_board(
-                    actor, card.project_id, ProjectRoleAction.Read
+                    actor, card.project_id, ProjectRoleAction.Read, revocation=True
                 )
                 contexts[card.project_id] = (
                     card_service.resolve_visibility_context(card.project_id, actor, channel) if board else None
@@ -301,7 +355,7 @@ class SecretReferenceService(BaseDomainService):
         for wiki in wikis:
             if wiki.project_id not in boards:
                 boards[wiki.project_id] = self._get_service(WorkflowStageService)._authorized_app_board(
-                    actor, wiki.project_id, ProjectRoleAction.Read
+                    actor, wiki.project_id, ProjectRoleAction.Read, revocation=True
                 )
             project = boards[wiki.project_id]
             if project is not None and wiki_service.can_view(
@@ -369,7 +423,12 @@ class SecretReferenceService(BaseDomainService):
                             if row.source_uid in source_links.get(row.source_kind, {})
                             else {}
                         ),
-                        "request_id": row.request_id,
+                        "request_id": hashlib.sha256(row.request_id.encode()).hexdigest()
+                        if row.source_kind == "api"
+                        and row.source_uid == "secret_input"
+                        and isinstance(row.request_id, str)
+                        and re.fullmatch(r"[A-Za-z0-9_-]{43}", row.request_id)
+                        else row.request_id,
                         "reason_code": row.reason_code,
                     }
                     for row in rows[:limit]

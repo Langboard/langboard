@@ -3,7 +3,7 @@ import hmac
 import importlib
 import json
 import os
-from contextlib import contextmanager
+from contextlib import nullcontext
 from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
@@ -380,14 +380,14 @@ def test_update_webhook_distinguishes_omitted_events_from_explicit_null(
     )
     # This unit exercises field omission semantics; native readiness transaction
     # integration is covered by the execution binding/outbox test suite.
-    watched: list[int] = []
-    @contextmanager
-    def execution_uow():
-        yield SimpleNamespace(watch_webhook=watched.append)
-    monkeypatch.setattr(app_setting_module, "execution_readiness_uow", execution_uow)
     updates: list[object] = []
     publications: list[dict[str, object]] = []
     service = SimpleNamespace(repo=SimpleNamespace(webhook_setting=SimpleNamespace(update=updates.append)))
+    watched: list[int] = []
+    monkeypatch.setattr(
+        app_setting_module, "execution_readiness_uow",
+        lambda: nullcontext(SimpleNamespace(watch_webhook=watched.append)),
+    )
     monkeypatch.setattr(app_setting_module.InfraHelper, "get_by_id_like", lambda *args: setting)
     monkeypatch.setattr(
         app_setting_module.AppSettingPublisher,
@@ -493,7 +493,8 @@ async def test_filter_is_rechecked_before_post(monkeypatch: pytest.MonkeyPatch, 
 
 
 @pytest.mark.asyncio
-async def test_endpoint_delivery_failure_is_bounded_and_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("event", ["card_created", "io.langboard.work.ready.v1"])
+async def test_endpoint_delivery_failure_is_bounded_and_retryable(monkeypatch: pytest.MonkeyPatch, event: str) -> None:
     """One endpoint transport failure surfaces only from its child task."""
 
     setting = SimpleNamespace(
@@ -528,11 +529,16 @@ async def test_endpoint_delivery_failure_is_bounded_and_retryable(monkeypatch: p
     monkeypatch.setattr(WebhookTask, "ensure_public_webhook_url", allow_public_url)
     monkeypatch.setattr(WebhookTask, "AsyncClient", FakeClient)
     monkeypatch.setattr(WebhookTask.KeyVault, "get_key", lambda key: "secret")
+    monkeypatch.setattr(WebhookTask, "signed_request", lambda model, secret: (b"{}", {}))
 
     with pytest.raises(WebhookTask.WebhookDeliveryError, match="endpoint=webhook-1"):
-        await WebhookTask.deliver_webhook(WebhookModel(event="card_created", data={}), "webhook-1")
+        await WebhookTask.post_signed_webhook(WebhookModel(event=event, data={}), "webhook-1", setting)
 
-    assert observed_timeout == [WebhookTask.WEBHOOK_TIMEOUT]
+    expected = WebhookTask.EXECUTION_WEBHOOK_TIMEOUT if event.startswith("io.langboard.work.") else WebhookTask.WEBHOOK_TIMEOUT
+    assert observed_timeout == [expected]
+    assert expected.connect == 2.0
+    assert expected.write == expected.pool == 5.0
+    assert expected.read == (60.0 if event.startswith("io.langboard.work.") else 5.0)
     assert WebhookTask.WEBHOOK_DELIVERY_RETRY_OPTIONS == {
         "autoretry_for": (WebhookTask.WebhookDeliveryError,),
         "retry_backoff": True,

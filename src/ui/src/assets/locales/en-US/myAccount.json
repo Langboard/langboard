@@ -47,7 +47,8 @@
     "cancel": "Cancel request",
     "cancelled": "Cancelled. No secret was stored.",
     "create": "Create secret",
-    "rotate": "Replace existing secret value"
+    "rotate": "Replace existing secret value",
+    "reason": "Reason"
   },
   "secretHistory": {
     "title": "Secret history",
@@ -64,7 +65,8 @@
       "revoked": "Revoked",
       "rotated": "Value replaced",
       "bound": "Bound",
-      "migrated": "Storage migrated"
+      "migrated": "Storage migrated",
+      "copied": "Copied"
     },
     "reasons": {
       "user_input": "Explicit browser input",
@@ -75,9 +77,23 @@
       "reference_revoked": "Reference revocation",
       "value_rotated": "Secret value rotation",
       "reference_bound": "Authorized application connection binding",
-      "provider_migrated": "Secret storage provider changed"
+      "provider_migrated": "Secret storage provider changed",
+      "integration_setup": "Integration setup",
+      "routine_rotation": "Routine credential rotation",
+      "credential_expired": "Expired credential replacement",
+      "security_response": "Security response",
+      "reference_copied": "Explicit same-scope secret copy"
     },
     "openSource": "Open source card",
     "openSourceWiki": "Open source wiki"
+  },
+  "secretCopy": {
+    "title": "Copy secret",
+    "help": "Create an independent secret in the same access scope. The value stays in secure storage.",
+    "name": "New logical name",
+    "submit": "Create copy",
+    "completed": "Copy created. The original is unchanged.",
+    "open": "Open copied secret history",
+    "failed": "Could not confirm the copy. The name may already exist or access/revision changed. Check the history before retrying; close and reopen to refresh the source."
   }
 }

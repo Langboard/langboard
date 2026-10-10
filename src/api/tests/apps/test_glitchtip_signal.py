@@ -21,6 +21,162 @@ from langboard_shared.publishers import CardPublisher
 from test_glitchtip_connection import connect, setup  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def revocation_notifications(monkeypatch):
+    from langboard_shared.publishers import AppSettingPublisher
+    events = []
+    monkeypatch.setattr(AppSettingPublisher, "apps_changed", lambda: events.append("apps:changed"))
+    return events
+
+
+def test_resource_removal_notifies_only_commit_and_preserves_other_selections(selected, revocation_notifications):
+    setup, connection, *_ = selected
+    service, board, *_ = setup
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(AppResourceBinding).order_by(AppResourceBinding.id)).all()
+        resource = rows[0]
+        uid, revision = resource.get_uid(), resource.access_revision
+        untouched = {row.id: (row.is_selected, row.access_revision) for row in rows[1:]}
+    args = service, board[1], board[2].get_uid(), connection["connection_uid"], uid
+    with pytest.raises(gt.GlitchTipConflict):
+        gt.remove_project(*args, revision + 1)
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            gt.remove_project(*args, revision)
+            assert revocation_notifications == []
+            raise RuntimeError("rollback")
+    assert revocation_notifications == []
+    result = gt.remove_project(*args, revision)
+    assert result["selected"] is False and result["access_revision"] == revision + 1
+    assert revocation_notifications == ["apps:changed"]
+    assert gt.remove_project(*args, result["access_revision"]) == result
+    assert revocation_notifications == ["apps:changed"]
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(AppResourceBinding)).all()
+        assert {row.id: (row.is_selected, row.access_revision) for row in rows if row.get_uid() != uid} == untouched
+
+
+def test_disconnect_notifies_only_committed_changes_and_is_idempotent(selected, revocation_notifications):
+    setup, connection, *_ = selected
+    service, board, *_ = setup
+    args = service, board[1], board[2].get_uid(), connection["connection_uid"]
+    with pytest.raises(gt.GlitchTipConflict):
+        gt.disconnect(*args, "0" * 64)
+    assert revocation_notifications == []
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            gt.disconnect(*args, connection["revision"])
+            assert revocation_notifications == []
+            raise RuntimeError("rollback")
+    assert revocation_notifications == []
+    result = gt.disconnect(*args, connection["revision"])
+    assert result["state"] == "disconnected" and revocation_notifications == ["apps:changed"]
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(AppResourceBinding)).all()
+        revisions = {row.id: row.access_revision for row in rows}
+        assert all(row.access_state == "revoked" and row.is_selected for row in rows)
+    assert gt.disconnect(*args, result["revision"]) == result
+    assert revocation_notifications == ["apps:changed"]
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(AppResourceBinding)).all()
+        assert {row.id: row.access_revision for row in rows} == revisions
+
+
+def test_read_revocation_rollback_does_not_publish(selected, revocation_notifications):
+    setup, connection, *_ = selected
+    service, board, *_ = setup
+    with DbSession.use(readonly=False) as db:
+        revision = db.exec(SqlBuilder.select.table(BoardAppBinding)).first().edit_revision()
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            gt.disable_read_access(service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], revision)
+            assert revocation_notifications == []
+            raise RuntimeError("rollback")
+    assert revocation_notifications == []
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(BoardAppBinding)).first().edit_revision() == revision
+
+
+def test_read_revocation_survives_policy_and_credential_failure(selected, revocation_notifications):
+    from langboard_shared.domain.models import AppConnection, AppDefinition, AppGovernancePolicy, SecretReference
+
+    setup, connection, *_ = selected
+    service, board, *_ = setup
+    with DbSession.use(readonly=False) as db:
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+        revision = binding.edit_revision()
+        secret = db.exec(SqlBuilder.select.table(SecretReference)).first()
+        secret.state = "revoked"
+        db.update(secret)
+        db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
+        db.insert(AppDefinition(key="glitchtip", approved_by=board[1].id, is_enabled=False,
+                                declaration={"capabilities": ["signals.read"]}))
+        other = BoardAppBinding(project_id=11, app_key="glitchtip", state="enabled",
+                                granted_capabilities=["signals.read", "panels.render"])
+        db.insert(other)
+        other_revision = other.edit_revision()
+    calls = len(setup[3])
+    revoked = gt.disable_read_access(service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], revision)
+    assert revoked["granted_capabilities"] == [] and revoked["state"] == "disabled"
+    assert revocation_notifications == ["apps:changed"]
+    assert len(setup[3]) == calls
+    # Repeating with the returned revision is harmless even while policy/secret are unusable.
+    assert gt.disable_read_access(service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], revoked["revision"]) == revoked
+    assert revocation_notifications == ["apps:changed"]
+    with DbSession.use(readonly=False) as db:
+        other = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.project_id == 11)).first()
+        conn = db.exec(SqlBuilder.select.table(AppConnection)).first()
+        assert other.edit_revision() == other_revision and conn.state == "connected"
+
+
+def test_read_revocation_preserves_other_grants_without_provider_io(selected, revocation_notifications):
+    setup, connection, *_ = selected
+    service, board, *_ = setup
+    calls = setup[3]
+    with DbSession.use(readonly=False) as db:
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+        binding.granted_capabilities = [*binding.granted_capabilities, "panels.render", "workflow.transition"]
+        binding.stage_transitions_enabled = True
+        db.update(binding)
+        revision = binding.edit_revision()
+    count = len(calls)
+    with pytest.raises(gt.GlitchTipConflict):
+        gt.disable_read_access(service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], "0" * 64)
+    result = gt.disable_read_access(service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], revision)
+    assert revocation_notifications == ["apps:changed"]
+    assert result["granted_capabilities"] == ["panels.render", "workflow.transition"] and result["state"] == "enabled"
+    assert len(calls) == count
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+        assert current.stage_transitions_enabled
+    # Current read gates reject the removed grant before making any provider request.
+    with pytest.raises(gt.GlitchTipUnavailable):
+        refresh(selected)
+    assert len(calls) == count
+
+
+def test_read_consent_preserves_independent_existing_grants(selected):
+    setup, connection, *_ = selected
+    service, board, *_ = setup
+    with DbSession.use(readonly=False) as db:
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+        binding.granted_capabilities = ["panels.render", "workflow.transition"]
+        binding.stage_transitions_enabled = True
+        db.update(binding)
+        revision = binding.edit_revision()
+    result = gt.enable_read_access(
+        service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], revision
+    )
+    expected = ["panels.render", "workflow.transition", "resources.read", "signals.read"]
+    assert result["granted_capabilities"] == expected
+    repeated = gt.enable_read_access(
+        service, board[1], board[2].get_uid(), connection["connection_uid"], connection["revision"], result["revision"]
+    )
+    assert repeated["granted_capabilities"] == expected
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+        assert current.granted_capabilities == expected and current.stage_transitions_enabled
+
 @pytest.fixture
 def selected(setup, monkeypatch):
     service, board, _, _, state = setup
@@ -283,7 +439,7 @@ def test_authenticated_http(selected, monkeypatch):
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, "endpoint", None) in {api.enable_glitchtip_read_access, api.refresh_glitchtip_issues}:
+        if getattr(route, "endpoint", None) in {api.enable_glitchtip_read_access, api.disable_glitchtip_read_access, api.refresh_glitchtip_issues}:
             for dep in route.dependant.dependencies:
                 if dep.name == "service":
                     app.dependency_overrides[dep.call] = lambda: service
@@ -313,8 +469,14 @@ def test_authenticated_http(selected, monkeypatch):
             db.update(binding)
             revision = binding.edit_revision()
         consent = {"expected_connection_revision": conn["revision"], "expected_binding_revision": revision}
-        assert client.post(base + "/read-access", headers=headers, json=consent).status_code == 200
+        enabled = client.post(base + "/read-access", headers=headers, json=consent)
+        assert enabled.status_code == 200
         assert client.post(base + "/read-access", headers=headers, json=consent).status_code == 409
+        revoke = {**consent, "expected_binding_revision": enabled.json()["revision"]}
+        assert client.post(base + "/disable-read", json=revoke).status_code == 401
+        assert client.post(base + "/disable-read", headers=headers, json={**revoke, "approval": True}).status_code == 400
+        assert client.post(base + "/disable-read", headers=headers, json=revoke).status_code == 200
+        assert client.post(url, headers=headers, json=form).status_code == 404
         mutate(selected, "role")
         assert client.post(url, headers=headers, json=form).status_code == 404
 

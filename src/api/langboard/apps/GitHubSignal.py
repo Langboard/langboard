@@ -12,6 +12,7 @@ from langboard_shared.domain.models import (
     User,
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, require_connection_access
 from langboard_shared.domain.services.AppRegistry import signal_app_allowed
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import CardPublisher
@@ -23,7 +24,7 @@ from .GitHubManifest import GitHubManifestUnavailable
 CONCLUSIONS = {"success", "failure", "neutral", "cancelled", "timed_out", "action_required", "stale", "skipped"}
 
 
-def _scope(service, db, project_uid, connection_uid, resource_uid, actor=None, *, lock=False):
+def _scope(service, db, project_uid, connection_uid, resource_uid, actor=None, *, lock=False, unattended=False):
     def query(model):
         statement = SqlBuilder.select.table(model)
         return statement.with_for_update() if lock else statement
@@ -53,6 +54,12 @@ def _scope(service, db, project_uid, connection_uid, resource_uid, actor=None, *
         or "signals.read" not in binding.granted_capabilities
     ):
         raise GitHubManifestUnavailable()
+    try:
+        require_connection_access(db, owner, board, connection, unattended=unattended)
+        if actor is not None:
+            require_connection_access(db, actor, board, connection)
+    except AppGovernanceDenied:
+        raise GitHubManifestUnavailable() from None
     resource = db.exec(query(AppResourceBinding).where(
         AppResourceBinding.id == InfraHelper.convert_id(resource_uid),
         AppResourceBinding.board_binding_id == binding.id,
@@ -97,7 +104,7 @@ def receive_check(service, project_uid, connection_uid, resource_uid, body, sign
         if event != "check_run":
             raise GitHubManifestUnavailable()
         with DbSession.use(readonly=False) as db:
-            owner, connection, resource = _scope(service, db, project_uid, connection_uid, resource_uid)
+            owner, connection, resource = _scope(service, db, project_uid, connection_uid, resource_uid, unattended=True)
             resource_revision = resource.access_revision
             resource_path = [dict(part) for part in resource.resource_path]
         secret_meta = service.secret_reference.get_metadata(owner, connection.credential_reference)
@@ -119,7 +126,7 @@ def receive_check(service, project_uid, connection_uid, resource_uid, body, sign
     except Exception:
         raise GitHubManifestUnavailable() from None
     with DbSession.atomic() as db:
-        _, current, resource = _scope(service, db, project_uid, connection_uid, resource_uid, lock=True)
+        _, current, resource = _scope(service, db, project_uid, connection_uid, resource_uid, lock=True, unattended=True)
         if (
             connection_revision(current) != revision or resource.access_revision != resource_revision
             or resource.resource_path != resource_path

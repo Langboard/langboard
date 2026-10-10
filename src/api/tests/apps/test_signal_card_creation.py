@@ -15,6 +15,7 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    AppConnection,
     Card,
     CardAppSignalBinding,
     CardSignalCreation,
@@ -181,6 +182,33 @@ def create(state, title="  Explicit native card  ", actor=None, column_uid=None,
 def native_only(state):
     if state[5].dialect.name != "postgresql":
         pytest.skip("Ordinary CardService readiness uses native PostgreSQL SQL; exercised on actual PostgreSQL")
+
+
+@pytest.mark.parametrize("admin", [False, True])
+def test_foreign_personal_signal_cannot_create_card_even_for_board_owner(creation_scope, admin):
+    from langboard.apps.CardSignal import bind_check
+    from langboard_shared.domain.models import User
+
+    state = creation_scope
+    with DbSession.use(readonly=False) as db:
+        connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == InfraHelper.convert_id(state[2]))).first()
+        connection.ownership = "personal"
+        connection.organization_id = None
+        db.update(connection)
+        owner = db.exec(SqlBuilder.select.table(User).where(User.id == state[1][2].owner_id)).first()
+        owner.is_admin = admin
+        db.update(owner)
+    assert owner.id != state[1][1].id
+    with pytest.raises(GitHubManifestUnavailable):
+        create(state, actor=owner)
+    card, binding = active_card(state)
+    with pytest.raises(GitHubManifestUnavailable):
+        bind_check(
+            state[0], owner, state[1][2].get_uid(), card.get_uid(), state[2],
+            state[3].get_uid(), state[4], card.last_change_seq, binding.revision,
+        )
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(CardSignalCreation)).all() == []
 
 
 def active_card(state, visibility="SHARED", owner=None):

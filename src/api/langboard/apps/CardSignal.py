@@ -12,6 +12,11 @@ from langboard_shared.domain.models import (
     User,
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.AppGovernance import (
+    AppGovernanceDenied,
+    connection_discovery_scope,
+    require_connection_access,
+)
 from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 from langboard_shared.domain.services.AppSignalProjection import (
     card_signal_projections,
@@ -30,9 +35,11 @@ class CardSignalConflict(Exception):
     pass
 
 
-def authorized_card(service, actor, project_uid, card_uid, *, channel=CollaborationChannel.Api):
+def authorized_card(service, actor, project_uid, card_uid, *, channel=CollaborationChannel.Api, revocation=False):
     if (
-        service.workflow_stage._authorized_app_board(actor, project_uid, ProjectRoleAction.CardUpdate, lock=True)
+        service.workflow_stage._authorized_app_board(
+            actor, project_uid, ProjectRoleAction.CardUpdate, lock=True, revocation=revocation
+        )
         is None
     ):
         raise GitHubManifestUnavailable()
@@ -77,6 +84,10 @@ def authorized_signal_scope(service, db, actor, project_uid, connection_uid, res
         actor, project_uid, ProjectRoleAction.Read, lock=True
     ) is None:
         raise GitHubManifestUnavailable()
+    try:
+        require_connection_access(db, actor, board, connection)
+    except AppGovernanceDenied:
+        raise GitHubManifestUnavailable() from None
     binding = db.exec(
         SqlBuilder.select.table(BoardAppBinding).where(
             BoardAppBinding.project_id == board.id,
@@ -178,7 +189,7 @@ def unlink_check(
     service, actor, project_uid, card_uid, binding_uid, expected_revision, *, channel=CollaborationChannel.Api
 ):
     with DbSession.atomic() as db:
-        card = authorized_card(service, actor, project_uid, card_uid, channel=channel)
+        card = authorized_card(service, actor, project_uid, card_uid, channel=channel, revocation=True)
         binding = db.exec(
             SqlBuilder.select.table(CardAppSignalBinding)
             .where(
@@ -199,7 +210,7 @@ def unlink_check(
 
 
 def read_checks(service, actor, project_uid, card_uid, *, channel=CollaborationChannel.Api):
-    if service.workflow_stage._authorized_app_board(actor, project_uid, ProjectRoleAction.Read) is None:
+    if service.workflow_stage._authorized_app_board(actor, project_uid, ProjectRoleAction.Read, revocation=True) is None:
         raise GitHubManifestUnavailable()
     resolved = service.card.resolve_readable_card(project_uid, card_uid, actor, channel)
     if resolved is None:
@@ -251,10 +262,14 @@ def list_card_resources(service, actor, project_uid, card_uid, after=None, *, ch
             .where(
                 Project.id == resolved[0].id,
                 *signal_resource_conditions(),
+                connection_discovery_scope(actor.id),
             )
         )
         if after is not None:
-            statement = statement.where(AppResourceBinding.id > InfraHelper.convert_id(after))
+            cursor_id = InfraHelper.convert_id(after)
+            if db.exec(statement.where(AppResourceBinding.id == cursor_id).limit(1)).first() is None:
+                raise ValueError("Invalid resource cursor")
+            statement = statement.where(AppResourceBinding.id > cursor_id)
         rows = db.exec(statement.order_by(AppResourceBinding.id).limit(26)).all()
         allowed = authorized_signal_rows(db, rows[:25]) if rows else []
         return {

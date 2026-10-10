@@ -7,8 +7,10 @@ from urllib.parse import urlsplit
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, require_connection_access
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
 from langboard_shared.helpers import InfraHelper
+from langboard_shared.publishers import AppSettingPublisher
 from .MetadataTransport import MetadataUnavailable, approved_instance, read_json
 
 
@@ -20,9 +22,9 @@ class GlitchTipConflict(Exception):
     pass
 
 
-def _board(service, actor, project_uid):
+def _board(service, actor, project_uid, *, revocation=False):
     board = service.workflow_stage._authorized_app_board(
-        actor, project_uid, ProjectRoleAction.Update, lock=DbSession.has_active_transaction()
+        actor, project_uid, ProjectRoleAction.Update, lock=DbSession.has_active_transaction(), revocation=revocation
     )
     if board is None:
         raise GlitchTipUnavailable()
@@ -97,10 +99,11 @@ def _get(base, token, path, params=None):
 
 
 def _fence(service, actor, project_uid, uri, secret_revision):
-    _board(service, actor, project_uid)
+    board = _board(service, actor, project_uid)
     current = service.secret_reference._find(actor, uri, lock=DbSession.has_active_transaction()).metadata()
     if current["revision"] != secret_revision or current["state"] != "active":
         raise GlitchTipConflict()
+    return board
 
 
 def register_connection(service, actor, project_uid, instance_url, credential_reference):
@@ -126,20 +129,21 @@ def register_connection(service, actor, project_uid, instance_url, credential_re
         return _metadata(connection)
 
 
-def _connection(db, actor, uid, *, lock=False):
+def _connection(db, actor, uid, *, lock=False, revocation=False):
     query = SqlBuilder.select.table(AppConnection).where(
         AppConnection.id == InfraHelper.convert_id(uid),
         AppConnection.owner_id == actor.id,
         AppConnection.app_key == "glitchtip",
     )
     row = db.exec(query.with_for_update() if lock else query).first()
-    if row is None or row.state != "connected" or not row.credential_reference:
+    allowed_states = ("connected", "pending", "revoked", "disconnected") if revocation else ("connected",)
+    if row is None or row.state not in allowed_states or (not revocation and not row.credential_reference):
         raise GlitchTipUnavailable()
     return row
 
 
 def list_connections(service, actor, project_uid, after=None):
-    _board(service, actor, project_uid)
+    _board(service, actor, project_uid, revocation=True)
     if after is not None and not re.fullmatch(r"[A-Za-z0-9]{1,11}", after):
         raise ValueError("Invalid connection cursor")
     with DbSession.use(readonly=False) as db:
@@ -148,7 +152,7 @@ def list_connections(service, actor, project_uid, after=None):
             .where(
                 AppConnection.owner_id == actor.id,
                 AppConnection.app_key == "glitchtip",
-                AppConnection.state == "connected",
+                AppConnection.state.in_(["pending", "connected", "revoked", "disconnected"]),
                 AppConnection.id > (InfraHelper.convert_id(after) if after else 0),
             )
             .order_by(AppConnection.id)
@@ -161,21 +165,30 @@ def list_connections(service, actor, project_uid, after=None):
 
 
 def _context(service, actor, project_uid, uid):
-    _board(service, actor, project_uid)
+    board = _board(service, actor, project_uid)
     with DbSession.use(readonly=False) as db:
         connection = _connection(db, actor, uid)
+        _access(db, actor, board, connection)
     base = _instance(connection.instance_url)
     token, secret_revision = _credential(service, actor, connection.credential_reference)
     return connection, base, token, secret_revision
 
 
 def _current(service, actor, project_uid, connection, secret_revision):
-    _fence(service, actor, project_uid, connection.credential_reference, secret_revision)
+    board = _fence(service, actor, project_uid, connection.credential_reference, secret_revision)
     with DbSession.use(readonly=False) as db:
         current = _connection(db, actor, connection.get_uid(), lock=DbSession.has_active_transaction())
+        _access(db, actor, board, current)
         if _revision(current) != _revision(connection):
             raise GlitchTipConflict()
     _instance(current.instance_url)
+
+
+def _access(db, actor, board, connection):
+    try:
+        require_connection_access(db, actor, board, connection)
+    except AppGovernanceDenied:
+        raise GlitchTipUnavailable() from None
 
 
 def discover_resources(service, actor, project_uid, connection_uid, organization=None, cursor=None):
@@ -291,11 +304,11 @@ def bind_project(
 
 
 def selected_projects(service, actor, project_uid, connection_uid, after=None):
-    board = _board(service, actor, project_uid)
+    board = _board(service, actor, project_uid, revocation=True)
     if after is not None and not re.fullmatch(r"[A-Za-z0-9]{1,11}", after):
         raise ValueError("Invalid resource cursor")
     with DbSession.use(readonly=False) as db:
-        connection = _connection(db, actor, connection_uid)
+        connection = _connection(db, actor, connection_uid, revocation=True)
         binding = db.exec(
             SqlBuilder.select.table(BoardAppBinding).where(
                 BoardAppBinding.project_id == board.id,
@@ -344,8 +357,8 @@ def selected_projects(service, actor, project_uid, connection_uid, after=None):
 
 def remove_project(service, actor, project_uid, connection_uid, resource_uid, expected_revision):
     with DbSession.atomic() as db:
-        board = _board(service, actor, project_uid)
-        connection = _connection(db, actor, connection_uid, lock=True)
+        board = _board(service, actor, project_uid, revocation=True)
+        connection = _connection(db, actor, connection_uid, lock=True, revocation=True)
         binding = db.exec(
             SqlBuilder.select.table(BoardAppBinding)
             .where(
@@ -370,19 +383,23 @@ def remove_project(service, actor, project_uid, connection_uid, resource_uid, ex
             raise GlitchTipUnavailable()
         if row.access_revision != expected_revision:
             raise GlitchTipConflict()
-        row.is_selected = False
-        row.access_revision += 1
-        db.update(row)
+        if row.is_selected:
+            row.is_selected = False
+            row.access_revision += 1
+            db.update(row)
+            db.after_commit(AppSettingPublisher.apps_changed)
         return {"resource_uid": row.get_uid(), "selected": False, "access_revision": row.access_revision}
 
 
 def disconnect(service, actor, project_uid, connection_uid, expected_revision):
-    _board(service, actor, project_uid)
+    _board(service, actor, project_uid, revocation=True)
     with DbSession.atomic() as db:
-        _board(service, actor, project_uid)
-        connection = _connection(db, actor, connection_uid, lock=True)
+        _board(service, actor, project_uid, revocation=True)
+        connection = _connection(db, actor, connection_uid, lock=True, revocation=True)
         if _revision(connection) != expected_revision:
             raise GlitchTipConflict()
+        if connection.state == "disconnected":
+            return _metadata(connection)
         connection.state = "disconnected"
         db.update(connection)
         # Preserve selected resources, cards and workflow configuration. The
@@ -396,7 +413,32 @@ def disconnect(service, actor, project_uid, connection_uid, expected_revision):
                 access_state="revoked", health="unavailable", access_revision=AppResourceBinding.access_revision + 1
             )
         )
+        db.after_commit(AppSettingPublisher.apps_changed)
         return _metadata(connection)
+
+
+def disable_read_access(service, actor, project_uid, connection_uid, expected_revision, expected_binding_revision):
+    """Revoke board read grants without requiring a live credential or provider."""
+    with DbSession.atomic() as db:
+        board = _board(service, actor, project_uid, revocation=True)
+        connection = _connection(db, actor, connection_uid, lock=True, revocation=True)
+        if _revision(connection) != expected_revision:
+            raise GlitchTipConflict()
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.project_id == board.id, BoardAppBinding.app_key == "glitchtip",
+        ).with_for_update()).first()
+        if binding is None:
+            raise GlitchTipUnavailable()
+        if binding.edit_revision() != expected_binding_revision:
+            raise GlitchTipConflict()
+        binding.granted_capabilities = [grant for grant in binding.granted_capabilities if grant not in {"resources.read", "signals.read"}]
+        if not binding.granted_capabilities:
+            binding.state = "disabled"
+        db.update(binding)
+        if binding.edit_revision() != expected_binding_revision:
+            db.after_commit(AppSettingPublisher.apps_changed)
+        return {"uid": binding.get_uid(), "revision": binding.edit_revision(), "state": binding.state,
+                "granted_capabilities": list(binding.granted_capabilities)}
 
 
 def enable_read_access(service, actor, project_uid, connection_uid, expected_revision, expected_binding_revision):
@@ -435,8 +477,7 @@ def enable_read_access(service, actor, project_uid, connection_uid, expected_rev
         if selected is None:
             raise GlitchTipUnavailable()
         binding.state = "enabled"
-        binding.granted_capabilities = ["resources.read", "signals.read"]
-        binding.stage_transitions_enabled = False
+        binding.granted_capabilities = list(dict.fromkeys([*binding.granted_capabilities, "resources.read", "signals.read"]))
         db.update(binding)
         return {
             "uid": binding.get_uid(),

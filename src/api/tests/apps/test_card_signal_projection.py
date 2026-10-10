@@ -144,6 +144,34 @@ def test_current_revocation_suppresses_evidence(scoped, failure):
     assert card_signal_projections([card]) == {}
 
 
+@pytest.mark.parametrize("ownership", ["valid", "foreign", "inactive", "suspended"])
+def test_signal_evidence_requires_current_connection_organization(scoped, ownership):
+    from langboard_shared.core.types import SafeDateTime
+
+    state, card, _, _ = scoped
+    send(state)
+    with DbSession.atomic() as db:
+        organization = Organization(name="Signal scope", slug="signal-scope", owner_user_id=state[1][1].id)
+        db.insert(organization)
+        project, connection = state[1][2], state[2]
+        project.organization_id = organization.id
+        connection.ownership = "organization"
+        connection.organization_id = organization.id
+        if ownership == "foreign":
+            project.organization_id = None
+        elif ownership == "inactive":
+            organization.is_active = False
+        elif ownership == "suspended":
+            organization.suspended_at = SafeDateTime.now()
+        for row in (organization, project, connection):
+            db.update(row)
+    projected = card_signal_projections([card])
+    if ownership == "valid":
+        assert projected[card.id][0]["state"] == "passed"
+    else:
+        assert projected == {}
+
+
 @pytest.mark.parametrize("scope", ["project", "workspace"])
 def test_native_nonpersonal_secret_scope_and_revocation(scoped, scope):
     from pydantic import SecretStr
@@ -408,8 +436,11 @@ def test_card_resource_discovery_is_read_scoped_and_batched(scoped):
     domain = DomainService()
     service = state[0]
     service.card = domain.card
-    # Read-only caller, different from the connection owner. Owner retains Update consumption authority.
+    # Read-only caller discovers an explicitly shared organization connection only.
     with DbSession.use(readonly=False) as db:
+        state[2].ownership = "personal"
+        state[2].organization_id = None
+        db.update(state[2])
         from langboard_shared.core.types import SafeDateTime
         from langboard_shared.domain.models import ProjectAssignedUser, ProjectRole, User
 
@@ -447,6 +478,18 @@ def test_card_resource_discovery_is_read_scoped_and_batched(scoped):
                 access_state="granted",
             )
         )
+    private = list_card_resources(service, reader, state[1][2].get_uid(), card.get_uid())
+    assert private == {"items": [], "next_cursor": None}
+    with pytest.raises(ValueError):
+        list_card_resources(service, reader, state[1][2].get_uid(), card.get_uid(), state[4].get_uid())
+    with DbSession.use(readonly=False) as db:
+        organization = Organization(name="Resource discovery", slug="resource-discovery", owner_user_id=state[1][1].id)
+        db.insert(organization)
+        state[1][2].organization_id = organization.id
+        state[2].ownership = "organization"
+        state[2].organization_id = organization.id
+        db.update(state[1][2])
+        db.update(state[2])
     statements = []
 
     def record(*args):
@@ -456,7 +499,8 @@ def test_card_resource_discovery_is_read_scoped_and_batched(scoped):
     try:
         first = list_card_resources(service, reader, state[1][2].get_uid(), card.get_uid())
         assert len(first["items"]) == 25 and first["next_cursor"]
-        assert len(statements) <= 12
+        # Organization membership/policy adds two constant reads, never one per resource.
+        assert len(statements) <= 14
         second = list_card_resources(service, reader, state[1][2].get_uid(), card.get_uid(), first["next_cursor"])
         assert len(second["items"]) == 6 and second["next_cursor"] is None
         assert "foreign" not in str(first) + str(second)
@@ -524,6 +568,7 @@ def test_global_app_policy_hides_existing_evidence_without_deleting_it(scoped):
     state, card, _, _ = scoped
     send(state)
     assert card_signal_projections([card])[card.id]
+
     with DbSession.use(readonly=False) as db:
         policy = AppGovernancePolicy(scope_key="global", mode="disabled")
         db.insert(policy)
@@ -532,6 +577,44 @@ def test_global_app_policy_hides_existing_evidence_without_deleting_it(scoped):
         policy.mode = "approved_only"
         db.update(policy)
     assert card_signal_projections([card])[card.id]
+
+
+def test_disabled_app_policy_allows_unlink_but_not_rebind(scoped):
+    from langboard.apps.CardSignal import bind_check, read_checks, unlink_check
+    from langboard.apps.GitHubManifest import GitHubManifestUnavailable
+    from langboard_shared.domain.models import AppGovernancePolicy
+    from langboard_shared.domain.services import DomainService
+
+    state, card, binding, _ = scoped
+    domain = DomainService()
+    state[0].card = domain.card
+    with DbSession.use(readonly=False) as db:
+        state[1][4].actions = ["read", "update", "card_update"]
+        db.update(state[1][4])
+    signal_uid = send(state)["signal_uid"]
+    with DbSession.use(readonly=False) as db:
+        db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
+    try:
+        before = read_checks(state[0], state[1][1], state[1][2].get_uid(), card.get_uid())
+        assert before["items"] == []
+        assert before["bindings"] == [{"binding_uid": binding.get_uid(), "revision": 0}]
+        with DbSession.use(readonly=False) as db:
+            state[1][4].actions = ["read"]
+            db.update(state[1][4])
+        with pytest.raises(GitHubManifestUnavailable):
+            unlink_check(state[0], state[1][1], state[1][2].get_uid(), card.get_uid(), binding.get_uid(), 0)
+        with DbSession.use(readonly=False) as db:
+            state[1][4].actions = ["read", "update", "card_update"]
+            db.update(state[1][4])
+        result = unlink_check(state[0], state[1][1], state[1][2].get_uid(), card.get_uid(), binding.get_uid(), 0)
+        assert result["is_enabled"] is False and result["revision"] == 1
+        with pytest.raises(GitHubManifestUnavailable):
+            bind_check(
+                state[0], state[1][1], state[1][2].get_uid(), card.get_uid(), state[2].get_uid(),
+                state[4].get_uid(), signal_uid, card.last_change_seq, 1,
+            )
+    finally:
+        domain.close()
 
 
 @pytest.mark.parametrize("change", ["disabled", "capability"])

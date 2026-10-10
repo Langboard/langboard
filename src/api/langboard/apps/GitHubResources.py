@@ -6,8 +6,10 @@ import re
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding, Project, User
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, require_connection_access
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import CardPublisher
+from sqlalchemy import and_, or_
 from .GitHubAuthorization import require_installation_proof
 from .GitHubInstallation import connection_revision, inspect_installation
 from .GitHubManifest import GitHubManifestUnavailable, _board
@@ -21,17 +23,25 @@ class GitHubResourceConflict(Exception):
     pass
 
 
-def resource_snapshot(db, binding):
-    rows = (
-        []
-        if binding is None
-        else db.exec(
-            SqlBuilder.select.table(AppResourceBinding).where(
-                AppResourceBinding.board_binding_id == binding.id,
-                AppResourceBinding.resource_type == "repository",
-            )
-        ).all()
+def resource_snapshot(db, binding, *, actor=None, project=None):
+    if binding is None:
+        return _snapshot_rows([])
+    query = SqlBuilder.select.table(AppResourceBinding).where(
+        AppResourceBinding.board_binding_id == binding.id,
+        AppResourceBinding.resource_type == "repository",
     )
+    if actor is not None:
+        if project is None or binding.project_id != project.id:
+            raise GitHubManifestUnavailable()
+        query = query.join(AppConnection, AppConnection.id == AppResourceBinding.connection_id).where(
+            AppConnection.app_key == "github",
+            or_(
+                and_(AppConnection.ownership == "personal", AppConnection.owner_id == actor.id),
+                and_(AppConnection.ownership == "organization", project.organization_id is not None,
+                     AppConnection.organization_id == project.organization_id),
+            ),
+        )
+    rows = db.exec(query).all()
     return _snapshot_rows(rows)
 
 
@@ -88,7 +98,9 @@ def _receipt_page(db, binding, connection_id, installation_scope, repository_sco
 
 
 def get_resources(service: DomainService, actor: User, project_uid: str) -> dict:
-    board = _board(service, actor, project_uid)
+    # Retained selection state is needed to obtain the revision for removal.
+    # This does not authorize provider discovery or new selections.
+    board = _board(service, actor, project_uid, revocation=True)
     with DbSession.use(readonly=False) as db:
         binding = db.exec(
             SqlBuilder.select.table(BoardAppBinding).where(
@@ -96,7 +108,7 @@ def get_resources(service: DomainService, actor: User, project_uid: str) -> dict
                 BoardAppBinding.app_key == "github",
             )
         ).first()
-        return resource_snapshot(db, binding)
+        return resource_snapshot(db, binding, actor=actor, project=board)
 
 
 def update_resources(
@@ -134,7 +146,7 @@ def update_resources(
         ).first()
         if board is None:
             raise GitHubManifestUnavailable()
-        _board(service, actor, project_uid)
+        _board(service, actor, project_uid, revocation=not add)
         connection = db.exec(
             SqlBuilder.select.table(AppConnection)
             .where(
@@ -144,7 +156,8 @@ def update_resources(
             )
             .with_for_update()
         ).first()
-        if connection is None or connection.state not in {"pending", "connected"}:
+        allowed_states = {"pending", "connected"} if add else {"pending", "connected", "revoked", "disconnected"}
+        if connection is None or connection.state not in allowed_states:
             raise GitHubManifestUnavailable()
         if add:
             require_installation_proof(
@@ -166,7 +179,7 @@ def update_resources(
             )
             .with_for_update()
         ).first()
-        if resource_snapshot(db, binding)["revision"] != expected_revision:
+        if resource_snapshot(db, binding, actor=actor, project=board)["revision"] != expected_revision:
             raise GitHubResourceConflict()
         if binding is None:
             if remove:
@@ -216,7 +229,7 @@ def update_resources(
         # Resource access does not authorize workflow actions, webhook processing,
         # or activation. Existing state/grants/mapping and shared Connection remain.
         db.after_commit(lambda: CardPublisher.app_signal_changed(project_uid))
-        return resource_snapshot(db, binding)
+        return resource_snapshot(db, binding, actor=actor, project=board)
 
 
 def refresh_resources(
@@ -231,6 +244,7 @@ def refresh_resources(
     repository_scope=None,
     expected_connection_revision=None,
     receipt_page=False,
+    unattended=False,
 ):
     """Explicit bounded health refresh; unavailable evidence never means uninstall."""
     _board(service, actor, project_uid)
@@ -248,6 +262,11 @@ def refresh_resources(
         if expected_connection_revision is not None and revision != expected_connection_revision:
             raise GitHubResourceConflict()
         board = _board(service, actor, project_uid)
+        if unattended:
+            try:
+                require_connection_access(db, actor, board, connection, unattended=True)
+            except AppGovernanceDenied:
+                raise GitHubManifestUnavailable() from None
         binding = db.exec(
             SqlBuilder.select.table(BoardAppBinding).where(
                 BoardAppBinding.project_id == board.id,
@@ -262,7 +281,7 @@ def refresh_resources(
             )
             expected_revision = snapshot["revision"]
         else:
-            snapshot = resource_snapshot(db, binding)
+            snapshot = resource_snapshot(db, binding, actor=actor, project=board)
             if snapshot["revision"] != expected_revision:
                 raise GitHubResourceConflict()
             rows = [item for item in snapshot["items"] if item["connection_uid"] == connection_uid and item["selected"]]
@@ -311,13 +330,18 @@ def refresh_resources(
         ).first()
         if current is None or connection_revision(current) != revision:
             raise GitHubResourceConflict()
+        if unattended:
+            try:
+                require_connection_access(db, actor, board, current, unattended=True)
+            except AppGovernanceDenied:
+                raise GitHubManifestUnavailable() from None
         binding = db.exec(
             SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id).with_for_update()
         ).first()
         current_snapshot = (
             _receipt_page(db, binding, connection.id, installation_scope, repository_scope, after, lock=True)[0]
             if receipt_page
-            else resource_snapshot(db, binding)
+            else resource_snapshot(db, binding, actor=actor, project=board)
         )
         if current_snapshot["revision"] != expected_revision:
             raise GitHubResourceConflict()
@@ -332,7 +356,7 @@ def refresh_resources(
         if results:
             db.after_commit(lambda: CardPublisher.app_signal_changed(project_uid))
         return {
-            **({} if receipt_page else resource_snapshot(db, binding)),
+            **({} if receipt_page else resource_snapshot(db, binding, actor=actor, project=board)),
             "next_cursor": next_cursor,
             "refreshed_count": len(results),
             "unavailable_count": sum(access == "unknown" for access, _ in results.values()),

@@ -47,7 +47,8 @@
     "cancel": "요청 취소",
     "cancelled": "취소했습니다. 시크릿은 저장하지 않았습니다.",
     "create": "시크릿 생성",
-    "rotate": "기존 시크릿 값 교체"
+    "rotate": "기존 시크릿 값 교체",
+    "reason": "변경 사유"
   },
   "secretHistory": {
     "title": "시크릿 변경 이력",
@@ -64,7 +65,8 @@
       "revoked": "폐기",
       "rotated": "값 교체",
       "bound": "연결됨",
-      "migrated": "저장소 이전"
+      "migrated": "저장소 이전",
+      "copied": "복사"
     },
     "reasons": {
       "user_input": "사용자의 명시 웹 입력",
@@ -75,9 +77,23 @@
       "reference_revoked": "참조 폐기",
       "value_rotated": "시크릿 값 교체",
       "reference_bound": "권한이 확인된 앱 연결 바인딩",
-      "provider_migrated": "시크릿 저장소 변경"
+      "provider_migrated": "시크릿 저장소 변경",
+      "integration_setup": "연동 설정",
+      "routine_rotation": "정기 비밀값 교체",
+      "credential_expired": "만료된 비밀값 교체",
+      "security_response": "보안 대응",
+      "reference_copied": "동일 권한 범위의 명시적 시크릿 복사"
     },
     "openSource": "원본 카드 열기",
     "openSourceWiki": "원본 위키 열기"
+  },
+  "secretCopy": {
+    "title": "시크릿 복사",
+    "help": "같은 권한 범위에 독립된 시크릿을 만듭니다. 비밀값은 보안 저장소에 유지됩니다.",
+    "name": "새 논리 이름",
+    "submit": "복사본 만들기",
+    "completed": "복사본을 만들었습니다. 원본은 유지됩니다.",
+    "open": "복사본 이력 열기",
+    "failed": "복사 결과를 확인하지 못했습니다. 이름 중복 또는 권한·버전 변경일 수 있습니다. 재시도 전 이력을 확인하고, 닫고 다시 열어 원본을 갱신하세요."
   }
 }

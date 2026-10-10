@@ -367,3 +367,52 @@ def test_binding_audit_is_atomic_with_connection_and_resource(setup, monkeypatch
     monkeypatch.setattr(service.secret_reference, "audit_binding", original)
     bind()
     assert service.secret_reference.list_audit(board[1], reference["uri"])["items"][0]["action"] == "bound"
+
+
+@pytest.mark.parametrize("state", ["connected", "pending", "revoked", "disconnected"])
+def test_policy_disabled_connection_can_only_remove_authority(setup, state):
+    from langboard_shared.domain.models import AppGovernancePolicy
+
+    service, board, _, calls, _ = setup
+    connection = connect(setup)
+    args = service, board[1], board[2].get_uid(), connection["connection_uid"]
+    selected = gt.bind_project(*args, "test-org", "test-project", connection["revision"])
+    with DbSession.use(readonly=False) as db:
+        db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
+        stored = db.exec(SqlBuilder.select.table(AppConnection)).first()
+        stored.state = state
+        if state == "revoked":
+            stored.credential_reference = None
+        db.update(stored)
+        revision = gt._revision(stored)
+        board[4].actions = ["read"]
+        db.update(board[4])
+    before = len(calls)
+    with pytest.raises(gt.GlitchTipUnavailable):
+        gt.disconnect(*args, revision)
+    with pytest.raises(gt.GlitchTipUnavailable):
+        gt.list_connections(*args[:3])
+    with pytest.raises(gt.GlitchTipUnavailable):
+        gt.selected_projects(*args)
+    with DbSession.use(readonly=False) as db:
+        board[4].actions = ["read", "update"]
+        db.update(board[4])
+    with pytest.raises(gt.GlitchTipUnavailable):
+        gt.discover_resources(*args)
+    listed = gt.list_connections(*args[:3])["items"]
+    assert listed[0]["state"] == state and listed[0]["revision"] == revision
+    resources = gt.selected_projects(*args)["items"]
+    assert resources[0]["resource_uid"] == selected["resource_uid"]
+    assert resources[0]["access_revision"] == selected["access_revision"]
+    with pytest.raises(gt.GlitchTipConflict):
+        gt.disconnect(*args, "0" * 64)
+    removed = gt.remove_project(*args, selected["resource_uid"], selected["access_revision"])
+    assert removed["selected"] is False
+    result = gt.disconnect(*args, revision)
+    assert result["state"] == "disconnected"
+    assert gt.list_connections(*args[:3])["items"][0]["revision"] == result["revision"]
+    assert len(calls) == before
+    with DbSession.use(readonly=False) as db:
+        resource = db.exec(SqlBuilder.select.table(AppResourceBinding)).first()
+        assert resource.access_state == "revoked" and resource.health == "unavailable"
+        assert resource.is_selected is False

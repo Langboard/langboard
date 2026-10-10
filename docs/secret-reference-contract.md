@@ -54,6 +54,9 @@ Every metadata or runtime read rechecks the current active user in the primary
 database. Personal references belong only to their user; project credentials
 require existing project update authority, including current membership and role;
 workspace credentials use the existing active Organization owner boundary.
+Project scope checks lock current board authority and are independent of app-use
+policy. Disabling apps cannot prevent native Secret maintenance or revocation;
+app consumers must still apply their own policy before using a reference.
 Workspace member/delegation policy is not introduced by this unit. Moves require
 both source and destination authority. Rename, move and revoke use locked rows
 and an expected integer revision. Runtime resolution returns `SecretStr` only to
@@ -90,6 +93,9 @@ retention/export, admin audit UI and external runtime consumer source binding
 remain pending. No public audit or secret-value endpoint is added.
 
 ## Native metadata transports
+
+Authenticated metadata and history responses use `Cache-Control: no-store` so
+clients and intermediaries do not retain a projection after authority changes.
 
 Authenticated native clients can read one canonical reference with
 `GET /secret-references/<uid>`. The endpoint returns `{reference: metadata}` and

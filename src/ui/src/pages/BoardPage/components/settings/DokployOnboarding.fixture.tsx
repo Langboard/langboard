@@ -13,6 +13,15 @@ const resources = new Map<
     { resource_uid: string; external_id: string; type: string; access_revision: number; selected: boolean; path: { type: string; id: string }[] }
 >();
 let enabled = false;
+if (params.has("saved"))
+    resources.set("app-1", {
+        resource_uid: "resource",
+        external_id: "app-1",
+        type: "application",
+        access_revision: 1,
+        selected: true,
+        path: [{ type: "application", id: "app-1" }],
+    });
 const readAccess = () => ({
     uid: "board-binding",
     revision: "b".repeat(64),
@@ -25,6 +34,7 @@ let webhookRevision = params.has("webhook-enabled") ? 7 : 0;
 let webhookState = params.has("webhook-enabled") ? "enabled" : "unconfigured";
 let notificationID: string | null = params.has("webhook-enabled") ? "notification-1" : null;
 const webhookHealth = () => ({
+    can_configure: !params.has("revoked"),
     config_revision: webhookRevision,
     state: webhookState,
     receiver_path: webhookRevision ? "/apps/dokploy/notifications/config" : null,
@@ -35,12 +45,15 @@ const webhookHealth = () => ({
     connection_state: params.has("revoked") ? "revoked" : "connected",
     connection_revision: "c".repeat(64),
     binding_revision: resources.size || webhookRevision ? "d".repeat(64) : null,
-    resources: [...resources.values()].filter((row) => row.selected).map((row) => ({ resource_uid: row.resource_uid, health: "healthy" })),
+    resources: params.has("revoked")
+        ? []
+        : [...resources.values()].filter((row) => row.selected).map((row) => ({ resource_uid: row.resource_uid, health: "healthy" })),
 });
 Object.assign(window, { dokployCalls: calls });
 api.defaults.adapter = async (config) => {
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ method: config.method, url: config.url, data, params: config.params });
+    if (params.has("denyhealth") && config.url?.endsWith("/webhook-health")) throw new Error("Denied");
     if (params.has("delayed") && (config.url?.endsWith("/resources") || config.url?.endsWith("/refresh") || config.url?.endsWith("/enable-read")))
         await new Promise((resolve) => setTimeout(resolve, 400));
     if (params.has("deny") && config.url?.endsWith("/resources")) throw new Error("Denied");

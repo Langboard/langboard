@@ -95,7 +95,10 @@ async def test_registration_workflow_update_disable_and_admin_revocation(board, 
         assert stale.value.status_code == 409
         disabled = await registry.disable("example-erp", updated["revision"])
         assert not disabled["is_enabled"] and disabled["generation"] == 3
-        assert "example-erp" not in {a["key"] for a in (await manager.catalog())["apps"]}
+        retained = next(a for a in (await manager.catalog())["apps"] if a["key"] == "example-erp")
+        assert retained["capabilities"] == [] and retained["app_revision"] == disabled["revision"]
+        assert retained["is_available"] is False
+        assert retained["binding"]["granted_capabilities"] == []
         with DbSession.use(readonly=False) as db:
             actor.is_admin = False
             db.update(actor)
@@ -175,10 +178,21 @@ async def test_panel_consent_scope_revisions_and_revocation(board, monkeypatch, 
         from langboard_shared.domain.services.AppGovernance import get_policy, save_policy
         policy = get_policy(actor)
         policy = save_policy(actor, "disabled", policy["revision"])
+        retained = next(a for a in (await manager.catalog())["apps"] if a["key"] == "example-erp")
+        assert retained["binding"]["revision"] == saved["revision"]
+        assert retained["is_available"] is False and retained["capabilities"] == []
         with pytest.raises(NativeApiError) as forbidden_panel:
             await manager.panel("example-erp")
         assert forbidden_panel.value.status_code in (403, 404)
+        cleared = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=False,
+            binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]
+        assert cleared["granted_capabilities"] == []
+        with pytest.raises(NativeApiError):
+            await manager.set_panel_consent("example-erp", approved["revision"], enabled=True,
+                binding_uid=cleared["uid"], expected_revision=cleared["revision"])
         save_policy(actor, "approved_only", policy["revision"])
+        saved = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=True,
+            binding_uid=cleared["uid"], expected_revision=cleared["revision"]))["binding"]
         assert (await manager.panel("example-erp"))["panel"] == declaration["panel"]
         with DbSession.use(readonly=False) as db:
             binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == "example-erp")).first()
@@ -217,14 +231,26 @@ async def test_panel_consent_scope_revisions_and_revocation(board, monkeypatch, 
         assert entry["app_revision"] == newer["revision"]
         restored = (await manager.set_panel_consent("example-erp", newer["revision"], enabled=True,
             binding_uid=entry["binding"]["uid"], expected_revision=entry["binding"]["revision"]))["binding"]
-        await registry.disable("example-erp", newer["revision"])
+        disabled_app = await registry.disable("example-erp", newer["revision"])
         with pytest.raises(NativeApiError):
             await manager.panel("example-erp")
+        retained = next(a for a in (await manager.catalog())["apps"] if a["key"] == "example-erp")
+        binding_uid, revision = retained["binding"]["uid"], retained["binding"]["revision"]
+        cleared = (await manager.set_panel_consent("example-erp", disabled_app["revision"], enabled=False,
+            binding_uid=binding_uid, expected_revision=revision))["binding"]
+        assert cleared["granted_capabilities"] == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
 async def test_external_panel_read_needs_independent_consent_and_current_revision(board, monkeypatch):
+    from langboard.routes.board import AppPanelDataApi
+    native_read = AppPanelDataApi.list_board_signals
+    requested_providers = []
+    def tracked_read(*args, **kwargs):
+        requested_providers.append(kwargs["provider"])
+        return native_read(*args, **kwargs)
+    monkeypatch.setattr(AppPanelDataApi, "list_board_signals", tracked_read)
     from langboard_shared.core.db import BaseDbModel
     BaseDbModel.metadata.create_all(DbEngine.get_main_engine())
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
@@ -252,6 +278,7 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
         form = {"app_revision": approved["revision"], "binding_revision": saved["revision"], "provider": "github"}
         denied = await request("POST", path, json=form)
         assert denied.status_code == 404
+        assert requested_providers == []
         saved = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=True, read_signals=True,
             binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]
         assert saved["granted_capabilities"] == ["panels.render", "signals.read"]
@@ -260,6 +287,11 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
             result = await request("POST", path, json={**form, "provider": provider})
             assert result.status_code == 200 and result.json() == {"items": [], "next_cursor": None}
         assert (await request("POST", path, json={**form, "provider": "unsupported"})).status_code == 400
+        # Well-formed future adapter keys reach native support validation.
+        assert (await request("POST", path, json={**form, "provider": "example-adapter"})).status_code == 400
+        assert requested_providers[-1] == "example-adapter"
+        assert (await request("POST", path, json={**form, "provider": "../github"})).status_code == 400
+        assert requested_providers[-1] == "example-adapter"
         assert (await request("POST", path, json={**form, "binding_revision": "0" * 64})).status_code == 409
         disabled = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=False,
             binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]

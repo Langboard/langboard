@@ -14,6 +14,7 @@ from langboard_shared.domain.models import (
     User,
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.AppGovernance import connection_discovery_scope
 from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 from langboard_shared.domain.services.AppSignalProjection import (
     authorized_signal_rows,
@@ -107,7 +108,13 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
         .join(Project, Project.id == BoardAppBinding.project_id)
         .join(AppConnection, AppConnection.id == AppResourceBinding.connection_id)
         .join(User, User.id == AppConnection.owner_id)
-        .where(Project.id == project.id, eligibility, AppSignal.provider == AppConnection.app_key, ~linked)
+        .where(
+            Project.id == project.id,
+            eligibility,
+            AppSignal.provider == AppConnection.app_key,
+            connection_discovery_scope(actor.id),
+            ~linked,
+        )
     )
     if provider is not None:
         query = query.where(AppSignal.provider == provider)

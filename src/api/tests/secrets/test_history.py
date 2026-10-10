@@ -130,8 +130,8 @@ async def test_fastmcp_history_schema_and_no_vault_reads(secrets, monkeypatch):
     try:
         async with Client(server) as client:
             tool = (await client.list_tools())[0]
-            assert tool.annotations.readOnlyHint
-            assert set(tool.inputSchema["properties"]) == {"uri", "limit", "cursor"}
+            assert tool.annotations.read_only_hint
+            assert set(tool.input_schema["properties"]) == {"uri", "limit", "cursor"}
             result = (await client.call_tool(tool.name, {"uri": meta["uri"], "limit": 1})).structured_content
             assert result["items"][0]["action"] == "created"
             assert "fixture-sensitive" not in json.dumps(result)
@@ -155,6 +155,21 @@ def test_request_correlation_and_fixed_reason_codes_never_include_material(secre
         SecretAuditSource(reason_code="free text secret value")
     with pytest.raises(ValueError):
         SecretAuditSource(request_id="invalid request with spaces")
+
+
+def test_legacy_input_nonce_is_redacted_without_rewriting_audit(secrets):
+    import hashlib
+    from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
+
+    service, board, _ = secrets
+    nonce = "x" * 43
+    meta = service.create(
+        board[1], "personal", "me", "history/legacy-input", SecretStr("never-expose"),
+        source=SecretAuditSource("api", "secret_input", request_id=nonce, reason_code="user_input"),
+    )
+    events = service.list_audit(board[1], meta["uri"])["items"]
+    assert events[0]["request_id"] == hashlib.sha256(nonce.encode()).hexdigest()
+    assert nonce not in json.dumps(events)
 
 
 def test_audit_correlation_migration_preserves_legacy_rows_and_guards_downgrade(secrets, monkeypatch):
@@ -380,6 +395,10 @@ def test_wiki_source_links_recheck_native_visibility_and_current_membership(secr
 
     assert event()["source_link"] == expected
     assert "Sensitive source wiki" not in json.dumps(event())
+    with DbSession.atomic() as db:
+        db.insert(models.AppGovernancePolicy(scope_key="global", mode="disabled"))
+    # App-use policy cannot revoke native wiki access or hide audit sources.
+    assert event()["source_link"] == expected
     with DbSession.atomic() as db:
         wiki.is_public = False
         db.update(wiki)

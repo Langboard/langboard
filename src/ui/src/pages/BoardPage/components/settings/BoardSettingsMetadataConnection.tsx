@@ -46,6 +46,7 @@ interface IssueResult {
     items: { event_type: string; external_id: string; outcome: string; occurred_at: string }[];
 }
 interface WebhookHealth {
+    can_configure: boolean;
     config_revision: number;
     state: "unconfigured" | "enabled" | "disabled";
     receiver_path: string | null;
@@ -161,7 +162,7 @@ export default function BoardSettingsMetadataConnection({
         setReadAccess(null);
         clearReadResults();
     };
-    const run = async (action: (valid: () => boolean) => Promise<void>, allowVerificationEdits = false) => {
+    const run = async (action: (valid: () => boolean) => Promise<void>, allowVerificationEdits = false, retainConnection = false) => {
         if (busy.current || !canEditBasicInfo) return;
         clearVerification();
         busy.current = true;
@@ -177,8 +178,10 @@ export default function BoardSettingsMetadataConnection({
             if (valid()) {
                 setError(true);
                 clearResources();
-                setConnection(null);
-                setConnections({ items: [], next_cursor: null });
+                if (!retainConnection) {
+                    setConnection(null);
+                    setConnections({ items: [], next_cursor: null });
+                }
             }
         } finally {
             if (valid()) {
@@ -253,6 +256,7 @@ export default function BoardSettingsMetadataConnection({
     const connectionRoot = `${root}/connections/${connection?.connection_uid}`;
     const acceptWebhook = (result: WebhookHealth) => {
         if (
+            typeof result.can_configure !== "boolean" ||
             !/^[a-f0-9]{64}$/.test(result.connection_revision) ||
             !Array.isArray(result.resources) ||
             (result.binding_revision === null
@@ -273,7 +277,6 @@ export default function BoardSettingsMetadataConnection({
                     !Number.isFinite(Date.parse(result.last_received_at))))
         )
             throw new Error("Invalid webhook health");
-        if (result.connection_state === "revoked" || result.connection_state === "disconnected") throw new Error("Connection unavailable");
         if (result.notification_id !== null && (typeof result.notification_id !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(result.notification_id)))
             throw new Error("Invalid notification identity");
         clearVerification();
@@ -282,12 +285,16 @@ export default function BoardSettingsMetadataConnection({
         setNotificationID(result.notification_id ?? "");
     };
     const refreshWebhook = (uid = connection?.connection_uid) =>
-        run(async (valid) => {
-            if (!dokploy || !uid) return;
-            clearWebhook();
-            const result = (await api.get<WebhookHealth>(`${root}/connections/${uid}/webhook-health`)).data;
-            if (valid()) acceptWebhook(result);
-        });
+        run(
+            async (valid) => {
+                if (!dokploy || !uid) return;
+                clearWebhook();
+                const result = (await api.get<WebhookHealth>(`${root}/connections/${uid}/webhook-health`)).data;
+                if (valid()) acceptWebhook(result);
+            },
+            false,
+            true
+        );
     const webhookSecretInput = () =>
         run(async (valid) => {
             const result = (await api.post<{ input_uid: string; input_url: string }>(`${root}/webhook-secret-input`)).data;
@@ -379,14 +386,31 @@ export default function BoardSettingsMetadataConnection({
             if (valid()) setProjects(page);
         });
     const matches = (row: Binding, item: Resource) => (dokploy ? row.external_id === item.id && row.type === item.type : row.project_id === item.id);
-    const loadBindings = () =>
+    const loadBindings = (append = true) =>
         run(async (valid) => {
-            const page = (await api.get<Page<Binding>>(selectedRoot, { params: { after: bindings.next_cursor } })).data;
+            const page = (await api.get<Page<Binding>>(selectedRoot, { params: append ? { after: bindings.next_cursor } : {} })).data;
             if (valid()) {
-                setBindings((old) => merge(old, page, true));
+                setBindings((old) => merge(old, page, append));
                 setReadAccess(page.binding ?? null);
                 clearReadResults();
             }
+        });
+    const removeBinding = (binding: Binding) =>
+        run(async (valid) => {
+            clearWebhook();
+            clearReadResults();
+            const result = (
+                await api.post<{ access_revision: number }>(`${selectedRoot}/${binding.resource_uid}/remove`, {
+                    expected_revision: binding.access_revision,
+                })
+            ).data;
+            if (valid())
+                setBindings((old) => ({
+                    ...old,
+                    items: old.items.map((row) =>
+                        row.resource_uid === binding.resource_uid ? { ...row, selected: false, access_revision: result.access_revision } : row
+                    ),
+                }));
         });
     const toggle = (item: Resource) =>
         run(async (valid) => {
@@ -440,6 +464,9 @@ export default function BoardSettingsMetadataConnection({
         (row) => row.selected && row.access_state === "granted" && (row.type === "application" || row.type === "compose")
     );
     const selectedReadResources = dokploy ? selectedServices : bindings.items.filter((row) => row.selected && row.access_state === "granted");
+    const hasReadGrants = !!readAccess?.granted_capabilities.some((capability) =>
+        (dokploy ? ["resources.read", "signals.read", "deployments.read"] : ["resources.read", "signals.read"]).includes(capability)
+    );
     const readEnabled =
         !!readAccess &&
         (dokploy ? ["enabled", "needs_attention"].includes(readAccess.state) : readAccess.state === "enabled") &&
@@ -447,6 +474,7 @@ export default function BoardSettingsMetadataConnection({
             readAccess.granted_capabilities.includes(capability)
         );
     const webhookCanConfigure =
+        webhook?.can_configure === true &&
         !!webhook?.binding_revision &&
         readEnabled &&
         !!selectedServices.length &&
@@ -525,6 +553,22 @@ export default function BoardSettingsMetadataConnection({
                 throw new Error("Invalid notification verification");
             setVerification(result);
         }, true);
+    const disableRead = () =>
+        run(async (valid) => {
+            if (!connection || !readAccess) return;
+            const result = (
+                await api.post<ReadAccess>(`${connectionRoot}/disable-read`, {
+                    ...(dokploy ? { expected_revision: connection.revision } : { expected_connection_revision: connection.revision }),
+                    expected_binding_revision: readAccess.revision,
+                })
+            ).data;
+            if (!valid()) return;
+            if (dokploy) clearWebhook();
+            setReadAccess(result);
+            clearReadResults();
+            setSaved(true);
+            onStatusChange?.();
+        });
     const enableRead = () =>
         run(async (valid) => {
             if (!connection || !readAccess || !consenting || !selectedReadResources.length || bindings.next_cursor) return;
@@ -751,6 +795,7 @@ export default function BoardSettingsMetadataConnection({
                                     <label className="flex flex-col gap-1 text-sm">
                                         {text("Dokploy webhook credential reference")}
                                         <input
+                                            disabled={!webhook.can_configure}
                                             className="input min-h-10 w-full min-w-0 rounded-md border bg-background px-3 py-2"
                                             value={webhookReference}
                                             placeholder="secret://ref/"
@@ -761,7 +806,7 @@ export default function BoardSettingsMetadataConnection({
                                             }}
                                         />
                                     </label>
-                                    <Button size="sm" variant="outline" onClick={() => void webhookSecretInput()}>
+                                    <Button size="sm" variant="outline" disabled={!webhook.can_configure} onClick={() => void webhookSecretInput()}>
                                         {text("Store Dokploy webhook token securely")}
                                     </Button>
                                     {webhookInput && (
@@ -894,6 +939,19 @@ export default function BoardSettingsMetadataConnection({
                     <Button size="sm" variant="outline" onClick={() => void loadOrganizations()}>
                         {text("Load GlitchTip organizations")}
                     </Button>
+                    <Button size="sm" variant="outline" onClick={() => void loadBindings(false)}>
+                        {text("Load app selections")}
+                    </Button>
+                    {bindings.items
+                        .filter((row) => row.selected)
+                        .map((row) => (
+                            <div key={row.resource_uid} className="flex items-center justify-between gap-2 rounded-md border p-2">
+                                <span className="min-w-0 break-words">{row.path?.map((part) => part.name ?? part.slug ?? part.id).join(" / ")}</span>
+                                <Button size="sm" variant="outline" onClick={() => void removeBinding(row)}>
+                                    {text("Remove app selection")}
+                                </Button>
+                            </div>
+                        ))}
                     {organizations.items.length > 0 && (
                         <label className="flex flex-col gap-1 text-sm">
                             {text("GlitchTip organization")}
@@ -998,15 +1056,21 @@ export default function BoardSettingsMetadataConnection({
                         </Button>
                     )}
                     <p className="text-xs text-muted-foreground">{text("GlitchTip project selection help")}</p>
-                    {selectedReadResources.length > 0 && (
+                    {(selectedReadResources.length > 0 || hasReadGrants) && (
                         <div className="flex min-w-0 flex-col gap-2 rounded-md border p-2">
                             <p className="text-sm">{text("GlitchTip read scope help")}</p>
                             {readEnabled ? (
-                                <p>{text("GlitchTip read enabled")}</p>
+                                <>
+                                    <p>{text("GlitchTip read enabled")}</p>
+                                </>
                             ) : consenting ? (
                                 <>
                                     <p>{text("GlitchTip read confirm help")}</p>
-                                    <Button size="sm" disabled={!!bindings.next_cursor || !readAccess} onClick={() => void enableRead()}>
+                                    <Button
+                                        size="sm"
+                                        disabled={!!bindings.next_cursor || !readAccess || !selectedReadResources.length}
+                                        onClick={() => void enableRead()}
+                                    >
                                         {text("Confirm GlitchTip read access")}
                                     </Button>
                                     <Button size="sm" variant="ghost" onClick={() => setConsenting(false)}>
@@ -1017,11 +1081,19 @@ export default function BoardSettingsMetadataConnection({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    disabled={!!bindings.next_cursor || !readAccess}
+                                    disabled={!!bindings.next_cursor || !readAccess || !selectedReadResources.length}
                                     onClick={() => setConsenting(true)}
                                 >
                                     {text("Enable GlitchTip read access")}
                                 </Button>
+                            )}
+                            {hasReadGrants && (
+                                <>
+                                    <p className="text-xs text-muted-foreground">{t("project.settings.App read revocation help")}</p>
+                                    <Button size="sm" variant="outline" onClick={() => void disableRead()}>
+                                        {t("project.settings.Revoke app read access")}
+                                    </Button>
+                                </>
                             )}
                             {selectedReadResources.map((binding) => (
                                 <div key={binding.resource_uid} className="flex min-w-0 flex-col gap-2">

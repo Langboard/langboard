@@ -141,9 +141,10 @@ def test_installation_and_current_authority_failure_is_closed(installation, fail
         assert not calls
 
 
-def test_multi_repository_delta_preserves_foreign_binding_and_other_selection(installation):
+@pytest.mark.parametrize("revocation", [None, "revoked", "disconnected", "policy"])
+def test_multi_repository_delta_preserves_foreign_binding_and_other_selection(installation, revocation):
     from langboard.apps.GitHubResources import GitHubResourceConflict, get_resources, update_resources
-    from langboard_shared.domain.models import AppResourceBinding, BoardAppBinding
+    from langboard_shared.domain.models import AppGovernancePolicy, AppResourceBinding, BoardAppBinding
     from sqlalchemy import select
 
     service, board, connection, calls, responses = installation
@@ -167,22 +168,61 @@ def test_multi_repository_delta_preserves_foreign_binding_and_other_selection(in
             external_resource_id="99",
         )
         db.insert(other)
+        private_connection = AppConnection(app_key="github", owner_id=board[2].owner_id, state="connected")
+        db.insert(private_connection)
+        own_binding = db.exec(select(BoardAppBinding).where(BoardAppBinding.project_id == board[2].id)).first()[0]
+        private_resource = AppResourceBinding(
+            board_binding_id=own_binding.id, connection_id=private_connection.id,
+            resource_type="repository", external_resource_id="101",
+            resource_path=[{"type": "repository", "id": "101", "name": "private/repository"}],
+        )
+        db.insert(private_resource)
+        # Instance administration does not reveal another person's account.
+        board[1].is_admin = True
+        db.update(board[1])
+        if revocation in {"revoked", "disconnected"}:
+            connection.state = revocation
+            db.update(connection)
+        elif revocation == "policy":
+            db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
+    calls.clear()
+    assert get_resources(service, board[1], board[2].get_uid())["revision"] == added["revision"]
     removed = update_resources(
         service, board[1], board[2].get_uid(), connection.get_uid(), 17, 7, (), (99,), added["revision"]
     )
     assert {item["repository_id"]: item["selected"] for item in removed["items"]} == {"99": False, "100": True}
+    assert not calls
     with pytest.raises(GitHubResourceConflict):
         update_resources(
             service, board[1], board[2].get_uid(), connection.get_uid(), 17, 7, (), (100,), added["revision"]
         )
     with DbSession.use(readonly=False) as db:
         persisted = db.exec(select(AppResourceBinding).where(AppResourceBinding.id == other.id)).first()[0]
+        private_persisted = db.exec(select(AppResourceBinding).where(AppResourceBinding.id == private_resource.id)).first()[0]
         own = db.exec(select(BoardAppBinding).where(BoardAppBinding.project_id == board[2].id)).first()[0]
         assert persisted.is_selected and own.state == "disabled" and not own.granted_capabilities
-    restored = update_resources(
-        service, board[1], board[2].get_uid(), connection.get_uid(), 17, 7, (99,), (), removed["revision"], proof
-    )
-    assert len(restored["items"]) == 2 and all(item["selected"] for item in restored["items"])
+        assert private_persisted.is_selected
+    if revocation:
+        with pytest.raises(github.GitHubManifestUnavailable):
+            update_resources(
+                service, board[1], board[2].get_uid(), connection.get_uid(), 17, 7,
+                (99,), (), removed["revision"], proof,
+            )
+    else:
+        restored = update_resources(
+            service, board[1], board[2].get_uid(), connection.get_uid(), 17, 7, (99,), (), removed["revision"], proof
+        )
+        assert len(restored["items"]) == 2 and all(item["selected"] for item in restored["items"])
+    with DbSession.use(readonly=False) as db:
+        board[1].is_admin = False
+        db.update(board[1])
+        board[4].actions = ["read"]
+        db.update(board[4])
+    with pytest.raises(github.GitHubManifestUnavailable):
+        update_resources(
+            service, board[1], board[2].get_uid(), connection.get_uid(), 17, 7,
+            (), (100,), removed["revision"],
+        )
 
 
 @pytest.mark.parametrize("returned_ids", [[99], [99, 101], [99, 100, 100]])
