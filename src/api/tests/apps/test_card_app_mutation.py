@@ -38,6 +38,35 @@ from test_card_app_ownership import prepare
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_owned_card_retains_real_native_human_comment_and_checklist_storage(board, monkeypatch):
+    """Ownership does not turn a native card into a separate app-only document."""
+    from langboard_shared.domain.models import Card, CardComment, Checklist
+    from langboard_shared.domain.services import DomainService
+
+    card = prepare(board)
+    set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None)
+    engine = DbEngine.get_main_engine()
+    Card.metadata.create_all(engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    from langboard_shared.domain.services.factory.CardService import CardService
+
+    monkeypatch.setattr(CardService, "next_change_seq", staticmethod(lambda: 1))
+    service = DomainService()
+    comment = service.card_comment.create(
+        board[1], board[2], card,
+        {"content": "Native user comment", "type": "text"}, dispatch_effects=False,
+    )
+    checklist = service.checklist.create(
+        board[1], board[2], card, "Native user checklist", dispatch_effects=False,
+    )
+    assert comment is not None and checklist is not None
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(CardComment)).first().card_id == card.id
+        assert db.exec(SqlBuilder.select.table(Checklist).where(Checklist.title == "Native user checklist")).first().card_id == card.id
+        assert db.exec(SqlBuilder.select.table(CardAppOwnership)).first().app_key == "example-app"
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
 @pytest.mark.parametrize("operation", ["card", "stage", "checklist", "checkitem", "comment", "upload", "rename", "delete_file", "file_order", "processing", "embedding"])
 def test_native_services_deny_bot_before_mutation(board, operation):
     card = prepare(board)
