@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-Agent-bearing apps optionally request human decisions on their own Langboard
+Apps optionally request human decisions on their own Langboard
 cards. The same server contract backs a comment reaction, a card action, or a
 structured card made from host widgets. AI attribution and the required response
 are visible. Seen receipts do not count as consent, approval or a response.
@@ -13,14 +13,14 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. The Langboard SDK 0.2.13 has no human-interaction methods yet.
+proof. SDK 0.2.14 provides request validation and app-authenticated create/read. Host storage is implemented; human response, cancel, delivery, native UI and runtime continuation remain pending.
 
 ## Request and response data
 
 A request retains its host UID and revision, board/card and owning app/connection,
 execution request UID and native execution generation, app request key, kind,
 localized prompt, question schema, presentation, expiry and responder policy.
-Kinds are `approval`, `question` and `instruction`. Response schemas explicitly
+Request kinds are `approval`, `question` and `action`. Runtime instructions are separate authorized commands; they do not require a prior app request. Response schemas explicitly
 support `single_choice`, `multi_choice` and `free_text`; an array alone does not
 imply multiple selection. An instruction may also be submitted by an authorized
 human to a currently running app without an outstanding app question. This does
@@ -138,3 +138,29 @@ receipt readback without core-code monkeypatches. Cover:
 - actual app question response and live instruction, not only catalog registration.
 
 Deployment and authenticated desktop/mobile readback remain separate gates.
+
+## Non-agent app use cases
+
+The common request can omit execution context. GitHub may request a human review
+choice on its own workflow card; GlitchTip may request resolve/ignore/escalate;
+Dokploy may request a deployment action choice. These are examples, not currently
+implemented provider actions. All use stable choice IDs and the same typed host
+widgets. Inbox signals remain observations, not decisions or action grants.
+
+No provider-specific verbs become host workflow stages or SDK methods. Apps own
+external API execution and report its receipt after current permission checks.
+Only requests that explicitly bind a current execution identity participate in
+HITL runtime continuation. Response acceptance must never imply external action
+completion, successful deployment or a resolved incident.
+
+## Implemented request storage boundary (0.2.14)
+
+POST `/apps/v1/boards/{board}/cards/{card}/interactions` stores a validated request
+under a current app credential. GET on `/{interaction}` reads it back. Creation
+requires separately declared/granted `interactions.request`, current own-card
+ownership, selected readable resources, active connection policy and card access.
+It uses an immutable app request key and body for exact duplicate recovery; a
+changed body conflicts. Expiry is explicit and bounded to seven days. Readback
+projects expired requests without a global scan. No request calls a provider,
+accepts a human response, moves a card or renews/resumes execution. Optional
+execution context is checked against the existing execution authority.

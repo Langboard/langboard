@@ -1063,7 +1063,7 @@ removal must not replay or reverse an already accepted response. Expired, cancel
 or revoked requests cannot resume an agent. Concurrent responses must yield one
 accepted outcome with an inspectable conflict for the others.
 
-This is an agreed requirement, not an available generic SDK method. Native
+SDK 0.2.14 implements validated app request create/read storage. Human response, UI and runtime continuation remain pending. Native
 LangGraph approval endpoints do not establish the external-app contract.
 
 ## Retained resource selection enumeration (SDK 0.2.13)
@@ -1074,4 +1074,4 @@ owner's retained selections and revisions, including disconnected connections fo
 cleanup, without exposing credentials or granting execution. Follow `next_cursor`
 explicitly; the SDK does not scan every page or retry mutations.
 
-Detailed agreed contract and consumer acceptance: [App human interactions v1](app-human-interactions.md). No generic HITL methods are currently available.
+Detailed agreed contract and consumer acceptance: [App human interactions v1](app-human-interactions.md). App request create/read are available in SDK 0.2.14; response and continuation methods remain pending.
