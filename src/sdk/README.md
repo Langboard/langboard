@@ -102,3 +102,5 @@ from Git history; they are not current dependency candidates. Panel CI resolves
 its archive from the UI manifest and verifies the recorded digest/version.
 
 Python SDK 0.2.13 adds `CardResources.list_selections` for an explicit page of retained card connection selections and revisions. Disconnected selections remain visible for owner-authorized cleanup. No automatic page scan, credential exposure or execution grant is added.
+
+Python package CI verifies the project-declared wheel against reviewed provenance and the lock file before installation. Artifact publication retains the original package/source provenance; the workflow source SHA is recorded separately. A new checksum cannot replace the reviewed digest.
