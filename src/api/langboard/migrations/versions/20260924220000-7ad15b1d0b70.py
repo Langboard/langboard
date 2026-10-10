@@ -39,7 +39,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column(
         "project_execution_binding",
-        sa.Column("column_semantic_ids", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column("column_semantic_ids", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
     )
     op.add_column(
         "project_execution_binding",
@@ -60,9 +60,9 @@ def upgrade() -> None:
         sa.Column("project_id", SnowflakeIDType, nullable=False),
         sa.Column("card_id", SnowflakeIDType, nullable=False),
         sa.Column("execution_generation", sa.Integer(), nullable=False),
-        sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("event_type", sa.String(80), nullable=False, server_default="io.langboard.work.ready.v1"),
-        sa.Column("payload_json", JSONB(), nullable=True),
+        sa.Column("payload_json", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=True),
         sa.Column("state", sa.String(16), nullable=False, server_default="pending"),
         sa.Column("last_error", sa.String(80), nullable=True),
         sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
@@ -84,8 +84,8 @@ def upgrade() -> None:
         sa.Column("execution_generation", sa.Integer(), nullable=False),
         sa.Column("idempotency_key", sa.String(240), nullable=False, unique=True),
         sa.Column("content_hash", sa.String(64), nullable=False),
-        sa.Column("payload_json", JSONB(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("payload_json", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("card_id", "execution_generation", name="uq_execution_receipt_card_generation"),
     )
     op.create_table(
@@ -94,7 +94,7 @@ def upgrade() -> None:
         sa.Column("execution_generation", sa.Integer(), nullable=False),
         sa.Column("item_uid", sa.String(100), nullable=False),
         sa.Column("evidence_kind", sa.String(100), nullable=False),
-        sa.Column("evidence_refs", JSONB(), nullable=False),
+        sa.Column("evidence_refs", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False),
         sa.Column("is_checked", sa.Boolean(), nullable=False),
         sa.PrimaryKeyConstraint("card_id", "execution_generation", "item_uid"),
     )
