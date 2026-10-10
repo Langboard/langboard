@@ -214,6 +214,10 @@ filter before its 25-row pagination limit. Every page rechecks current owner,
 connection, declared resource types, selected resources, and board policy.
 No credentials or execution authority are returned; this is not an export
 outbox. Protocol v1 is unchanged. Earlier hosts reject the new operation.
+`AppPanel.spec.ts` exercises the reviewed SDK in a sandboxed external iframe
+and the actual host hook with HTTP fixtures: fixed authority revisions, rejected
+identity injection, server denial, and in-flight cancellation on close. This is
+local host UI evidence, not deployed canary or external provider acceptance.
 
 Card evidence reads its outcome-to-state mapping and timestamp basis from the
 installed adapter's `AppSignalPolicy`. The shared projection has no provider-name

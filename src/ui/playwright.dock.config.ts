@@ -8,6 +8,7 @@ export default defineConfig({
         "useGetCards.spec.ts",
         "useMarkCardSeen.spec.ts",
         "useGetCardDetails.spec.ts",
+        "AppPanel.spec.ts",
     ],
     retries: 0,
     reporter: "line",

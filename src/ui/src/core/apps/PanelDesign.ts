@@ -22,7 +22,6 @@ export async function loadPanelResources(signal: AbortSignal): Promise<NonNullab
     if (manifest.version !== 1) throw new Error("Unsupported panel widget resources");
     const resolve = (path: string) => {
         if (typeof path !== "string" || !path || path.length > 2048) throw new Error("Invalid panel resource URL");
-        if (typeof path !== "string" || path.length > 2048) throw new Error("Invalid panel resource URL");
         const url = new URL(path, window.location.origin);
         if (url.origin !== window.location.origin || url.username || url.password) throw new Error("Panel resources must share the host origin");
         return url.href;
