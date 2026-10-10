@@ -99,37 +99,30 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                 design: { ...readPanelDesign(), resources },
                                 onRequest: async (operation: string, params: JsonValue, signal: AbortSignal) => {
                                     try {
+                                        if (!params || typeof params !== "object" || Array.isArray(params))
+                                            throw new Error("Invalid panel request parameters");
+                                        let endpoint: "resources" | "signals";
                                         if (operation === "resources.list") {
                                             if (
-                                                !params ||
-                                                typeof params !== "object" ||
-                                                Array.isArray(params) ||
                                                 Object.keys(params).some((key) => key !== "cursor") ||
                                                 (params.cursor !== undefined &&
                                                     params.cursor !== null &&
                                                     (typeof params.cursor !== "string" || !/^[A-Za-z0-9_-]{23}$/.test(params.cursor)))
                                             )
                                                 throw new Error("Invalid resource request parameters");
-                                            const response = await api.post<JsonValue>(
-                                                `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/resources`,
-                                                { ...params, app_revision: data.app_revision, binding_revision: data.binding_revision },
-                                                { signal: AbortSignal.any([signal, controller.signal]), env: { interceptToast: true } as never }
-                                            );
-                                            return response.data;
-                                        }
-                                        if (operation !== "signals.list") throw new Error("Unsupported panel operation");
-                                        if (
-                                            !params ||
-                                            typeof params !== "object" ||
-                                            Array.isArray(params) ||
-                                            Object.keys(params).some((key) => key !== "provider" && key !== "after") ||
-                                            typeof params.provider !== "string" ||
-                                            !/^[a-z][a-z0-9_-]{0,31}$/.test(params.provider) ||
-                                            (params.after !== undefined && typeof params.after !== "string")
-                                        )
-                                            throw new Error("Invalid signal request parameters");
+                                            endpoint = "resources";
+                                        } else if (operation === "signals.list") {
+                                            if (
+                                                Object.keys(params).some((key) => key !== "provider" && key !== "after") ||
+                                                typeof params.provider !== "string" ||
+                                                !/^[a-z][a-z0-9_-]{0,31}$/.test(params.provider) ||
+                                                (params.after !== undefined && typeof params.after !== "string")
+                                            )
+                                                throw new Error("Invalid signal request parameters");
+                                            endpoint = "signals";
+                                        } else throw new Error("Unsupported panel operation");
                                         const response = await api.post<JsonValue>(
-                                            `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/signals`,
+                                            `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/${endpoint}`,
                                             { ...params, app_revision: data.app_revision, binding_revision: data.binding_revision },
                                             { signal: AbortSignal.any([signal, controller.signal]), env: { interceptToast: true } as never }
                                         );
