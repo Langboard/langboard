@@ -46,6 +46,21 @@ function ResourceEditor({ projectUID, cardUID, userUID }: { projectUID: string; 
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
     });
+    const [retainedCursor, setRetainedCursor] = useState<string>();
+    const retained = useQuery({
+        queryKey: ["card-resource-selections", userUID, projectUID, cardUID, retainedCursor],
+        queryFn: async ({ signal }) =>
+            (
+                await api.get<{ items: (Selection & { app_key: string; connection_uid: string })[]; next_cursor: string | null }>(
+                    `/board/${projectUID}/card/${cardUID}/apps/resource-selections`,
+                    { ...config, signal, params: { after: retainedCursor } }
+                )
+            ).data,
+        enabled: open,
+        retry: 0,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+    });
     const path = `/board/${projectUID}/card/${cardUID}/apps/connections/${connection}/resources`;
     const selection = useQuery({
         queryKey: ["card-app-resources", userUID, projectUID, cardUID, connection],
@@ -55,13 +70,13 @@ function ResourceEditor({ projectUID, cardUID, userUID }: { projectUID: string; 
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
     });
-    const busy = pending || resources.isFetching || (!!connection && selection.isFetching);
-    const unavailable = failed || resources.isError || (!!connection && selection.isError);
+    const busy = pending || retained.isFetching || resources.isFetching || (!!connection && selection.isFetching);
+    const unavailable = failed || retained.isError || resources.isError || (!!connection && selection.isError);
     const selected = draft ?? selection.data?.resource_uids ?? [];
     const refresh = async () => {
         if (writing.current) return;
         setPending(true);
-        const results = await Promise.all([resources.refetch(), ...(connection ? [selection.refetch()] : [])]);
+        const results = await Promise.all([resources.refetch(), retained.refetch(), ...(connection ? [selection.refetch()] : [])]);
         setFailed(results.some((result) => result.isError));
         setDraft(null);
         setPending(false);
@@ -82,7 +97,12 @@ function ResourceEditor({ projectUID, cardUID, userUID }: { projectUID: string; 
             writing.current = false;
         }
     };
-    const connections = [...new Map(resources.data?.items.map((resource) => [resource.connection_uid, resource]) ?? []).values()];
+    const connections = [
+        ...new Map<string, { app_key: string; connection_uid: string; name: string }>([
+            ...(retained.data?.items.map((item) => [item.connection_uid, { ...item, name: text("retained") }] as const) ?? []),
+            ...(resources.data?.items.map((item) => [item.connection_uid, item] as const) ?? []),
+        ]).values(),
+    ];
     return (
         <section className="space-y-3 rounded-lg border p-3" aria-busy={busy}>
             <Button size="sm" variant="ghost" aria-expanded={open} disabled={pending} onClick={() => setOpen(!open)}>
@@ -165,6 +185,21 @@ function ResourceEditor({ projectUID, cardUID, userUID }: { projectUID: string; 
                             onClick={() => setCursor(resources.data!.next_cursor!)}
                         >
                             {text("more")}
+                        </Button>
+                    )}
+                    {retained.data?.next_cursor && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy || unavailable || draft !== null}
+                            onClick={() => setRetainedCursor(retained.data!.next_cursor!)}
+                        >
+                            {text("moreRetained")}
+                        </Button>
+                    )}
+                    {retainedCursor && (
+                        <Button size="sm" variant="ghost" disabled={busy || draft !== null} onClick={() => setRetainedCursor(undefined)}>
+                            {text("firstRetained")}
                         </Button>
                     )}
                     {cursor && (

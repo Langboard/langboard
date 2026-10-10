@@ -1,7 +1,7 @@
 """Administrator-selected resources are configuration, never execution authority."""
 
 import re
-from sqlalchemy import update
+from sqlalchemy import and_, or_, select, update
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ...helpers import InfraHelper
@@ -29,7 +29,7 @@ def configure_card_app_resources(operation, service, actor, project_uid, card_ui
     with DbSession.atomic() as db:
         project_id = SnowflakeID.from_short_code(project_uid)
         card_id = SnowflakeID.from_short_code(card_uid)
-        connection_id = SnowflakeID.from_short_code(connection_uid)
+        connection_id = SnowflakeID.from_short_code(connection_uid) if connection_uid is not None else None
         try:
             _admin_card(db, actor, project_id, card_id)
         except AppGovernanceDenied:
@@ -37,6 +37,36 @@ def configure_card_app_resources(operation, service, actor, project_uid, card_ui
         if service.card.resolve_readable_card(project_uid, card_uid, actor, channel) is None:
             raise CardAppResourcesUnavailable()
         return operation(actor, project_id, card_id, connection_id, *args)
+
+
+
+def list_card_app_resource_selections(actor, project_id, card_id, connection_id=None, after=None):
+    """Bounded cleanup receipts under current ownership, including revoked connections."""
+    if connection_id is not None:
+        raise ValueError("Selection listing has no connection selector")
+    after_id = SnowflakeID.from_short_code(after) if after else None
+    with DbSession.atomic() as db:
+        current, project, card = _admin_card(db, actor, project_id, card_id)
+        query = select(CardAppResourceSelection, AppConnection).join(
+            AppConnection, AppConnection.id == CardAppResourceSelection.connection_id,
+        ).where(
+            CardAppResourceSelection.card_id == card.id,
+            CardAppResourceSelection.app_key == AppConnection.app_key,
+            or_(
+                and_(AppConnection.ownership == "personal", AppConnection.owner_id == current.id),
+                and_(AppConnection.ownership == "organization", project.organization_id is not None,
+                     AppConnection.organization_id == project.organization_id),
+            ),
+        )
+        if after_id is not None:
+            query = query.where(CardAppResourceSelection.id > after_id)
+        rows = db.exec(query.order_by(CardAppResourceSelection.id).limit(26)).all()
+        return {
+            "items": [{"app_key": row.app_key, "connection_uid": connection.get_uid(),
+                       "revision": row.revision, "resource_uids": list(row.resource_uids)}
+                      for row, connection in rows[:25]],
+            "next_cursor": rows[24][0].get_uid() if len(rows) > 25 else None,
+        }
 
 
 def read_card_app_resources(actor, project_id, card_id, connection_id):
