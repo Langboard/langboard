@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/check-panel-sdk.yaml
       - src/sdk/vendor/**
+      - src/ui/package.json
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,7 +24,22 @@ jobs:
           node-version: "22"
       - name: Check pinned independent SDK package
         run: |
-          mkdir consumer
-          cd consumer
-          npm install --ignore-scripts ../src/sdk/vendor/langboard-app-panel-0.2.0.tgz
-          node --input-type=module -e "import {PanelStateCache} from '@langboard/app-panel'; import {createSignalInbox} from '@langboard/app-panel/inbox'; if (typeof createSignalInbox !== 'function') throw Error('Missing inbox contract'); new PanelStateCache();"
+          node --input-type=module <<'NODE'
+          import {readFileSync, mkdirSync} from 'node:fs';
+          import {resolve, basename} from 'node:path';
+          import {createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          const declared = JSON.parse(readFileSync('src/ui/package.json')).dependencies['@langboard/app-panel'];
+          if (!/^file:\.\.\/sdk\/vendor\/langboard-app-panel-[0-9]+\.[0-9]+\.[0-9]+\.tgz$/.test(declared)) throw Error('Invalid panel artifact');
+          const artifact = resolve('src/ui', declared.slice(5));
+          const provenance = JSON.parse(readFileSync('src/sdk/vendor/provenance.json'));
+          if (createHash('sha256').update(readFileSync(artifact)).digest('hex') !== provenance.artifacts[basename(artifact)]) throw Error('Panel digest mismatch');
+          mkdirSync('consumer');
+          execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', artifact], {cwd: 'consumer', stdio: 'inherit'});
+          const installed = JSON.parse(readFileSync('consumer/node_modules/@langboard/app-panel/package.json'));
+          if (installed.version !== provenance.packages['@langboard/app-panel']) throw Error('Panel version mismatch');
+          const {PanelStateCache, createPanelHost, connectPanel} = await import('./consumer/node_modules/@langboard/app-panel/index.mjs');
+          const {createSignalInbox} = await import('./consumer/node_modules/@langboard/app-panel/inbox.mjs');
+          if ([createPanelHost, connectPanel, createSignalInbox].some(value => typeof value !== 'function')) throw Error('Missing panel contract');
+          new PanelStateCache();
+          NODE
