@@ -269,6 +269,9 @@
     "selected": "已选资源",
     "clear": "清除选择",
     "more": "更多资源",
-    "first": "第一页"
+    "first": "第一页",
+    "retained": "已保存的选择",
+    "moreRetained": "更多已保存连接",
+    "firstRetained": "已保存连接第一页"
   }
 }

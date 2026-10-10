@@ -549,9 +549,14 @@ The card detail provides a lazy administrator resource editor using existing
 host buttons/checkboxes and a bounded `GET /board/{board_uid}/apps/resource-context`
 projection. Save uses explicit revision checks; unknown outcomes block another
 change until readback. No grant or execution is inferred. English, Korean,
-Japanese and Chinese text is provided. Fully revoked connections that disappear
-from discovery still need retained-connection cleanup discovery when reopening
-the editor. Deployed external-app acceptance remains pending.
+Japanese and Chinese text is provided. `GET /board/{board_uid}/card/{card_uid}/apps/resource-selections` provides
+25 saved selection receipts per page, including disconnected connections or
+revoked consent. It uses the same locked administrator/card visibility boundary,
+filters current personal ownership or matching organization before pagination,
+and returns only app key, connection UID, revision and selected resource UIDs.
+The editor merges these receipts with approved discovery so reopening supports
+cleanup without restoring resource consent. New selections still pass the current
+connection/consent checks. Receipt discovery does not grant execution. Deployed external-app acceptance remains pending.
 
 ### Current execution authority inspection
 
