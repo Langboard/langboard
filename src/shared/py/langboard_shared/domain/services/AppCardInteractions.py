@@ -469,6 +469,13 @@ def _queue_response_event(db, row, answer):
     }
     db.update(event)
 
+    def enqueue():
+        from ...tasks.webhooks.AppEventDeliveryTask import app_event_delivery_task
+
+        app_event_delivery_task(event.get_uid(), destination.revision)
+
+    db.after_commit(enqueue)
+
 
 def revalidate_response_event(db, event):
     """Current native responder and owning app authority, independent of transport."""
