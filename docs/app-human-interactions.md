@@ -205,3 +205,14 @@ are invalid. Predefined choices may retain existing workflow outcome mappings.
 Custom text has no implicit outcome or approval semantics. Approval/action kinds
 and comment-reaction presentation reject this question type. Request storage is
 implemented; response acceptance, widgets and external continuation are pending.
+
+## Shared response value validation (SDK 0.2.18)
+
+`validate_card_interaction_values` validates immutable JSON values against the
+stored request. Every declared question needs exactly one keyed answer. Choices
+use stable IDs, never labels. Multiple selection enforces unique IDs and declared
+count limits. Text preserves content while enforcing non-empty and declared
+length bounds. Choice or text is exclusive. Extra/secret fields and non-finite
+JSON are rejected; total values are capped at 32 KiB. This is input validation
+only. Human authentication, acceptance, revision/generation/expiry checks, durable
+response storage, delivery and execution continuation remain unimplemented gates.

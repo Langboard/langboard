@@ -1,13 +1,13 @@
 {
   "packages": {
     "@langboard/app-panel": "0.2.1",
-    "langboard-sdk": "0.2.17"
+    "langboard-sdk": "0.2.18"
   },
   "artifacts": {
     "langboard-app-panel-0.2.1.tgz": "25fb4a48a63c44c6b204eb161dc89cace57fabc1f264e9a7a13c8a1296c2a3e0",
-    "langboard_sdk-0.2.17-py3-none-any.whl": "c4316b57345f6a3aa33f03fc3c2e87543473f71ea7475ae2c1603adc48edf6a1",
-    "langboard_sdk-0.2.17.tar.gz": "073828304d3ec5e4023552f63874bf68401407b91434648ef0d2ef07e6305ad7"
+    "langboard_sdk-0.2.18.tar.gz": "4974ea421dcbb18824785b84cd9a52d47f94a273ec2f6f85b26ab47fa0da45e3",
+    "langboard_sdk-0.2.18-py3-none-any.whl": "d5e2a292f97f4afce19084959f5decc5217a6bd3b216f3a4aa491c46e2244f28"
   },
-  "python_source_commit": "8b711b82aecab071e1c2826e1b6cdf9bb913f254",
+  "python_source_commit": "27726aaa177d856904df0461011c0dd18ff1336f",
   "app_panel_source_commit": "afaaf69b711e401c1e7ad1dfcbe33515d255b831"
 }
