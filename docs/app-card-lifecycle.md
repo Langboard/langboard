@@ -88,6 +88,22 @@ provider-code execution hook. Provider verbs and credentials stay in each app.
 
 ## Current implementation evidence
 
+The independent Example Monitor artifacts exercise signed signal ingestion,
+native Inbox card creation and native app-owned human interactions in one test
+process on SQLite and PostgreSQL. Artifact SHA-256 and imported module paths
+are checked against their reviewed provenance, so a cached older package cannot
+stand in for the interaction-capable package. Inbox-created native cards retain
+no app ownership. Interaction requests require existing ownership and separate
+consent; a different owner is denied. Receipt acknowledgment does not resume
+execution or apply a workflow outcome.
+
+The interaction test still prepares ownership, definition and consent in its
+database fixture. It does not prove independent service deployment or user
+onboarding. App card creation has a public API that establishes ownership with
+resource audit history; assigning or transferring ownership on an existing card
+remains an internal configuration service without a public mutation endpoint.
+Canary browser acceptance and external provider execution remain unverified.
+
 SDK source 0.2.15 validates finite lifecycle and disabled-by-default card action
 declarations. GitHub adapter source closes issues using one write and a readback,
 protects PR resources, and builds an opt-in structured PR decision request.
