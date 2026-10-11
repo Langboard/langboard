@@ -97,11 +97,17 @@ no app ownership. Interaction requests require existing ownership and separate
 consent; a different owner is denied. Receipt acknowledgment does not resume
 execution or apply a workflow outcome.
 
-The interaction test still prepares ownership, definition and consent in its
-database fixture. It does not prove independent service deployment or user
-onboarding. App card creation has a public API that establishes ownership with
-resource audit history; assigning or transferring ownership on an existing card
-remains an internal configuration service without a public mutation endpoint.
+The full response/outbox interaction test still prepares ownership, definition
+and consent in its database fixture. A separate PostgreSQL integration test now
+creates an Example Monitor card through the public app API, then invokes the
+packaged app's HITL request and current-response helpers over HTTP. Ownership
+and selected-resource audit history come from the native creation transaction,
+not fixture insertion. Creation replay preserves one card and one ownership
+audit; interaction replay preserves one request; consent withdrawal denies
+subsequent reads. Definition and consent are still fixture prerequisites for
+this separate test, so it does not prove independent service deployment or user
+onboarding. Assigning or transferring ownership on an existing card remains an
+internal configuration service without a public mutation endpoint.
 Canary browser acceptance and external provider execution remain unverified.
 
 SDK source 0.2.15 validates finite lifecycle and disabled-by-default card action
