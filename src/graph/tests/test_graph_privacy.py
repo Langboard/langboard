@@ -87,7 +87,10 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
                 "message": "Approve action",
                 "request_payload": {"headers": {"Authorization": secret}, "title": "Keep title"},
             }
-        }
+        },
+        "LangboardCalledVariablesComponent": {
+            "current_runner_data": {"uid": "fixture-actor", "settings": {"api_key": secret}}
+        },
     }
     try:
         result = await run_default_graph("run", tweaks, thread, thread)
@@ -96,7 +99,10 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
         async with checkpoint.open_graph_checkpointer() as saver:
             snapshot = await saver.aget_tuple({"configurable": {"thread_id": thread}})
             assert snapshot is not None
-            # Only approval metadata is covered; raw tweaks remain a separate gap.
+            project_context = snapshot.checkpoint["channel_values"]["project_context"]
+            assert secret not in str(project_context)
+            assert project_context["current_runner_data"]["uid"] == "fixture-actor"
+            # Only projections/approval metadata are covered; raw tweaks remain a separate gap.
             pending = snapshot.pending_writes
             assert pending
             assert secret not in str([value for _, channel, value in pending if channel == "__interrupt__"])
@@ -134,3 +140,35 @@ async def test_tool_approval_redacts_interrupt_without_changing_execution_argume
     assert observed[0]["request_payload"]["tool_args"]["title"] == "Keep title"
     assert args["client_secret"] == secret
     assert payload["request_payload"]["tool_args"]["client_secret"] == secret
+
+
+def test_state_context_projections_do_not_duplicate_credentials():
+    from langboard_graph.core.graph.default.context import create_runtime_context_state
+
+    secret = "fixture-secret-not-real"
+    tweaks = {
+        "Graph": {"ontology_context": {"title": "Ontology", "api_key": secret}},
+        "LangboardCalledVariablesComponent": {
+            "project_uid": "fixture-project",
+            "current_runner_data": {"uid": "fixture-actor", "settings": {"api_key": secret}},
+            "rest_data": {
+                "card_uid": "fixture-card",
+                "related_cards": {
+                    "parents": [{"title": "Parent", "headers": {"Authorization": secret}}],
+                    "children": [{"title": "Child", "refresh_token": secret}],
+                },
+            },
+        },
+    }
+    state = create_runtime_context_state(tweaks)
+    assert secret not in str(state)
+    assert state["project_context"]["project_uid"] == "fixture-project"
+    assert state["project_context"]["current_runner_data"]["uid"] == "fixture-actor"
+    assert state["card_context"]["card_uid"] == "fixture-card"
+    assert state["parent_cards"][0]["title"] == "Parent"
+    assert state["child_cards"][0]["title"] == "Child"
+    assert [item["direction"] for item in state["relationship_context"]] == ["parent", "child"]
+    assert state["ontology_context"]["title"] == "Ontology"
+    state["parent_cards"][0]["title"] = "Changed"
+    assert tweaks["LangboardCalledVariablesComponent"]["rest_data"]["related_cards"]["parents"][0]["title"] == "Parent"
+    assert tweaks["Graph"]["ontology_context"]["api_key"] == secret
