@@ -1,0 +1,192 @@
+[
+  {
+    "sourceRepository": "https://github.com/yamonco/langboard-app-github",
+    "sourceCommit": "3315a0595010a9015284fd3a61317e7a00e2c393",
+    "definition": {
+      "schema_version": 2,
+      "key": "github-panel",
+      "version": "0.2.1",
+      "name": "GitHub Panel",
+      "description": "Checks and commit statuses from the authorized Langboard signal inbox.",
+      "capabilities": [
+        "panels.render",
+        "signals.read",
+        "signals.publish"
+      ],
+      "signal_sources": [
+        "github",
+        "github-panel"
+      ],
+      "resource_types": [
+        "repository"
+      ],
+      "panel": {
+        "url": "https://panel.example/",
+        "name": "GitHub",
+        "icon": "github"
+      },
+      "signal_policy": {
+        "version": 1,
+        "resource_types": [
+          "repository"
+        ],
+        "event_types": [
+          "check.completed"
+        ],
+        "outcome_states": {
+          "success": "passed",
+          "failure": "failed",
+          "neutral": "unknown",
+          "cancelled": "cancelled",
+          "timed_out": "unknown",
+          "action_required": "unknown",
+          "stale": "unknown",
+          "skipped": "unknown"
+        },
+        "commit_mode": "required",
+        "time_basis": "provider_occurrence"
+      },
+      "trust": {
+        "authentication_origins": [],
+        "mcp_origins": [],
+        "data_origins": [
+          "https://panel.example"
+        ]
+      }
+    },
+    "evidence": {
+      "event_type": "check.completed",
+      "occurred_at": "2026-10-11T00:00:00.000Z",
+      "external_id": "42",
+      "outcome": "failure",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "event_id": "5971f8edb7a071a1400a1afbe1d2efebf659c378ef397c170996ac8f039a0ce3"
+    }
+  },
+  {
+    "sourceRepository": "https://github.com/yamonco/langboard-app-glitchtip",
+    "sourceCommit": "5f1e6768e3361321563bcd81f73e1dfb5674c0bd",
+    "definition": {
+      "schema_version": 2,
+      "key": "glitchtip-panel",
+      "version": "0.2.1",
+      "name": "GlitchTip Panel",
+      "description": "Issue status observations from the authorized Langboard signal inbox.",
+      "capabilities": [
+        "panels.render",
+        "signals.read",
+        "signals.publish"
+      ],
+      "signal_sources": [
+        "glitchtip",
+        "glitchtip-panel"
+      ],
+      "resource_types": [
+        "project"
+      ],
+      "panel": {
+        "url": "https://panel.example/",
+        "name": "GlitchTip",
+        "icon": "glitchtip"
+      },
+      "signal_policy": {
+        "version": 1,
+        "event_types": [
+          "issue.status_observed"
+        ],
+        "resource_types": [
+          "project"
+        ],
+        "outcome_states": {
+          "unresolved": "failed",
+          "resolved": "resolved",
+          "ignored": "ignored"
+        },
+        "commit_mode": "empty",
+        "time_basis": "observation"
+      },
+      "trust": {
+        "authentication_origins": [],
+        "mcp_origins": [],
+        "data_origins": [
+          "https://panel.example"
+        ]
+      }
+    },
+    "evidence": {
+      "event_id": "9b4bef3fc1ab43163eb392dd296177fb8a98769eca7f5c58405cbf9050bdaed1",
+      "event_type": "issue.status_observed",
+      "occurred_at": "2026-10-11T01:00:00.000Z",
+      "external_id": "42",
+      "outcome": "unresolved",
+      "commit_sha": ""
+    }
+  },
+  {
+    "sourceRepository": "https://github.com/yamonco/langboard-app-dokploy",
+    "sourceCommit": "5686e0c9858e972824b5ba0b123b61c5a96306de",
+    "definition": {
+      "schema_version": 2,
+      "key": "dokploy-panel",
+      "version": "0.2.1",
+      "name": "Dokploy Panel",
+      "description": "Deployment statuses from the authorized Langboard signal inbox.",
+      "capabilities": [
+        "panels.render",
+        "signals.read",
+        "signals.publish"
+      ],
+      "signal_sources": [
+        "dokploy",
+        "dokploy-panel"
+      ],
+      "resource_types": [
+        "application",
+        "compose"
+      ],
+      "panel": {
+        "url": "https://panel.example/",
+        "name": "Dokploy",
+        "icon": "dokploy"
+      },
+      "signal_policy": {
+        "version": 1,
+        "resource_types": [
+          "application",
+          "compose"
+        ],
+        "event_types": [
+          "deployment.queued",
+          "deployment.started",
+          "deployment.succeeded",
+          "deployment.failed",
+          "deployment.cancelled"
+        ],
+        "outcome_states": {
+          "queued": "queued",
+          "running": "running",
+          "success": "passed",
+          "failure": "failed",
+          "cancelled": "cancelled"
+        },
+        "commit_mode": "empty",
+        "time_basis": "provider_occurrence"
+      },
+      "trust": {
+        "authentication_origins": [],
+        "mcp_origins": [],
+        "data_origins": [
+          "https://panel.example"
+        ]
+      }
+    },
+    "evidence": {
+      "event_type": "deployment.failed",
+      "occurred_at": "2026-10-11T00:00:00.000Z",
+      "external_id": "d42",
+      "outcome": "failure",
+      "commit_sha": "",
+      "event_id": "6fec672ea1c43c1ec970fd0dbd43d043e24bea25a92b439b9f0d28497ef896fd"
+    }
+  }
+]
