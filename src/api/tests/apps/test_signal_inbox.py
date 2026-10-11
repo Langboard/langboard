@@ -495,3 +495,77 @@ def test_dokploy_registry_override_hides_stored_deployments(dokploy_inbox, chang
     assert deployment_inbox(dokploy_inbox) == {"items": [], "next_cursor": None}
     with DbSession.use(readonly=False) as db:
         assert len(db.exec(SqlBuilder.select.table(AppSignal)).all()) == 1
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped, monkeypatch):
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.routes.board.AppPanelDataApi import read_panel_signals
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.models import AppDefinition, BoardAppBinding
+    from langboard_shared.Env import Env
+
+    state, card, linked, _ = scoped
+    service = state[0]
+    domain = DomainService()
+    service.card = domain.card
+    service.close = lambda: None
+    with DbSession.atomic() as db:
+        linked.is_enabled = False
+        db.update(linked)
+        definition = AppDefinition(key="github-panel", approved_by=state[1][1].id, declaration={
+            "schema_version": 1, "key": "github-panel", "version": "0.1.1", "name": "GitHub panel",
+            "description": "Read approved GitHub signals", "capabilities": ["panels.render", "signals.read"],
+            "resource_types": ["repository"], "signal_sources": ["github"],
+            "panel": {"url": "https://panel.example.invalid", "name": "GitHub", "icon": "github"},
+        })
+        db.insert(definition)
+        panel_binding = BoardAppBinding(project_id=card.project_id, app_key="github-panel", state="enabled",
+            granted_capabilities=["panels.render", "signals.read"])
+        db.insert(panel_binding)
+    send(state)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    monkeypatch.setattr(importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    for route in app.routes:
+        if getattr(route, "endpoint", None) == read_panel_signals:
+            for dependency in route.dependant.dependencies:
+                if dependency.name == "service":
+                    app.dependency_overrides[dependency.call] = lambda: service
+    path = f"/board/{state[1][2].get_uid()}/apps/github-panel/panel/signals"
+    form = {"app_revision": definition.edit_revision(), "binding_revision": panel_binding.edit_revision(), "provider": "github"}
+    try:
+        with TestClient(app, base_url="https://testserver") as client:
+            assert client.post(path, json=form).status_code == 401
+            access, refresh = AuthSecurity.authenticate(state[1][1].id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            headers = {"Authorization": f"Bearer {access}"}
+            result = client.post(path, json=form, headers=headers)
+            assert result.status_code == 200, result.text
+            items = result.json()["items"]
+            assert len(items) == 1 and items[0]["provider"] == "github" and items[0]["external_id"] == "55"
+            assert items[0]["connection_uid"] == state[2].get_uid()
+            for provider in ("glitchtip", "dokploy"):
+                denied = client.post(path, json={**form, "provider": provider, "after": items[0]["signal_uid"]}, headers=headers)
+                assert denied.status_code == 404 and "items" not in denied.json()
+            with DbSession.atomic() as db:
+                state[4].is_selected = False
+                db.update(state[4])
+            revoked = client.post(path, json=form, headers=headers)
+            assert revoked.status_code == 200 and revoked.json()["items"] == []
+            assert client.post(path, json={**form, "after": items[0]["signal_uid"]}, headers=headers).status_code == 400
+            with DbSession.atomic() as db:
+                state[4].is_selected = True
+                db.update(state[4])
+            assert len(client.post(path, json=form, headers=headers).json()["items"]) == 1
+            service.secret_reference.revoke(state[1][1], state[2].credential_reference, 0)
+            assert client.post(path, json=form, headers=headers).json()["items"] == []
+    finally:
+        domain.close()
