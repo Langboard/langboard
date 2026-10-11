@@ -14,7 +14,14 @@ defmodule LangboardSocket.Graph.StreamClient do
         URI.encode(session_id, &URI.char_unreserved?/1) <> "?stream=true"
 
     secret = Application.fetch_env!(:langboard_socket, :internal_api_secret)
-    stream_http(url, [{"accept", "application/json"}, {"x-socket-internal-secret", secret}], request_body, :graph, on_event)
+
+    stream_http(
+      url,
+      [{"accept", "application/json"}, {"x-socket-internal-secret", secret}],
+      request_body,
+      :graph,
+      on_event
+    )
   end
 
   def stream_http(url, headers, request_body, mode, on_event)

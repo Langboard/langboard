@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["d6ab195f843c"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["e7bc206a954d"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -499,6 +499,48 @@ def test_relationship_semantics_migration_preserves_legacy_and_default_identity(
                 db.execute(text("SELECT description FROM global_card_relationship_type WHERE id=1")).scalar()
                 == "Legacy relationship"
             )
+            migration.upgrade()
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_execution_outbox_migration_retains_payload_and_unique_request(monkeypatch):
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "execution_outbox_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261012150000-e7bc206a954d.py"
+    spec = importlib.util.spec_from_file_location("outbox_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "d6ab195f843c"
+    try:
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            migration.upgrade()
+            db.execute(
+                text(
+                    "INSERT INTO app_execution_outbox (id,request_id,project_id,app_key,connection_id,event_type,payload,state) "
+                    "VALUES (1,2,3,'example',4,'io.langboard.app.execution.requested.v1','{}','pending')"
+                )
+            )
+        assert inspect(engine).get_foreign_keys("app_execution_outbox") == []
+        with engine.begin() as db, pytest.raises(IntegrityError):
+            db.execute(
+                text(
+                    "INSERT INTO app_execution_outbox (id,request_id,project_id,app_key,connection_id,event_type,payload,state) "
+                    "VALUES (5,2,3,'example',4,'io.langboard.app.execution.requested.v1','{}','pending')"
+                )
+            )
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            assert db.execute(text("SELECT count(*) FROM app_execution_outbox")).scalar() == 1
+            migration.downgrade()
             migration.upgrade()
     finally:
         engine.dispose()

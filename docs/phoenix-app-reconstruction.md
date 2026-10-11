@@ -582,3 +582,19 @@ read even after disablement. App reads have no such stale-authority exemption.
 The authority card revision uses integer UTC microseconds derived from the native
 card timestamp. Runtime authorization, ACK/event validation, signed delivery,
 lease issuance/recovery/heartbeat and start evidence remain unimplemented.
+
+
+## Durable request event before delivery
+
+Migration `e7bc206a954d` introduces a retained `AppExecutionOutbox` table with a
+unique request identity and pending-state index. Human intent acceptance writes
+exactly one execution-request event in the same transaction as generation and
+request receipt. Stable event/request IDs, app/connection/board/card scope,
+generation and selected resource IDs are stored; tokens and titles are omitted.
+The records have no foreign keys so deletion cannot erase event evidence.
+
+A duplicate request returns the original receipt without creating another event.
+A failed event write rolls back generation and request acceptance. This is durable
+storage only: pending events are not automatically delivered, signed, acknowledged
+or authorized to run. Destination approval, bounded retry/worker claims,
+revocation checks, signing and ACK receipt integration remain pending.

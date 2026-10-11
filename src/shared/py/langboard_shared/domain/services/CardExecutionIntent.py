@@ -4,6 +4,7 @@ import re
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
 from ..models import (
+    AppExecutionOutbox,
     AppResourceBinding,
     CardExecutionGeneration,
     CardExecutionIntent,
@@ -141,6 +142,29 @@ def request_card_execution_intent(
             snapshot=snapshot,
         )
         db.insert(intent)
+        event = AppExecutionOutbox(
+            request_id=intent.id,
+            project_id=project_id,
+            app_key=app_key,
+            connection_id=connection.id,
+            event_type="io.langboard.app.execution.requested.v1",
+        )
+        db.insert(event)
+        event.payload = {
+            "schema_version": 1,
+            "event_uid": event.get_uid(),
+            "event_type": event.event_type,
+            "app_key": app_key,
+            "connection_uid": connection.get_uid(),
+            "board_uid": SnowflakeID(project_id).to_short_code(),
+            "card_uid": card.get_uid(),
+            "request_uid": intent.get_uid(),
+            "generation": intent.execution_generation,
+            "resource_uids": sorted(snapshot["resource_revisions"]),
+            "state": "requested",
+            "started": False,
+        }
+        db.update(event)
         return _receipt(intent, changed=True)
 
 

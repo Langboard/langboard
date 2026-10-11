@@ -13,8 +13,12 @@ defmodule LangboardSocket.Graph.ResumeClient do
       Finch.build(
         :post,
         url,
-        [{"accept", "application/json"}, {"content-type", "application/json"},
-         {"x-socket-internal-secret", Application.fetch_env!(:langboard_socket, :internal_api_secret)}],
+        [
+          {"accept", "application/json"},
+          {"content-type", "application/json"},
+          {"x-socket-internal-secret",
+           Application.fetch_env!(:langboard_socket, :internal_api_secret)}
+        ],
         Jason.encode!(%{resume: decision, session_id: session_id})
       )
 

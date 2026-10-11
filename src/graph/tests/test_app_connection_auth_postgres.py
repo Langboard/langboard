@@ -44,6 +44,7 @@ from langboard_shared.domain.models import (
     AppConnection,
     AppConnectionCredential,
     AppDefinition,
+    AppExecutionOutbox,
     AppMcpConsent,
     AppResourceBinding,
     BoardAppBinding,
@@ -1604,6 +1605,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         CardAppResourceSelectionAudit,
         CardExecutionGeneration,
         CardExecutionIntent,
+        AppExecutionOutbox,
         ProjectRole,
     ):
         model.__table__.create(engine)
@@ -1755,6 +1757,21 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         receipt["generation"] == 1 and not receipt["started"] and not receipt["execution_resumed"]
         for receipt in receipts
     )
+    original_update = DbSession.update
+
+    def fail_event_update(db, model, *update_args, **update_kwargs):
+        if isinstance(model, AppExecutionOutbox):
+            raise RuntimeError("Outbox persistence failed")
+        return original_update(db, model, *update_args, **update_kwargs)
+
+    with monkeypatch.context() as failure_patch:
+        failure_patch.setattr(DbSession, "update", fail_event_update)
+        with pytest.raises(RuntimeError, match="Outbox persistence failed"):
+            request_card_execution_intent(*args, "atomic-outbox-failure", 1, snapshot)
+    with Session(engine) as db:
+        assert db.query(CardExecutionGeneration).one().execution_generation == 1
+        assert db.query(CardExecutionIntent).count() == 1
+        assert db.query(AppExecutionOutbox).count() == 1
     with pytest.raises(AppGovernanceConflict):
         request_card_execution_intent(*args, key, 0, {**snapshot, "selection_revision": 999})
     with pytest.raises(AppGovernanceConflict):
@@ -1767,6 +1784,12 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
     with Session(engine) as db:
         assert db.query(CardExecutionGeneration).one().execution_generation == 1
         assert db.query(CardExecutionIntent).count() == 1
+        outbox = db.query(AppExecutionOutbox).one()
+        assert outbox.request_id == SnowflakeID.from_short_code(receipts[0]["request_uid"])
+        assert outbox.payload["event_uid"] == outbox.get_uid()
+        assert outbox.payload["generation"] == 1 and outbox.payload["started"] is False
+        assert outbox.payload["resource_uids"] == [SnowflakeID(301).to_short_code()]
+        assert outbox.state == "pending"
         db.execute(update(AppResourceBinding).values(access_state="granted"))
         db.commit()
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-intent-secret-32bytes"))
@@ -1845,6 +1868,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         db.commit()
         assert db.query(CardExecutionGeneration).count() == 0
         assert db.query(CardExecutionIntent).count() == 1
+        assert db.query(AppExecutionOutbox).count() == 1
 
 
 def test_relationship_replacement_atomic_blocks_cycles_and_concurrent_writers(request, monkeypatch):
