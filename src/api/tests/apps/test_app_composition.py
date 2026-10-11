@@ -351,3 +351,49 @@ def test_grouped_app_update_retains_only_existing_consent_and_preserves_owned_ca
         card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
         ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
         assert (card.id, card.title, card.description, ownership.id, ownership.app_key, ownership.revision) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+async def test_sdk_composition_management_uses_authenticated_native_http(composition, monkeypatch):
+    from types import SimpleNamespace
+    import langboard.routes.board.BoardSettingApi  # noqa: F401
+    import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_sdk import AppManager, AppRegistry, HttpTransport, NativeApiError
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(composition[1].id)
+    with TestClient(app) as session:
+        session.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        async def request(method, path, **kwargs):
+            return session.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+        transport = HttpTransport(SimpleNamespace(request=request))
+        registry = AppRegistry(transport)
+        manager = AppManager(transport, composition[2].get_uid())
+        catalog = await registry.compositions()
+        assert {"github", "independent-panel"}.issubset({module["key"] for module in catalog["modules"]})
+        group = await registry.save_composition("tools", "Tools", "Exact installed modules", ["github", "independent-panel"])
+        snapshot = await manager.compositions()
+        assert snapshot["compositions"] == [group]
+        targets = {row["key"]: row["binding"]["revision"] if row["binding"] else None
+                   for row in snapshot["apps"] if row["key"] in group["module_keys"]}
+        with pytest.raises(NativeApiError) as stale:
+            await manager.disable_composition(group["key"], "0" * 64, targets)
+        assert stale.value.status_code == 409
+        assert (await manager.compositions())["apps"] == snapshot["apps"]
+        receipt = await manager.disable_composition(group["key"], group["revision"], targets)
+        assert receipt["disabled"] and receipt["module_keys"] == group["module_keys"]
+        current = await manager.compositions()
+        github = next(row for row in current["apps"] if row["key"] == "github")
+        assert github["binding"]["granted_capabilities"] == []
+        await registry.ungroup_composition(group["key"], group["revision"])
+        assert (await registry.compositions())["compositions"] == []
+        assert (await manager.compositions())["apps"] == current["apps"]
