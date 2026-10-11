@@ -291,6 +291,9 @@
     "textAnswer": "テキストで回答",
     "readback": "再送信する前に更新して結果を確認してください。",
     "submit": "回答を送信",
-    "openComment": "コメントを開く"
+    "openComment": "コメントを開く",
+    "applyMove": "カードを移動",
+    "moveHelp": "カードを {{stage}} に移動します。実行は再開しません。",
+    "moveRecorded": "カードの移動を記録しました。"
   }
 }

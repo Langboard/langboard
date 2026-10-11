@@ -65,3 +65,19 @@ test("free text remains literal content", async ({ page }) => {
     await page.getByRole("button", { name: "Submit response" }).click();
     await expect(page.getByText("Comment: <script>literal answer</script>", { exact: true })).toBeVisible();
 });
+for (const flag of ["move", "move&lost"]) {
+    test(`explicit movement readback ${flag}`, async ({ page }) => {
+        await page.goto(`${fixture}?${flag}`);
+        await page.getByRole("button", { name: "App requests", exact: true }).click();
+        await page.getByRole("button", { name: "Apply card move", exact: true }).click();
+        if (flag.includes("lost")) {
+            await expect(page.getByRole("alert")).toBeVisible();
+            await expect(page.getByRole("button", { name: "Apply card move", exact: true })).toBeDisabled();
+            await page.getByRole("button", { name: "Refresh", exact: true }).click();
+        }
+        await expect(page.getByText("Card movement recorded.", { exact: true })).toBeVisible();
+        const writes = await page.evaluate(() => (window as any).interactionCalls.filter((call: any) => call.method === "post"));
+        expect(writes).toHaveLength(1);
+        expect(writes[0].data).toEqual({ response_uid: "00000000006", expected_card_revision: 12 });
+    });
+}

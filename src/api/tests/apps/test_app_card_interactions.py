@@ -49,6 +49,14 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             workflow_migration.upgrade()
     finally:
         workflow_migration.op = original
+    transition_migration = importlib.import_module("langboard.migrations.versions.20261011120000-b1a4db39e5c7")
+    original = transition_migration.op
+    try:
+        with DbEngine.get_main_engine().begin() as db:
+            transition_migration.op = Operations(MigrationContext.configure(db))
+            transition_migration.upgrade()
+    finally:
+        transition_migration.op = original
     with DbSession.atomic() as db:
         definition = db.exec(
             SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)
@@ -539,6 +547,94 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         response_claim = claim_app_event(response_event, 2)
         assert response_claim is not None
         assert finish_app_event(response_event, response_claim["claim_token"], delivered=True)["state"] == "delivered"
+        if DbEngine.get_main_engine().dialect.name == "postgresql":
+            from langboard_shared.domain.models import AppCardInteractionTransition, ProjectExecutionBinding
+            from langboard_shared.domain.services.AppInteractionTransitions import apply_interaction_transition
+            from sqlalchemy import text
+
+            ProjectExecutionBinding.__table__.create(DbEngine.get_main_engine())
+            with DbEngine.get_main_engine().begin() as sql:
+                sql.execute(text("CREATE SEQUENCE content_change_seq START 100"))
+            moves = []
+            monkeypatch.setattr(native_service.card, "notify_order_changed", lambda *args: moves.append(args))
+            transition_args = (
+                native_service,
+                board[1],
+                board[2].id,
+                card.id,
+                reaction_args[-1],
+                SnowflakeID.from_short_code(approved["response"]["response_uid"]),
+            )
+            with pytest.raises(AppCardInteractionConflict):
+                apply_interaction_transition(*transition_args, 999)
+            from langboard_shared.domain.services.factory.WorkflowStagePolicyService import WorkflowStagePolicyService
+
+            policy = native_service.card._get_service(WorkflowStagePolicyService)
+            with monkeypatch.context() as failed_move:
+
+                def fail_policy(*args):
+                    raise ValueError("native policy failed")
+
+                failed_move.setattr(policy, "apply_transition", fail_policy)
+                with pytest.raises(ValueError, match="native policy failed"):
+                    apply_interaction_transition(*transition_args, card.last_change_seq)
+            with DbSession.atomic() as db:
+                rolled_back = db.exec(SqlBuilder.select.table(type(card)).where(type(card).id == card.id)).first()
+                assert rolled_back.project_column_id == board[5][0].id
+                assert db.exec(SqlBuilder.select.table(AppCardInteractionTransition)).all() == []
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                movements = list(
+                    pool.map(lambda _: apply_interaction_transition(*transition_args, card.last_change_seq), range(4))
+                )
+            assert sum(result["changed"] for result in movements) == 1
+            moved = movements[0]
+            assert moved["state"] == "moved" and moved["execution_resumed"] is False
+            assert moved["to_column_uid"] == board[5][1].get_uid()
+            assert len(moves) == 1
+            with TestClient(human_app) as transition_client:
+                transition_path = f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/interactions/{reaction_receipt['interaction_uid']}/transition"
+                form = {
+                    "response_uid": approved["response"]["response_uid"],
+                    "expected_card_revision": card.last_change_seq,
+                }
+                assert transition_client.post(transition_path, json=form).status_code == 401
+                assert transition_client.post(transition_path, json=form, headers=headers).status_code == 401
+                access, refresh = AuthSecurity.authenticate(board[1].id)
+                transition_client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+                human_headers = {"Authorization": f"Bearer {access}"}
+                applied = transition_client.post(transition_path, json=form, headers=human_headers)
+                assert applied.status_code == 200 and applied.json()["changed"] is False
+                assert (
+                    transition_client.post(
+                        transition_path, json={**form, "expected_card_revision": True}, headers=human_headers
+                    ).status_code
+                    == 400
+                )
+                assert (
+                    transition_client.post(
+                        transition_path, json={**form, "actor_uid": "A" * 11}, headers=human_headers
+                    ).status_code
+                    == 400
+                )
+            assert apply_interaction_transition(*transition_args, card.last_change_seq)["changed"] is False
+            assert len(moves) == 1
+            readback = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), reaction_receipt["interaction_uid"]))
+            assert readback["workflow_transitioned"] is True and readback["workflow_receipt"]["state"] == "moved"
+            with DbSession.atomic() as db:
+                changed_card = db.exec(SqlBuilder.select.table(type(card)).where(type(card).id == card.id)).first()
+                assert changed_card.project_column_id == board[5][1].id and changed_card.order == 0
+                assert changed_card.last_change_seq >= 100
+                assert len(db.exec(SqlBuilder.select.table(AppCardInteractionTransition)).all()) == 1
+            with DbEngine.get_main_engine().begin() as sql:
+                original = transition_migration.op
+                try:
+                    transition_migration.op = Operations(MigrationContext.configure(sql))
+                    with pytest.raises(RuntimeError, match="Cannot discard interaction transition history"):
+                        transition_migration.downgrade()
+                finally:
+                    transition_migration.op = original
         # A pre-migration response event has no new plan field. Retain its wire body.
         from langboard_shared.domain.services.AppCardInteractions import revalidate_response_event
 
@@ -607,6 +703,9 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert client.post(cancel_path, json={"expected_revision": 1}, headers=headers).status_code == 401
         with pytest.raises(AppGovernanceDenied):
             respond_to_app_card_interaction(*args, 1, "response-1", answer)
+        if DbEngine.get_main_engine().dialect.name == "postgresql":
+            with pytest.raises(AppGovernanceDenied):
+                apply_interaction_transition(*transition_args, card.last_change_seq)
         from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
 
         retained = list_card_interactions(args[0], board[1], board[2].id, card.id)

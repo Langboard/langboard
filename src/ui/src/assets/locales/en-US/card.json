@@ -291,6 +291,9 @@
     "textAnswer": "Text answer",
     "readback": "Refresh to read back the result before submitting again.",
     "submit": "Submit response",
-    "openComment": "Open comment"
+    "openComment": "Open comment",
+    "applyMove": "Apply card move",
+    "moveHelp": "Move this card to {{stage}}. This does not resume execution.",
+    "moveRecorded": "Card movement recorded."
   }
 }
