@@ -10,7 +10,7 @@ from this table. Update it when an artifact, declaration or migration changes.
 | --- | --- | --- |
 | Host API integration source | `878541385a6779591224acd7f75344267a042d54` | Public app creation to independent HITL exercised on PostgreSQL; not a deployed image |
 | API migration head | `d3c6fd51a7e9`, parent `c2b5ec40f6d8` | One Alembic head; archive sync defaults disabled, and archive/response history is durable. Active sync and stored history protect downgrade boundaries |
-| Python SDK | `0.2.24`, source `43b7f780184fe722417d3de513fd82fdf959df3d` | Reviewed wheel, both host Python projects pinned; `scripts/sdk/verify_python_artifact.py` passes. Adds separately consented current app-owned card reads |
+| Python SDK | `0.2.25`, source `228da4a3ac01bdf6c4dc01e4ab4a3951d6168781` | Reviewed wheel, both host Python projects pinned; `scripts/sdk/verify_python_artifact.py` passes. Adds explicit archive consent and authenticated provider outcome reports |
 | Host panel SDK | `@langboard/app-panel@0.2.2`, source `2ad4ea3c5277393e52c5f5d3b1b8b6c59006ceed` | Vendored tarball and UI lockfile. Message protocol remains v1 |
 | Example Monitor | package `0.1.1`, source `5d4d312b2c8e709cfc455d0cfb65eafa47a8a832` | SDK `0.2.23`; baseline declaration schema 2, app version `1.0.0`, signals only. HITL/card creation require a separately approved definition and consent |
 
@@ -19,7 +19,7 @@ Exact reviewed artifact digests:
 | Artifact | SHA-256 |
 | --- | --- |
 | Python SDK `0.2.23` wheel | `eab73a2ca2b1ec47946000cafddfe5ada484d86db44de89823c89cb4ecbb423e` |
-| Python SDK `0.2.24` wheel | `4b57f0596016ef43247ed34bbcd261b1ab0683b17f7b34c3b5e1532476e8adbe` |
+| Python SDK `0.2.25` wheel | `dd340be3fde45983bc970e427fb6983696d50904982de2896b4179a3a5e70ac9` |
 | Panel SDK `0.2.2` tarball | `b63dda02bb181aa6ca8c19d8246bd977529a748f429d212d2bfbae937d9a58ea` |
 | Panel SDK `0.2.0` tarball used by existing apps | `6e232e4e055760a6dd30d1e07a86de491af60e36471d6da4705512d6aeb3661b` |
 | Example Monitor `0.1.1` wheel | `7ce265d8009f346263d3f157a8406d981da71b45b5dcd3dd6d1e4d2ac21b6cf9` |
