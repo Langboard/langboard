@@ -11,6 +11,7 @@ let lost = params.has("lost");
 const kind = params.has("reaction") ? "comment_reaction" : "choice_card";
 const item: CardInteraction = {
     interaction_uid: "00000000001",
+    source: { app_key: "example-agent", connection_uid: "00000000004" },
     revision: 1,
     state: "pending",
     response: null,

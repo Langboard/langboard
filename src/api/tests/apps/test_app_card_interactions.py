@@ -147,6 +147,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         )
         second = client.post(path, json={"request": body}, headers=headers).json()
         assert second["changed"] is False and second["interaction_uid"] == receipt["interaction_uid"]
+        assert receipt["source"] == {"app_key": connection.app_key, "connection_uid": connection.get_uid()}
         assert (
             client.post(path, json={"request": {**body, "prompt": {"en": "Changed"}}}, headers=headers).status_code
             == 409
@@ -319,6 +320,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             assert page.status_code == 200, page.text
             assert page.headers["cache-control"] == "no-store"
             assert len(page.json()["items"]) == 1 and page.json()["next_cursor"]
+            assert page.json()["items"][0]["source"] == receipt["source"]
             next_page = human_client.get(
                 list_path, params={"limit": 1, "cursor": page.json()["next_cursor"]}, headers=human_headers
             )

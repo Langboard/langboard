@@ -7,6 +7,7 @@ for (const width of [390, 1440]) {
         await page.getByRole("button", { name: "App requests", exact: true }).waitFor();
         expect(await page.evaluate(() => (window as any).interactionCalls.length)).toBe(0);
         await page.getByRole("button", { name: "App requests", exact: true }).click();
+        await expect(page.getByText("Requested by app: example-agent", { exact: true })).toBeVisible();
         await page.getByRole("radio", { name: "Review", exact: true }).check();
         await page.getByRole("button", { name: "Submit response" }).click();
         await expect(page.getByText("Answered", { exact: true })).toBeVisible();

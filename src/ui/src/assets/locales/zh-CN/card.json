@@ -275,6 +275,8 @@
     "firstRetained": "已保存连接第一页"
   },
   "appInteractions": {
+    "source": "请求应用：{{app}}",
+    "sourceHelp": "此请求由该应用提交，并不代表由 AI 编写。",
     "title": "应用请求",
     "help": "此决定属于当前卡片。收件箱状态与执行相互独立。",
     "refresh": "刷新",

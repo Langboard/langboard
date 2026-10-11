@@ -429,3 +429,17 @@ including rollback on native policy failure and four concurrent duplicate calls.
 Post-commit notification/activity publication is captured rather than sent, so
 actual downstream activity history delivery remains a deployed acceptance gate.
 Browser fixture tests use mocked HTTP and do not prove canary deployment.
+
+## Retained app source attribution
+
+App and native request receipts include `source.app_key` and `source.connection_uid`
+from the immutable request row, without fetching connection credentials or account
+metadata. Native card UI renders the app key with the existing host badge and a
+localized explanation in English, Korean, Japanese and Chinese. A disconnected
+app retains this attribution alongside readable request history.
+
+An app-authenticated request is not proof of AI authorship. The badge identifies
+the submitting app and does not label every app request as AI-generated. Verified
+AI author attribution on external requests/comments remains a separate gate.
+Server tests verify app readback and native user listing, and browser fixtures
+verify the badge at mobile and desktop widths. These do not prove live deployment.
