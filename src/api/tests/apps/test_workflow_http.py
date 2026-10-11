@@ -8,23 +8,29 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
+from langboard.routes.board.BoardColumnApi import create_project_column, update_project_column_workflow_stage
 from langboard.routes.board.BoardSettingApi import (
+    disable_board_app,
     get_app_workflow_mapping,
     get_board_app_catalog,
-    disable_board_app,
     prepare_app_workflow_mapping,
     update_app_workflow_mapping,
 )
 from langboard_shared.core.caching import Cache
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
+from langboard_shared.domain.models import Card, ProjectColumn
+from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import binding, board  # noqa: F401
 from langboard_shared.Env import Env
+from langboard_shared.infrastructure.repositories import Repository
+from langboard_shared.publishers import ProjectColumnPublisher
 
 
-@pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_authenticated_http_workflow_and_current_revocation(board, binding, monkeypatch):
     # Auth model lookup uses the readonly connection; the host commands still
     # explicitly select the primary. All fixture data is in this isolated engine.
@@ -98,13 +104,8 @@ def test_authenticated_http_workflow_and_current_revocation(board, binding, monk
         assert client.get(catalog_url, headers=headers).status_code == 404
 
 
-@pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_authenticated_missing_stage_creation_persists_and_resolves(board, binding, monkeypatch):
-    from langboard_shared.core.db import SqlBuilder
-    from langboard.routes.board.BoardColumnApi import create_project_column, update_project_column_workflow_stage
-    from langboard_shared.domain.models import ProjectColumn, Card
-    from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
-    from langboard_shared.infrastructure.repositories import Repository
 
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     monkeypatch.setattr(Cache, "get", lambda *a, **k: None)
@@ -116,8 +117,6 @@ def test_authenticated_missing_stage_creation_persists_and_resolves(board, bindi
         binding.workflow_mapping = {}
         db.update(binding)
     Card.__table__.create(DbEngine.get_main_engine())
-    from langboard_shared.publishers import ProjectColumnPublisher
-    from langboard_shared.domain.services.factory.CardService import CardService
     monkeypatch.setattr(ProjectColumnPublisher, "workflow_stage_changed", lambda *args: None)
     monkeypatch.setattr(CardService, "publish_work_states", lambda *args: None)
     repository = Repository()
