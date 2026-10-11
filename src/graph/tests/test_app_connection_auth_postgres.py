@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
 from threading import Event, get_ident
+import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
 import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
@@ -26,8 +27,11 @@ from langboard_shared.domain.models import (
     AppMcpConsent,
     BoardAppBinding,
     Organization,
+    ProjectAssignedUser,
+    ProjectRole,
     User,
 )
+from langboard_shared.domain.services.AppBoardConsent import prepare_board_consent, save_board_consent
 from langboard_shared.domain.services.AppConnectionAuthentication import (
     authenticate_connection_credential,
     issue_connection_credential,
@@ -565,3 +569,119 @@ def test_native_onboarding_http_revisions_permissions_and_no_credential_injectio
             assert request(owner, "POST", path, json=body).status_code == 403
     finally:
         Cache.clear()
+
+
+def test_board_consent_current_authority_revisions_and_withdrawal(registered):
+    engine, (admin, owner, outsider), *_ = registered
+    ProjectRole.__table__.create(engine)
+    board_id = SnowflakeID(20)
+    initial = prepare_board_consent(owner, board_id, "example")
+    with pytest.raises(AppGovernanceDenied):
+        prepare_board_consent(outsider, board_id, "example")
+
+    def save(actor, caps, receipt):
+        return save_board_consent(actor, board_id, "example", caps, receipt["revision"], receipt["app_revision"])
+
+    with pytest.raises(ValueError):
+        save(owner, ["cards.create"], initial)
+    with pytest.raises(ValueError):
+        save(owner, ["mcp.read", "mcp.read"], initial)
+    saved = save(owner, ["mcp.read"], initial)
+    with pytest.raises(AppGovernanceConflict):
+        save(owner, ["mcp.write"], initial)
+    with Session(engine) as db:
+        db.add(ProjectAssignedUser(id=91, project_id=20, user_id=outsider.id))
+        db.add(ProjectRole(id=92, project_id=20, user_id=outsider.id, actions=["read"]))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        prepare_board_consent(outsider, board_id, "example")
+    with Session(engine) as db:
+        db.execute(update(ProjectRole).where(ProjectRole.id == 92).values(actions=["update"]))
+        db.commit()
+    assert prepare_board_consent(outsider, board_id, "example")["revision"] == saved["revision"]
+    with Session(engine) as db:
+        db.execute(update(ProjectAssignedUser).where(ProjectAssignedUser.id == 91).values(user_id=admin.id))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        save(outsider, [], saved)
+    policy = get_policy(admin)
+    save_policy(admin, "disabled", policy["revision"])
+    with pytest.raises(AppGovernanceDenied):
+        save(owner, ["mcp.write"], saved)
+    assert prepare_board_consent(owner, board_id, "example")["revision"] == saved["revision"]
+    withdrawn = save(owner, [], saved)
+    assert withdrawn["state"] == "disabled" and not withdrawn["stage_transitions_enabled"]
+    assert withdrawn["granted_capabilities"] == []
+
+
+def test_native_board_consent_http(registered, monkeypatch):
+    engine, (admin, owner, outsider), *_ = registered
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-board-http-secret-32bytes"))
+    Cache.clear()
+    for actor in (admin, owner, outsider):
+        Auth.reset_user(actor)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+        with TestClient(app) as client:
+
+            def request(actor, method, path, **kwargs):
+                access, refresh = AuthSecurity.authenticate(actor.id)
+                client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+                return client.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+
+            path = f"/board/{SnowflakeID(20).to_short_code()}/apps/example/consent"
+            assert client.post(path + "/prepare").status_code == 401
+            # Owner access never depends on a role row.
+            token = issue_connection_credential(owner, registered[2].id)["token"]
+            assert client.post(path + "/prepare", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+            initial = request(owner, "POST", path + "/prepare")
+            assert initial.status_code == 200
+            receipt = initial.json()
+            body = {
+                "capabilities": ["mcp.read"],
+                "expected_revision": receipt["revision"],
+                "expected_app_revision": receipt["app_revision"],
+            }
+            assert request(owner, "PUT", path, json={**body, "stage_transitions_enabled": True}).status_code in (
+                400,
+                422,
+            )
+            approved = request(owner, "PUT", path, json=body)
+            assert approved.status_code == 200 and approved.headers["cache-control"] == "no-store"
+            assert request(owner, "PUT", path, json=body).status_code == 409
+            with Session(engine) as db:
+                db.execute(update(User).where(User.id == owner.id).values(activated_at=None))
+                db.commit()
+            assert request(owner, "POST", path + "/prepare").status_code == 403
+    finally:
+        Cache.clear()
+
+
+def test_board_prepare_never_grants_and_rejects_stale_app(registered):
+    engine, (_, owner, _), *_ = registered
+    with Session(engine) as db:
+        db.query(BoardAppBinding).delete()
+        db.commit()
+    initial = prepare_board_consent(owner, SnowflakeID(20), "example")
+    assert initial["state"] == "disabled" and initial["granted_capabilities"] == []
+    assert not initial["stage_transitions_enabled"]
+    with Session(engine) as db:
+        db.execute(update(AppDefinition).where(AppDefinition.key == "example").values(generation=2))
+        db.commit()
+    with pytest.raises(AppGovernanceConflict):
+        save_board_consent(
+            owner, SnowflakeID(20), "example", ["mcp.read"], initial["revision"], initial["app_revision"]
+        )
+    current = prepare_board_consent(owner, SnowflakeID(20), "example")
+    with Session(engine) as db:
+        db.execute(update(AppDefinition).where(AppDefinition.key == "example").values(is_enabled=False))
+        db.commit()
+        definition_revision = db.query(AppDefinition).one().edit_revision()
+    with pytest.raises(AppGovernanceDenied):
+        save_board_consent(owner, SnowflakeID(20), "example", ["mcp.read"], current["revision"], definition_revision)
+    assert (
+        save_board_consent(owner, SnowflakeID(20), "example", [], current["revision"], definition_revision)["state"]
+        == "disabled"
+    )

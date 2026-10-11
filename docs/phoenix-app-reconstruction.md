@@ -258,3 +258,19 @@ PostgreSQL/HTTP suites now live at module scope.
 
 These corrections do not complete board resource grants, workflow mapping,
 execution/outbox/HITL or deployed independent-app acceptance.
+
+## Explicit board app consent
+
+Board owners, current instance administrators, or current board members with the
+native update role can prepare a disabled binding and explicitly approve a
+subset of the approved app's capabilities. Preparation grants no capabilities.
+Updates compare both binding and app revisions. Every operation reads current
+primary account, board and membership/role state. Mutation lock order is actor,
+app definition, board, then binding; registry updates use definition then binding.
+
+Human-authenticated prepare/update routes reject app Bearer self-approval and
+extra fields such as caller-selected stage transition flags. App/global/org
+policy must allow new grants; empty withdrawals remain possible after disablement.
+Stage transitions are not automatically activated. Removing event delivery also
+clears archive sync opt-ins. 1:N resource selection, stage/archive opt-in editors,
+runtime execution fences and deployed acceptance still require further work.
