@@ -161,3 +161,23 @@ credential/consent services and migration upgrade/downgrade. No SQLite was used
 for this acceptance run. Public connection routes, app registration and update
 fences, external MCP execution, outbox receipts, Phoenix event consumption and
 real independent-app acceptance remain pending. No merge or deployment.
+
+
+## Native connection management HTTP boundary
+
+The API now exposes credential issue/list/revoke, connection MCP consent
+read/replace and the separate /apps/v1/identity endpoint. User management
+operations use the existing ApiAuthMiddleware and current service ownership
+checks. App bearer credentials cannot self-approve user consent, and a user
+JWT cannot authenticate through the app identity endpoint. Successful credential
+and consent responses set Cache-Control: no-store; receipt lists exclude token
+values and hashes. UID paths, cursors, lifetime and consent forms are bounded.
+
+The HTTP regression uses real signed user access/refresh tokens and a populated
+native auth cache. It exercises anonymous 401, private connection access 403
+for administrators/outsiders, current deactivation, app-versus-user identity
+separation, revocation, invalid bodies/UIDs/pagination and stale consent 409.
+The Graph locked environment passes 33 tests in 23.45 seconds; the separately
+frozen API environment passes the same 33 tests in 25.82 seconds (FastMCP
+4.0.0b3 remains pinned). This does not prove
+production SSO, native inbound onboarding, board resource grants or execution.

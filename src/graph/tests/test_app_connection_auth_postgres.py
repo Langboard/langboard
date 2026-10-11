@@ -163,3 +163,81 @@ def test_malformed_consent_is_validation_failure(connected, scopes):
     _, users, personal, _ = connected
     with pytest.raises(ValueError):
         save_mcp_connection_consent(users[1], personal.id, scopes, None, "", "")
+
+
+def test_native_authenticated_http_connection_routes(connected, monkeypatch):
+    import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
+    import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
+    import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_shared.core.caching import Cache
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+    from langboard_shared.security import Auth
+
+    engine, (admin, owner, outsider), personal, shared = connected
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-connection-http-secret-32bytes"))
+    Cache.clear()
+    for actor in (admin, owner, outsider):
+        Auth.reset_user(actor)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+        with TestClient(app) as client:
+
+            def request(actor, method, path, **kwargs):
+                access, refresh = AuthSecurity.authenticate(actor.id)
+                client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+                return client.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+
+            base = f"/settings/apps/connections/{personal.get_uid()}"
+            credential_path = base + "/credentials"
+            consent_path = base + "/mcp-consent"
+            assert client.get(credential_path).status_code == 401
+            for actor in (admin, outsider):
+                assert request(actor, "GET", credential_path).status_code == 403
+                assert request(actor, "POST", credential_path, json={}).status_code == 403
+                assert request(actor, "GET", consent_path).status_code == 403
+            issued = request(owner, "POST", credential_path, json={"expires_in_seconds": 120})
+            assert issued.status_code == 200 and issued.headers["cache-control"] == "no-store"
+            token = issued.json()["token"]
+            credentials = request(owner, "GET", credential_path, params={"limit": 1})
+            assert credentials.status_code == 200 and token not in credentials.text
+            for payload in ({"expires_in_seconds": True}, {"expires_in_seconds": 59}, {"extra": True}):
+                assert request(owner, "POST", credential_path, json=payload).status_code in (400, 422)
+            assert request(owner, "GET", credential_path, params={"limit": 51}).status_code in (400, 422)
+            assert request(owner, "GET", credential_path, params={"after": "bad"}).status_code in (400, 422)
+            assert request(owner, "GET", "/settings/apps/connections/bad/credentials").status_code in (400, 422)
+            identity = client.get("/apps/v1/identity", headers={"Authorization": f"Bearer {token}"})
+            assert identity.status_code == 200 and identity.json()["app_key"] == "example"
+            assert "owner_id" not in identity.json() and "token" not in identity.json()
+            # App authentication never substitutes for a human consent or credential issuer.
+            assert client.get(consent_path, headers={"Authorization": f"Bearer {token}"}).status_code != 200
+            access, _ = AuthSecurity.authenticate(owner.id)
+            assert client.get("/apps/v1/identity", headers={"Authorization": f"Bearer {access}"}).status_code == 401
+            initial = request(owner, "GET", consent_path).json()
+            body = {
+                "scopes": ["read"],
+                "expected_revision": initial["revision"],
+                "expected_identity_revision": initial["identity_revision"],
+                "expected_app_revision": initial["app_revision"],
+            }
+            saved = request(owner, "PUT", consent_path, json=body)
+            assert saved.status_code == 200 and saved.json()["scopes"] == ["read"]
+            assert saved.headers["cache-control"] == "no-store"
+            assert request(owner, "PUT", consent_path, json=body).status_code == 409
+            assert request(owner, "PUT", consent_path, json={**body, "scopes": ["read", "read"]}).status_code == 400
+            revoked = request(owner, "POST", credential_path + "/" + issued.json()["credential_uid"] + "/revoke")
+            assert revoked.status_code == 200
+            assert client.get("/apps/v1/identity", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+            with Session(engine) as db:
+                db.execute(update(User).where(User.id == owner.id).values(activated_at=None))
+                db.commit()
+            assert request(owner, "GET", credential_path).status_code == 403
+            assert request(owner, "GET", consent_path).status_code == 403
+    finally:
+        Cache.clear()
