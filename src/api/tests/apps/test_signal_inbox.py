@@ -512,6 +512,7 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
     from langboard_shared.domain.models import (
         AppConnection,
         AppDefinition,
+        AppGovernancePolicy,
         AppResourceBinding,
         AppSignal,
         BoardAppBinding,
@@ -610,6 +611,40 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
                 panel_binding.granted_capabilities = ["panels.render", "signals.read"]
                 db.update(panel_binding)
             form["binding_revision"] = panel_binding.edit_revision()
+            # A hidden card link cannot reveal private-card existence by suppressing inbox evidence.
+            with DbSession.atomic() as db:
+                linked.is_enabled = True
+                db.update(linked)
+            assert client.post(path, json=form, headers=headers).json()["items"] == []
+            with DbSession.atomic() as db:
+                card.visibility = "PRIVATE"
+                card.owner_user_id = 2
+                card.created_by_user_id = 2
+                db.update(card)
+            private_result = client.post(path, json=form, headers=headers)
+            assert private_result.status_code == 200 and len(private_result.json()["items"]) == 1
+            assert "card_uid" not in private_result.json()["items"][0]
+            with DbSession.atomic() as db:
+                card.owner_user_id = state[1][1].id
+                card.created_by_user_id = state[1][1].id
+                db.update(card)
+            assert client.post(path, json=form, headers=headers).json()["items"] == []
+            with DbSession.atomic() as db:
+                linked.is_enabled = False
+                db.update(linked)
+                state[1][4].actions = []
+                db.update(state[1][4])
+            assert client.post(path, json=form, headers=headers).status_code == 404
+            with DbSession.atomic() as db:
+                state[1][4].actions = ["read", "update"]
+                db.update(state[1][4])
+                policy = AppGovernancePolicy(scope_key="global", mode="disabled")
+                db.insert(policy)
+            assert client.post(path, json=form, headers=headers).status_code == 404
+            with DbSession.atomic() as db:
+                policy.mode = "approved_only"
+                db.update(policy)
+            assert len(client.post(path, json=form, headers=headers).json()["items"]) == 1
             with DbSession.atomic() as db:
                 other_connection.state = "revoked"
                 db.update(other_connection)
