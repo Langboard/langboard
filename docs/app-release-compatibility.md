@@ -9,7 +9,7 @@ from this table. Update it when an artifact, declaration or migration changes.
 | Component | Reviewed identity | Evidence and limitation |
 | --- | --- | --- |
 | Host API integration source | `878541385a6779591224acd7f75344267a042d54` | Public app creation to independent HITL exercised on PostgreSQL; not a deployed image |
-| API migration head | `b1a4db39e5c7`, parent `a093ca28d4b6` | One Alembic head; response workflow transition history is durable. Existing history prevents destructive downgrade |
+| API migration head | `c2b5ec40f6d8`, parent `b1a4db39e5c7` | One Alembic head; app archive and response workflow transition history are durable. Existing history prevents destructive downgrade |
 | Python SDK | `0.2.24`, source `43b7f780184fe722417d3de513fd82fdf959df3d` | Reviewed wheel, both host Python projects pinned; `scripts/sdk/verify_python_artifact.py` passes. Adds separately consented current app-owned card reads |
 | Host panel SDK | `@langboard/app-panel@0.2.2`, source `2ad4ea3c5277393e52c5f5d3b1b8b6c59006ceed` | Vendored tarball and UI lockfile. Message protocol remains v1 |
 | Example Monitor | package `0.1.1`, source `5d4d312b2c8e709cfc455d0cfb65eafa47a8a832` | SDK `0.2.23`; baseline declaration schema 2, app version `1.0.0`, signals only. HITL/card creation require a separately approved definition and consent |
