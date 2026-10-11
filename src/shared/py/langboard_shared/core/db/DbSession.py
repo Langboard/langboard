@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from contextlib import contextmanager
+from contextvars import ContextVar
 from enum import Enum
 from time import sleep
 from typing import Any, ClassVar, Dict, Generic, Iterable, Mapping, Optional, Sequence, TypeVar, Union, cast, overload
@@ -100,10 +102,36 @@ class DbSession:
     def __init__(self, session: Session, readonly: bool):
         self.__session = session
         self.__readonly = readonly
+        self.__after_commit: list[Callable[[], None]] = []
+
+    _atomic_session: ClassVar[ContextVar["DbSession | None"]] = ContextVar("atomic_db_session", default=None)
+
+    @staticmethod
+    def has_active_transaction() -> bool:
+        """Whether this context already owns a host atomic unit."""
+        return DbSession._atomic_session.get() is not None
+
+    @staticmethod
+    @contextmanager
+    def atomic():
+        """Share one write transaction across nested repository operations."""
+        if DbSession._atomic_session.get() is not None:
+            yield DbSession._atomic_session.get()
+            return
+        with DbSession.use(readonly=False) as db:
+            token = DbSession._atomic_session.set(db)
+            try:
+                yield db
+            finally:
+                DbSession._atomic_session.reset(token)
 
     @staticmethod
     @contextmanager
     def use(readonly: bool):
+        active = DbSession._atomic_session.get()
+        if active is not None:
+            yield active
+            return
         session = None
         db = None
         try:
@@ -116,6 +144,11 @@ class DbSession:
                 else:
                     with db_session.begin():
                         yield db
+                    for callback in db.__after_commit:
+                        try:
+                            callback()
+                        except Exception as error:
+                            _logger.exception("After-commit callback failed: %s", type(error).__name__)
         except Exception as e:
             _logger.exception(e)
             raise
@@ -130,6 +163,30 @@ class DbSession:
     def close(self):
         self.__session = cast(Session, None)
         self.__readonly = True
+
+    def after_commit(self, callback: Callable[[], None]) -> None:
+        """Run best-effort dispatch only after a successful write commit."""
+        if self.__readonly:
+            raise RuntimeError("Cannot register after-commit callback on a readonly session")
+        self.__after_commit.append(callback)
+
+    @contextmanager
+    def savepoint(self):
+        """Rollback optional writes and their deferred effects without poisoning the host unit."""
+        if self.__readonly or DbSession._atomic_session.get() is not self:
+            raise RuntimeError("Savepoint requires the active write transaction")
+        callback_count = len(self.__after_commit)
+        try:
+            connection = self.__session.connection()
+            if connection.dialect.name == "sqlite" and not connection.connection.driver_connection.in_transaction:
+                # sqlite3 legacy mode does not BEGIN for SELECT or SAVEPOINT.
+                # Start the real outer transaction before releasing a savepoint.
+                connection.exec_driver_sql("BEGIN")
+            with self.__session.begin_nested():
+                yield self
+        except Exception:
+            del self.__after_commit[callback_count:]
+            raise
 
     def insert(self, obj: BaseDbModel):
         """Inserts a new object into the database if it is new.
@@ -371,6 +428,8 @@ class DbSession:
                     return self.__fetch_select_records(statement, self.__session, args, self.__readonly)
                 return self.__exec_select_with_new_session(statement, args, self.__readonly)
             except (SQLAlchemyError, IndexError, ValidationError) as e:
+                if DbSession._atomic_session.get() is not None:
+                    raise
                 last_error = e
                 if attempt < retry_attempts - 1:
                     _logger.warning(

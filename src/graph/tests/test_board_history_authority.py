@@ -9,6 +9,7 @@ from langboard_shared.domain.models import (
     Bot,
     Card,
     CardComment,
+    Organization,
     Project,
     ProjectActivity,
     ProjectAssignedUser,
@@ -42,7 +43,17 @@ from langboard_graph.core.graph.default.history import collect_card_comment_mess
     ],
 )
 def test_current_board_authority_is_in_one_content_query(history_db, kind, case):  # noqa: F811
-    for model in (Project, ProjectColumn, Bot, Card, ProjectActivity, ProjectAssignedUser, ProjectRole, CardComment):
+    for model in (
+        Organization,
+        Project,
+        ProjectColumn,
+        Bot,
+        Card,
+        ProjectActivity,
+        ProjectAssignedUser,
+        ProjectRole,
+        CardComment,
+    ):
         model.__table__.create(history_db)
     with Session(history_db) as db:
         db.add_all([Project(id=30, owner_id=1, title="Own board"), Project(id=31, owner_id=1, title="Other board")])
