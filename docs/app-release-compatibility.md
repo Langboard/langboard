@@ -236,3 +236,13 @@ dependency convention. The outline browser fixture switches between cards with
 different attachments on 1440px and 390px viewports and confirms the section is
 added and removed with the current card. This exercises local model navigation,
 not authenticated deployed navigation or same-UID model replacement.
+
+Workflow mapping API and authenticated HTTP tests are included in the native
+contract workflow. Their local SQLite/PostgreSQL selection passes 30 cases with
+one SQLite row-lock case skipped; the PostgreSQL concurrent stage edit and
+same-revision disable cases pass. Missing-stage creation, inactive-stage denial,
+stale expected-stage conflict and membership/role revocation are exercised through
+authenticated HTTP on both databases. Eight browser fixture cases cover missing
+stage assignment/creation, discard, read-only denial and explicit replacement
+confirmation on desktop/mobile. These remain local evidence; deployed workflow
+mapping acceptance is still required.
