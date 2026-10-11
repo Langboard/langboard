@@ -28,6 +28,7 @@ from .CardBotSchedule import CardBotSchedule
 from .CardBotScope import CardBotScope
 from .CardComment import CardComment
 from .CardCommentReaction import CardCommentReaction
+from .CardExecutionGeneration import CardExecutionGeneration, CardExecutionIntent
 from .CardMetadata import CardMetadata
 from .CardRelationship import CardRelationship
 from .ChatGraphApprovalRequest import ChatGraphApprovalRequest
@@ -118,6 +119,8 @@ __all__ = [
     "ProjectColumnBotDefaultScope",
     "BotSchedule",
     "Card",
+    "CardExecutionGeneration",
+    "CardExecutionIntent",
     "CardAppOwnership",
     "CardAppOwnershipAudit",
     "CardAppResourceSelection",

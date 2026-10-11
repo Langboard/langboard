@@ -483,3 +483,28 @@ PostgreSQL regressions exercise drift rejection, cleanup, native HTTP revision
 and input constraints, app-token rejection and migration upgrade/downgrade. A
 granted resource in these tests is an explicit database fixture; live provider
 verification, UI and execution/runtime integration remain unproven.
+
+## Explicit human execution intent and generation
+
+A human board manager can persist a new run intent for an owning app/connection
+using the current Ready mapping and observed configuration. The snapshot binds
+app approval, board consent, connection identity, card ownership/resource selection,
+card revision, built-in stage revision and each verified resource revision. Current
+resource access and stage activity are checked again before accepting the request.
+The card lock serializes generation increments and request-key deduplication.
+
+The same request key and input return the original receipt. Different input or
+stale generation conflicts; concurrent identical submissions create one request
+and increment once. The generated PostgreSQL schema adds a nonnegative counter
+and a retained intent ledger with unique card/request and card/generation keys.
+Deleting a card removes its counter while preserving its intent records. A
+human-authenticated point-read returns an existing receipt under current board
+and connection privacy even when the app or stage has been disabled.
+
+Every receipt reports started=false and execution_resumed=false. This endpoint
+records intent only; it does not grant runtime admission, dispatch an event, move
+a card or resume an agent. Dependency and pending-human-approval fences, unattended
+connection authority, execution leases, signed outbox and external provider proof
+remain required at the subsequent app runtime admission boundary. Current tests
+prove PostgreSQL concurrency, CAS, idempotency, current resource denial and native
+HTTP inputs/identity; they do not prove a running external app or live Phoenix flow.

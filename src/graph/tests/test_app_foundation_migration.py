@@ -38,7 +38,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["b4e9f73d621a"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["c5fa084e732b"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -383,6 +383,41 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
             assert connection.execute(text("SELECT count(*) FROM card_app_resource_selection_audit")).scalar() == 1
             card_resources_migration.downgrade()
             card_resources_migration.upgrade()
+        spec = importlib.util.spec_from_file_location(
+            "execution_intent_migration", migration_root / "versions/20261012130000-c5fa084e732b.py"
+        )
+        execution_intent_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(execution_intent_migration)
+        assert execution_intent_migration.down_revision == card_resources_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            execution_intent_migration.upgrade()
+            connection.execute(text("INSERT INTO card (id) VALUES (160)"))
+            connection.execute(
+                text("INSERT INTO card_execution_generation (id,card_id,execution_generation) VALUES (161,160,1)")
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO card_execution_intent "
+                    "(id,card_id,actor_id,idempotency_key,execution_generation,app_key,connection_id,snapshot) "
+                    "VALUES (162,160,1,'request-0000000001',1,'example',90,'{}')"
+                )
+            )
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(text("UPDATE card_execution_generation SET execution_generation=-1 WHERE card_id=160"))
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO card_execution_intent "
+                    "(id,card_id,actor_id,idempotency_key,execution_generation,app_key,connection_id,snapshot) "
+                    "VALUES (163,160,1,'request-0000000001',2,'example',90,'{}')"
+                )
+            )
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            connection.execute(text("DELETE FROM card WHERE id=160"))
+            assert connection.execute(text("SELECT count(*) FROM card_execution_generation")).scalar() == 0
+            assert connection.execute(text("SELECT count(*) FROM card_execution_intent")).scalar() == 1
+            execution_intent_migration.downgrade()
+            execution_intent_migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:

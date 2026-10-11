@@ -21,6 +21,7 @@ import langboard.routes.settings.AppWorkflowMappingApi  # noqa: F401
 import langboard.routes.settings.BoardWorkflowSettingsApi  # noqa: F401
 import langboard.routes.settings.CardAppOwnershipApi  # noqa: F401
 import langboard.routes.settings.CardAppResourcesApi  # noqa: F401
+import langboard.routes.settings.CardExecutionIntentApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -49,6 +50,8 @@ from langboard_shared.domain.models import (
     CardAppOwnershipAudit,
     CardAppResourceSelection,
     CardAppResourceSelectionAudit,
+    CardExecutionGeneration,
+    CardExecutionIntent,
     Organization,
     ProjectAssignedUser,
     ProjectColumn,
@@ -91,6 +94,10 @@ from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_ma
 from langboard_shared.domain.services.BoardWorkflowSettings import read_column_workflow, save_column_workflow
 from langboard_shared.domain.services.CardAppGovernance import read_card_app_ownership, set_card_app_ownership
 from langboard_shared.domain.services.CardAppResources import read_card_app_resources, set_card_app_resources
+from langboard_shared.domain.services.CardExecutionIntent import (
+    read_execution_intent_context,
+    request_card_execution_intent,
+)
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.publishers import ProjectColumnPublisher
@@ -1573,3 +1580,143 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
         db.commit()
         assert db.query(CardAppResourceSelection).count() == 0
         assert db.query(CardAppResourceSelectionAudit).count() == 3
+
+
+def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
+    engine, (_, owner, outsider), personal, _ = registered
+    for model in (
+        WorkflowStageDefinition,
+        ProjectColumn,
+        Card,
+        CardAppOwnership,
+        CardAppOwnershipAudit,
+        AppResourceBinding,
+        CardAppResourceSelection,
+        CardAppResourceSelectionAudit,
+        CardExecutionGeneration,
+        CardExecutionIntent,
+        ProjectRole,
+    ):
+        model.__table__.create(engine)
+    with Session(engine) as db:
+        declaration = deepcopy(DECLARATION)
+        declaration["capabilities"] += ["cards.create", "resources.read", "execution.run"]
+        declaration["card_lifecycle"] = {
+            "issue": {"archive": {"mode": "retain", "description": "Retain"}, "restore": "retain_external_state"}
+        }
+        db.execute(update(AppDefinition).values(declaration=declaration))
+        db.execute(
+            update(BoardAppBinding).values(
+                granted_capabilities=declaration["capabilities"],
+                stage_transitions_enabled=True,
+                workflow_mapping={"ready": SnowflakeID(211).to_short_code()},
+            )
+        )
+        db.add(WorkflowStageDefinition(id=201, key="ready", name="Ready", is_builtin=True))
+        db.flush()
+        db.add(ProjectColumn(id=211, project_id=20, name="Queue", workflow_stage="ready"))
+        db.flush()
+        db.add(Card(id=221, project_id=20, project_column_id=211, title="Example"))
+        db.commit()
+        app_revision = db.query(AppDefinition).one().edit_revision()
+        binding_revision = db.query(BoardAppBinding).one().edit_revision()
+    set_card_app_ownership(owner, SnowflakeID(20), SnowflakeID(221), "example", None, app_revision)
+    initial = read_card_app_resources(owner, SnowflakeID(20), SnowflakeID(221), "example", personal.id)
+    with Session(engine) as db:
+        db.add(
+            AppResourceBinding(
+                id=301,
+                board_binding_id=80,
+                connection_id=personal.id,
+                resource_type="issue",
+                external_resource_id="one",
+                is_selected=True,
+                access_state="granted",
+                identity_hash=initial["identity_revision"],
+            )
+        )
+        db.commit()
+    set_card_app_resources(
+        owner,
+        SnowflakeID(20),
+        SnowflakeID(221),
+        "example",
+        personal.id,
+        [SnowflakeID(301).to_short_code()],
+        None,
+        1,
+        initial["identity_revision"],
+        app_revision,
+        binding_revision,
+    )
+    args = (owner, SnowflakeID(20), SnowflakeID(221), "example", personal.id)
+    observed = read_execution_intent_context(*args)
+    assert observed["generation"] == 0 and observed["started"] is False
+    snapshot = {key: value for key, value in observed.items() if key not in {"generation", "started"}}
+    key = "execution-request-0001"
+    with pytest.raises(AppGovernanceDenied):
+        request_card_execution_intent(outsider, *args[1:], key, 0, snapshot)
+
+    def submit():
+        return request_card_execution_intent(*args, key, 0, snapshot)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        receipts = list(executor.map(lambda _: submit(), range(2)))
+    assert sum(receipt["changed"] for receipt in receipts) == 1
+    assert receipts[0]["request_uid"] == receipts[1]["request_uid"]
+    assert all(
+        receipt["generation"] == 1 and not receipt["started"] and not receipt["execution_resumed"]
+        for receipt in receipts
+    )
+    with pytest.raises(AppGovernanceConflict):
+        request_card_execution_intent(*args, key, 0, {**snapshot, "selection_revision": 999})
+    with pytest.raises(AppGovernanceConflict):
+        request_card_execution_intent(*args, "execution-request-0002", 0, snapshot)
+    with Session(engine) as db:
+        db.execute(update(AppResourceBinding).values(access_state="revoked"))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        submit()
+    with Session(engine) as db:
+        assert db.query(CardExecutionGeneration).one().execution_generation == 1
+        assert db.query(CardExecutionIntent).count() == 1
+        db.execute(update(AppResourceBinding).values(access_state="granted"))
+        db.commit()
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-intent-secret-32bytes"))
+    Cache.clear()
+    Auth.reset_user(owner)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+        with TestClient(app) as client:
+            path = (
+                f"/board/{SnowflakeID(20).to_short_code()}/card/{SnowflakeID(221).to_short_code()}"
+                f"/apps/example/connections/{personal.get_uid()}/execution-intent"
+            )
+            assert client.get(path).status_code == 401
+            access, refresh = AuthSecurity.authenticate(owner.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            headers = {"Authorization": f"Bearer {access}"}
+            assert client.get(path, headers=headers).json()["generation"] == 1
+            body = {"idempotency_key": key, "expected_generation": 0, "expected_snapshot": snapshot}
+            assert client.post(path, headers=headers, json=body).json()["changed"] is False
+            assert client.post(path, headers=headers, json={**body, "started": True}).status_code in (400, 422)
+            token = issue_connection_credential(owner, personal.id)["token"]
+            assert client.post(path, headers={"Authorization": f"Bearer {token}"}, json=body).status_code == 401
+            receipt_path = path + "/" + receipts[0]["request_uid"]
+            assert client.get(receipt_path, headers=headers).json()["snapshot"] == snapshot
+            with Session(engine) as db:
+                db.execute(update(AppDefinition).values(is_enabled=False))
+                db.execute(update(WorkflowStageDefinition).values(is_active=False))
+                db.commit()
+            retained = client.get(receipt_path, headers=headers)
+            assert retained.status_code == 200 and retained.json()["execution_resumed"] is False
+            assert client.post(path, headers=headers, json=body).status_code == 403
+    finally:
+        Cache.clear()
+    with Session(engine) as db:
+        db.query(Card).delete()
+        db.commit()
+        assert db.query(CardExecutionGeneration).count() == 0
+        assert db.query(CardExecutionIntent).count() == 1

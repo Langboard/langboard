@@ -9,6 +9,7 @@ from .AppResourceBinding import AppResourceBinding
 from .BoardAppBinding import BoardAppBinding
 from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
 from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
+from .CardExecutionGeneration import CardExecutionGeneration, CardExecutionIntent
 from .ProjectColumn import ProjectColumn
 
 
@@ -78,3 +79,11 @@ for model in (CardAppResourceSelection, CardAppResourceSelectionAudit):
     model.__table__.append_constraint(
         CheckConstraint("revision >= 1 AND ownership_revision >= 0", name=conv(f"ck_{model.__tablename__}_revision"))
     )
+
+
+CardExecutionGeneration.__table__.append_constraint(
+    CheckConstraint("execution_generation >= 0", name=conv("ck_card_execution_generation_nonnegative"))
+)
+CardExecutionIntent.__table__.append_constraint(
+    CheckConstraint("execution_generation >= 1", name=conv("ck_card_execution_intent_positive"))
+)

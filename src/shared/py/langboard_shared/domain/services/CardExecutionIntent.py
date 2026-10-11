@@ -1,0 +1,167 @@
+"""Persist an explicit human run request; runtime admission remains a separate fence."""
+
+import re
+from ...core.db import DbSession, SqlBuilder
+from ...core.types import SnowflakeID
+from ..models import (
+    AppResourceBinding,
+    CardExecutionGeneration,
+    CardExecutionIntent,
+    ProjectColumn,
+    WorkflowStageDefinition,
+)
+from .AppConnectionAuthentication import _identity_hash
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
+from .CardAppResources import _context, _row
+
+
+def _generation(db, card_id, *, for_update=True):
+    statement = SqlBuilder.select.table(CardExecutionGeneration).where(CardExecutionGeneration.card_id == card_id)
+    return db.exec(statement.with_for_update() if for_update else statement).first()
+
+
+def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, for_update=True):
+    definition, binding, connection, card, owner = _context(
+        db, actor, project_id, card_id, app_key, connection_id, for_update=for_update, withdrawal=False
+    )
+    selection = _row(db, card.id, app_key, for_update=for_update)
+    identity = _identity_hash(db, connection, definition=definition)
+    required = {"resources.read", "execution.run"}
+    if (
+        card.archived_at
+        or owner is None
+        or owner.app_key != app_key
+        or selection is None
+        or selection.connection_id != connection.id
+        or not selection.resource_uids
+        or selection.identity_hash != identity
+        or selection.ownership_revision != owner.revision
+        or not required.issubset(definition.declaration.get("capabilities", []))
+        or not required.issubset(binding.granted_capabilities)
+    ):
+        raise AppGovernanceDenied()
+    column = _current(db, ProjectColumn, card.project_column_id, for_update=for_update)
+    stage_statement = SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == "ready")
+    stage = db.exec(stage_statement.with_for_update() if for_update else stage_statement).first()
+    if (
+        column is None
+        or column.deleted_at
+        or column.is_archive
+        or column.project_id != project_id
+        or column.workflow_stage != "ready"
+        or stage is None
+        or not stage.is_builtin
+        or not stage.is_active
+        or not binding.stage_transitions_enabled
+        or binding.workflow_mapping.get("ready") != column.get_uid()
+    ):
+        raise AppGovernanceDenied()
+    resource_statement = SqlBuilder.select.table(AppResourceBinding).where(
+        AppResourceBinding.id.in_([SnowflakeID.from_short_code(uid) for uid in selection.resource_uids]),
+        AppResourceBinding.board_binding_id == binding.id,
+        AppResourceBinding.connection_id == connection.id,
+        AppResourceBinding.is_selected.is_(True),
+        AppResourceBinding.access_state == "granted",
+        AppResourceBinding.identity_hash == identity,
+        AppResourceBinding.resource_type.in_(definition.declaration.get("resource_types", [])),
+    )
+    resources = db.exec(resource_statement.with_for_update() if for_update else resource_statement).all()
+    if sorted(resource.get_uid() for resource in resources) != sorted(selection.resource_uids):
+        raise AppGovernanceDenied()
+    return (
+        card,
+        connection,
+        {
+            "app_revision": definition.edit_revision(),
+            "binding_revision": binding.edit_revision(),
+            "identity_revision": identity,
+            "ownership_revision": owner.revision,
+            "selection_revision": selection.revision,
+            "card_revision": card.updated_at.isoformat(),
+            "stage_revision": stage.edit_revision(),
+            "resource_revisions": {resource.get_uid(): resource.access_revision for resource in resources},
+        },
+    )
+
+
+def read_execution_intent_context(actor, project_id, card_id, app_key, connection_id):
+    with DbSession.atomic() as db:
+        card, _, snapshot = _configuration(db, actor, project_id, card_id, app_key, connection_id, for_update=False)
+        row = _generation(db, card.id, for_update=False)
+        return {**snapshot, "generation": row.execution_generation if row else 0, "started": False}
+
+
+def request_card_execution_intent(
+    actor, project_id, card_id, app_key, connection_id, idempotency_key, expected_generation, expected_snapshot
+):
+    if not isinstance(idempotency_key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", idempotency_key):
+        raise ValueError("A stable request key of 16 to 100 characters is required")
+    if type(expected_generation) is not int or expected_generation < 0 or not isinstance(expected_snapshot, dict):
+        raise ValueError("Observed generation and configuration snapshot required")
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        card, connection, snapshot = _configuration(db, actor, project_id, card_id, app_key, connection_id)
+        previous = db.exec(
+            SqlBuilder.select.table(CardExecutionIntent).where(
+                CardExecutionIntent.card_id == card.id, CardExecutionIntent.idempotency_key == idempotency_key
+            )
+        ).first()
+        if previous:
+            if (
+                previous.actor_id != actor.id
+                or previous.app_key != app_key
+                or previous.connection_id != connection.id
+                or previous.snapshot != expected_snapshot
+                or previous.execution_generation != expected_generation + 1
+            ):
+                raise AppGovernanceConflict()
+            return _receipt(previous, changed=False)
+        if snapshot != expected_snapshot:
+            raise AppGovernanceConflict()
+        generation = _generation(db, card.id)
+        if (generation.execution_generation if generation else 0) != expected_generation:
+            raise AppGovernanceConflict()
+        if generation is None:
+            generation = CardExecutionGeneration(card_id=card.id)
+            db.insert(generation)
+        generation.execution_generation += 1
+        db.update(generation)
+        intent = CardExecutionIntent(
+            card_id=card.id,
+            actor_id=actor.id,
+            idempotency_key=idempotency_key,
+            execution_generation=generation.execution_generation,
+            app_key=app_key,
+            connection_id=connection.id,
+            snapshot=snapshot,
+        )
+        db.insert(intent)
+        return _receipt(intent, changed=True)
+
+
+def _receipt(intent, *, changed):
+    return {
+        "request_uid": intent.get_uid(),
+        "generation": intent.execution_generation,
+        "state": "requested",
+        "started": False,
+        "execution_resumed": False,
+        "changed": changed,
+    }
+
+
+def read_execution_intent_receipt(actor, project_id, card_id, app_key, connection_id, request_id):
+    """Retained receipt read under current human authority, including disabled app cleanup."""
+    with DbSession.atomic() as db:
+        _, _, connection, card, _ = _context(
+            db, actor, project_id, card_id, app_key, connection_id, for_update=False, withdrawal=True
+        )
+        intent = _current(db, CardExecutionIntent, request_id, for_update=False)
+        if (
+            intent is None
+            or intent.card_id != card.id
+            or intent.app_key != app_key
+            or intent.connection_id != connection.id
+        ):
+            raise AppGovernanceDenied()
+        return {**_receipt(intent, changed=False), "snapshot": intent.snapshot}
