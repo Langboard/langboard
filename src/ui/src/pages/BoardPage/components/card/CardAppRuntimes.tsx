@@ -1,7 +1,7 @@
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface Runtime {
@@ -17,29 +17,43 @@ export default function CardAppRuntimes({
     cardUID,
     userUID,
     canRespond,
+    panelContext,
 }: {
     projectUID: string;
     cardUID: string;
     userUID: string;
     canRespond: boolean;
+    panelContext?: { appKey: string; app_revision: string; binding_revision: string };
 }) {
     const [t] = useTranslation();
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(!!panelContext);
     const [sending, setSending] = useState(false);
+    const writing = useRef(false);
     const [unresolved, setUnresolved] = useState(false);
     const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
     const cursor = cursors[cursors.length - 1];
     const path = `/board/${projectUID}/card/${cardUID}/apps/executions`;
+    const panelPath = panelContext ? `/board/${projectUID}/apps/${encodeURIComponent(panelContext.appKey)}/panel` : null;
+    const revisions = panelContext ? { app_revision: panelContext.app_revision, binding_revision: panelContext.binding_revision } : {};
+    const [confirm, setConfirm] = useState<{ item: Runtime; action: "stop" | "resume" } | null>(null);
     const query = useQuery({
-        queryKey: ["card-app-runtimes", projectUID, cardUID, userUID, cursor],
+        queryKey: ["card-app-runtimes", projectUID, cardUID, userUID, cursor, panelContext],
         queryFn: async ({ signal }) =>
-            (
-                await api.get<{ items: Runtime[]; next_cursor?: string | null }>(path, {
-                    signal,
-                    params: { cursor },
-                    env: { interceptToast: true } as never,
-                })
-            ).data,
+            panelPath
+                ? (
+                      await api.post<{ items: Runtime[]; next_cursor?: string | null }>(
+                          `${panelPath}/runtimes`,
+                          { ...revisions, card_uid: cardUID, cursor },
+                          { signal, env: { interceptToast: true } as never }
+                      )
+                  ).data
+                : (
+                      await api.get<{ items: Runtime[]; next_cursor?: string | null }>(path, {
+                          signal,
+                          params: { cursor },
+                          env: { interceptToast: true } as never,
+                      })
+                  ).data,
         enabled: open,
         retry: 0,
         gcTime: 0,
@@ -49,29 +63,42 @@ export default function CardAppRuntimes({
     });
     async function refresh() {
         const result = await query.refetch();
-        if (!result.isError) setUnresolved(false);
+        if (!result.isError) {
+            setUnresolved(false);
+            setConfirm(null);
+        }
     }
     async function control(item: Runtime, action: "stop" | "resume") {
+        if (writing.current || sending || unresolved || query.isFetching || query.isError || !canRespond) return;
+        writing.current = true;
         setSending(true);
         try {
-            await api.post(`${path}/${item.request_uid}/${action}`, { generation: item.generation }, { env: { interceptToast: true } as never });
+            await api.post(
+                panelPath ? `${panelPath}/cards/${cardUID}/runtimes/${item.request_uid}/${action}` : `${path}/${item.request_uid}/${action}`,
+                { ...revisions, generation: item.generation },
+                { env: { interceptToast: true } as never }
+            );
             // POST receipts are not runtime termination evidence. Read current state.
             const result = await query.refetch();
             setUnresolved(result.isError);
+            setConfirm(null);
         } catch {
             setUnresolved(true); // No automatic second POST after an uncertain result.
         } finally {
+            writing.current = false;
             setSending(false);
         }
     }
     return (
         <div className="space-y-2">
-            <Button size="sm" variant="ghost" aria-expanded={open} disabled={sending} onClick={() => setOpen(!open)}>
-                {t("card.appRuntimes.title")}
-            </Button>
+            {!panelContext && (
+                <Button size="sm" variant="ghost" aria-expanded={open} disabled={sending} onClick={() => setOpen(!open)}>
+                    {t("card.appRuntimes.title")}
+                </Button>
+            )}
             {open && (
                 <>
-                    <p className="text-sm text-muted-foreground">{t("card.appRuntimes.help")}</p>
+                    {!panelContext && <p className="text-sm text-muted-foreground">{t("card.appRuntimes.help")}</p>}
                     <Button size="sm" variant="outline" disabled={sending || query.isFetching} onClick={() => void refresh()}>
                         {t("card.appInteractions.refresh")}
                     </Button>
@@ -97,7 +124,7 @@ export default function CardAppRuntimes({
                                         size="sm"
                                         variant="outline"
                                         disabled={!canRespond || sending || unresolved}
-                                        onClick={() => void control(item, "resume")}
+                                        onClick={() => setConfirm({ item, action: "resume" })}
                                     >
                                         {t("card.appRuntimes.resume")}
                                     </Button>
@@ -107,13 +134,28 @@ export default function CardAppRuntimes({
                                         size="sm"
                                         variant="outline"
                                         disabled={!canRespond || sending || unresolved}
-                                        onClick={() => void control(item, "stop")}
+                                        onClick={() => setConfirm({ item, action: "stop" })}
                                     >
                                         {t("card.appRuntimes.stop")}
                                     </Button>
                                 )}
                             </div>
                         ))}
+                    {confirm && (
+                        <div className="space-y-2 rounded border p-3">
+                            <p>{t("card.appRuntimes.help")}</p>
+                            <Button
+                                size="sm"
+                                disabled={sending || unresolved || query.isError || query.isFetching || !canRespond}
+                                onClick={() => void control(confirm.item, confirm.action)}
+                            >
+                                {t(`card.appRuntimes.${confirm.action}`)}
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={sending} onClick={() => setConfirm(null)}>
+                                {t("common.Cancel")}
+                            </Button>
+                        </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                         {cursors.length > 1 && (
                             <Button

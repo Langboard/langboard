@@ -91,8 +91,9 @@ for (const width of [390, 1440]) {
         await page.getByRole("button", { name: "App execution", exact: true }).click();
         await expect(page.getByText("Permit issued", { exact: true })).toBeVisible();
         await page.getByRole("button", { name: "Request stop", exact: true }).click();
+        await page.getByRole("button", { name: "Request stop", exact: true }).last().click();
         await expect(page.getByRole("alert")).toBeVisible();
-        await expect(page.getByRole("button", { name: "Request stop", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Request stop", exact: true }).last()).toBeDisabled();
         await page.getByRole("button", { name: "Refresh", exact: true }).click();
         await expect(page.getByText("Stop requested — awaiting runtime termination", { exact: true })).toBeVisible();
         await expect(page.getByRole("button", { name: "Request stop", exact: true })).toHaveCount(0);
@@ -105,7 +106,7 @@ for (const width of [390, 1440]) {
 test("read-only card cannot request runtime stop", async ({ page }) => {
     await page.goto(`${fixture}?runtime&readonly`);
     await page.getByRole("button", { name: "App execution", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Request stop", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Request stop", exact: true }).last()).toBeDisabled();
 });
 
 test("older runtime page and back navigation keep exact cursor", async ({ page }) => {
@@ -122,8 +123,9 @@ test("explicit resume of stopped older generation waits for new runtime", async 
     await page.goto(`${fixture}?runtime&stopped&lost`);
     await page.getByRole("button", { name: "App execution", exact: true }).click();
     await page.getByRole("button", { name: "Request resume", exact: true }).click();
+    await page.getByRole("button", { name: "Request resume", exact: true }).last().click();
     await expect(page.getByRole("alert")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Request resume", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Request resume", exact: true }).last()).toBeDisabled();
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(page.getByText("Resume requested — awaiting new runtime", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Request resume", exact: true })).toHaveCount(0);
