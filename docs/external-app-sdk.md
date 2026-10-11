@@ -1103,7 +1103,7 @@ to `AppSignalProjection` and `SignalInbox`: event eligibility, resource types,
 outcome evidence and time semantics no longer require a provider-name branch.
 Each card batch reads the policy registry once (four total queries for one or
 31 cards). Disabling the definition suppresses both inbox and card evidence.
-A fourth provider still requires generic host ingestion; this query support does
+Generic signed host ingestion is available below. Query support alone does
 not establish the complete no-core-change acceptance gate.
 
 Python SDK 0.2.21 adds a validated optional `signal_policy` declaration with six
@@ -1111,7 +1111,7 @@ required fields: schema `version: 1`, finite unique `event_types`, a subset of
 the app's `resource_types`, finite `outcome_states`, `commit_mode` and `time_basis`.
 Outcomes map to evidence states, never reviewer approval. `signals.publish` is a
 separate declaration capability and requires this policy. A policy change removes
-existing signal read/publication consent while retaining unrelated grants. This
+existing signal read/publication consent while retaining unrelated grants.
 The native `POST /apps/v1/boards/{board_uid}/signals` accepts at most 64 KiB of
 exact signed JSON bytes. Bearer authentication uses the existing owner-issued
 connection credential; native v1 webhook headers use that credential as the HMAC
@@ -1152,9 +1152,19 @@ separate requirements.
 Cross-board ingress regression explicitly binds the same organization connection
 to a second board, receives separate resource evidence and verifies both inboxes
 remain scoped. Before binding, publication is denied; after binding, selecting
-the other board's resource is denied in both directions. This uses database
-onboarding fixtures rather than an independently installed app, so the external
-developer onboarding and manual-card-creation acceptance gates remain open.
+the other board's resource is denied in both directions. Connection registration
+and resource selection/revocation now pass actual user-session authentication and
+ApiAuthMiddleware through HTTP. Board app consent still uses database fixtures;
+an independently installed app and complete developer onboarding remain unproven.
+
+Manual card linking uses the same approved external policy and current native
+credential identity checks. On PostgreSQL, the authenticated inbox card endpoint
+creates a native card (201), returns the same card on an identical retry (200),
+and dispatches creation once. It attaches observation evidence without creating
+CardAppOwnership or changing the selected workflow column. Signal, inbox, native
+card creation and app-owned cards remain separate functions. Credential revocation
+also rejects subsequent manual links. This is local HTTP/database acceptance, not
+an independently packaged app or deployed canary proof.
 
 The remaining generic contract must keep normalization in the external app and
 validate an approved finite event/resource/outcome policy, a versioned signed
