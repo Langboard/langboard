@@ -14,6 +14,8 @@ def run():
         "/app/scripts/run_execution_outbox_cron.sh",
         "execution-outbox-recovery",
     )
+    BotScheduleHelper.utils.remove_job(cron, "app-event-recovery")
+    BotScheduleHelper.utils.create_job(cron, "* * * * *", "/app/scripts/run_app_event_cron.sh", "app-event-recovery")
     BotScheduleHelper.utils.remove_job(cron, "github-health-recovery")
     BotScheduleHelper.utils.create_job(
         cron, "* * * * *", "/app/scripts/run_github_health_cron.sh", "github-health-recovery"

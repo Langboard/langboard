@@ -280,3 +280,26 @@ HTTP/storage/signature regression in SQLite and disposable PostgreSQL includes
 response→outbox→claim→exact signed payload→pre-send revalidation→failed attempt→
 same-event retry→app-authenticated ACK→delivery finish→readback. The tests do not
 send to a production receiver or prove deployed scheduling/UI/runtime behavior.
+
+## Committed event dispatch and bounded recovery
+
+Response events register an after-commit callback which publishes
+`app_event_delivery_task(event_uid, frozen_destination_revision)`. Rollback never
+publishes; duplicate responses do not publish again. Broker failures do not undo
+accepted answers: the durable event remains pending. The task uses the existing
+broker wrapper with three backed-off retries, while durable claim attempts cap
+actual HTTP sends at four. Claim revalidation remains mandatory for every attempt.
+
+The API runner installs the existing minute-cron pattern for
+`run_app_event_cron.sh`. Recovery selects at most 25 pending or expired-lease app
+events with a frozen destination revision, ordered by ID. Unpinned legacy events
+cannot consume the bounded page. It never re-enables blocked/failed/delivered
+events, changes destinations or scans cards/files. Multiple recoverers are fenced
+by the current row claim. The existing worker still resolves a public destination
+and rechecks authority before HTTP; real broker/cron/runtime deployment and actual
+external receiver integration remain acceptance gates.
+
+SQLite and PostgreSQL storage tests capture one enqueue after four duplicate
+responses and verify recovery excludes delivered/unpinned events and selects a
+pending pinned event. Queue publishing and the recovery HTTP function are stubbed
+in this test to avoid external sends. That test is not production dispatch proof.

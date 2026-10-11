@@ -20,6 +20,10 @@ from test_app_execution_ack import scope
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypatch):
+    from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+
+    enqueues = []
+    monkeypatch.setattr(AppEventDeliveryTask, "app_event_delivery_task", lambda *args: enqueues.append(args))
     connection, card, token, _ = scope(board, monkeypatch)
     migration = importlib.import_module("langboard.migrations.versions.20261011090000-ed71a806b2f4")
     original = migration.op
@@ -276,6 +280,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             revalidate_app_event_claim,
         )
 
+        assert enqueues == [(accepted["event_uid"], 2)]
         event_id = SnowflakeID.from_short_code(accepted["event_uid"])
         assert accepted["delivery_state"] == "pending" and accepted["reception_state"] == "not_received"
         with pytest.raises(AppGovernanceDenied):
@@ -339,6 +344,27 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         readback = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), mixed_receipt["interaction_uid"]))
         assert readback["delivery_state"] == "delivered" and readback["reception_state"] == "received"
         assert readback["execution_resumed"] is False
+        from unittest.mock import AsyncMock
+        from langboard_shared.tasks.webhooks import AppEventDeliveryWorker
+
+        worker_mock = AsyncMock(return_value={"state": "delivered"})
+        monkeypatch.setattr(AppEventDeliveryWorker, "deliver_app_event", worker_mock)
+        assert asyncio.run(AppEventDeliveryWorker.recover_app_events(25)) == 0
+        worker_mock.assert_not_awaited()
+        from langboard_shared.domain.models import AppExecutionOutbox
+
+        with DbSession.atomic() as db:
+            retained_event = db.exec(
+                SqlBuilder.select.table(AppExecutionOutbox).where(AppExecutionOutbox.id == event_id)
+            ).first()
+            retained_event.state = "pending"
+            db.update(retained_event)
+        assert asyncio.run(AppEventDeliveryWorker.recover_app_events(1)) == 1
+        worker_mock.assert_awaited_once_with(event_id, 2)
+        with DbSession.atomic() as db:
+            retained_event.state = "delivered"
+            db.update(retained_event)
+
         from langboard_sdk import NativeApiError
 
         with pytest.raises(NativeApiError):
