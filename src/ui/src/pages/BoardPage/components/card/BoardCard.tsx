@@ -1,5 +1,6 @@
 import CardAppResources from "./CardAppResources";
 import CardAppInteractions from "./CardAppInteractions";
+import CardAppArchiveReceipts from "./CardAppArchiveReceipts";
 import { ProjectRole } from "@/core/models/roles";
 import CardSignalEvidence from "./CardSignalEvidence";
 import CardFlipTray from "./CardFlipTray";
@@ -638,6 +639,7 @@ function BoardTaskCardResult({
                                                         userUID={currentUser.uid}
                                                         canRespond={canEditCard && !card.archived_at}
                                                     />
+                                                    <CardAppArchiveReceipts projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} />
                                                     {executionReceipts.length > 0 && (
                                                         <BoardCardSection title="card.Execution records">
                                                             <div className="space-y-3">

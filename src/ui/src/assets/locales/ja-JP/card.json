@@ -297,5 +297,12 @@
     "applyMove": "カードを移動",
     "moveHelp": "カードを {{stage}} に移動します。実行は再開しません。",
     "moveRecorded": "カードの移動を記録しました。"
-  }
+  },
+  "App archive history": "アプリアーカイブ履歴",
+  "App archive receipt help": "イベント配信と外部処理結果は別です。外部結果は認証済みアプリからの報告です。",
+  "App archive history unavailable": "履歴を取得できません。",
+  "No app archive history": "履歴はありません。",
+  "Archive outcome": "アーカイブ結果",
+  "Event delivery": "イベント配信",
+  "Provider reported state": "アプリが報告した外部状態"
 }

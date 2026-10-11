@@ -101,6 +101,7 @@ class WorkflowStageService(BaseDomainService):
                     "capabilities": list(manifest.capabilities) if available else [],
                     "app_revision": definitions[key].edit_revision() if key in definitions else None,
                     "signal_sources": list(definitions[key].declaration.get("signal_sources", [])) if key in definitions else [],
+                    "card_lifecycle": definitions[key].declaration.get("card_lifecycle", {}) if key in definitions else {},
                     "resources": summaries.get(binding.id if binding else None, {
                         "selected_count": 0, "access_counts": {}, "health_counts": {}, "connection_counts": {},
                     }),
@@ -108,6 +109,7 @@ class WorkflowStageService(BaseDomainService):
                         "uid": binding.get_uid(), "state": binding.state, "revision": binding.edit_revision(),
                         "granted_capabilities": list(binding.granted_capabilities),
                         "stage_transitions_enabled": binding.stage_transitions_enabled,
+                        "archive_sync_types": list(binding.archive_sync_types),
                     },
                 })
             return items
@@ -209,6 +211,9 @@ class WorkflowStageService(BaseDomainService):
             binding.state = "disabled"
             binding.stage_transitions_enabled = False
             binding.granted_capabilities = []
+            if binding.archive_sync_types:
+                binding.archive_sync_types = []
+                binding.archive_sync_revision += 1
             db.update(binding)
             db.after_commit(AppSettingPublisher.apps_changed)
             return binding
