@@ -8,6 +8,7 @@ from ...core.types import SafeDateTime, SnowflakeID
 from ..models import (
     AppCardInteraction,
     AppCardInteractionResponse,
+    AppCardInteractionTransition,
     AppConnection,
     AppDefinition,
     AppResourceBinding,
@@ -122,10 +123,19 @@ def _receipt(row):
             )
         ).first()
         delivery = _response_delivery(db, answer) if answer else {}
-    return _project_receipt(row, answer, delivery)
+        transition = (
+            db.exec(
+                SqlBuilder.select.table(AppCardInteractionTransition).where(
+                    AppCardInteractionTransition.response_id == answer.id
+                )
+            ).first()
+            if answer
+            else None
+        )
+    return _project_receipt(row, answer, delivery, transition)
 
 
-def _project_receipt(row, answer, delivery):
+def _project_receipt(row, answer, delivery, transition=None):
     return {
         "schema_version": 1,
         "interaction_uid": row.get_uid(),
@@ -146,7 +156,8 @@ def _project_receipt(row, answer, delivery):
         if answer
         else None,
         "execution_resumed": False,
-        "workflow_transitioned": False,
+        "workflow_transitioned": bool(transition and transition.receipt["workflow_transitioned"]),
+        "workflow_receipt": {"transition_uid": transition.get_uid(), **transition.receipt} if transition else None,
         "workflow_plan": _selected_workflow_plan(row, answer.values) if answer else None,
         **delivery,
     }
@@ -287,16 +298,24 @@ def list_card_interactions(service, actor, project_id, card_id, *, limit=25, bef
         more = len(rows) > limit
         rows = rows[:limit]
         if not rows:
-            return {"items": [], "next_cursor": None}
+            return {"items": [], "next_cursor": None, "card_revision": readable[1].last_change_seq}
         answers = db.exec(
             SqlBuilder.select.table(AppCardInteractionResponse).where(
                 AppCardInteractionResponse.interaction_id.in_([row.id for row in rows])
             )
         ).all()
         by_interaction = {answer.interaction_id: answer for answer in answers}
-        events, acknowledgments = {}, {}
+        events, acknowledgments, transitions = {}, {}, {}
         if answers:
             answer_ids = [answer.id for answer in answers]
+            transitions = {
+                transition.response_id: transition
+                for transition in db.exec(
+                    SqlBuilder.select.table(AppCardInteractionTransition).where(
+                        AppCardInteractionTransition.response_id.in_(answer_ids)
+                    )
+                ).all()
+            }
             events = {
                 event.request_id: event
                 for event in db.exec(
@@ -330,8 +349,12 @@ def list_card_interactions(service, actor, project_id, card_id, *, limit=25, bef
                 if answer
                 else {}
             )
-            items.append(_project_receipt(row, answer, delivery))
-        return {"items": items, "next_cursor": rows[-1].get_uid() if more else None}
+            items.append(_project_receipt(row, answer, delivery, transitions.get(answer.id) if answer else None))
+        return {
+            "items": items,
+            "next_cursor": rows[-1].get_uid() if more else None,
+            "card_revision": readable[1].last_change_seq,
+        }
 
 
 def create_app_card_interaction(token, project_id, card_id, body):

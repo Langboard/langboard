@@ -13,6 +13,7 @@ from langboard_shared.domain.services.AppCardInteractions import (
     respond_to_app_card_interaction,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.AppInteractionTransitions import apply_interaction_transition
 from langboard_shared.security import Auth
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +24,45 @@ class HumanResponseBody(BaseModel):
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
     execution_generation: int | None = Field(default=None, strict=True, ge=1)
     values: dict
+
+
+class HumanTransitionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    response_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
+    expected_card_revision: int = Field(strict=True, ge=0)
+
+
+@AppRouter.api.post(
+    "/board/{project_uid}/card/{card_uid}/apps/interactions/{interaction_uid}/transition", tags=["Board.Card"]
+)
+@AuthFilter.add("user")
+def transition_interaction(
+    request: Request,
+    project_uid: str,
+    card_uid: str,
+    interaction_uid: str,
+    body: HumanTransitionBody,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    try:
+        result = apply_interaction_transition(
+            service,
+            user,
+            SnowflakeID.from_short_code(project_uid),
+            SnowflakeID.from_short_code(card_uid),
+            SnowflakeID.from_short_code(interaction_uid),
+            SnowflakeID.from_short_code(body.response_uid),
+            body.expected_card_revision,
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except AppCardInteractionConflict:
+        raise ApiException.Conflict_409() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
 
 
 @AppRouter.api.get("/board/{project_uid}/card/{card_uid}/apps/interactions", tags=["Board.Card"])
