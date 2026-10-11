@@ -21,7 +21,7 @@ class ExecutionIntentForm(BaseFormModel):
     model_config = {"extra": "forbid"}
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9_-]{16,100}$")
     expected_generation: int = Field(strict=True, ge=0)
-    expected_snapshot: dict = Field(max_length=8)
+    expected_snapshot: dict = Field(max_length=9)
 
 
 def _run(operation, *args):

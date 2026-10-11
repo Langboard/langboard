@@ -530,3 +530,23 @@ This restores the data and response prerequisites only. Execution dependency
 checks, hidden-blocker redaction, cycle policy, administrator semantic mapping,
 localized relationship UI, and deployed REST/MCP/browser acceptance remain
 pending. A `blocks` metadata row is not itself proof of an execution gate.
+
+
+## Direct dependency checks for human run intent
+
+`CardDependencyState.card_dependency_state()` reads current direct `blocks` edges
+on the primary transaction connection. `contains`, `references`, and unclassified
+legacy display names do not participate. A prerequisite must be an undeleted,
+unarchived card in the same board, in a current nonarchive column whose active
+stage explicitly counts as completed. Archive alone does not satisfy a dependency.
+Disabled relationship types do not introduce active prerequisites. Relationship types
+and edges use the native hard-deletion model.
+
+The response is limited to state, direct blocker count, and a digest of the
+observed dependency revisions; prerequisite titles and identifiers are not
+projected. Human execution-intent reads and writes reject unsatisfied
+prerequisites, and the observed digest joins the configuration CAS snapshot.
+This is not a runtime permit or a transaction fence for all concurrent card,
+column, and relationship writers. Actual execution admission must revalidate the
+current state under coordinated mutation locks. Runtime fences, cycle rejection,
+MCP/UI blocker projection, and live acceptance remain pending.

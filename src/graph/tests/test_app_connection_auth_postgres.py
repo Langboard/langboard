@@ -52,6 +52,8 @@ from langboard_shared.domain.models import (
     CardAppResourceSelectionAudit,
     CardExecutionGeneration,
     CardExecutionIntent,
+    CardRelationship,
+    GlobalCardRelationshipType,
     Organization,
     ProjectAssignedUser,
     ProjectColumn,
@@ -94,6 +96,7 @@ from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_ma
 from langboard_shared.domain.services.BoardWorkflowSettings import read_column_workflow, save_column_workflow
 from langboard_shared.domain.services.CardAppGovernance import read_card_app_ownership, set_card_app_ownership
 from langboard_shared.domain.services.CardAppResources import read_card_app_resources, set_card_app_resources
+from langboard_shared.domain.services.CardDependencyState import card_dependency_state
 from langboard_shared.domain.services.CardExecutionIntent import (
     read_execution_intent_context,
     request_card_execution_intent,
@@ -1588,6 +1591,8 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         WorkflowStageDefinition,
         ProjectColumn,
         Card,
+        GlobalCardRelationshipType,
+        CardRelationship,
         CardAppOwnership,
         CardAppOwnershipAudit,
         AppResourceBinding,
@@ -1652,6 +1657,84 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
     args = (owner, SnowflakeID(20), SnowflakeID(221), "example", personal.id)
     observed = read_execution_intent_context(*args)
     assert observed["generation"] == 0 and observed["started"] is False
+    snapshot = {key: value for key, value in observed.items() if key not in {"generation", "started"}}
+    with Session(engine) as db:
+        db.add(
+            WorkflowStageDefinition(
+                id=202, key="completed", name="Completed", is_builtin=True, counts_as_completed=True
+            )
+        )
+        db.flush()
+        db.add(ProjectColumn(id=212, project_id=20, name="Finished", workflow_stage="completed"))
+        db.flush()
+        db.add(Card(id=222, project_id=20, project_column_id=211, title="Sensitive prerequisite"))
+        db.add_all(
+            [
+                GlobalCardRelationshipType(
+                    id=501, parent_name="Unfinished plan", child_name="Member", machine_semantic="contains"
+                ),
+                GlobalCardRelationshipType(
+                    id=502, parent_name="Context", child_name="Related", machine_semantic="references"
+                ),
+                GlobalCardRelationshipType(
+                    id=503,
+                    parent_name="Renamed prerequisite",
+                    child_name="Dependent",
+                    machine_semantic="blocks",
+                    affects_readiness=True,
+                ),
+            ]
+        )
+        db.flush()
+        db.add(CardRelationship(id=601, card_id_parent=222, card_id_child=221, relationship_type_id=501))
+        db.commit()
+    assert read_execution_intent_context(*args)["dependency_revision"] == observed["dependency_revision"]
+    with Session(engine) as db:
+        db.execute(update(CardRelationship).values(relationship_type_id=502))
+        db.commit()
+    assert read_execution_intent_context(*args)["dependency_revision"] == observed["dependency_revision"]
+    with Session(engine) as db:
+        db.execute(update(CardRelationship).values(relationship_type_id=503))
+        db.commit()
+    with DbSession.atomic() as db:
+        blocked = card_dependency_state(db, SnowflakeID(20), SnowflakeID(221))
+    assert blocked["state"] == "blocked" and blocked["direct_blocker_count"] == 1
+    assert "Sensitive" not in json.dumps(blocked) and "prerequisite_id" not in blocked
+    with pytest.raises(AppGovernanceDenied):
+        read_execution_intent_context(*args)
+    with pytest.raises(AppGovernanceDenied):
+        request_card_execution_intent(*args, "blocked-request-0001", 0, snapshot)
+    with Session(engine) as db:
+        assert db.query(CardExecutionIntent).count() == 0
+        db.execute(update(Card).where(Card.id == 222).values(project_column_id=212))
+        db.commit()
+    observed = read_execution_intent_context(*args)
+    snapshot = {key: value for key, value in observed.items() if key not in {"generation", "started"}}
+    with Session(engine) as db:
+        db.execute(update(Card).where(Card.id == 222).values(archived_at=SafeDateTime.now()))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        read_execution_intent_context(*args)
+    with Session(engine) as db:
+        db.execute(update(Card).where(Card.id == 222).values(archived_at=None))
+        db.commit()
+    with Session(engine) as db:
+        db.execute(update(WorkflowStageDefinition).where(WorkflowStageDefinition.id == 202).values(is_active=False))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        read_execution_intent_context(*args)
+    with Session(engine) as db:
+        db.execute(update(WorkflowStageDefinition).where(WorkflowStageDefinition.id == 202).values(is_active=True))
+        db.execute(update(Card).where(Card.id == 222).values(deleted_at=SafeDateTime.now()))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        read_execution_intent_context(*args)
+    with Session(engine) as db:
+        db.execute(update(Card).where(Card.id == 222).values(deleted_at=None))
+        db.commit()
+    with pytest.raises(AppGovernanceConflict):
+        request_card_execution_intent(*args, "stale-dependency-0001", 0, snapshot)
+    observed = read_execution_intent_context(*args)
     snapshot = {key: value for key, value in observed.items() if key not in {"generation", "started"}}
     key = "execution-request-0001"
     with pytest.raises(AppGovernanceDenied):

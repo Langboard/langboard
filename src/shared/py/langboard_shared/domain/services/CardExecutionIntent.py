@@ -13,6 +13,7 @@ from ..models import (
 from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 from .CardAppResources import _context, _row
+from .CardDependencyState import card_dependency_state
 
 
 def _generation(db, card_id, *, for_update=True):
@@ -68,6 +69,9 @@ def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, fo
     resources = db.exec(resource_statement.with_for_update() if for_update else resource_statement).all()
     if sorted(resource.get_uid() for resource in resources) != sorted(selection.resource_uids):
         raise AppGovernanceDenied()
+    dependencies = card_dependency_state(db, project_id, card_id)
+    if dependencies["state"] != "clear":
+        raise AppGovernanceDenied()
     return (
         card,
         connection,
@@ -80,6 +84,7 @@ def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, fo
             "card_revision": card.updated_at.isoformat(),
             "stage_revision": stage.edit_revision(),
             "resource_revisions": {resource.get_uid(): resource.access_revision for resource in resources},
+            "dependency_revision": dependencies["revision"],
         },
     )
 
