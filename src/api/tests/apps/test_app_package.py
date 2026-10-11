@@ -94,6 +94,41 @@ def test_official_redirect_never_reaches_private_host():
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize("payload", [b"not JSON", b"\xff", b"null", b"[]", b'"release"',
+    b'{"tag_name":"v1.0.0","assets":null}', b'{"tag_name":"v1.0.0","assets":{}}',
+    b'{"tag_name":"v1.0.0","assets":[null]}'])
+def test_malformed_official_release_fails_before_asset_download(payload):
+    calls = []
+    def request(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, content=payload)
+    with httpx.Client(transport=httpx.MockTransport(request)) as client:
+        with pytest.raises(ValueError, match="Invalid official release"):
+            download_official_package("github-panel", client=client)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("field,value", [("id", None), ("id", True), ("id", 0), ("id", "42"),
+    ("digest", None), ("digest", 42), ("size", True), ("size", None)])
+def test_malformed_official_asset_identity_fails_before_download(field, value):
+    body = bundle()
+    asset = {"id": 42, "name": "langboard-app-github.zip", "state": "uploaded", "size": len(body),
+        "digest": "sha256:" + sha256(body).hexdigest(),
+        "browser_download_url": "https://github.com/yamonco/langboard-app-github/releases/download/v1.0.0/langboard-app-github.zip"}
+    if value is None:
+        asset.pop(field)
+    else:
+        asset[field] = value
+    calls = []
+    def request(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"tag_name": "v1.0.0", "assets": [asset]})
+    with httpx.Client(transport=httpx.MockTransport(request)) as client:
+        with pytest.raises(ValueError, match="identity"):
+            download_official_package("github-panel", client=client)
+    assert len(calls) == 1
+
+
 def test_store_icons_must_be_packaged_and_version_must_not_be_boolean():
     body = bundle()
     with ZipFile(BytesIO(body)) as source:

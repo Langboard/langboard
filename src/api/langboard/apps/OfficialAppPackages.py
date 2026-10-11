@@ -66,19 +66,30 @@ def download_official_package(key: str, tag: str | None = None, *, client=None) 
             except httpx.RequestError as exc:
                 raise ValueError("Official release download failed") from exc
     selector = "latest" if tag is None else f"tags/{quote(tag, safe='')}"
-    release = json.loads(_read(client, f"https://api.github.com/repos/{item.repository}/releases/{selector}", 1024 * 1024))
+    try:
+        release = json.loads(_read(client, f"https://api.github.com/repos/{item.repository}/releases/{selector}", 1024 * 1024))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid official release response") from exc
+    if not isinstance(release, dict):
+        raise ValueError("Invalid official release response")
     tag = release.get("tag_name") if tag is None else tag
     if not isinstance(tag, str) or not re.fullmatch(r"v?[0-9]+\.[0-9]+\.[0-9]+", tag):
         raise ValueError("Stable official version required")
     if release.get("draft") or release.get("prerelease") or release.get("tag_name") != tag:
         raise ValueError("Stable official release required")
-    assets = [asset for asset in release.get("assets", []) if asset.get("name") == item.asset_name and asset.get("state") == "uploaded"]
+    raw_assets = release.get("assets")
+    if not isinstance(raw_assets, list) or any(not isinstance(asset, dict) for asset in raw_assets):
+        raise ValueError("Invalid official release assets")
+    assets = [asset for asset in raw_assets if asset.get("name") == item.asset_name and asset.get("state") == "uploaded"]
     if len(assets) != 1:
         raise ValueError("Official package asset unavailable")
     asset = assets[0]
     digest = asset.get("digest", "")
     expected_url = f"https://github.com/{item.repository}/releases/download/{tag}/{item.asset_name}"
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or asset.get("browser_download_url") != expected_url or type(asset.get("size")) is not int or not 0 < asset["size"] <= MAX_PACKAGE_BYTES:
+    if (not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+        or type(asset.get("id")) is not int or asset["id"] <= 0
+        or asset.get("browser_download_url") != expected_url or type(asset.get("size")) is not int
+        or not 0 < asset["size"] <= MAX_PACKAGE_BYTES):
         raise ValueError("Official asset identity unavailable")
     body = _read(client, expected_url, MAX_PACKAGE_BYTES, binary=True)
     if len(body) != asset["size"] or sha256(body).hexdigest() != digest.removeprefix("sha256:"):
