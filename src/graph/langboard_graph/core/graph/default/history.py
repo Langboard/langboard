@@ -128,6 +128,20 @@ def _card_belongs_to_project(card_uid: str, project_uid: str) -> bool:
         return False
 
 
+def _history_actor_id(variables: dict[str, Any]) -> int | None:
+    token = variables.get("app_api_token")
+    if variables.get("current_runner_type") != "user" or not isinstance(token, str) or not token:
+        return None
+    try:
+        payload = AuthSecurity.decode_access_token(token)
+        if payload.get("internal") != "bot":
+            return None
+        actor_id = int(payload["sub"])
+        return actor_id if 0 < actor_id <= SnowflakeID.MAX_VALUE else None
+    except Exception:
+        return None
+
+
 def collect_chat_history_messages(
     variables: dict[str, Any], rest_data: dict[str, Any], limit: int
 ) -> list[GraphHistoryMessage]:
@@ -142,19 +156,8 @@ def collect_chat_history_messages(
     if not chat_session_uid and not chat_history_uid:
         return []
 
-    if variables.get("current_runner_type") != "user":
-        return []
-    token = variables.get("app_api_token")
-    if not isinstance(token, str) or not token:
-        return []
-    try:
-        payload = AuthSecurity.decode_access_token(token)
-        if payload.get("internal") != "bot":
-            return []
-        actor_id = int(payload["sub"])
-        if not 0 < actor_id <= SnowflakeID.MAX_VALUE:
-            return []
-    except Exception:
+    actor_id = _history_actor_id(variables)
+    if actor_id is None:
         return []
 
     try:
@@ -205,13 +208,9 @@ def collect_card_comment_messages(
 
     try:
         variables = variables or {}
-        token = variables.get("app_api_token")
-        if variables.get("current_runner_type") != "user" or not isinstance(token, str):
+        actor_id = _history_actor_id(variables)
+        if actor_id is None:
             return []
-        payload = AuthSecurity.decode_access_token(token)
-        if payload.get("internal") != "bot":
-            return []
-        actor_id = int(payload["sub"])
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
         if actor is None:
@@ -259,14 +258,10 @@ def collect_project_activity_messages(
     column_uid = _first_string(rest_data.get("project_column_uid"))
     if not project_uid:
         return []
-    token = variables.get("app_api_token")
-    if variables.get("current_runner_type") != "user" or not isinstance(token, str):
+    actor_id = _history_actor_id(variables)
+    if actor_id is None:
         return []
     try:
-        payload = AuthSecurity.decode_access_token(token)
-        if payload.get("internal") != "bot":
-            return []
-        actor_id = int(payload["sub"])
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
         if actor is None:
