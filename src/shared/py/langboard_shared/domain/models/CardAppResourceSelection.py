@@ -1,14 +1,13 @@
 """Explicit execution resource selection, independent of check/commit signals."""
 
 from typing import Any
-from sqlalchemy import JSON, UniqueConstraint
+from sqlalchemy import JSON
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from .AppConnection import AppConnection
 from .Card import Card
 
 
 class CardAppResourceSelection(BaseDbModel, table=True):
-    __table_args__ = (UniqueConstraint("card_id", "app_key", name="uq_card_app_resource_selection"),)
     card_id: int = SnowflakeIDField(foreign_key=Card, nullable=False, index=True)
     app_key: str = Field(nullable=False)
     connection_id: int = SnowflakeIDField(foreign_key=AppConnection, nullable=False)
