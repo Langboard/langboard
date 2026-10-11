@@ -414,7 +414,8 @@
     "Connection MCP write": "Change external service",
     "Connection MCP automation": "Run external automation",
     "Connection MCP refresh required": "Access denied, state changed, or request failed. Refresh and review before saving again.",
-    "Connection MCP no tools": "No declared tools"
+    "Connection MCP no tools": "No declared tools",
+    "GitHub app connection identity": "GitHub App {{appId}} · {{connectionId}}"
   },
   "App panel": "App panel",
   "Close App panel": "Close App panel",

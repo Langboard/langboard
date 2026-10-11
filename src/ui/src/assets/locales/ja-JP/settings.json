@@ -362,5 +362,8 @@
   "App catalog filter": "アプリ一覧フィルター",
   "Search apps": "アプリを検索",
   "App details": "アプリ詳細",
-  "No apps found": "該当するアプリはありません"
+  "No apps found": "該当するアプリはありません",
+  "SCIM issuer": "SCIM 発行者",
+  "Group ID": "グループ ID",
+  "External group ID": "外部グループ ID"
 }

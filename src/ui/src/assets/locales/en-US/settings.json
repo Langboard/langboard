@@ -362,5 +362,8 @@
   "App catalog filter": "App catalog filter",
   "Search apps": "Search apps",
   "App details": "App details",
-  "No apps found": "No matching apps"
+  "No apps found": "No matching apps",
+  "SCIM issuer": "SCIM issuer",
+  "Group ID": "Group ID",
+  "External group ID": "External group ID"
 }
