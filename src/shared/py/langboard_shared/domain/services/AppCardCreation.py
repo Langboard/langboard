@@ -1,5 +1,6 @@
 """Approved external issues use native card creation and durable import lineage."""
 
+import re
 from hashlib import sha256
 from json import dumps
 from ...core.db import DbSession, EditorContentModel, SqlBuilder
@@ -27,17 +28,19 @@ class AppCardCreationConflict(Exception):
     """A source identity cannot create a second card or overwrite its original input."""
 
 
-def create_app_card(token, project_id, resource_id, external_id, title, *, description="", presentation=None):
+def create_app_card(token, project_id, resource_id, external_id, title, *, description="", card_type=None, presentation=None):
     if not isinstance(external_id, str) or not external_id.strip() or len(external_id) > 200:
         raise ValueError("A stable external issue ID is required")
     if not isinstance(title, str) or not title.strip() or len(title) > 200:
         raise ValueError("A card title of at most 200 characters is required")
     if not isinstance(description, str) or len(description) > 100000:
         raise ValueError("Invalid issue description")
+    if card_type is not None and (not isinstance(card_type, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", card_type)):
+        raise ValueError("Invalid app card type")
     if presentation is not None:
         validate_card_presentation(dumps(presentation, ensure_ascii=False))
     fingerprint = sha256(
-        dumps([title, description, presentation], sort_keys=True, ensure_ascii=False).encode()
+        dumps([title, description, presentation, card_type] if card_type is not None else [title, description, presentation], sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
     service = DomainService()
     try:
@@ -82,6 +85,9 @@ def create_app_card(token, project_id, resource_id, external_id, title, *, descr
                 or not required.issubset(definition.declaration.get("capabilities", []))
                 or not required.issubset(binding.granted_capabilities)
             ):
+                raise AppGovernanceDenied()
+            lifecycle = definition.declaration.get("card_lifecycle")
+            if not lifecycle or card_type is None or card_type not in lifecycle:
                 raise AppGovernanceDenied()
             if presentation is not None and not presentation["key"].startswith(f"app.{principal.app_key}."):
                 raise AppGovernanceDenied()
@@ -164,6 +170,7 @@ def create_app_card(token, project_id, resource_id, external_id, title, *, descr
                         "app_key": principal.app_key,
                         "connection_uid": connection.get_uid(),
                         "resource_uid": resource.get_uid(),
+                        "card_type": card_type,
                     }
                 ),
             )
