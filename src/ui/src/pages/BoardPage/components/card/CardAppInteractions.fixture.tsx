@@ -83,7 +83,10 @@ api.defaults.adapter = async (config) => {
         return {
             config,
             data: {
-                items: params.has("runtime") ? [{ request_uid: "00000000003", app_key: "example-agent", generation: 7, state: runtimeState }] : [],
+                next_cursor: params.has("runtimepages") && !config.params?.cursor ? "00000000003" : null,
+                items: params.has("runtime")
+                    ? [{ request_uid: "00000000003", app_key: "example-agent", generation: config.params?.cursor ? 6 : 7, state: runtimeState }]
+                    : [],
             },
             status: 200,
             statusText: "OK",

@@ -25,10 +25,19 @@ export default function CardAppRuntimes({
     const [open, setOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [unresolved, setUnresolved] = useState(false);
+    const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+    const cursor = cursors[cursors.length - 1];
     const path = `/board/${projectUID}/card/${cardUID}/apps/executions`;
     const query = useQuery({
-        queryKey: ["card-app-runtimes", projectUID, cardUID, userUID],
-        queryFn: async ({ signal }) => (await api.get<{ items: Runtime[] }>(path, { signal, env: { interceptToast: true } as never })).data,
+        queryKey: ["card-app-runtimes", projectUID, cardUID, userUID, cursor],
+        queryFn: async ({ signal }) =>
+            (
+                await api.get<{ items: Runtime[]; next_cursor?: string | null }>(path, {
+                    signal,
+                    params: { cursor },
+                    env: { interceptToast: true } as never,
+                })
+            ).data,
         enabled: open,
         retry: 0,
         gcTime: 0,
@@ -88,6 +97,28 @@ export default function CardAppRuntimes({
                                 )}
                             </div>
                         ))}
+                    <div className="flex flex-wrap gap-2">
+                        {cursors.length > 1 && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={sending || query.isFetching || unresolved}
+                                onClick={() => setCursors(cursors.slice(0, -1))}
+                            >
+                                {t("card.appInteractions.previous")}
+                            </Button>
+                        )}
+                        {query.data?.next_cursor && !query.isError && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={sending || query.isFetching || unresolved}
+                                onClick={() => setCursors([...cursors, query.data!.next_cursor!])}
+                            >
+                                {t("card.appInteractions.next")}
+                            </Button>
+                        )}
+                    </div>
                     {!query.isError && !query.isFetching && query.data?.items.length === 0 && (
                         <p className="text-sm text-muted-foreground">{t("card.appRuntimes.empty")}</p>
                     )}

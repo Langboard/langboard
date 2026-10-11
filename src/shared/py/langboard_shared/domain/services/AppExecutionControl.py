@@ -64,7 +64,7 @@ def request_human_runtime_stop(service, actor, project_id, card_id, request_id, 
         return {**_result(db, lease), "changed": changed, "execution_resumed": False}
 
 
-def list_human_card_runtimes(service, actor, project_id, card_id, channel=None):
+def list_human_card_runtimes(service, actor, project_id, card_id, channel=None, *, before=None):
     """Bounded retained runtime identities; no private credentials or inferred runs."""
     from .AppExecutionLeases import runtime_timestamp
 
@@ -81,11 +81,16 @@ def list_human_card_runtimes(service, actor, project_id, card_id, channel=None):
             )).first()
             if role is None or not role.is_granted("read"):
                 raise AppGovernanceDenied()
-        requests = db.exec(SqlBuilder.select.table(AppExecutionRequest).where(
+        query = SqlBuilder.select.table(AppExecutionRequest).where(
             AppExecutionRequest.project_id == project_id, AppExecutionRequest.card_id == card_id
-        ).order_by(AppExecutionRequest.id.desc()).limit(10)).all()
+        )
+        if before is not None:
+            query = query.where(AppExecutionRequest.id < before)
+        page = db.exec(query.order_by(AppExecutionRequest.id.desc()).limit(11)).all()
+        requests = page[:10]
+        next_cursor = requests[-1].get_uid() if len(page) > 10 else None
         if not requests:
-            return {"items": [], "limit": 10}
+            return {"items": [], "limit": 10, "next_cursor": None}
         leases = db.exec(SqlBuilder.select.table(AppExecutionLease).where(
             AppExecutionLease.request_id.in_([request.id for request in requests])
         )).all()
@@ -96,4 +101,4 @@ def list_human_card_runtimes(service, actor, project_id, card_id, channel=None):
             "state": by_request[request.id].state if request.id in by_request else "awaiting_permit",
             "expires_at": runtime_timestamp(by_request[request.id].expires_at) if request.id in by_request else None,
             "evidence_kind": "runtime_authorization",
-        } for request in requests], "limit": 10}
+        } for request in requests], "limit": 10, "next_cursor": next_cursor}

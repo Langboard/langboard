@@ -107,3 +107,13 @@ test("read-only card cannot request runtime stop", async ({ page }) => {
     await page.getByRole("button", { name: "App execution", exact: true }).click();
     await expect(page.getByRole("button", { name: "Request stop", exact: true })).toBeDisabled();
 });
+
+test("older runtime page and back navigation keep exact cursor", async ({ page }) => {
+    await page.goto(`${fixture}?runtime&runtimepages`);
+    await page.getByRole("button", { name: "App execution", exact: true }).click();
+    await expect(page.getByText("example-agent · Generation 7", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(page.getByText("example-agent · Generation 6", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Previous", exact: true }).click();
+    await expect(page.getByText("example-agent · Generation 7", { exact: true })).toBeVisible();
+});
