@@ -236,11 +236,25 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         human_path = f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/interactions/{mixed_receipt['interaction_uid']}/responses"
         form = {"expected_revision": 1, "idempotency_key": "response-1", "values": answer}
         with TestClient(human_app) as human_client:
+            list_path = human_path.rsplit("/", 2)[0]
+            assert human_client.get(list_path).status_code == 401
+            assert human_client.get(list_path, headers=headers).status_code == 401
             assert human_client.post(human_path, json=form).status_code == 401
             assert human_client.post(human_path, json=form, headers=headers).status_code == 401
             access, refresh = AuthSecurity.authenticate(board[1].id)
             human_client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             human_headers = {"Authorization": f"Bearer {access}"}
+            page = human_client.get(list_path, params={"limit": 1}, headers=human_headers)
+            assert page.status_code == 200, page.text
+            assert page.headers["cache-control"] == "no-store"
+            assert len(page.json()["items"]) == 1 and page.json()["next_cursor"]
+            next_page = human_client.get(
+                list_path, params={"limit": 1, "cursor": page.json()["next_cursor"]}, headers=human_headers
+            )
+            assert next_page.status_code == 200
+            assert next_page.json()["items"][0]["interaction_uid"] != page.json()["items"][0]["interaction_uid"]
+            assert human_client.get(list_path, params={"limit": 26}, headers=human_headers).status_code == 400
+            assert human_client.get(list_path, params={"cursor": "invalid"}, headers=human_headers).status_code == 400
             assert (
                 human_client.post(human_path, json={**form, "actor_uid": "A" * 11}, headers=human_headers).status_code
                 == 400
@@ -260,6 +274,11 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             accepted = accepted_response.json()
             assert accepted_response.headers["cache-control"] == "no-store"
             assert human_client.post(human_path, json=form, headers=human_headers).json()["changed"] is False
+            listed = human_client.get(list_path, headers=human_headers).json()["items"]
+            listed_answer = next(row for row in listed if row["interaction_uid"] == mixed_receipt["interaction_uid"])
+            assert listed_answer["response"]["values"] == answer
+            assert listed_answer["state"] == "answered" and listed_answer["delivery_state"] == "pending"
+            assert listed_answer["execution_resumed"] is False
         assert accepted["state"] == "answered" and accepted["revision"] == 2
         assert accepted["actor_uid"] == board[1].get_uid() and accepted["changed"] is (not concurrent)
         assert accepted["execution_resumed"] is False and accepted["workflow_transitioned"] is False
@@ -488,6 +507,47 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert client.post(cancel_path, json={"expected_revision": 1}, headers=headers).status_code == 401
         with pytest.raises(AppGovernanceDenied):
             respond_to_app_card_interaction(*args, 1, "response-1", answer)
+        from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
+
+        retained = list_card_interactions(args[0], board[1], board[2].id, card.id)
+        assert len(retained["items"]) == 5
+        retained_answer = next(
+            row for row in retained["items"] if row["interaction_uid"] == mixed_receipt["interaction_uid"]
+        )
+        assert retained_answer["delivery_state"] == "delivered" and retained_answer["reception_state"] == "received"
+        from langboard_shared.domain.models import Project, ProjectAssignedUser, ProjectRole, User
+
+        with DbSession.atomic() as db:
+            role = db.exec(SqlBuilder.select.table(ProjectRole).where(ProjectRole.user_id == board[1].id)).first()
+            project = db.exec(SqlBuilder.select.table(Project).where(Project.id == board[2].id)).first()
+            project.owner_id = 2
+            db.update(project)
+            previous_actions = role.actions
+            role.actions = []
+            db.update(role)
+        with pytest.raises(AppGovernanceDenied):
+            list_card_interactions(args[0], board[1], board[2].id, card.id)
+        with DbSession.atomic() as db:
+            role.actions = previous_actions
+            db.update(role)
+        assert len(list_card_interactions(args[0], board[1], board[2].id, card.id)["items"]) == 5
+        with pytest.raises(AppGovernanceDenied):
+            list_card_interactions(args[0], board[1], 11, card.id)
+        with DbSession.atomic() as db:
+            member = db.exec(
+                SqlBuilder.select.table(ProjectAssignedUser).where(
+                    ProjectAssignedUser.project_id == board[2].id, ProjectAssignedUser.user_id == board[1].id
+                )
+            ).first()
+            db.delete(member)
+        with pytest.raises(AppGovernanceDenied):
+            list_card_interactions(args[0], board[1], board[2].id, card.id)
+        with DbSession.atomic() as db:
+            user = db.exec(SqlBuilder.select.table(User).where(User.id == board[1].id)).first()
+            user.deleted_at = SafeDateTime.now()
+            db.update(user)
+        with pytest.raises(AppGovernanceDenied):
+            list_card_interactions(args[0], board[1], board[2].id, card.id)
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
         assert len(rows) == 5 and {row.app_request_key for row in rows} == {
