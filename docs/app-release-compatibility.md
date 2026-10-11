@@ -66,7 +66,10 @@ ACK, explicit workflow transition and runtime attestation remain separate facts.
 `Check App Contracts` is a separate native API contract workflow. It uses the
 configured runner and a disposable PostgreSQL service, verifies the reviewed
 SDK against both Python project lockfiles before installation, and preserves
-JUnit results. The same selected cases passed locally: 52 passed, 25 skipped.
+JUnit results. It includes signed delivery, bounded retries, trust changes and
+revocation, alongside card and HITL contracts. The same selected cases passed
+locally after `uv sync --frozen`, without a wheel import-path override:
+96 passed, 25 skipped. SDK artifact verification tests: 7 passed.
 That result does not establish a successful remote workflow run. Draft PRs
 remain skipped; a ready same-repository PR or explicit dispatch is required.
 
