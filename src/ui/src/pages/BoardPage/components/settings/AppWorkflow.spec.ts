@@ -1,9 +1,44 @@
 import { test, expect } from "@playwright/test";
 const path = "/src/pages/BoardPage/components/settings/AppWorkflow.fixture.html";
 for (const width of [1440, 390]) {
+    test(`explicit composition groups tiles but preserves module targets at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store&external&panel&consent&retainedsignal&grouped`);
+        await expect(page.getByRole("heading", { name: "Review Suite", exact: true })).toBeVisible();
+        await expect(page.getByRole("article")).toHaveCount(3);
+        await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toHaveCount(0);
+        await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+        await expect(page.getByRole("article")).toHaveCount(2);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button", { name: "Manage App", exact: true }).click();
+        await page.getByRole("button", { name: "Panel", exact: true }).click();
+        const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
+        await app.getByRole("button", { name: "Review App panel", exact: true }).click();
+        await expect(app.getByRole("checkbox")).toBeChecked();
+        await app.getByRole("button", { name: "Confirm App panel", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toMatchObject({
+            url: "/board/fixture/settings/apps/example-erp/panel", enabled: true, read_signals: true,
+        });
+        await page.getByRole("button", { name: "Back to App overview", exact: true }).click();
+        await page.getByRole("button", { name: "Back to App Store", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("article")).toHaveCount(3);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+}
+test("group discovery failure exposes flat modules with degraded status", async ({ page }) => {
+    await page.goto(`${path}?store&external&panel&grouped&groupfail`);
+    await expect(page.getByText("App grouping unavailable. Showing individual modules.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toBeVisible();
+    await expect(page.getByRole("article")).toHaveCount(4);
+    await expect(page.getByRole("heading", { name: "Review Suite", exact: true })).toHaveCount(0);
+});
+for (const width of [1440, 390]) {
     test(`panel review retains signal consent at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external&panel&consent&retainedsignal`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Panel", exact: true }).click();
         const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
         await app.getByRole("button", { name: "Review App panel", exact: true }).click();
         const signal = app.getByRole("checkbox");
@@ -19,6 +54,8 @@ for (const width of [1440, 390]) {
 for (const panel of [false, true]) {
     test(`independent app workflow is configurable ${panel ? "with" : "without"} a panel`, async ({ page }) => {
         await page.goto(`${path}?store&external${panel ? "&panel" : ""}`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Workflow", exact: true }).click();
         const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
         await app.getByRole("button", { name: "Configure workflow", exact: true }).click();
         await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toBeVisible();
@@ -109,16 +146,18 @@ for (const width of [1440, 390]) {
     test(`App Store entry and draft preservation at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) }).getByRole("button").first().click();
         await expect(page.getByRole("heading", { name: "App Store" })).toBeVisible();
-        await expect(page.getByRole("heading", { name: "Dokploy" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
         await page.getByText("Selected resources: 2", { exact: true }).click();
         await expect(page.getByText("Denied · 1", { exact: true })).toBeVisible();
         await expect(page.getByText("Degraded · 1", { exact: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: "Workflow contract pending" })).toBeDisabled();
+        await page.getByRole("button", { name: "Workflow", exact: true }).click();
+
         await page
             .getByRole("article")
             .filter({ has: page.getByRole("heading", { name: "GitHub" }) })
-            .getByRole("button")
+            .getByRole("button", { name: "Configure workflow", exact: true })
             .click();
         const mapping = page.getByRole("combobox");
         await expect(mapping).toHaveValue("one");
@@ -133,6 +172,8 @@ for (const width of [1440, 390]) {
 
 test("board App disable confirms and refreshes the stored state", async ({ page }) => {
     await page.goto(`${path}?store&enabled`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
     await page.getByRole("button", { name: "Disable App", exact: true }).click();
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(0);
     await page.getByRole("button", { name: "Confirm disable App" }).click();
@@ -144,6 +185,7 @@ test("board App disable confirms and refreshes the stored state", async ({ page 
 for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
     test(`App resource counts use account locale ${locale}`, async ({ page }) => {
         await page.goto(`${path}?store&large&lang=${locale}`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) }).getByRole("button").first().click();
         const app = page.locator("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) });
         await expect(app.locator("summary")).toContainText("2,468");
         await app.locator("summary").click();
@@ -155,6 +197,7 @@ for (const width of [1440, 390]) {
     test(`inbound connections register and disconnect at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
         expect(await page.evaluate(() => (window as unknown as { inboundReads: string[] }).inboundReads.length)).toBe(0);
         await page.getByRole("button", { name: "Manage service connections" }).click();
         await expect(page.getByText("connection1 · Connected", { exact: true })).toBeVisible();
@@ -176,6 +219,7 @@ for (const width of [1440, 390]) {
 
 test("inbound failure blocks another mutation until explicit refresh", async ({ page }) => {
     await page.goto(`${path}?store&external&connectionfail`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Disconnect", exact: true }).click();
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
@@ -188,6 +232,8 @@ test("inbound failure blocks another mutation until explicit refresh", async ({ 
 
 test("independent board consent requires explicit selection and save", async ({ page }) => {
     await page.goto(`${path}?store&external&consent`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await app.getByRole("checkbox", { name: "panels.render", exact: true }).click();
@@ -202,6 +248,8 @@ test("independent board consent requires explicit selection and save", async ({ 
 
 test("disabled app consent can be revoked while new grants remain blocked", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&consentdisabled`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await expect(app.getByRole("button", { name: "Save reviewed permissions", exact: true })).toBeDisabled();
@@ -213,6 +261,8 @@ test("disabled app consent can be revoked while new grants remain blocked", asyn
 
 test("consent failure requires explicit catalog refresh before another save", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&consentfail`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await app.getByRole("checkbox", { name: "panels.render", exact: true }).click();
@@ -228,6 +278,8 @@ test("consent failure requires explicit catalog refresh before another save", as
 
 test("read-only board member can review but cannot consent", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&readonly`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await expect(app.getByRole("checkbox", { name: "panels.render", exact: true })).toBeDisabled();
@@ -241,6 +293,7 @@ for (const width of [1440, 390]) {
     test(`service resource selection and removal at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external&consent`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
         await page.getByRole("button", { name: "Manage service connections" }).click();
         await page.getByRole("button", { name: "Manage service resources" }).click();
         await page.getByRole("combobox", { name: "Resource type", exact: true }).selectOption("project");
@@ -265,6 +318,7 @@ for (const width of [1440, 390]) {
 
 test("service resource failure requires refresh", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&resourcefail`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Manage service resources" }).click();
     await page.getByRole("combobox", { name: "Resource type", exact: true }).selectOption("project");
@@ -283,6 +337,7 @@ for (const width of [1440, 390]) {
     test(`service credential is displayed once and revoked at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
         await page.getByRole("button", { name: "Manage service connections" }).click();
         await page.getByRole("button", { name: "Manage credentials" }).click();
         await page.getByRole("button", { name: "Issue credential", exact: true }).click();
@@ -305,6 +360,7 @@ for (const width of [1440, 390]) {
 
 test("lost credential response requires receipt recovery without automatic issuance", async ({ page }) => {
     await page.goto(`${path}?store&external&credentialfail`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Manage credentials" }).click();
     await page.getByRole("button", { name: "Issue credential", exact: true }).click();
@@ -319,6 +375,7 @@ test("lost credential response requires receipt recovery without automatic issua
 
 test("disabled app exposes credential cleanup but prevents issuance", async ({ page }) => {
     await page.goto(`${path}?store&external&consentdisabled`);
+        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Manage credentials" }).click();
     await expect(page.getByRole("button", { name: "Issue credential", exact: true })).toBeDisabled();

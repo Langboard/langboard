@@ -393,7 +393,17 @@
     "Archive synchronization help": "Native archive is recorded first. Provider actions run only for card types you explicitly enable.",
     "Provider archive action": "External provider action after archive",
     "Refresh required": "Refresh required before writing again.",
-    "Disable archive synchronization": "Disable archive synchronization"
+    "Disable archive synchronization": "Disable archive synchronization",
+    "Manage App modules": "Manage App modules",
+    "App grouping unavailable": "App grouping unavailable. Showing individual modules.",
+    "Manage App": "Manage App",
+    "Back to App overview": "Back to App overview",
+    "App Store browse help": "Browse apps here. Manage connections, permissions and optional features from each app.",
+    "App management sections": "App management sections",
+    "App section connections": "Connections",
+    "App section permissions": "Permissions",
+    "App section workflow": "Workflow",
+    "App section panel": "Panel"
   },
   "App panel": "App panel",
   "Close App panel": "Close App panel",
