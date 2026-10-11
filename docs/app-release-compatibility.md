@@ -77,6 +77,13 @@ acquire app ownership. Native app creation stores ownership and selected-resourc
 audit records in the card transaction. HITL response, webhook delivery, reception
 ACK, explicit workflow transition and runtime attestation remain separate facts.
 
+Card signal evidence selects the event type from the same stored row as its
+representative signal UID. Same-occurrence outcomes still aggregate to a conflict
+when they disagree; lexical event-type ordering must not fabricate provenance.
+SQLite/PostgreSQL acceptance: 6 cases covering occurrence ordering, same-time
+provenance and constant batch query count. This is database contract evidence,
+not live provider or workflow-transition acceptance.
+
 ## Deployment and rollback gates
 
 `Check App Contracts` is a separate native API contract workflow. It uses the
