@@ -25,6 +25,21 @@ normalizers alone therefore does not remove host execution or credential access.
 
 ## Existing common seam
 
+### Three independent product surfaces
+
+| Surface | Purpose | Does not imply |
+| --- | --- | --- |
+| Signal | Record an external event or observed state as evidence | Inbox triage, card creation or app ownership |
+| Signal inbox | Present received signals for grouping, review and explicit triage | Workflow completion, approval or app-owned card lifecycle |
+| App-owned workflow card | Manage actionable work through native card features and the app's declared lifecycle | Signal publication or inbox acknowledgement |
+
+An app can provide any supported combination of these surfaces. A native card
+created explicitly from an inbox signal retains an evidence link, but does not
+become app-owned. An app-owned card can exist without a signal or inbox entry.
+Inbox triage and card completion/archive remain independent transitions. Optional
+automation between them requires an explicit declared action, current consent
+and its own execution receipt; naming or linking alone grants no authority.
+
 `routes/settings/AppSignalApi.py` accepts signed, bounded standard envelopes at
 `POST /apps/v1/boards/{board}/signals`. Shared `AppSignalIngestion` owns current
 credential, board, definition, binding and selected-resource checks, finite
