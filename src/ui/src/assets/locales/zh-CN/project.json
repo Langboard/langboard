@@ -413,7 +413,8 @@
     "Connection MCP read": "查询外部服务",
     "Connection MCP write": "修改外部服务",
     "Connection MCP automation": "运行外部自动化",
-    "Connection MCP refresh required": "访问被拒、状态已变更或请求失败。请刷新并重新确认。"
+    "Connection MCP refresh required": "访问被拒、状态已变更或请求失败。请刷新并重新确认。",
+    "Connection MCP no tools": "没有已声明的工具"
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",

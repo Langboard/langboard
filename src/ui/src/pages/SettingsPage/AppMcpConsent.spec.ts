@@ -28,6 +28,8 @@ for (const width of [1280, 390]) {
                     revision,
                     scopes,
                     available_scopes: ["read", "write", "automation"],
+                    available_tools: { read: ["read_issue"], write: ["write_issue"], automation: [] },
+                    granted_tools: {},
                     app_revision: "a".repeat(64),
                     identity_revision: "b".repeat(64),
                     execution_supported: false,
@@ -37,6 +39,7 @@ for (const width of [1280, 390]) {
         await page.goto("/src/pages/SettingsPage/AppMcpConsent.fixture.html");
         const read = page.getByRole("checkbox", { name: "Read external service", exact: true });
         await expect(read).not.toBeChecked();
+        await expect(page.getByText("read_issue", { exact: true })).toBeVisible();
         await expect(page.getByRole("status")).toContainText("not available");
         expect(writes).toHaveLength(0);
         await read.check();
