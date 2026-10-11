@@ -165,3 +165,23 @@ an out-of-order response and navigation, alongside the existing mobile, focus
 and four-language command checks. It is not deployed acceptance. Optional
 vector result composition, precise source-page navigation and live multilingual
 retrieval quality remain separate requirements.
+
+### Page-scoped non-destructive document reads
+
+`read_card_document` accepts an optional positive `page`. It loads only the
+current attachment's generation-fenced structural artifact and uses official
+Docling `export_to_markdown(page_no=page, traverse_pictures=True)` serialization.
+Offsets and the 128–8000 character excerpt limit apply within that page. The
+response includes the source page and generation; subsequent reads must retain
+both the page and `expected_generation`. Without `page`, existing Markdown
+offset behavior is preserved. Missing structure or a missing source page returns
+an unavailable error rather than fabricated provenance or whole-document text.
+Current card/attachment authority, generation and content hash are checked again
+after serialization. No VLM, embedding, conversion or reindex task is started.
+
+The focused SQLite/PostgreSQL run exercised 44 tests, including actual Docling
+multilingual page serialization, page-local continuation, invalid/missing pages,
+and permission, deletion, generation and hash changes during serialization.
+Current primary binding checks for vector reads also passed. This supplies the
+agent's page follow-up read; optional board-wide vector composition and UI
+page-link navigation remain separate incomplete requirements.

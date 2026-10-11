@@ -82,6 +82,71 @@ def test_pending_document_does_not_expose_stale_content(monkeypatch):
     assert result["content"] == "" and result["next_offset"] is None
 
 
+def source_pages():
+    from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem, Size
+
+    source = DoclingDocument(name="Source pages")
+    for page, text in [(1, "한국어 English "), (2, "日本語 中文 ")]:
+        source.add_page(page_no=page, size=Size(width=600, height=800))
+        text *= 80
+        source.add_text(
+            label=DocItemLabel.TEXT, text=text,
+            prov=ProvenanceItem(page_no=page, bbox=BoundingBox(l=0, t=0, r=600, b=800), charspan=(0, len(text))),
+        )
+    return source.export_to_dict()
+
+
+def test_source_page_read_uses_real_docling_serialization_and_page_local_offsets(monkeypatch):
+    service, _, _, _ = fixture(monkeypatch)
+    service.docling_metadata.get_structural_document = Mock(return_value=source_pages())
+    result = CardMcp.read_card_document("board", "card", "attachment", object(), service, page=2, max_chars=128)
+    assert result["page"] == 2 and "日本語" in result["content"] and "한국어" not in result["content"]
+    assert len(result["content"]) == 128 and result["next_offset"] == 128
+    second = CardMcp.read_card_document(
+        "board", "card", "attachment", object(), service, page=2, offset=128, max_chars=128,
+        expected_generation=result["generation"],
+    )
+    assert second["offset"] == 128 and second["page"] == 2
+    assert "embedding_config" not in result
+    with pytest.raises(ValueError, match="page unavailable"):
+        CardMcp.read_card_document("board", "card", "attachment", object(), service, page=3)
+
+
+@pytest.mark.parametrize("page", [0, -1, False, "2"])
+def test_invalid_source_page_never_loads_document(monkeypatch, page):
+    service, _, _, _ = fixture(monkeypatch)
+    with pytest.raises(ValueError, match="source page"):
+        CardMcp.read_card_document("board", "card", "attachment", object(), service, page=page)
+    service.docling_metadata.get_document_by_attachment_uid.assert_not_called()
+
+
+def test_source_page_without_structure_does_not_fabricate_page_provenance(monkeypatch):
+    service, _, _, _ = fixture(monkeypatch)
+    service.docling_metadata.get_structural_document = Mock(return_value=None)
+    with pytest.raises(ValueError, match="source pages unavailable"):
+        CardMcp.read_card_document("board", "card", "attachment", object(), service, page=1)
+
+
+@pytest.mark.parametrize("changed", ["permission", "generation", "hash", "deleted"])
+def test_source_page_serialization_rechecks_current_authority_and_source(monkeypatch, changed):
+    service, _, attachment, document = fixture(monkeypatch)
+
+    def load(*args, **kwargs):
+        if changed == "permission":
+            service.project.get_user_role_actions_by_project.return_value = []
+        elif changed == "deleted":
+            attachment.deleted_at = "deleted"
+        else:
+            service.docling_metadata.get_document_by_attachment_uid.return_value = {
+                **document, "generation" if changed == "generation" else "content_hash": "changed"
+            }
+        return source_pages()
+
+    service.docling_metadata.get_structural_document = load
+    with pytest.raises(ValueError):
+        CardMcp.read_card_document("board", "card", "attachment", object(), service, page=2)
+
+
 @pytest.mark.parametrize("changed", ["permission", "generation", "pointer", "embedding_config", "deleted", "binding_deleted", "binding_disabled", "binding_type", "binding_endpoint", "unchanged"])
 def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, changed):
     from contextlib import nullcontext
