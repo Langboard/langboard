@@ -6,9 +6,10 @@ from typing import Any, cast
 import httpx
 from langboard_shared.Env import Env
 from langchain.chat_models.base import BaseChatModel, _ConfigurableModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 from langgraph.types import interrupt
+from .agent_loop import invoke_agent_loop
 from .chat_model import create_default_chat_model
 from .context import create_runtime_context_state
 from .history import create_langboard_history_context_prompt
@@ -398,58 +399,14 @@ async def _invoke_agent(
     except Exception:
         return await _invoke_chat_model(chat_model, messages), []
 
-    tool_map = {tool.name: tool for tool in tools}
-    current_messages = list(messages)
-    tool_results: list[dict[str, Any]] = []
-    result: BaseMessage | None = None
+    async def approval(tool_name: str, tool_args: dict[str, Any]) -> str | None:
+        return await _get_tool_approval_result(
+            tool_name, tool_args, tweaks=tweaks, state=state, api_tool_context=api_tool_context,
+        )
 
-    for _ in range(3):
-        result = await _invoke_chat_model(tool_enabled_model, current_messages)
-        current_messages.append(result)
-
-        tool_calls = getattr(result, "tool_calls", None) or []
-        if not tool_calls:
-            return result, tool_results
-
-        for tool_call in tool_calls[:8]:
-            tool_name = str(tool_call.get("name") or "")
-            tool = tool_map.get(tool_name)
-            if not tool:
-                continue
-
-            tool_args = tool_call.get("args") or {}
-            approval_result = await _get_tool_approval_result(
-                tool_name,
-                tool_args if isinstance(tool_args, dict) else {},
-                tweaks=tweaks,
-                state=state,
-                api_tool_context=api_tool_context,
-            )
-            if approval_result is not None:
-                tool_results.append({"name": tool_name, "args": tool_args, "result": approval_result})
-                current_messages.append(
-                    ToolMessage(
-                        content=str(approval_result),
-                        tool_call_id=tool_call.get("id") or tool_name,
-                    )
-                )
-                continue
-
-            try:
-                tool_result = await tool.ainvoke(tool_args)
-            except Exception as exc:
-                tool_result = f"Tool {tool_name} failed: {exc}"
-
-            tool_results.append({"name": tool_name, "args": tool_args, "result": tool_result})
-            current_messages.append(
-                ToolMessage(
-                    content=str(tool_result),
-                    tool_call_id=tool_call.get("id") or tool_name,
-                )
-            )
-
-    final_result = await _invoke_chat_model(chat_model, current_messages)
-    return final_result, tool_results
+    return await invoke_agent_loop(
+        chat_model, tool_enabled_model, messages, tools, _invoke_chat_model, approval, Env.AI_REQUEST_TIMEOUT,
+    )
 
 
 async def _get_tool_approval_result(
