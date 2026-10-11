@@ -64,7 +64,8 @@ def read_panel_signals(request: Request, project_uid: str, app_key: str, form: P
             raise ApiException.Conflict_409()
         try:
             result = list_board_signals(service, user, project_uid, form.after,
-                channel=request.scope.get("collaboration_channel", CollaborationChannel.Api), provider=form.provider, page_size=10)
+                channel=request.scope.get("collaboration_channel", CollaborationChannel.Api), provider=form.provider,
+                page_size=10, resource_types=panel["resource_types"])
         except GitHubManifestUnavailable:
             raise ApiException.NotFound_404() from None
         except ValueError:

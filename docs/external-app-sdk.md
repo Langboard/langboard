@@ -1179,6 +1179,13 @@ credentials or grant access to another account or resource. Approval reviews the
 finite source set. Board panel consent grants this reviewed set only, and native
 user/board/connection/resource/SecretRef checks still apply to every read.
 
+Panel signal reads also intersect the approved declaration's `resource_types`
+with the provider's current selected resources before cursor validation and page
+limits. Declaring a provider alone does not permit its other resource kinds.
+Changing the resource type set requires renewed signal read/publication consent
+on SDK 0.2.27; reordering the same set preserves consent. Rendering consent and
+existing connections remain intact when only that scope changes.
+
 The server rejects signal consent for old declarations without explicit sources.
 An existing old signal grant cannot bypass this rule: panel reads reject every
 undeclared provider before invoking native discovery. Update the declaration and
