@@ -1,5 +1,4 @@
 from typing import Any
-from sqlalchemy import UniqueConstraint
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from .AppResourceBinding import AppResourceBinding
 from .Card import Card
@@ -9,11 +8,6 @@ from .User import User
 class CardSignalCreation(BaseDbModel, table=True):
     """Actor-scoped creation receipt; unlink never permits accidental duplicate creation."""
 
-    __table_args__ = (
-        UniqueConstraint(
-            "actor_id", "resource_id", "external_id", "commit_sha", name="uq_card_signal_creation_identity"
-        ),
-    )
     actor_id: int = SnowflakeIDField(foreign_key=User, nullable=False)
     resource_id: int = SnowflakeIDField(foreign_key=AppResourceBinding, nullable=False)
     external_id: str = Field(nullable=False)
