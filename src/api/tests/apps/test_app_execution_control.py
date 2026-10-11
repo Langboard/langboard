@@ -24,6 +24,18 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
     EmployeeMembershipPolicy.__table__.create(DbEngine.get_main_engine())
     runtime_token = token_hex(32)
     permit = authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
+    from langboard_shared.domain.services.AppExecutionControl import (
+        list_human_card_runtimes,
+        request_human_runtime_resume,
+        request_human_runtime_stop,
+    )
+    from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+    service = DomainService()
+    assert list_human_card_runtimes(service, board[1], board[2].id, card.id, app_key="another-app")["items"] == []
+    assert list_human_card_runtimes(service, board[1], board[2].id, card.id, app_key=request.app_key)["items"][0]["request_uid"] == request.get_uid()
+    for operation in (request_human_runtime_stop, request_human_runtime_resume):
+        with pytest.raises(AppGovernanceDenied):
+            operation(service, board[1], board[2].id, card.id, request.id, request.generation, app_key="another-app")
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     app = FastAPI()
     app.include_router(AppRouter.api)
@@ -185,3 +197,44 @@ def test_runtime_history_pagination_is_card_scoped_and_older_stop_is_accessible(
     assert second["items"][-1]["state"] == "authorized"
     assert not set(item["request_uid"] for item in first["items"]) & set(item["request_uid"] for item in second["items"])
     assert len({item["generation"] for item in [*first["items"], *second["items"]]}) == 13
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_panel_runtime_http_pins_app_and_current_human_authority(board, monkeypatch):
+    from langboard.routes.board import AppPanelDataApi  # noqa: F401
+    from langboard_shared.domain.models import AppDefinition, BoardAppBinding
+    connection, card, token, request, ack_id = permit_scope(board, monkeypatch)
+    EmployeeMembershipPolicy.__table__.create(DbEngine.get_main_engine())
+    authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, token_hex(32))
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    with DbSession.atomic() as db:
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == request.app_key)).first()
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == request.app_key)).first()
+        definition.declaration = {**definition.declaration, "panel": {"url": "https://example.test/panel", "name": "Test panel"}}
+        binding.granted_capabilities = [*binding.granted_capabilities, "panels.render"]
+        db.update(definition)
+        db.update(binding)
+        revision = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision()}
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(board[1].id)
+    headers = {"Authorization": f"Bearer {access}"}
+    path = f"/board/{board[2].get_uid()}/apps/{request.app_key}/panel"
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        body = {**revision, "card_uid": card.get_uid()}
+        listed = client.post(path + "/runtimes", json=body, headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["items"][0]["app_key"] == request.app_key
+        assert "runtime_token" not in listed.text
+        assert client.post(path + "/runtimes", json={**body, "binding_revision": "0" * 64}, headers=headers).status_code == 409
+        control = path + f"/cards/{card.get_uid()}/runtimes/{request.get_uid()}/stop"
+        assert client.post(control, json={**revision, "generation": request.generation + 1}, headers=headers).status_code == 409
+        stopped = client.post(control, json={**revision, "generation": request.generation}, headers=headers)
+        assert stopped.status_code == 200, stopped.text
+        assert stopped.json()["state"] == "stop_requested" and stopped.json()["execution_resumed"] is False
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "execution.run"]
+            db.update(binding)
+        assert client.post(path + "/runtimes", json=body, headers=headers).status_code == 404

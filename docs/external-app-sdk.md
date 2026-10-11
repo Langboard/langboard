@@ -1316,3 +1316,12 @@ A registry update withdraws affected scope grants permanently; the newly availab
 
 
 Native user MCP exposes `get_card_app_mcp_tools(project_uid, card_uid, connection_uid)` for connection-owner discovery. It uses the same catalog projection and board/card/resource/consent checks as the app REST catalog, plus current native MCP visibility and tool-group authorization. It neither issues nor forwards an app credential. Human discovery is distinguished from unattended app execution; it does not transfer a personal connection to organization automation. Results remain non-callable until a separate remote execution contract is implemented.
+
+
+### Human runtime control from app panels
+
+Panel runtime APIs reuse the native human stop/resume services and restrict requests to the panel app key. `POST /board/{project_uid}/apps/{app_key}/panel/runtimes` accepts `card_uid`, optional `cursor`, and current `app_revision`/`binding_revision`. It returns bounded retained runtime identities without tokens.
+
+Authenticated human controls use `POST /board/{project_uid}/apps/{app_key}/panel/cards/{card_uid}/runtimes/{request_uid}/{stop|resume}` with current app/binding revisions and the observed request `generation`. Native card update authority remains required. Stop requests revoke the permit, but do not prove process termination. Resume accepts only a newer producer-issued ready generation and preserves the stopped lease. Apps must not perform automatic human controls.
+
+This API groundwork does not yet expose panel SDK messages or the host confirmation dialog. After panel disablement, native card controls remain available to an authorized human for retained-runtime cleanup.
