@@ -15,6 +15,8 @@ class AgentLoopState(TypedDict):
     tool_results: Annotated[list[dict[str, Any]], add]
     rounds: int
     final: bool
+    pending_calls: list[dict[str, Any]]
+    call_index: int
 
 
 async def invoke_agent_loop(
@@ -49,7 +51,13 @@ async def invoke_agent_loop(
     async def model(state: AgentLoopState):
         final = state["rounds"] >= 3
         result = await invoke_model(chat_model if final else tool_model, state["messages"])
-        return {"messages": [result], "rounds": state["rounds"] + 1, "final": final}
+        return {
+            "messages": [result],
+            "rounds": state["rounds"] + 1,
+            "final": final,
+            "pending_calls": getattr(result, "tool_calls", []) or [],
+            "call_index": 0,
+        }
 
     def route(state: AgentLoopState):
         return "tools" if not state["final"] and getattr(state["messages"][-1], "tool_calls", []) else END
@@ -57,7 +65,10 @@ async def invoke_agent_loop(
     async def execute(state: AgentLoopState):
         replies: list[ToolMessage] = []
         results: list[dict[str, Any]] = []
-        for index, call in enumerate(state["messages"][-1].tool_calls):
+        index = state["call_index"]
+        # Calls above the execution ceiling receive replies together, with no writes.
+        calls = state["pending_calls"][index:] if index >= 8 else state["pending_calls"][index : index + 1]
+        for call in calls:
             name = str(call.get("name") or "")
             args = dict(call.get("args") or {})
             call_id = call.get("id") or name
@@ -87,16 +98,18 @@ async def invoke_agent_loop(
             results.append(
                 {"name": name, "args": args, "result": reply.artifact if reply.artifact is not None else reply.content}
             )
-        return {"messages": replies, "tool_results": results}
+        return {"messages": replies, "tool_results": results, "call_index": index + len(calls)}
 
     graph = StateGraph(AgentLoopState)
     graph.add_node("model", model)
     graph.add_node("tools", execute)
     graph.add_edge(START, "model")
     graph.add_conditional_edges("model", route, {"tools": "tools", END: END})
-    graph.add_edge("tools", "model")
+    graph.add_conditional_edges(
+        "tools", lambda state: "tools" if state["call_index"] < len(state["pending_calls"]) else "model"
+    )
     result = await graph.compile().ainvoke(
-        {"messages": messages, "tool_results": [], "rounds": 0, "final": False},
-        config={"recursion_limit": 10},
+        {"messages": messages, "tool_results": [], "rounds": 0, "final": False, "pending_calls": [], "call_index": 0},
+        config={"recursion_limit": 40},
     )
     return result["messages"][-1], result["tool_results"]

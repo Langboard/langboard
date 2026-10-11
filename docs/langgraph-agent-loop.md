@@ -3,7 +3,7 @@
 The default agent now delegates its model/tool loop to a compiled LangGraph
 StateGraph. `model` routes to `tools` only when a tool-bound model returns calls;
 `tools` returns to `model`. After three tool-bound rounds the final invocation
-uses the original unbound model and exits. The graph recursion limit is ten.
+uses the original unbound model and exits. The graph recursion limit is forty, allowing the bounded serial call steps.
 Existing API allowlisting, UID resolution and approval remain in
 `nodes._get_tool_approval_result`, before ToolNode execution. Calls run
 sequentially to preserve approval order and avoid concurrent writes.
@@ -44,3 +44,15 @@ PROJECT_NAME=langboard PYTHONPATH=src/graph:src/shared/py python -m pytest -p no
 ```
 
 Reference: [LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api).
+
+## Later approval resume boundary
+
+A later approval originally caused the tool node to restart its entire call
+loop, replaying a completed first write (`[1, 1, 2]`). Each allowed call now
+finishes its own graph step, with the pending calls and next index persisted
+in graph state. Over-limit replies batch without executing writes. The same
+reproduction resumes with `[1, 2]` on InMemorySaver and AsyncPostgresSaver after
+rebuilding the parent graph instance. This establishes checkpointed resume
+after a completed step. It does not guarantee exactly-once external writes
+if a process dies between external commit and checkpoint persistence; API
+idempotency receipts and worker restart/concurrent resume remain required.
