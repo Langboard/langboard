@@ -46,3 +46,19 @@ an obsolete-session request would weaken the existing session boundary.
 Completion requires authenticated deployed first-load and reload acceptance,
 including cookie refresh and socket recovery. This investigation leaves that
 gate open.
+
+
+## Settings follow-up
+
+A later settings capture observed the original board GET return 200, then its
+`/details` GET abort about 55 ms after dispatch. Dock and approval-count XHRs
+aborted in the same interval. A fresh Page-event capture showed no new frame
+navigation/detachment event at that cancellation interval. This narrows the
+observed failure beyond a settings render-only defect but does not establish
+whether the browser, transport, or application initiated cancellation.
+
+Another reload failed earlier: refresh and identity returned 200, while the
+original board GET aborted. No details request was dispatched on that load.
+Do not treat a successful OPTIONS response as success of its original GET.
+The board settings source now renders an explicit failed-load retry, but its
+canary recovery remains unverified until deployment.

@@ -6,6 +6,7 @@ import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { getAuthStore } from "@/core/stores/AuthStore";
 import { Utils } from "@langboard/core/utils";
 import { EHttpStatus } from "@langboard/core/enums";
+import { reportBrowserError } from "@/core/helpers/BrowserTelemetry";
 
 export const api = axios.create({
     baseURL: API_URL,
@@ -106,6 +107,9 @@ api.interceptors.response.use(
         }
         if (axios.isCancel(error)) throw error;
         if (isPreviousSession(error.config)) throw new axios.CanceledError("Session changed");
+        if (["ECONNABORTED", "ERR_NETWORK", "ETIMEDOUT"].includes(error.code) || error.response?.status >= 500) {
+            reportBrowserError(error);
+        }
         // A failed cookie refresh is terminal; it must never refresh itself.
         if (error.config?.url?.endsWith(Routing.API.AUTH.REFRESH)) throw error;
         const interceptToast = error.config?.env?.interceptToast;
