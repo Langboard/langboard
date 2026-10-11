@@ -2,17 +2,40 @@
 """Registered App routes exercise current DB authority and saved revisions."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from types import SimpleNamespace
+from unittest.mock import Mock
 import pytest
+from langboard.routes.board.BoardColumnApi import create_project_column, update_project_column_workflow_stage
 from langboard.routes.board.BoardSettingApi import (
     AppWorkflowMappingForm,
     get_app_workflow_mapping,
     update_app_workflow_mapping,
 )
-from langboard_shared.core.db import DbSession
+from langboard.routes.board.forms.Column import ColumnWorkflowStageForm, CreateColumnForm
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException
+from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.models import (
+    AppConnection,
+    AppResourceBinding,
+    BoardAppBinding,
+    Card,
+    ProjectColumn,
+    WorkflowStageDefinition,
+)
+from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowConflict
+from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
+from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
+from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageEditConflict
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import binding, board  # noqa: F401
+from langboard_shared.helpers import InfraHelper
+from langboard_shared.infrastructure.repositories import Repository
+from langboard_shared.publishers import ProjectColumnPublisher
 from pydantic import ValidationError
+from sqlalchemy import select
 
 
 def service(board):
@@ -65,8 +88,6 @@ def test_form_rejects_caller_authority(extra):
 
 
 def test_repair_columns_exclude_foreign_deleted_and_archive(board):
-    from langboard_shared.core.types import SafeDateTime
-    from langboard_shared.domain.models import ProjectColumn
 
     with DbSession.use(readonly=False) as db:
         unclassified = ProjectColumn(project_id=10, name="Unclassified")
@@ -82,7 +103,6 @@ def test_repair_columns_exclude_foreign_deleted_and_archive(board):
 
 
 def test_mapping_display_uses_current_scoped_registry_translations(board):
-    from langboard_shared.domain.models import WorkflowStageDefinition
 
     with DbSession.use(readonly=False) as db:
         stage = board[6][0]
@@ -98,9 +118,6 @@ def test_mapping_display_uses_current_scoped_registry_translations(board):
 
 
 def test_create_column_forwards_stage_and_rejects_inactive_stage():
-    from unittest.mock import Mock
-    from langboard.routes.board.BoardColumnApi import create_project_column
-    from langboard.routes.board.forms.Column import CreateColumnForm
 
     create = Mock(return_value=SimpleNamespace(api_response=lambda: {"uid": "created", "workflow_stage": "active"}))
     services = SimpleNamespace(project_column=SimpleNamespace(create=create))
@@ -114,10 +131,6 @@ def test_create_column_forwards_stage_and_rejects_inactive_stage():
 
 
 def test_stage_compare_uses_locked_current_row_and_preserves_changes(board, monkeypatch):
-    from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowConflict
-    from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
-    from langboard_shared.infrastructure.repositories import Repository
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     columns = ProjectColumnService(lambda _: None, lambda _: None, Repository())
     column = board[5][0]
@@ -128,24 +141,12 @@ def test_stage_compare_uses_locked_current_row_and_preserves_changes(board, monk
     assert columns.change_workflow_stage(board[2].get_uid(), column.get_uid(), "active",
                                        check_expected=True, expected_workflow_stage="active")
     with DbSession.use(readonly=False) as db:
-        from langboard_shared.core.db import SqlBuilder
-        from langboard_shared.domain.models import ProjectColumn
         stored = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == column.id)).first()
         assert stored.workflow_stage == "active"
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
 def test_native_column_stage_concurrent_edit_has_one_winner(board, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Barrier
-    from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models import Card, ProjectColumn
-    from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowConflict
-    from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
-    from langboard_shared.helpers import InfraHelper
-    from langboard_shared.infrastructure.repositories import Repository
-    from langboard_shared.publishers import ProjectColumnPublisher
-    from sqlalchemy import select
 
     engine = DbEngine.get_main_engine()
     Card.__table__.create(engine)
@@ -192,10 +193,6 @@ def test_native_column_stage_concurrent_edit_has_one_winner(board, monkeypatch):
 
 
 def test_native_stage_route_conflict_is_409():
-    from unittest.mock import Mock
-    from langboard.routes.board.BoardColumnApi import update_project_column_workflow_stage
-    from langboard.routes.board.forms.Column import ColumnWorkflowStageForm
-    from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowConflict
     change = Mock(side_effect=ProjectColumnWorkflowConflict())
     with pytest.raises(ApiException.Conflict_409):
         update_project_column_workflow_stage("board", "column",
@@ -219,7 +216,6 @@ def test_catalog_reads_board_owned_state_and_denies_revoked_membership(board, bi
 
 
 def test_catalog_resource_summary_is_board_scoped_and_selection_scoped(board, binding):
-    from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
     with DbSession.use(readonly=False) as db:
         connection = AppConnection(app_key="github", owner_id=board[1].id, state="connected", credential_reference="private-test-reference")
         db.insert(connection)
@@ -245,8 +241,6 @@ def test_catalog_resource_summary_is_board_scoped_and_selection_scoped(board, bi
 
 
 def test_disable_is_scoped_revision_checked_and_preserves_other_bindings(board, binding):
-    from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
-    from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageEditConflict
     with DbSession.use(readonly=False) as db:
         other = BoardAppBinding(project_id=11, app_key="github", state="enabled", granted_capabilities=["signals.read"])
         db.insert(other)
@@ -264,7 +258,6 @@ def test_disable_is_scoped_revision_checked_and_preserves_other_bindings(board, 
     assert disabled.workflow_mapping == original_mapping
     with pytest.raises(WorkflowStageEditConflict):
         board[0].disable_app_binding(board[1], board[2].get_uid(), "github", binding.get_uid(), revision)
-    from langboard_shared.core.db import SqlBuilder
     with DbSession.use(readonly=False) as db:
         stored_other = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == other.id)).first()
         assert stored_other.state == "enabled" and stored_other.granted_capabilities == ["signals.read"]
@@ -279,10 +272,6 @@ def test_disable_is_scoped_revision_checked_and_preserves_other_bindings(board, 
 
 
 def test_postgresql_same_revision_disable_serializes(board, binding):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Barrier
-    from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageEditConflict
     if DbEngine.get_main_engine().dialect.name != "postgresql":
         pytest.skip("Row-lock concurrency requires PostgreSQL")
     ready = Barrier(2)
@@ -300,7 +289,6 @@ def test_postgresql_same_revision_disable_serializes(board, binding):
 
 
 def test_catalog_declarations_do_not_grant_binding_authority(board, binding):
-    from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 
     items = board[0].get_app_catalog(board[1], board[2].get_uid())
     github = items[0]
