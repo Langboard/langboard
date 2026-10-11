@@ -19,11 +19,29 @@ from test_app_execution_ack import scope
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
-def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypatch):
+@pytest.mark.parametrize("app_profile", ["baseline", "example-monitor"])
+def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypatch, app_profile):
     from langboard_shared.tasks.webhooks import AppEventDeliveryTask
 
     enqueues = []
     monkeypatch.setattr(AppEventDeliveryTask, "app_event_delivery_task", lambda *args: enqueues.append(args))
+    if app_profile == "example-monitor":
+        import sys
+        from pathlib import Path
+        monkeypatch.delitem(sys.modules, "example_monitor", raising=False)
+        monkeypatch.syspath_prepend(str(Path(__file__).parent / "vendor/langboard_app_example_monitor-0.1.1-py3-none-any.whl"))
+        import test_app_connection_resources as resources_fixture
+        original_setup = resources_fixture.setup
+        def monitor_setup(actor):
+            connection, definition = original_setup(actor)
+            with DbSession.atomic() as db:
+                connection.app_key = definition.key = "example-monitor"
+                definition.declaration = {**definition.declaration, "key": "example-monitor"}
+                db.update(connection)
+                db.update(definition)
+            return connection, definition
+        monkeypatch.setattr(resources_fixture, "setup", monitor_setup)
+        monkeypatch.setattr(resources_fixture, "DECLARATION", {**resources_fixture.DECLARATION, "key": "example-monitor"})
     connection, card, token, _ = scope(board, monkeypatch)
     migration = importlib.import_module("langboard.migrations.versions.20261011090000-ed71a806b2f4")
     original = migration.op
@@ -162,8 +180,36 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             return client.request(method, url, headers=headers, **kwargs)
 
         sdk = AppCardInteractions(HttpTransport(SimpleNamespace(request=send)))
+        if app_profile == "example-monitor":
+            from example_monitor import Monitor
+            class PackagedInteractions:
+                async def create(self, board_uid, card_uid, request):
+                    return await Monitor.question(transport, board_uid, card_uid, request)
+                async def read(self, board_uid, card_uid, interaction_uid):
+                    return await Monitor.current_response(transport, board_uid, card_uid, interaction_uid)
+                async def acknowledge(self, board_uid, card_uid, interaction_uid, **kwargs):
+                    return await Monitor.acknowledge_response(transport, board_uid, card_uid, interaction_uid, **kwargs)
+                async def cancel(self, *args, **kwargs):
+                    return await AppCardInteractions(transport).cancel(*args, **kwargs)
+            transport = HttpTransport(SimpleNamespace(request=send))
+            sdk = PackagedInteractions()
         saved = asyncio.run(sdk.create(board[2].get_uid(), card.get_uid(), body))
         assert saved["changed"] is False
+        if app_profile == "example-monitor":
+            from langboard_sdk import NativeApiError
+            from langboard_shared.domain.models import CardAppOwnership
+            with DbSession.atomic() as db:
+                ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(
+                    CardAppOwnership.card_id == card.id)).first()
+                ownership.app_key = "different-owner"
+                db.update(ownership)
+            with pytest.raises(NativeApiError) as denied:
+                asyncio.run(sdk.create(board[2].get_uid(), card.get_uid(), {**body, "app_request_key": "foreign-owner"}))
+            assert denied.value.status_code == 403
+            with DbSession.atomic() as db:
+                ownership.app_key = connection.app_key
+                db.update(ownership)
+
         assert asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), receipt["interaction_uid"]))["request"] == body
 
         mixed = {
