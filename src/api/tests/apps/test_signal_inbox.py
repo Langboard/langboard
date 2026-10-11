@@ -20,6 +20,9 @@ def inbox(scoped, after=None):
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped, monkeypatch):
+    from pathlib import Path
+    artifact = Path(__file__).parent / "vendor/langboard_app_example_monitor-0.1.0-py3-none-any.whl"
+    monkeypatch.syspath_prepend(str(artifact))
     import hashlib
     import hmac
     import json
@@ -27,6 +30,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     import langboard.routes.settings.AppInboundConnectionApi as inbound_api
     import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
     import langboard.routes.settings.AppSignalApi as signal_api
+    from example_monitor import Monitor
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from langboard_shared.core.db.DbEngine import DbEngine
@@ -126,12 +130,10 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert not first["duplicate"] and receive(envelope).json() == {**first, "duplicate": True}
     import asyncio
     from types import SimpleNamespace
-    from langboard_sdk import AppSignals, HttpTransport
+    from langboard_sdk import HttpTransport
     async def sdk_request(method, path, **kwargs):
         return client.request(method, path, **kwargs)
-    sdk_receipt = asyncio.run(AppSignals(HttpTransport(SimpleNamespace(request=sdk_request)), token).publish(
-        state[1][2].get_uid(), envelope
-    ))
+    sdk_receipt = asyncio.run(Monitor.observe(HttpTransport(SimpleNamespace(request=sdk_request)), token, envelope))
     assert sdk_receipt["signal_uid"] == first["signal_uid"] and sdk_receipt["duplicate"]
     if DbEngine.get_main_engine().dialect.name == "postgresql":
         from concurrent.futures import ThreadPoolExecutor
@@ -201,13 +203,14 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert not draft["stage_transitions_enabled"]
     assert receive(other_envelope, board_uid=other_board.get_uid()).status_code == 403
     assert asyncio.run(manager.prepare_consent("example-monitor", definition.edit_revision())) == draft
-    accepted = asyncio.run(manager.set_consent("example-monitor", definition.edit_revision(),
-        draft["uid"], draft["revision"], ["signals.read", "signals.publish"]))
+    monitor = Monitor(HttpTransport(SimpleNamespace(request=sdk_management_request)))
+    accepted = asyncio.run(monitor.consent(other_board.get_uid(), definition.edit_revision()))
     assert not accepted["stage_transitions_enabled"]
     with DbSession.atomic() as db:
         other_binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
             BoardAppBinding.id == SnowflakeID.from_short_code(draft["uid"]))).first()
-    selected_other = select_resource(other_board, other_binding, "other-board-issue")
+    selected_other = asyncio.run(monitor.select(other_board.get_uid(), state[2].get_uid(),
+        definition.edit_revision(), accepted, "other-board-issue"))
     with DbSession.atomic() as db:
         other_resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
             AppResourceBinding.id == SnowflakeID.from_short_code(selected_other["resource_uid"]),
