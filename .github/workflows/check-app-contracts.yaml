@@ -9,10 +9,16 @@ on:
       - src/api/langboard/apps/**
       - src/api/langboard/routes/settings/App*.py
       - src/api/langboard/routes/board/SignalInboxApi.py
+      - src/api/langboard/routes/board/App*.py
+      - src/api/langboard/routes/board/BoardSettingApi.py
       - src/shared/py/langboard_shared/domain/services/App*.py
       - src/shared/py/langboard_shared/domain/services/CardApp*.py
+      - src/shared/py/langboard_shared/tasks/webhooks/AppEvent*.py
+      - src/shared/py/langboard_shared/tasks/webhooks/WebhookTask.py
+      - src/shared/py/langboard_shared/tasks/webhooks/utils.py
       - src/shared/py/langboard_shared/domain/models/App*.py
       - src/shared/py/langboard_shared/domain/models/CardApp*.py
+      - src/shared/py/langboard_shared/domain/models/BoardAppBinding.py
       - src/api/langboard/migrations/**
       - src/sdk/vendor/**
       - scripts/sdk/verify_python_artifact*.py
@@ -59,7 +65,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Verify the reviewed SDK before dependency installation
-        run: python scripts/sdk/verify_python_artifact.py
+        run: |
+          python scripts/sdk/verify_python_artifact.py
+          python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py
       - run: uv sync --frozen
       - name: Independent signal, Inbox, owned card and human-response contracts
         run: >-
@@ -69,6 +77,11 @@ jobs:
           src/api/tests/apps/test_app_card_creation.py
           src/api/tests/apps/test_card_app_ownership.py
           src/api/tests/apps/test_connection_ownership_revision.py
+          src/api/tests/apps/test_app_event_destination.py
+          src/api/tests/apps/test_app_event_delivery.py
+          src/api/tests/apps/test_app_event_http.py
+          src/api/tests/apps/test_app_governance.py
+          src/api/tests/apps/test_sdk_app_registry_http.py
       - name: Preserve contract results
         if: always()
         uses: actions/upload-artifact@v4
