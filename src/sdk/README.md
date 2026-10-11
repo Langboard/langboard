@@ -128,3 +128,9 @@ Python SDK 0.2.18 provides the shared `validate_card_interaction_values` functio
 The host regression consumes the immutable wheel and validates answers against
 an actually stored request. No human response acceptance endpoint, durable response
 record, delivery or continuation is claimed by value validation alone.
+
+Python SDK 0.2.19 supplies `AppCardInteractions.acknowledge` for explicit reception
+of signed interaction responses. The host regression authenticates exact signed
+bytes through the same wheel's `verify_webhook`, then uses the SDK method against
+the native HTTP acknowledgment route. Reception, delivery and execution remain
+separate outcomes; the SDK does not automatically resume or poll.
