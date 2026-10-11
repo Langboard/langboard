@@ -123,3 +123,8 @@ Python SDK 0.2.17 adds bounded `choice_or_text` question requests. It preserves
 stable choices alongside non-secret custom input; custom text cannot implicitly
 approve or select a workflow outcome. The actual reviewed wheel is exercised
 against host request storage. Response acceptance and UI remain separate gates.
+
+Python SDK 0.2.18 provides the shared `validate_card_interaction_values` function.
+The host regression consumes the immutable wheel and validates answers against
+an actually stored request. No human response acceptance endpoint, durable response
+record, delivery or continuation is claimed by value validation alone.
