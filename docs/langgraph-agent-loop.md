@@ -180,3 +180,14 @@ SQLite and PostgreSQL: own anchor only, foreign anchor, missing anchor and an
 explicit session mismatch. All eight failed before the change; the combined
 suite now passes fifty-two cases in 18.90 seconds. This is session scoping proof,
 not completion of the wider fresh-runtime or board/card authority contract.
+
+## Project activity board scope
+
+Project activity history now requires a project UID and applies that board
+predicate before card or column narrowing. Previously a column or card filter
+could return an event from another board, and a missing project could still
+produce activity. SQLite/PostgreSQL fixtures cover board, own/foreign column,
+own/foreign card and missing-board inputs; six negative cases fail before the
+guard, and all twelve cases pass after it. The full suite reaches sixty-four tests in 23.55 seconds.
+The activity fixture uses current primary rows; it does not claim the broader
+card visibility policy is complete.

@@ -229,17 +229,17 @@ def collect_project_activity_messages(
     project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
     card_uid = _first_string(rest_data.get("card_uid"))
     column_uid = _first_string(rest_data.get("project_column_uid"))
-    if not project_uid and not card_uid and not column_uid:
+    if not project_uid:
         return []
 
     try:
-        query = SqlBuilder.select.table(ProjectActivity)
+        query = SqlBuilder.select.table(ProjectActivity).where(
+            ProjectActivity.column("project_id") == InfraHelper.convert_id(project_uid)
+        )
         if card_uid:
             query = query.where(ProjectActivity.column("card_id") == InfraHelper.convert_id(card_uid))
         elif column_uid:
             query = query.where(ProjectActivity.column("project_column_id") == InfraHelper.convert_id(column_uid))
-        elif project_uid:
-            query = query.where(ProjectActivity.column("project_id") == InfraHelper.convert_id(project_uid))
         query = query.order_by(ProjectActivity.column("created_at").desc(), ProjectActivity.column("id").desc()).limit(
             limit
         )

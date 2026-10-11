@@ -8,7 +8,17 @@ from jwt import encode
 from langboard_shared.core.db import ChatContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ChatHistory, ChatSession, User
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    ChatHistory,
+    ChatSession,
+    Organization,
+    Project,
+    ProjectActivity,
+    ProjectColumn,
+    User,
+)
 from langboard_shared.Env import Env
 from sqlalchemy import create_engine, text, update
 from sqlalchemy.orm import Session
@@ -31,7 +41,10 @@ def history_db(monkeypatch, request):
             db.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine.dispose()
         engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    for model in (User, ChatSession, ChatHistory):
+    models = (User, ChatSession, ChatHistory)
+    if request.node.originalname == "test_activity_scope_always_requires_matching_board":
+        models += (Organization, Project, ProjectColumn, Bot, Card, ProjectActivity)
+    for model in models:
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 
@@ -152,3 +165,62 @@ def test_chat_history_anchor_limits_collection_to_one_session(history_db, case):
         rest["chat_session_uid"] = SnowflakeID(12).to_short_code()
     result = collect_chat_history_messages(variables, rest, 20)
     assert [item["content"] for item in result] == (["Owned history"] if case == "anchor_only" else [])
+
+
+@pytest.mark.parametrize(
+    "scope", ["board", "own_column", "foreign_column", "own_card", "foreign_card", "missing_board"]
+)
+def test_activity_scope_always_requires_matching_board(history_db, scope, monkeypatch):
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: history_db)
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
+    from langboard_graph.core.graph.default.history import collect_project_activity_messages
+
+    with Session(history_db) as db:
+        db.add_all([Project(id=30, owner_id=1, title="Own board"), Project(id=31, owner_id=1, title="Other board")])
+        db.commit()
+        db.add_all(
+            [
+                ProjectColumn(id=40, project_id=30, name="Own column"),
+                ProjectColumn(id=41, project_id=31, name="Other column"),
+            ]
+        )
+        db.commit()
+        db.add_all(
+            [
+                Card(id=50, project_id=30, project_column_id=40, title="Own card"),
+                Card(id=51, project_id=31, project_column_id=41, title="Other card"),
+            ]
+        )
+        db.commit()
+        db.add_all(
+            [
+                ProjectActivity(
+                    id=60,
+                    project_id=30,
+                    project_column_id=40,
+                    card_id=50,
+                    activity_type=ProjectActivityType.CardCreated,
+                    activity_history={"title": "Own event"},
+                ),
+                ProjectActivity(
+                    id=61,
+                    project_id=31,
+                    project_column_id=41,
+                    card_id=51,
+                    activity_type=ProjectActivityType.CardCreated,
+                    activity_history={"title": "Other event"},
+                ),
+            ]
+        )
+        db.commit()
+    variables = {} if scope == "missing_board" else {"project_uid": SnowflakeID(30).to_short_code()}
+    rest = {}
+    if scope in {"own_column", "foreign_column", "missing_board"}:
+        rest["project_column_uid"] = SnowflakeID(40 if scope == "own_column" else 41).to_short_code()
+    if scope in {"own_card", "foreign_card"}:
+        rest["card_uid"] = SnowflakeID(50 if scope == "own_card" else 51).to_short_code()
+    result = collect_project_activity_messages(variables, rest, 20)
+    assert [item["content"]["history"]["title"] for item in result] == (
+        ["Own event"] if scope in {"board", "own_column", "own_card"} else []
+    )
