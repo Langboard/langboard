@@ -7,9 +7,10 @@ Create Date: 2026-09-13 08:56:43.854311
 """
 
 from typing import Sequence, Union
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from langboard_shared.core.db.ColumnTypes import SnowflakeIDType
+
 
 # revision identifiers, used by Alembic.
 revision: str = '3a3d6b9eb3c2'

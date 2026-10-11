@@ -7,11 +7,11 @@ Create Date: 2026-09-13 02:56:40.546919
 """
 
 from typing import Sequence, Union
-from alembic import op
 import sqlalchemy as sa
-from langboard_shared.core.db.ColumnTypes import EnumLikeType
-from langboard_shared.core.db.ColumnTypes import SnowflakeIDType
+from alembic import op
+from langboard_shared.core.db.ColumnTypes import EnumLikeType, SnowflakeIDType
 from langboard_shared.domain.models.OllamaModelPull import OllamaModelPullStatus
+
 
 # revision identifiers, used by Alembic.
 revision: str = '784b135adf9c'

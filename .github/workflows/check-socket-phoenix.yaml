@@ -24,6 +24,8 @@ permissions:
 
 env:
   MIX_ENV: test
+  PROJECT_NAME: langboard
+  PROJECT_SHORT_NAME: lb
 
 jobs:
   check:
