@@ -291,6 +291,9 @@
     "textAnswer": "输入文本",
     "readback": "再次提交前请刷新并确认结果。",
     "submit": "提交回复",
-    "openComment": "打开评论"
+    "openComment": "打开评论",
+    "applyMove": "应用卡片移动",
+    "moveHelp": "将卡片移至 {{stage}}。不会恢复执行。",
+    "moveRecorded": "卡片移动已记录。"
   }
 }
