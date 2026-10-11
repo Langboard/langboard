@@ -289,6 +289,9 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         stamp = claim["headers"]["X-Langboard-Webhook-Timestamp"]
         digest = hmac.new(b"secret", stamp.encode() + b"." + claim["body"], sha256).hexdigest()
         assert claim["headers"]["X-Langboard-Webhook-Signature"] == "v1=" + digest
+        from langboard_sdk import verify_webhook
+
+        verify_webhook(claim["body"], claim["headers"], "secret")
         payload = json.loads(claim["body"])
         assert payload["response_uid"] == accepted["response_uid"] and payload["values"] == answer
         assert payload["execution_resumed"] is False
@@ -309,6 +312,17 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         )
         assert ack.status_code == 200, ack.text
         assert ack.json()["state"] == "received" and ack.json()["execution_resumed"] is False
+        sdk_ack = asyncio.run(
+            sdk.acknowledge(
+                board[2].get_uid(),
+                card.get_uid(),
+                mixed_receipt["interaction_uid"],
+                event_uid=accepted["event_uid"],
+                runtime_reference="runtime-1",
+            )
+        )
+        assert sdk_ack["acknowledgment_uid"] == ack.json()["acknowledgment_uid"] and sdk_ack["changed"] is False
+        assert sdk_ack["execution_resumed"] is False
         assert (
             client.post(
                 ack_path, json={"event_uid": accepted["event_uid"], "runtime_reference": "runtime-1"}, headers=headers
