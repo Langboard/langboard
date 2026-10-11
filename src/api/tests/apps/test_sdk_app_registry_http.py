@@ -281,7 +281,7 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
         transport = HttpTransport(SimpleNamespace(request=request))
         registry = AppRegistry(transport)
         manager = AppManager(transport, board[2].get_uid())
-        declaration = {**DECLARATION, "capabilities": ["panels.render", "signals.read"], "workflow_requirements": None}
+        declaration = {**DECLARATION, "capabilities": ["panels.render", "signals.read"], "workflow_requirements": None, "signal_sources": ["github", "example-adapter"]}
         approved = await registry.approve(declaration)
         saved = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=True))["binding"]
         path = f"/board/{board[2].get_uid()}/apps/example-erp/panel/signals"
@@ -293,15 +293,16 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
             binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]
         assert saved["granted_capabilities"] == ["panels.render", "signals.read"]
         form["binding_revision"] = saved["revision"]
-        for provider in ("github", "glitchtip", "dokploy"):
-            result = await request("POST", path, json={**form, "provider": provider})
-            assert result.status_code == 200 and result.json() == {"items": [], "next_cursor": None}
-        assert (await request("POST", path, json={**form, "provider": "unsupported"})).status_code == 400
-        # Well-formed future adapter keys reach native support validation.
+        result = await request("POST", path, json=form)
+        assert result.status_code == 200 and result.json() == {"items": [], "next_cursor": None}
+        for provider in ("glitchtip", "dokploy", "unsupported"):
+            assert (await request("POST", path, json={**form, "provider": provider})).status_code == 404
+        assert requested_providers == ["github"]
+        # An explicitly approved future adapter still requires installed native support.
         assert (await request("POST", path, json={**form, "provider": "example-adapter"})).status_code == 400
-        assert requested_providers[-1] == "example-adapter"
+        assert requested_providers == ["github", "example-adapter"]
         assert (await request("POST", path, json={**form, "provider": "../github"})).status_code == 400
-        assert requested_providers[-1] == "example-adapter"
+        assert requested_providers == ["github", "example-adapter"]
         assert (await request("POST", path, json={**form, "binding_revision": "0" * 64})).status_code == 409
         disabled = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=False,
             binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]

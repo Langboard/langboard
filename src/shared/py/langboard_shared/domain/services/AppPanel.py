@@ -42,8 +42,8 @@ def set_panel(service, actor, project_uid, app_key, binding_uid, expected_revisi
                 return None
             if binding.edit_revision() != expected_revision:
                 raise AppRegistryConflict()
-        if read_signals and (not enabled or "signals.read" not in definition.declaration["capabilities"]):
-            raise ValueError("Signal reads require separate declared consent")
+        if read_signals and (not enabled or "signals.read" not in definition.declaration["capabilities"] or not definition.declaration.get("signal_sources")):
+            raise ValueError("Signal reads require explicit declared sources and separate consent")
         grants = set(binding.granted_capabilities)
         if enabled:
             grants.add("panels.render")
@@ -90,5 +90,6 @@ def get_panel(service, actor, project_uid, app_key, *, lock=False):
         if not panel:
             return None
         return {"key": app_key, "version": definition.declaration["version"], "panel": panel,
+                "signal_sources": list(definition.declaration.get("signal_sources", [])),
                 "app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision(),
                 "granted_capabilities": list(binding.granted_capabilities)}
