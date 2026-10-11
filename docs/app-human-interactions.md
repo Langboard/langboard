@@ -547,3 +547,18 @@ unmount. Local browser acceptance covers 390px/1440px lost-response readback and
 read-only denial alongside eleven existing request/transition regressions.
 Explicit resume and deployed external process termination acceptance are still
 unfinished.
+
+### Stopped generation fence
+
+Current owner-app execution authority now checks retained runtime leases for the
+same card and execution generation. `stop_requested` and `stopped` deny that
+generation at the shared authority boundary, including replayed request/outbox
+paths. Restoring connection consent or issuing another credential cannot reopen
+it. This is a generation fence, not a deletion of historical receipts.
+
+A newer readiness generation is evaluated independently under current authority;
+it never changes the old stopped lease. The producer still owns generation
+advancement on an actual readiness false-to-true transition. No resume endpoint
+increments it merely because a user answered a question. Local regressions cover
+shared authority, duplicate requests, lease heartbeat/recovery and start reports;
+explicit resume and deployed execution acceptance remain pending.

@@ -30,7 +30,7 @@ def prepare(board):
     try:
         with DbEngine.get_main_engine().begin() as db:
             module.op = Operations(MigrationContext.configure(db))
-            module.upgrade()
+            # Request migration is applied by grant_scope for stop fencing.
             outbox = importlib.import_module("langboard.migrations.versions.20261011032500-d60a571894ec")
             original_outbox = outbox.op
             try:

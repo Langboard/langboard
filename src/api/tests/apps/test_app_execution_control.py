@@ -53,7 +53,7 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
         with DbSession.atomic() as db:
             board[4].actions = ["read", "card_update"]
             db.update(board[4])
-            connection.state = "revoked"
+            connection.state = "connected"
             db.update(connection)
         listed = client.get(path.rsplit("/", 2)[0], headers=headers)
         assert listed.status_code == 200, listed.text
@@ -69,6 +69,22 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
         assert first.json()["execution_resumed"] is False
         assert first.json()["lease_uid"] == permit["lease_uid"]
         assert first.json()["changed"] is True
+        from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
+        from langboard_shared.domain.services.AppExecutionRequests import request_app_execution
+        from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+        with DbSession.atomic() as db:
+            board[2].owner_id = actor.id
+            db.update(board[2])
+        with pytest.raises(AppGovernanceDenied):
+            evaluate_current_execution_grant(token, board[2].id, card.id, request.generation)
+        with pytest.raises(AppGovernanceDenied):
+            request_app_execution(token, board[2].id, card.id, request.generation,
+                                  expected_authority_version=request.authority["authority_version"])
+        with DbSession.atomic() as db:
+            board[2].owner_id = 2
+            db.update(board[2])
+            connection.state = "revoked"
+            db.update(connection)
         second = client.post(path, json={"generation": request.generation}, headers=headers)
         assert second.status_code == 200 and second.json()["changed"] is False
         foreign_path = path.replace(board[2].get_uid(), board[5][0].get_uid())
@@ -89,3 +105,24 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
         final = client.post(path, json={"generation": request.generation}, headers=headers)
         assert final.status_code == 200 and final.json()["state"] == "stopped"
         assert final.json()["changed"] is False
+        with DbSession.atomic() as db:
+            board[2].owner_id = actor.id
+            db.update(board[2])
+        # Restoring app consent cannot resurrect the stopped generation.
+        with DbSession.atomic() as db:
+            connection.state = "connected"
+            db.update(connection)
+        with pytest.raises(AppGovernanceDenied):
+            evaluate_current_execution_grant(token, board[2].id, card.id, request.generation)
+        from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+        replacement_token = issue_connection_credential(actor, connection.id)["token"]
+        with pytest.raises(AppGovernanceDenied):
+            evaluate_current_execution_grant(replacement_token, board[2].id, card.id, request.generation)
+        # A producer-issued newer readiness generation has its own authority;
+        # this does not create a permit or resume the retained stopped runtime.
+        from sqlalchemy import text
+        with DbEngine.get_main_engine().begin() as db:
+            db.execute(text("UPDATE card_execution_generation SET execution_generation=:generation WHERE card_id=:card_id"),
+                       {"generation": request.generation + 1, "card_id": int(card.id)})
+        assert evaluate_current_execution_grant(replacement_token, board[2].id, card.id, request.generation + 1)["generation"] == request.generation + 1
+        assert check_app_runtime(lease.id, runtime_token)["state"] == "stopped"
