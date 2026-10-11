@@ -2,8 +2,7 @@
 
 ## Observed scope
 
-On 2026-10-11, an authenticated in-app browser repeatedly loaded board
-`2RRwwB5JNm0` and displayed the native board-load error. A prior manual retry
+On 2026-10-11, an authenticated in-app browser repeatedly loaded a board and displayed the native board-load error. A prior manual retry
 displayed the board, but reloading reproduced the failure. This does not prove
 the same behavior in other browsers or establish a backend outage.
 
@@ -67,7 +66,7 @@ canary recovery remains unverified until deployment.
 ## Later authenticated settings readback
 
 A subsequent in-app browser reload returned HTTP 200 for the original
-`/auth/refresh`, `/auth/me`, `/board/2RRwwB5JNm0`, `/details`, `/columns` and
+`/auth/refresh`, `/auth/me`, `/board/{project_uid}`, `/details`, `/columns` and
 `/column/dock` requests. The full settings screen rendered and its GlitchTip
 connection selector showed only the new-connection option. The deployed screen
 still used the old combined settings layout and UI asset `index-CHcBG7Il.js`.
@@ -79,13 +78,14 @@ acceptance issue with one event; actual canary event-to-board acceptance remains
 ## Fresh capture during the next immutable build
 
 A 2026-10-11 authenticated reload reproduced the partial settings shell while
-immutable API image run `38128233263` was still building. The original refresh
-POST, identity GET and board GET returned 200. The original details GET
-(`17668.349`), dock GET (`17668.333`) and approval-count GET (`17668.345`)
+the immutable API image was still building. The original refresh
+POST, identity GET and board GET returned 200. The original details GET,
+dock GET and approval-count GET
 ended with `net::ERR_ABORTED`, `canceled: true`, after their separate OPTIONS
 requests returned 200. The capture had neither truncation nor remaining pages.
 The deployed asset remained `index-CHcBG7Il.js`. Browser console reported Axios
 `Request aborted`; this is not evidence that the session guard caused the abort.
-The observed API origin is `https://api-langboard.yamon.io`. No credential
-material was read. Current source auth transport regression passed 16 cases;
+The observed API origin matched the configured deployment API origin. No
+credential material was read. Instance addresses, board identities and exact
+request IDs are retained in private verification records, not product guidance. Current source auth transport regression passed 16 cases;
 that local result does not resolve this deployed reproduction.
