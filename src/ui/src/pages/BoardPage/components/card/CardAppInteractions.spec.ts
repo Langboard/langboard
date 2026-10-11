@@ -117,3 +117,17 @@ test("older runtime page and back navigation keep exact cursor", async ({ page }
     await page.getByRole("button", { name: "Previous", exact: true }).click();
     await expect(page.getByText("example-agent · Generation 7", { exact: true })).toBeVisible();
 });
+
+test("explicit resume of stopped older generation waits for new runtime", async ({ page }) => {
+    await page.goto(`${fixture}?runtime&stopped&lost`);
+    await page.getByRole("button", { name: "App execution", exact: true }).click();
+    await page.getByRole("button", { name: "Request resume", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Request resume", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(page.getByText("Resume requested — awaiting new runtime", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Request resume", exact: true })).toHaveCount(0);
+    const writes = await page.evaluate(() => (window as any).interactionCalls.filter((c: any) => c.method === "post"));
+    expect(writes).toHaveLength(1);
+    expect(writes[0].data).toEqual({ generation: 7 });
+});
