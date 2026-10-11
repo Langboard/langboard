@@ -1070,7 +1070,7 @@ removal must not replay or reverse an already accepted response. Expired, cancel
 or revoked requests cannot resume an agent. Concurrent responses must yield one
 accepted outcome with an inspectable conflict for the others.
 
-SDK 0.2.14 implements validated app request create/read storage. Human response, UI and runtime continuation remain pending. Native
+SDK 0.2.15 implements validated app request create/read storage. The host also supports revision-fenced app cancellation; its SDK convenience method is pending. Human response, delivery, UI and runtime continuation remain pending. Native
 LangGraph approval endpoints do not establish the external-app contract.
 
 ## Retained resource selection enumeration (SDK 0.2.13)
