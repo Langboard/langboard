@@ -18,7 +18,7 @@ from langboard_shared.domain.models import (
     Project,
     User,
 )
-from sqlalchemy import MetaData, create_engine, inspect, text, update
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["b6d3e71f9042"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["a7c9e31b6204"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -42,16 +42,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
     assert migration.down_revision == "0cc6abc4b020"
     try:
         User.__table__.create(engine)
-        project_table = Project.__table__.to_metadata(MetaData())
-        for constraint in list(project_table.constraints):
-            if "organization_id" in constraint.columns:
-                project_table.constraints.remove(constraint)
-        for index in list(project_table.indexes):
-            if "organization_id" in index.columns:
-                project_table.indexes.remove(index)
-        project_table._columns.remove(project_table.c.organization_id)
-        User.__table__.to_metadata(project_table.metadata)
-        project_table.create(engine)
+        Project.__table__.create(engine)
         with Session(engine) as db:
             db.add(
                 User(
@@ -64,11 +55,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
                 )
             )
             db.commit()
-            db.execute(
-                text(
-                    "INSERT INTO project (id, owner_id, title, project_type, archive_visible_days) VALUES (10, 1, 'Board', 'Other', 3)"
-                )
-            )
+            db.add(Project(id=10, owner_id=1, title="Board"))
             db.commit()
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             migration.upgrade()
@@ -130,33 +117,10 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         assert not tables.intersection(inspect(engine).get_table_names())
         with Session(engine) as db:
             assert db.get(User, 1) is not None
-            assert db.execute(text("SELECT id FROM project WHERE id=10")).scalar() == 10
+            assert db.get(Project, 10) is not None
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             migration.upgrade()
         assert tables <= set(inspect(engine).get_table_names())
-        spec = importlib.util.spec_from_file_location(
-            "project_org_migration", migration_root / "versions/20261012063000-b6d3e71f9042.py"
-        )
-        project_migration = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(project_migration)
-        assert project_migration.down_revision == migration.revision
-        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
-            project_migration.upgrade()
-            assert connection.execute(text("SELECT organization_id FROM project WHERE id=10")).scalar() is None
-        with Session(engine) as db:
-            db.add(Organization(id=20, name="Example", slug="example", owner_user_id=1))
-            db.commit()
-            db.execute(update(Project).where(Project.id == 10).values(organization_id=20))
-            db.commit()
-            assert db.get(Project, 10).organization_id == 20
-        with Session(engine) as db, pytest.raises(IntegrityError):
-            db.execute(text("DELETE FROM organization WHERE id=20"))
-            db.commit()
-        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
-            project_migration.downgrade()
-            assert connection.execute(text("SELECT title FROM project WHERE id=10")).scalar() == "Board"
-            project_migration.upgrade()
-            assert connection.execute(text("SELECT organization_id FROM project WHERE id=10")).scalar() is None
     finally:
         engine.dispose()
         with admin.begin() as db:

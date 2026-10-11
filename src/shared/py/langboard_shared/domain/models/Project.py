@@ -3,16 +3,12 @@ from sqlalchemy import TEXT
 from ...core.db import ApiField, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
-from .Organization import Organization
 from .User import User
 
 
 class Project(BaseNotificationScheduleModel, table=True):
     owner_id: SnowflakeID = SnowflakeIDField(
         foreign_key=User, nullable=False, index=True, api_field=ApiField(name="owner_uid")
-    )
-    organization_id: SnowflakeID | None = SnowflakeIDField(
-        foreign_key=Organization.expr("id"), nullable=True, index=True, api_field=ApiField(name="organization_uid")
     )
     title: str = Field(nullable=False, api_field=ApiField())
     description: str | None = Field(default=None, sa_type=TEXT, api_field=ApiField())

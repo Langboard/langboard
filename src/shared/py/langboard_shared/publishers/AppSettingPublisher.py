@@ -8,18 +8,6 @@ from ..domain.models import ApiComfortTool, McpToolGroup, NotificationScheduleRu
 @staticclass
 class AppSettingPublisher(BaseSocketPublisher):
     @staticmethod
-    def apps_changed():
-        """Invalidate readers without exposing app, board or credential facts."""
-        AppSettingPublisher.put_dispather(
-            {},
-            SocketPublishModel(
-                topic=SocketTopic.Global,
-                topic_id=GLOBAL_TOPIC_ID,
-                event="apps:changed",
-            ),
-        )
-
-    @staticmethod
     def selected_users_deleted(uids: list[str]):
         model = {"uids": uids}
         publish_model = SocketPublishModel(
