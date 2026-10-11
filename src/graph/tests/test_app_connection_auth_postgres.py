@@ -15,6 +15,7 @@ import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
 import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
 import langboard.routes.settings.AppResourceReadApi  # noqa: F401
 import langboard.routes.settings.AppResourceSelectionApi  # noqa: F401
+import langboard.routes.settings.AppWorkflowMappingApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -36,8 +37,10 @@ from langboard_shared.domain.models import (
     BoardAppBinding,
     Organization,
     ProjectAssignedUser,
+    ProjectColumn,
     ProjectRole,
     User,
+    WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.AppBoardConsent import prepare_board_consent, save_board_consent
 from langboard_shared.domain.services.AppConnectionAuthentication import (
@@ -70,6 +73,7 @@ from langboard_shared.domain.services.AppRegistry import (
     save_definition,
 )
 from langboard_shared.domain.services.AppResourceSelection import list_resource_selections, save_resource_selection
+from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_mapping, save_workflow_mapping
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
 from sqlalchemy import event, text, update
@@ -962,3 +966,84 @@ def test_policy_disable_serializes_with_consent_writes_including_absent_rows(
         event.remove(engine, "after_cursor_execute", statement_done)
         event.remove(engine, "before_cursor_execute", before_statement)
     assert prepare_board_consent(owner, SnowflakeID(20), "example")["revision"] == initial["revision"]
+
+
+def test_generic_builtin_workflow_mapping_preserves_ambiguity_and_requires_opt_in(registered, monkeypatch):
+    engine, (_, owner, _), *_ = registered
+    WorkflowStageDefinition.__table__.create(engine)
+    ProjectColumn.__table__.create(engine)
+    with Session(engine) as db:
+        definition = deepcopy(DECLARATION)
+        definition["workflow_requirements"] = {"required": ["active", "review"], "optional": ["closed"]}
+        db.execute(update(AppDefinition).values(declaration=definition))
+        db.execute(update(BoardAppBinding).values(stage_transitions_enabled=False))
+        db.add(
+            WorkflowStageDefinition(
+                id=201, key="active", name="Active", description="Work being executed", is_builtin=True
+            )
+        )
+        db.add(WorkflowStageDefinition(id=202, key="review", name="Review", is_builtin=True))
+        db.add(WorkflowStageDefinition(id=203, key="closed", name="Closed", is_builtin=True))
+        db.add(
+            ProjectColumn(
+                id=211,
+                project_id=20,
+                name="Any name",
+                description="Board-specific instructions",
+                workflow_stage="active",
+            )
+        )
+        db.add(ProjectColumn(id=212, project_id=20, name="Another active", workflow_stage="active"))
+        db.add(ProjectColumn(id=213, project_id=20, name="Any review", workflow_stage="review"))
+        db.add(ProjectColumn(id=214, project_id=20, name="Archive", workflow_stage="closed", is_archive=True))
+        db.commit()
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-workflow-http-secret-32bytes"))
+    Cache.clear()
+    Auth.reset_user(owner)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    with TestClient(app) as client:
+        path = f"/board/{SnowflakeID(20).to_short_code()}/apps/example/workflow-mapping"
+        assert client.get(path).status_code == 401
+        access, refresh = AuthSecurity.authenticate(owner.id)
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        response = client.get(path, headers={"Authorization": f"Bearer {access}"})
+        assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+        initial = response.json()
+        invalid = {
+            "mapping": {},
+            "enabled": True,
+            "expected_revision": initial["revision"],
+            "expected_app_revision": initial["app_revision"],
+        }
+        assert client.put(path, headers={"Authorization": f"Bearer {access}"}, json=invalid).status_code == 400
+    Cache.clear()
+    initial = read_workflow_mapping(owner, SnowflakeID(20), "example")
+    assert not initial["enabled"] and not initial["transitions_resolved"]
+    assert initial["choices"][0]["status"] == "ambiguous"
+    assert initial["choices"][2]["status"] == "missing"
+
+    def save(mapping, enabled, receipt=initial):
+        return save_workflow_mapping(
+            owner, SnowflakeID(20), "example", mapping, enabled, receipt["revision"], receipt["app_revision"]
+        )
+
+    with pytest.raises(ValueError):
+        save({}, True)
+    with pytest.raises(ValueError):
+        save({"provider-stage": SnowflakeID(211).to_short_code()}, True)
+    enabled = save({"active": SnowflakeID(211).to_short_code()}, True)
+    assert enabled["enabled"] and enabled["transitions_resolved"]
+    assert enabled["choices"][0]["workflow_guidance"] == "Work being executed\n\nBoard-specific instructions"
+    with pytest.raises(AppGovernanceConflict):
+        save({}, False)
+    with Session(engine) as db:
+        db.execute(update(ProjectColumn).where(ProjectColumn.id == 211).values(deleted_at=SafeDateTime.now()))
+        db.commit()
+    current = read_workflow_mapping(owner, SnowflakeID(20), "example")
+    assert not current["enabled"]
+    assert current["choices"][0]["status"] == "invalid"  # Never substitute the other active column.
+    with pytest.raises(ValueError):
+        save({"active": SnowflakeID(211).to_short_code()}, True, current)
+    assert not save({}, False, current)["enabled"]

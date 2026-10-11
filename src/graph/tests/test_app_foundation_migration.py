@@ -36,7 +36,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["e1b6c84f312a"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["f2c7d95a423b"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -265,6 +265,39 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
             assert connection.execute(text("SELECT owner_id FROM app_connection WHERE id=90")).scalar() == 1
             resource_migration.upgrade()
             identity_migration.upgrade()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    'CREATE TABLE project_column (id BIGINT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now() NOT NULL, updated_at TIMESTAMPTZ DEFAULT now() NOT NULL, deleted_at TIMESTAMPTZ, project_id BIGINT REFERENCES project(id) NOT NULL, name VARCHAR NOT NULL, "order" INTEGER NOT NULL DEFAULT 0, is_archive BOOLEAN NOT NULL DEFAULT false)'
+                )
+            )
+            connection.execute(
+                text("INSERT INTO project_column (id,project_id,name) VALUES (120,10,'Custom existing column')")
+            )
+        spec = importlib.util.spec_from_file_location(
+            "workflow_migration", migration_root / "versions/20261012090000-f2c7d95a423b.py"
+        )
+        workflow_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(workflow_migration)
+        assert workflow_migration.down_revision == identity_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            workflow_migration.upgrade()
+            assert connection.execute(text("SELECT workflow_stage FROM project_column WHERE id=120")).scalar() is None
+            assert connection.execute(text("SELECT count(*) FROM workflow_stage_definition")).scalar() == 6
+            translations = connection.execute(
+                text("SELECT translations FROM workflow_stage_definition WHERE key='active'")
+            ).scalar()
+            assert set(translations) == {"en", "ko", "ja", "zh"}
+            connection.execute(text("UPDATE project_column SET workflow_stage='active' WHERE id=120"))
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(text("UPDATE project_column SET workflow_stage='provider-specific' WHERE id=120"))
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            workflow_migration.downgrade()
+            assert (
+                connection.execute(text("SELECT name FROM project_column WHERE id=120")).scalar()
+                == "Custom existing column"
+            )
+            workflow_migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:

@@ -330,3 +330,25 @@ Two-connection regressions force policy disablement to hold the lock while a
 board/MCP/credential mutation attempts entry. Instance and organization scopes
 are exercised with both absent and existing policy rows. Mutations observe the
 committed disabled policy and fail instead of publishing a new approval after it.
+
+## Built-in workflow mapping foundation
+
+The native six workflow definitions are restored with English/Korean/Japanese/
+Chinese defaults. Column descriptions, translations and explicit stage keys are
+persisted. Migration f2c7d95a423b keeps existing names and leaves stage bindings
+unclassified, adds a restricted stage foreign key and avoids duplicate unique
+indexes. It does not infer workflow meaning from column titles.
+
+Generic app requirements come from the approved SDK declaration; no provider
+registry or provider-specific presets are restored. Required and optional stages
+resolve against active built-in definitions and current nondeleted nonarchive
+board columns. Ambiguous stages require an explicit choice; stale choices are
+invalid instead of silently moving to another candidate. Human authenticated
+mapping APIs require current board authority, app/binding revisions and explicit
+transition opt-in under current policy. Saved opt-ins are reported ineffective
+when current mapping or policy is invalid. Stage and selected column descriptions
+are composed into workflow guidance for API consumers.
+
+This is configuration and discovery, not an executed card transition. Stage
+editor/template UI, event publication, card side effects, MCP projection and
+execution/HITL integration remain pending.

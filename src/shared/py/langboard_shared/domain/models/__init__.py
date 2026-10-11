@@ -78,6 +78,7 @@ from .ProjectWikiMetadata import ProjectWikiMetadata
 from .ScimGroup import ScimGroup
 from .ScimGroupMember import ScimGroupMember
 from .SettingRole import SettingRole
+from .WorkflowStageDefinition import WorkflowStageDefinition
 from .User import User
 from .UserActivity import UserActivity
 from .UserEmail import UserEmail
@@ -174,6 +175,7 @@ __all__ = [
     "SettingRole",
     "ScimGroup",
     "ScimGroupMember",
+    "WorkflowStageDefinition",
     "User",
     "UserActivity",
     "UserEmail",
