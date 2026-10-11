@@ -1,10 +1,23 @@
 """Current app connection authentication and explicit consent on PostgreSQL."""
 
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
+from threading import Event, get_ident
+import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
+import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
+import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
+import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
+import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     AppConnection,
@@ -21,6 +34,11 @@ from langboard_shared.domain.services.AppConnectionAuthentication import (
     list_connection_credentials,
     revoke_connection_credential,
 )
+from langboard_shared.domain.services.AppConnectionManagement import (
+    create_inbound_connection,
+    disconnect_inbound_connection,
+    list_inbound_connections,
+)
 from langboard_shared.domain.services.AppGovernance import (
     AppGovernanceConflict,
     AppGovernanceDenied,
@@ -32,7 +50,16 @@ from langboard_shared.domain.services.AppMcpConnectionConsent import (
     read_mcp_connection_consent,
     save_mcp_connection_consent,
 )
-from sqlalchemy import update
+from langboard_shared.domain.services.AppRegistry import (
+    AppRegistryConflict,
+    AppRegistryDenied,
+    disable_definition,
+    list_definitions,
+    save_definition,
+)
+from langboard_shared.Env import Env
+from langboard_shared.security import Auth
+from sqlalchemy import event, update
 from sqlalchemy.orm import Session
 from test_app_governance_postgres import governance  # noqa: F401
 
@@ -97,6 +124,27 @@ def test_hashed_credential_receipts_and_private_owner(connected):
     revoke_connection_credential(users[1], personal.id, credential_id)
     with pytest.raises(AppGovernanceDenied):
         authenticate_connection_credential(token)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("credential_reference", "provider-secret-ref"),
+        ("instance_url", "https://provider.example"),
+        ("external_account_id", "provider-user"),
+    ],
+)
+def test_provider_connections_cannot_issue_or_reuse_inbound_credentials(connected, field, value):
+    engine, users, personal, _ = connected
+    token = issue_connection_credential(users[1], personal.id)["token"]
+    with Session(engine) as db:
+        db.execute(update(AppConnection).where(AppConnection.id == personal.id).values(**{field: value}))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        issue_connection_credential(users[1], personal.id)
+    with pytest.raises(AppGovernanceDenied):
+        authenticate_connection_credential(token)
+    assert len(list_connection_credentials(users[1], personal.id)["items"]) == 1
 
 
 @pytest.mark.parametrize("mutation", ["expiry", "owner", "connection", "trust", "app", "policy", "organization"])
@@ -167,18 +215,6 @@ def test_malformed_consent_is_validation_failure(connected, scopes):
 
 
 def test_native_authenticated_http_connection_routes(connected, monkeypatch):
-    import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
-    import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
-    import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-    from langboard_shared.core.caching import Cache
-    from langboard_shared.core.routing import AppRouter
-    from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.Env import Env
-    from langboard_shared.security import Auth
-
     engine, (admin, owner, outsider), personal, shared = connected
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-connection-http-secret-32bytes"))
     Cache.clear()
@@ -232,6 +268,15 @@ def test_native_authenticated_http_connection_routes(connected, monkeypatch):
             assert saved.headers["cache-control"] == "no-store"
             assert request(owner, "PUT", consent_path, json=body).status_code == 409
             assert request(owner, "PUT", consent_path, json={**body, "scopes": ["read", "read"]}).status_code == 400
+            with Session(engine) as db:
+                db.execute(
+                    update(AppConnection)
+                    .where(AppConnection.id == personal.id)
+                    .values(credential_reference="provider-secret-ref")
+                )
+                db.commit()
+            assert request(owner, "POST", credential_path, json={}).status_code == 403
+            assert client.get("/apps/v1/identity", headers={"Authorization": f"Bearer {token}"}).status_code == 401
             revoked = request(owner, "POST", credential_path + "/" + issued.json()["credential_uid"] + "/revoke")
             assert revoked.status_code == 200
             assert client.get("/apps/v1/identity", headers={"Authorization": f"Bearer {token}"}).status_code == 401
@@ -264,8 +309,6 @@ def registered(connected):
 
 
 def test_registry_update_preserves_unchanged_scopes_and_never_resurrects_revoked_consent(registered):
-    from langboard_shared.domain.services.AppRegistry import list_definitions, save_definition
-
     engine, (admin, owner, _), personal, _ = registered
     consent(owner, personal, ["read", "write"])
     old = list_definitions(admin)["items"][0]
@@ -283,8 +326,6 @@ def test_registry_update_preserves_unchanged_scopes_and_never_resurrects_revoked
 
 
 def test_registry_trust_disable_and_reenable_require_new_owner_consent(registered):
-    from langboard_shared.domain.services.AppRegistry import disable_definition, list_definitions, save_definition
-
     engine, (admin, owner, _), personal, _ = registered
     consent(owner, personal, ["read"])
     token = issue_connection_credential(owner, personal.id)["token"]
@@ -309,13 +350,6 @@ def test_registry_trust_disable_and_reenable_require_new_owner_consent(registere
 
 
 def test_registry_admin_revision_paging_and_card_lifecycle_contract(registered):
-    from langboard_shared.domain.services.AppRegistry import (
-        AppRegistryConflict,
-        AppRegistryDenied,
-        list_definitions,
-        save_definition,
-    )
-
     engine, (admin, owner, _), personal, _ = registered
     with pytest.raises(AppRegistryDenied):
         list_definitions(owner)
@@ -339,16 +373,6 @@ def test_registry_admin_revision_paging_and_card_lifecycle_contract(registered):
 
 
 def test_registry_authenticated_http_approval_and_current_admin(registered, monkeypatch):
-    import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-    from langboard_shared.core.caching import Cache
-    from langboard_shared.core.routing import AppRouter
-    from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.Env import Env
-    from langboard_shared.security import Auth
-
     engine, (admin, owner, _), *_ = registered
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-registry-http-secret-32bytes"))
     Cache.clear()
@@ -368,12 +392,19 @@ def test_registry_authenticated_http_approval_and_current_admin(registered, monk
             path = "/settings/apps/registry"
             assert client.get(path).status_code == 401
             assert request(owner, "GET", path).status_code == 403
+            package = {"version": "1.0.0", "storage": "private/package.zip", "sha256": "installed-digest"}
+            with Session(engine) as db:
+                db.execute(update(AppDefinition).where(AppDefinition.key == "example").values(package=package))
+                db.commit()
             old = request(admin, "GET", path).json()["items"][0]
             changed = {**DECLARATION, "version": "1.0.1"}
             body = {"declaration": changed, "expected_revision": old["revision"]}
             approved = request(admin, "POST", path, json=body)
             assert approved.status_code == 200 and approved.json()["generation"] == 2
             assert approved.headers["cache-control"] == "no-store"
+            assert approved.json()["installation"] == old["installation"]
+            with Session(engine) as db:
+                assert db.query(AppDefinition).filter_by(key="example").one().package == package
             assert request(admin, "POST", path, json=body).status_code == 409
             assert request(admin, "GET", path, params={"limit": 51}).status_code in (400, 422)
             assert request(
@@ -390,11 +421,6 @@ def test_registry_authenticated_http_approval_and_current_admin(registered, monk
 
 
 def test_concurrent_trust_update_and_owner_consent_cannot_deadlock_or_restore_grant(registered):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event, get_ident
-    from langboard_shared.domain.services.AppRegistry import list_definitions, save_definition
-    from sqlalchemy import event
-
     engine, (admin, owner, _), personal, _ = registered
     receipt = consent(owner, personal, ["read"])
     old = list_definitions(admin)["items"][0]
@@ -438,13 +464,6 @@ def test_concurrent_trust_update_and_owner_consent_cannot_deadlock_or_restore_gr
 
 
 def test_native_onboarding_private_and_organization_ownership(registered):
-    from langboard_shared.domain.services.AppConnectionManagement import (
-        create_inbound_connection,
-        disconnect_inbound_connection,
-        list_inbound_connections,
-    )
-    from langboard_shared.domain.services.AppRegistry import AppRegistryConflict, list_definitions
-
     _, (admin, owner, outsider), personal, shared = registered
     definition = list_definitions(admin)["items"][0]
     with pytest.raises(AppRegistryConflict):
@@ -477,13 +496,6 @@ def test_native_onboarding_private_and_organization_ownership(registered):
 
 
 def test_native_connection_listing_is_bounded_without_per_row_definition_queries(registered):
-    from langboard_shared.domain.services.AppConnectionManagement import (
-        create_inbound_connection,
-        list_inbound_connections,
-    )
-    from langboard_shared.domain.services.AppRegistry import list_definitions
-    from sqlalchemy import event
-
     engine, (admin, owner, _), *_ = registered
     definition = list_definitions(admin)["items"][0]
     for _ in range(3):
@@ -508,17 +520,6 @@ def test_native_connection_listing_is_bounded_without_per_row_definition_queries
 
 
 def test_native_onboarding_http_revisions_permissions_and_no_credential_injection(registered, monkeypatch):
-    import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-    from langboard_shared.core.caching import Cache
-    from langboard_shared.core.routing import AppRouter
-    from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.domain.services.AppRegistry import list_definitions
-    from langboard_shared.Env import Env
-    from langboard_shared.security import Auth
-
     engine, (admin, owner, outsider), *_ = registered
     revision = list_definitions(admin)["items"][0]["revision"]
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-onboarding-http-secret-32bytes"))

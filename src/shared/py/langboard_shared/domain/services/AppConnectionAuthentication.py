@@ -33,7 +33,7 @@ def is_native_inbound_connection(connection):
 
 def _connection(db, identifier):
     row = _current(db, AppConnection, identifier, for_update=False)
-    if row is None or row.state != "connected":
+    if row is None or row.state != "connected" or not is_native_inbound_connection(row):
         raise AppGovernanceDenied()
     owner = _current(db, User, row.owner_id, for_update=False)
     if owner is None or owner.deleted_at or not owner.activated_at:

@@ -6,7 +6,7 @@ import re
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from ...core.db import DbSession, SqlBuilder
-from ...core.types import SafeDateTime
+from ...core.types import SafeDateTime, SnowflakeID
 from ...publishers import AppSettingPublisher
 from ..models import AppConnection, AppGovernancePolicy, Organization, Project, ProjectAssignedUser, User
 
@@ -124,7 +124,6 @@ def get_policy(actor, organization_id=None):
 
 def list_managed_organizations(actor, *, after_uid=None, limit=25):
     """Discover a bounded page of active policy scopes using current primary authority."""
-    from ...core.types import SnowflakeID
 
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ValueError("Invalid organization page limit")

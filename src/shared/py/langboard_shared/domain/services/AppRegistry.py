@@ -63,7 +63,8 @@ def save_definition(actor, declaration, expected_revision=None, *, package=None)
                 raise ValueError("An app update needs a newer version")
             _update_bindings(db, key, row.declaration, declaration)
             row.declaration = declaration
-            row.package = package
+            if package is not None:
+                row.package = package
             row.is_enabled = True
             row.generation += 1
             row.approved_by = actor.id

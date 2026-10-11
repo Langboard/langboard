@@ -239,3 +239,22 @@ account deactivation, disconnect/token invalidation and paging query counts.
 Frozen API environment: 41 tests pass in 29.23 seconds. Board resource consent,
 common workflow stages/events, execution fences/outbox/permanent receipts/HITL
 and deployed independent-app acceptance remain pending. No merge or deployment.
+
+## Review corrections: inbound identity and installed package preservation
+
+Inbound credential issuance and authentication both require the native inbound
+metadata shape. A provider-backed connection cannot receive a host inbound token;
+changing any of credential reference, instance URL or external account ID also
+rejects an already-issued token. Owners retain receipt discovery and revocation.
+This boundary is independent of provider names and does not classify a GitHub
+user comment as human initiated or automated.
+
+Declaration-only approvals preserve the existing installed package metadata.
+A non-null package supplied by a package installation path replaces it; package
+removal is not exposed by the declaration approval API. The authenticated HTTP
+regression verifies the stored private storage reference and public installation
+receipt survive a newer declaration. Regular imports in the policy service and
+PostgreSQL/HTTP suites now live at module scope.
+
+These corrections do not complete board resource grants, workflow mapping,
+execution/outbox/HITL or deployed independent-app acceptance.

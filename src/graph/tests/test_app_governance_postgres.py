@@ -2,9 +2,16 @@
 
 import os
 from uuid import uuid4
+import langboard.routes.settings.AppGovernanceSettingsApi  # noqa: F401
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     AppConnection,
@@ -24,17 +31,18 @@ from langboard_shared.domain.services.AppGovernance import (
     require_connection_access,
     save_policy,
 )
-from sqlalchemy import create_engine, text, update
+from langboard_shared.Env import Env
+from langboard_shared.publishers import AppSettingPublisher
+from langboard_shared.security import Auth
+from sqlalchemy import create_engine, event, text, update
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
 
 @pytest.fixture
 def governance(monkeypatch, tmp_path):
-    from langboard_shared.Env import Env
-
     monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
-    from langboard_shared.publishers import AppSettingPublisher
 
     monkeypatch.setattr(AppSettingPublisher, "apps_changed", lambda: None)
     url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
@@ -217,8 +225,6 @@ def test_policy_scope_unique_and_consistent(governance):
 
 
 def test_runtime_policy_reads_do_not_lock_global_or_organization_rows(governance, monkeypatch):
-    from sqlalchemy.dialects import postgresql
-
     _, (admin, owner, _), org, project, *_ = governance
     policy = get_policy(admin)
     save_policy(admin, "approved_only", policy["revision"])
@@ -243,8 +249,6 @@ def test_runtime_policy_reads_do_not_lock_global_or_organization_rows(governance
 
 
 def test_policy_change_invalidates_open_panels_only_after_commit(governance, monkeypatch):
-    from langboard_shared.publishers import AppSettingPublisher
-
     _, (admin, owner, _), org, *_ = governance
     events = []
 
@@ -311,8 +315,6 @@ def test_personal_automation_requires_board_ownership(governance):
 
 
 def test_atomic_nested_rollback_savepoint_and_connection_budget(governance):
-    from sqlalchemy import event
-
     engine, (_, owner, _), _, project, *_ = governance
     events, connections = [], []
 
@@ -348,8 +350,6 @@ def test_atomic_nested_rollback_savepoint_and_connection_budget(governance):
 
 
 def test_atomic_select_error_cannot_retry_on_new_connection(governance):
-    from sqlalchemy import event
-
     engine = governance[0]
     connections = []
 
@@ -367,8 +367,6 @@ def test_atomic_select_error_cannot_retry_on_new_connection(governance):
 
 
 def test_connection_authority_has_no_duplicate_scope_queries(governance):
-    from sqlalchemy import event
-
     engine, (_, owner, _), _, project, _, shared = governance
     statements = []
 
@@ -387,23 +385,13 @@ def test_connection_authority_has_no_duplicate_scope_queries(governance):
 
 
 def test_http_policy_routes_current_admin_owner_and_stale_revision(governance, monkeypatch):
-    import langboard.routes.settings.AppGovernanceSettingsApi  # noqa: F401
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-    from langboard_shared.core.routing import AppRouter
-    from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.Env import Env
-
     _, (admin, owner, outsider), org, *_ = governance
-    from langboard_shared.core.caching import Cache
 
     monkeypatch.setattr(
         type(Env), "JWT_SECRET_KEY", property(lambda self: "fixture-app-policy-signing-key-only-32bytes")
     )
     # Real auth cache is populated; policy still rechecks current primary authority.
     Cache.clear()
-    from langboard_shared.security import Auth
 
     for actor in (admin, owner, outsider):
         Auth.reset_user(actor)
