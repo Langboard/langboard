@@ -125,7 +125,7 @@ def test_external_archive_defaults_off_and_stale_config_denied(creation, monkeyp
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
-@pytest.mark.parametrize("change", ["consent", "reenable", "disable_reenable", "resource", "connection", "definition", "restore", "ownership", "payload"])
+@pytest.mark.parametrize("change", ["consent", "reenable", "disable_reenable", "resource", "connection", "definition", "restore", "ownership", "payload", "destination"])
 def test_archive_pending_delivery_rechecks_current_authority(creation, monkeypatch, change):
     card, _, _ = setup_archive(creation, monkeypatch)
     board, _, connection, binding, resource, definition, _ = creation
@@ -156,6 +156,20 @@ def test_archive_pending_delivery_rechecks_current_authority(creation, monkeypat
         elif change == "payload":
             event.payload = {**event.payload, "action": "delete_issue"}
             db.update(event)
+        elif change == "destination":
+            from langboard_shared.domain.models import AppEventDestination
+            destination = db.exec(SqlBuilder.select.table(AppEventDestination)).first()
+            destination.revision += 1
+            db.update(destination)
+    if change == "destination":
+        from langboard_shared.domain.services.AppCardArchive import read_archive_outcome
+        from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+        from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
+        token = issue_connection_credential(board[1], connection.id)["token"]
+        with DbSession.atomic() as db:
+            row = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        with pytest.raises(AppGovernanceConflict):
+            read_archive_outcome(token, board[2].id, row.id)
     if change in ("reenable", "disable_reenable"):
         service = DomainService()
         try:
