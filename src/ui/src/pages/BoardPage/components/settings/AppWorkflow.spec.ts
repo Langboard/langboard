@@ -429,3 +429,34 @@ test("failed group disable blocks repeated writes until snapshot reload", async 
     await expect(page.getByRole("button", { name: "Disable App group", exact: true })).toBeEnabled();
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
 });
+
+for (const width of [1440, 390]) {
+    test(`module mutation readback failure blocks repeat at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store&enabled&storereadfail`);
+        const tile = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) });
+        await tile.getByRole("button", { name: "Manage App", exact: true }).click();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+        await page.getByRole("button", { name: "Disable App", exact: true }).click();
+        await page.getByRole("button", { name: "Confirm disable App", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Disable App", exact: true })).toHaveCount(0);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Disable App", exact: true })).toHaveCount(0);
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+    });
+}
+
+test("module write failure requires fresh snapshot before another mutation", async ({ page }) => {
+    await page.goto(`${path}?store&enabled&modulewritefail`);
+    const tile = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) });
+    await tile.getByRole("button", { name: "Manage App", exact: true }).click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page.getByRole("button", { name: "Disable App", exact: true }).click();
+    const confirm = page.getByRole("button", { name: "Confirm disable App", exact: true });
+    await confirm.click();
+    await expect(confirm).toBeDisabled();
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(confirm).toBeEnabled();
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+});

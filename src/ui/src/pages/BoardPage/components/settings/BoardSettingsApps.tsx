@@ -49,9 +49,9 @@ export default function BoardSettingsApps() {
     const [connections, setConnections] = useState<CatalogApp | null>(null);
     const [selected, setSelected] = useState<CatalogApp | null>(null);
     const [disableGroup, setDisableGroup] = useState(false);
-    const [groupFailed, setGroupFailed] = useState(false);
+    const [storeFailed, setStoreFailed] = useState(false);
     const disableComposition = async () => {
-        if (!composition || pending || groupFailed || !canEditBasicInfo) return;
+        if (!composition || pending || storeFailed || !canEditBasicInfo) return;
         setPending(true);
         setError(false);
         try {
@@ -67,13 +67,13 @@ export default function BoardSettingsApps() {
             if (result.isError) throw new Error("Store readback failed");
         } catch {
             setError(true);
-            setGroupFailed(true);
+            setStoreFailed(true);
         } finally {
             setPending(false);
         }
     };
     const disable = async (app: CatalogApp) => {
-        if (pending || !canEditBasicInfo || !app.binding) return;
+        if (pending || storeFailed || !canEditBasicInfo || !app.binding) return;
         setPending(true);
         setError(false);
         try {
@@ -83,15 +83,17 @@ export default function BoardSettingsApps() {
             });
             if (currentUser) deletePanelState(JSON.stringify([currentUser.uid, project.uid, app.key, app.version]));
             setDisableTarget(null);
-            await refreshStore();
+            const result = await refreshStore();
+            if (result.isError) throw new Error("Store readback failed");
         } catch {
+            setStoreFailed(true);
             setError(true);
         } finally {
             setPending(false);
         }
     };
     const setPanel = async (app: CatalogApp, enabled: boolean) => {
-        if (pending || !canEditBasicInfo || !app.app_revision) return;
+        if (pending || storeFailed || !canEditBasicInfo || !app.app_revision) return;
         setPending(true);
         setError(false);
         try {
@@ -104,8 +106,10 @@ export default function BoardSettingsApps() {
             });
             if (!enabled && currentUser) deletePanelState(JSON.stringify([currentUser.uid, project.uid, app.key, app.version]));
             setPanelTarget(null);
-            await refreshStore();
+            const result = await refreshStore();
+            if (result.isError) throw new Error("Store readback failed");
         } catch {
+            setStoreFailed(true);
             setError(true);
         } finally {
             setPending(false);
@@ -149,6 +153,23 @@ export default function BoardSettingsApps() {
             ) : (
                 <>
                     {error && <p role="alert">{t("project.settings.App workflow save failed")}</p>}
+                    {storeFailed && (
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pending}
+                            onClick={async () => {
+                                const result = await refreshStore();
+                                if (!result.isError) {
+                                    setStoreFailed(false);
+                                    setError(false);
+                                    setDisableGroup(false);
+                                }
+                            }}
+                        >
+                            {t("common.Retry")}
+                        </Button>
+                    )}
                     <h3 className="text-base font-semibold">{t("project.settings.App Store")}</h3>
                     <p className="text-sm text-muted-foreground">{t("project.settings.App Store browse help")}</p>
                     {managedKey && (
@@ -194,7 +215,7 @@ export default function BoardSettingsApps() {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                disabled={pending || groupFailed}
+                                                disabled={pending || storeFailed}
                                                 onClick={() => void disableComposition()}
                                             >
                                                 {t("project.settings.Confirm disable App group")}
@@ -207,27 +228,10 @@ export default function BoardSettingsApps() {
                                         <Button
                                             size="sm"
                                             variant="ghost"
-                                            disabled={pending || dirty || groupFailed}
+                                            disabled={pending || dirty || storeFailed}
                                             onClick={() => setDisableGroup(true)}
                                         >
                                             {t("project.settings.Disable App group")}
-                                        </Button>
-                                    )}
-                                    {groupFailed && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={pending}
-                                            onClick={async () => {
-                                                const result = await refreshStore();
-                                                if (!result.isError) {
-                                                    setGroupFailed(false);
-                                                    setError(false);
-                                                    setDisableGroup(false);
-                                                }
-                                            }}
-                                        >
-                                            {t("common.Retry")}
                                         </Button>
                                     )}
                                 </div>
@@ -236,7 +240,7 @@ export default function BoardSettingsApps() {
                     )}
                     <p className="text-sm text-muted-foreground">{t("project.settings.App Store help")}</p>
                     {(isLoading || compositionQuery.isLoading) && <p role="status">{t("common.Loading...")}</p>}
-                    {compositionQuery.isError && (
+                    {compositionQuery.isError && !storeFailed && (
                         <div role="status" className="text-sm text-muted-foreground">
                             {t("project.settings.App grouping unavailable")}
                             <Button size="sm" variant="ghost" onClick={() => void compositionQuery.refetch()}>
@@ -244,7 +248,7 @@ export default function BoardSettingsApps() {
                             </Button>
                         </div>
                     )}
-                    {isError && (
+                    {isError && !storeFailed && (
                         <div role="alert">
                             {t("project.settings.App workflow unavailable")}
                             <Button size="sm" variant="outline" onClick={() => void refetch()}>
@@ -411,7 +415,9 @@ export default function BoardSettingsApps() {
                                                                 <Checkbox
                                                                     checked={readSignals && !!app.signal_sources?.length}
                                                                     onCheckedChange={(checked) => setReadSignals(checked === true)}
-                                                                    disabled={pending || !canEditBasicInfo || !app.signal_sources?.length}
+                                                                    disabled={
+                                                                        pending || storeFailed || !canEditBasicInfo || !app.signal_sources?.length
+                                                                    }
                                                                     label={t("project.settings.Allow App signal reads")}
                                                                     description={t("project.settings.App signal source consent help", {
                                                                         sources:
@@ -422,7 +428,7 @@ export default function BoardSettingsApps() {
                                                             )}
                                                             <Button
                                                                 size="sm"
-                                                                disabled={pending || !canEditBasicInfo || !app.app_revision}
+                                                                disabled={pending || storeFailed || !canEditBasicInfo || !app.app_revision}
                                                                 onClick={() => void setPanel(app, true)}
                                                             >
                                                                 {t("project.settings.Confirm App panel")}
@@ -435,7 +441,7 @@ export default function BoardSettingsApps() {
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
-                                                            disabled={pending || !canEditBasicInfo || !app.app_revision}
+                                                            disabled={pending || storeFailed || !canEditBasicInfo || !app.app_revision}
                                                             onClick={() => {
                                                                 if (panelEnabled) void setPanel(app, false);
                                                                 else {
@@ -458,7 +464,7 @@ export default function BoardSettingsApps() {
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
-                                                                disabled={!canEditBasicInfo || pending}
+                                                                disabled={!canEditBasicInfo || pending || storeFailed}
                                                                 onClick={() => void disable(app)}
                                                             >
                                                                 {t("project.settings.Confirm disable App")}
@@ -476,7 +482,7 @@ export default function BoardSettingsApps() {
                                                         <Button
                                                             size="sm"
                                                             variant="ghost"
-                                                            disabled={!canEditBasicInfo || pending}
+                                                            disabled={!canEditBasicInfo || pending || storeFailed}
                                                             onClick={() => setDisableTarget(key)}
                                                         >
                                                             {t("project.settings.Disable App")}

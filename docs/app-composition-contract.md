@@ -263,3 +263,10 @@ before pagination, rejects stale revisions and returns no credential references.
 The test now relies on the shared current-schema fixture rather than recreating
 organization columns, and runs in the existing contract CI. This proves the
 native read bridge, not an external provider or deployed panel session.
+
+Store module disable and panel consent now share the group withdrawal failure
+gate. A failed mutation or failed catalog readback blocks another parent Store
+mutation until an explicit successful reload, with one recovery button. The
+focused browser suite passes four cases including failed readback at desktop and
+mobile sizes and unknown write recovery; 41 existing workflow/Store cases also
+passed. This remains local browser acceptance pending canary deployment.
