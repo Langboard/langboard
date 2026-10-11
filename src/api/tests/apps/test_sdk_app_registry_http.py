@@ -334,7 +334,15 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
 
         disabled = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=False,
             binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]
-        assert disabled["granted_capabilities"] == []
+        assert disabled["granted_capabilities"] == ["signals.read"]
+        assert (await request("POST", path, json=form)).status_code == 404
+
+        # Closing a panel keeps the independent signal grant. Reopening may
+        # explicitly withdraw that grant through the existing read checkbox.
+        reopened = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=True,
+            binding_uid=disabled["uid"], expected_revision=disabled["revision"], read_signals=False))["binding"]
+        assert reopened["granted_capabilities"] == ["panels.render"]
+        form["binding_revision"] = reopened["revision"]
         assert (await request("POST", path, json=form)).status_code == 404
 
 @pytest.mark.asyncio

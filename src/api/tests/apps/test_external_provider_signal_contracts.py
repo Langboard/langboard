@@ -65,7 +65,7 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
             project_id=project.id,
             app_key=definition["key"],
             state="enabled",
-            granted_capabilities=["signals.read", "signals.publish"],
+            granted_capabilities=["panels.render", "signals.read", "signals.publish"],
         )
         db.insert(binding)
         resource = AppResourceBinding(
@@ -126,6 +126,26 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
     assert len(visible["items"]) == 1
     assert visible["items"][0]["outcome"] == envelope["outcome"]
     assert visible["items"][0]["time_basis"] == definition["signal_policy"]["time_basis"]
+    from langboard_shared.domain.services.AppPanel import get_panel, set_panel
+
+    closed = set_panel(service.workflow_stage, actor, project.get_uid(), definition["key"],
+        binding.get_uid(), binding.edit_revision(), registered.edit_revision(), False)
+    assert closed["granted_capabilities"] == ["signals.publish", "signals.read"]
+    assert get_panel(service.workflow_stage, actor, project.get_uid(), definition["key"]) is None
+    # The publication revision changes with the grant; the caller must refresh
+    # it even though signal consent itself remains valid.
+    assert publish().status_code == 409
+    envelope["binding_revision"] = closed["revision"]
+    # A persisted event envelope is immutable, including its authority revision.
+    assert publish().status_code == 409
+    envelope["event_id"] += "-after-panel-close"
+    after_close = publish()
+    assert after_close.status_code == 200, after_close.text
+    assert after_close.json()["duplicate"] is False
+    assert publish().json() == {**after_close.json(), "duplicate": True}
+    # Inbox projects one current observation per external identity, while SQL
+    # retains both event receipts.
+    assert len(list_board_signals(service, actor, project.get_uid(), provider=definition["key"])["items"]) == 1
     # Publication, replay and inbox reads must not create cards or link evidence.
     # A separately authorized card command owns that transition.
     with DbSession.use(readonly=False) as db:
@@ -135,4 +155,4 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
     revoke_connection_credential(actor, connection.id, SnowflakeID.from_short_code(issued["credential_uid"]))
     assert publish().status_code == 403
     with DbSession.use(readonly=False) as db:
-        assert len(db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.resource_id == resource.id)).all()) == 1
+        assert len(db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.resource_id == resource.id)).all()) == 2
