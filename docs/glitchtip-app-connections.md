@@ -113,3 +113,41 @@ Official contracts:
 - [GlitchTip OpenAPI](https://app.glitchtip.com/api/openapi.json)
 - [Integration tokens](https://glitchtip.com/documentation/integrations/)
 - [Official GlitchTip MCP](https://glitchtip.com/documentation/mcp/)
+
+
+## Optional browser error ingest
+
+The browser uses the official `@sentry/browser` SDK, pinned at 11.6.0. Set these
+public **build-time** values in the deployment's private configuration:
+
+- `PUBLIC_SENTRY_DSN`: public project ingest DSN, never an API/admin/release token.
+- `PUBLIC_SENTRY_ENVIRONMENT`: deployment environment (for example `canary`).
+- `PUBLIC_SENTRY_RELEASE`: the exact source revision shipped in this UI build.
+
+An empty DSN leaves telemetry disabled and does not import the SDK chunk. SDK
+initialization does not block rendering. Invalid configuration logs a generic
+warning and leaves the application usable. HTTPS DSNs may include a deployment
+path prefix. No instance address or credential is embedded in repository defaults.
+
+SDK 11 uses `dataCollection` controls rather than the removed `sendDefaultPii`
+option. This integration disables user, cookie, header, body, query, GraphQL,
+AI, database/queue data, local variables and source-context collection. Only
+browser error handlers and deduplication integrations are enabled. Tracing,
+replay, console collection, feedback and automatic session instrumentation are
+not enabled.
+
+The final error projection retains deployment identity, exception type and
+bundled `/assets/*.js` coordinates. Exception text, function names, arbitrary
+file URLs, request, user, contexts, extras and breadcrumbs are omitted. This
+trades detailed error text for protection of card/comment/credential content.
+The browser acceptance fixture verifies a real SDK envelope after an uncaught
+error and verifies absence of synthetic secrets added to error text and scope.
+It also verifies no SDK load or ingest request when no DSN is configured. Current-session API network/timeout failures and HTTP 5xx are reported through the same initialized transport; expected cancellations and obsolete-session responses are excluded before reporting. Errors occurring before the optional SDK finishes loading are not buffered.
+
+This ingest configuration is independent of a board's GlitchTip read connection.
+The latter still requires an API token SecretRef, selected resources and explicit
+capability consent. A synthetic local SDK envelope is not proof of deployed
+canary collection or of Signal Inbox/card delivery.
+
+References: [GlitchTip JavaScript setup](https://glitchtip.com/sdkdocs/javascript/)
+and [Sentry SDK migration contract](https://github.com/getsentry/sentry-javascript/blob/develop/MIGRATION.md).
