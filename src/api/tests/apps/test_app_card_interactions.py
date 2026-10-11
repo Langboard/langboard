@@ -118,9 +118,13 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert client.post(cancel_path, json={"expected_revision": 2}, headers=headers).status_code == 409
         assert client.post(cancel_path, json={"expected_revision": True}, headers=headers).status_code == 400
         assert client.post(cancel_path, json={"expected_revision": 1}).status_code == 401
-        cancelled = client.post(cancel_path, json={"expected_revision": 1}, headers=headers).json()
+        cancelled = asyncio.run(
+            sdk.cancel(board[2].get_uid(), card.get_uid(), pending["interaction_uid"], expected_revision=1)
+        )
         assert cancelled["state"] == "cancelled" and cancelled["revision"] == 2 and cancelled["changed"] is True
-        retry = client.post(cancel_path, json={"expected_revision": 1}, headers=headers).json()
+        retry = asyncio.run(
+            sdk.cancel(board[2].get_uid(), card.get_uid(), pending["interaction_uid"], expected_revision=1)
+        )
         assert retry["state"] == "cancelled" and retry["changed"] is False
         assert client.post(cancel_path, json={"expected_revision": 2}, headers=headers).status_code == 409
         replay = client.post(path, json={"request": cancel_body}, headers=headers).json()
