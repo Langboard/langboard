@@ -119,3 +119,36 @@ def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
     session = 11 if case == "foreign" else 10
     result = collect_chat_history_messages(variables, {"chat_session_uid": SnowflakeID(session).to_short_code()}, 20)
     assert [item["content"] for item in result] == (["Owned history"] if case == "owned" else [])
+
+
+@pytest.mark.parametrize("case", ["anchor_only", "foreign_anchor", "missing_anchor", "mismatched_session"])
+def test_chat_history_anchor_limits_collection_to_one_session(history_db, case):
+    from langboard_shared.core.types import SnowflakeID
+
+    with Session(history_db) as db:
+        db.add(ChatSession(id=12, user_id=1))
+        db.commit()
+        db.add_all(
+            [
+                ChatHistory(id=22, chat_session_id=10, message=ChatContentModel(content="Current message")),
+                ChatHistory(id=23, chat_session_id=12, message=ChatContentModel(content="Other owned session")),
+            ]
+        )
+        db.commit()
+    token = encode(
+        {
+            "sub": "1",
+            "iss": Env.PROJECT_NAME,
+            "internal": "bot",
+            "exp": int((SafeDateTime.now() + timedelta(minutes=5)).timestamp()),
+        },
+        Env.JWT_SECRET_KEY,
+        algorithm=Env.JWT_ALGORITHM,
+    )
+    variables = {"current_runner_type": "user", "app_api_token": token}
+    anchor = 21 if case == "foreign_anchor" else 99 if case == "missing_anchor" else 22
+    rest = {"chat_history_uid": SnowflakeID(anchor).to_short_code()}
+    if case == "mismatched_session":
+        rest["chat_session_uid"] = SnowflakeID(12).to_short_code()
+    result = collect_chat_history_messages(variables, rest, 20)
+    assert [item["content"] for item in result] == (["Owned history"] if case == "anchor_only" else [])

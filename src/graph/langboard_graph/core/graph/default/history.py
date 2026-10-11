@@ -154,21 +154,36 @@ def collect_chat_history_messages(
         return []
 
     try:
-        query = (
-            SqlBuilder.select.table(ChatHistory, with_deleted=True)
-            .join(ChatSession, ChatHistory.column("chat_session_id") == ChatSession.column("id"))
-            .join(User, ChatSession.column("user_id") == User.column("id"))
-            .where(ChatSession.column("user_id") == actor_id)
-            .where(User.column("activated_at").is_not(None))
-            .where(User.column("deleted_at").is_(None))
-        )
-        if chat_session_uid:
-            query = query.where(ChatHistory.column("chat_session_id") == InfraHelper.convert_id(chat_session_uid))
-        if chat_history_uid:
-            query = query.where(ChatHistory.column("id") != InfraHelper.convert_id(chat_history_uid))
-        query = query.order_by(ChatHistory.column("created_at").desc(), ChatHistory.column("id").desc()).limit(limit)
-
         with DbSession.use(readonly=False) as db:
+            anchor_session_id = None
+            if chat_history_uid:
+                anchor = db.exec(
+                    SqlBuilder.select.table(ChatHistory, with_deleted=True)
+                    .where(ChatHistory.column("id") == InfraHelper.convert_id(chat_history_uid))
+                    .limit(1)
+                ).first()
+                if not anchor:
+                    return []
+                anchor_session_id = anchor.chat_session_id
+                if chat_session_uid and anchor_session_id != InfraHelper.convert_id(chat_session_uid):
+                    return []
+
+            query = (
+                SqlBuilder.select.table(ChatHistory, with_deleted=True)
+                .join(ChatSession, ChatHistory.column("chat_session_id") == ChatSession.column("id"))
+                .join(User, ChatSession.column("user_id") == User.column("id"))
+                .where(ChatSession.column("user_id") == actor_id)
+                .where(User.column("activated_at").is_not(None))
+                .where(User.column("deleted_at").is_(None))
+            )
+            session_id = anchor_session_id or (InfraHelper.convert_id(chat_session_uid) if chat_session_uid else None)
+            if session_id:
+                query = query.where(ChatHistory.column("chat_session_id") == session_id)
+            if chat_history_uid:
+                query = query.where(ChatHistory.column("id") != InfraHelper.convert_id(chat_history_uid))
+            query = query.order_by(ChatHistory.column("created_at").desc(), ChatHistory.column("id").desc()).limit(
+                limit
+            )
             records = db.exec(query).all()
     except Exception as exc:
         Logger.main.exception(exc)
