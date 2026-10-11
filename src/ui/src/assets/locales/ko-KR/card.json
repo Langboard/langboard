@@ -273,5 +273,24 @@
     "retained": "저장된 선택",
     "moreRetained": "저장된 연결 더 보기",
     "firstRetained": "저장된 연결 첫 페이지"
+  },
+  "appInteractions": {
+    "title": "앱 요청",
+    "help": "이 카드에 대한 결정입니다. 인박스 상태와 실행은 별개입니다.",
+    "refresh": "새로고침",
+    "unavailable": "요청을 불러올 수 없습니다. 새로고침으로 접근 권한을 확인하세요.",
+    "empty": "앱 요청이 없습니다.",
+    "previous": "이전",
+    "next": "다음",
+    "pending": "응답 대기",
+    "answered": "응답 완료",
+    "expired": "만료",
+    "cancelled": "취소",
+    "reactionHelp": "연결된 댓글에 새 리액션으로 응답하세요:",
+    "acceptedHelp": "응답이 기록되었습니다. 외부 실행 완료를 뜻하지 않습니다.",
+    "textAnswer": "직접 입력",
+    "readback": "다시 제출하기 전에 새로고침으로 결과를 확인하세요.",
+    "submit": "응답 제출",
+    "openComment": "댓글 열기"
   }
 }

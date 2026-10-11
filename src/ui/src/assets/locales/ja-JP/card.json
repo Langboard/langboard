@@ -273,5 +273,24 @@
     "retained": "保存された選択",
     "moreRetained": "保存された接続を表示",
     "firstRetained": "保存された接続の最初のページ"
+  },
+  "appInteractions": {
+    "title": "アプリのリクエスト",
+    "help": "このカードに対する判断です。受信トレイの状態と実行は別です。",
+    "refresh": "更新",
+    "unavailable": "リクエストを読み込めません。更新してアクセス権を確認してください。",
+    "empty": "アプリのリクエストはありません。",
+    "previous": "前へ",
+    "next": "次へ",
+    "pending": "応答待ち",
+    "answered": "回答済み",
+    "expired": "期限切れ",
+    "cancelled": "キャンセル済み",
+    "reactionHelp": "関連コメントに新しいリアクションで回答してください：",
+    "acceptedHelp": "回答が記録されました。外部の実行完了を意味しません。",
+    "textAnswer": "テキストで回答",
+    "readback": "再送信する前に更新して結果を確認してください。",
+    "submit": "回答を送信",
+    "openComment": "コメントを開く"
   }
 }
