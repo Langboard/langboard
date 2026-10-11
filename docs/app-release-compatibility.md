@@ -1,8 +1,24 @@
 # App platform compatibility and release gates
 
-Verified source snapshot: 2026-10-11. Package availability, source tests and a
+Current review update: 2026-10-12. The 2026-10-11 tables below are historical
+snapshots. Package availability, source tests and a
 deployed release are separate evidence. No production compatibility is claimed
 from this table. Update it when an artifact, declaration or migration changes.
+
+## Current review candidate
+
+| Component | Current source or artifact | Evidence and limitation |
+| --- | --- | --- |
+| Host review PR #681 | `f02278225890d4075b2756f73a6c912fb769b857` before the archive-model review correction | Explicit human new-run API and native/panel controls; local SQLite/PostgreSQL execution controls: 8 passed, physical browser fixture: 5 passed. Not deployed acceptance |
+| Python SDK | `0.2.33`, wheel SHA-256 `b021a7a849b3a712851069eac887dca3c937f669eea6095edf1ba1c5d4f3bd12` | Host vendor provenance; standalone SDK source tests: 92 passed |
+| Panel SDK | `0.2.6`, tarball SHA-256 `d4d30fa7322dd9a4f3817a8fb15b111d6ab4b348ff53829e671bbac8229aa652` | Host vendor provenance; standalone panel tests: 22 passed |
+| Independent app consumers | GitHub `5f4a48c`, GlitchTip `6fbfae2`, Dokploy `5bf47fe`; panel `0.2.3`, server `0.1.3` | Their existing versions are retained. A newer host SDK does not prove deployed cross-version acceptance |
+| Official static packages | Public `v0.1.1` ZIPs for all three apps | Anonymous downloads returned HTTP 200 on 2026-10-12 with matching recorded SHA-256. Recorded install API tests: 6 passed across SQLite/PostgreSQL, including installed panel and both theme icons; no server execution code in the ZIPs |
+| SDK review CI | Push `15bc8fbcc6b3c050158e8003bfaa889ba3d91188`, run `38154305746` | Uses the reviewed branch rather than a synthetic PR merge ref. Runner assignment was still queued when inspected; no remote pass claimed |
+
+The historical migration-head and full-suite entries below must not be read as
+the installed canary revision or a rerun of every current contract. Exact live
+database, image and authenticated provider/browser evidence remain release gates.
 
 ## Reviewed host and SDK combination
 
