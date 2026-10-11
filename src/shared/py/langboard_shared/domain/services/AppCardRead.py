@@ -6,6 +6,7 @@ from .AppCardScope import require_app_card_scope
 from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppExecutionGrant import AppExecutionCredentialDenied
 from .AppGovernance import AppGovernanceDenied
+from .ExecutionGeneration import execution_generations
 
 
 def read_app_card(token, project_id, card_id, *, offset=0, limit=16000):
@@ -27,6 +28,7 @@ def read_app_card(token, project_id, card_id, *, offset=0, limit=16000):
             "card_uid": card.get_uid(),
             "title": card.title,
             "card_revision": card.last_change_seq,
+            "execution_generation": execution_generations([card_id]).get(int(card_id), 0),
             "description": {"content": content[offset:end], "format": "markdown",
                             "total_chars": len(content), "next_offset": end if end < len(content) else None},
             "source": {"app_key": principal.app_key, "connection_uid": SnowflakeID(principal.connection_id).to_short_code()},

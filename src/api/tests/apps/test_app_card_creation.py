@@ -67,6 +67,8 @@ def creation(board, monkeypatch):
     if engine.dialect.name == "postgresql":
         with engine.begin() as db:
             db.execute(text("CREATE SEQUENCE content_change_seq"))
+            # This migration-owned SQL table is outside ORM create_all.
+            db.execute(text("CREATE TABLE card_execution_generation (card_id BIGINT PRIMARY KEY REFERENCES card(id) ON DELETE CASCADE, execution_generation INTEGER NOT NULL DEFAULT 0)"))
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     events = []
@@ -191,9 +193,9 @@ def test_native_archive_records_independent_receipt_and_rearchive(creation, monk
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
 def test_archive_receipt_failure_rolls_back_native_movement(creation, monkeypatch):
+    import langboard_shared.domain.services.AppCardArchive as lifecycle
     from langboard_shared.domain.models import AppCardArchive, ProjectColumn
     from langboard_shared.domain.services import DomainService
-    import langboard_shared.domain.services.AppCardArchive as lifecycle
 
     board = creation[0]
     call(creation)
@@ -518,6 +520,7 @@ def test_independent_monitor_creates_owned_card_then_requests_hitl_over_http(cre
             db.update(native_card)
         current_card = asyncio.run(reader.read(board[2].get_uid(), created["card_uid"], limit=2))
         assert current_card["title"] == body["title"]
+        assert current_card["execution_generation"] == 0
         assert current_card["description"] == {"content": "한글", "format": "markdown", "total_chars": 18, "next_offset": 2}
         assert current_card["resources"][0]["resource_uid"] == resource.get_uid()
         assert current_card["ownership_revision"] == current_card["selection_revision"] == 1
