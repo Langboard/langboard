@@ -28,3 +28,11 @@ export const createOneTimeToken = (
 
     return encoded;
 };
+
+export const createGraphServiceHeaders = (): Record<string, string> => ({
+    Authorization: `Bearer ${jwt.sign(
+        { sub: "langboard-service", internal: "graph_service" },
+        JWT_SECRET_KEY,
+        { algorithm: JWT_ALGORITHM, issuer: PROJECT_NAME, audience: "langboard-graph", expiresIn: 300 }
+    )}`,
+});

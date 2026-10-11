@@ -13,7 +13,7 @@ import ChatSession from "@/models/ChatSession";
 import { TChatScope } from "@langboard/core/types";
 import ProjectChatSession from "@/models/ProjectChatSession";
 import { AGENT_PERMISSION_LEVEL_APPROVAL_POLICY, EAgentApprovalPolicy, EAgentPermissionLevel, EApiPermission } from "@langboard/core/ai";
-import { createOneTimeToken } from "@/core/ai/BotOneTimeToken";
+import { createOneTimeToken, createGraphServiceHeaders } from "@/core/ai/BotOneTimeToken";
 import { getActiveEditorSyncDocumentNames } from "@/core/server/Hocus";
 import { AI_REQUEST_TIMEOUT, API_INTERNAL_URL, DEFAULT_GRAPH_URL } from "@/Constants";
 import GraphApprovalRequest from "@/models/GraphApprovalRequest";
@@ -628,6 +628,7 @@ EventManager.on(ESocketTopic.Board, SocketEvents.CLIENT.BOARD.CHAT.RESUME, async
             },
             {
                 timeout: AI_REQUEST_TIMEOUT * 1000,
+                headers: createGraphServiceHeaders(),
             }
         );
         const currentContent = currentMessage.content ?? "";
