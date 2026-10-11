@@ -404,13 +404,13 @@ EventManager.on(ESocketTopic.Board, SocketEvents.CLIENT.BOARD.CHAT.SEND, async (
             .catch((error) => Logger.error(error, "\n"));
     } else {
         session = await ProjectChatSession.findByUID(session_uid);
-        if (!session) {
+        if (!session || String(session.project_id) !== SnowflakeID.fromShortCode(topicId).toString()) {
             client.sendError(ESocketStatus.WS_4001_INVALID_DATA, "Invalid chat session model", false);
             return;
         }
 
         chatSession = await ChatSession.findByID(session.chat_session_id);
-        if (!chatSession) {
+        if (!chatSession || String(chatSession.user_id) !== String(client.user.id)) {
             client.sendError(ESocketStatus.WS_4001_INVALID_DATA, "Invalid chat session", false);
             return;
         }
@@ -583,7 +583,7 @@ EventManager.on(ESocketTopic.Board, SocketEvents.CLIENT.BOARD.CHAT.SEND, async (
 });
 
 EventManager.on(ESocketTopic.Board, SocketEvents.CLIENT.BOARD.CHAT.RESUME, async ({ client, topicId, data }) => {
-    const { message_uid, thread_id, session_id, approval_uid } = data ?? {};
+    const { message_uid, thread_id, approval_uid } = data ?? {};
     if (!Utils.Type.isString(message_uid) || !Utils.Type.isString(thread_id) || !data || !("resume" in data)) {
         client.sendError(ESocketStatus.WS_4001_INVALID_DATA, "Invalid graph resume data", false);
         return;
@@ -615,16 +615,24 @@ EventManager.on(ESocketTopic.Board, SocketEvents.CLIENT.BOARD.CHAT.RESUME, async
         return;
     }
 
-    const stream = client.stream(ESocketTopic.Board, topicId, SocketEvents.SERVER.BOARD.CHAT.STREAM);
+    const chatSession = await ChatSession.findOne({
+        where: { id: aiMessage.chat_session_id, user_id: client.user.id },
+    });
     const currentMessage = aiMessage.message ?? { content: "" };
+    const storedApproval = currentMessage.graph_interrupt ? getApprovalRequestValue(currentMessage.graph_interrupt) : null;
+    if (!chatSession || !storedApproval || storedApproval.thread_id !== thread_id) {
+        client.sendError(ESocketStatus.WS_4001_INVALID_DATA, "Invalid graph resume target", false);
+        return;
+    }
 
+    const stream = client.stream(ESocketTopic.Board, topicId, SocketEvents.SERVER.BOARD.CHAT.STREAM);
     try {
         const resumePayload = createGraphResumePayload(data.resume, client.user.id);
         const response = await api.post(
             `${DEFAULT_GRAPH_URL}/api/v1/graph/resume/${encodeURIComponent(thread_id)}`,
             {
                 resume: resumePayload,
-                session_id,
+                session_id: thread_id,
             },
             {
                 timeout: AI_REQUEST_TIMEOUT * 1000,
