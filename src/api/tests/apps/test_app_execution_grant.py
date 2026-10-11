@@ -42,7 +42,8 @@ def grant_scope(board):
             for foreign_key in table.foreign_keys:
                 include(foreign_key.column.table)
 
-        for model in models:
+        from langboard_shared.domain.models import CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding
+        for model in (*models, CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding):
             include(model.__table__)
         models[0].metadata.create_all(engine, tables=list(tables), checkfirst=True)
     else:

@@ -31,7 +31,9 @@ test("independent resource panel pins authority, rejects identity injection and 
         r.fulfill({
             contentType: "text/html",
             body: `
-        <button id="open-interaction">Open request</button><button id="inject-answer">Inject answer</button><button id="interactions">Interactions</button><button id="signals">Signals</button><button id="save">Save draft</button>
+        <button id="open-interaction">Open request</button>
+        <button id="inject-answer">Inject answer</button><button id="interactions">Interactions</button>
+        <button id="signals">Signals</button><button id="save">Save draft</button>
         <button id="read">Read</button><button id="inject">Inject identity</button><pre id="result">Connecting</pre>
         <script type="module">
         import {connectPanel} from './sdk.mjs';
@@ -130,7 +132,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     await expect(panel.locator("#result")).toContainText("Denied");
     expect(humanWrites).toHaveLength(0);
     await panel.getByRole("button", { name: "Open request" }).click();
-    await expect(panel.locator("#result")).toContainText('"state":"opened"');
+    await expect(panel.locator("#result")).toContainText(JSON.stringify({ state: "opened" }).slice(1, -1));
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("Choose next action")).toBeVisible();
     expect(humanWrites).toHaveLength(0);
@@ -234,21 +236,55 @@ for (const appKey of ["example-app", "second-app"])
             await page.route("https://panel.example.invalid/panel", (r) =>
                 r.fulfill({
                     contentType: "text/html",
-                    body: `<button id="open" disabled>Runtime controls</button><pre id="result"></pre><script type="module">import {connectPanel} from './sdk.mjs';const session=await connectPanel({expectedHostOrigin:'http://127.0.0.1:4181'});document.querySelector('#open').onclick=async()=>{document.querySelector('#result').textContent='requesting';try{document.querySelector('#result').textContent=JSON.stringify(await session.request('runtimes.open',{card_uid:'A1234567890'}));}catch(e){document.querySelector('#result').textContent=String(e);}};document.querySelector('#open').disabled=false;</script>`,
+                    body: `<button id="open" disabled>Runtime controls</button><pre id="result"></pre>
+                    <script type="module">
+                    import {connectPanel} from './sdk.mjs';
+                    const session = await connectPanel({expectedHostOrigin:'http://127.0.0.1:4181'});
+                    const output = document.querySelector('#result');
+                    document.querySelector('#open').onclick = async () => {
+                        output.textContent = 'requesting';
+                        try { output.textContent = JSON.stringify(await session.request('runtimes.open', {card_uid:'A1234567890'})); }
+                        catch (error) { output.textContent = String(error); }
+                    };
+                    document.querySelector('#open').disabled = false;
+                    </script>`,
                 })
             );
             let state = "authorized";
             let runtimeStatus = 200;
+            let nextRequest: string | null = null;
+            const newControls: unknown[] = [];
+            const revision = "2026-10-11T15:00:00.123456+00:00";
             await page.route("**/panel/runtimes", (r) =>
                 r.fulfill({
                     status: runtimeStatus,
-                    json: { items: [{ request_uid: "B1234567890", app_key: appKey, generation: 7, state }], next_cursor: null },
+                    json: {
+                        items: [
+                            {
+                                request_uid: "B1234567890",
+                                app_key: appKey,
+                                generation: 7,
+                                state,
+                                current_generation: nextRequest ? 8 : 7,
+                                current_card_revision: revision,
+                                new_run_available: state === "stopped" && !nextRequest,
+                                resume_request_uid: nextRequest,
+                                followup_action: nextRequest ? "new_run_requested" : null,
+                            },
+                        ],
+                        next_cursor: null,
+                    },
                 })
             );
             await page.route("**/panel/cards/A1234567890/runtimes/B1234567890/stop", (r) => {
                 controls.push(r.request().postDataJSON());
                 state = "stop_requested";
                 return r.fulfill({ json: { state, execution_resumed: false } });
+            });
+            await page.route("**/panel/cards/A1234567890/runtimes/B1234567890/new", async (r) => {
+                newControls.push(r.request().postDataJSON());
+                nextRequest = "C1234567890";
+                await r.fulfill({ json: { state: "new_run_requested", execution_resumed: false, started: false } });
             });
             await page.goto(`/src/pages/BoardPage/components/apps/AppPanel.fixture.html?app=${appKey}`);
             await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
@@ -266,6 +302,24 @@ for (const appKey of ["example-app", "second-app"])
             expect(controls).toEqual([{ generation: 7, app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
             expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
             await page.screenshot({ path: `.verification/panel-runtime-${appKey}-${width}.png`, fullPage: true });
+            state = "stopped";
+            await page.getByRole("button", { name: "Refresh", exact: true }).click();
+            await expect(page.getByRole("button", { name: "Request new run", exact: true })).toBeVisible();
+            expect(newControls).toHaveLength(0);
+            await page.getByRole("button", { name: "Request new run", exact: true }).click();
+            expect(newControls).toHaveLength(0);
+            await page.getByRole("button", { name: "Request new run", exact: true }).last().click();
+            await expect(page.getByRole("button", { name: "Request new run", exact: true })).toHaveCount(0);
+            expect(newControls).toEqual([
+                {
+                    generation: 7,
+                    expected_generation: 7,
+                    expected_revision: revision,
+                    app_revision: "a".repeat(64),
+                    binding_revision: "b".repeat(64),
+                },
+            ]);
+            await expect(page.getByText("Runtime reported stopped", { exact: true })).toBeVisible();
             runtimeStatus = 403;
             await page.getByRole("button", { name: "Refresh", exact: true }).click();
             await expect(page.getByRole("dialog")).toHaveCount(0);

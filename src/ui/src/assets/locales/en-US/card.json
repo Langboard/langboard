@@ -319,6 +319,9 @@
       "stopped": "Runtime reported stopped"
     },
     "resume": "Request resume",
-    "resumeRequested": "Resume requested — awaiting new runtime"
+    "resumeRequested": "Resume requested — awaiting new runtime",
+    "new": "Request new run",
+    "newHelp": "Create a new execution request with current permissions. The previous stopped run and its history remain unchanged. This does not start a runtime.",
+    "newRequested": "New run requested — awaiting new runtime"
   }
 }
