@@ -413,7 +413,8 @@
     "Connection MCP read": "외부 서비스 조회",
     "Connection MCP write": "외부 서비스 변경",
     "Connection MCP automation": "외부 자동화 실행",
-    "Connection MCP refresh required": "접근 거부, 상태 변경 또는 요청 실패. 새로고침 후 다시 검토하세요."
+    "Connection MCP refresh required": "접근 거부, 상태 변경 또는 요청 실패. 새로고침 후 다시 검토하세요.",
+    "Connection MCP no tools": "선언된 도구 없음"
   },
   "App panel": "앱 패널",
   "Close App panel": "앱 패널 닫기",

@@ -48,12 +48,16 @@ def _context(db, actor, connection_id):
 
 
 def _receipt(db, connection, definition, row):
+    current_tools = _scope_tools(definition.declaration)
+    available_scopes = [scope for scope in MCP_SCOPES
+                        if f"mcp.{scope}" in definition.declaration.get("capabilities", [])]
     return {"connection_uid": connection.get_uid(), "revision": row.revision if row else None,
             "app_revision": definition.edit_revision(),
             "identity_revision": _identity_hash(db, connection, definition=definition),
             "scopes": effective_mcp_consent(db, connection, definition),
-            "available_scopes": [scope for scope in MCP_SCOPES
-                                 if f"mcp.{scope}" in definition.declaration.get("capabilities", [])],
+            "available_scopes": available_scopes,
+            "available_tools": {scope: current_tools[scope] for scope in available_scopes},
+            "granted_tools": row.scope_tools if row else {},
             "execution_supported": False}
 
 
