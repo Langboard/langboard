@@ -117,13 +117,14 @@ async def acceptance(base, auth):
         registry = AppRegistry(transport)
         manager = AppManager(transport, auth["board"])
         declared = {
-            "schema_version": 1,
+            "schema_version": 2,
             "key": "example-erp",
             "version": "1.0.0",
             "name": "Example ERP",
             "description": "Independent external issue service",
             "capabilities": ["resources.read", "cards.create", "cards.presentation"],
             "resource_types": ["project"],
+            "card_lifecycle": {"issue": {"archive": {"mode": "retain", "description": "Retain the external issue history."}, "restore": "retain_external_state"}},
             "workflow_requirements": {"required": ["backlog"], "optional": []},
         }
         approved = await registry.approve(declared)
@@ -318,7 +319,7 @@ with tempfile.TemporaryDirectory(prefix="langboard-sdk-http-") as tmp:
         JWT_SECRET_KEY="disposable-acceptance-" + os.urandom(32).hex(),
         CACHE_TYPE="in-memory",
         BROADCAST_TYPE="in-memory",
-        PYTHONPATH=str(ROOT / "src/sdk/vendor/langboard_sdk-0.2.14-py3-none-any.whl"),
+        PYTHONPATH=str(ROOT / "src/sdk/vendor/langboard_sdk-0.2.15-py3-none-any.whl"),
     )
     broadcast = ROOT / "local/broadcast"
     broadcast.mkdir(parents=True, exist_ok=True)

@@ -106,3 +106,10 @@ Python SDK 0.2.13 adds `CardResources.list_selections` for an explicit page of r
 Python package CI verifies the project-declared wheel against reviewed provenance and the lock file before installation. Artifact publication retains the original package/source provenance; the workflow source SHA is recorded separately. A new checksum cannot replace the reviewed digest.
 
 Python SDK 0.2.14 adds `validate_card_interaction` and app-authenticated `AppCardInteractions.create/read`. These persist structured requests under separately approved `interactions.request`; no response acceptance, workflow mutation or provider action follows request creation.
+
+The host now consumes reviewed Python SDK 0.2.15 for explicit card lifecycle and
+disabled-by-default card interaction declarations. Native registry approvals and
+updates reject card-producing definitions without lifecycle policies, including
+legacy schema submissions. Existing approved definitions remain readable;
+creation-time type enforcement, feature settings and lifecycle dispatch remain
+separate implementation gates. No external archive action runs at registration.

@@ -37,6 +37,10 @@ def save_definition(actor, declaration, expected_revision=None):
         raise ValueError("Built-in app declarations are host-owned")
     with DbSession.atomic() as db:
         _admin(db, actor)
+        # Old approved definitions remain readable. Any new approval/update
+        # producing cards must explicitly define their lifecycle, even in v1.
+        if "cards.create" in declaration["capabilities"] and not declaration.get("card_lifecycle"):
+            raise ValueError("Card-producing app approval requires lifecycle policies")
         row = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key).with_for_update()).first()
         if row is None:
             if expected_revision is not None:
