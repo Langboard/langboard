@@ -13,7 +13,7 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. SDK 0.2.18 provides request/value validation and app-authenticated create/read/cancel. Host human response storage, optional signed response outbox and app reception ACK are implemented; production delivery scheduling, native UI and runtime continuation remain pending.
+proof. SDK 0.2.19 provides request/value validation and app-authenticated create/read/cancel. Host human response storage, optional signed response outbox and app reception ACK are implemented; Broker dispatch and bounded cron recovery are wired in source; production scheduling verification, native UI and runtime continuation remain pending.
 
 ## Implemented app cancellation
 
@@ -328,3 +328,18 @@ PostgreSQL, with publisher/activity/bot notifications suppressed in the test.
 These tests include old reaction rejection, remove/add acceptance, direct API
 bypass denial, repeat stability, follow-up freshness and signed outbox claim.
 Production UI guidance and observed external continuation remain pending.
+
+## Native user request listing
+
+`GET /board/{board}/card/{card}/apps/interactions` reads the retained request,
+response and delivery/reception projection under current native user/card
+visibility and board read permission. App credentials cannot use this endpoint.
+A disabled or disconnected app does not erase this history; submitting answers
+still requires current app authority. Deleted/inactive users and withdrawn board
+read permission cannot read the retained data.
+
+Pages contain at most 25 requests, newest first, with an exclusive `cursor` from
+`next_cursor`. Related responses, response-event outbox entries and reception
+acknowledgments are fetched in bounded batches. Responses use `Cache-Control:
+no-store`; listing does not mark the card seen, triage an inbox, approve a request,
+move a column or resume execution. UI rendering remains a separate gate.
