@@ -103,6 +103,9 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
         if (
             old.get("status") == "indexed"
             and old.get("source_generation") == generation
+            and isinstance(old.get("config"), dict)
+            and old["config"].get("retrieval", {}).get("splitter")
+            == snapshot.get("retrieval", {}).get("splitter")
             and (old.get("pointer") or {}).get("embedding_fingerprint") == fingerprint
             and ((old.get("pointer") or {}).get("storage") or {}).get("type", "sqlite") == settings.store
             and (

@@ -115,6 +115,29 @@ def test_provider_failure_retains_prior_pointer_and_redacts_error(monkeypatch, t
     assert "confidential" not in failure["error"]
 
 
+@pytest.mark.parametrize("splitter_changed", [False, True])
+def test_same_model_reindex_honors_explicit_splitter_changes(monkeypatch, tmp_path, splitter_changed):
+    from copy import deepcopy
+    from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    config, settings = task.validate_embedding_config.return_value
+    document["embedding_config"]["retrieval"] = {"splitter": {"type": "recursive", "chunk_size": 1000}}
+    previous = deepcopy(document["embedding_config"])
+    if splitter_changed:
+        previous["retrieval"]["splitter"]["chunk_size"] = 500
+    fingerprint = embedding_fingerprint(
+        provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
+    )
+    document["embedding"] = {
+        "status": "indexed", "source_generation": "current", "config": previous,
+        "pointer": {"embedding_fingerprint": fingerprint, "storage": {"type": "sqlite"}},
+    }
+    task.embed_transcription(service, "attachment", "current")
+    assert task.stage_vector_generation.call_count == int(splitter_changed)
+    assert service.docling_metadata.publish_document_embedding.call_count == int(splitter_changed)
+
+
 def test_queue_outage_and_metadata_outage_never_downgrade_transcription(monkeypatch):
     service = SimpleNamespace(docling_metadata=Mock())
     service.docling_metadata.get_document_by_attachment_uid.side_effect = RuntimeError("metadata unavailable")
