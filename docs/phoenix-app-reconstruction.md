@@ -352,3 +352,23 @@ are composed into workflow guidance for API consumers.
 This is configuration and discovery, not an executed card transition. Stage
 editor/template UI, event publication, card side effects, MCP projection and
 execution/HITL integration remain pending.
+
+## Workflow metadata editing API
+
+Current instance administrators can update existing built-in stage display names,
+descriptions, hex colors and bounded language translations using a current
+revision. Stage identity and policy fields are not editable through this route;
+apps cannot add stage types. Active users can discover the native definitions.
+Board owners/administrators/current members with update authority can read or
+update a column's optional stage, description and localized name/description.
+Deleted, foreign-board and archive-stage assignments are rejected; stale column
+revisions conflict. Translation languages and fields are validated, including
+new languages beyond the four seeded defaults. Responses compose stage and
+column guidance. No card movement or policy side effect is performed.
+
+Authorization is shared with board app consent rather than duplicated in the
+editor service. Regression uses actual native authenticated HTTP and PostgreSQL
+for administrator revocation, nonmember rejection, extra field injection,
+translation validation, stale revisions, archive rejection and guidance updates.
+The rendered editor, real-time column publication and MCP guidance integration
+remain pending.

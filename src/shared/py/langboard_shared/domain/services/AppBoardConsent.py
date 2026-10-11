@@ -2,13 +2,12 @@
 
 from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
-from ..models import AppDefinition, BoardAppBinding, Project, ProjectAssignedUser, ProjectRole
-from ..models.ProjectRole import ProjectRoleAction
+from ..models import AppDefinition, BoardAppBinding
 from .AppGovernance import (
     AppGovernanceConflict,
     AppGovernanceDenied,
     _actor,
-    _current,
+    _authorized_board,
     current_policy,
     lock_policy_mutation,
 )
@@ -19,22 +18,9 @@ def _context(db, actor, project_id, app_key, *, lock_binding=True):
     definition = db.exec(
         SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key).with_for_update()
     ).first()
-    project = _current(db, Project, project_id)
-    if definition is None or project is None or project.deleted_at:
+    if definition is None:
         raise AppGovernanceDenied()
-    if not actor.is_admin and actor.id != project.owner_id:
-        member = db.exec(
-            SqlBuilder.select.table(ProjectAssignedUser)
-            .where(ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id)
-            .with_for_update()
-        ).first()
-        role = db.exec(
-            SqlBuilder.select.table(ProjectRole)
-            .where(ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id)
-            .with_for_update()
-        ).first()
-        if member is None or role is None or not role.is_granted(ProjectRoleAction.Update):
-            raise AppGovernanceDenied()
+    project = _authorized_board(db, actor, project_id)
     statement = SqlBuilder.select.table(BoardAppBinding).where(
         BoardAppBinding.project_id == project.id, BoardAppBinding.app_key == app_key
     )

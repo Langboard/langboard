@@ -16,6 +16,7 @@ import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
 import langboard.routes.settings.AppResourceReadApi  # noqa: F401
 import langboard.routes.settings.AppResourceSelectionApi  # noqa: F401
 import langboard.routes.settings.AppWorkflowMappingApi  # noqa: F401
+import langboard.routes.settings.BoardWorkflowSettingsApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -1047,3 +1048,109 @@ def test_generic_builtin_workflow_mapping_preserves_ambiguity_and_requires_opt_i
     with pytest.raises(ValueError):
         save({"active": SnowflakeID(211).to_short_code()}, True, current)
     assert not save({}, False, current)["enabled"]
+
+
+def test_workflow_metadata_and_column_editing_http_current_authority(registered, monkeypatch):
+    engine, (admin, owner, outsider), *_ = registered
+    WorkflowStageDefinition.__table__.create(engine)
+    ProjectColumn.__table__.create(engine)
+    ProjectRole.__table__.create(engine)
+    with Session(engine) as db:
+        db.add(
+            WorkflowStageDefinition(id=201, key="active", name="Active", description="Executing work", is_builtin=True)
+        )
+        db.add(ProjectColumn(id=211, project_id=20, name="Doing"))
+        db.add(ProjectColumn(id=212, project_id=20, name="Archive", is_archive=True))
+        db.commit()
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-stage-http-secret-32bytes"))
+    Cache.clear()
+    for user in (admin, owner, outsider):
+        Auth.reset_user(user)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+        with TestClient(app) as client:
+
+            def request(user, method, path, **kwargs):
+                access, refresh = AuthSecurity.authenticate(user.id)
+                client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+                return client.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+
+            path = "/settings/workflow-stages"
+            assert client.get(path).status_code == 401
+            stage = request(owner, "GET", path).json()["items"][0]
+            translations = {
+                "en": {"name": "Active"},
+                "ko": {"name": "진행", "description": "진행 업무"},
+                "ja": {"name": "進行"},
+                "zh": {"name": "进行"},
+                "fr": {"name": "Actif"},
+            }
+            body = {
+                "name": "Active",
+                "description": "Current work",
+                "color": "#123456",
+                "translations": translations,
+                "expected_revision": stage["revision"],
+            }
+            assert request(owner, "PUT", path + "/active", json=body).status_code == 403
+            saved = request(admin, "PUT", path + "/active", json=body)
+            assert saved.status_code == 200 and saved.json()["translations"]["fr"]["name"] == "Actif"
+            assert request(admin, "PUT", path + "/active", json=body).status_code == 409
+            assert request(admin, "PUT", path + "/active", json={**body, "is_builtin": False}).status_code in (400, 422)
+            column_path = f"/board/{SnowflakeID(20).to_short_code()}/column/{SnowflakeID(211).to_short_code()}/workflow"
+            assert request(outsider, "GET", column_path).status_code == 403
+            initial = request(owner, "GET", column_path).json()
+            column = {
+                "workflow_stage": "active",
+                "description": "Board instructions",
+                "translations": {"ko": {"name": "작업"}},
+                "expected_revision": initial["revision"],
+            }
+            approved = request(owner, "PUT", column_path, json=column)
+            assert approved.status_code == 200
+            assert approved.json()["workflow_guidance"] == "Current work\n\nBoard instructions"
+            assert request(owner, "PUT", column_path, json=column).status_code == 409
+            archive_path = column_path.replace(SnowflakeID(211).to_short_code(), SnowflakeID(212).to_short_code())
+            archive = request(owner, "GET", archive_path).json()
+            assert (
+                request(
+                    owner, "PUT", archive_path, json={**column, "expected_revision": archive["revision"]}
+                ).status_code
+                == 400
+            )
+            assert (
+                request(
+                    owner,
+                    "PUT",
+                    column_path,
+                    json={**column, "workflow_stage": "app_custom", "expected_revision": approved.json()["revision"]},
+                ).status_code
+                == 400
+            )
+            assert (
+                request(
+                    owner,
+                    "PUT",
+                    column_path,
+                    json={
+                        **column,
+                        "translations": {"ko": {"script": "bad"}},
+                        "expected_revision": approved.json()["revision"],
+                    },
+                ).status_code
+                == 400
+            )
+            with Session(engine) as db:
+                db.execute(update(User).where(User.id == admin.id).values(is_admin=False))
+                db.commit()
+            fresh = saved.json()
+            assert (
+                request(
+                    admin, "PUT", path + "/active", json={**body, "expected_revision": fresh["revision"]}
+                ).status_code
+                == 403
+            )
+    finally:
+        Cache.clear()

@@ -8,7 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ...publishers import AppSettingPublisher
-from ..models import AppConnection, AppGovernancePolicy, Organization, Project, ProjectAssignedUser, User
+from ..models import AppConnection, AppGovernancePolicy, Organization, Project, ProjectAssignedUser, ProjectRole, User
+from ..models.ProjectRole import ProjectRoleAction
 
 
 MODES = ("disabled", "approved_only", "personal_allowed")
@@ -60,6 +61,26 @@ def _actor(db, actor):
     if current is None or current.deleted_at or not current.activated_at:
         raise AppGovernanceDenied()
     return current
+
+
+def _authorized_board(db, actor, project_id):
+    project = _current(db, Project, project_id)
+    if project is None or project.deleted_at:
+        raise AppGovernanceDenied()
+    if not actor.is_admin and actor.id != project.owner_id:
+        member = db.exec(
+            SqlBuilder.select.table(ProjectAssignedUser)
+            .where(ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id)
+            .with_for_update()
+        ).first()
+        role = db.exec(
+            SqlBuilder.select.table(ProjectRole)
+            .where(ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id)
+            .with_for_update()
+        ).first()
+        if member is None or role is None or not role.is_granted(ProjectRoleAction.Update):
+            raise AppGovernanceDenied()
+    return project
 
 
 def _organization(db, organization_id, *, for_update=True):
