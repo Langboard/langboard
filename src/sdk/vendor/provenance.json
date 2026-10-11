@@ -1,7 +1,7 @@
 {
   "packages": {
     "@langboard/app-panel": "0.2.2",
-    "langboard-sdk": "0.2.25"
+    "langboard-sdk": "0.2.26"
   },
   "artifacts": {
     "langboard-app-panel-0.2.1.tgz": "25fb4a48a63c44c6b204eb161dc89cace57fabc1f264e9a7a13c8a1296c2a3e0",
@@ -20,8 +20,10 @@
     "langboard_sdk-0.2.24.tar.gz": "b0525a1bd98abe76dcfe7d43968b356d26e624fbbe539306a15967801099dee3",
     "langboard_sdk-0.2.24-py3-none-any.whl": "4b57f0596016ef43247ed34bbcd261b1ab0683b17f7b34c3b5e1532476e8adbe",
     "langboard_sdk-0.2.25-py3-none-any.whl": "dd340be3fde45983bc970e427fb6983696d50904982de2896b4179a3a5e70ac9",
-    "langboard_sdk-0.2.25.tar.gz": "7b10ff57a65c36cffc0f20fa40fab0e7be7690008dd536433ce70833a4927abb"
+    "langboard_sdk-0.2.25.tar.gz": "7b10ff57a65c36cffc0f20fa40fab0e7be7690008dd536433ce70833a4927abb",
+    "langboard_sdk-0.2.26.tar.gz": "998b9900f672084c5fa86783d223e06dcc5cfd611cc9c6c3c282b06751755cbb",
+    "langboard_sdk-0.2.26-py3-none-any.whl": "57e31b39c2bea7c09fddd47617e23726e9b472984d0ad856ee24d159f7e3be69"
   },
-  "python_source_commit": "228da4a3ac01bdf6c4dc01e4ab4a3951d6168781",
+  "python_source_commit": "35e1301c27d9b2dca277d4ff0f67057ac4273bfe",
   "app_panel_source_commit": "2ad4ea3c5277393e52c5f5d3b1b8b6c59006ceed"
 }
