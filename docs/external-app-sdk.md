@@ -1122,10 +1122,15 @@ Version 1 requires `board_uid`, `resource_uid`, current `app_revision` and
 Current declaration/publication consent, unattended organization connection,
 owner board update authority, selected resource and active SecretRef are checked.
 The native credential row is locked and revalidated before storing evidence.
-Identical event retries return the same signal receipt; changed bytes for that
-resource/event conflict. Reverse-order events remain append-only observations;
-projection still chooses occurrence order. The response does not create a card,
-triage an inbox or transition workflow. External publisher SDK methods, independent
+Identical event retries return the same signal receipt. Exact wire bytes are
+authenticated, while replay digests use canonical JSON so harmless whitespace
+changes do not conflict. Changed envelope content for that resource/event
+conflicts. Reverse-order events remain append-only observations;
+projection still chooses occurrence order. SDK 0.2.22 `AppSignals.publish` sends
+one signed POST through the existing HttpTransport and reports ambiguous results
+without automatic retry. Four concurrent PostgreSQL deliveries produce one stored
+signal and a shared receipt. The response does not create a card,
+triage an inbox or transition workflow. Independent
 app onboarding and two-board/two-resource acceptance remain unfinished. Existing
 HITL wire bodies are unchanged.
 
