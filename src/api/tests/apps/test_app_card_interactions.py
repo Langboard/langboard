@@ -94,6 +94,27 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert saved["changed"] is False
         assert asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), receipt["interaction_uid"]))["request"] == body
 
+        mixed = {
+            **body,
+            "kind": "question",
+            "app_request_key": "choice-or-text",
+            "questions": [{**body["questions"][0], "type": "choice_or_text", "max_length": 2000}],
+        }
+        mixed_receipt = asyncio.run(sdk.create(board[2].get_uid(), card.get_uid(), mixed))
+        assert mixed_receipt["execution_resumed"] is False
+        assert (
+            asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), mixed_receipt["interaction_uid"]))["request"]
+            == mixed
+        )
+        assert client.post(path, json={"request": {**mixed, "kind": "approval"}}, headers=headers).status_code == 400
+        assert (
+            client.post(
+                path,
+                json={"request": {**mixed, "questions": [{**mixed["questions"][0], "is_secret": True}]}},
+                headers=headers,
+            ).status_code
+            == 400
+        )
         assert client.post(path, json={"request": {**body, "kind": "unknown"}}, headers=headers).status_code == 400
         with DbSession.atomic() as db:
             binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "interactions.request"]
@@ -104,7 +125,11 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
             db.update(binding)
         with DbSession.atomic() as db:
-            row = db.exec(SqlBuilder.select.table(AppCardInteraction)).first()
+            row = db.exec(
+                SqlBuilder.select.table(AppCardInteraction).where(
+                    AppCardInteraction.app_request_key == "deployment-choice"
+                )
+            ).first()
             row.expires_at = SafeDateTime.now() - timedelta(seconds=1)
             db.update(row)
         assert client.get(read_path, headers=headers).json()["state"] == "expired"
@@ -137,5 +162,9 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert client.post(cancel_path, json={"expected_revision": 1}, headers=headers).status_code == 401
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
-        assert len(rows) == 2 and {row.app_request_key for row in rows} == {"deployment-choice", "cancel-choice"}
+        assert len(rows) == 3 and {row.app_request_key for row in rows} == {
+            "deployment-choice",
+            "cancel-choice",
+            "choice-or-text",
+        }
         assert next(row for row in rows if row.state == "cancelled").request == cancel_body
