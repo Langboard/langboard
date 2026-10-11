@@ -173,6 +173,11 @@ def revalidate_archive_event(db, event, *, reporting=False):
     connection = _current(db, AppConnection, event.connection_id)
     if row is None or connection is None or row.app_key != event.app_key or row.project_id != event.project_id or connection.app_key != row.app_key:
         raise AppGovernanceDenied()
+    from .AppEventDestination import current_destination
+
+    destination, _ = current_destination(db, connection, event.event_type)
+    if event.payload.get("destination") != {"destination_uid": destination.get_uid(), "revision": destination.revision}:
+        raise AppGovernanceConflict()
     if row.receipt.get("provider_report") is not None and not reporting:
         # Unknown provider outcomes require reconciliation, never another mutation
         # merely because the webhook transport response was lost.
