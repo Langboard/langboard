@@ -13,7 +13,7 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. SDK 0.2.15 provides request validation and app-authenticated create/read. Host storage and app-authenticated cancellation are implemented; human response, delivery, native UI and runtime continuation remain pending. The SDK cancellation convenience method is not yet shipped.
+proof. SDK 0.2.16 provides request validation and app-authenticated create/read. Host storage and app-authenticated cancellation are implemented; human response, delivery, native UI and runtime continuation remain pending. SDK 0.2.16 also provides the cancellation method; human response and runtime cancellation remain separate gates.
 
 ## Implemented app cancellation
 
