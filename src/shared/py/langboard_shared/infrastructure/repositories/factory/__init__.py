@@ -22,9 +22,12 @@ from .ChecklistRepository import ChecklistRepository
 from .GlobalCardRelationshipTypeRepository import GlobalCardRelationshipTypeRepository
 from .GraphApprovalRequestRepository import GraphApprovalRequestRepository
 from .InternalBotRepository import InternalBotRepository
+from .InternalBotRunRepository import InternalBotRunRepository
 from .McpToolGroupRepository import McpToolGroupRepository
 from .McpToolGroupUsageRepository import McpToolGroupUsageRepository
 from .MetadataRepository import MetadataRepository
+from .NotificationEmailDeliveryRepository import NotificationEmailDeliveryRepository
+from .OllamaModelPullRepository import OllamaModelPullRepository
 from .NotificationScheduleRuleRepository import NotificationScheduleRuleRepository
 from .ProjectAssignedInternalBotRepository import ProjectAssignedInternalBotRepository
 from .ProjectAssignedUserRepository import ProjectAssignedUserRepository
@@ -34,6 +37,7 @@ from .ProjectColumnBotDefaultScopeRepository import ProjectColumnBotDefaultScope
 from .ProjectColumnBotScopeRepository import ProjectColumnBotScopeRepository
 from .ProjectColumnRepository import ProjectColumnRepository
 from .ProjectEmailNotificationRepository import ProjectEmailNotificationRepository
+from .ProjectActivityEmailDeliveryRepository import ProjectActivityEmailDeliveryRepository
 from .ProjectInvitationRepository import ProjectInvitationRepository
 from .ProjectLabelRepository import ProjectLabelRepository
 from .ProjectRepository import ProjectRepository
@@ -83,9 +87,12 @@ __all__ = [
     "GlobalCardRelationshipTypeRepository",
     "GraphApprovalRequestRepository",
     "InternalBotRepository",
+    "InternalBotRunRepository",
     "McpToolGroupRepository",
     "McpToolGroupUsageRepository",
     "MetadataRepository",
+    "NotificationEmailDeliveryRepository",
+    "OllamaModelPullRepository",
     "NotificationScheduleRuleRepository",
     "ProjectAssignedInternalBotRepository",
     "ProjectAssignedUserRepository",
@@ -95,6 +102,7 @@ __all__ = [
     "ProjectColumnBotScopeRepository",
     "ProjectColumnRepository",
     "ProjectEmailNotificationRepository",
+    "ProjectActivityEmailDeliveryRepository",
     "ProjectInvitationRepository",
     "ProjectLabelRepository",
     "ProjectRepository",

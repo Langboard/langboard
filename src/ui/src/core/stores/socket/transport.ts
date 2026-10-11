@@ -1,5 +1,6 @@
 import { SOCKET_URL } from "@/constants";
 import { ESocketTopic } from "@langboard/core/enums";
+import { Utils } from "@langboard/core/utils";
 import {
     canCloseSocket,
     getSocket,
@@ -9,7 +10,7 @@ import {
     resetSocketConnectionState,
     setSocket,
 } from "@/core/stores/socket/state";
-import { queueSubscribedCallback, queueUnsubscribedCallback } from "@/core/stores/socket/registry";
+import { addRestorableTopicId, queueSubscribedCallback, queueUnsubscribedCallback, removeRestorableTopicIds } from "@/core/stores/socket/registry";
 import type { ISocketCreateSocketProps, ISocketStore } from "@/core/stores/socket/types";
 
 const clearSocketHandlers = (socket: WebSocket) => {
@@ -52,16 +53,16 @@ const sendTopicMessage = (
     );
 };
 
-const restoreTopicSubscriptions = (subscribe: ISocketStore["subscribe"], subscriptions: ReturnType<typeof getSocketMap>["subscriptions"]) => {
-    const subscriptionEntries = Object.entries(subscriptions);
-    for (let i = 0; i < subscriptionEntries.length; ++i) {
-        const [topic, topicMap] = subscriptionEntries[i];
+const restoreTopicSubscriptions = (subscribe: ISocketStore["subscribe"], restorableTopics: ReturnType<typeof getSocketMap>["restorableTopics"]) => {
+    const topicEntries = Object.entries(restorableTopics);
+    for (let i = 0; i < topicEntries.length; ++i) {
+        const [topic, topicIds] = topicEntries[i];
 
-        if (!topicMap || isSocketTopicWithoutId(topic as ESocketTopic)) {
+        if (!topicIds?.length || isSocketTopicWithoutId(topic as ESocketTopic)) {
             continue;
         }
 
-        subscribe(topic as Exclude<ESocketTopic, ESocketTopic.None | ESocketTopic.Global>, Object.keys(topicMap));
+        subscribe(topic as Exclude<ESocketTopic, ESocketTopic.None | ESocketTopic.Global>, topicIds);
     }
 };
 
@@ -86,6 +87,13 @@ const notifyDisconnectedTopicNotifiers = () => {
             }
         }
     }
+};
+
+const markSocketConnectionDisconnected = () => {
+    const socketMap = getSocketMap();
+
+    notifyDisconnectedTopicNotifiers();
+    socketMap.subscribedTopics = {};
 };
 
 const handleSubscriptionResponse = (
@@ -132,6 +140,18 @@ export const createAuthorizedWebSocketUrl = (accessToken: string, path: string =
     return socketUrl.toString();
 };
 
+export const getEditorWebSocketAuth = (authorizedUrl: string, documentID: string) => {
+    const url = new URL(authorizedUrl);
+    const token = url.searchParams.get("authorization");
+    if (!token) {
+        return null;
+    }
+
+    url.searchParams.delete("authorization");
+    url.searchParams.set("route_key", Utils.String.createEditorDocumentRouteKey(documentID));
+    return { url: url.toString(), token };
+};
+
 export const createSocketConnection = <TResponse>({
     props,
     subscribe,
@@ -143,7 +163,7 @@ export const createSocketConnection = <TResponse>({
     onSubscribed: (topic: ESocketTopic, topicIds: string[]) => void;
     onUnsubscribed: (topic: ESocketTopic, topicIds: string[]) => void;
 }) => {
-    const { accessToken, onOpen, onMessage, onError, onClose } = props;
+    const { accessToken, userUID, onOpen, onMessage, onError, onClose } = props;
     const currentSocket = getSocket();
 
     if (currentSocket) {
@@ -154,12 +174,15 @@ export const createSocketConnection = <TResponse>({
         clearSocketHandlers(currentSocket);
     }
 
-    const nextSocket = new WebSocket(createAuthorizedWebSocketUrl(accessToken));
+    const url = new URL(createAuthorizedWebSocketUrl(accessToken));
+    url.searchParams.set("socket_route_key", userUID);
+    const nextSocket = new WebSocket(url.toString());
     setSocket(nextSocket);
-    restoreTopicSubscriptions(subscribe, getSocketMap().subscriptions);
 
     nextSocket.onopen = async (event) => {
         await onOpen(event);
+        restoreTopicSubscriptions(subscribe, getSocketMap().restorableTopics);
+        flushSocketQueue();
     };
 
     nextSocket.onmessage = async (event) => {
@@ -180,6 +203,7 @@ export const createSocketConnection = <TResponse>({
     };
 
     nextSocket.onclose = async (event) => {
+        markSocketConnectionDisconnected();
         await onClose(event);
     };
 
@@ -211,16 +235,20 @@ export const flushSocketQueue = () => {
     }
 };
 
-export const sendSocketMessage = (json: string) => {
+export const sendSocketMessage = (json: string, queueIfDisconnected = true) => {
     const socketMap = getSocketMap();
     const currentSocket = getSocket();
 
     if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+        if (!queueIfDisconnected) {
+            return false;
+        }
         socketMap.sendingQueue.push(json);
         scheduleSocketQueueFlush();
         return true;
     }
 
+    flushSocketQueue();
     currentSocket.send(json);
     return true;
 };
@@ -228,7 +256,7 @@ export const sendSocketMessage = (json: string) => {
 export const closeSocketConnection = () => {
     const currentSocket = getSocket();
 
-    notifyDisconnectedTopicNotifiers();
+    markSocketConnectionDisconnected();
     clearSocketQueueTimeout();
     resetSocketConnectionState();
 
@@ -253,6 +281,10 @@ export const subscribeToTopics = (
         return;
     }
 
+    for (let i = 0; i < topicIds.length; ++i) {
+        addRestorableTopicId(topic, topicIds[i]);
+    }
+
     queueSubscribedCallback(topic, topicIds, callback);
     sendTopicMessage(send, "subscribe", topic, topicIds);
 };
@@ -263,18 +295,10 @@ export const unsubscribeFromTopics = (
     topicIds: string[],
     callback?: () => void
 ) => {
-    const socketMap = getSocketMap();
+    removeRestorableTopicIds(topic, topicIds);
 
-    if (!getSocket() || !socketMap.subscriptions[topic]) {
+    if (!isSocketOpenOrConnecting()) {
         return;
-    }
-
-    for (let i = 0; i < topicIds.length; ++i) {
-        const topicId = topicIds[i];
-
-        if (socketMap.subscriptions[topic][topicId]) {
-            delete socketMap.subscriptions[topic][topicId];
-        }
     }
 
     queueUnsubscribedCallback(topic, topicIds, callback);

@@ -27,9 +27,11 @@ class GraphApprovalRequestRepository(BaseRepository[GraphApprovalRequest]):
                 return model_class
         return None
 
-    def get_detail(self, approval: GraphApprovalRequest | str | int) -> BaseGraphApprovalRequestModel | None:
+    def get_detail(
+        self, approval: GraphApprovalRequest | str | int, *, readonly: bool = True
+    ) -> BaseGraphApprovalRequestModel | None:
         approval_id = InfraHelper.convert_id(approval)
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=readonly) as db:
             for detail_class in self.__get_model_classes():
                 detail = db.exec(
                     SqlBuilder.select.table(detail_class)

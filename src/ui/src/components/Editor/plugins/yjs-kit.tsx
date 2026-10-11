@@ -1,7 +1,11 @@
 import { YjsPlugin } from "@platejs/yjs/react";
+import { HocuspocusProviderWrapper } from "@platejs/yjs";
+import { MarkdownPlugin } from "@platejs/markdown";
+import { prepareRichDraftPatch } from "@/components/Editor/prepareRichDraftPatch";
 import { RemoteCursorOverlay } from "@/components/plate-ui/remote-cursor-overlay";
 import { ISocketContext } from "@/core/providers/SocketProvider";
 import { Utils } from "@langboard/core/utils";
+import { getEditorWebSocketAuth } from "@/core/stores/socket/transport";
 
 export interface ICreateYjsKit {
     socket: ISocketContext;
@@ -12,17 +16,17 @@ export interface ICreateYjsKit {
 
 export const createYjsKit = ({ socket, userName, documentID, onSyncChange }: ICreateYjsKit): ReturnType<typeof YjsPlugin.configure> | null => {
     const url = socket.getAuthorizedWebSocketUrl("editor-sync");
-    if (!url) {
+    const auth = url ? getEditorWebSocketAuth(url, documentID) : null;
+    if (!auth) {
         return null;
     }
 
-    return YjsPlugin.configure({
+    return YjsPlugin.configure(({ editor, getOptions }) => ({
         render: {
             afterEditable: RemoteCursorOverlay,
         },
         options: {
             cursors: {
-                autoSend: false,
                 data: {
                     name: userName,
                     color: new Utils.Color.Generator(userName).generateRandomColor(),
@@ -33,7 +37,20 @@ export const createYjsKit = ({ socket, userName, documentID, onSyncChange }: ICr
                     type: "hocuspocus",
                     options: {
                         name: documentID,
-                        url,
+                        url: auth.url,
+                        token: auth.token,
+                        onStateless: ({ payload }) => {
+                            const response = prepareRichDraftPatch(payload, (markdown) =>
+                                editor.getApi(MarkdownPlugin).markdown.deserialize(markdown)
+                            );
+                            if (!response) {
+                                return;
+                            }
+                            const provider = getOptions()._providers.find((item) => item instanceof HocuspocusProviderWrapper);
+                            if (provider instanceof HocuspocusProviderWrapper) {
+                                provider.provider.sendStateless(response);
+                            }
+                        },
                     },
                 },
             ],
@@ -41,5 +58,5 @@ export const createYjsKit = ({ socket, userName, documentID, onSyncChange }: ICr
             onError: () => onSyncChange?.(false),
             onSyncChange: ({ isSynced }) => onSyncChange?.(isSynced),
         },
-    });
+    }));
 };

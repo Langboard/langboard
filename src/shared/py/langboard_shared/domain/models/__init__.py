@@ -31,13 +31,17 @@ from .EditorGraphApprovalRequest import EditorGraphApprovalRequest
 from .GlobalCardRelationshipType import GlobalCardRelationshipType
 from .GraphApprovalRequest import GraphApprovalRequest
 from .InternalBot import InternalBot
+from .InternalBotRun import InternalBotRun
 from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
+from .NotificationEmailDelivery import NotificationEmailDelivery
+from .OllamaModelPull import OllamaModelPull
 from .NotificationScheduleRule import NotificationScheduleRule
 from .Project import Project
 from .ProjectActivity import ProjectActivity
+from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from .ProjectAssignedUser import ProjectAssignedUser
 from .ProjectBotDefaultScope import ProjectBotDefaultScope
@@ -117,11 +121,15 @@ __all__ = [
     "GraphApprovalRequest",
     "IdentityProvider",
     "InternalBot",
+    "InternalBotRun",
     "McpToolGroup",
     "McpToolGroupUsage",
+    "NotificationEmailDelivery",
+    "OllamaModelPull",
     "NotificationScheduleRule",
     "Project",
     "ProjectActivity",
+    "ProjectActivityEmailDelivery",
     "ProjectEmailNotificationPolicy",
     "ProjectEmailNotificationRecipient",
     "ProjectAssignedInternalBot",

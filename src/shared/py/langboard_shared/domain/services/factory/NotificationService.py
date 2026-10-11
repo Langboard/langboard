@@ -1,8 +1,11 @@
-from typing import Any, Literal, TypeVar, cast, overload
+from collections.abc import Sequence
+from datetime import timedelta
+from html import escape
+from typing import Any, Literal, NotRequired, TypedDict, TypeGuard, TypeVar, cast, get_args, overload
 from urllib.parse import urlparse
 from ....core.db import BaseDbModel, EditorContentModel
 from ....core.domain import BaseDomainService
-from ....core.publisher import NotificationPublisher, NotificationPublishModel
+from ....core.logger import Logger
 from ....core.resources.locales.EmailTemplateNames import TEmailTemplateName
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TNotificationParam, TUserOrBot, TUserParam
@@ -10,6 +13,7 @@ from ....core.utils.EditorContentParser import change_date_element, find_mention
 from ....core.utils.String import concat
 from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
+from ....publishers.UserPublisher import UserPublisher
 from ....tasks.bots import BotDefaultTask
 from ...models import (
     Bot,
@@ -17,6 +21,7 @@ from ...models import (
     CardComment,
     Checkitem,
     Checklist,
+    NotificationEmailDelivery,
     Project,
     ProjectColumn,
     ProjectInvitation,
@@ -25,13 +30,32 @@ from ...models import (
     UserNotification,
 )
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
+from ...models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
 from ...models.UserNotification import NotificationType
+from ...models.UserNotificationUnsubscription import NotificationChannel
+from .EmailService import EmailService
+from .UserNotificationSettingService import UserNotificationSettingService
 
 
 _TModel = TypeVar(
     "_TModel",
     bound=User | Bot | Project | ProjectInvitation | ProjectWiki | Card | CardComment | Checklist | Checkitem,
 )
+_logger = Logger.use("notification")
+
+
+type NotificationMutationAction = Literal["read", "read_all", "delete", "delete_all"]
+
+
+class NotificationMutation(TypedDict):
+    action: NotificationMutationAction
+    unread_count: int
+    notification_uid: NotRequired[str]
+    read_at: NotRequired[str]
+
+
+def _is_email_template_name(value: str) -> TypeGuard[TEmailTemplateName]:
+    return value in get_args(TEmailTemplateName)
 
 
 class NotificationService(BaseDomainService):
@@ -92,7 +116,7 @@ class NotificationService(BaseDomainService):
     def convert_to_api_response(
         self,
         notification: UserNotification,
-        record_list: list[_TModel] | None = None,
+        record_list: Sequence[_TModel] | None = None,
         notifier: TUserOrBot | None = None,
     ) -> dict[str, Any]:
         api_notification = notification.api_response()
@@ -149,30 +173,227 @@ class NotificationService(BaseDomainService):
             return "notifier_user", notifier.api_response()
         return "notifier_bot", notifier.api_response()
 
-    def read(self, user: User, notification: TNotificationParam | None) -> bool:
+    def read(self, user: User, notification: TNotificationParam | None) -> NotificationMutation | None:
         notification = InfraHelper.get_by_id_like(UserNotification, notification)
         if not notification or notification.receiver_id != user.id:
-            return False
+            return None
 
         notification.read_at = SafeDateTime.now()
         self.repo.user_notification.update(notification)
 
-        return True
+        return self._publish_notification_mutation(
+            user,
+            "read",
+            notification_uid=notification.get_uid(),
+            read_at=notification.read_at,
+        )
 
-    def read_all(self, user: User):
-        self.repo.user_notification.read_all_by_user(user)
+    def read_all(self, user: User) -> NotificationMutation:
+        read_at = SafeDateTime.now()
+        self.repo.user_notification.read_all_by_user(user, read_at)
+        return self._publish_notification_mutation(user, "read_all", read_at=read_at)
 
-    def delete(self, user: User, notification: TNotificationParam | None) -> bool:
+    def delete(self, user: User, notification: TNotificationParam | None) -> NotificationMutation | None:
         notification = InfraHelper.get_by_id_like(UserNotification, notification)
         if not notification or notification.receiver_id != user.id:
-            return False
+            return None
 
         self.repo.user_notification.delete(notification)
 
-        return True
+        return self._publish_notification_mutation(user, "delete", notification_uid=notification.get_uid())
 
-    def delete_all(self, user: User):
+    def delete_all(self, user: User) -> NotificationMutation:
         self.repo.user_notification.delete_all(user)
+        return self._publish_notification_mutation(user, "delete_all")
+
+    def _publish_notification_mutation(
+        self,
+        user: User,
+        action: NotificationMutationAction,
+        notification_uid: str | None = None,
+        read_at: SafeDateTime | None = None,
+    ) -> NotificationMutation:
+        mutation: NotificationMutation = {
+            "action": action,
+            "unread_count": self.repo.user_notification.count_unread(user, readonly=False),
+        }
+        if notification_uid is not None:
+            mutation["notification_uid"] = notification_uid
+        if read_at is not None:
+            mutation["read_at"] = read_at.isoformat()
+        UserPublisher.notification_mutated(user, mutation)
+        return mutation
+
+    def recover_pending_web_fanout(self, limit: int = 50) -> int:
+        pending = self.repo.user_notification.get_pending_web_fanout(SafeDateTime.now() - timedelta(seconds=30), limit)
+        completed = 0
+        for notification in pending:
+            recipient = InfraHelper.get_by_id_like(User, notification.receiver_id)
+            if not recipient:
+                _logger.warning("Recipient unavailable for pending web notification %s", notification.id)
+                self.repo.user_notification.defer_web_fanout(notification)
+                continue
+            try:
+                api_notification = self.convert_to_api_response(notification)
+            except Exception:
+                _logger.exception("Cannot rebuild pending web notification %s", notification.id)
+                self.repo.user_notification.defer_web_fanout(notification)
+                continue
+            if not self._publish_web_notification(notification, recipient, api_notification):
+                self.repo.user_notification.defer_web_fanout(notification)
+                break
+            completed += 1
+        return completed
+
+    def recover_pending_email_delivery(self, limit: int = 8) -> int:
+        stale_cutoff = SafeDateTime.now() - timedelta(minutes=10)
+        self.repo.notification_email_delivery.mark_stale_preparing_pending(stale_cutoff, limit)
+        self.repo.notification_email_delivery.mark_stale_uncertain(stale_cutoff, limit)
+        if not Env.MAIL_SERVER or not Env.MAIL_FROM:
+            return 0
+
+        deliveries = self.repo.notification_email_delivery.claim_pending(limit)
+        completed = 0
+        for delivery in deliveries:
+            try:
+                recipient = InfraHelper.get_by_id_like(User, delivery.receiver_id)
+                unsubscribed = recipient is not None and self._get_service(
+                    UserNotificationSettingService
+                ).has_unsubscription(
+                    recipient, delivery.notification_type, delivery.scope_models, NotificationChannel.Email
+                )
+            except Exception:
+                _logger.exception("Cannot validate notification email recipient %s", delivery.id)
+                self.repo.notification_email_delivery.complete_preparing(
+                    delivery, NotificationEmailDeliveryStatus.Pending, "Recipient validation failed"
+                )
+                continue
+            if not recipient or recipient.email != delivery.recipient_email:
+                self.repo.notification_email_delivery.complete_preparing(
+                    delivery, NotificationEmailDeliveryStatus.Suppressed, "Recipient is no longer available"
+                )
+                continue
+            if unsubscribed:
+                self.repo.notification_email_delivery.complete_preparing(
+                    delivery, NotificationEmailDeliveryStatus.Suppressed, "Recipient unsubscribed"
+                )
+                continue
+            if not _is_email_template_name(delivery.template_name):
+                self.repo.notification_email_delivery.complete_preparing(
+                    delivery, NotificationEmailDeliveryStatus.Failed, "Invalid email template"
+                )
+                continue
+
+            try:
+                email_service = self._get_service(EmailService)
+                message = email_service.prepare_template_message(
+                    delivery.preferred_lang,
+                    delivery.recipient_email,
+                    delivery.template_name,
+                    delivery.formats,
+                )
+            except Exception:
+                _logger.exception("Cannot render notification email %s", delivery.id)
+                self.repo.notification_email_delivery.complete_preparing(
+                    delivery, NotificationEmailDeliveryStatus.Failed, "Email template rendering failed"
+                )
+                continue
+
+            if not self.repo.notification_email_delivery.begin_sending(delivery):
+                continue
+            try:
+                accepted = email_service.send_message(message, strict=True)
+            except Exception:
+                _logger.exception("Cannot confirm notification SMTP outcome %s", delivery.id)
+                accepted = False
+
+            self.repo.notification_email_delivery.complete_sending(
+                delivery,
+                NotificationEmailDeliveryStatus.Sent if accepted else NotificationEmailDeliveryStatus.Uncertain,
+                None if accepted else "SMTP acceptance could not be confirmed",
+            )
+            if accepted:
+                completed += 1
+        return completed
+
+    def get_email_deliveries_for_review(self, limit: int = 20) -> list[NotificationEmailDelivery]:
+        if limit < 1 or limit > 100:
+            raise ValueError("Review limit must be between 1 and 100")
+        return self.repo.notification_email_delivery.get_review_items(limit)
+
+    def purge_terminal_email_deliveries(self, limit: int = 100) -> int:
+        retention_days = Env.NOTIFICATION_EMAIL_OUTBOX_RETENTION_DAYS
+        if retention_days < 1 or limit < 1 or limit > 100:
+            raise ValueError("Email outbox retention and cleanup limit must be positive")
+        return self.repo.notification_email_delivery.purge_terminal_before(
+            SafeDateTime.now() - timedelta(days=retention_days), limit
+        )
+
+    def resolve_email_delivery_review(
+        self,
+        delivery_id: SnowflakeID,
+        action: str,
+        ticket: str,
+        acknowledge_uncertain: bool = False,
+        use_current_card_title: bool = False,
+    ) -> bool:
+        if action not in ("retry", "confirm-sent", "close"):
+            raise ValueError("Invalid email review action")
+        ticket = ticket.strip()
+        if not ticket or len(ticket) > 120:
+            raise ValueError("A review ticket of at most 120 characters is required")
+        delivery = self.repo.notification_email_delivery.get_review_item(delivery_id)
+        if delivery is None or delivery.status not in (
+            NotificationEmailDeliveryStatus.Failed,
+            NotificationEmailDeliveryStatus.Uncertain,
+        ):
+            return False
+        if delivery.status == NotificationEmailDeliveryStatus.Uncertain and not acknowledge_uncertain:
+            raise ValueError("An uncertain SMTP outcome requires explicit acknowledgement")
+        if action == "confirm-sent" and delivery.status != NotificationEmailDeliveryStatus.Uncertain:
+            raise ValueError("Only an uncertain delivery can be confirmed as sent")
+
+        formats = None
+        if (
+            action == "retry"
+            and delivery.status == NotificationEmailDeliveryStatus.Failed
+            and delivery.template_name == "reacted_to_comment"
+            and "card_name" not in delivery.formats
+        ):
+            if not use_current_card_title:
+                raise ValueError("Retry requires explicit approval to use the current Card title")
+            card_ids = [record_id for model_name, record_id in (delivery.scope_models or []) if model_name == "card"]
+            if len(card_ids) != 1:
+                raise ValueError("Cannot identify the Card for email template repair")
+            card = InfraHelper.get_by_id_like(Card, card_ids[0], with_deleted=True)
+            if card is None:
+                raise ValueError("Card is unavailable for email template repair")
+            formats = {**delivery.formats, "card_name": escape(card.title)}
+        elif use_current_card_title:
+            raise ValueError("Current Card title approval applies only to missing reaction email titles")
+
+        target_status = {
+            "retry": NotificationEmailDeliveryStatus.Pending,
+            "confirm-sent": NotificationEmailDeliveryStatus.ConfirmedSent,
+            "close": NotificationEmailDeliveryStatus.Closed,
+        }[action]
+        note = f"Operator {action} under ticket {ticket}; previous outcome: {delivery.failure_reason or 'none'}"
+        if formats is not None:
+            note += "; current Card title approved for template repair"
+        return self.repo.notification_email_delivery.resolve_review_item(
+            delivery_id, delivery.status, target_status, note[:1000], formats=formats
+        )
+
+    def _publish_web_notification(
+        self, notification: UserNotification, recipient: User, api_notification: dict[str, Any]
+    ) -> bool:
+        try:
+            UserPublisher.notified(recipient, api_notification)
+            self.repo.user_notification.complete_web_fanout(notification)
+        except Exception:
+            _logger.exception("Web notification delivery remains pending: %s", notification.id)
+            return False
+        return True
 
     # from here, notifiable types are added
     def notify_project_invited(
@@ -199,7 +420,11 @@ class NotificationService(BaseDomainService):
             [project, column, card],
             [project, card],
             "mentioned_in_card",
-            {"url": self.__create_redirect_url(project, card)},
+            {
+                "url": self.__create_redirect_url(project, card),
+                "card_name": escape(card.title),
+                "project_name": escape(project.title),
+            },
         )
 
     def notify_mentioned_in_comment(self, notifier: TUserOrBot, project: Project, card: Card, comment: CardComment):
@@ -211,7 +436,7 @@ class NotificationService(BaseDomainService):
             [project, column, card],
             [project, card, comment],
             "mentioned_in_comment",
-            {"url": self.__create_redirect_url(project, card)},
+            {"url": self.__create_redirect_url(project, card), "card_name": escape(card.title)},
         )
 
     def notify_mentioned_in_wiki(self, notifier: TUserOrBot, project: Project, wiki: ProjectWiki):
@@ -222,7 +447,7 @@ class NotificationService(BaseDomainService):
             [project, wiki],
             [project, wiki],
             "mentioned_in_wiki",
-            {"url": self.__create_redirect_url(project, wiki)},
+            {"url": self.__create_redirect_url(project, wiki), "wiki_title": escape(wiki.title)},
         )
 
     def notify_assigned_to_card(
@@ -241,7 +466,11 @@ class NotificationService(BaseDomainService):
             [project, card],
             {},
             "assigned_to_card",
-            {"url": self.__create_redirect_url(project, card)},
+            {
+                "url": self.__create_redirect_url(project, card),
+                "card_name": escape(card.title),
+                "project_name": escape(project.title),
+            },
         )
 
     def notify_reacted_to_comment(
@@ -265,7 +494,7 @@ class NotificationService(BaseDomainService):
             [project, card, comment],
             {"reaction_type": reaction_type, "line": first_line},
             "reacted_to_comment",
-            {"url": self.__create_redirect_url(project, card)},
+            {"url": self.__create_redirect_url(project, card), "card_name": escape(card.title)},
         )
 
     def notify_checklist(
@@ -285,7 +514,11 @@ class NotificationService(BaseDomainService):
             [project, card, checklist],
             None,
             "notified_from_checklist",
-            {"url": self.__create_redirect_url(project, card)},
+            {
+                "url": self.__create_redirect_url(project, card),
+                "card_name": escape(card.title),
+                "checklist_title": escape(checklist.title),
+            },
         )
 
     def notify_notification_schedule_rule(
@@ -299,7 +532,7 @@ class NotificationService(BaseDomainService):
         message_vars: dict[str, Any],
         now: SafeDateTime,
     ) -> bool:
-        references: list = [project]
+        references: list[Project | Card | Checkitem] = [project]
         scope_models: list[BaseDbModel] = [project]
         if isinstance(target_model, Card):
             column = self.__get_column_by_card(target_model)
@@ -333,7 +566,7 @@ class NotificationService(BaseDomainService):
             allow_self=True,
         )
 
-    def create_record_list(self, record_list: list[_TModel]) -> list[tuple[str, SnowflakeID]]:
+    def create_record_list(self, record_list: Sequence[_TModel]) -> list[tuple[str, SnowflakeID]]:
         return [(type(record).__tablename__, record.id) for record in record_list]
 
     # to here, notifiable types are added
@@ -344,7 +577,7 @@ class NotificationService(BaseDomainService):
         editor: EditorContentModel | None,
         notification_type: NotificationType,
         scope_models: list[BaseDbModel],
-        references: list[_TModel],
+        references: Sequence[_TModel],
         email_template_name: TEmailTemplateName,
         email_formats: dict[str, str],
     ):
@@ -381,7 +614,7 @@ class NotificationService(BaseDomainService):
                 continue
 
             models = [*scope_models, *other_models]
-            dumped_models: list[tuple[str, dict]] = []
+            dumped_models: list[tuple[str, dict[str, Any]]] = []
             for model in models:
                 dumped_models.append((type(model).__tablename__, model.model_dump()))
             BotDefaultTask.bot_mentioned(notifier, target_bot, mentioned_in, dumped_models)
@@ -392,7 +625,7 @@ class NotificationService(BaseDomainService):
         target_user: TUserParam | None,
         notification_type: NotificationType,
         scope_models: list[BaseDbModel] | None,
-        references: list[_TModel],
+        references: Sequence[_TModel],
         message_vars: dict[str, Any] | None = None,
         email_template_name: TEmailTemplateName | None = None,
         email_formats: dict[str, str] | None = None,
@@ -411,12 +644,21 @@ class NotificationService(BaseDomainService):
             else None
         )
 
+        email_enabled = bool(
+            email_template_name
+            and target_user.email
+            and not self._get_service(UserNotificationSettingService).has_unsubscription(
+                target_user, notification_type, scope_model_tuples, NotificationChannel.Email
+            )
+        )
+        if email_enabled and not Env.NOTIFICATION_EMAIL_OUTBOX_ENABLED:
+            raise RuntimeError("Notification email outbox must be enabled")
+
         if email_formats:
             email_formats["recipient"] = target_user.firstname
             email_formats["sender"] = notifier.get_fullname()
 
         notification = UserNotification(
-            id=SnowflakeID(),  # generate new ID
             notifier_type="user" if isinstance(notifier, User) else "bot",
             notifier_id=notifier.id,
             receiver_id=target_user.id,
@@ -425,15 +667,35 @@ class NotificationService(BaseDomainService):
             record_list=record_list,
         )
 
-        model = NotificationPublishModel(
-            notification=notification,
-            api_notification=self.convert_to_api_response(notification, references, notifier),
-            target_user=target_user,
-            scope_models=scope_model_tuples,
-            email_template_name=email_template_name,
-            email_formats=email_formats,
-        )
-        NotificationPublisher.put_dispather(model)
+        web_enabled = isinstance(notifier, User) and not self._get_service(
+            UserNotificationSettingService
+        ).has_unsubscription(target_user, notification_type, scope_model_tuples, NotificationChannel.Web)
+        if not web_enabled:
+            notification.id = SnowflakeID()
+        else:
+            notification.web_fanout_pending = True
+
+        email_delivery = None
+        if email_enabled and email_template_name:
+            email_delivery = NotificationEmailDelivery(
+                notification_id=notification.id,
+                receiver_id=target_user.id,
+                notification_type=notification_type,
+                scope_models=scope_model_tuples,
+                recipient_email=target_user.email,
+                preferred_lang=target_user.preferred_lang,
+                template_name=email_template_name,
+                formats=email_formats or {},
+            )
+
+        if email_delivery is not None:
+            self.repo.notification_email_delivery.accept(email_delivery, notification if web_enabled else None)
+        elif web_enabled:
+            self.repo.user_notification.insert(notification)
+
+        api_notification = self.convert_to_api_response(notification, references, notifier)
+        if web_enabled:
+            self._publish_web_notification(notification, target_user, api_notification)
         return True
 
     def __create_redirect_url(self, project: Project, card_or_wiki: ProjectWiki | Card | None = None):

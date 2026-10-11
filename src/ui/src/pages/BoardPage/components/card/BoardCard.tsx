@@ -66,7 +66,7 @@ const BoardCard = memo(
         onEditModeStateChange,
     }: IBoardCardProps): React.JSX.Element => {
         const { setPageAliasRef } = usePageHeader();
-        const { data: cardData, isFetching, error } = useGetCardDetails({ project_uid: projectUID, card_uid: cardUID });
+        const { data: cardData, error } = useGetCardDetails({ project_uid: projectUID, card_uid: cardUID });
         const [t] = useTranslation();
         const socket = useSocket();
         const navigate = usePageNavigateRef();
@@ -98,7 +98,7 @@ const BoardCard = memo(
 
         useEffect(() => {
             setPageAliasRef.current(cardData?.card?.title || "");
-            if (!cardData || isFetching) {
+            if (!cardData) {
                 return;
             }
 
@@ -109,11 +109,11 @@ const BoardCard = memo(
             return () => {
                 socket.unsubscribe(ESocketTopic.BoardCard, [cardUID]);
             };
-        }, [cardData, cardUID, isFetching]);
+        }, [cardData, cardUID]);
 
         return (
             <>
-                {!cardData || isFetching ? (
+                {!cardData ? (
                     <SkeletonBoardCard />
                 ) : (
                     <BoardCardProvider key={cardUID} projectUID={projectUID} card={cardData.card} currentUser={currentUser} viewportRef={viewportRef}>
@@ -378,9 +378,9 @@ function BoardCardMobileActions(): React.JSX.Element | null {
 
 function BoardCardMobileComments({ scrollableRef }: { scrollableRef?: React.RefObject<HTMLDivElement | null> }): React.JSX.Element | null {
     const { card } = useBoardCard();
-    const { isCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
+    const { isCommentPanelOpen } = useBoardCardPanel();
 
-    if (!isCommentPanelOpen || commentLayoutMode !== "mobile") {
+    if (!isCommentPanelOpen) {
         return null;
     }
 
@@ -395,24 +395,22 @@ function BoardCardMobileComments({ scrollableRef }: { scrollableRef?: React.RefO
 
 function BoardCardCommentPanel(): React.JSX.Element {
     const { card } = useBoardCard();
-    const { isCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
+    const { isCommentPanelOpen } = useBoardCardPanel();
     const commentViewportRef = useRef<HTMLDivElement | null>(null);
     const [t] = useTranslation();
-    const isPanelLayout = commentLayoutMode === "panel";
-
     return (
         <Box
             className={cn(
                 "hidden min-h-0 overflow-hidden transition-all duration-300 sm:block",
-                isPanelLayout && isCommentPanelOpen ? "sm:w-[360px] sm:min-w-[360px]" : "sm:w-0 sm:min-w-0 sm:border-transparent"
+                isCommentPanelOpen ? "sm:w-[360px] sm:min-w-[360px]" : "sm:w-0 sm:min-w-0 sm:border-transparent"
             )}
-            aria-hidden={!isPanelLayout || !isCommentPanelOpen}
+            aria-hidden={!isCommentPanelOpen}
         >
             <Box
                 className={cn(
                     "h-full",
                     "overflow-hidden bg-background transition-opacity duration-200",
-                    isPanelLayout && isCommentPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                    isCommentPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
                 )}
             >
                 <Flex direction="col" className="h-full min-h-0">
@@ -529,7 +527,7 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
                 className={cn("z-[110]", !isExpanded && "mx-auto max-w-[100vw] sm:max-w-[90vw] lg:max-w-[1120px]")}
                 contentClassName="bg-background"
                 itemClassName="h-10 px-3"
-                labelClassName="hidden md:inline"
+                labelClassName="sr-only md:not-sr-only md:inline"
                 items={[
                     {
                         key: "chat",

@@ -24,6 +24,7 @@ import BoardSettingsPage, { SkeletonBoardSettingsPage } from "@/pages/BoardPage/
 import { TBoardViewType, useBoardController } from "@/core/providers/BoardController";
 import useBoardAssignedUsersUpdatedHandlers from "@/controllers/socket/board/useBoardAssignedUsersUpdatedHandlers";
 import useProjectDeletedHandlers from "@/controllers/socket/shared/useProjectDeletedHandlers";
+import useProjectAccessRevokedHandlers from "@/controllers/socket/shared/useProjectAccessRevokedHandlers";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
 import useBoardAssignedInternalBotChangedHandlers from "@/controllers/socket/board/useBoardAssignedInternalBotChangedHandlers";
@@ -83,6 +84,7 @@ const BoardProxy = memo((): React.JSX.Element => {
 
     const { data, isFetching, error, refetch } = useGetProject({ uid: projectUID });
     const { send: sendBoardBotStatusMap } = useBoardBotStatusMapHandlers({ projectUID });
+    const hasCurrentProject = !!data && data.project.uid === projectUID;
 
     useEffect(() => {
         if (!error) {
@@ -116,13 +118,19 @@ const BoardProxy = memo((): React.JSX.Element => {
     }, [error]);
 
     useEffect(() => {
-        if (!data || isFetching) {
+        if (!data || !hasCurrentProject) {
             setPageAliasRef.current();
             return;
         }
 
         if (pageRoute !== "card") {
             setPageAliasRef.current(data.project.title);
+        }
+    }, [data, hasCurrentProject, pageRoute]);
+
+    useEffect(() => {
+        if (!hasCurrentProject) {
+            return;
         }
 
         socket.subscribe(ESocketTopic.Board, [projectUID], () => {
@@ -134,7 +142,7 @@ const BoardProxy = memo((): React.JSX.Element => {
             socket.unsubscribe(ESocketTopic.Board, [projectUID]);
             socket.unsubscribe(ESocketTopic.BoardSettings, [projectUID]);
         };
-    }, [data, isFetching, pageRoute, projectUID]);
+    }, [hasCurrentProject, projectUID]);
 
     if (!data || data.project.uid !== projectUID) {
         return <SkeletonBoard />;
@@ -216,7 +224,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
                             bot: result.bot,
                             projectUID: project.uid,
                         });
-                        setChatResizableSidebar(() => ({
+                        setChatResizableSidebar((prev) => ({
                             children: (
                                 <Suspense>
                                     <ChatSidebar ref={chatSidebarRef} />
@@ -228,7 +236,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
                             floatingTitle: t("project.Chat with AI"),
                             floatingFullScreen: true,
                             widthCssVariable: "--board-chat-sidebar-width",
-                            hidden: window.innerWidth < ScreenMap.size.md || getBoardChatStore().isChatHidden(project.uid),
+                            hidden: window.innerWidth < ScreenMap.size.md ? (prev?.hidden ?? true) : getBoardChatStore().isChatHidden(project.uid),
                         }));
                     } else {
                         setBoardChat(undefined);
@@ -262,6 +270,17 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
                 projectUID: project.uid,
                 callback: () => {
                     Toast.Add.error(t("project.errors.Project closed."));
+                    navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
+                },
+            }),
+        [project]
+    );
+    const projectAccessRevokedHandlers = useMemo(
+        () =>
+            useProjectAccessRevokedHandlers({
+                topic: ESocketTopic.Board,
+                projectUID: project.uid,
+                callback: () => {
                     navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
                 },
             }),
@@ -367,6 +386,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
             isBoardChatAvailableHandlers,
             boardAssignedUsersUpdatedHandlers,
             projectDeletedHandlers,
+            projectAccessRevokedHandlers,
             boardAssignedInternalBotChangedHandlers,
             internalBotUpdatedHandlers,
             cardRelationshipsUpdatedHandlers,
@@ -385,6 +405,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
             isBoardChatAvailableHandlers,
             boardAssignedUsersUpdatedHandlers,
             projectDeletedHandlers,
+            projectAccessRevokedHandlers,
             boardAssignedInternalBotChangedHandlers,
             internalBotUpdatedHandlers,
             cardRelationshipsUpdatedHandlers,

@@ -24,6 +24,7 @@ export type TSocketSubscribedTopicMap = Partial<Record<ESocketTopic, TSocketTopi
 
 export interface ISocketCreateSocketProps<TResponse> {
     accessToken: string;
+    userUID: string;
     onOpen: (event: Event) => Promise<void> | void;
     onMessage: (response: TResponse) => Promise<void> | void;
     onError: (event: Event) => Promise<void> | void;
@@ -130,6 +131,7 @@ export type TSocketTopicNotifierMap = Partial<Record<ESocketTopic, TSocketTopicN
 
 export interface ISocketMap {
     subscriptions: TSocketSubscriptionTopicMap;
+    restorableTopics: TSocketSubscribedTopicMap;
     defaultEvents: TSocketDefaultEventMap;
     sendingQueue: string[];
     sendingQueueTimeout?: NodeJS.Timeout;
@@ -145,7 +147,7 @@ export interface ISocketStore {
     getStore: () => ISocketMap;
     addEvent: <TResponse>(props: TSocketAddEventProps<TResponse>) => void;
     removeEvent: <TResponse>(props: TSocketRemoveEventProps<TResponse>) => void;
-    send: (json: string) => bool;
+    send: (json: string, queueIfDisconnected?: bool) => bool;
     close: () => void;
     subscribe: (topic: TSocketScopedTopic, topicIds: string[], callback?: () => void) => void;
     unsubscribe: (topic: TSocketScopedTopic, topicIds: string[], callback?: () => void) => void;
