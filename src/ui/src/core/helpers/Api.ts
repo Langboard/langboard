@@ -134,6 +134,12 @@ api.interceptors.response.use(
                 },
                 toast: !interceptToast,
             },
+            [EHttpStatus.HTTP_403_FORBIDDEN]: {
+                message: (e) => {
+                    throw e;
+                },
+                toast: !interceptToast,
+            },
             [EHttpStatus.HTTP_401_UNAUTHORIZED]: {
                 message: (e) => {
                     const authStore = getAuthStore();

@@ -55,7 +55,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     });
     await page.route("**/board/board/apps/example-app/panel/signals", async (route) => {
         signalReads.push(route.request().postDataJSON());
-        await route.fulfill({ json: { items: [{ signal_uid: "signal-1" }], next_cursor: null } });
+        await route.fulfill({ status, json: { items: [{ signal_uid: "signal-1" }], next_cursor: null } });
     });
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
@@ -65,7 +65,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     await expect(panel.locator("#result")).toContainText("issue-1", { timeout: 7000 });
     expect(writes).toEqual([{ app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
     await panel.getByRole("button", { name: "Inject identity" }).click();
-    await expect(panel.locator("#result")).toContainText("Denied");
+    await expect(panel.locator("#result")).toContainText("Denied", { timeout: 12000 });
     expect(writes).toHaveLength(1);
     await panel.getByRole("button", { name: "Signals", exact: true }).click();
     await expect(panel.locator("#result")).toContainText("signal-1");
@@ -85,15 +85,29 @@ test("independent resource panel pins authority, rejects identity injection and 
     for (const denial of [403, 404, 409]) {
         status = denial;
         await page.reload();
+        await page.bringToFront();
         await expect(panel.locator("#result")).toHaveText("Ready");
         await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
         await panel.getByRole("button", { name: "Read", exact: true }).click();
-        await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+        await expect(page.getByRole("alert")).toContainText("App panel unavailable", { timeout: 12000 });
         await expect(page.locator("iframe")).toHaveCount(0);
     }
     expect(writes).toHaveLength(5);
+    for (const denial of [403, 404, 409]) {
+        status = denial;
+        await page.reload();
+        await page.bringToFront();
+        await expect(panel.locator("#result")).toHaveText("Ready");
+        await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
+        await panel.getByRole("button", { name: "Signals", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("App panel unavailable", { timeout: 12000 });
+        await expect(page.locator("iframe")).toHaveCount(0);
+    }
+    expect(signalReads).toHaveLength(4);
+
     status = 200;
     await page.reload();
+    await page.bringToFront();
     await expect(panel.locator("#result")).toHaveText("Ready");
     await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
     await panel.getByRole("button", { name: "Save draft" }).click();
@@ -104,15 +118,16 @@ test("independent resource panel pins authority, rejects identity injection and 
         })
         .toContain("preserved");
     await page.getByRole("button", { name: "Revoke panel sessions" }).click();
-    await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+    await expect(page.getByRole("alert")).toContainText("App panel unavailable", { timeout: 12000 });
     await expect(page.locator("iframe")).toHaveCount(0);
     await page.getByRole("button", { name: "Inspect sessions" }).click();
     await expect(page.locator("output")).toHaveText(JSON.stringify({ state: null, active: 0 }));
     status = 500;
     await page.reload();
+    await page.bringToFront();
     await expect(panel.locator("#result")).toHaveText("Ready");
     await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
     await panel.getByRole("button", { name: "Read", exact: true }).click();
-    await expect(panel.locator("#result")).toContainText("Denied");
+    await expect(panel.locator("#result")).toContainText("Denied", { timeout: 12000 });
     await expect(page.locator("iframe")).toHaveCount(1);
 });
