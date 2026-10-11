@@ -1,12 +1,13 @@
 """Database authority constraints for the app registry foundation."""
 
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint
 from sqlalchemy.schema import conv
 from .AppConnection import AppConnection
 from .AppGovernancePolicy import AppGovernancePolicy
 from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .BoardAppBinding import BoardAppBinding
+from .ProjectColumn import ProjectColumn
 
 
 AppConnection.__table__.append_constraint(
@@ -54,5 +55,14 @@ AppResourceBinding.__table__.append_constraint(
 AppResourceBinding.__table__.append_constraint(
     CheckConstraint(
         "health IN ('unknown','healthy','degraded','unavailable')", name=conv("ck_app_resource_binding_health")
+    )
+)
+
+ProjectColumn.__table__.append_constraint(
+    ForeignKeyConstraint(
+        ["workflow_stage"],
+        ["workflow_stage_definition.key"],
+        ondelete="RESTRICT",
+        name=conv("fk_project_column_workflow_stage"),
     )
 )

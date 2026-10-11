@@ -985,6 +985,7 @@ def test_generic_builtin_workflow_mapping_preserves_ambiguity_and_requires_opt_i
         )
         db.add(WorkflowStageDefinition(id=202, key="review", name="Review", is_builtin=True))
         db.add(WorkflowStageDefinition(id=203, key="closed", name="Closed", is_builtin=True))
+        db.flush()
         db.add(
             ProjectColumn(
                 id=211,

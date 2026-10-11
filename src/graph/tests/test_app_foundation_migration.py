@@ -8,6 +8,7 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
+from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     AppConnection,
@@ -21,12 +22,13 @@ from langboard_shared.domain.models import (
     Project,
     User,
 )
+from langboard_shared.domain.services.WorkflowStageBootstrap import bootstrap_workflow_stages
 from sqlalchemy import MetaData, create_engine, inspect, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
-def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
+def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
     url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
     if not url:
         pytest.skip("Requires disposable PostgreSQL")
@@ -283,6 +285,18 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             workflow_migration.upgrade()
             assert connection.execute(text("SELECT workflow_stage FROM project_column WHERE id=120")).scalar() is None
+            assert connection.execute(text("SELECT count(*) FROM workflow_stage_definition")).scalar() == 0
+        monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+        assert bootstrap_workflow_stages()["inserted"] == 6
+        assert bootstrap_workflow_stages()["inserted"] == 0
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE workflow_stage_definition SET name='User custom name' WHERE key='active'"))
+        assert bootstrap_workflow_stages()["inserted"] == 0
+        with engine.begin() as connection:
+            assert (
+                connection.execute(text("SELECT name FROM workflow_stage_definition WHERE key='active'")).scalar()
+                == "User custom name"
+            )
             assert connection.execute(text("SELECT count(*) FROM workflow_stage_definition")).scalar() == 6
             translations = connection.execute(
                 text("SELECT translations FROM workflow_stage_definition WHERE key='active'")
