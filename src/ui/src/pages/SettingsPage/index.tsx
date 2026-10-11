@@ -37,6 +37,7 @@ const WorkflowStagesPage = lazy(() => import("./WorkflowStagesPage"));
 const GlobalLabelsPage = lazy(() => import("./GlobalLabelsPage"));
 const ProjectTemplatesPage = lazy(() => import("./ProjectTemplatesPage"));
 const AppGroupsPage = lazy(() => import("./AppGroupsPage"));
+const AppPackagesPage = lazy(() => import("./AppPackagesPage"));
 const AppGovernancePage = lazy(() => import("./AppGovernancePage"));
 
 function SettingsProxy(): React.JSX.Element {
@@ -149,6 +150,12 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     const { hasRoleAction: hasMcpRoleAction } = useRoleActionFilter(mcpRoleActions);
 
     const settingsNavs: Record<string, IActivityRailItem> = {
+        [ROUTES.SETTINGS.APP_STORE]: {
+            icon: "package",
+            label: t("settings.App store"),
+            onClick: () => navigate(ROUTES.SETTINGS.APP_STORE),
+            hidden: !currentUser.is_admin,
+        },
         [ROUTES.SETTINGS.APPS]: {
             icon: "app-window",
             label: t("settings.Apps"),
@@ -286,6 +293,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             paths: [
                 ROUTES.SETTINGS.APPS,
                 ROUTES.SETTINGS.APP_GROUPS,
+                ROUTES.SETTINGS.APP_STORE,
                 ROUTES.SETTINGS.MCP_TOOL_GROUPS,
                 ROUTES.SETTINGS.API_KEYS,
                 ROUTES.SETTINGS.WEBHOOKS,
@@ -299,6 +307,9 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
 
     let pageContent;
     switch (pathname) {
+        case ROUTES.SETTINGS.APP_STORE:
+            pageContent = <AppPackagesPage currentUser={currentUser} />;
+            break;
         case ROUTES.SETTINGS.APP_GROUPS:
             pageContent = <AppGroupsPage key={currentUser.uid} currentUser={currentUser} />;
             break;

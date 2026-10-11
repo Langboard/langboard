@@ -1280,3 +1280,29 @@ not deployment execution or reviewer approval. Actual PostgreSQL CardService
 work-state reads retain the independent provider evidence and leave approval and
 external execution authority unassigned. The standalone work-state suite also
 preserves existing deployment/issue behavior. Deployment remains a separate gate.
+
+## Static package installation
+
+Administrators install official apps directly from stable GitHub release ZIP assets, or upload
+a manual ZIP. Both paths validate the portable declaration, paths, archive limits and static
+assets before central approval. Official downloads additionally require the catalog-owned
+repository, exact release asset name, stable version and GitHub SHA-256 digest. Board grants,
+connections and resource selection remain explicit after central installation.
+
+A package contains `manifest.json` and public static files under `panel/`. The manifest has
+`package_version: 1`, `declaration`, `panel_entry`, and optional `store` metadata. The optional
+`store.icon`, `store.icon_dark`, and up to five `store.screenshots` reference images included
+in the same package. The store and board catalog use the host-selected light/dark theme.
+The host serves package assets at a content-addressed API URL and supplies `panel/host.mjs`
+with its configured UI origin. Panel ESM imports must use relative paths. No server executors,
+credentials or private configuration belong in the ZIP; those remain in separate services.
+
+The standalone Python SDK 0.2.30 provides `python -m langboard_sdk.package` for reproducible
+ZIP creation. Official app repositories own their icons, attribution and build command.
+Installed package provenance is retained independently from the portable declaration.
+Updates use an expected revision; stale updates fail, and changed trust follows the existing
+consent invalidation contract. Disabling an app blocks its current hosted panel assets.
+
+Local parser, authenticated HTTP and store browser tests establish source behavior. Actual
+GitHub release downloads, native board activation, provider traffic and canary UI acceptance
+remain separate delivery checks.
