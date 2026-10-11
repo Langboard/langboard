@@ -13,6 +13,7 @@ from .agent_loop import invoke_agent_loop
 from .chat_model import create_default_chat_model
 from .context import create_runtime_context_state
 from .history import create_langboard_history_context_prompt
+from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
 from .tooling import (
     create_langboard_api_tool_approval_request,
@@ -88,6 +89,7 @@ async def run_default_agent(state: DefaultGraphState) -> DefaultGraphState:
     _set_runtime_context_state(state, tweaks)
     approval_request = _get_approval_request(tweaks, state)
     if approval_request is not None:
+        approval_request = redact_graph_credentials(approval_request)
         state["approval_requests"] = (
             [approval_request] if isinstance(approval_request, dict) else [{"message": str(approval_request)}]
         )
@@ -401,11 +403,21 @@ async def _invoke_agent(
 
     async def approval(tool_name: str, tool_args: dict[str, Any]) -> str | None:
         return await _get_tool_approval_result(
-            tool_name, tool_args, tweaks=tweaks, state=state, api_tool_context=api_tool_context,
+            tool_name,
+            tool_args,
+            tweaks=tweaks,
+            state=state,
+            api_tool_context=api_tool_context,
         )
 
     return await invoke_agent_loop(
-        chat_model, tool_enabled_model, messages, tools, _invoke_chat_model, approval, Env.AI_REQUEST_TIMEOUT,
+        chat_model,
+        tool_enabled_model,
+        messages,
+        tools,
+        _invoke_chat_model,
+        approval,
+        Env.AI_REQUEST_TIMEOUT,
     )
 
 
@@ -440,6 +452,7 @@ async def _get_tool_approval_result(
     if approval_request is None:
         return None
 
+    approval_request = redact_graph_credentials(approval_request)
     state["approval_requests"] = [approval_request]
     state["approval_result"] = interrupt(approval_request)
     approval_result = state["approval_result"]

@@ -109,3 +109,15 @@ This proves the existing handler serializes these same-thread resume requests.
 It does not prove HTTP authentication, actor/project revalidation, generation
 fencing, provider-side idempotency or recovery across an external commit before
 its checkpoint. The broader Durable Execution checklist remains incomplete.
+
+## Approval payload privacy boundary
+
+Approval requests are recursively redacted before entering graph state or an
+interrupt. This covers initial graph approvals and per-tool approvals, while
+preserving titles and permission metadata. A disposable PostgreSQL case checks
+the persisted interrupt path; a second case verifies tool arguments remain
+unchanged for execution while the approval projection is redacted. The suite
+now passes nineteen tests. This does not yet remove credentials from the
+`tweaks` state supplied at graph start; provider/API credential resolution must
+move to server-owned runtime context before the State/Runtime checklist can
+close.

@@ -64,3 +64,73 @@ async def test_status_route_redacts_public_values_but_preserves_internal_resume_
     recovered = RunApi._get_completed_resume_response("fixture", request, status)
     assert recovered is not None
     assert status["values"]["approval_result"]["app_api_token"] == secret
+
+
+@pytest.mark.asyncio
+async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypatch):
+    import os
+    from uuid import uuid4
+    from langboard_graph.core.graph import checkpoint
+    from langboard_graph.core.graph.default.graph import run_default_graph
+
+    raw_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not raw_url:
+        pytest.skip("Requires disposable PostgreSQL")
+    url = raw_url.replace("postgresql+psycopg://", "postgresql://")
+    await checkpoint.close_graph_checkpointer()
+    monkeypatch.setattr(type(checkpoint.Env), "MAIN_DATABASE_URL", property(lambda self: url))
+    secret = "fixture-secret-not-real"
+    thread = "private-interrupt-" + uuid4().hex
+    tweaks = {
+        "Graph": {
+            "approval_request": {
+                "message": "Approve action",
+                "request_payload": {"headers": {"Authorization": secret}, "title": "Keep title"},
+            }
+        }
+    }
+    try:
+        result = await run_default_graph("run", tweaks, thread, thread)
+        assert result.interrupts
+        assert secret not in str(result.model_dump())
+        async with checkpoint.open_graph_checkpointer() as saver:
+            snapshot = await saver.aget_tuple({"configurable": {"thread_id": thread}})
+            assert snapshot is not None
+            # Only approval metadata is covered; raw tweaks remain a separate gap.
+            pending = snapshot.pending_writes
+            assert pending
+            assert secret not in str([value for _, channel, value in pending if channel == "__interrupt__"])
+            await saver.adelete_thread(thread)
+        assert tweaks["Graph"]["approval_request"]["request_payload"]["headers"]["Authorization"] == secret
+    finally:
+        async with checkpoint.open_graph_checkpointer() as saver:
+            await saver.adelete_thread(thread)
+        await checkpoint.close_graph_checkpointer()
+
+
+@pytest.mark.asyncio
+async def test_tool_approval_redacts_interrupt_without_changing_execution_arguments(monkeypatch):
+    from langboard_graph.core.graph.default import nodes
+
+    secret = "fixture-secret-not-real"
+    args = {"client_secret": secret, "title": "Keep title"}
+    payload = {"message": "Approve action", "request_payload": {"tool_args": args}}
+    observed = []
+
+    async def resolve(*unused):
+        return None
+
+    def approve(value):
+        observed.append(value)
+        return {"approved": False, "rejected": True}
+
+    monkeypatch.setattr(nodes, "_resolve_tool_uid_args", resolve)
+    monkeypatch.setattr(nodes, "create_langboard_api_tool_approval_request", lambda *unused, **kwargs: payload)
+    monkeypatch.setattr(nodes, "interrupt", approve)
+    state = {}
+    await nodes._get_tool_approval_result("fixture", args, tweaks={}, state=state, api_tool_context={})
+    assert secret not in str(observed)
+    assert secret not in str(state["approval_requests"])
+    assert observed[0]["request_payload"]["tool_args"]["title"] == "Keep title"
+    assert args["client_secret"] == secret
+    assert payload["request_payload"]["tool_args"]["client_secret"] == secret
