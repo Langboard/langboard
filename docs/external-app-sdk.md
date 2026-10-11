@@ -1090,6 +1090,27 @@ Detailed agreed contract and consumer acceptance: [App human interactions v1](ap
 
 ## Panel signal source consent (SDK 0.2.20)
 
+### External signal adapter implementation status
+
+The panel pager package 0.2.2 accepts bounded provider keys rather than a built-in
+three-provider allowlist. This is client transport compatibility only: it neither
+installs a signal adapter nor grants native data authority.
+
+External-provider ingestion is not implemented yet. `AppManifest.APP_MANIFESTS`
+still supplies installed policies to `AppSignalProjection` for supported event
+types, resource eligibility, evidence outcomes and time semantics. `SignalInbox`
+also uses that registry for provider support and result metadata. Approved
+external AppDefinitions currently do not install such policies. A fourth provider
+therefore still requires host work; the pager change does not establish the
+no-core-change acceptance gate.
+
+The remaining generic contract must keep normalization in the external app and
+validate an approved finite event/resource/outcome policy, a versioned signed
+envelope, current connection/resource/board authority and replay identity at the
+host. The independent example must exercise two resources, two boards, reversed
+and duplicate deliveries, explicit card creation and revocation before this
+feature is considered complete. Signal, inbox and workflow card remain separate.
+
 External panel declarations use `signal_sources` to name 1–16 unique adapter keys.
 The field requires `signals.read`; it does not install an adapter, create provider
 credentials or grant access to another account or resource. Approval reviews the
