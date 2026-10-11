@@ -147,3 +147,21 @@ work. Attachment detail retains its separate transcription and embedding labels.
 Completed or failed embeddings do not keep the card's active progress indicator
 visible. This uses existing metadata subscriptions and translation keys without
 adding polling, scanning attachments or triggering processing.
+
+### Board-scoped transcript results in the command palette
+
+The command palette queries the existing authorized board card-context API after
+300 ms of idle typing, only while open and with 2–1000 query characters. It
+displays matching cards, their workflow column, and the bounded attachment
+filename/snippet projection. A server result replaces the same board's local
+card entry, and selecting it opens the original card. Results from the previous
+query are hidden immediately; superseded requests carry a cancellation signal.
+Closing the palette disables reads. Search does not enqueue processing or call
+an embedding provider, LLM or LangGraph. The existing PostgreSQL search includes
+transcribed text and extracted multilingual keywords without embeddings.
+
+The physical browser fixture exercises a transcript-only match, source display,
+an out-of-order response and navigation, alongside the existing mobile, focus
+and four-language command checks. It is not deployed acceptance. Optional
+vector result composition, precise source-page navigation and live multilingual
+retrieval quality remain separate requirements.
