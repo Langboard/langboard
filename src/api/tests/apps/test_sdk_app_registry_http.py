@@ -135,6 +135,12 @@ def test_registry_migration_preserves_approved_definitions():
     with engine.begin() as connection:
         module.op = Operations(MigrationContext.configure(connection))
         module.upgrade()
+        assert {c["name"] for c in inspect(connection).get_columns("app_definition")} == set(AppDefinition.__table__.columns.keys()) - {"package"}
+        package_spec = importlib.util.spec_from_file_location("package_migration", path.parent / "20261011210000-a75437bc41d2.py")
+        package_module = importlib.util.module_from_spec(package_spec)
+        package_spec.loader.exec_module(package_module)
+        package_module.op = Operations(MigrationContext.configure(connection))
+        package_module.upgrade()
         assert {c["name"] for c in inspect(connection).get_columns("app_definition")} == set(AppDefinition.__table__.columns.keys())
         with Session(connection) as db:
             from langboard_shared.core.types import SafeDateTime

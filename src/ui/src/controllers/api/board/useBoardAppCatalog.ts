@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 
 export interface CatalogApp {
+    installation?: import("@/components/AppPackageIcon").PackageInstallation | null;
     key: string;
     name: string;
     description?: string;

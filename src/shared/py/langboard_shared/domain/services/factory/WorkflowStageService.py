@@ -100,6 +100,7 @@ class WorkflowStageService(BaseDomainService):
                     "inbound_connection_management": key in definitions and key not in APP_MANIFESTS,
                     "capabilities": list(manifest.capabilities) if available else [],
                     "app_revision": definitions[key].edit_revision() if key in definitions else None,
+                    "installation": definitions[key].registry_response()["installation"] if key in definitions else None,
                     "signal_sources": list(definitions[key].declaration.get("signal_sources", [])) if key in definitions else [],
                     "card_lifecycle": definitions[key].declaration.get("card_lifecycle", {}) if key in definitions else {},
                     "resources": summaries.get(binding.id if binding else None, {
