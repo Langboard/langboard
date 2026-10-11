@@ -208,6 +208,41 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     other_rows = list_board_signals(state[0], actor, other_board.get_uid())["items"]
     assert {row["resource_uid"] for row in other_rows} == {other_resource.get_uid()}
     assert other_resource.get_uid() not in {row["resource_uid"] for row in inbox(scoped)["items"]}
+    if DbEngine.get_main_engine().dialect.name == "postgresql":
+        from langboard.routes.board.SignalInboxApi import create_inbox_card
+        from langboard_shared.domain.models import Card, CardAppOwnership, CardSignalCreation
+        from test_signal_card_creation import prepare_native_creation
+        _, _, dispatches = prepare_native_creation(state[0], state[1], monkeypatch)
+        CardAppOwnership.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+        # Register the native router after importing the card-creation endpoint.
+        creation_app = FastAPI()
+        creation_app.include_router(AppRouter.api)
+        creation_app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+        for route in creation_app.routes:
+            if getattr(route, "endpoint", None) is create_inbox_card:
+                for dependency in route.dependant.dependencies:
+                    if dependency.name == "service":
+                        creation_app.dependency_overrides[dependency.call] = lambda: state[0]
+        with TestClient(creation_app, base_url="https://testserver") as creation_client:
+            creation_client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            url = f"/board/{state[1][2].get_uid()}/signals/inbox/card"
+            body = {"connection_uid": state[2].get_uid(), "resource_uid": second_resource.get_uid(),
+                    "signal_uid": second.json()["signal_uid"], "project_column_uid": state[1][5][0].get_uid(),
+                    "title": "Explicit external observation"}
+            created = creation_client.post(url, json=body, headers=user_headers)
+            assert created.status_code == 201, created.text
+            repeated = creation_client.post(url, json=body, headers=user_headers)
+            assert repeated.status_code == 200 and repeated.json() == {**created.json(), "created": False}
+            with DbSession.atomic() as db:
+                created_card = db.exec(SqlBuilder.select.table(Card).where(
+                    Card.id == SnowflakeID.from_short_code(created.json()["card_uid"]))).first()
+                assert created_card.archived_at is None
+                assert created_card.project_column_id == state[1][5][0].id
+                assert db.exec(SqlBuilder.select.table(CardSignalCreation)).all()
+                assert db.exec(SqlBuilder.select.table(CardAppOwnership).where(
+                    CardAppOwnership.card_id == created_card.id)).first() is None
+            assert dispatches == [created.json()["card_uid"]]
+            assert card_signal_projections([created_card])[created_card.id][0]["state"] == "failed"
     from langboard.apps.CardSignal import bind_check
     linked = bind_check(state[0], actor, state[1][2].get_uid(), card.get_uid(),
         state[2].get_uid(), state[4].get_uid(), first["signal_uid"], card.last_change_seq, link.revision)
