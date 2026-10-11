@@ -8,6 +8,7 @@ from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .BoardAppBinding import BoardAppBinding
 from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
+from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
 from .ProjectColumn import ProjectColumn
 
 
@@ -71,3 +72,9 @@ ProjectColumn.__table__.append_constraint(
 
 for model in (CardAppOwnership, CardAppOwnershipAudit):
     model.__table__.append_constraint(CheckConstraint("revision >= 1", name=conv(f"ck_{model.__tablename__}_revision")))
+
+
+for model in (CardAppResourceSelection, CardAppResourceSelectionAudit):
+    model.__table__.append_constraint(
+        CheckConstraint("revision >= 1 AND ownership_revision >= 0", name=conv(f"ck_{model.__tablename__}_revision"))
+    )

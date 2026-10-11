@@ -38,7 +38,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["a3d8e62c510f"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["b4e9f73d621a"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -346,6 +346,43 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
                 == "Custom existing column"
             )
             ownership_migration.upgrade()
+        spec = importlib.util.spec_from_file_location(
+            "card_resources_migration", migration_root / "versions/20261012120000-b4e9f73d621a.py"
+        )
+        card_resources_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(card_resources_migration)
+        assert card_resources_migration.down_revision == ownership_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            card_resources_migration.upgrade()
+            connection.execute(text("INSERT INTO card (id) VALUES (150)"))
+            connection.execute(
+                text(
+                    "INSERT INTO card_app_resource_selection "
+                    "(id,card_id,app_key,connection_id,resource_uids,identity_hash,ownership_revision,revision) "
+                    "VALUES (151,150,'example',90,'[]','',1,1)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO card_app_resource_selection_audit "
+                    "(id,card_id,actor_id,app_key,connection_id,resource_uids,identity_hash,ownership_revision,revision) "
+                    "VALUES (152,150,1,'example',90,'[]','',1,1)"
+                )
+            )
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO card_app_resource_selection "
+                    "(id,card_id,app_key,connection_id,resource_uids,identity_hash,ownership_revision,revision) "
+                    "VALUES (153,150,'example',90,'[]','',1,1)"
+                )
+            )
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            connection.execute(text("DELETE FROM card WHERE id=150"))
+            assert connection.execute(text("SELECT count(*) FROM card_app_resource_selection")).scalar() == 0
+            assert connection.execute(text("SELECT count(*) FROM card_app_resource_selection_audit")).scalar() == 1
+            card_resources_migration.downgrade()
+            card_resources_migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:

@@ -457,3 +457,29 @@ assignment nor its receipt grants execution, selects resources or resumes work.
 The current core card fields and native checklist/comment/relationship services
 are not replaced by app ownership. UI controls, app creation lineage, execution
 fences and deployed app acceptance are separate remaining work.
+
+## Card-scoped resource snapshots
+
+Human board configuration selects at most twenty verified resources for one
+owning app and connection. It reuses board authority, connection privacy and
+current policy checks. Assignment requires explicit current app, binding,
+connection identity and card ownership revisions. The resource rows must belong
+to that exact board binding and connection, remain selected and granted, match
+the current identity hash, and use a declared resource type. The client cannot
+write access state or grant its own provider verification.
+
+The selection records connection identity and card ownership revision. Releasing
+and reassigning the same app does not restore an old snapshot; reconnecting an
+account also invalidates it. snapshot_current reports only those snapshot fences,
+not an execution permit. Execution must still recheck current resource access,
+policy, consent, lifecycle, stage, dependencies and generation. Clearing remains
+available after definition disablement or connection disconnection, under current
+human board authority and connection privacy. Replacing a prior connection also
+requires access to it, preventing takeover of another person's private selection.
+
+The Alembic-generated schema enforces one selection per card/app and positive
+revisions; independent audit rows survive deletion of the card or connection.
+PostgreSQL regressions exercise drift rejection, cleanup, native HTTP revision
+and input constraints, app-token rejection and migration upgrade/downgrade. A
+granted resource in these tests is an explicit database fixture; live provider
+verification, UI and execution/runtime integration remain unproven.

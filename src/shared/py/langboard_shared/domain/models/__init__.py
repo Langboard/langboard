@@ -18,6 +18,7 @@ from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
 from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
+from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
 from .CardAssignedProjectLabel import CardAssignedProjectLabel
 from .CardAssignedUser import CardAssignedUser
 from .CardAttachment import CardAttachment
@@ -119,6 +120,8 @@ __all__ = [
     "Card",
     "CardAppOwnership",
     "CardAppOwnershipAudit",
+    "CardAppResourceSelection",
+    "CardAppResourceSelectionAudit",
     "CardAssignedProjectLabel",
     "CardAssignedUser",
     "CardAttachment",
