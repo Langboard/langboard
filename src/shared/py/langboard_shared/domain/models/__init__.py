@@ -13,6 +13,7 @@ from .AppExecutionLease import AppExecutionLease
 from .AppExecutionStart import AppExecutionStart
 from .AppExecutionRequest import AppExecutionRequest
 from .AppExecutionReview import AppExecutionReview
+from .AppMcpConsent import AppMcpConsent
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
@@ -120,6 +121,7 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 __all__ = [
     "AppExecutionReview",
+    "AppMcpConsent",
     "CardAppResourceSelection",
     "CardAppResourceSelectionAudit",
     "CardAppOwnership",
