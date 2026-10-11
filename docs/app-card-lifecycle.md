@@ -14,7 +14,9 @@ type. SDK declaration schema 2 requires `card_lifecycle` for `cards.create`;
 schema 1 remains readable during explicit migration. An undeclared type cannot
 silently inherit an external action. The host must reject creation of undeclared
 types and require migration before enabling card creation for old definitions.
-Host enforcement and migration are pending; SDK validation is implemented.
+Host approval/update now requires lifecycle policies for card-producing apps,
+including schema 1 submissions; old approved definitions remain readable.
+Creation-time type enforcement and migration remain pending.
 
 Archive policies use `retain` or `external`. External policies name a stable
 app-owned action, have `default_enabled: false`, and provide explanatory text.
