@@ -107,6 +107,21 @@ def creation_scope(request, monkeypatch, scoped):
             )
             db.insert(signal)
             signal_uid = signal.get_uid()
+    engine, migration, events = prepare_native_creation(service, board, monkeypatch)
+    return (
+        service,
+        board,
+        connection.get_uid(),
+        resource,
+        signal_uid,
+        engine,
+        migration,
+        events,
+    )
+
+
+def prepare_native_creation(service, board, monkeypatch):
+    """Prepare native card tables and dispatch isolation for actual PostgreSQL flows."""
     engine = DbEngine.get_main_engine()
     ensure_models_imported()
     needed = {
@@ -152,16 +167,7 @@ def creation_scope(request, monkeypatch, scoped):
     from langboard_shared.domain.services.factory.CardService import CardService
 
     monkeypatch.setattr(CardService, "dispatch_created", lambda self, *args, **kwargs: events.append(args[3].get_uid()))
-    return (
-        service,
-        board,
-        connection.get_uid(),
-        resource,
-        signal_uid,
-        engine,
-        migration,
-        events,
-    )
+    return engine, migration, events
 
 
 def create(state, title="  Explicit native card  ", actor=None, column_uid=None, channel=CollaborationChannel.Api):
