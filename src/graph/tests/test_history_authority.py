@@ -104,6 +104,9 @@ def history_db(monkeypatch, request):
         "deactivated",
         "deleted",
         "owner_changed",
+        "zero_subject",
+        "oversized_subject",
+        "nonnumeric_subject",
     ],
 )
 def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
@@ -115,6 +118,12 @@ def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
         "internal": "bot",
         "exp": int((SafeDateTime.now() + timedelta(minutes=5)).timestamp()),
     }
+    if case in {"zero_subject", "oversized_subject", "nonnumeric_subject"}:
+        payload["sub"] = {
+            "zero_subject": "0",
+            "oversized_subject": str(SnowflakeID.MAX_VALUE + 1),
+            "nonnumeric_subject": "not-an-id",
+        }[case]
     if case == "expired":
         payload["exp"] = int((SafeDateTime.now() - timedelta(minutes=1)).timestamp())
     if case == "wrong_internal":

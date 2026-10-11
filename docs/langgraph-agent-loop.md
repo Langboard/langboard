@@ -219,3 +219,15 @@ newest event followed by a visible event and checks shared/internal/private,
 wrong-board, nonmember, revoked, missing-token and bot-runner paths across
 SQLite and PostgreSQL. Ninety-two tests pass in 42.11 seconds. Bots remain
 fail-closed until a verified execution identity is supplied.
+
+## Shared history actor validation
+
+Chat, card-comment and project-activity collectors now share signed actor
+validation. The helper verifies the user runner, token signature and expiry,
+internal token kind, and the positive Snowflake subject bound before any
+collector queries identity or content. Database membership and card visibility
+checks remain in their existing collectors. Zero, oversized and nonnumeric
+subjects are exercised on SQLite and PostgreSQL. The combined suite passes
+ninety-eight tests in 46.27 seconds. This removes duplicate token parsing; it
+does not complete bot execution identity or the broader runtime credential
+migration.
