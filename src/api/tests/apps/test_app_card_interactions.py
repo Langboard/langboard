@@ -656,7 +656,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             from langboard_shared.domain.services.AppInteractionTransitions import apply_interaction_transition
             from sqlalchemy import text
 
-            ProjectExecutionBinding.__table__.create(DbEngine.get_main_engine())
+            ProjectExecutionBinding.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
             with DbEngine.get_main_engine().begin() as sql:
                 sql.execute(text("CREATE SEQUENCE content_change_seq START 100"))
             moves = []

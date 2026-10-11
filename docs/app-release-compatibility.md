@@ -20,6 +20,16 @@ The historical migration-head and full-suite entries below must not be read as
 the installed canary revision or a rerun of every current contract. Exact live
 database, image and authenticated provider/browser evidence remain release gates.
 
+### App model review boundary
+
+Native app models declare compound uniqueness through existing `unique_groups`
+field metadata. `domain/models/AppSchema.py` owns the named database checks and
+query indexes and attaches them after model registration. The existing Alembic
+migrations retain their original names and definitions; this refactor does not
+change the deployed schema. Execution request/outbox, interaction request,
+resource identity and signal occurrence constraints retain their original column
+order. Package version changes are unnecessary for this internal model cleanup.
+
 ## Reviewed host and SDK combination
 
 | Component | Reviewed identity | Evidence and limitation |
