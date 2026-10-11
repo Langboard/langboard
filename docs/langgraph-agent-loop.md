@@ -231,3 +231,17 @@ subjects are exercised on SQLite and PostgreSQL. The combined suite passes
 ninety-eight tests in 46.27 seconds. This removes duplicate token parsing; it
 does not complete bot execution identity or the broader runtime credential
 migration.
+
+## Current read grants for board history
+
+Card-comment and project-activity history require a current primary project
+role granting `read` or `*`, in addition to existing active-account, membership
+and card-visibility checks. Project owners and current administrators retain
+the existing role exemption; neither bypasses the visibility collector.
+Membership alone must not supply read authority. Fixtures cover explicit read,
+all actions, a write-only member and revocation of read after a successful
+request using the same signed token. SQLite and PostgreSQL exercise both
+collectors against real role rows. The full 114-test suite passes in 44.04
+seconds. Chat history remains scoped to the signed user's own chat session;
+this change does not establish bot execution identity, runtime credential
+isolation, or end-to-end graph HTTP authorization.
