@@ -181,3 +181,34 @@ The Graph locked environment passes 33 tests in 23.45 seconds; the separately
 frozen API environment passes the same 33 tests in 25.82 seconds (FastMCP
 4.0.0b3 remains pinned). This does not prove
 production SSO, native inbound onboarding, board resource grants or execution.
+
+
+## Generic registry approval and durable consent withdrawal
+
+AppRegistry now approves declarations and strictly newer version updates using
+the independent SDK validator and consent update contract. It has no provider
+name reservation or built-in provider fallback. Instance-admin authority is
+rechecked from primary rows. The native registry HTTP routes expose bounded
+keyset pages (maximum 50), approval and disable operations with revision checks.
+Registry listing uses two bounded SELECTs and does not lock the administrator
+row for reading; mutation paths retain authority locks.
+
+Updates retain unchanged capabilities, durably withdraw changed MCP tool scopes
+and do not restore old consent when a subsequent version restores an earlier
+tool list. Trust changes revoke connections and remove board grants; disable
+clears grants and retained MCP consent. Reenabling a declaration does not grant
+owner consent or board access. Cards-producing declarations require a lifecycle
+policy even when using schema version 1. Archive synchronization is withdrawn
+when its lifecycle/event prerequisites change. Existing explicitly enabled stage
+transitions are preserved across same-trust updates with retained grants.
+
+The owner-consent transaction now locks definition before connection and checks
+that ownership did not change between its authorization and lock. A PostgreSQL
+concurrency regression executes trust update and old owner consent on independent
+connections; the stale consent is rejected without a deadlock or restored grant.
+Local frozen-API PostgreSQL suite passes 38 tests in 25.14 seconds, including
+native authenticated registry routes, current admin revocation, paging, lifecycle
+validation and a second app name using the same API. This is not full independent
+app execution acceptance. Inbound onboarding, 1:N resource grants, common stage
+mapping/events, execution fences, outbox/permanent receipts, HITL and deployed
+Phoenix/canary acceptance remain pending. No merge or deployment.

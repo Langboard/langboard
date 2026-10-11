@@ -56,14 +56,22 @@ def revoke_mcp_consents(db, app_key, scopes=MCP_SCOPES):
 
 
 def _context(db, actor, connection_id):
-    connection = _current(db, AppConnection, connection_id)
+    connection = _current(db, AppConnection, connection_id, for_update=False)
     if connection is None:
         raise AppGovernanceDenied()
     _manage(db, actor, connection)  # An instance admin cannot approve another person's private connection.
+    ownership = (connection.owner_id, connection.ownership, connection.organization_id)
     definition = db.exec(
         SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key).with_for_update()
     ).first()
     if definition is None:
+        raise AppGovernanceDenied()
+    connection = _current(db, AppConnection, connection_id)
+    if (
+        connection is None
+        or connection.app_key != definition.key
+        or (connection.owner_id, connection.ownership, connection.organization_id) != ownership
+    ):
         raise AppGovernanceDenied()
     row = db.exec(
         SqlBuilder.select.table(AppMcpConsent).where(AppMcpConsent.connection_id == connection.id).with_for_update()
