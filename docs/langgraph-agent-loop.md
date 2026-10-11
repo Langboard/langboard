@@ -56,3 +56,20 @@ rebuilding the parent graph instance. This establishes checkpointed resume
 after a completed step. It does not guarantee exactly-once external writes
 if a process dies between external commit and checkpoint persistence; API
 idempotency receipts and worker restart/concurrent resume remain required.
+
+## Structured credential output boundary
+
+Model runtime-context and event prompts now redact nested credential fields.
+The public graph status route applies the same redaction, while its internal
+status function keeps the original value for existing resume receipt matching.
+The helper reuses audit contract sensitive-key names and adds graph/OAuth/API
+header names, traversing dictionaries, lists and tuples without mutating the
+input. Three tests cover real prompt functions and the status route handler,
+including preserved approval/title fields and internal completed-resume matching.
+
+This is an output boundary, not a checkpoint secrecy guarantee. `tweaks` still
+contains provider/API credentials in persisted graph state, and credentials in
+unstructured strings or provider errors are not handled by key redaction. The
+State/Runtime Context roadmap must still move credentials to non-persisted
+server runtime inputs and resolve fresh credentials on resume. It must also
+verify current actor/project authority rather than trusting saved context.
