@@ -18,6 +18,52 @@ def inbox(scoped, after=None):
     return list_board_signals(state[0], state[1][1], state[1][2].get_uid(), after)
 
 
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped):
+    from langboard_shared.domain.models import AppDefinition, AppSignal
+    from langboard_shared.domain.services.AppRegistry import save_definition
+    from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
+
+    state, card, link, _ = scoped
+    actor = state[1][1]
+    policy = {"version": 1, "event_types": ["issue.observed"], "resource_types": ["issue"],
+              "outcome_states": {"open": "failed", "closed": "resolved"},
+              "commit_mode": "empty", "time_basis": "observation"}
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+    save_definition(actor, {"schema_version": 2, "key": "example-monitor", "version": "1.0.0",
+        "name": "Example Monitor", "description": "Independent issue observations.",
+        "capabilities": ["signals.read", "signals.publish"], "resource_types": ["issue"], "signal_policy": policy})
+    with DbSession.atomic() as db:
+        state[2].app_key = state[3].app_key = "example-monitor"
+        state[3].state = "enabled"
+        state[3].granted_capabilities = ["signals.read"]
+        state[4].resource_type = "issue"
+        link.commit_sha = ""
+        link.is_enabled = False
+        for row in (state[2], state[3], state[4], link):
+            db.update(row)
+        signal = AppSignal(resource_id=state[4].id, provider="example-monitor", event_id="fixture-external-1",
+            event_type="issue.observed", external_id="55", outcome="open", commit_sha="",
+            occurred_at="2026-10-11T00:00:00Z", payload_digest="a" * 64)
+        db.insert(signal)
+    result = inbox(scoped)
+    assert [row["provider"] for row in result["items"]] == ["example-monitor"]
+    assert result["items"][0]["time_basis"] == "observation"
+    with DbSession.atomic() as db:
+        link.is_enabled = True
+        db.update(link)
+    assert inbox(scoped)["items"] == []
+    assert card_signal_projections([card])[card.id][0]["state"] == "failed"
+    with DbSession.atomic() as db:
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
+        definition.is_enabled = False
+        db.update(definition)
+    assert inbox(scoped)["items"] == []
+    assert card_signal_projections([card]) == {}
+
+
 def test_inbox_hides_visible_links_but_not_private_link_existence(scoped):
     state, card, binding, _ = scoped
     send(state)

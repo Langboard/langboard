@@ -15,7 +15,7 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.AppGovernance import connection_discovery_scope
-from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
+from langboard_shared.domain.services.AppRegistry import approved_manifests
 from langboard_shared.domain.services.AppSignalProjection import (
     authorized_signal_rows,
     provider_resource_condition,
@@ -39,13 +39,14 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
         raise GitHubManifestUnavailable()
     if after is not None and not re.fullmatch(r"[A-Za-z0-9]{1,11}", after):
         raise ValueError("Invalid inbox cursor")
-    if provider is not None and provider not in APP_MANIFESTS:
+    manifests = approved_manifests()
+    if provider is not None and (provider not in manifests or manifests[provider].signal_policy is None):
         raise ValueError("Unsupported signal provider")
     if type(page_size) is not int or not 1 <= page_size <= 25:
         raise ValueError("Invalid inbox page size")
     project, context = resolved
-    supported_occurrence = supported_signal_condition()
-    eligibility = provider_resource_condition()
+    supported_occurrence = supported_signal_condition(manifests)
+    eligibility = provider_resource_condition(manifests)
     # GitHub checks are per commit; Dokploy deployments have their own external identity.
     identity = (AppSignal.provider, AppSignal.resource_id, AppSignal.external_id, AppSignal.commit_sha)
     latest = (
@@ -146,8 +147,8 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
                     "occurred_at": signal.occurred_at,
                     "outcome": minimum if minimum == maximum else None,
                     "conflict": minimum != maximum,
-                    "can_bind_card": APP_MANIFESTS[signal.provider].signal_policy is not None,
-                    "time_basis": APP_MANIFESTS[signal.provider].signal_policy.time_basis,
+                    "can_bind_card": manifests[signal.provider].signal_policy is not None,
+                    "time_basis": manifests[signal.provider].signal_policy.time_basis,
                 }
                 for signal, resource, connection, minimum, maximum in rows[:page_size]
                 if resource.id in allowed

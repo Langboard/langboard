@@ -229,7 +229,10 @@ def test_batch_has_constant_query_count(scoped):
     event.listen(state[7], "before_cursor_execute", record)
     try:
         assert len(card_signal_projections(cards)) == 31
-        assert len(statements) == 3
+        assert len(statements) == 4  # One registry policy read for the entire card batch.
+        statements.clear()
+        assert len(card_signal_projections(cards[:1])) == 1
+        assert len(statements) == 4
     finally:
         event.remove(state[7], "before_cursor_execute", record)
 

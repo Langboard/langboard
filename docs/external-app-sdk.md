@@ -1096,13 +1096,15 @@ The panel pager package 0.2.2 accepts bounded provider keys rather than a built-
 three-provider allowlist. This is client transport compatibility only: it neither
 installs a signal adapter nor grants native data authority.
 
-External-provider ingestion is not implemented yet. `AppManifest.APP_MANIFESTS`
-still supplies installed policies to `AppSignalProjection` for supported event
-types, resource eligibility, evidence outcomes and time semantics. `SignalInbox`
-also uses that registry for provider support and result metadata. Approved
-external AppDefinitions currently do not install such policies. A fourth provider
-therefore still requires host work; the pager change does not establish the
-no-core-change acceptance gate.
+External-provider ingestion is not implemented yet. Built-in compatibility
+policies remain in `AppManifest.APP_MANIFESTS`. Current approved external
+AppDefinitions now contribute their validated policies through `approved_manifests`
+to `AppSignalProjection` and `SignalInbox`: event eligibility, resource types,
+outcome evidence and time semantics no longer require a provider-name branch.
+Each card batch reads the policy registry once (four total queries for one or
+31 cards). Disabling the definition suppresses both inbox and card evidence.
+A fourth provider still requires generic host ingestion; this query support does
+not establish the complete no-core-change acceptance gate.
 
 Python SDK 0.2.21 adds a validated optional `signal_policy` declaration with six
 required fields: schema `version: 1`, finite unique `event_types`, a subset of
@@ -1110,9 +1112,9 @@ the app's `resource_types`, finite `outcome_states`, `commit_mode` and `time_bas
 Outcomes map to evidence states, never reviewer approval. `signals.publish` is a
 separate declaration capability and requires this policy. A policy change removes
 existing signal read/publication consent while retaining unrelated grants. This
-is an approval contract only; no generic ingestion endpoint or app-side signal
-publication method has been enabled. Host policy projection and signed-envelope
-ingestion still require implementation. Existing HITL wire bodies are unchanged.
+is a declaration and read-projection contract; no generic ingestion endpoint or
+app-side signal publication method has been enabled. Signed-envelope ingestion
+still requires implementation. Existing HITL wire bodies are unchanged.
 
 The remaining generic contract must keep normalization in the external app and
 validate an approved finite event/resource/outcome policy, a versioned signed
