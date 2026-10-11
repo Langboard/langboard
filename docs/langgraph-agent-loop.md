@@ -90,3 +90,22 @@ It does not cover the external-commit/checkpoint crash window, concurrent resume
 event generation fencing or external API idempotency. These acceptance items
 remain incomplete. The test worker uses fixed generated identifiers and
 controlled SQL writes; it does not invoke a production provider or service.
+
+## Concurrent resume proof
+
+Two additional PostgreSQL cases invoke the real `resume_graph` route handler,
+thread advisory lock and AsyncPostgresSaver. The graph provider helpers are
+replaced with a controlled StateGraph that interrupts before a SQL effect;
+this isolates resume concurrency without a production provider or auth flow.
+The first approved request remains inside the lock until `pg_stat_activity`
+confirms the second request is waiting on the PostgreSQL advisory lock.
+After release, identical approval returns the completed response, while a
+conflicting decision returns HTTP 409. Both cases preserve the first decision
+and leave exactly one effect row. The lock/checkpointer pools, thread and table
+are removed after each case. The full agent-loop suite passed fourteen tests
+in 6.75 seconds against disposable PostgreSQL.
+
+This proves the existing handler serializes these same-thread resume requests.
+It does not prove HTTP authentication, actor/project revalidation, generation
+fencing, provider-side idempotency or recovery across an external commit before
+its checkpoint. The broader Durable Execution checklist remains incomplete.
