@@ -24,14 +24,14 @@ for (const width of [1440, 390]) {
             });
         });
         await page.goto("/src/pages/AccountPage/secret-input.fixture.html");
-        const input = page.locator('input[type="password"]');
+        const input = page.locator("input[type=password]");
         await expect(input).toBeVisible();
         await expect(page.getByText("Replace existing secret value", { exact: false })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: `test-results/secret-input-${width}.png` });
         await page.getByRole("combobox", { name: "Reason", exact: true }).selectOption("security_response");
         await input.fill("fixture-sensitive");
-        await page.locator('button[type="submit"]').click();
+        await page.locator("button[type=submit]").click();
         await expect(input).toHaveCount(0);
         await expect(page.getByRole("status")).toBeVisible();
         expect(posts).toBe(1);
@@ -39,7 +39,7 @@ for (const width of [1440, 390]) {
         expect(await page.locator("body").textContent()).not.toContain("fixture-sensitive");
         await page.reload();
         await input.fill("unsaved-fixture");
-        await page.locator('button[type="button"]').click();
+        await page.locator("button[type=button]").click();
         await expect(input).toHaveCount(0);
         await expect(page.getByRole("status")).toBeVisible();
         expect(cancelled).toBe(true);
@@ -56,7 +56,7 @@ for (const status of [200, 422, 503]) {
             posts++;
             expect(route.request().headers()["content-encoding"]).toBeUndefined();
             expect(route.request().postDataJSON().value.length).toBe(4096);
-            await route.fulfill({ status, json: { state: "completed" } });
+            await route.fulfill({ status, json: { state: "completed", secret_ref: "secret://ref/fixture" } });
         });
         await page.route("**/auth/refresh", async (route) => {
             refreshes++;
@@ -78,5 +78,32 @@ for (const status of [200, 422, 503]) {
         expect(result.retained).toBe(false);
         if (status === 200) expect(result.status).toBe(200);
         else expect(result.message).toBe("Error: Secret input failed");
+    });
+}
+
+for (const receipt of [
+    {},
+    { state: "completed" },
+    { state: "pending", secret_ref: "secret://ref/fixture" },
+    { state: "completed", secret_ref: "https://invalid.example" },
+]) {
+    test(`invalid secure input receipt fails without replay: ${JSON.stringify(receipt)}`, async ({ page }) => {
+        let posts = 0;
+        await page.route("**/secret-input/fixture-input", async (route) => {
+            if (route.request().method() === "POST") {
+                posts++;
+                await route.fulfill({ json: receipt });
+            } else {
+                await route.fulfill({ json: { name: "provider/key", scope: "personal", operation: "create", reason_codes: ["user_input"] } });
+            }
+        });
+        await page.goto("/src/pages/AccountPage/secret-input.fixture.html");
+        await page.locator("input[type=password]").fill("fixture-sensitive");
+        await page.locator("button[type=submit]").click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByRole("link", { name: "Secret history" })).toHaveCount(0);
+        await expect(page.locator("input[type=password]")).toHaveCount(0);
+        expect(posts).toBe(1);
+        expect(await page.locator("body").textContent()).not.toContain("fixture-sensitive");
     });
 }

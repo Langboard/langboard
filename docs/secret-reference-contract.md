@@ -154,3 +154,13 @@ obligation; KMS cannot promise physical deletion of historical ciphertext.
 The caller must arrange cleanup retry; no background migration or automatic
 provider change is introduced. New audit facts prevent a destructive schema
 downgrade. Actual production provider migration has not been performed.
+
+### Browser input completion receipt
+
+The one-shot browser transport accepts success only when the response contains
+`state: completed` and a canonical `secret://ref/<native UID>` reference. Empty,
+pending or malformed HTTP 200 responses leave the input failed; they must not
+show a saved state or trigger automatic resubmission. Sensitive request material
+continues to be cleared before rendering the receipt. Browser regression checks
+cover missing state/reference, pending state and invalid reference alongside
+valid submission, cancellation and HTTP errors.
