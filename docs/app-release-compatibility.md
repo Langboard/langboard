@@ -331,3 +331,16 @@ and 390px through light → dark → light transitions, with no horizontal
 overflow. Six cases passed in 9.5 seconds; screenshots were visually checked.
 The API receipt and asset serving are controlled test responses. This proves
 published SVG/theme compatibility, not a live install or board activation.
+
+## Shared preferred-language write state
+
+The account settings and avatar menu both use `UserPreferenceLanguageSwitcher`.
+Previously each instance disabled only itself during a save, leaving the other
+instance able to submit a competing language change. A controlled pending PUT
+reproduced the unlocked avatar control at 1280px and 390px (two failed cases).
+The shared React Query mutation state now disables both controls and rejects a
+change handler while the same mutation is pending. No additional state store is
+introduced. After the fix, all ten default-language browser cases passed in
+20.4 seconds, including failure rollback, reload persistence, four language
+choices, and keyboard interaction. API persistence is mocked in these browser
+cases; they do not prove the current deployment's database write.
