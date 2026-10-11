@@ -10,7 +10,7 @@ from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ..models import AppConnection, AppDefinition, User
 from ..models.AppConnectionCredential import AppConnectionCredential
-from .AppGovernance import AppGovernanceDenied, _actor, _authorize, _current, current_policy
+from .AppGovernance import AppGovernanceDenied, _actor, _authorize, _current, current_policy, lock_policy_mutation
 
 
 @dataclass(frozen=True)
@@ -89,6 +89,7 @@ def issue_connection_credential(actor, connection_id, *, expires_in_seconds=3600
     if type(expires_in_seconds) is not int or not 60 <= expires_in_seconds <= 86400:
         raise ValueError("Credential lifetime must be 60 to 86400 seconds")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         connection = _connection(db, connection_id)
         _manage(db, actor, connection)
         token = "lbac_" + token_urlsafe(32)

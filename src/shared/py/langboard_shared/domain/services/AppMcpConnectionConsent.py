@@ -3,7 +3,7 @@
 from ...core.db import DbSession, SqlBuilder
 from ..models import AppConnection, AppDefinition, AppMcpConsent, User
 from .AppConnectionAuthentication import _identity_hash, _manage
-from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy, lock_policy_mutation
 
 
 MCP_SCOPES = ("read", "write", "automation")
@@ -115,6 +115,7 @@ def save_mcp_connection_consent(
     ):
         raise ValueError("Explicit unique MCP scopes and consent revision required")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         connection, definition, row = _context(db, actor, connection_id)
         identity = _identity_hash(db, connection, definition=definition)
         if (

@@ -4,7 +4,14 @@ from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
 from ..models import AppDefinition, BoardAppBinding, Project, ProjectAssignedUser, ProjectRole
 from ..models.ProjectRole import ProjectRoleAction
-from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, current_policy
+from .AppGovernance import (
+    AppGovernanceConflict,
+    AppGovernanceDenied,
+    _actor,
+    _current,
+    current_policy,
+    lock_policy_mutation,
+)
 
 
 def _context(db, actor, project_id, app_key, *, lock_binding=True):
@@ -48,6 +55,7 @@ def _response(definition, binding):
 
 def prepare_board_consent(actor, project_id, app_key):
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         definition, project, binding = _context(db, actor, project_id, app_key)
         if binding is None:
             if not definition.is_enabled or current_policy(db, project.organization_id)["effective_mode"] == "disabled":
@@ -66,6 +74,7 @@ def save_board_consent(actor, project_id, app_key, capabilities, expected_revisi
     ):
         raise ValueError("Board capabilities must be a unique bounded list")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         definition, project, binding = _context(db, actor, project_id, app_key)
         if (
             binding is None

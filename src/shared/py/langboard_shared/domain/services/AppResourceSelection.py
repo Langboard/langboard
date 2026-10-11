@@ -5,7 +5,7 @@ from ...publishers import AppSettingPublisher
 from ..models import AppConnection, AppResourceBinding, BoardAppBinding, User
 from .AppBoardConsent import _context
 from .AppConnectionAuthentication import _identity_hash
-from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy, lock_policy_mutation
 
 
 def _selection_context(db, actor, project_id, app_key, connection_id, *, withdrawal=False):
@@ -73,6 +73,7 @@ def save_resource_selection(
     ):
         raise ValueError("Invalid resource identity")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         definition, binding, connection = _selection_context(
             db, actor, project_id, app_key, connection_id, withdrawal=not selected
         )

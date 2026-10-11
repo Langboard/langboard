@@ -314,3 +314,19 @@ verification receipt to exercise the positive response shape; that fixture is
 not actual external provider validation. A changed identity rejects old tokens
 and hides old selections even with a newly issued token. Provider verification
 and runtime execution authority are still pending; no execution grant is implied.
+
+## Policy mutation serialization
+
+Policy-sensitive approval writes use a PostgreSQL transaction-scoped shared
+advisory lock before actor/organization/definition locks. Policy changes take the
+matching exclusive lock. This covers default scopes with no policy rows and
+keeps ordinary approvals concurrent; runtime policy reads acquire neither lock.
+Board consent preparation/update, resource selection, MCP consent, inbound
+connection creation and credential issuance participate. Commit/rollback releases
+the lock automatically. The contract is PostgreSQL-specific; it is not a SQLite
+or other database compatibility guarantee.
+
+Two-connection regressions force policy disablement to hold the lock while a
+board/MCP/credential mutation attempts entry. Instance and organization scopes
+are exercised with both absent and existing policy rows. Mutations observe the
+committed disabled policy and fail instead of publishing a new approval after it.

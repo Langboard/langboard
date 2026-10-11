@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
@@ -152,11 +152,22 @@ def list_managed_organizations(actor, *, after_uid=None, limit=25):
         }
 
 
+def lock_policy_mutation(db, *, exclusive=False):
+    """Serialize policy-sensitive writes, including scopes with no policy row yet.
+
+    PostgreSQL transaction lock is taken before actor/organization/definition
+    locks. Runtime reads do not take it; it is released by commit or rollback.
+    """
+    lock = func.pg_advisory_xact_lock if exclusive else func.pg_advisory_xact_lock_shared
+    db.exec(select(lock(7104389251162)))
+
+
 def save_policy(actor, mode, expected_revision, organization_id=None):
     if mode not in MODES and not (mode is None and organization_id is not None):
         raise ValueError("Invalid app governance mode")
     try:
         with DbSession.atomic() as db:
+            lock_policy_mutation(db, exclusive=True)
             _authorize(db, actor, organization_id)
             policy = current_policy(db, organization_id, for_update=True)
             if expected_revision != policy["revision"]:

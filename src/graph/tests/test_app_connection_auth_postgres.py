@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
 from threading import Event, get_ident
+from time import monotonic, sleep
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
@@ -71,7 +72,7 @@ from langboard_shared.domain.services.AppRegistry import (
 from langboard_shared.domain.services.AppResourceSelection import list_resource_selections, save_resource_selection
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
-from sqlalchemy import event, update
+from sqlalchemy import event, text, update
 from sqlalchemy.orm import Session
 from test_app_governance_postgres import governance  # noqa: F401
 
@@ -883,3 +884,81 @@ def test_app_resource_http_only_verified_current_identity_and_sdk_shape(register
             db.execute(update(BoardAppBinding).values(granted_capabilities=[]))
             db.commit()
         assert client.get(path, headers={"Authorization": f"Bearer {new_token}"}).status_code == 403
+
+
+@pytest.mark.parametrize("operation", ["board", "mcp", "credential"])
+@pytest.mark.parametrize("organization", [False, True])
+@pytest.mark.parametrize("existing_policy", [False, True])
+def test_policy_disable_serializes_with_consent_writes_including_absent_rows(
+    registered, organization, existing_policy, operation
+):
+    engine, (admin, owner, _), personal, shared = registered
+    org_id = SnowflakeID(10) if organization else None
+    connection = shared if organization else personal
+    connection_receipt = read_mcp_connection_consent(owner, connection.id)
+    initial = prepare_board_consent(owner, SnowflakeID(20), "example")
+    baseline = get_policy(admin, org_id)
+    if existing_policy:
+        save_policy(admin, "approved_only", baseline["revision"], org_id)
+        baseline = get_policy(admin, org_id)
+    policy_locked, consent_attempting = Event(), Event()
+    policy_thread = []
+    waiting_pid = []
+
+    def statement_done(connection, cursor, statement, parameters, context, executemany):
+        if get_ident() in policy_thread and "pg_advisory_xact_lock" in statement:
+            policy_locked.set()
+            assert consent_attempting.wait(5)
+            deadline = monotonic() + 5
+            while monotonic() < deadline:
+                with engine.connect() as observer:
+                    blocked = observer.execute(
+                        text("SELECT count(*) FROM pg_locks WHERE pid=:pid AND locktype='advisory' AND NOT granted"),
+                        {"pid": waiting_pid[0]},
+                    ).scalar()
+                if blocked:
+                    break
+                sleep(0.01)
+            else:
+                raise AssertionError("Consent write never waited for the policy transaction lock")
+
+    def before_statement(connection, cursor, statement, parameters, context, executemany):
+        if "pg_advisory_xact_lock_shared" in statement:
+            waiting_pid.append(connection.connection.driver_connection.info.backend_pid)
+            consent_attempting.set()
+
+    def disable():
+        policy_thread.append(get_ident())
+        return save_policy(admin, "disabled", baseline["revision"], org_id)
+
+    def approve():
+        assert policy_locked.wait(5)
+        with pytest.raises(AppGovernanceDenied):
+            if operation == "board":
+                save_board_consent(
+                    owner, SnowflakeID(20), "example", ["mcp.read"], initial["revision"], initial["app_revision"]
+                )
+            elif operation == "mcp":
+                save_mcp_connection_consent(
+                    owner,
+                    connection.id,
+                    ["read"],
+                    connection_receipt["revision"],
+                    connection_receipt["identity_revision"],
+                    connection_receipt["app_revision"],
+                )
+            else:
+                issue_connection_credential(owner, connection.id)
+
+    event.listen(engine, "after_cursor_execute", statement_done)
+    event.listen(engine, "before_cursor_execute", before_statement)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            disabled = executor.submit(disable)
+            attempted = executor.submit(approve)
+            assert disabled.result(timeout=10)["effective_mode"] == "disabled"
+            attempted.result(timeout=10)
+    finally:
+        event.remove(engine, "after_cursor_execute", statement_done)
+        event.remove(engine, "before_cursor_execute", before_statement)
+    assert prepare_board_consent(owner, SnowflakeID(20), "example")["revision"] == initial["revision"]

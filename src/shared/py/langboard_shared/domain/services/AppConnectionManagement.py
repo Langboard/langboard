@@ -11,6 +11,7 @@ from .AppGovernance import (
     _actor,
     _authorize,
     current_policy,
+    lock_policy_mutation,
 )
 from .AppMcpConnectionConsent import _context
 from .AppRegistry import AppRegistryConflict
@@ -32,6 +33,7 @@ def create_inbound_connection(actor, key, app_revision, organization_id=None):
     Personal credentials remain owned by the caller even for instance admins.
     """
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         actor = _actor(db, actor)
         if organization_id is not None:
             _authorize(db, actor, organization_id)
