@@ -229,3 +229,10 @@ for the declared disposable PostgreSQL service, or the operator must supply an
 approved equivalent database lifecycle contract before changing the workflow.
 Runner labels alone do not provide Docker daemon/container-hook support. No
 production database or shared application database is an acceptable substitute.
+
+Card-bound model filters in the outline, description, attachment, checklist and
+comment views depend on the current card model, following the model-hook
+dependency convention. The outline browser fixture switches between cards with
+different attachments on 1440px and 390px viewports and confirms the section is
+added and removed with the current card. This exercises local model navigation,
+not authenticated deployed navigation or same-UID model replacement.

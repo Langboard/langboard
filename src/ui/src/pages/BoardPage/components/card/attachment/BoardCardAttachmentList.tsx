@@ -34,7 +34,7 @@ function BoardCardAttachmentList(): React.JSX.Element {
     const { projectUID, card, socket, viewportRef } = useBoardCard();
     const { mutate: changeCardAttachmentOrderMutate } = useChangeCardAttachmentOrder();
     const updater = useReducer((x) => x + 1, 0);
-    const flatAttachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid);
+    const flatAttachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const attachmentsMap = useMemo<Record<string, ProjectCardAttachment.TModel>>(() => {
         const map: Record<string, ProjectCardAttachment.TModel> = {};
         flatAttachments.forEach((attachment) => {
