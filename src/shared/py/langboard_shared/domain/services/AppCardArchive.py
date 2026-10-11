@@ -207,6 +207,30 @@ def revalidate_archive_event(db, event, *, reporting=False):
         raise AppGovernanceConflict()
 
 
+def read_archive_outcome(token, project_id, archive_id):
+    """Current owning-app receipt for ambiguous reports; no mutation or delivery retry."""
+    from .AppConnectionAuthentication import authenticate_connection_credential
+    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT
+    from .AppExecutionGrant import AppExecutionCredentialDenied
+
+    with DbSession.atomic() as db:
+        try:
+            principal = authenticate_connection_credential(token)
+        except AppGovernanceDenied as exc:
+            raise AppExecutionCredentialDenied() from exc
+        row = _current(db, AppCardArchive, archive_id)
+        if row is None or row.project_id != project_id or row.app_key != principal.app_key:
+            raise AppGovernanceDenied()
+        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox).where(
+            AppExecutionOutbox.request_id == row.id, AppExecutionOutbox.event_type == APP_CARD_ARCHIVE_EVENT
+        )).first()
+        if event is None or event.connection_id != principal.connection_id:
+            raise AppGovernanceDenied()
+        revalidate_archive_event(db, event, reporting=True)
+        return {"archive_uid": row.get_uid(), "receipt": row.receipt,
+                "delivery": {"event_uid": event.get_uid(), "state": event.state, "attempt_count": event.attempt_count}}
+
+
 def report_archive_outcome(token, project_id, archive_id, expected_revision, outcome):
     """Persist an authenticated app report; transport success is not provider success."""
     from .AppConnectionAuthentication import authenticate_connection_credential
