@@ -23,6 +23,43 @@ from .DomainService import DomainService
 from .ExecutionGeneration import execution_generations
 
 
+def _review_request_scope(db, token, project_id, card_id, request_id, *, capability, role_action):
+    try:
+        principal = authenticate_connection_credential(token)
+    except AppGovernanceDenied as exc:
+        raise AppExecutionCredentialDenied() from exc
+    card, owner, selection, binding, resources = require_app_card_scope(
+        db, principal, project_id, card_id, capability=capability, role_action=role_action
+    )
+    request = _current(db, AppExecutionRequest, request_id)
+    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key)).first()
+    if (request is None or request.card_id != card_id or request.project_id != project_id
+        or request.connection_id != principal.connection_id or request.app_key != principal.app_key
+        or set(request.authority.get("resource_uids", [])) != set(selection.resource_uids)
+        or request.authority.get("ownership_revision") != owner.revision
+        or request.authority.get("selection_revision") != selection.revision
+        or request.authority.get("resource_revisions") != {row.get_uid(): row.access_revision for row in resources}
+        or "resources.read" not in definition.declaration.get("capabilities", [])
+        or "resources.read" not in binding.granted_capabilities):
+        raise AppGovernanceDenied()
+    return principal, card, binding, request, definition
+
+
+def read_execution_review(token, project_id, card_id, request_id):
+    """Read a historical receipt under current authority; never move or retry."""
+    with DbSession.atomic() as db:
+        _, card, binding, request, _ = _review_request_scope(
+            db, token, project_id, card_id, request_id, capability="cards.read", role_action="read"
+        )
+        retained = db.exec(SqlBuilder.select.table(AppExecutionReview).where(AppExecutionReview.request_id == request_id)).first()
+        return {"schema_version": 1, "request_uid": request.get_uid(), "card_uid": card.get_uid(),
+                "state": "recorded" if retained else "not_recorded",
+                "receipt": retained.receipt if retained else None,
+                "current": {"card_revision": card.last_change_seq, "binding_revision": binding.edit_revision(),
+                            "generation": execution_generations([card_id]).get(int(card_id), 0)},
+                "changed": False, "started": False, "execution_resumed": False}
+
+
 def request_execution_review(token, project_id, card_id, request_id, generation, expected_card_revision,
                              expected_binding_revision, evidence_reference):
     if type(generation) is not int or generation < 1 or type(expected_card_revision) is not int or expected_card_revision < 0:
@@ -33,28 +70,13 @@ def request_execution_review(token, project_id, card_id, request_id, generation,
         raise ValueError("A result reference of 1 to 200 characters is required")
     fingerprint = sha256(dumps([generation, expected_card_revision, expected_binding_revision, evidence_reference]).encode()).hexdigest()
     with DbSession.atomic() as db:
-        try:
-            principal = authenticate_connection_credential(token)
-        except AppGovernanceDenied as exc:
-            raise AppExecutionCredentialDenied() from exc
-        card, owner, selection, binding, resources = require_app_card_scope(
-            db, principal, project_id, card_id, capability="execution.run", role_action="card_update"
+        principal, card, binding, request, definition = _review_request_scope(
+            db, token, project_id, card_id, request_id, capability="execution.run", role_action="card_update"
         )
-        request = _current(db, AppExecutionRequest, request_id)
-        if (request is None or request.card_id != card_id or request.project_id != project_id
-            or request.connection_id != principal.connection_id or request.app_key != principal.app_key
-            or request.generation != generation or execution_generations([card_id]).get(int(card_id)) != generation
-            or set(request.authority.get("resource_uids", [])) != set(selection.resource_uids)
-            or request.authority.get("ownership_revision") != owner.revision
-            or request.authority.get("selection_revision") != selection.revision
-            or request.authority.get("resource_revisions") != {row.get_uid(): row.access_revision for row in resources}):
+        if request.generation != generation or execution_generations([card_id]).get(int(card_id)) != generation:
             raise AppGovernanceDenied()
         if not binding.stage_transitions_enabled or binding.edit_revision() != expected_binding_revision:
             raise AppExecutionRequestConflict()
-        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key)).first()
-        if ("resources.read" not in definition.declaration.get("capabilities", [])
-            or "resources.read" not in binding.granted_capabilities):
-            raise AppGovernanceDenied()
         requirements = definition.declaration.get("workflow_requirements") or {}
         if "review" not in requirements.get("required", []) + requirements.get("optional", []):
             raise AppGovernanceDenied()
@@ -97,5 +119,7 @@ def request_execution_review(token, project_id, card_id, request_id, generation,
                    "card_revision": current.last_change_seq, "evidence_reference": evidence_reference,
                    "evidence_kind": "app_attestation", "state": "moved" if moved else "already_at_target",
                    "workflow_transitioned": moved, "started": False, "execution_resumed": False}
+        receipt["inputs"] = {"generation": generation, "expected_card_revision": expected_card_revision,
+                             "expected_binding_revision": expected_binding_revision, "evidence_reference": evidence_reference}
         db.insert(AppExecutionReview(request_id=request_id, fingerprint=fingerprint, receipt=receipt))
         return {**receipt, "changed": True}

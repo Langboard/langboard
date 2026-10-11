@@ -656,3 +656,9 @@ four concurrent requests with one movement, current consent/revision/generation
 denial, retained replay through the built SDK wheel and downgrade refusal with
 history. Actual provider result readback and deployed canary acceptance remain
 pending.
+
+### Request-scoped Review reconciliation
+
+SDK 0.2.32 exposes `AppExecution.read_review` via GET on the same `/apps/v1/boards/{board}/cards/{card}/execution-requests/{request}/review` route. This read checks current owning app, `cards.read`, `resources.read`, selected resources and their frozen authority revisions. It does not require a fresh execution grant or Review transition mapping to inspect a historical receipt. Revocation and ownership/resource changes block access.
+
+A response has `state: recorded` and an immutable `receipt`, or `state: not_recorded` with null receipt. New receipts include the original POST `inputs` (generation, expected card/binding revisions and evidence reference); older receipts may lack these fields. The separate `current` object reports current generation and revisions without rewriting historical inputs. `changed`, `started` and `execution_resumed` remain false. A missing receipt is a point-in-time observation, not permission to resend. After an ambiguous POST, retain the original attempt and explicitly reconcile its scope and every input against readback; never synthesize a new generation or automatically repeat POST.

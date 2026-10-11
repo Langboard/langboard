@@ -178,3 +178,5 @@ host discovery/migration and current revisions are required.
 Python SDK 0.2.29 validates native signal publication receipts. Missing or
 malformed signal_uid/duplicate fields raise MutationOutcomeUnknown, preserving
 the caller-owned envelope for reconciliation without automatic retry.
+
+Python SDK 0.2.32 adds read-only `AppExecution.read_review` for request-scoped Review receipt reconciliation. The host retains original POST inputs separately from present card/binding/generation state. This method never automatically repeats a transition.
