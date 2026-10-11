@@ -8728,9 +8728,9 @@ zwitch@^2.0.0:
   resolved "https://registry.npmjs.org/zwitch/-/zwitch-2.0.4.tgz"
   integrity sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==
 
-"@langboard/app-panel@file:../sdk/vendor/langboard-app-panel-0.2.3.tgz":
-  version "0.2.3"
-  resolved "file:../sdk/vendor/langboard-app-panel-0.2.3.tgz#773f5db4cf0c05aef47cc760208efa3a15e7ec5f"
+"@langboard/app-panel@file:../sdk/vendor/langboard-app-panel-0.2.4.tgz":
+  version "0.2.4"
+  resolved "file:../sdk/vendor/langboard-app-panel-0.2.4.tgz#66672666af785035ac2862fb79136f1d7213a6de"
 
 "@sentry/browser@11.6.0":
   version "11.6.0"

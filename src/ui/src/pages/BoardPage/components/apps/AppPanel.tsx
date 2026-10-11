@@ -104,7 +104,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                     try {
                                         if (!params || typeof params !== "object" || Array.isArray(params))
                                             throw new Error("Invalid panel request parameters");
-                                        let endpoint: "resources" | "signals";
+                                        let endpoint: "resources" | "signals" | "interactions";
                                         if (operation === "resources.list") {
                                             if (
                                                 Object.keys(params).some((key) => key !== "cursor") ||
@@ -123,6 +123,16 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                             )
                                                 throw new Error("Invalid signal request parameters");
                                             endpoint = "signals";
+                                        } else if (operation === "interactions.list") {
+                                            if (
+                                                Object.keys(params).some((key) => key !== "card_uid" && key !== "cursor" && key !== "limit") ||
+                                                typeof params.card_uid !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.card_uid) ||
+                                                (params.cursor !== undefined && params.cursor !== null &&
+                                                    (typeof params.cursor !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.cursor))) ||
+                                                (params.limit !== undefined && (!Number.isInteger(params.limit) ||
+                                                    Number(params.limit) < 1 || Number(params.limit) > 25))
+                                            ) throw new Error("Invalid interaction request parameters");
+                                            endpoint = "interactions";
                                         } else throw new Error("Unsupported panel operation");
                                         const response = await api.post<JsonValue>(
                                             `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/${endpoint}`,

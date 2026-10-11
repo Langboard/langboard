@@ -457,3 +457,24 @@ Only test setup selects the alternate app identity; host and shared SDK producti
 code has no example-monitor branch. Owner/resource/declaration fixture setup is
 not end-user installation, real provider IO or deployed canary evidence. Those
 remain separate vertical acceptance gates.
+
+## Isolated panel request history
+
+Panel SDK 0.2.4 adds `interactions.list`. The host routes this operation to
+`POST /board/{project_uid}/apps/{app_key}/panel/interactions` with the installed
+app and binding revisions. Only `card_uid`, optional `cursor`, and optional `limit`
+come from the panel. Limits are strict integers from 1 to 25, default 10.
+
+The authenticated human must still be able to read the card. Current panel consent
+and `interactions.request` must be granted; the SQL query includes the current app
+key before applying its page limit. Foreign app requests cannot enter the page.
+Stale revisions conflict; revoked panel consent and inaccessible cards are denied.
+Responses use `no-store`. The SDK's existing 16 KiB JSON limit remains in effect;
+oversized request pages fail instead of bypassing transport bounds.
+
+Native JWT HTTP regression exercises two app profiles on SQLite and PostgreSQL,
+including paging, invalid fields, app filtering, stale revisions and revocation.
+An isolated browser frame exercises the SDK-to-host route and pinned revisions.
+These are source/local acceptance proofs, not deployed canary acceptance. This
+read does not submit a human response, transition workflow, stop execution or
+authorize resume; those panel control operations remain unfinished.

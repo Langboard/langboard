@@ -4,6 +4,7 @@ const sdk = readFileSync("node_modules/@langboard/app-panel/index.mjs", "utf8");
 test("independent resource panel pins authority, rejects identity injection and cancels on close", async ({ page }) => {
     const writes: unknown[] = [];
     const signalReads: unknown[] = [];
+    const interactionReads: unknown[] = [];
     let release: () => void = () => {};
     let pending = false;
     let status = 200;
@@ -27,7 +28,7 @@ test("independent resource panel pins authority, rejects identity injection and 
         r.fulfill({
             contentType: "text/html",
             body: `
-        <button id="signals">Signals</button><button id="save">Save draft</button>
+        <button id="interactions">Interactions</button><button id="signals">Signals</button><button id="save">Save draft</button>
         <button id="read">Read</button><button id="inject">Inject identity</button><pre id="result">Connecting</pre>
         <script type="module">
         import {connectPanel} from './sdk.mjs';
@@ -38,6 +39,9 @@ test("independent resource panel pins authority, rejects identity injection and 
             try {output.textContent = JSON.stringify(await session.request('resources.list', params));}
             catch (error) {output.textContent = 'Denied: ' + error.message;}
         }
+        document.querySelector('#interactions').onclick = async () => {
+            output.textContent = JSON.stringify(await session.request('interactions.list', {card_uid:'A1234567890',limit:10}));
+        };
         document.querySelector('#signals').onclick = async () => {
             output.textContent = JSON.stringify(await session.request('signals.list', {provider:'github'}));
         };
@@ -57,6 +61,10 @@ test("independent resource panel pins authority, rejects identity injection and 
         signalReads.push(route.request().postDataJSON());
         await route.fulfill({ status, json: { items: [{ signal_uid: "signal-1" }], next_cursor: null } });
     });
+    await page.route("**/board/board/apps/example-app/panel/interactions", async (route) => {
+        interactionReads.push(route.request().postDataJSON());
+        await route.fulfill({json:{items:[{interaction_uid:"B1234567890",state:"pending"}],next_cursor:null}});
+    });
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
     await expect(panel.locator("#result")).toHaveText("Ready");
@@ -70,6 +78,9 @@ test("independent resource panel pins authority, rejects identity injection and 
     await panel.getByRole("button", { name: "Signals", exact: true }).click();
     await expect(panel.locator("#result")).toContainText("signal-1");
     expect(signalReads).toEqual([{ provider: "github", app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
+    await panel.getByRole("button", {name:"Interactions",exact:true}).click();
+    await expect(panel.locator("#result")).toContainText("B1234567890");
+    expect(interactionReads).toEqual([{card_uid:"A1234567890",limit:10,app_revision:"a".repeat(64),binding_revision:"b".repeat(64)}]);
     pending = true;
     const next = page.waitForRequest("**/panel/resources");
     await panel.getByRole("button", { name: "Read", exact: true }).click();
