@@ -34,6 +34,18 @@ Exactly one report commits; the other conflicts, the persisted report remains
 unchanged, and replaying the accepted report is idempotent. This is local
 database evidence, not provider or deployed acceptance.
 
+### Shared editor ref review
+
+`EditorWrapper` always creates its internal ref before choosing the optional
+caller ref. Adding or removing a caller ref therefore preserves React hook
+order and the current editor. The provider prop type distributes `Omit` over
+its discriminated union, preserving required form fields without an `any` cast
+or a file-wide lint exemption. Physical browser tests at 1280 and 390 pixels
+type a draft and repeatedly switch between internal and caller refs, checking
+the text remains and no page error occurs. The UI TypeScript project and the
+changed-file ESLint checks pass. This does not prove collaborative Yjs server
+updates preserve unsaved drafts; that separate review remains open.
+
 ### App model review boundary
 
 Native app models declare compound uniqueness through existing `unique_groups`
