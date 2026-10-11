@@ -138,6 +138,11 @@ def prepare_native_creation(service, board, monkeypatch):
         "project_label",
         "user_card_read_state",
         "card_verification_record",
+        "card_app_ownership",
+        "card_app_ownership_audit",
+        "card_app_resource_selection",
+        "card_app_resource_selection_audit",
+        "external_import_record",
     }
     needed.update(model.__tablename__ for model in ModelHelper.get_models_by_base_class(BaseGraphApprovalRequestModel))
     while True:
@@ -300,6 +305,35 @@ def test_native_create_receipt_checklist_readiness_and_replay(creation_scope):
         ).first()
         assert binding.source_change_seq == card.last_change_seq
     assert state[7] == [result["card_uid"]]
+
+
+def test_inbox_creation_and_replay_do_not_grant_app_card_ownership(creation_scope):
+    native_only(creation_scope)
+    from langboard_shared.domain.models import (
+        AppSignal,
+        CardAppOwnership,
+        CardAppOwnershipAudit,
+        CardAppResourceSelection,
+        CardAppResourceSelectionAudit,
+        ExternalImportRecord,
+    )
+
+    state = creation_scope
+    signal_id = InfraHelper.convert_id(state[4])
+    with DbSession.use(readonly=False) as db:
+        before = db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.id == signal_id)).first().model_dump()
+    result = create(state)
+    assert result["created"]
+    assert create(state) == {"card_uid": result["card_uid"], "created": False}
+    card_id = InfraHelper.convert_id(result["card_uid"])
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(CardAppSignalBinding).where(CardAppSignalBinding.card_id == card_id)).first()
+        for model in (CardAppOwnership, CardAppOwnershipAudit, CardAppResourceSelection, CardAppResourceSelectionAudit):
+            assert db.exec(SqlBuilder.select.table(model).where(model.card_id == card_id)).all() == []
+        assert db.exec(
+            SqlBuilder.select.table(ExternalImportRecord).where(ExternalImportRecord.target_uid == result["card_uid"])
+        ).all() == []
+        assert db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.id == signal_id)).first().model_dump() == before
 
 
 def test_native_creation_binding_failure_rolls_back_everything(creation_scope, monkeypatch):
