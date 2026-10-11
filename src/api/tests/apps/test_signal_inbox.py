@@ -20,9 +20,8 @@ def inbox(scoped, after=None):
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped, monkeypatch):
-    from pathlib import Path
-    artifact = Path(__file__).parent / "vendor/langboard_app_example_monitor-0.1.0-py3-none-any.whl"
-    monkeypatch.syspath_prepend(str(artifact))
+    from packaged_monitor import load_monitor
+    Monitor = load_monitor(monkeypatch, "example-monitor-provenance.json")
     import hashlib
     import hmac
     import json
@@ -31,7 +30,6 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     import langboard.routes.settings.AppInboundConnectionApi as inbound_api
     import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
     import langboard.routes.settings.AppSignalApi as signal_api
-    from example_monitor import Monitor
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from langboard_shared.core.db.DbEngine import DbEngine
