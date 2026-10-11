@@ -1,5 +1,7 @@
 import asyncio
+import os
 import pytest
+import pytest_asyncio
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langboard_graph.core.graph.default.agent_loop import invoke_agent_loop
@@ -70,7 +72,8 @@ async def test_unknown_denied_failure_and_timeout_never_drop_response():
 
 
 @pytest.mark.asyncio
-async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model():
+@pytest.mark.parametrize("calls_per_round", [1, 8, 10])
+async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model(calls_per_round):
     writes = []
 
     async def echo(value: int):
@@ -85,12 +88,14 @@ async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model():
         return (
             AIMessage(content="done")
             if which == "unbound"
-            else AIMessage(content="", tool_calls=[tool_call(id=f"call-{len(models)}")])
+            else AIMessage(
+                content="", tool_calls=[tool_call(id=f"call-{len(models)}-{index}") for index in range(calls_per_round)]
+            )
         )
 
     result, _ = await invoke_agent_loop("unbound", "bound", [HumanMessage(content="run")], [tool], model, allow, 1)
     assert models == ["bound"] * 3 + ["unbound"]
-    assert writes == [1] * 3
+    assert writes == [1] * (3 * min(8, calls_per_round))
     assert result.content == "done"
 
 
@@ -201,3 +206,71 @@ async def test_repeated_invocations_do_not_reuse_previous_round_state():
         )
         assert len(receipts) == 3
         assert rounds == ["bound"] * 3 + ["unbound"]
+
+
+@pytest.mark.asyncio
+async def test_later_approval_resume_does_not_repeat_completed_call(durable_saver):
+    from typing import TypedDict
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import Command, interrupt
+
+    writes = []
+
+    async def echo(value: int):
+        writes.append(value)
+        return value
+
+    tool = StructuredTool.from_function(coroutine=echo, name="echo", description="Echo")
+
+    async def approval(name, args):
+        if args["value"] == 2:
+            return None if interrupt({"name": name}) else "not approved"
+        return None
+
+    async def model(_, messages):
+        return (
+            AIMessage(content="done")
+            if any(isinstance(m, ToolMessage) for m in messages)
+            else AIMessage(content="", tool_calls=[tool_call(id="first", value=1), tool_call(id="second", value=2)])
+        )
+
+    class State(TypedDict):
+        response: str
+
+    async def agent(state):
+        result, _ = await invoke_agent_loop(None, None, [HumanMessage(content="run")], [tool], model, approval, 1)
+        return {"response": result.content}
+
+    graph = StateGraph(State)
+    graph.add_node("agent", agent)
+    graph.add_edge(START, "agent")
+    graph.add_edge("agent", END)
+    compiled = graph.compile(checkpointer=durable_saver)
+    config = {"configurable": {"thread_id": "second-approval"}}
+    result = await compiled.ainvoke({}, config)
+    assert result["__interrupt__"]
+    assert writes == [1]
+    # Rebuild the graph instance; durable state must come from the saver.
+    resumed = await graph.compile(checkpointer=durable_saver).ainvoke(Command(resume=True), config)
+    assert resumed["response"] == "done"
+    assert writes == [1, 2]
+
+
+@pytest_asyncio.fixture(params=["memory", "postgres"])
+async def durable_saver(request):
+    if request.param == "memory":
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        yield InMemorySaver()
+        return
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    async with AsyncPostgresSaver.from_conn_string(url.replace("postgresql+psycopg://", "postgresql://")) as saver:
+        await saver.setup()
+        try:
+            yield saver
+        finally:
+            await saver.adelete_thread("second-approval")
