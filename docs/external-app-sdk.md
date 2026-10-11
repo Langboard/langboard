@@ -1108,3 +1108,12 @@ has no installed native adapter still fails native support validation.
 This is a panel read boundary. Signal ingestion, inbox triage and app-owned card
 creation remain independent functions and authority scopes. SDK 0.2.19 interaction
 requests, responses, reception ACK and signed response bodies are unchanged.
+
+Panel source consent is exercised through authenticated native HTTP on SQLite
+and disposable PostgreSQL. The shared app authority fixture uses the actual
+Organization model, so the PostgreSQL read exercises current tenant-policy columns
+rather than an ID-only placeholder. Browser bridge tests cover both resource and
+signal reads: 403/404/409 remove the frame and cached panel state; a 500 reports a
+request failure without pretending authority was revoked. The common Axios
+interceptor preserves 403 as a rejected error for callers to handle. Browser
+routes are fixtures, not a deployed account or provider-data acceptance proof.
