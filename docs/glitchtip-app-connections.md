@@ -151,3 +151,11 @@ canary collection or of Signal Inbox/card delivery.
 
 References: [GlitchTip JavaScript setup](https://glitchtip.com/sdkdocs/javascript/)
 and [Sentry SDK migration contract](https://github.com/getsentry/sentry-javascript/blob/develop/MIGRATION.md).
+
+
+The production UI Docker build declares the three `PUBLIC_SENTRY_*` arguments.
+Operators must supply them as public build metadata through the approved private
+image profile; runtime container environment alone cannot change an already-built
+Vite bundle. Empty defaults keep collection off for standalone installations.
+A source-map upload token is a different build credential and is never accepted
+as one of these public arguments.
