@@ -206,3 +206,16 @@ membership resolution. Bots fail closed until a server-verified execution
 identity is integrated; this pending contract is not inferred from raw runner
 metadata. Activity-history visibility and full credential/runtime migration
 still need independent completion evidence.
+
+## Activity visibility before pagination
+
+Project activity history now authenticates the signed user, resolves current
+board membership through `CardService`, and joins card visibility predicates
+before applying the bounded limit. Board-only events are returned only for an
+active member; deleted or private card events are excluded before pagination,
+so a hidden newest event cannot displace a visible older event. Card and column
+filters remain constrained by the board predicate. The fixture adds a private
+newest event followed by a visible event and checks shared/internal/private,
+wrong-board, nonmember, revoked, missing-token and bot-runner paths across
+SQLite and PostgreSQL. Ninety-two tests pass in 42.11 seconds. Bots remain
+fail-closed until a verified execution identity is supplied.

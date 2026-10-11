@@ -47,6 +47,7 @@ def history_db(monkeypatch, request):
     if request.node.originalname in {
         "test_activity_scope_always_requires_matching_board",
         "test_comment_history_reuses_current_card_visibility",
+        "test_activity_history_filters_visibility_before_limit",
     }:
         models += (Organization, Project, ProjectColumn, Bot, Card, ProjectActivity, ProjectAssignedUser, CardComment)
     for model in models:
@@ -176,7 +177,7 @@ def test_chat_history_anchor_limits_collection_to_one_session(history_db, case):
     "scope", ["board", "own_column", "foreign_column", "own_card", "foreign_card", "missing_board"]
 )
 def test_activity_scope_always_requires_matching_board(history_db, scope, monkeypatch):
-    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: history_db)
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda self: "project_members"))
     from langboard_shared.core.types import SnowflakeID
     from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
     from langboard_graph.core.graph.default.history import collect_project_activity_messages
@@ -219,7 +220,21 @@ def test_activity_scope_always_requires_matching_board(history_db, scope, monkey
             ]
         )
         db.commit()
-    variables = {} if scope == "missing_board" else {"project_uid": SnowflakeID(30).to_short_code()}
+    token = encode(
+        {
+            "sub": "1",
+            "iss": Env.PROJECT_NAME,
+            "internal": "bot",
+            "exp": int((SafeDateTime.now() + timedelta(minutes=5)).timestamp()),
+        },
+        Env.JWT_SECRET_KEY,
+        algorithm=Env.JWT_ALGORITHM,
+    )
+    variables = (
+        {}
+        if scope == "missing_board"
+        else {"project_uid": SnowflakeID(30).to_short_code(), "current_runner_type": "user", "app_api_token": token}
+    )
     rest = {}
     if scope in {"own_column", "foreign_column", "missing_board"}:
         rest["project_column_uid"] = SnowflakeID(40 if scope == "own_column" else 41).to_short_code()
@@ -280,6 +295,84 @@ def test_comment_history_reuses_current_card_visibility(history_db, case, monkey
         "project_uid": SnowflakeID(31 if case == "wrong_board" else 30).to_short_code(),
     }
     result = collect_card_comment_messages({"card_uid": SnowflakeID(50).to_short_code()}, 20, variables)
-    assert [item["content"] for item in result] == (
-        ["Scoped comment"] if case in {"shared", "internal"} else []
+    assert [item["content"] for item in result] == (["Scoped comment"] if case in {"shared", "internal"} else [])
+
+
+@pytest.mark.parametrize("case", ["board_limit", "private_direct", "nonmember", "revoked", "missing_token", "bot"])
+def test_activity_history_filters_visibility_before_limit(history_db, case, monkeypatch):
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
+    from langboard_graph.core.graph.default.history import collect_project_activity_messages
+
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda self: "project_members"))
+    with Session(history_db) as db:
+        db.add(Project(id=30, owner_id=1, title="Board"))
+        db.commit()
+        db.add(ProjectColumn(id=40, project_id=30, name="Column"))
+        db.commit()
+        db.add_all(
+            [
+                Card(id=50, project_id=30, project_column_id=40, title="Public", visibility="SHARED"),
+                Card(
+                    id=51,
+                    project_id=30,
+                    project_column_id=40,
+                    title="Private",
+                    visibility="PRIVATE",
+                    owner_user_id=1,
+                    created_by_user_id=1,
+                ),
+            ]
+        )
+        db.commit()
+        db.add_all(
+            [
+                ProjectActivity(
+                    id=60,
+                    project_id=30,
+                    card_id=50,
+                    activity_type=ProjectActivityType.CardCreated,
+                    activity_history={"title": "Public event"},
+                    created_at=SafeDateTime.now() - timedelta(minutes=1),
+                ),
+                ProjectActivity(
+                    id=61,
+                    project_id=30,
+                    card_id=51,
+                    activity_type=ProjectActivityType.CardCreated,
+                    activity_history={"title": "Private event"},
+                ),
+            ]
+        )
+        db.add(
+            ProjectActivity(
+                id=62,
+                project_id=30,
+                activity_type=ProjectActivityType.ProjectUpdated,
+                activity_history={"title": "Board event"},
+                created_at=SafeDateTime.now() - timedelta(minutes=2),
+            )
+        )
+        if case == "revoked":
+            db.execute(update(User).where(User.id == 1).values(activated_at=None))
+        db.commit()
+    token = encode(
+        {
+            "sub": "2" if case == "nonmember" else "1",
+            "iss": Env.PROJECT_NAME,
+            "internal": "bot",
+            "exp": int((SafeDateTime.now() + timedelta(minutes=5)).timestamp()),
+        },
+        Env.JWT_SECRET_KEY,
+        algorithm=Env.JWT_ALGORITHM,
+    )
+    variables = {
+        "project_uid": SnowflakeID(30).to_short_code(),
+        "current_runner_type": "bot" if case == "bot" else "user",
+        "app_api_token": "" if case == "missing_token" else token,
+    }
+    rest = {"card_uid": SnowflakeID(51).to_short_code()} if case == "private_direct" else {}
+    result = collect_project_activity_messages(variables, rest, 1)
+    assert [item["content"]["history"]["title"] for item in result] == (
+        ["Public event"] if case == "board_limit" else []
     )
