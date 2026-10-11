@@ -51,7 +51,20 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         ).first()
         binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
         db.update(binding)
+    from langboard_shared.domain.models import WebhookSetting
     from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+    from langboard_shared.domain.services.AppEventDestination import (
+        APP_INTERACTION_RESPONSE_EVENT,
+        bind_app_event_destination,
+    )
+
+    with DbSession.atomic() as db:
+        setting = db.exec(SqlBuilder.select.table(WebhookSetting)).first()
+        setting.events = [*setting.events, APP_INTERACTION_RESPONSE_EVENT]
+        db.update(setting)
+        binding.granted_capabilities = [*binding.granted_capabilities, "events.receive"]
+        db.update(binding)
+    assert bind_app_event_destination(board[1], connection.id, setting.id, 1)["revision"] == 2
 
     token = issue_connection_credential(board[1], connection.id)["token"]
     body = {
@@ -256,6 +269,62 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert answered["response"]["response_uid"] == accepted["response_uid"]
         assert answered["response"]["values"] == answer
         assert answered["response"]["actor_uid"] == board[1].get_uid()
+        from langboard_shared.domain.services.AppCardInteractions import acknowledge_app_interaction_response
+        from langboard_shared.domain.services.AppEventDelivery import (
+            claim_app_event,
+            finish_app_event,
+            revalidate_app_event_claim,
+        )
+
+        event_id = SnowflakeID.from_short_code(accepted["event_uid"])
+        assert accepted["delivery_state"] == "pending" and accepted["reception_state"] == "not_received"
+        with pytest.raises(AppGovernanceDenied):
+            acknowledge_app_interaction_response(token, board[2].id, card.id, args[-1], event_id, "runtime-1")
+        claim = claim_app_event(event_id, 2)
+        assert claim is not None and claim["event_uid"] == accepted["event_uid"]
+        import hmac
+        import json
+        from hashlib import sha256
+
+        stamp = claim["headers"]["X-Langboard-Webhook-Timestamp"]
+        digest = hmac.new(b"secret", stamp.encode() + b"." + claim["body"], sha256).hexdigest()
+        assert claim["headers"]["X-Langboard-Webhook-Signature"] == "v1=" + digest
+        payload = json.loads(claim["body"])
+        assert payload["response_uid"] == accepted["response_uid"] and payload["values"] == answer
+        assert payload["execution_resumed"] is False
+        assert revalidate_app_event_claim(event_id, claim["claim_token"], 2)["body"] == claim["body"]
+        failed = finish_app_event(event_id, claim["claim_token"], delivered=False)
+        assert failed["state"] == "pending"
+        retry_claim = claim_app_event(event_id, 2)
+        assert retry_claim["event_uid"] == claim["event_uid"] and retry_claim["attempt_count"] == 2
+        assert retry_claim["claim_token"] != claim["claim_token"]
+        from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
+
+        with pytest.raises(AppGovernanceConflict):
+            finish_app_event(event_id, claim["claim_token"], delivered=True)
+        claim = retry_claim
+        ack_path = path + "/" + mixed_receipt["interaction_uid"] + "/acknowledgments"
+        ack = client.post(
+            ack_path, json={"event_uid": accepted["event_uid"], "runtime_reference": "runtime-1"}, headers=headers
+        )
+        assert ack.status_code == 200, ack.text
+        assert ack.json()["state"] == "received" and ack.json()["execution_resumed"] is False
+        assert (
+            client.post(
+                ack_path, json={"event_uid": accepted["event_uid"], "runtime_reference": "runtime-1"}, headers=headers
+            ).json()["changed"]
+            is False
+        )
+        assert (
+            client.post(
+                ack_path, json={"event_uid": accepted["event_uid"], "runtime_reference": "runtime-2"}, headers=headers
+            ).status_code
+            == 409
+        )
+        assert finish_app_event(event_id, claim["claim_token"], delivered=True)["state"] == "delivered"
+        readback = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), mixed_receipt["interaction_uid"]))
+        assert readback["delivery_state"] == "delivered" and readback["reception_state"] == "received"
+        assert readback["execution_resumed"] is False
         from langboard_sdk import NativeApiError
 
         with pytest.raises(NativeApiError):
@@ -267,6 +336,12 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             db.update(binding)
         with pytest.raises(AppGovernanceDenied):
             respond_to_app_card_interaction(*args, 1, "response-1", answer)
+        assert (
+            client.post(
+                ack_path, json={"event_uid": accepted["event_uid"], "runtime_reference": "runtime-1"}, headers=headers
+            ).status_code
+            == 403
+        )
         with DbSession.atomic() as db:
             binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
             db.update(binding)
