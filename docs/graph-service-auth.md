@@ -60,10 +60,10 @@ SQLite and disposable PostgreSQL tests exercise revocation and cross-board
 requests against current main. CardVisibility and app principal policy remain
 pending reconstruction; these tests do not claim those missing contracts.
 
-The API bot-draft caller now uses the shared service credentials too. A focused
-test executes the actual helper and checks one HTTP request with a valid
-service token. Full API-to-Graph draft generation and Phoenix compilation
-remain pending runtime validation.
+The API bot-draft caller now uses the shared service credentials too. Tests import the production API module and check its HTTP request token,
+then route that request through the real local Graph ASGI middleware/route.
+Only external model inference is replaced by a fixture. Live deployment,
+real provider inference and Phoenix compilation remain pending.
 
 Combined regression: 128 tests pass in 37.72 seconds on SQLite and disposable
 PostgreSQL. Ruff and `git diff --check` pass.
@@ -90,3 +90,24 @@ Official connection format: https://www.psycopg.org/psycopg3/docs/api/connection
 Combined suite: 132 tests pass in 36.37 seconds; the new durable checkpoint
 and lock cases run only against real disposable PostgreSQL. Ruff and diff
 checks pass. Deployment and Phoenix runtime validation remain pending.
+
+
+## Bot draft import and local HTTP integration review
+
+The AST-extracted helper test has been removed. API-side integration tests now
+import BotSettingsApi normally, preserving its native dependency/decorator
+registration. A local transport connects the imported helper to the Graph
+FastAPI application, GraphServiceAuthMiddleware and BotDraftApi. Valid service
+credentials return a parsed generated draft; missing/invalid credentials return
+401 before the fixture model is invoked. Routine imports are at module scope.
+Graph-only tests do not import the API module or add FastMCP as a Graph runtime
+dependency. API integration tests require both existing runtime dependencies.
+
+Validation uses the frozen root API lock (FastMCP 4.0.0b3), plus the separately
+locked Graph dependencies for the integration route. Starlette 1.6 TestClient
+returns httpx2 responses; the test transport wraps them as production httpx
+responses so failures exercise the caller's real HTTPError handling. This is
+local ASGI integration, not a deployed network/provider or Phoenix check.
+
+Combined service-auth and API integration regression: 51 tests pass in
+2.88 seconds. Ruff and diff checks pass.
