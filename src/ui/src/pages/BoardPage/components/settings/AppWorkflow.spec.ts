@@ -397,3 +397,35 @@ for (const width of [1440, 390]) {
         expect(rect!.width).toBeGreaterThan(container!.width * 0.85);
     });
 }
+
+for (const width of [1440, 390]) {
+    test(`full group disable requires confirmation and exact revisions at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store&external&panel&consent&enabled&grouped`);
+        await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+        await page.getByRole("button", { name: "Disable App group", exact: true }).click();
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(0);
+        await expect(page.getByText("github · example-erp", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Confirm disable App group", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toEqual({
+            url: "/board/fixture/settings/apps/compositions/review-suite/disable",
+            expected_revision: "c".repeat(64),
+            binding_revisions: { github: "a".repeat(64), "example-erp": "a".repeat(64) },
+        });
+        await expect(page.getByRole("article")).toHaveCount(2);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+}
+test("failed group disable blocks repeated writes until snapshot reload", async ({ page }) => {
+    await page.goto(`${path}?store&external&panel&consent&enabled&grouped&groupdisablefail`);
+    await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+    await page.getByRole("button", { name: "Disable App group", exact: true }).click();
+    const confirm = page.getByRole("button", { name: "Confirm disable App group", exact: true });
+    await confirm.click();
+    await expect(confirm).toBeDisabled();
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Disable App group", exact: true })).toBeEnabled();
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+});

@@ -48,6 +48,30 @@ export default function BoardSettingsApps() {
     const [dirty, setDirty] = useState(false);
     const [connections, setConnections] = useState<CatalogApp | null>(null);
     const [selected, setSelected] = useState<CatalogApp | null>(null);
+    const [disableGroup, setDisableGroup] = useState(false);
+    const [groupFailed, setGroupFailed] = useState(false);
+    const disableComposition = async () => {
+        if (!composition || pending || groupFailed || !canEditBasicInfo) return;
+        setPending(true);
+        setError(false);
+        try {
+            await api.post(`/board/${project.uid}/settings/apps/compositions/${encodeURIComponent(composition.key)}/disable`, {
+                expected_revision: composition.revision,
+                binding_revisions: Object.fromEntries(visibleApps.map((app) => [app.key, app.binding?.revision ?? null])),
+            });
+            for (const app of visibleApps) {
+                if (currentUser) deletePanelState(JSON.stringify([currentUser.uid, project.uid, app.key, app.version]));
+            }
+            setDisableGroup(false);
+            const result = await refreshStore();
+            if (result.isError) throw new Error("Store readback failed");
+        } catch {
+            setError(true);
+            setGroupFailed(true);
+        } finally {
+            setPending(false);
+        }
+    };
     const disable = async (app: CatalogApp) => {
         if (pending || !canEditBasicInfo || !app.binding) return;
         setPending(true);
@@ -151,6 +175,7 @@ export default function BoardSettingsApps() {
                                 disabled={pending || dirty}
                                 onClick={() => {
                                     setCompositionKey(null);
+                                    setDisableGroup(false);
                                     setManagedKey(null);
                                     setPanelTarget(null);
                                     setDisableTarget(null);
@@ -160,6 +185,53 @@ export default function BoardSettingsApps() {
                             </Button>
                             <h3 className="text-base font-semibold">{composition.name}</h3>
                             <p className="text-sm text-muted-foreground">{composition.description}</p>
+                            {!managedKey && canEditBasicInfo && (
+                                <div className="flex flex-col items-start gap-2">
+                                    {disableGroup ? (
+                                        <>
+                                            <p className="text-sm text-muted-foreground">{t("project.settings.Disable App group help")}</p>
+                                            <p className="text-xs text-muted-foreground">{composition.module_keys.join(" · ")}</p>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={pending || groupFailed}
+                                                onClick={() => void disableComposition()}
+                                            >
+                                                {t("project.settings.Confirm disable App group")}
+                                            </Button>
+                                            <Button size="sm" variant="ghost" disabled={pending} onClick={() => setDisableGroup(false)}>
+                                                {t("common.Cancel")}
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            disabled={pending || dirty || groupFailed}
+                                            onClick={() => setDisableGroup(true)}
+                                        >
+                                            {t("project.settings.Disable App group")}
+                                        </Button>
+                                    )}
+                                    {groupFailed && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={pending}
+                                            onClick={async () => {
+                                                const result = await refreshStore();
+                                                if (!result.isError) {
+                                                    setGroupFailed(false);
+                                                    setError(false);
+                                                    setDisableGroup(false);
+                                                }
+                                            }}
+                                        >
+                                            {t("common.Retry")}
+                                        </Button>
+                                    )}
+                                </div>
+                            )}
                         </>
                     )}
                     <p className="text-sm text-muted-foreground">{t("project.settings.App Store help")}</p>
