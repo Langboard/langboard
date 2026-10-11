@@ -80,6 +80,28 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert first_response.status_code == 200, first_response.text
     first = first_response.json()
     assert not first["duplicate"] and receive(envelope).json() == {**first, "duplicate": True}
+    import asyncio
+    from types import SimpleNamespace
+    from langboard_sdk import AppSignals, HttpTransport
+    async def sdk_request(method, path, **kwargs):
+        return client.request(method, path, **kwargs)
+    sdk_receipt = asyncio.run(AppSignals(HttpTransport(SimpleNamespace(request=sdk_request)), token).publish(
+        state[1][2].get_uid(), envelope
+    ))
+    assert sdk_receipt["signal_uid"] == first["signal_uid"] and sdk_receipt["duplicate"]
+    if DbEngine.get_main_engine().dialect.name == "postgresql":
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        barrier = Barrier(4)
+        def concurrent_delivery(_):
+            barrier.wait(timeout=10)
+            result = receive({**envelope, "event_id": "concurrent", "external_id": "56"})
+            assert result.status_code == 200, result.text
+            return result.json()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            receipts = list(pool.map(concurrent_delivery, range(4)))
+        assert len({receipt["signal_uid"] for receipt in receipts}) == 1
+        assert sum(not receipt["duplicate"] for receipt in receipts) == 1
     assert receive(envelope, signature="v1=" + "0" * 64).status_code == 400
     assert receive({**envelope, "outcome": "closed"}).status_code == 409
     assert receive({**envelope, "event_type": "undeclared"}).status_code == 400
@@ -87,12 +109,12 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     older = receive({**envelope, "event_id": "older", "occurred_at": "2026-10-10T00:00:00Z", "outcome": "closed"})
     assert older.status_code == 200
     result = inbox(scoped)
-    assert [row["provider"] for row in result["items"]] == ["example-monitor"]
+    assert {row["provider"] for row in result["items"]} == {"example-monitor"}
     assert result["items"][0]["time_basis"] == "observation"
     with DbSession.atomic() as db:
         link.is_enabled = True
         db.update(link)
-    assert inbox(scoped)["items"] == []
+    assert all(row["external_id"] != "55" for row in inbox(scoped)["items"])
     assert card_signal_projections([card])[card.id][0]["state"] == "failed"
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
