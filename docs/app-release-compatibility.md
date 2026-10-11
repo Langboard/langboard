@@ -38,15 +38,24 @@ All three packages are `0.1.0`; their default declaration is app version
 mandatory lifecycle policies in CLI and HTTP declarations. GitHub interactions
 are a separate optional profile. The published-signal profile is app version
 `0.2.1`, with a finite `signal_policy` and `signals.publish`; it remains opt-in.
-All three server helpers consume `@langboard/app-server@0.1.1` and panel SDK
+All three server helpers consume `@langboard/app-server@0.1.2` and panel SDK
 `@langboard/app-panel@0.2.3`. Package updates do not establish deployment
 acceptance or preserve the old app-to-host combination gate.
 
 | App | Reviewed source | Native external resource | Fresh source test result |
 | --- | --- | --- | --- |
-| GitHub Panel | `3315a0595010a9015284fd3a61317e7a00e2c393` | `repository` | 22 passed |
-| GlitchTip Panel | `5f1e676` | `project` | 18 passed |
-| Dokploy Panel | `5686e0c` | `application`, `compose` | 14 passed |
+| GitHub Panel | `020b1d368dffb1fe2de171e23dadacb3d0a3a844` | `repository` | 23 passed |
+| GlitchTip Panel | `dc7e5f8` | `project` | 24 passed |
+| Dokploy Panel | `cca095ff054c9d8883707ec391ad3ccedc4343a6` | `application`, `compose` | 15 passed |
+
+Server SDK `0.1.2` at `09f703d` validates the native publication receipt:
+`signal_uid` must be a native UID and `duplicate` must be a boolean. HTTP success
+without that receipt is an unknown outcome, never delivery acceptance. All apps
+retain saved observations and perform no automatic publication retry. Dokploy
+stops subsequent batch publications after an ambiguous receipt. GlitchTip's
+explicit recovery command reuses its saved envelope without rereading the
+provider. These cases exercise controlled transports and temporary files, not
+live provider delivery. Server SDK tests: 4 passed.
 
 These local tests cover static service/manifest, host widget rendering, signal
 requests, source-scoped cancellation, provider normalization and optional adapter
