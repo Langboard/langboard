@@ -1,7 +1,8 @@
+import { isAxiosError } from "axios";
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface Runtime {
@@ -18,12 +19,14 @@ export default function CardAppRuntimes({
     userUID,
     canRespond,
     panelContext,
+    onAuthorityDenied,
 }: {
     projectUID: string;
     cardUID: string;
     userUID: string;
     canRespond: boolean;
     panelContext?: { appKey: string; app_revision: string; binding_revision: string };
+    onAuthorityDenied?: () => void;
 }) {
     const [t] = useTranslation();
     const [open, setOpen] = useState(!!panelContext);
@@ -61,6 +64,9 @@ export default function CardAppRuntimes({
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
     });
+    useEffect(() => {
+        if (panelContext && isAxiosError(query.error) && [401, 403, 404, 409].includes(query.error.response?.status ?? 0)) onAuthorityDenied?.();
+    }, [query.error, panelContext, onAuthorityDenied]);
     async function refresh() {
         const result = await query.refetch();
         if (!result.isError) {
@@ -82,7 +88,8 @@ export default function CardAppRuntimes({
             const result = await query.refetch();
             setUnresolved(result.isError);
             setConfirm(null);
-        } catch {
+        } catch (error) {
+            if (panelContext && isAxiosError(error) && [401, 403, 404, 409].includes(error.response?.status ?? 0)) onAuthorityDenied?.();
             setUnresolved(true); // No automatic second POST after an uncertain result.
         } finally {
             writing.current = false;

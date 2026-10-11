@@ -9,7 +9,7 @@ import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 api.defaults.baseURL = location.origin;
 const app: CatalogApp = {
-    key: "example-app",
+    key: new URLSearchParams(location.search).get("app") ?? "example-app",
     name: "Independent resources",
     version: "1.0.0",
     app_revision: "a".repeat(64),
@@ -46,4 +46,10 @@ function Fixture() {
         </div>
     );
 }
-void i18n.changeLanguage("en-US").then(() => createRoot(document.getElementById("root")!).render(<QueryClientProvider client={new QueryClient()}><Fixture /></QueryClientProvider>));
+void i18n.changeLanguage("en-US").then(() =>
+    createRoot(document.getElementById("root")!).render(
+        <QueryClientProvider client={new QueryClient()}>
+            <Fixture />
+        </QueryClientProvider>
+    )
+);

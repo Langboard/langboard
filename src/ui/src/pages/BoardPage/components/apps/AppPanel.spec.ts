@@ -209,54 +209,67 @@ test("independent resource panel pins authority, rejects identity injection and 
     await expect(page.locator("iframe")).toHaveCount(1);
 });
 
-for (const width of [390, 1440]) {
-    test(`independent app opens human runtime dialog without automatic writes at ${width}`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        const controls: unknown[] = [];
-        await page.route("**/panel-sdk-resources.json", (r) =>
-            r.fulfill({ json: { version: 1, module_url: "/widgets.mjs", css_url: "/widgets.css" } })
-        );
-        await page.route("**/board/board/apps/example-app/panel", (r) =>
-            r.fulfill({
-                json: {
-                    key: "example-app",
-                    version: "1.0.0",
-                    panel: { url: "https://panel.example.invalid/panel", name: "Independent resources" },
-                    app_revision: "a".repeat(64),
-                    binding_revision: "b".repeat(64),
-                },
-            })
-        );
-        await page.route("https://panel.example.invalid/sdk.mjs", (r) =>
-            r.fulfill({ body: sdk, contentType: "application/javascript", headers: { "Access-Control-Allow-Origin": "*" } })
-        );
-        await page.route("https://panel.example.invalid/panel", (r) =>
-            r.fulfill({
-                contentType: "text/html",
-                body: `<button id="open" disabled>Runtime controls</button><pre id="result"></pre><script type="module">import {connectPanel} from './sdk.mjs';const session=await connectPanel({expectedHostOrigin:'http://127.0.0.1:4181'});document.querySelector('#open').disabled=false;document.querySelector('#open').onclick=async()=>{try{document.querySelector('#result').textContent=JSON.stringify(await session.request('runtimes.open',{card_uid:'A1234567890'}));}catch(e){document.querySelector('#result').textContent=String(e);}};</script>`,
-            })
-        );
-        let state = "authorized";
-        await page.route("**/panel/runtimes", (r) =>
-            r.fulfill({ json: { items: [{ request_uid: "B1234567890", app_key: "example-app", generation: 7, state }], next_cursor: null } })
-        );
-        await page.route("**/panel/cards/A1234567890/runtimes/B1234567890/stop", (r) => {
-            controls.push(r.request().postDataJSON());
-            state = "stop_requested";
-            return r.fulfill({ json: { state, execution_resumed: false } });
+for (const appKey of ["example-app", "second-app"])
+    for (const width of [390, 1440]) {
+        test(`${appKey} opens human runtime dialog without automatic writes at ${width}`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 900 });
+            const controls: unknown[] = [];
+            await page.route("**/panel-sdk-resources.json", (r) =>
+                r.fulfill({ json: { version: 1, module_url: "/widgets.mjs", css_url: "/widgets.css" } })
+            );
+            await page.route(`**/board/board/apps/${appKey}/panel`, (r) =>
+                r.fulfill({
+                    json: {
+                        key: appKey,
+                        version: "1.0.0",
+                        panel: { url: "https://panel.example.invalid/panel", name: "Independent resources" },
+                        app_revision: "a".repeat(64),
+                        binding_revision: "b".repeat(64),
+                    },
+                })
+            );
+            await page.route("https://panel.example.invalid/sdk.mjs", (r) =>
+                r.fulfill({ body: sdk, contentType: "application/javascript", headers: { "Access-Control-Allow-Origin": "*" } })
+            );
+            await page.route("https://panel.example.invalid/panel", (r) =>
+                r.fulfill({
+                    contentType: "text/html",
+                    body: `<button id="open" disabled>Runtime controls</button><pre id="result"></pre><script type="module">import {connectPanel} from './sdk.mjs';const session=await connectPanel({expectedHostOrigin:'http://127.0.0.1:4181'});document.querySelector('#open').onclick=async()=>{document.querySelector('#result').textContent='requesting';try{document.querySelector('#result').textContent=JSON.stringify(await session.request('runtimes.open',{card_uid:'A1234567890'}));}catch(e){document.querySelector('#result').textContent=String(e);}};document.querySelector('#open').disabled=false;</script>`,
+                })
+            );
+            let state = "authorized";
+            let runtimeStatus = 200;
+            await page.route("**/panel/runtimes", (r) =>
+                r.fulfill({
+                    status: runtimeStatus,
+                    json: { items: [{ request_uid: "B1234567890", app_key: appKey, generation: 7, state }], next_cursor: null },
+                })
+            );
+            await page.route("**/panel/cards/A1234567890/runtimes/B1234567890/stop", (r) => {
+                controls.push(r.request().postDataJSON());
+                state = "stop_requested";
+                return r.fulfill({ json: { state, execution_resumed: false } });
+            });
+            await page.goto(`/src/pages/BoardPage/components/apps/AppPanel.fixture.html?app=${appKey}`);
+            await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
+            const openControls = page.frameLocator("iframe").getByRole("button", { name: "Runtime controls" });
+            await expect(openControls).toBeEnabled();
+            await openControls.evaluate((button: HTMLButtonElement) => button.click());
+            await expect(page.frameLocator("iframe").locator("#result")).toContainText("opened");
+            await expect(page.getByRole("dialog")).toBeVisible();
+            await expect(page.getByText("Permit issued", { exact: true })).toBeVisible();
+            expect(controls).toHaveLength(0);
+            await page.getByRole("button", { name: "Request stop", exact: true }).click();
+            expect(controls).toHaveLength(0);
+            await page.getByRole("button", { name: "Request stop", exact: true }).last().click();
+            await expect(page.getByText("Stop requested — awaiting runtime termination", { exact: true })).toBeVisible();
+            expect(controls).toEqual([{ generation: 7, app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await page.screenshot({ path: `.verification/panel-runtime-${appKey}-${width}.png`, fullPage: true });
+            runtimeStatus = 403;
+            await page.getByRole("button", { name: "Refresh", exact: true }).click();
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+            await expect(page.locator("iframe")).toHaveCount(0);
+            await expect(page.getByRole("alert")).toContainText("App panel unavailable");
         });
-        await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
-        await page.frameLocator("iframe").getByRole("button", { name: "Runtime controls" }).click();
-        await expect(page.frameLocator("iframe").locator("#result")).toContainText("opened");
-        await expect(page.getByRole("dialog")).toBeVisible();
-        await expect(page.getByText("Permit issued", { exact: true })).toBeVisible();
-        expect(controls).toHaveLength(0);
-        await page.getByRole("button", { name: "Request stop", exact: true }).click();
-        expect(controls).toHaveLength(0);
-        await page.getByRole("button", { name: "Request stop", exact: true }).last().click();
-        await expect(page.getByText("Stop requested — awaiting runtime termination", { exact: true })).toBeVisible();
-        expect(controls).toEqual([{ generation: 7, app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await page.screenshot({ path: `.verification/panel-runtime-${width}.png`, fullPage: true });
-    });
-}
+    }
