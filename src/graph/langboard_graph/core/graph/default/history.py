@@ -8,7 +8,9 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ChatSession, ProjectActivity, User
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardVisibilityPolicy import card_visibility_scope
 from langboard_shared.helpers import InfraHelper
+from sqlalchemy import and_, or_
 from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
 
@@ -257,10 +259,42 @@ def collect_project_activity_messages(
     column_uid = _first_string(rest_data.get("project_column_uid"))
     if not project_uid:
         return []
-
+    token = variables.get("app_api_token")
+    if variables.get("current_runner_type") != "user" or not isinstance(token, str):
+        return []
     try:
-        query = SqlBuilder.select.table(ProjectActivity).where(
-            ProjectActivity.column("project_id") == InfraHelper.convert_id(project_uid)
+        payload = AuthSecurity.decode_access_token(token)
+        if payload.get("internal") != "bot":
+            return []
+        actor_id = int(payload["sub"])
+        with DbSession.use(readonly=False) as db:
+            actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
+        if actor is None:
+            return []
+        with DomainService.use() as services:
+            resolved = services.card.resolve_visibility_context(project_uid, actor, channel=CollaborationChannel.Api)
+            if resolved is None:
+                return []
+            _, context = resolved
+            if not context.active or not context.project_member:
+                return []
+
+        query = (
+            SqlBuilder.select.table(ProjectActivity)
+            .outerjoin(
+                Card,
+                and_(
+                    ProjectActivity.column("card_id") == Card.column("id"),
+                    Card.column("project_id") == ProjectActivity.column("project_id"),
+                ),
+            )
+            .where(ProjectActivity.column("project_id") == InfraHelper.convert_id(project_uid))
+            .where(
+                or_(
+                    ProjectActivity.column("card_id").is_(None),
+                    and_(Card.column("deleted_at").is_(None), card_visibility_scope(context)),
+                )
+            )
         )
         if card_uid:
             query = query.where(ProjectActivity.column("card_id") == InfraHelper.convert_id(card_uid))
@@ -270,7 +304,7 @@ def collect_project_activity_messages(
             limit
         )
 
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             records = db.exec(query).all()
     except Exception as exc:
         Logger.main.exception(exc)
