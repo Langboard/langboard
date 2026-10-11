@@ -15,7 +15,11 @@ def install_package(actor, body, expected_revision=None, *, provenance=None):
     package = validate_package(body)
     declaration = package["declaration"]
     origin = Env.API_URL.rstrip("/")
-    if urlsplit(origin).scheme != "https":
+    parsed = urlsplit(origin)
+    host = urlsplit(Env.PUBLIC_UI_URL.rstrip("/"))
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+        or parsed.path or parsed.query or parsed.fragment or host.scheme != "https" or not host.hostname
+        or host.username or host.password or host.path or host.query or host.fragment):
         raise ValueError("Installed panels require a public HTTPS API URL")
     declaration["panel"]["url"] = f"{origin}/apps/packages/{declaration['key']}/{package['sha256']}/{package['panel_entry']}"
     if declaration.get("trust") is not None:
