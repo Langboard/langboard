@@ -19,6 +19,7 @@ from langboard_shared.domain.models import (
     ProjectActivity,
     ProjectAssignedUser,
     ProjectColumn,
+    ProjectRole,
     User,
 )
 from langboard_shared.Env import Env
@@ -49,7 +50,17 @@ def history_db(monkeypatch, request):
         "test_comment_history_reuses_current_card_visibility",
         "test_activity_history_filters_visibility_before_limit",
     }:
-        models += (Organization, Project, ProjectColumn, Bot, Card, ProjectActivity, ProjectAssignedUser, CardComment)
+        models += (
+            Organization,
+            Project,
+            ProjectColumn,
+            Bot,
+            Card,
+            ProjectActivity,
+            ProjectAssignedUser,
+            CardComment,
+            ProjectRole,
+        )
     for model in models:
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -256,7 +267,21 @@ def test_activity_scope_always_requires_matching_board(history_db, scope, monkey
 
 
 @pytest.mark.parametrize(
-    "case", ["shared", "internal", "private_owner", "private_other", "wrong_board", "nonmember", "deleted_user", "bot"]
+    "case",
+    [
+        "shared",
+        "internal",
+        "private_owner",
+        "private_other",
+        "wrong_board",
+        "nonmember",
+        "deleted_user",
+        "bot",
+        "member_read",
+        "member_all",
+        "member_no_read",
+        "read_revoked",
+    ],
 )
 def test_comment_history_reuses_current_card_visibility(history_db, case, monkeypatch):
     from langboard_shared.core.db import EditorContentModel
@@ -284,10 +309,24 @@ def test_comment_history_reuses_current_card_visibility(history_db, case, monkey
         )
         db.commit()
         db.add(CardComment(id=60, card_id=50, user_id=1, content=EditorContentModel(content="Scoped comment")))
+        if case.startswith("member_") or case == "read_revoked":
+            db.add(ProjectAssignedUser(id=70, project_id=30, user_id=2))
+            db.add(
+                ProjectRole(
+                    id=71,
+                    project_id=30,
+                    user_id=2,
+                    actions=["*"]
+                    if case == "member_all"
+                    else ["read"]
+                    if case in {"member_read", "read_revoked"}
+                    else ["card_write"],
+                )
+            )
         if case == "deleted_user":
             db.execute(update(User).where(User.id == 1).values(deleted_at=SafeDateTime.now()))
         db.commit()
-    actor = 2 if case == "nonmember" else 1
+    actor = 2 if case == "nonmember" or case.startswith("member_") or case == "read_revoked" else 1
     token = encode(
         {
             "sub": str(actor),
@@ -303,11 +342,32 @@ def test_comment_history_reuses_current_card_visibility(history_db, case, monkey
         "app_api_token": token,
         "project_uid": SnowflakeID(31 if case == "wrong_board" else 30).to_short_code(),
     }
+    if case == "read_revoked":
+        assert collect_card_comment_messages({"card_uid": SnowflakeID(50).to_short_code()}, 20, variables)
+        with Session(history_db) as db:
+            db.execute(update(ProjectRole).where(ProjectRole.id == 71).values(actions=["card_write"]))
+            db.commit()
     result = collect_card_comment_messages({"card_uid": SnowflakeID(50).to_short_code()}, 20, variables)
-    assert [item["content"] for item in result] == (["Scoped comment"] if case in {"shared", "internal"} else [])
+    assert [item["content"] for item in result] == (
+        ["Scoped comment"] if case in {"shared", "internal", "member_read", "member_all"} else []
+    )
 
 
-@pytest.mark.parametrize("case", ["board_limit", "private_direct", "nonmember", "revoked", "missing_token", "bot"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "board_limit",
+        "private_direct",
+        "nonmember",
+        "revoked",
+        "missing_token",
+        "bot",
+        "member_read",
+        "member_all",
+        "member_no_read",
+        "read_revoked",
+    ],
+)
 def test_activity_history_filters_visibility_before_limit(history_db, case, monkeypatch):
     from langboard_shared.core.types import SnowflakeID
     from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
@@ -362,12 +422,26 @@ def test_activity_history_filters_visibility_before_limit(history_db, case, monk
                 created_at=SafeDateTime.now() - timedelta(minutes=2),
             )
         )
+        if case.startswith("member_") or case == "read_revoked":
+            db.add(ProjectAssignedUser(id=70, project_id=30, user_id=2))
+            db.add(
+                ProjectRole(
+                    id=71,
+                    project_id=30,
+                    user_id=2,
+                    actions=["*"]
+                    if case == "member_all"
+                    else ["read"]
+                    if case in {"member_read", "read_revoked"}
+                    else ["card_write"],
+                )
+            )
         if case == "revoked":
             db.execute(update(User).where(User.id == 1).values(activated_at=None))
         db.commit()
     token = encode(
         {
-            "sub": "2" if case == "nonmember" else "1",
+            "sub": "2" if case == "nonmember" or case.startswith("member_") or case == "read_revoked" else "1",
             "iss": Env.PROJECT_NAME,
             "internal": "bot",
             "exp": int((SafeDateTime.now() + timedelta(minutes=5)).timestamp()),
@@ -381,7 +455,12 @@ def test_activity_history_filters_visibility_before_limit(history_db, case, monk
         "app_api_token": "" if case == "missing_token" else token,
     }
     rest = {"card_uid": SnowflakeID(51).to_short_code()} if case == "private_direct" else {}
+    if case == "read_revoked":
+        assert collect_project_activity_messages(variables, rest, 1)
+        with Session(history_db) as db:
+            db.execute(update(ProjectRole).where(ProjectRole.id == 71).values(actions=["card_write"]))
+            db.commit()
     result = collect_project_activity_messages(variables, rest, 1)
     assert [item["content"]["history"]["title"] for item in result] == (
-        ["Public event"] if case == "board_limit" else []
+        ["Public event"] if case in {"board_limit", "member_read", "member_all"} else []
     )

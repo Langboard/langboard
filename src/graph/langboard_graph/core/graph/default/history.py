@@ -6,7 +6,17 @@ from langboard_shared.core.logger import Logger
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ChatSession, ProjectActivity, User
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    CardComment,
+    ChatHistory,
+    ChatSession,
+    ProjectActivity,
+    ProjectRole,
+    User,
+)
+from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardVisibilityPolicy import card_visibility_scope
 from langboard_shared.helpers import InfraHelper
@@ -142,6 +152,27 @@ def _history_actor_id(variables: dict[str, Any]) -> int | None:
         return None
 
 
+def _can_read_project_history(project_uid: str, actor: User) -> bool:
+    # Visibility membership is not a role grant. Recheck current primary actions.
+    from langboard_shared.domain.models import Project
+
+    with DbSession.use(readonly=False) as db:
+        project = db.exec(
+            SqlBuilder.select.table(Project).where(Project.id == InfraHelper.convert_id(project_uid))
+        ).first()
+        if project is None:
+            return False
+        if project.owner_id == actor.id or actor.is_admin:
+            return True
+        role = db.exec(
+            SqlBuilder.select.table(ProjectRole).where(
+                ProjectRole.project_id == project.id,
+                ProjectRole.user_id == actor.id,
+            )
+        ).first()
+        return bool(role and role.is_granted(ProjectRoleAction.Read))
+
+
 def collect_chat_history_messages(
     variables: dict[str, Any], rest_data: dict[str, Any], limit: int
 ) -> list[GraphHistoryMessage]:
@@ -216,7 +247,7 @@ def collect_card_comment_messages(
         if actor is None:
             return []
         project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
-        if not project_uid:
+        if not project_uid or not _can_read_project_history(project_uid, actor):
             return []
         with DomainService.use() as services:
             if (
@@ -264,7 +295,7 @@ def collect_project_activity_messages(
     try:
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
-        if actor is None:
+        if actor is None or not _can_read_project_history(project_uid, actor):
             return []
         with DomainService.use() as services:
             resolved = services.card.resolve_visibility_context(project_uid, actor, channel=CollaborationChannel.Api)
