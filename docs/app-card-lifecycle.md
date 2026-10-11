@@ -124,6 +124,15 @@ provider verification. Unknown reports suppress further mutation delivery;
 subsequent current-authority readback can reconcile the outcome. Native users
 can read bounded receipts through
 `GET /board/{board}/card/{card}/apps/archives`; card visibility still applies.
+The owning app can reconcile an ambiguous report through
+`GET /apps/v1/boards/{board}/archives/{archive}` with its connection Bearer
+credential. The response contains the current receipt, outcome revision and
+delivery state, with `Cache-Control: no-store`. It rechecks the current archived
+incarnation, ownership, selected resources and explicit synchronization consent.
+It does not retry delivery or mutate the provider. A conflicting terminal report
+does not revoke an otherwise authorized receipt read. Consent withdrawal or a
+changed card/connection boundary prevents this read; retained native history
+remains available to authorized human users through the separate board route.
 Board settings now expose explicit per-card-type archive synchronization consent
 with current binding revisions. Disabling a board binding clears this consent and
 advances its generation so re-enabling cannot revive a queued archive operation.
