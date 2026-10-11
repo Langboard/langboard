@@ -18,7 +18,7 @@ from psycopg.rows import TupleRow
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Row
 from ..core.graph import GraphRunner
-from ..core.graph.checkpoint import lock_graph_thread
+from ..core.graph.checkpoint import graph_postgres_url, lock_graph_thread
 from ..core.graph.registry import delete_default_graph_thread, get_default_graph_status, run_default_graph
 from ..core.schema import GraphRequestModel, RunResponse
 from ..core.schema.Exception import APIException
@@ -128,7 +128,7 @@ async def webhook_run_graph(
 
 
 async def _acquire_background_slot() -> AsyncConnection[TupleRow] | None:
-    connection = await AsyncConnection.connect(Env.MAIN_DATABASE_URL)
+    connection = await AsyncConnection.connect(graph_postgres_url())
     try:
         for slot in range(Env.GRAPH_BACKGROUND_MAX_CONCURRENCY):
             cursor = await connection.execute(

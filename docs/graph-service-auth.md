@@ -67,3 +67,26 @@ remain pending runtime validation.
 
 Combined regression: 128 tests pass in 37.72 seconds on SQLite and disposable
 PostgreSQL. Ruff and `git diff --check` pass.
+
+
+## PostgreSQL connection consistency
+
+Graph now recognizes PostgreSQL dialects through the existing ORM database
+helper, then converts the scheme to psycopg's native `postgresql://` form.
+The authority, host, database and query parameters are preserved verbatim;
+credentials are not decoded or logged. Checkpoint setup, its reusable pool,
+thread lock pool and background concurrency slot use this same conversion.
+Previously `postgresql+psycopg://` was accepted by the ORM but did not enable
+Graph checkpoint storage and was invalid in direct psycopg connections.
+
+This adds no database calls and does not resize pools. The integration test
+uses disposable PostgreSQL to interrupt a native LangGraph graph, close its
+pool, recreate the pool and resume from the persisted checkpoint. It also
+exercises thread locks and the actual background slot acquisition/release
+with `postgresql://`, `postgres://` and `postgresql+psycopg://` settings.
+SQLite is not used as evidence for this persistence or locking behavior.
+Official connection format: https://www.psycopg.org/psycopg3/docs/api/connections.html
+
+Combined suite: 132 tests pass in 36.37 seconds; the new durable checkpoint
+and lock cases run only against real disposable PostgreSQL. Ruff and diff
+checks pass. Deployment and Phoenix runtime validation remain pending.
