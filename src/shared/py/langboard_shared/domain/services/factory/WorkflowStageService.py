@@ -208,15 +208,20 @@ class WorkflowStageService(BaseDomainService):
                 return None
             if binding.edit_revision() != expected_revision:
                 raise WorkflowStageEditConflict()
-            binding.state = "disabled"
-            binding.stage_transitions_enabled = False
-            binding.granted_capabilities = []
-            if binding.archive_sync_types:
-                binding.archive_sync_types = []
-                binding.archive_sync_revision += 1
-            db.update(binding)
+            self._disable_locked_app_binding(db, binding)
             db.after_commit(AppSettingPublisher.apps_changed)
             return binding
+
+    @staticmethod
+    def _disable_locked_app_binding(db, binding):
+        """Shared withdrawal semantics; caller owns authorization and row locks."""
+        binding.state = "disabled"
+        binding.stage_transitions_enabled = False
+        binding.granted_capabilities = []
+        if binding.archive_sync_types:
+            binding.archive_sync_types = []
+            binding.archive_sync_revision += 1
+        db.update(binding)
 
     def get_app_mapping(self, user: User, project_uid: str, app_key: str) -> dict | None:
         manifest = approved_manifests().get(app_key)
