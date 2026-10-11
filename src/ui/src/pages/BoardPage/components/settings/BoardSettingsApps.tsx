@@ -54,7 +54,7 @@ export default function BoardSettingsApps() {
                 expected_revision: app.binding?.revision ?? null,
                 app_revision: app.app_revision,
                 enabled,
-                read_signals: enabled && app.capabilities.includes("signals.read") && readSignals,
+                read_signals: enabled && app.capabilities.includes("signals.read") && !!app.signal_sources?.length && readSignals,
             });
             if (!enabled && currentUser) deletePanelState(JSON.stringify([currentUser.uid, project.uid, app.key, app.version]));
             setPanelTarget(null);
@@ -193,11 +193,14 @@ export default function BoardSettingsApps() {
                                                 <p className="text-sm">{t("project.settings.App panel consent help", { name: app.panel.name })}</p>
                                                 {app.capabilities.includes("signals.read") && (
                                                     <Checkbox
-                                                        checked={readSignals}
+                                                        checked={readSignals && !!app.signal_sources?.length}
                                                         onCheckedChange={(checked) => setReadSignals(checked === true)}
-                                                        disabled={pending || !canEditBasicInfo}
+                                                        disabled={pending || !canEditBasicInfo || !app.signal_sources?.length}
                                                         label={t("project.settings.Allow App signal reads")}
-                                                        description={t("project.settings.App signal read consent help")}
+                                                        description={t("project.settings.App signal source consent help", {
+                                                            sources:
+                                                                app.signal_sources?.join(", ") || t("project.settings.App signal sources missing"),
+                                                        })}
                                                     />
                                                 )}
                                                 <Button
