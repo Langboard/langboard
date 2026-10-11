@@ -252,7 +252,7 @@ async def test_panel_consent_scope_revisions_and_revocation(board, monkeypatch, 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 async def test_external_panel_read_needs_independent_consent_and_current_revision(board, monkeypatch):
     from langboard.routes.board import AppPanelDataApi
     native_read = AppPanelDataApi.list_board_signals
