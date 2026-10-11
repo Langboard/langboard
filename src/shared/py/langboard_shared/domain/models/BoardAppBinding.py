@@ -23,6 +23,8 @@ class BoardAppBinding(BaseDbModel, table=True):
     workflow_mapping: dict[str, str] = Field(default_factory=dict, sa_type=JSON, nullable=False)
     granted_capabilities: list[str] = Field(default_factory=list, sa_type=JSON, nullable=False)
     stage_transitions_enabled: bool = Field(default=False, nullable=False)
+    archive_sync_types: list[str] = Field(default_factory=list, sa_type=JSON, nullable=False)
+    archive_sync_revision: int = Field(default=1, nullable=False)
 
     def edit_revision(self) -> str:
         payload = json.dumps(
@@ -32,6 +34,8 @@ class BoardAppBinding(BaseDbModel, table=True):
                 "workflow_mapping": self.workflow_mapping,
                 "granted_capabilities": self.granted_capabilities,
                 "stage_transitions_enabled": self.stage_transitions_enabled,
+                "archive_sync_types": self.archive_sync_types,
+                "archive_sync_revision": self.archive_sync_revision,
             },
             sort_keys=True,
             separators=(",", ":"),
