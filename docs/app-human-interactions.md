@@ -393,3 +393,38 @@ Actual native card movement is still pending. It must revalidate the frozen
 mapping and current authority and use native ordering, workflow effects,
 readiness and history paths. Moving out of Ready invalidates the old execution
 permit; neither an answer nor a planned target silently renews that permit.
+
+## Explicit native workflow application
+
+After an accepted mapped answer, an authorized user may explicitly apply its
+frozen destination with `POST /board/{board}/card/{card}/apps/interactions/{id}/transition`.
+The body contains the exact `response_uid` and strict `expected_card_revision`.
+The server checks current native user membership, card visibility/update rights,
+owning app/connection/resource authority and the original responder's current
+answer authority. A request carrying execution context must still match the
+current execution grant before its first movement. Current frozen mapping and
+column/stage revisions are checked again. No app credential can impersonate this
+native user operation.
+
+The host uses the existing `CardService.change_order` to insert the card at the
+target column's start. Native ordering, workflow entry effects, readiness
+transaction, change sequence and post-commit notification/history paths remain
+shared. The movement and one immutable `AppCardInteractionTransition` record are
+committed together. A failed native operation rolls both back. An exact repeated
+actor/source revision returns the saved receipt without moving again; conflicting
+repeats fail. A card already at the target produces a distinct no-op receipt.
+Current authorization is still required when returning a duplicate receipt.
+
+Native request listing exposes current card revision and batches transition
+receipts with the page's answers. The card UI provides an explicit movement
+button after an answered mapped request and displays recorded movement after
+readback. A lost movement response locks replay until refresh. A movement receipt
+contains source/target, actor, binding/column revisions and resulting card change
+sequence. It never claims external execution resumed. Moving out of Ready does
+not renew the previous execution permit.
+
+Disposable PostgreSQL tests use the real native movement/order/readiness path,
+including rollback on native policy failure and four concurrent duplicate calls.
+Post-commit notification/activity publication is captured rather than sent, so
+actual downstream activity history delivery remains a deployed acceptance gate.
+Browser fixture tests use mocked HTTP and do not prove canary deployment.

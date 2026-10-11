@@ -291,6 +291,9 @@
     "textAnswer": "직접 입력",
     "readback": "다시 제출하기 전에 새로고침으로 결과를 확인하세요.",
     "submit": "응답 제출",
-    "openComment": "댓글 열기"
+    "openComment": "댓글 열기",
+    "applyMove": "카드 이동 적용",
+    "moveHelp": "이 카드를 {{stage}} 단계로 이동합니다. 실행은 재개하지 않습니다.",
+    "moveRecorded": "카드 이동이 기록되었습니다."
   }
 }

@@ -30,7 +30,9 @@ export interface CardInteraction {
         execution?: { request_uid: string; generation: number };
         presentation: { type: "card_action" | "choice_card" | "comment_reaction"; comment_uid?: string; reactions?: Record<string, string> };
     };
-    response: { values: Record<string, Value>; actor_uid: string } | null;
+    response: { values: Record<string, Value>; actor_uid: string; response_uid: string } | null;
+    workflow_plan?: { state: string; workflow_stage?: string };
+    workflow_receipt?: { state: string } | null;
     delivery_state?: string;
     reception_state?: string;
 }
@@ -55,7 +57,7 @@ function InteractionList({ projectUID, cardUID, userUID, canRespond }: Props) {
         queryKey: ["card-interactions", projectUID, cardUID, userUID, cursor],
         queryFn: async ({ signal }) =>
             (
-                await api.get<{ items: CardInteraction[]; next_cursor: string | null }>(path, {
+                await api.get<{ items: CardInteraction[]; next_cursor: string | null; card_revision: number }>(path, {
                     ...config,
                     signal,
                     params: { cursor },
@@ -90,6 +92,7 @@ function InteractionList({ projectUID, cardUID, userUID, canRespond }: Props) {
                                     path={path}
                                     canRespond={canRespond && !query.isFetching && !sending}
                                     onBusy={setSending}
+                                    cardRevision={query.data.card_revision}
                                     refresh={() => query.refetch()}
                                 />
                             ))}
@@ -128,12 +131,14 @@ function InteractionForm({
     canRespond,
     refresh,
     onBusy,
+    cardRevision,
 }: {
     item: CardInteraction;
     path: string;
     canRespond: boolean;
     refresh: () => Promise<{ isError: boolean }>;
     onBusy: (busy: boolean) => void;
+    cardRevision: number;
 }) {
     const [t, i18n] = useTranslation();
     const localized = (value: Localized) => value[i18n.resolvedLanguage ?? i18n.language] ?? value[i18n.language.split("-")[0]] ?? value.en;
@@ -194,6 +199,30 @@ function InteractionForm({
             onBusy(false);
         }
     };
+    const applyMove = async () => {
+        if (writing.current || !canRespond || uncertain || item.workflow_plan?.state !== "planned" || !item.response) return;
+        writing.current = true;
+        setPending(true);
+        onBusy(true);
+        try {
+            await api.post(
+                `${path}/${item.interaction_uid}/transition`,
+                {
+                    response_uid: item.response.response_uid,
+                    expected_card_revision: cardRevision,
+                },
+                config
+            );
+            setUncertain(true);
+            await refresh();
+        } catch {
+            setUncertain(true);
+        } finally {
+            writing.current = false;
+            setPending(false);
+            onBusy(false);
+        }
+    };
     return (
         <article className="card card-border card-sm border-border" aria-busy={pending}>
             <div className="card-body min-w-0 p-3">
@@ -226,6 +255,25 @@ function InteractionForm({
                             })
                             .join(" · ")}
                     </p>
+                )}
+                {item.response && item.workflow_plan?.state === "planned" && (
+                    <>
+                        {item.workflow_receipt ? (
+                            <p role="status" className="text-xs text-muted-foreground">
+                                {t("card.appInteractions.moveRecorded")}
+                            </p>
+                        ) : (
+                            <>
+                                <p className="text-xs text-muted-foreground">
+                                    {t("card.appInteractions.moveHelp", { stage: item.workflow_plan.workflow_stage })}
+                                </p>
+                                <Button size="sm" variant="outline" disabled={!canRespond || pending || uncertain} onClick={() => void applyMove()}>
+                                    {t("card.appInteractions.applyMove")}
+                                </Button>
+                                {uncertain && <p role="alert">{t("card.appInteractions.readback")}</p>}
+                            </>
+                        )}
+                    </>
                 )}
                 {item.response ? (
                     <>

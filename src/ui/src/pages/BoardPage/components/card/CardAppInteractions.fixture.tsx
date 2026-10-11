@@ -61,13 +61,25 @@ if (params.has("multi"))
             choices: item.request.questions[0].choices,
         },
     ];
+if (params.has("move")) {
+    item.state = "answered";
+    item.revision = 2;
+    item.response = { actor_uid: "00000000005", response_uid: "00000000006", values: { action: { choice_id: "review" } } };
+    item.workflow_plan = { state: "planned", workflow_stage: "review" };
+}
 api.defaults.adapter = async (config) => {
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ method: config.method, data });
-    if (config.method === "post") {
+    if (config.method === "post" && config.url?.endsWith("/transition")) {
+        item.workflow_receipt = { state: "moved" };
+        if (lost) {
+            lost = false;
+            throw new Error("Movement response lost");
+        }
+    } else if (config.method === "post") {
         item.state = "answered";
         item.revision = 2;
-        item.response = { actor_uid: "00000000005", values: data.values };
+        item.response = { actor_uid: "00000000005", response_uid: "00000000006", values: data.values };
         if (lost) {
             lost = false;
             throw new Error("Response lost after commit");
@@ -75,7 +87,7 @@ api.defaults.adapter = async (config) => {
     }
     return {
         config,
-        data: config.method === "get" ? { items: [structuredClone(item)], next_cursor: null } : {},
+        data: config.method === "get" ? { items: [structuredClone(item)], next_cursor: null, card_revision: 12 } : {},
         status: 200,
         statusText: "OK",
         headers: {},
