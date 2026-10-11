@@ -241,7 +241,9 @@ def test_panel_runtime_http_pins_app_and_current_human_authority(board, monkeypa
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
-def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board, monkeypatch):
+@pytest.mark.parametrize("app_key", ["example-app", "second-app"])
+def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board, monkeypatch, app_key):
+    import test_app_connection_resources as resources_fixture
     from langboard_shared.domain.models import (
         CardAssignedProjectLabel,
         CardAssignedUser,
@@ -257,8 +259,20 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
     from langboard_shared.tasks.webhooks import ExecutionOutboxTask
     from langboard_shared.tasks.webhooks.ExecutionReadinessUow import WORK_EVENT, current_execution
     from sqlalchemy import text
-
+    original_setup = resources_fixture.setup
+    def setup_app(actor):
+        connection, definition = original_setup(actor)
+        with DbSession.atomic() as db:
+            connection.app_key = app_key
+            definition.key = app_key
+            definition.declaration = {**definition.declaration, "key": app_key}
+            db.update(connection)
+            db.update(definition)
+        return connection, definition
+    monkeypatch.setattr(resources_fixture, "setup", setup_app)
+    monkeypatch.setattr(resources_fixture, "DECLARATION", {**resources_fixture.DECLARATION, "key": app_key})
     connection, card, token, request, ack_id = permit_scope(board, monkeypatch)
+    assert request.app_key == app_key
     engine = DbEngine.get_main_engine()
     EmployeeMembershipPolicy.__table__.create(engine)
     tables = set()
@@ -290,6 +304,9 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
     permit = authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
     service = DomainService()
     args = (service, board[1], board[2].id, card.id, request.id, request.generation)
+    with DbSession.use(readonly=False) as db:
+        initial_lease = db.exec(SqlBuilder.select.table(AppExecutionLease).where(AppExecutionLease.request_id == request.id)).first()
+        original_hash, original_expiry = initial_lease.runtime_token_hash, initial_lease.expires_at
     request_human_runtime_stop(*args)
     observed = current_execution(card.id)
     choice = {"new_run": True, "expected_generation": observed.generation, "expected_revision": observed.revision}
@@ -297,6 +314,9 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
         request_human_runtime_resume(*args, **choice)
     from langboard_shared.core.types import SnowflakeID
     assert check_app_runtime(SnowflakeID.from_short_code(permit['lease_uid']), runtime_token, stopped=True)["state"] == "stopped"
+    with pytest.raises(AppGovernanceDenied):
+        request_human_runtime_resume(*args, **choice, app_key="another-installed-app")
+    assert current_execution(card.id).generation == observed.generation and not enqueued
     with DbSession.atomic() as db:
         from langboard_shared.domain.models import BoardAppBinding
         binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == request.app_key)).first()
@@ -310,12 +330,72 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
     with DbSession.atomic() as db:
         binding.granted_capabilities = capabilities
         db.update(binding)
-    result = request_human_runtime_resume(*args, **choice)
-    assert result["state"] == "new_run_requested" and result["generation"] == observed.generation + 1
-    assert result["started"] is False and result["execution_resumed"] is False
-    assert len(enqueued) == 1
-    replay = request_human_runtime_resume(*args, **choice)
-    assert replay["request_uid"] == result["request_uid"] and replay["changed"] is False
+    from langboard_shared.domain.models import GraphApprovalRequest, ManualScopeRunGraphApprovalRequest
+    from langboard_shared.domain.models.GraphApprovalRequest import GraphApprovalRequestType, GraphApprovalStatus
+    with DbSession.atomic() as db:
+        approval = GraphApprovalRequest(thread_id="new-run-test", request_type=GraphApprovalRequestType.ManualScopeRun)
+        db.insert(approval)
+        db.insert(ManualScopeRunGraphApprovalRequest(approval_request_id=approval.id, scope_table="card", scope_id=card.id))
+    with pytest.raises(AppGovernanceDenied):
+        request_human_runtime_resume(*args, **choice)
+    assert current_execution(card.id).generation == observed.generation and not enqueued
+    with DbSession.atomic() as db:
+        approval.status = GraphApprovalStatus.Cancelled
+        db.update(approval)
+    from langboard.routes.board import AppPanelDataApi  # noqa: F401
+    from langboard_shared.domain.models import AppDefinition
+    with DbSession.atomic() as db:
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == request.app_key)).first()
+        definition.declaration = {**definition.declaration, "panel": {"url": "https://example.test/panel", "name": "Runtime panel"}}
+        binding.granted_capabilities = [*capabilities, "panels.render"]
+        db.update(definition)
+        db.update(binding)
+        revisions = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision()}
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(board[1].id)
+    headers = {"Authorization": f"Bearer {access}"}
+    panel = f"/board/{board[2].get_uid()}/apps/{request.app_key}/panel"
+    path = panel + f"/cards/{card.get_uid()}/runtimes/{request.get_uid()}/new"
+    body = {**revisions, "generation": request.generation, "expected_generation": observed.generation,
+            "expected_revision": observed.revision.isoformat()}
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        listed = client.post(panel + "/runtimes", json={**revisions, "card_uid": card.get_uid()}, headers=headers)
+        assert listed.status_code == 200, listed.text
+        item = listed.json()["items"][0]
+        assert item["new_run_available"] is True and item["current_card_revision"] == body["expected_revision"]
+        assert client.post(path, json={**body, "app_revision": "0" * 64}, headers=headers).status_code == 409
+        assert client.post(path, json={**body, "expected_generation": observed.generation + 1}, headers=headers).status_code == 409
+        assert client.post(path, json={**body, "expected_revision": observed.revision.replace(year=2000).isoformat()}, headers=headers).status_code == 409
+        assert client.post(path, json={**body, "generation": True}, headers=headers).status_code == 400
+        assert client.post(path.replace(request.app_key, "foreign-app"), json=body, headers=headers).status_code == 404
+        assert not enqueued and current_execution(card.id).generation == observed.generation
+        response = client.post(path, json=body, headers=headers)
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["state"] == "new_run_requested" and result["generation"] == observed.generation + 1
+        assert result["started"] is False and result["execution_resumed"] is False
+        assert len(enqueued) == 1
+        replay = client.post(path, json=body, headers=headers)
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["request_uid"] == result["request_uid"] and replay.json()["changed"] is False
+        resume = {**revisions, "generation": request.generation}
+        assert client.post(path.removesuffix("/new") + "/resume", json=resume, headers=headers).status_code == 409
+        native = f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/executions/{request.get_uid()}/new"
+        native_body = {key: body[key] for key in ("generation", "expected_generation", "expected_revision")}
+        native_replay = client.post(native, json=native_body, headers=headers)
+        assert native_replay.status_code == 200 and native_replay.json()["changed"] is False
+        listed = client.post(panel + "/runtimes", json={**revisions, "card_uid": card.get_uid()}, headers=headers)
+        assert listed.status_code == 200
+        retained_item = next(i for i in listed.json()["items"] if i["request_uid"] == request.get_uid())
+        assert retained_item["new_run_available"] is False and retained_item["resume_request_uid"] == result["request_uid"]
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "execution.run"]
+            db.update(binding)
+        assert client.post(path, json=body, headers=headers).status_code in (404, 409)
+        assert client.post(native, json=native_body, headers=headers).status_code == 403
     assert len(enqueued) == 1
     with pytest.raises(AppExecutionRequestConflict):
         request_human_runtime_resume(*args)
@@ -323,5 +403,6 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
         assert db.execute(text("SELECT COUNT(*) FROM execution_outbox")).scalar_one() == 1
     with DbSession.use(readonly=False) as db:
         retained = db.exec(SqlBuilder.select.table(AppExecutionLease).where(AppExecutionLease.request_id == request.id)).first()
-        assert retained.state == "stopped"
+        assert retained.state == "stopped" and retained.request_id == request.id
+        assert retained.runtime_token_hash == original_hash and retained.expires_at == original_expiry
         assert len([entry for entry in retained.history if entry.get("action") == "new_run_requested"]) == 1

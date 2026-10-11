@@ -10,7 +10,10 @@ interface Runtime {
     app_key: string;
     generation: number;
     current_generation?: number;
+    current_card_revision?: string | null;
+    new_run_available?: boolean;
     resume_request_uid?: string | null;
+    followup_action?: "resume_requested" | "new_run_requested" | null;
     state: "awaiting_permit" | "authorized" | "stop_requested" | "stopped";
 }
 export default function CardAppRuntimes({
@@ -38,7 +41,7 @@ export default function CardAppRuntimes({
     const path = `/board/${projectUID}/card/${cardUID}/apps/executions`;
     const panelPath = panelContext ? `/board/${projectUID}/apps/${encodeURIComponent(panelContext.appKey)}/panel` : null;
     const revisions = panelContext ? { app_revision: panelContext.app_revision, binding_revision: panelContext.binding_revision } : {};
-    const [confirm, setConfirm] = useState<{ item: Runtime; action: "stop" | "resume" } | null>(null);
+    const [confirm, setConfirm] = useState<{ item: Runtime; action: "stop" | "resume" | "new" } | null>(null);
     const query = useQuery({
         queryKey: ["card-app-runtimes", projectUID, cardUID, userUID, cursor, panelContext],
         queryFn: async ({ signal }) =>
@@ -74,14 +77,18 @@ export default function CardAppRuntimes({
             setConfirm(null);
         }
     }
-    async function control(item: Runtime, action: "stop" | "resume") {
+    async function control(item: Runtime, action: "stop" | "resume" | "new") {
         if (writing.current || sending || unresolved || query.isFetching || query.isError || !canRespond) return;
         writing.current = true;
         setSending(true);
         try {
             await api.post(
                 panelPath ? `${panelPath}/cards/${cardUID}/runtimes/${item.request_uid}/${action}` : `${path}/${item.request_uid}/${action}`,
-                { ...revisions, generation: item.generation },
+                {
+                    ...revisions,
+                    generation: item.generation,
+                    ...(action === "new" ? { expected_generation: item.current_generation, expected_revision: item.current_card_revision } : {}),
+                },
                 { env: { interceptToast: true } as never }
             );
             // POST receipts are not runtime termination evidence. Read current state.
@@ -123,7 +130,11 @@ export default function CardAppRuntimes({
                                 </p>
                                 {item.resume_request_uid && (
                                     <p role="status" className="text-sm">
-                                        {t("card.appRuntimes.resumeRequested")}
+                                        {t(
+                                            item.followup_action === "new_run_requested"
+                                                ? "card.appRuntimes.newRequested"
+                                                : "card.appRuntimes.resumeRequested"
+                                        )}
                                     </p>
                                 )}
                                 {item.state === "stopped" && !item.resume_request_uid && (item.current_generation ?? 0) > item.generation && (
@@ -134,6 +145,16 @@ export default function CardAppRuntimes({
                                         onClick={() => setConfirm({ item, action: "resume" })}
                                     >
                                         {t("card.appRuntimes.resume")}
+                                    </Button>
+                                )}
+                                {item.new_run_available && !item.resume_request_uid && item.current_card_revision && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={!canRespond || sending || unresolved}
+                                        onClick={() => setConfirm({ item, action: "new" })}
+                                    >
+                                        {t("card.appRuntimes.new")}
                                     </Button>
                                 )}
                                 {item.state === "authorized" && (
@@ -150,7 +171,7 @@ export default function CardAppRuntimes({
                         ))}
                     {confirm && (
                         <div className="space-y-2 rounded border p-3">
-                            <p>{t("card.appRuntimes.help")}</p>
+                            <p>{t(confirm.action === "new" ? "card.appRuntimes.newHelp" : "card.appRuntimes.help")}</p>
                             <Button
                                 size="sm"
                                 disabled={sending || unresolved || query.isError || query.isFetching || !canRespond}
