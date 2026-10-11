@@ -6,6 +6,7 @@ from langboard_shared.core.logger import Logger
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ProjectActivity, User
 from langboard_shared.helpers import InfraHelper
+from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
 
 
@@ -62,7 +63,7 @@ def create_langboard_history_context_prompt(tweaks: dict[str, Any], state: Defau
         state["history_context_prompt"] = ""
         return ""
 
-    messages = _sort_messages(messages)
+    messages = _sort_messages(redact_graph_credentials(messages))
     delivery, window_messages, delta = _create_history_window(messages, state.get("last_history_sync_at"))
     prompt_messages, summary = _apply_context_window(window_messages, delivery, config)
     state["history_messages"] = prompt_messages
