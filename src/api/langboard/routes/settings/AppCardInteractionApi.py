@@ -5,17 +5,23 @@ from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.services.AppCardInteractions import (
     AppCardInteractionConflict,
+    cancel_app_card_interaction,
     create_app_card_interaction,
     read_app_card_interaction,
 )
 from langboard_shared.domain.services.AppExecutionGrant import AppExecutionCredentialDenied
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InteractionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request: dict
+
+
+class CancelInteractionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
 
 
 def _invoke(operation, authorization, *args):
@@ -59,4 +65,24 @@ def read_interaction(
         SnowflakeID.from_short_code(project_uid),
         SnowflakeID.from_short_code(card_uid),
         SnowflakeID.from_short_code(interaction_uid),
+    )
+
+
+@AppRouter.api.post(
+    "/apps/v1/boards/{project_uid}/cards/{card_uid}/interactions/{interaction_uid}/cancel", tags=["App.Interactions"]
+)
+def cancel_interaction(
+    project_uid: str,
+    card_uid: str,
+    interaction_uid: str,
+    body: CancelInteractionBody,
+    authorization: str = Header(default="", max_length=256),
+):
+    return _invoke(
+        cancel_app_card_interaction,
+        authorization,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        SnowflakeID.from_short_code(interaction_uid),
+        body.expected_revision,
     )
