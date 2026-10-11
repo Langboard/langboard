@@ -1141,6 +1141,13 @@ rejected before identifier conversion. These are local HTTP/database tests;
 independent app onboarding, cross-board acceptance and deployed runtime remain
 separate requirements.
 
+Cross-board ingress regression explicitly binds the same organization connection
+to a second board, receives separate resource evidence and verifies both inboxes
+remain scoped. Before binding, publication is denied; after binding, selecting
+the other board's resource is denied in both directions. This uses database
+onboarding fixtures rather than an independently installed app, so the external
+developer onboarding and manual-card-creation acceptance gates remain open.
+
 The remaining generic contract must keep normalization in the external app and
 validate an approved finite event/resource/outcome policy, a versioned signed
 envelope, current connection/resource/board authority and replay identity at the
