@@ -1,5 +1,6 @@
 """Official LangChain VectorStore integration; source pointers stay in Langboard."""
 
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -17,7 +18,6 @@ def open_qdrant_store(
     settings: "DocumentRetrievalSettings", embeddings, fingerprint: str, allowed_urls: set[str], *, create=True
 ):
     """Connect only to an explicitly approved endpoint, using the official integration."""
-    import re
     from langchain_qdrant import QdrantVectorStore
     from qdrant_client import QdrantClient, models
     from .DocumentEmbedding import validated_embeddings
@@ -70,7 +70,6 @@ def open_document_vector_store(
     settings, embeddings, fingerprint: str, directory, allowed_urls: set[str], *, create=True
 ):
     """Keep backend connection details outside MCP and document processing."""
-    import re
     from .DocumentSqliteStore import open_sqlite_vector_store
 
     if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
