@@ -63,6 +63,13 @@ ACK, explicit workflow transition and runtime attestation remain separate facts.
 
 ## Deployment and rollback gates
 
+`Check App Contracts` is a separate native API contract workflow. It uses the
+configured runner and a disposable PostgreSQL service, verifies the reviewed
+SDK against both Python project lockfiles before installation, and preserves
+JUnit results. The same selected cases passed locally: 52 passed, 25 skipped.
+That result does not establish a successful remote workflow run. Draft PRs
+remain skipped; a ready same-repository PR or explicit dispatch is required.
+
 Before release approval, record immutable API, worker, socket and UI image
 digests with their source revisions; record the installed database head and the
 consuming app versions. An older running source revision is not evidence for

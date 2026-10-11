@@ -3,6 +3,7 @@
 import json
 import shutil
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from verify_python_artifact import verify
@@ -18,10 +19,15 @@ class ArtifactVerificationTests(unittest.TestCase):
         self.vendor.mkdir(parents=True)
         for name in ("pyproject.toml", "uv.lock"):
             shutil.copy2(source / name, self.root / name)
+        shared = self.root / "src/shared/py"
+        shared.mkdir(parents=True)
+        for name in ("pyproject.toml", "uv.lock"):
+            shutil.copy2(source / "src/shared/py" / name, shared / name)
         shutil.copy2(source / "src/sdk/vendor/provenance.json", self.vendor)
         for path in (source / "src/sdk/vendor").glob("*.whl"):
             shutil.copy2(path, self.vendor)
-        self.artifact = next(self.vendor.glob("*.whl"))
+        config = tomllib.loads((self.root / "pyproject.toml").read_text())
+        self.artifact = self.root / config["tool"]["uv"]["sources"]["langboard-sdk"]["path"]
 
     def test_reviewed_distribution(self):
         self.assertEqual(verify(self.root), self.artifact.resolve())
@@ -59,6 +65,19 @@ class ArtifactVerificationTests(unittest.TestCase):
             )
         )
         with self.assertRaisesRegex(ValueError, "lock identity mismatch"):
+            verify(self.root)
+
+    def test_shared_lock_digest_drift(self):
+        path = self.root / "src/shared/py/uv.lock"
+        expected = json.loads((self.vendor / "provenance.json").read_text())["artifacts"][self.artifact.name]
+        path.write_text(path.read_text().replace(expected, "0" * 64))
+        with self.assertRaisesRegex(ValueError, "lock digest mismatch"):
+            verify(self.root)
+
+    def test_shared_project_path_drift(self):
+        path = self.root / "src/shared/py/pyproject.toml"
+        path.write_text(path.read_text().replace(self.artifact.name, "different.whl"))
+        with self.assertRaisesRegex(ValueError, "project artifact mismatch"):
             verify(self.root)
 
 
