@@ -13,7 +13,7 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. SDK 0.2.16 provides request validation and app-authenticated create/read. Host storage and app-authenticated cancellation are implemented; human response, delivery, native UI and runtime continuation remain pending. SDK 0.2.16 also provides the cancellation method; human response and runtime cancellation remain separate gates.
+proof. SDK 0.2.16 provides request validation and app-authenticated create/read. Host storage, app-authenticated cancellation and authenticated human response storage are implemented; delivery, native UI and runtime continuation remain pending. SDK 0.2.16 also provides the cancellation method; human response and runtime cancellation remain separate gates.
 
 ## Implemented app cancellation
 
@@ -216,3 +216,34 @@ length bounds. Choice or text is exclusive. Extra/secret fields and non-finite
 JSON are rejected; total values are capped at 32 KiB. This is input validation
 only. Human authentication, acceptance, revision/generation/expiry checks, durable
 response storage, delivery and execution continuation remain unimplemented gates.
+
+## Implemented human response storage
+
+`POST /board/{board}/card/{card}/apps/interactions/{interaction}/responses`
+requires native user authentication. App credentials and bots cannot impersonate
+responders. The body includes strict `expected_revision`, `idempotency_key`,
+`values`, and optional `execution_generation`; actor identity is server-derived.
+The current activated user must read the card and hold native card-update rights
+(or own the board). Current app ownership, connection, selected resource and
+`interactions.request` declaration/grant are checked even on a retry. Executable
+requests additionally pin the current execution request/generation/authority.
+
+A row lock serializes response and cancellation against the immutable request.
+One response row per interaction retains the actor, original revision, values,
+generation and idempotency key. An exact retry returns the same response; changed
+actor/key/body/revision/generation conflicts. Expired, cancelled or archived
+requests cannot accept new answers. `comment_reaction` requests reject direct
+submission until a native current-reaction handler is implemented. App readback
+includes the accepted response under its current authority. Migration downgrade
+refuses to discard retained response history.
+
+`answered` is the response projection, not a new card-wide acknowledgment status.
+The receipt explicitly reports `execution_resumed: false`,
+`workflow_transitioned: false` and `delivery_state: not_queued`. No event is
+queued and no provider action or column movement follows acceptance yet. Those
+remaining gates must use the retained response identity and their own receipts.
+SQLite and disposable PostgreSQL HTTP/storage regressions cover authentication,
+exact retries, conflicts, expiry, cancellation and current grant revocation.
+Four concurrent identical PostgreSQL submissions return one response UID with
+exactly one changed receipt. Competing different actors/bodies remain explicit
+conflicts; external delivery and continuation are not covered by this test.

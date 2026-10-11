@@ -18,7 +18,7 @@ from langboard_shared.domain.services.factory.WorkflowStageService_app_test impo
 from test_app_execution_ack import scope
 
 
-@pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypatch):
     connection, card, token, _ = scope(board, monkeypatch)
     migration = importlib.import_module("langboard.migrations.versions.20261011090000-ed71a806b2f4")
@@ -29,6 +29,14 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             migration.upgrade()
     finally:
         migration.op = original
+    response_migration = importlib.import_module("langboard.migrations.versions.20261011100000-fe82b917c3a5")
+    original = response_migration.op
+    try:
+        with DbEngine.get_main_engine().begin() as db:
+            response_migration.op = Operations(MigrationContext.configure(db))
+            response_migration.upgrade()
+    finally:
+        response_migration.op = original
     with DbSession.atomic() as db:
         definition = db.exec(
             SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)
@@ -168,12 +176,107 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert client.post(cancel_path, json={"expected_revision": 2}, headers=headers).status_code == 409
         replay = client.post(path, json={"request": cancel_body}, headers=headers).json()
         assert replay["state"] == "cancelled" and replay["execution_resumed"] is False
+        from langboard_shared.core.types import SnowflakeID
+        from langboard_shared.domain.services import DomainService
+        from langboard_shared.domain.services.AppCardInteractions import (
+            AppCardInteractionConflict,
+            respond_to_app_card_interaction,
+        )
+        from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+
+        monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+        from langboard_shared.domain.models import EmployeeMembershipPolicy
+
+        EmployeeMembershipPolicy.__table__.create(DbEngine.get_main_engine())
+        args = (
+            DomainService(),
+            board[1],
+            board[2].id,
+            card.id,
+            SnowflakeID.from_short_code(mixed_receipt["interaction_uid"]),
+        )
+        answer = {"action": {"text": "추가 검토 필요"}}
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*args, 2, "response-1", answer)
+        with pytest.raises(ValueError):
+            respond_to_app_card_interaction(*args, 1, "response-1", {"action": {"choice_id": "Review"}})
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*args, 1, "response-1", answer, execution_generation=1)
+        expired_args = (*args[:4], SnowflakeID.from_short_code(receipt["interaction_uid"]))
+        cancelled_args = (*args[:4], SnowflakeID.from_short_code(pending["interaction_uid"]))
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*expired_args, 1, "response-1", {"action": {"choice_id": "review"}})
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*cancelled_args, 2, "response-1", {"action": {"choice_id": "review"}})
+        from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+        from langboard.routes.board import CardAppInteractionsApi  # noqa: F401
+        from langboard_shared.core.security import AuthSecurity
+        from langboard_shared.Env import Env
+
+        human_app = FastAPI()
+        human_app.include_router(AppRouter.api)
+        human_app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+        human_path = f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/interactions/{mixed_receipt['interaction_uid']}/responses"
+        form = {"expected_revision": 1, "idempotency_key": "response-1", "values": answer}
+        with TestClient(human_app) as human_client:
+            assert human_client.post(human_path, json=form).status_code == 401
+            assert human_client.post(human_path, json=form, headers=headers).status_code == 401
+            access, refresh = AuthSecurity.authenticate(board[1].id)
+            human_client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            human_headers = {"Authorization": f"Bearer {access}"}
+            assert (
+                human_client.post(human_path, json={**form, "actor_uid": "A" * 11}, headers=human_headers).status_code
+                == 400
+            )
+            concurrent = DbEngine.get_main_engine().dialect.name == "postgresql"
+            if concurrent:
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    results = list(
+                        pool.map(lambda _: respond_to_app_card_interaction(*args, 1, "response-1", answer), range(4))
+                    )
+                assert sum(result["changed"] for result in results) == 1
+                assert len({result["response_uid"] for result in results}) == 1
+            accepted_response = human_client.post(human_path, json=form, headers=human_headers)
+            assert accepted_response.status_code == 200, accepted_response.text
+            accepted = accepted_response.json()
+            assert accepted_response.headers["cache-control"] == "no-store"
+            assert human_client.post(human_path, json=form, headers=human_headers).json()["changed"] is False
+        assert accepted["state"] == "answered" and accepted["revision"] == 2
+        assert accepted["actor_uid"] == board[1].get_uid() and accepted["changed"] is (not concurrent)
+        assert accepted["execution_resumed"] is False and accepted["workflow_transitioned"] is False
+        assert respond_to_app_card_interaction(*args, 1, "response-1", answer)["changed"] is False
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*args, 1, "response-1", {"action": {"choice_id": "retry"}})
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*args, 1, "response-2", answer)
+        answered = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), mixed_receipt["interaction_uid"]))
+        assert answered["state"] == "answered"
+        assert answered["response"]["response_uid"] == accepted["response_uid"]
+        assert answered["response"]["values"] == answer
+        assert answered["response"]["actor_uid"] == board[1].get_uid()
+        from langboard_sdk import NativeApiError
+
+        with pytest.raises(NativeApiError):
+            asyncio.run(
+                sdk.cancel(board[2].get_uid(), card.get_uid(), mixed_receipt["interaction_uid"], expected_revision=2)
+            )
         with DbSession.atomic() as db:
+            binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "interactions.request"]
+            db.update(binding)
+        with pytest.raises(AppGovernanceDenied):
+            respond_to_app_card_interaction(*args, 1, "response-1", answer)
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
+            db.update(binding)
             connection.state = "revoked"
             db.update(connection)
         assert client.get(read_path, headers=headers).status_code == 401
         assert client.post(path, json={"request": body}, headers=headers).status_code == 401
         assert client.post(cancel_path, json={"expected_revision": 1}, headers=headers).status_code == 401
+        with pytest.raises(AppGovernanceDenied):
+            respond_to_app_card_interaction(*args, 1, "response-1", answer)
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
         assert len(rows) == 3 and {row.app_request_key for row in rows} == {
@@ -182,3 +285,15 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             "choice-or-text",
         }
         assert next(row for row in rows if row.state == "cancelled").request == cancel_body
+        from langboard_shared.domain.models import AppCardInteractionResponse
+
+        answers = db.exec(SqlBuilder.select.table(AppCardInteractionResponse)).all()
+        assert len(answers) == 1 and answers[0].values == answer and answers[0].actor_id == board[1].id
+    with DbEngine.get_main_engine().begin() as db:
+        original = response_migration.op
+        try:
+            response_migration.op = Operations(MigrationContext.configure(db))
+            with pytest.raises(RuntimeError, match="Cannot discard human response history"):
+                response_migration.downgrade()
+        finally:
+            response_migration.op = original

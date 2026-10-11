@@ -1,11 +1,12 @@
 """App-owned structured requests, independent of inbox signals and runtime control."""
 
 from datetime import datetime, timedelta
-from langboard_sdk.interactions import validate_card_interaction
+from langboard_sdk.interactions import validate_card_interaction, validate_card_interaction_values
 from ...core.db import DbSession, SqlBuilder
-from ...core.types import SafeDateTime
+from ...core.types import SafeDateTime, SnowflakeID
 from ..models import (
     AppCardInteraction,
+    AppCardInteractionResponse,
     AppConnection,
     AppDefinition,
     AppResourceBinding,
@@ -35,6 +36,10 @@ def _scope(db, token, project_id, card_id):
         principal = authenticate_connection_credential(token)
     except AppGovernanceDenied as exc:
         raise AppExecutionCredentialDenied() from exc
+    return _scope_principal(db, principal, project_id, card_id)
+
+
+def _scope_principal(db, principal, project_id, card_id):
     project = _current(db, Project, project_id)
     card = _current(db, Card, card_id)
     connection = _current(db, AppConnection, principal.connection_id)
@@ -109,12 +114,31 @@ def _scope(db, token, project_id, card_id):
 
 
 def _receipt(row):
+    with DbSession.use(readonly=False) as db:
+        answer = db.exec(
+            SqlBuilder.select.table(AppCardInteractionResponse).where(
+                AppCardInteractionResponse.interaction_id == row.id
+            )
+        ).first()
     return {
         "schema_version": 1,
         "interaction_uid": row.get_uid(),
         "revision": row.revision,
-        "state": "expired" if row.state == "pending" and _expired(row.expires_at, SafeDateTime.now()) else row.state,
+        "state": "answered"
+        if answer
+        else "expired"
+        if row.state == "pending" and _expired(row.expires_at, SafeDateTime.now())
+        else row.state,
         "request": row.request,
+        "response": {
+            "response_uid": answer.get_uid(),
+            "actor_uid": SnowflakeID(answer.actor_id).to_short_code(),
+            "values": answer.values,
+            "execution_generation": answer.execution_generation,
+            "accepted_at": answer.created_at.isoformat(),
+        }
+        if answer
+        else None,
         "execution_resumed": False,
     }
 
@@ -203,6 +227,8 @@ def cancel_app_card_interaction(token, project_id, card_id, interaction_id, expe
         ).first()
         if row is None:
             raise AppGovernanceDenied()
+        if _receipt(row)["state"] == "answered":
+            raise AppCardInteractionConflict()
         if row.state == "cancelled" and row.revision == expected_revision + 1:
             return {**_receipt(row), "changed": False}
         if row.revision != expected_revision or row.state != "pending":
@@ -214,3 +240,158 @@ def cancel_app_card_interaction(token, project_id, card_id, interaction_id, expe
         row.revision += 1
         db.update(row)
         return {**_receipt(row), "changed": True}
+
+
+def respond_to_app_card_interaction(
+    service,
+    actor,
+    project_id,
+    card_id,
+    interaction_id,
+    expected_revision,
+    idempotency_key,
+    values,
+    execution_generation=None,
+    channel=None,
+):
+    """Accept one current human answer; delivery and workflow outcomes are separate."""
+    import re
+    from ...core.security.CollaborationChannel import CollaborationChannel
+    from ...core.types import SnowflakeID
+    from ..models import AppExecutionRequest, ProjectAssignedUser
+    from .AppConnectionAuthentication import AuthenticatedAppConnection, _connection
+    from .AppExecutionGrant import evaluate_connection_execution_grant
+
+    if type(expected_revision) is not int or expected_revision < 1:
+        raise ValueError("A positive interaction revision is required")
+    if not isinstance(idempotency_key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", idempotency_key):
+        raise ValueError("Invalid response idempotency key")
+    if execution_generation is not None and (type(execution_generation) is not int or execution_generation < 1):
+        raise ValueError("Invalid execution generation")
+    if not isinstance(actor, User):
+        raise AppGovernanceDenied()
+    with DbSession.atomic() as db:
+        # Match app mutations: project/card locks precede user and request locks.
+        project = _current(db, Project, project_id)
+        card = _current(db, Card, card_id)
+        current = _current(db, User, actor.id)
+        if (
+            current is None
+            or current.deleted_at
+            or not current.activated_at
+            or project is None
+            or project.deleted_at
+            or card is None
+            or card.project_id != project_id
+            or card.deleted_at
+            or card.archived_at
+        ):
+            raise AppGovernanceDenied()
+        if (
+            service.card.resolve_readable_card(project_id, card_id, current, channel or CollaborationChannel.Api)
+            is None
+        ):
+            raise AppGovernanceDenied()
+        if project.owner_id != current.id:
+            member = db.exec(
+                SqlBuilder.select.table(ProjectAssignedUser).where(
+                    ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == current.id
+                )
+            ).first()
+            role = db.exec(
+                SqlBuilder.select.table(ProjectRole).where(
+                    ProjectRole.project_id == project.id, ProjectRole.user_id == current.id
+                )
+            ).first()
+            if member is None or role is None or not role.is_granted("card_update"):
+                raise AppGovernanceDenied()
+        row = db.exec(
+            SqlBuilder.select.table(AppCardInteraction)
+            .where(
+                AppCardInteraction.id == interaction_id,
+                AppCardInteraction.project_id == project_id,
+                AppCardInteraction.card_id == card_id,
+            )
+            .with_for_update()
+        ).first()
+        if row is None:
+            raise AppGovernanceDenied()
+        connection = _connection(db, row.connection_id)
+        principal = AuthenticatedAppConnection(
+            connection.app_key, connection.id, 0, connection.owner_id, connection.organization_id
+        )
+        _scope_principal(db, principal, project_id, card_id)
+        if row.app_key != principal.app_key:
+            raise AppGovernanceDenied()
+        if row.request["presentation"]["type"] == "comment_reaction":
+            # Reaction requests must be resolved by a new native reaction event.
+            raise AppGovernanceDenied()
+        context = row.request.get("execution")
+        if context:
+            if execution_generation != context["generation"]:
+                raise AppCardInteractionConflict()
+            execution = _current(db, AppExecutionRequest, SnowflakeID.from_short_code(context["request_uid"]))
+            if (
+                execution is None
+                or execution.card_id != card_id
+                or execution.project_id != project_id
+                or execution.app_key != row.app_key
+                or execution.connection_id != row.connection_id
+                or execution.generation != execution_generation
+            ):
+                raise AppGovernanceDenied()
+            authority = evaluate_connection_execution_grant(
+                row.connection_id, project_id, card_id, execution_generation
+            )
+            if authority["authority_version"] != execution.authority.get("authority_version"):
+                raise AppCardInteractionConflict()
+        elif execution_generation is not None:
+            raise AppCardInteractionConflict()
+        validated = validate_card_interaction_values(row.request, values)
+        answer = db.exec(
+            SqlBuilder.select.table(AppCardInteractionResponse).where(
+                AppCardInteractionResponse.interaction_id == row.id
+            )
+        ).first()
+        if answer:
+            if (
+                answer.actor_id != current.id
+                or answer.expected_revision != expected_revision
+                or answer.idempotency_key != idempotency_key
+                or answer.values != validated
+                or answer.execution_generation != execution_generation
+            ):
+                raise AppCardInteractionConflict()
+            changed = False
+        else:
+            if (
+                row.revision != expected_revision
+                or row.state != "pending"
+                or _expired(row.expires_at, SafeDateTime.now())
+            ):
+                raise AppCardInteractionConflict()
+            answer = AppCardInteractionResponse(
+                interaction_id=row.id,
+                actor_id=current.id,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+                values=validated,
+                execution_generation=execution_generation,
+            )
+            db.insert(answer)
+            row.revision += 1
+            db.update(row)
+            changed = True
+        return {
+            "schema_version": 1,
+            "interaction_uid": row.get_uid(),
+            "response_uid": answer.get_uid(),
+            "actor_uid": current.get_uid(),
+            "revision": row.revision,
+            "state": "answered",
+            "values": answer.values,
+            "changed": changed,
+            "execution_resumed": False,
+            "workflow_transitioned": False,
+            "delivery_state": "not_queued",
+        }
