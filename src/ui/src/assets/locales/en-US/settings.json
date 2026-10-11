@@ -319,5 +319,9 @@
   "App first organizations": "First page",
   "App mode inherit": "Inherit instance policy",
   "App mode inherit description": "Use the instance policy ceiling without an additional organization restriction.",
-  "App organization ceiling": "Organization restrictions cannot override the instance policy ceiling."
+  "App organization ceiling": "Organization restrictions cannot override the instance policy ceiling.",
+  "Workspace setup": "Workspace setup",
+  "People and notifications": "People and notifications",
+  "AI and automation": "AI and automation",
+  "Apps and integrations": "Apps and integrations"
 }

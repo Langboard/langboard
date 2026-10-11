@@ -319,5 +319,9 @@
   "App first organizations": "最初のページ",
   "App mode inherit": "インスタンスポリシーを継承",
   "App mode inherit description": "組織の追加制限なしでインスタンスの上限を適用します。",
-  "App organization ceiling": "組織の制限はインスタンスの上限を解除できません。"
+  "App organization ceiling": "組織の制限はインスタンスの上限を解除できません。",
+  "Workspace setup": "ワークスペース設定",
+  "People and notifications": "ユーザー・通知",
+  "AI and automation": "AI・自動化",
+  "Apps and integrations": "アプリ・連携"
 }

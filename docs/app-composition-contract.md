@@ -146,3 +146,23 @@ infer provider grouping. Rollback removes presentation memberships only.
    owner scopes, grants and API responses for old SDK/MCP clients.
 6. PostgreSQL HTTP tests and authenticated desktop/mobile browser flows prove
    these operations. Source checks and this document alone do not satisfy them.
+
+
+## Settings navigation and loading
+
+The board settings page separates basic board configuration, Apps, people and
+notifications, and AI/automation. A section mounts when first visited; revisiting
+it retains local editor state. App Store overview tiles do not mount native
+connection editors. Managing one module uses the full available content width.
+Connection editors stay mounted while switching that module's management sections
+so unsaved instance and credential-reference fields survive. Leaving the module
+or board still ends this local draft; credentials are not persisted by this UI.
+
+Instance settings group permitted routes by workspace setup, people/notifications,
+AI/automation, and Apps/integrations. Route permissions and direct links remain
+unchanged. Individual settings pages load through React lazy/Suspense.
+
+Board details failures now expose a retry instead of leaving only notification
+settings visible. This recovery affordance does not establish the cause of a
+browser request abort. Canary browser verification reproduced the abort twice;
+the fix must be deployed before its recovery behavior can be verified there.
