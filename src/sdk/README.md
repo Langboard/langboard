@@ -113,3 +113,8 @@ updates reject card-producing definitions without lifecycle policies, including
 legacy schema submissions. Existing approved definitions remain readable;
 creation-time type enforcement, feature settings and lifecycle dispatch remain
 separate implementation gates. No external archive action runs at registration.
+
+Python SDK 0.2.16 adds `AppCardInteractions.cancel` against the host's strict
+revision-fenced cancellation route. The reviewed wheel and source distribution
+are pinned by source commit and SHA256. Cancellation retains the original request
+and does not deliver a human response or stop/resume an external runtime.
