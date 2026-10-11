@@ -603,3 +603,19 @@ Local HTTP tests cover same-generation denial, Ready mapping loss, new request
 and outbox, idempotent replay, revoked authority and the unchanged stopped lease.
 Browser coverage includes lost-response resume readback. Deployed external
 runtime and end-to-end readiness producer acceptance remain unfinished.
+
+## Execution request delivery after acceptance
+
+Initial app execution requests and explicit human resume requests share the same
+acceptance path. When the app declares `events.receive`, the board grants it, and
+the connection has a currently approved event destination, acceptance snapshots
+the destination UID and revision in the outbox transaction. The existing delivery
+task is scheduled only after that transaction commits. Duplicate acceptance and
+transaction rollback do not schedule another delivery.
+
+If the broker is unavailable after commit, the pending event retains its frozen
+destination for the existing recovery worker. Delivery still rechecks current
+authority and the destination revision before sending signed bytes. Acceptance
+without a valid approved destination does not infer a network target or retarget
+the event later. A request receipt remains `started=false`; neither persistence
+nor queue submission proves that an external runtime started.
