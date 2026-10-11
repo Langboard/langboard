@@ -219,3 +219,11 @@ revoke the connection and require attention without changing group presentation
 or deleting the owned card. Stale pre-update binding revisions reject withdrawal.
 The expanded native suite passes 16 cases; provider network/runtime acceptance
 remains a separate gate.
+
+SDK 0.2.28 exposes the same administrator discovery/save/ungroup and board
+snapshot/withdrawal contracts through AppRegistry and AppManager. The host pins
+the reviewed wheel and digest; old catalog/module methods remain available.
+The SDK-to-native authenticated HTTP suite runs against SQLite and PostgreSQL,
+including stale withdrawal rejection, unbound-member null revisions and preserved
+module state after ungrouping. Combined composition/registry suite: 24 passed.
+The standalone SDK suite passes 86 Python cases, including Python 3.13 imports.
