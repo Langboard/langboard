@@ -276,13 +276,14 @@ function EditorWrapper({
             return;
         }
 
-        const restoreKey = `${documentID}\u0000${authoritativeCollaborativeValue}`;
-        if (restoredCollaborativeValueRef.current === restoreKey) {
+        // Later server snapshots must not replace the live Yjs document or unsaved edits.
+        // Explicit recovery remains available through onCollaborativeValueResetReady.
+        if (restoredCollaborativeValueRef.current === documentID) {
             return;
         }
 
         resetCollaborativeValue(authoritativeCollaborativeValue);
-        restoredCollaborativeValueRef.current = restoreKey;
+        restoredCollaborativeValueRef.current = documentID;
     }, [authoritativeCollaborativeValue, documentID, isCollaborativeReady, readOnly, resetCollaborativeValue]);
 
     useEffect(() => {

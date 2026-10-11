@@ -199,3 +199,16 @@ Python SDK 0.2.29 (`e83c19b`) applies the same native signal receipt contract as
 server SDK 0.1.2. Standalone Python regression tests: 87 passed. Malformed HTTP
 success receipts raise MutationOutcomeUnknown without retrying. The host root
 and shared Python projects pin the same reviewed wheel and digest.
+
+### Collaborative editor snapshot protection
+
+The shared editor restores the authoritative Markdown snapshot once per document
+and edit session. Later server snapshots do not reset its live Yjs document.
+Explicit recovery and cancellation callbacks retain the existing remote-editor
+guard. A local Hocuspocus server and the production Plate/Yjs editor reproduce
+the delayed-snapshot defect before the fix on 1280px and 390px viewports, then
+verify unsaved typing survives and explicit reset still works after the fix.
+Run `node_modules/.bin/playwright test -c playwright.collaborative-draft.config.ts`
+from `src/ui`, with the UI and socket workspace dependencies installed. The
+transport-only fixture replaces authentication; production authentication,
+multiple-user collaboration and deployed acceptance remain separate gates.
