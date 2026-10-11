@@ -21,7 +21,7 @@ Exact reviewed artifact digests:
 | Python SDK `0.2.23` wheel | `eab73a2ca2b1ec47946000cafddfe5ada484d86db44de89823c89cb4ecbb423e` |
 | Python SDK `0.2.26` wheel | `57e31b39c2bea7c09fddd47617e23726e9b472984d0ad856ee24d159f7e3be69` |
 | Python SDK `0.2.27` wheel | `afee6ebe8a8ef4426960c0d3cb5bca6f9be977cde10664385c2981d8dd06bd07` |
-| Panel SDK `0.2.2` tarball | `b63dda02bb181aa6ca8c19d8246bd977529a748f429d212d2bfbae937d9a58ea` |
+| Panel SDK `0.2.3` tarball | `773f5db4cf0c05aef47cc760208efa3a15e7ec5f` |
 | Panel SDK `0.2.0` tarball used by existing apps | `6e232e4e055760a6dd30d1e07a86de491af60e36471d6da4705512d6aeb3661b` |
 | Example Monitor `0.1.1` wheel | `7ce265d8009f346263d3f157a8406d981da71b45b5dcd3dd6d1e4d2ac21b6cf9` |
 
@@ -36,19 +36,22 @@ All three packages are `0.1.0`; their default declaration is app version
 `0.1.1`, schema 1, with `panels.render` and `signals.read`. Explicit
 `--workflow-cards` selects app version `0.2.0`, schema 2, card creation/read and
 mandatory lifecycle policies in CLI and HTTP declarations. GitHub interactions
-are a separate optional profile. GitHub/GlitchTip server helpers consume
-`@langboard/app-server@0.1.0`; Dokploy retention requests no external action.
-All three retain panel SDK `0.2.0`.
+are a separate optional profile. The published-signal profile is app version
+`0.2.1`, with a finite `signal_policy` and `signals.publish`; it remains opt-in.
+All three server helpers consume `@langboard/app-server@0.1.1` and panel SDK
+`@langboard/app-panel@0.2.3`. Package updates do not establish deployment
+acceptance or preserve the old app-to-host combination gate.
 
 | App | Reviewed source | Native external resource | Fresh source test result |
 | --- | --- | --- | --- |
-| GitHub Panel | `98ebc3ed23c776f3da772670446846d3423e6587` | `repository` | 16 passed |
-| GlitchTip Panel | `f0c43017c0cc8e7af50e4008b526e0078b28bc8a` | `project` | 13 passed |
-| Dokploy Panel | `d0766448164b31636610d8e01f207fa7ad8c1dfb` | `application`, `compose` | 7 passed |
+| GitHub Panel | `3315a0595010a9015284fd3a61317e7a00e2c393` | `repository` | 22 passed |
+| GlitchTip Panel | `5f1e676` | `project` | 18 passed |
+| Dokploy Panel | `5686e0c` | `application`, `compose` | 14 passed |
 
 These local tests cover static service/manifest, host widget rendering, signal
-requests, cancellation and optional adapter behavior. They do not prove the
-`0.2.0` app to `0.2.2` host combination in an authenticated deployed browser.
+requests, source-scoped cancellation, provider normalization and optional adapter
+behavior. They do not prove the previous `0.2.0` app to `0.2.2` host combination
+or the current `0.2.3` packages in an authenticated deployed browser.
 Keep that cross-version gate open; do not force a package upgrade solely to hide
 the untested combination.
 
