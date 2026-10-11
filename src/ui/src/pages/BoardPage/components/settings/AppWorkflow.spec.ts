@@ -1,5 +1,21 @@
 import { test, expect } from "@playwright/test";
 const path = "/src/pages/BoardPage/components/settings/AppWorkflow.fixture.html";
+for (const width of [1440, 390]) {
+    test(`panel review retains signal consent at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store&external&panel&consent&retainedsignal`);
+        const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
+        await app.getByRole("button", { name: "Review App panel", exact: true }).click();
+        const signal = app.getByRole("checkbox");
+        await expect(signal).toBeChecked();
+        await signal.uncheck();
+        await app.getByRole("button", { name: "Confirm App panel", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toMatchObject({
+            url: "/board/fixture/settings/apps/example-erp/panel", enabled: true, read_signals: false,
+        });
+    });
+}
 for (const panel of [false, true]) {
     test(`independent app workflow is configurable ${panel ? "with" : "without"} a panel`, async ({ page }) => {
         await page.goto(`${path}?store&external${panel ? "&panel" : ""}`);

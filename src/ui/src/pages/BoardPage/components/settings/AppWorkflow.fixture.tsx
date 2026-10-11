@@ -89,7 +89,8 @@ api.defaults.adapter = async (config) => {
                         inbound_connection_management: key === "example-erp",
                         name: { github: "GitHub", glitchtip: "GlitchTip", dokploy: "Dokploy" }[key] ?? "Example ERP",
                         description: "Independent issue tracker",
-                        capabilities: ["panels.render"],
+                        capabilities: ["panels.render", ...(new URLSearchParams(location.search).has("retainedsignal") ? ["signals.read"] : [])],
+                        signal_sources: new URLSearchParams(location.search).has("retainedsignal") ? ["github"] : [],
                         is_available: !(key === "example-erp" && new URLSearchParams(location.search).has("consentdisabled")),
                         panel:
                             key === "example-erp" && new URLSearchParams(location.search).has("panel")
@@ -104,7 +105,7 @@ api.defaults.adapter = async (config) => {
                                       granted_capabilities:
                                           key === "example-erp" && new URLSearchParams(location.search).has("consentdisabled")
                                               ? ["panels.render"]
-                                              : [],
+                                              : new URLSearchParams(location.search).has("retainedsignal") ? ["signals.read"] : [],
                                       stage_transitions_enabled: false,
                                   }
                                 : null,
