@@ -139,16 +139,17 @@ def project_work_state(
         for key, manifest in APP_MANIFESTS.items() if manifest.signal_policy
     }
     deployment_states = {
-        item["state"] for item in signals if evidence_kinds.get(item.get("provider")) == "deployment"
+        item["state"] for item in signals if item.get("evidence_kind", evidence_kinds.get(item.get("provider"))) == "deployment"
     }
     external_execution = next(
         (value for value in ("failed", "conflict", "running", "queued", "cancelled") if value in deployment_states),
         None,
     )
     for item in signals:
-        kind = evidence_kinds.get(item.get("provider"), "check")
+        kind = item.get("evidence_kind", evidence_kinds.get(item.get("provider"), "check"))
         deployment = kind == "deployment"
         issue_observation = kind == "issue_observation"
+        external_observation = kind == "external_observation"
         reasons.append(
             {
                 "code": (
@@ -156,6 +157,8 @@ def project_work_state(
                     if deployment
                     else "external_issue_observation_"
                     if issue_observation
+                    else "external_observation_"
+                    if external_observation
                     else "external_check_"
                 )
                 + item["state"],
@@ -163,6 +166,8 @@ def project_work_state(
                 if deployment
                 else "Observed external issue status does not establish a lifecycle occurrence, grant reviewer approval or change workflow."
                 if issue_observation
+                else "External observation does not grant reviewer approval or change workflow."
+                if external_observation
                 else "External check evidence does not grant reviewer approval or change workflow.",
                 "source_ref": "app_signal_binding:" + item["binding_uid"],
             }

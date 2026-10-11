@@ -258,12 +258,30 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
                     CardAppOwnership.card_id == created_card.id)).first() is None
             assert dispatches == [created.json()["card_uid"]]
             assert card_signal_projections([created_card])[created_card.id][0]["state"] == "failed"
+            resolved = state[0].card.resolve_visibility_context(state[1][2].get_uid(), actor)
+            native_state = state[0].card.get_work_states([created_card], context=resolved[1])[created_card.id]
+            assert native_state["external_signal_evidence"][0]["provider"] == "example-monitor"
+            assert native_state["external_signal_evidence"][0]["evidence_kind"] == "external_observation"
+            assert native_state["pending_approval_count"] == 0 and native_state["verification"] is None
+            assert native_state["external_execution_state"] is None
+
     from langboard.apps.CardSignal import bind_check
     linked = bind_check(state[0], actor, state[1][2].get_uid(), card.get_uid(),
         state[2].get_uid(), state[4].get_uid(), first["signal_uid"], card.last_change_seq, link.revision)
     assert linked["binding_uid"] == link.get_uid()
     assert all(row["external_id"] != "55" for row in inbox(scoped)["items"])
-    assert card_signal_projections([card])[card.id][0]["state"] == "failed"
+    proof = card_signal_projections([card])[card.id]
+    assert proof[0]["state"] == "failed" and proof[0]["evidence_kind"] == "external_observation"
+    from langboard_shared.domain.services.CardWorkState import project_work_state
+    work_state = project_work_state(card_uid=card.get_uid(), workflow_stage="active", archived=False,
+        linked_resource=False, total=1, completed=0, started=0, paused=0, external_signals=proof,
+        workflow_policy={"key": "active", "counts_as_completed": False,
+                         "active_queue_policy": "include", "overdue_policy": "normal"})
+    assert work_state["completed"] is False and work_state["workflow_stage"] == "active"
+    assert work_state["external_execution_state"] is None
+    assert work_state["verification"] is None and work_state["pending_approval_count"] == 0
+    assert work_state["external_signal_evidence"] == proof
+    assert any(row["code"] == "external_observation_failed" for row in work_state["reasons"])
     revoked_resource = select_resource(state[1][2], state[3], state[4].external_resource_id,
         selected=False, expected_access_revision=state[4].access_revision)
     assert revoked_resource["access_state"] == "revoked"
