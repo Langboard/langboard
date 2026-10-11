@@ -137,6 +137,17 @@ def finish_app_event(event_id, claim_token, *, delivered):
 
 
 def _current_authority(event, receipt):
+    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
+
+    if event.event_type == APP_INTERACTION_RESPONSE_EVENT:
+        from .AppCardInteractions import AppCardInteractionConflict, revalidate_response_event
+
+        with DbSession.atomic() as db:
+            try:
+                revalidate_response_event(db, event)
+            except AppCardInteractionConflict as exc:
+                raise AppGovernanceConflict() from exc
+        return
     if (
         receipt is None
         or receipt.connection_id != event.connection_id

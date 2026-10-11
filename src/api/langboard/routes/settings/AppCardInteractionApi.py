@@ -5,12 +5,13 @@ from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.services.AppCardInteractions import (
     AppCardInteractionConflict,
+    acknowledge_app_interaction_response,
     cancel_app_card_interaction,
     create_app_card_interaction,
     read_app_card_interaction,
 )
 from langboard_shared.domain.services.AppExecutionGrant import AppExecutionCredentialDenied
-from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -34,7 +35,7 @@ def _invoke(operation, authorization, *args):
         raise ApiException.Unauthorized_401() from exc
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403() from exc
-    except AppCardInteractionConflict as exc:
+    except (AppCardInteractionConflict, AppGovernanceConflict) as exc:
         raise ApiException.Conflict_409() from exc
     except ValueError as exc:
         raise ApiException.BadRequest_400() from exc
@@ -85,4 +86,32 @@ def cancel_interaction(
         SnowflakeID.from_short_code(card_uid),
         SnowflakeID.from_short_code(interaction_uid),
         body.expected_revision,
+    )
+
+
+class InteractionAcknowledgmentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
+    runtime_reference: str = Field(min_length=1, max_length=200)
+
+
+@AppRouter.api.post(
+    "/apps/v1/boards/{project_uid}/cards/{card_uid}/interactions/{interaction_uid}/acknowledgments",
+    tags=["App.Interactions"],
+)
+def acknowledge_interaction(
+    project_uid: str,
+    card_uid: str,
+    interaction_uid: str,
+    body: InteractionAcknowledgmentBody,
+    authorization: str = Header(default="", max_length=256),
+):
+    return _invoke(
+        acknowledge_app_interaction_response,
+        authorization,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        SnowflakeID.from_short_code(interaction_uid),
+        SnowflakeID.from_short_code(body.event_uid),
+        body.runtime_reference,
     )
