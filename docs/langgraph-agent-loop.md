@@ -154,3 +154,16 @@ redaction while preserving the history title. Twenty-four combined tests pass
 in 7.79 seconds. Source database collection is controlled in these cases;
 this does not establish per-user read authority or free-text secret detection.
 The larger fresh-runtime-credentials migration remains required.
+
+## Current actor and chat-session authority
+
+Chat history collection now fails closed unless the invocation is a user runner
+with a valid signed one-time token (`internal=bot`). It resolves the token
+subject, joins the requested session to its current User row, and reads from
+the primary database only when the user is activated and not deleted. A client
+runner UID cannot override the signed subject. SQLite and disposable
+PostgreSQL tests cover owned and foreign sessions, missing/invalid/expired
+JWTs, wrong internal claims, deactivated/deleted users and an ownership change
+between runs: forty-four tests pass in 15.20 seconds. This closes the history
+read authority case; bot-owned trigger history still needs an explicit
+server-side execution identity contract.
