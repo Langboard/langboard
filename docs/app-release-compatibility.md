@@ -293,3 +293,20 @@ local cases pass and are included in the native contract CI selection.
 These checks use disposable databases. They do not establish upgrade safety
 for a production backup or approve an application/image rollback; a database
 containing retained history deliberately refuses that schema downgrade.
+
+## Panel signal resource read gate
+
+Authenticated external-panel HTTP tests now use a stored native GitHub signal
+in both SQLite and PostgreSQL. An independently registered panel with explicit
+signal consent reads the selected repository signal; removing selection yields
+an empty result, and changing the app's approved resource types to `issue`
+continues to exclude that repository after renewed consent. No registry, native
+read or authorization service is replaced. The existing provider-source and
+trust-change cases remain: the registry HTTP file passes eight cases locally.
+
+The real panel SDK/browser test passes at 390px, including 403/404/409 signal
+read denials removing the iframe, resource-read cancellation, and host-owned
+human response. The dock test runner now starts the installed Vite binary with
+the established fixture config, avoiding a Yarn registry-token dependency when
+no installation is performed. Local test JWT key-length warnings remain. These
+checks are not deployed provider acceptance or hosted CI success.
