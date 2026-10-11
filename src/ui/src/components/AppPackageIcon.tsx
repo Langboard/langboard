@@ -33,18 +33,18 @@ export default function AppPackageIcon({
     fallbackUrl?: string;
     fallbackDarkUrl?: string;
 }) {
-    const [failed, setFailed] = useState<string | null>(null);
+    const [failed, setFailed] = useState<Set<string>>(() => new Set());
     const source = packageAsset(appKey, installation, installation?.store?.icon) ?? fallbackUrl;
     const darkSource = packageAsset(appKey, installation, installation?.store?.icon_dark) ?? fallbackDarkUrl;
     const image = (url: string | undefined, className: string) =>
-        url && failed !== url ? (
+        url && !failed.has(url) ? (
             <img
                 className={`size-full object-contain ${className}`}
                 src={url}
                 alt=""
                 loading="lazy"
                 decoding="async"
-                onError={() => setFailed(url)}
+                onError={() => setFailed(previous => new Set([...previous, url]))}
             />
         ) : (
             <Package className={`size-7 text-muted-foreground ${className}`} aria-hidden="true" />
