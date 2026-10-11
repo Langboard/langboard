@@ -291,10 +291,13 @@ def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(crea
     access, refresh = AuthSecurity.authenticate(board[1].id)
     headers = {"Authorization": f"Bearer {access}"}
     async def sdk_configure():
+        import importlib.metadata
+        import json
+        from pathlib import Path
         from httpx import ASGITransport, AsyncClient
         from langboard_sdk import AppManager, HttpTransport
-        import importlib.metadata
-        assert importlib.metadata.version("langboard-sdk") == "0.2.26"
+        provenance = json.loads((Path(__file__).resolve().parents[3] / "sdk/vendor/provenance.json").read_text())
+        assert importlib.metadata.version("langboard-sdk") == provenance["packages"]["langboard-sdk"]
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver", headers=headers,
                                cookies={Env.REFRESH_TOKEN_NAME: refresh}) as session:
             return await AppManager(HttpTransport(session), board[2].get_uid()).set_archive_sync(

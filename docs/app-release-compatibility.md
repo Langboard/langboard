@@ -124,3 +124,5 @@ Refreshing a fixture requires running the referenced app's actual declaration an
 normalizer functions and retaining its source commit. This local gate is included
 in the existing contract workflow; deployed account/connection/browser acceptance
 remains separate.
+
+Latest SDK 0.2.27 complete local contract selection initially produced 123 passed, 25 skipped and one failure: the archive test asserted the retired installed version 0.2.26. The test now matches installed SDK against reviewed provenance, preserving version validation. Its PostgreSQL HTTP case passed after repair. The full repaired selection passed: 124 passed, 25 skipped, zero failures/errors; remote Draft checks remain skipped. Skipped SQLite combinations require native PostgreSQL sequence/readiness behavior and were exercised by the corresponding PostgreSQL cases.
