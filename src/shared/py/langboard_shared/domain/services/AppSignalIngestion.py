@@ -97,7 +97,9 @@ def receive_external_signal(service, token, project_uid, body, headers):
             raise AppGovernanceDenied()
         values = {field: envelope[field] for field in ("event_id", "event_type", "external_id", "outcome", "commit_sha")}
         values.update(provider=principal.app_key, occurred_at=stamp.astimezone(timezone.utc).isoformat(timespec="microseconds"),
-                      payload_digest=hashlib.sha256(body).hexdigest())
+                      payload_digest=hashlib.sha256(json.dumps(
+                          envelope, sort_keys=True, separators=(",", ":"), allow_nan=False,
+                      ).encode("utf-8")).hexdigest())
         existing = db.exec(SqlBuilder.select.table(AppSignal).where(
             AppSignal.resource_id == resource.id, AppSignal.event_id == values["event_id"],
         )).first()
