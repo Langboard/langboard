@@ -74,11 +74,17 @@ api.defaults.adapter = async (config) => {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
         throw new Error("Group revision changed");
     }
+    if (config.url?.endsWith("/disable") && new URLSearchParams(location.search).has("modulewritefail")) {
+        writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
+        throw new Error("Module outcome unknown");
+    }
     if (config.method === "put" || config.method === "post") {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
         if (!config.url?.endsWith("/workflow")) repaired = true;
         if (config.url?.endsWith("/disable")) disabled = true;
     }
+    if ((config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions")) &&
+        writes.length && new URLSearchParams(location.search).has("storereadfail")) throw new Error("Store readback lost");
     if (config.url?.endsWith("/settings/apps/compositions") && new URLSearchParams(location.search).has("groupfail"))
         throw new Error("Grouping discovery unavailable");
     if (config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions"))
