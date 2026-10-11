@@ -1,6 +1,26 @@
 # Logical apps and independently authorized modules
 
-Status: implementation contract; catalog grouping and migration are not yet shipped.
+Status: host persistence and HTTP discovery implemented and locally verified;
+Store grouping, administrator UI, full-composition disable and deployed migration
+acceptance remain open.
+
+## Current host API
+
+- `GET /settings/apps/compositions`: current administrator lists explicit groups.
+- `POST /settings/apps/compositions`: current administrator creates/updates
+  `key`, `name`, `description`, ordered `module_keys`, and `expected_revision`.
+- `POST /settings/apps/compositions/{key}/ungroup`: revision-checked removal
+  of presentation membership, preserving exact module authority records.
+- `GET /board/{project_uid}/settings/apps/compositions`: current board reader
+  obtains compositions and the unchanged module catalog in one host transaction.
+
+The migration creates `app_composition` and `app_composition_member` without
+renaming or copying module records, and seeds no provider-name associations.
+Unique module membership is enforced in SQL. A downgrade refuses to discard
+approved groups until they have been explicitly ungrouped. Local SQLite and
+PostgreSQL tests cover authority preservation, stale revision/membership
+conflicts, current administrator/read revocation, authenticated HTTP and schema
+upgrade/rollback. This is not deployed Store or migration acceptance evidence.
 
 ## Outcome
 

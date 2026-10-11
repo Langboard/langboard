@@ -38,6 +38,53 @@ def _run(operation, *args):
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
 
 
+@form_model
+class SaveAppCompositionForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    key: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=1000)
+    module_keys: list[str] = Field(min_length=1, max_length=16)
+    expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+@AppRouter.api.get("/settings/apps/compositions", tags=["AppSettings.AppRegistry"])
+@AuthFilter.add("admin")
+def get_app_compositions(user: User = Auth.scope("user")) -> JsonResponse:
+    from langboard_shared.domain.services.AppComposition import list_compositions
+    return JsonResponse(content={"compositions": _run(list_compositions, user)})
+
+
+@AppRouter.api.post("/settings/apps/compositions", tags=["AppSettings.AppRegistry"])
+@AuthFilter.add("admin")
+def approve_app_composition(form: SaveAppCompositionForm, user: User = Auth.scope("user")) -> JsonResponse:
+    from langboard_shared.domain.services.AppComposition import save_composition
+    return JsonResponse(content={"composition": _run(
+        save_composition, user, form.key, form.name, form.description, form.module_keys, form.expected_revision)})
+
+
+@AppRouter.api.post("/settings/apps/compositions/{key}/ungroup", tags=["AppSettings.AppRegistry"])
+@AuthFilter.add("admin")
+def ungroup_app_composition(key: str, form: DisableAppDefinitionForm, user: User = Auth.scope("user")) -> JsonResponse:
+    from langboard_shared.domain.services.AppComposition import ungroup_composition
+    result = _run(ungroup_composition, user, key, form.expected_revision)
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF3003)
+    return JsonResponse(content=result)
+
+
+@AppRouter.api.get("/board/{project_uid}/settings/apps/compositions", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def get_board_app_compositions(project_uid: str, user: User = Auth.scope("user")) -> JsonResponse:
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.domain.services.AppComposition import board_compositions
+    service = DomainService()
+    try:
+        return JsonResponse(content=_run(board_compositions, service.workflow_stage, user, project_uid))
+    finally:
+        service.close()
+
+
 @AppRouter.api.get("/settings/apps/registry", tags=["AppSettings.AppRegistry"])
 @AuthFilter.add("admin")
 def get_app_definitions(user: User = Auth.scope("user")) -> JsonResponse:
