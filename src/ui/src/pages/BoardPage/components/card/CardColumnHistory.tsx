@@ -26,6 +26,7 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
 
     useEffect(() => {
         let controller: AbortController | undefined;
+        setEvents([]);
         const url = Utils.String.format(Routing.API.ACTIVITIY.CARD_COLUMN_HISTORY, { uid: projectUID, card_uid: card.uid });
         const refresh = () => {
             controller?.abort();
@@ -55,7 +56,7 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
             controller?.abort();
             socket.off(listener);
         };
-    }, [projectUID, card.uid, columnUID, socket]);
+    }, [projectUID, card, columnUID, socket]);
 
     if (!events.length) return null;
 
