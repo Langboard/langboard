@@ -1,4 +1,5 @@
 import CardAppResources from "./CardAppResources";
+import CardAppInteractions from "./CardAppInteractions";
 import { ProjectRole } from "@/core/models/roles";
 import CardSignalEvidence from "./CardSignalEvidence";
 import CardFlipTray from "./CardFlipTray";
@@ -379,7 +380,7 @@ function BoardTaskCardResult({
     executionReceipts = [],
     linkedWikis = [],
 }: IBoardCardResultProps): React.JSX.Element {
-    const { card, projectUID, isCardEditing, leaveCardEditMode } = useBoardCard();
+    const { card, projectUID, currentUser, canEditCard, isCardEditing, leaveCardEditMode } = useBoardCard();
     const { isActionPanelOpen, setIsCommentPanelOpen, commentLayoutMode, commentSurfaceRef } = useBoardCardPanel();
     const { boardChat } = useBoardController();
     const { cancelSections } = useBoardCardSectionSaveActions();
@@ -411,18 +412,27 @@ function BoardTaskCardResult({
 
     useEffect(() => {
         const openOutlineSection = (event: Event) => {
-            const { cardUID, section, blockUID } = (event as CustomEvent<{ cardUID: string; section: string; blockUID?: string }>).detail;
+            const { cardUID, section, blockUID, commentUID } = (
+                event as CustomEvent<{ cardUID: string; section: string; blockUID?: string; commentUID?: string }>
+            ).detail;
             if (cardUID !== card.uid) return;
             if (section === "comments") setIsCommentPanelOpen(true);
             requestAnimationFrame(() =>
                 requestAnimationFrame(() => {
-                    const target = blockUID
-                        ? [...document.querySelectorAll<HTMLElement>("[data-card-block-uid]")].find(
-                              (element) => element.dataset.cardBlockUid === blockUID && element.getBoundingClientRect().width > 0
-                          )
-                        : [...document.querySelectorAll<HTMLElement>(`[data-card-outline-section="${section}"]`)].find(
+                    const target = commentUID
+                        ? ([...document.querySelectorAll<HTMLElement>("[data-card-comment-uid]")].find(
+                              (element) => element.dataset.cardCommentUid === commentUID && element.getBoundingClientRect().width > 0
+                          ) ??
+                          [...document.querySelectorAll<HTMLElement>('[data-card-outline-section="comments"]')].find(
                               (element) => element.getBoundingClientRect().width > 0
-                          );
+                          ))
+                        : blockUID
+                          ? [...document.querySelectorAll<HTMLElement>("[data-card-block-uid]")].find(
+                                (element) => element.dataset.cardBlockUid === blockUID && element.getBoundingClientRect().width > 0
+                            )
+                          : [...document.querySelectorAll<HTMLElement>(`[data-card-outline-section="${section}"]`)].find(
+                                (element) => element.getBoundingClientRect().width > 0
+                            );
                     const viewport = target?.closest<HTMLElement>("[data-card-content-viewport]");
                     if (target && viewport) {
                         viewport.scrollTop += target.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
@@ -622,6 +632,12 @@ function BoardTaskCardResult({
                                                             scrollParentRef={contentViewportRef}
                                                         />
                                                     </BoardCardSection>
+                                                    <CardAppInteractions
+                                                        projectUID={projectUID}
+                                                        cardUID={card.uid}
+                                                        userUID={currentUser.uid}
+                                                        canRespond={canEditCard && !card.archived_at}
+                                                    />
                                                     {executionReceipts.length > 0 && (
                                                         <BoardCardSection title="card.Execution records">
                                                             <div className="space-y-3">
