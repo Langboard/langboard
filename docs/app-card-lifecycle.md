@@ -22,6 +22,14 @@ retain the original type; changed types conflict. Definitions without lifecycle
 must be explicitly updated before creating new cards. Existing native cards and
 their history remain intact; automatic migration and lifecycle dispatch are pending.
 
+New app-created cards persist app ownership and their authenticated connection's
+selected resource in the creation transaction, including native ownership/resource
+audit history. Duplicate source recovery does not add audit rows or overwrite
+later human configuration. This lets the creating app use its explicitly granted
+interaction capability on the same native card; creation does not grant that
+capability or resume execution. Failed creation rolls back configuration together
+with card and import lineage.
+
 Archive policies use `retain` or `external`. External policies name a stable
 app-owned action, have `default_enabled: false`, and provide explanatory text.
 Restoring a card retains the current external state; reopening an issue requires
