@@ -29,8 +29,11 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     from fastapi.testclient import TestClient
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.routing import AppRouter
-    from langboard_shared.domain.models import AppConnectionCredential, AppDefinition
-    from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+    from langboard_shared.domain.models import AppConnectionCredential, AppDefinition, AppResourceBinding
+    from langboard_shared.domain.services.AppConnectionAuthentication import (
+        issue_connection_credential,
+        revoke_connection_credential,
+    )
     from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
     from langboard_shared.publishers import CardPublisher
@@ -58,11 +61,16 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         for row in (state[2], state[3], state[4], link):
             db.update(row)
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
-    token = issue_connection_credential(actor, state[2].id)["token"]
+    issued = issue_connection_credential(actor, state[2].id)
+    token = issued["token"]
     state[0].close = lambda: None
     monkeypatch.setattr(signal_api, "DomainService", lambda: state[0])
     app = FastAPI()
     app.include_router(AppRouter.api)
+    import importlib
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    monkeypatch.setattr(importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: state[0])
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
     client = TestClient(app)
     envelope = {"version": 1, "board_uid": state[1][2].get_uid(), "resource_uid": state[4].get_uid(),
         "app_revision": definition.edit_revision(), "binding_revision": state[3].edit_revision(),
@@ -106,16 +114,42 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert receive({**envelope, "outcome": "closed"}).status_code == 409
     assert receive({**envelope, "event_type": "undeclared"}).status_code == 400
     assert receive({**envelope, "board_uid": "foreign"}).status_code == 400
+    for change in ({"resource_uid": {}}, {"resource_uid": "../invalid"}, {"app_revision": []},
+                   {"occurred_at": "2026-10-11T00:00:00"}, {"version": True}):
+        assert receive({**envelope, **change}).status_code == 400
+    assert client.post(f"/apps/v1/boards/{state[1][2].get_uid()}/signals", content=b"{}").status_code == 401
     older = receive({**envelope, "event_id": "older", "occurred_at": "2026-10-10T00:00:00Z", "outcome": "closed"})
     assert older.status_code == 200
     result = inbox(scoped)
     assert {row["provider"] for row in result["items"]} == {"example-monitor"}
     assert result["items"][0]["time_basis"] == "observation"
     with DbSession.atomic() as db:
+        second_resource = AppResourceBinding(
+            board_binding_id=state[3].id, connection_id=state[2].id, resource_type="issue",
+            external_resource_id="second-issue", access_state="granted",
+        )
+        db.insert(second_resource)
+    second = receive({**envelope, "resource_uid": second_resource.get_uid(), "external_id": "second-issue"})
+    assert second.status_code == 200 and second.json()["signal_uid"] != first["signal_uid"]
+    assert {row["resource_uid"] for row in inbox(scoped)["items"]} == {state[4].get_uid(), second_resource.get_uid()}
+    with DbSession.atomic() as db:
         link.is_enabled = True
         db.update(link)
     assert all(row["external_id"] != "55" for row in inbox(scoped)["items"])
     assert card_signal_projections([card])[card.id][0]["state"] == "failed"
+    with DbSession.atomic() as db:
+        state[4].is_selected = False
+        db.update(state[4])
+    assert receive({**envelope, "event_id": "resource-revoked"}).status_code == 403
+    with DbSession.atomic() as db:
+        state[4].is_selected = True
+        db.update(state[4])
+        state[3].granted_capabilities = ["signals.read"]
+        db.update(state[3])
+    assert receive({**envelope, "event_id": "grant-revoked"}).status_code == 403
+    with DbSession.atomic() as db:
+        state[3].granted_capabilities = ["signals.read", "signals.publish"]
+        db.update(state[3])
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
         definition.is_enabled = False
@@ -123,6 +157,12 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert inbox(scoped)["items"] == []
     assert card_signal_projections([card]) == {}
     assert receive({**envelope, "event_id": "after-revoke"}).status_code == 403
+    with DbSession.atomic() as db:
+        definition.is_enabled = True
+        db.update(definition)
+    from langboard_shared.core.types import SnowflakeID
+    revoke_connection_credential(actor, state[2].id, SnowflakeID.from_short_code(issued["credential_uid"]))
+    assert receive(envelope).status_code == 403
     client.close()
 
 
