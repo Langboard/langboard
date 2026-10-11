@@ -139,6 +139,7 @@ def _project_receipt(row, answer, delivery, transition=None):
     return {
         "schema_version": 1,
         "interaction_uid": row.get_uid(),
+        "source": {"app_key": row.app_key, "connection_uid": SnowflakeID(row.connection_id).to_short_code()},
         "revision": row.revision,
         "state": "answered"
         if answer
