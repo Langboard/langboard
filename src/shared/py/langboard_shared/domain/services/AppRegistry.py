@@ -89,6 +89,10 @@ def _update_bindings(db, key, previous, current):
     for binding in db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == key).with_for_update()).all():
         decision = update_consent(previous, current, binding.granted_capabilities)
         binding.granted_capabilities = sorted(decision["retained"])
+        if trust_changed or previous.get("card_lifecycle") != current.get("card_lifecycle") or "events.receive" not in binding.granted_capabilities:
+            if binding.archive_sync_types:
+                binding.archive_sync_revision += 1
+            binding.archive_sync_types = []
         if decision["trust_changed"] or not binding.granted_capabilities:
             binding.state = "needs_attention" if decision["trust_changed"] else "disabled"
             binding.stage_transitions_enabled = False
@@ -102,6 +106,9 @@ def _disable_bindings(db, key):
         binding.state = "disabled"
         binding.granted_capabilities = []
         binding.stage_transitions_enabled = False
+        if binding.archive_sync_types:
+            binding.archive_sync_revision += 1
+        binding.archive_sync_types = []
         db.update(binding)
 
 
@@ -220,6 +227,10 @@ def set_board_consent(service, actor, project_uid, app_key, app_revision, bindin
         # Consent grants capabilities; only the workflow editor can enable transitions.
         if "workflow.transition" not in capabilities:
             binding.stage_transitions_enabled = False
+        if "events.receive" not in capabilities:
+            if binding.archive_sync_types:
+                binding.archive_sync_revision += 1
+            binding.archive_sync_types = []
         db.update(binding)
         db.after_commit(AppSettingPublisher.apps_changed)
         return {

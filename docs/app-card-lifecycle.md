@@ -96,8 +96,36 @@ archiving again creates a separate receipt. A persistence failure rolls back
 movement; stored history prevents destructive schema downgrade. The receipt
 records `retained` when the declared policy retains state or external sync is
 disabled, and `blocked` for missing or ambiguous lifecycle provenance. This
-stage does not enable external sync, create delivery events, or expose receipts
-in the archive UI. Those release requirements remain pending.
+stage does not by itself enable external sync. The host provides explicit
+card-type synchronization consent and archive delivery independently of
+runtime-start eligibility. New and migrated bindings default to an empty
+`archive_sync_types` list. Administrators use
+`PUT /board/{board}/apps/{app}/archive-sync` with the current binding revision
+and selected card types; only approved external lifecycle policies with
+separate `events.receive` consent qualify. Lifecycle or trust changes reset
+activation. Disable and re-enable changes the consent generation and cannot
+revive an older queued operation.
+
+The signed event is `io.langboard.app.card.archived.v1`. It includes stable
+`event_uid` and `archive_uid`, the card revision, declared action and immutable
+external identity. Receivers must deduplicate by operation identity, recheck
+their provider authority, read current external state before mutation and
+read back afterward. Host dispatch rechecks ownership, selection, grants,
+connection and destination after DNS resolution. Restoring the native card
+invalidates an undelivered archive request. Events use the existing durable,
+bounded delivery machinery, without treating archive as runtime execution.
+
+An app reports its separate provider outcome with
+`POST /apps/v1/boards/{board}/archives/{archive}/outcome`, its connection Bearer
+credential, `expected_revision` and
+`outcome: {state, external_state, readback_confirmed}`. Applied states require
+readback. The host labels this as an authenticated app report, not independent
+provider verification. Unknown reports suppress further mutation delivery;
+subsequent current-authority readback can reconcile the outcome. Native users
+can read bounded receipts through
+`GET /board/{board}/card/{card}/apps/archives`; card visibility still applies.
+UI activation controls, receipt rendering and live provider execution remain
+release requirements.
 
 The independent Example Monitor artifacts exercise signed signal ingestion,
 native Inbox card creation and native app-owned human interactions in one test

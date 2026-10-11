@@ -716,6 +716,7 @@ def _app_workflow_response(snapshot: dict) -> dict:
             "uid": binding.get_uid(), "app_key": binding.app_key,
             "workflow_mapping": binding.workflow_mapping,
             "stage_transitions_enabled": binding.stage_transitions_enabled,
+            "archive_sync_types": binding.archive_sync_types,
             "revision": binding.edit_revision(),
         },
         "choices": [asdict(choice) for choice in result.choices],

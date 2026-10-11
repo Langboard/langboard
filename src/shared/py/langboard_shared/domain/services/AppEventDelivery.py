@@ -137,7 +137,14 @@ def finish_app_event(event_id, claim_token, *, delivered):
 
 
 def _current_authority(event, receipt):
-    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
+    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT, APP_INTERACTION_RESPONSE_EVENT
+
+    if event.event_type == APP_CARD_ARCHIVE_EVENT:
+        from .AppCardArchive import revalidate_archive_event
+
+        with DbSession.atomic() as db:
+            revalidate_archive_event(db, event)
+        return
 
     if event.event_type == APP_INTERACTION_RESPONSE_EVENT:
         from .AppCardInteractions import AppCardInteractionConflict, revalidate_response_event
