@@ -72,6 +72,9 @@ def disable_definition(actor, key, expected_revision):
         if row.edit_revision() != expected_revision:
             raise AppRegistryConflict()
         _disable_bindings(db, key)
+        from .AppMcpConnectionConsent import revoke_mcp_consents
+        if row.declaration.get("mcp"):
+            revoke_mcp_consents(db, key)
         row.is_enabled = False
         row.generation += 1
         row.approved_by = actor.id
@@ -83,6 +86,16 @@ def disable_definition(actor, key, expected_revision):
 def _update_bindings(db, key, previous, current):
     """Keep existing consent only across updates to the same trust targets."""
     trust_changed = update_consent(previous, current, [])["trust_changed"]
+    # Withdraw affected connection scopes durably: returning to an older tool
+    # set must not resurrect consent without another explicit owner approval.
+    from .AppMcpConnectionConsent import MCP_SCOPES, _scope_tools, revoke_mcp_consents
+    old_tools, new_tools = _scope_tools(previous), _scope_tools(current)
+    changed_scopes = {scope for scope in old_tools if old_tools[scope] != new_tools[scope]
+                      or (f"mcp.{scope}" in previous.get("capabilities", [])
+                          and f"mcp.{scope}" not in current.get("capabilities", []))}
+    if trust_changed or changed_scopes:
+        if previous.get("mcp") or current.get("mcp"):
+            revoke_mcp_consents(db, key, MCP_SCOPES if trust_changed else changed_scopes)
     if trust_changed:
         for connection in db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.app_key == key).with_for_update()).all():
             connection.state = "revoked"

@@ -2,11 +2,12 @@
 
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
-from ..models import AppDefinition
+from ..models import AppConnection, AppDefinition
 from .AppCardScope import require_app_card_scope
 from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppExecutionGrant import AppExecutionCredentialDenied
 from .AppGovernance import AppGovernanceDenied
+from .AppMcpConnectionConsent import effective_mcp_consent
 
 
 def read_app_mcp_catalog(token, project_id, card_id):
@@ -24,6 +25,8 @@ def read_app_mcp_catalog(token, project_id, card_id):
             raise AppGovernanceDenied()
         extension = declared.get("mcp") or {}
         allowed = set(declared.get("capabilities", [])) & set(binding.granted_capabilities)
+        connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == principal.connection_id)).first()
+        owner_scopes = effective_mcp_consent(db, connection, definition)
         connection_uid = SnowflakeID(principal.connection_id).to_short_code()
         return {"schema_version": 1, "board_uid": card.project_id.to_short_code(), "card_uid": card.get_uid(),
                 "app_key": principal.app_key, "connection_uid": connection_uid,
@@ -33,5 +36,5 @@ def read_app_mcp_catalog(token, project_id, card_id):
                               for row in sorted(resources, key=lambda row: row.get_uid())],
                 "tools": [{**tool, "qualified_name": f"{principal.app_key}:{connection_uid}:{tool['name']}",
                            "callable": False} for tool in extension.get("tools", [])
-                          if f"mcp.{tool['authority_scope']}" in allowed],
+                          if f"mcp.{tool['authority_scope']}" in allowed and tool['authority_scope'] in owner_scopes],
                 "execution_supported": False}
