@@ -210,10 +210,21 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
                 state=state, external_state=external_state, readback_confirmed=readback_confirmed)
     import asyncio
     with TestClient(app) as client:
+        read_url = url.removesuffix("/outcome")
+        assert client.get(read_url).status_code == 401
+        receipt = client.get(read_url, headers=headers)
+        assert receipt.status_code == 200 and receipt.headers["cache-control"] == "no-store"
+        assert receipt.json()["receipt"]["outcome_revision"] == 0
+        assert receipt.json()["delivery"]["state"] == "delivering"
+        wrong_board = read_url.replace(board[2].get_uid(), "00000000002")
+        assert client.get(wrong_board, headers=headers).status_code == 403
         body = {"expected_revision": 0, "outcome": {"state": "applied", "external_state": "resolved", "readback_confirmed": False}}
         assert client.post(url, json=body, headers=headers).status_code == 400
         assert client.post(url, json=body).status_code == 401
         assert asyncio.run(sdk_report(0, "unknown", None, False))["receipt"]["state"] == "unknown"
+        receipt = client.get(read_url, headers=headers).json()
+        assert receipt["receipt"]["outcome_revision"] == 1
+        assert receipt["receipt"]["state"] == "unknown"
         finish_app_event(event.id, claimed["claim_token"], delivered=False)
         assert claim_app_event(event.id, 1) is None
         with DbSession.atomic() as db:
@@ -223,9 +234,11 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
         response = asyncio.run(sdk_report(1, "applied", "resolved", True))
         assert response["receipt"]["state"] == "applied"
         assert response["receipt"]["outcome_source"] == "authenticated_app_report"
+        assert client.get(read_url, headers=headers).json()["receipt"]["outcome_revision"] == 2
         assert asyncio.run(sdk_report(1, "applied", "resolved", True))["changed"] is False
         body["outcome"]["external_state"] = "unresolved"
         assert client.post(url, json=body, headers=headers).status_code == 409
+        assert client.get(read_url, headers=headers).status_code == 200
 
         with DbSession.atomic() as db:
             current = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
@@ -233,6 +246,7 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
             db.update(current)
         body["outcome"]["external_state"] = "resolved"
         assert client.post(url, json=body, headers=headers).status_code == 409
+        assert client.get(read_url, headers=headers).status_code == 409
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
 def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(creation, monkeypatch):
