@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 const sdk = readFileSync("node_modules/@langboard/app-panel/index.mjs", "utf8");
 test("independent resource panel pins authority, rejects identity injection and cancels on close", async ({ page }) => {
-    await page.setViewportSize({width:390,height:900});
+    await page.setViewportSize({ width: 390, height: 900 });
     const writes: unknown[] = [];
     const signalReads: unknown[] = [];
     const interactionReads: unknown[] = [];
@@ -73,14 +73,42 @@ test("independent resource panel pins authority, rejects identity injection and 
     });
     await page.route("**/board/board/apps/example-app/panel/interactions", async (route) => {
         interactionReads.push(route.request().postDataJSON());
-        await route.fulfill({json:{items:[{interaction_uid:"B1234567890",revision:humanAnswered?2:1,state:humanAnswered?"answered":"pending",
-            source:{app_key:"example-app",connection_uid:"C1234567890"},
-            request:{kind:"question",prompt:{en:"Choose next action"},questions:[{id:"action",prompt:{en:"Action"},type:"single_choice",choices:[{id:"review",label:{en:"Review"}}]}],presentation:{type:"choice_card"},expires_at:new Date(Date.now()+3600000).toISOString()},
-            response:humanAnswered?{values:{action:{choice_id:"review"}},actor_uid:"actor",response_uid:"D1234567890"}:null}],next_cursor:null,card_revision:12}});
+        await route.fulfill({
+            json: {
+                items: [
+                    {
+                        interaction_uid: "B1234567890",
+                        revision: humanAnswered ? 2 : 1,
+                        state: humanAnswered ? "answered" : "pending",
+                        source: { app_key: "example-app", connection_uid: "C1234567890" },
+                        request: {
+                            kind: "question",
+                            prompt: { en: "Choose next action" },
+                            questions: [
+                                {
+                                    id: "action",
+                                    prompt: { en: "Action" },
+                                    type: "single_choice",
+                                    choices: [{ id: "review", label: { en: "Review" } }],
+                                },
+                            ],
+                            presentation: { type: "choice_card" },
+                            expires_at: new Date(Date.now() + 3600000).toISOString(),
+                        },
+                        response: humanAnswered
+                            ? { values: { action: { choice_id: "review" } }, actor_uid: "actor", response_uid: "D1234567890" }
+                            : null,
+                    },
+                ],
+                next_cursor: null,
+                card_revision: 12,
+            },
+        });
     });
-    await page.route("**/panel/cards/A1234567890/interactions/B1234567890/responses", async route => {
-        humanWrites.push(route.request().postDataJSON()); humanAnswered=true;
-        await route.fulfill({status:500,json:{detail:"Response lost after commit"}});
+    await page.route("**/panel/cards/A1234567890/interactions/B1234567890/responses", async (route) => {
+        humanWrites.push(route.request().postDataJSON());
+        humanAnswered = true;
+        await route.fulfill({ status: 500, json: { detail: "Response lost after commit" } });
     });
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
@@ -95,25 +123,30 @@ test("independent resource panel pins authority, rejects identity injection and 
     await panel.getByRole("button", { name: "Signals", exact: true }).click();
     await expect(panel.locator("#result")).toContainText("signal-1");
     expect(signalReads).toEqual([{ provider: "github", app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
-    await panel.getByRole("button", {name:"Interactions",exact:true}).click();
+    await panel.getByRole("button", { name: "Interactions", exact: true }).click();
     await expect(panel.locator("#result")).toContainText("B1234567890");
-    expect(interactionReads).toEqual([{card_uid:"A1234567890",limit:10,app_revision:"a".repeat(64),binding_revision:"b".repeat(64)}]);
-    await panel.getByRole("button",{name:"Inject answer"}).click();
+    expect(interactionReads).toEqual([{ card_uid: "A1234567890", limit: 10, app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
+    await panel.getByRole("button", { name: "Inject answer" }).click();
     await expect(panel.locator("#result")).toContainText("Denied");
     expect(humanWrites).toHaveLength(0);
-    await panel.getByRole("button",{name:"Open request"}).click();
+    await panel.getByRole("button", { name: "Open request" }).click();
     await expect(panel.locator("#result")).toContainText('"state":"opened"');
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("Choose next action")).toBeVisible();
     expect(humanWrites).toHaveLength(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({path:".verification/panel-human-response.png",fullPage:true});
-    await dialog.getByRole("radio",{name:"Review",exact:true}).check();
-    await dialog.getByRole("button",{name:"Submit response",exact:true}).click();
-    await expect(dialog.getByText("Answered",{exact:true})).toBeVisible();
+    await page.screenshot({ path: ".verification/panel-human-response.png", fullPage: true });
+    await dialog.getByRole("radio", { name: "Review", exact: true }).check();
+    await dialog.getByRole("button", { name: "Submit response", exact: true }).click();
+    await expect(dialog.getByText("Answered", { exact: true })).toBeVisible();
     expect(humanWrites).toHaveLength(1);
-    expect(humanWrites[0]).toMatchObject({expected_revision:1,values:{action:{choice_id:"review"}},app_revision:"a".repeat(64),binding_revision:"b".repeat(64)});
-    await dialog.getByRole("button",{name:"Close",exact:true}).click();
+    expect(humanWrites[0]).toMatchObject({
+        expected_revision: 1,
+        values: { action: { choice_id: "review" } },
+        app_revision: "a".repeat(64),
+        binding_revision: "b".repeat(64),
+    });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
     pending = true;
     const next = page.waitForRequest("**/panel/resources");
     await panel.getByRole("button", { name: "Read", exact: true }).click();
@@ -175,3 +208,55 @@ test("independent resource panel pins authority, rejects identity injection and 
     await expect(panel.locator("#result")).toContainText("Denied", { timeout: 12000 });
     await expect(page.locator("iframe")).toHaveCount(1);
 });
+
+for (const width of [390, 1440]) {
+    test(`independent app opens human runtime dialog without automatic writes at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const controls: unknown[] = [];
+        await page.route("**/panel-sdk-resources.json", (r) =>
+            r.fulfill({ json: { version: 1, module_url: "/widgets.mjs", css_url: "/widgets.css" } })
+        );
+        await page.route("**/board/board/apps/example-app/panel", (r) =>
+            r.fulfill({
+                json: {
+                    key: "example-app",
+                    version: "1.0.0",
+                    panel: { url: "https://panel.example.invalid/panel", name: "Independent resources" },
+                    app_revision: "a".repeat(64),
+                    binding_revision: "b".repeat(64),
+                },
+            })
+        );
+        await page.route("https://panel.example.invalid/sdk.mjs", (r) =>
+            r.fulfill({ body: sdk, contentType: "application/javascript", headers: { "Access-Control-Allow-Origin": "*" } })
+        );
+        await page.route("https://panel.example.invalid/panel", (r) =>
+            r.fulfill({
+                contentType: "text/html",
+                body: `<button id="open" disabled>Runtime controls</button><pre id="result"></pre><script type="module">import {connectPanel} from './sdk.mjs';const session=await connectPanel({expectedHostOrigin:'http://127.0.0.1:4181'});document.querySelector('#open').disabled=false;document.querySelector('#open').onclick=async()=>{try{document.querySelector('#result').textContent=JSON.stringify(await session.request('runtimes.open',{card_uid:'A1234567890'}));}catch(e){document.querySelector('#result').textContent=String(e);}};</script>`,
+            })
+        );
+        let state = "authorized";
+        await page.route("**/panel/runtimes", (r) =>
+            r.fulfill({ json: { items: [{ request_uid: "B1234567890", app_key: "example-app", generation: 7, state }], next_cursor: null } })
+        );
+        await page.route("**/panel/cards/A1234567890/runtimes/B1234567890/stop", (r) => {
+            controls.push(r.request().postDataJSON());
+            state = "stop_requested";
+            return r.fulfill({ json: { state, execution_resumed: false } });
+        });
+        await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
+        await page.frameLocator("iframe").getByRole("button", { name: "Runtime controls" }).click();
+        await expect(page.frameLocator("iframe").locator("#result")).toContainText("opened");
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await expect(page.getByText("Permit issued", { exact: true })).toBeVisible();
+        expect(controls).toHaveLength(0);
+        await page.getByRole("button", { name: "Request stop", exact: true }).click();
+        expect(controls).toHaveLength(0);
+        await page.getByRole("button", { name: "Request stop", exact: true }).last().click();
+        await expect(page.getByText("Stop requested — awaiting runtime termination", { exact: true })).toBeVisible();
+        expect(controls).toEqual([{ generation: 7, app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: `.verification/panel-runtime-${width}.png`, fullPage: true });
+    });
+}
