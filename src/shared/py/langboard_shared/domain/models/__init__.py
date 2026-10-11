@@ -3,6 +3,7 @@ from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
 from .ApiKeyUsage import ApiKeyUsage
 from .AppCardInteraction import AppCardInteraction
+from .AppCardInteractionResponse import AppCardInteractionResponse
 from .AppEventDestination import AppEventDestination
 from .AppExecutionOutbox import AppExecutionOutbox
 from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
