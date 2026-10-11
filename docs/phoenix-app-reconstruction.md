@@ -407,3 +407,18 @@ when publication runs, rollback emits nothing, stale writes emit nothing, and
 both board-scoped envelopes include metadata. Changed TypeScript files pass
 esbuild transformation; that is not a full UI typecheck or rendered/browser
 acceptance. Live Phoenix broker delivery and browser synchronization remain pending.
+
+## Nonlocking settings reads
+
+Resource-selection listing, workflow-mapping inspection, column-workflow reads,
+and the built-in stage list now read current primary authority without row write
+locks. The shared authority helpers expose an explicit read mode; mutation callers
+retain their existing default locks and policy advisory fence. This avoids a
+second authorization implementation or weaker cached authority checks.
+
+A PostgreSQL regression holds each GET service transaction open while a separate
+connection updates the authority, definition, column, connection and binding rows
+with a database lock timeout. It also inspects executed statements for unintended
+row or advisory locks. Existing mutation concurrency and stale-authority tests
+remain part of the same suite. This is service-level database proof, not a live
+canary latency measurement or complete application acceptance.

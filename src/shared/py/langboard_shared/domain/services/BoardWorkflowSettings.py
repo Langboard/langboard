@@ -54,7 +54,7 @@ def _column_response(column, stage):
 
 def list_workflow_stages(actor):
     with DbSession.atomic() as db:
-        _actor(db, actor)
+        _actor(db, actor, for_update=False)
         stages = db.exec(
             SqlBuilder.select.table(WorkflowStageDefinition)
             .where(WorkflowStageDefinition.is_builtin.is_(True))
@@ -94,9 +94,9 @@ def save_stage_metadata(actor, key, name, description, color, translations, expe
 
 def read_column_workflow(actor, project_id, column_id):
     with DbSession.atomic() as db:
-        actor = _actor(db, actor)
-        project = _authorized_board(db, actor, project_id)
-        column = _current(db, ProjectColumn, column_id)
+        actor = _actor(db, actor, for_update=False)
+        project = _authorized_board(db, actor, project_id, for_update=False)
+        column = _current(db, ProjectColumn, column_id, for_update=False)
         if column is None or column.project_id != project.id or column.deleted_at:
             raise AppGovernanceDenied()
         stage = (

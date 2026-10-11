@@ -1,10 +1,12 @@
 """Current app connection authentication and explicit consent on PostgreSQL."""
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
+from pathlib import Path
 from threading import Event, get_ident
 from time import monotonic, sleep
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
@@ -1085,9 +1087,16 @@ def test_workflow_metadata_and_column_editing_http_current_authority(registered,
             stage = request(owner, "GET", path).json()["items"][0]
             translations = {
                 "en": {"name": "Active"},
-                "ko": {"name": "진행", "description": "진행 업무"},
-                "ja": {"name": "進行"},
-                "zh": {"name": "进行"},
+                **{
+                    language: fields
+                    for language, fields in json.loads(
+                        (
+                            Path(__file__).parents[2]
+                            / "shared/py/langboard_shared/core/resources/locales/workflow_stages.json"
+                        ).read_text()
+                    )[0]["translations"].items()
+                    if language != "en"
+                },
                 "fr": {"name": "Actif"},
             }
             body = {
@@ -1108,7 +1117,7 @@ def test_workflow_metadata_and_column_editing_http_current_authority(registered,
             column = {
                 "workflow_stage": "active",
                 "description": "Board instructions",
-                "translations": {"ko": {"name": "작업"}},
+                "translations": {"ko": {"name": "Work"}},
                 "expected_revision": initial["revision"],
             }
             approved = request(owner, "PUT", column_path, json=column)
@@ -1188,12 +1197,12 @@ def test_column_metadata_publication_occurs_after_commit_and_not_on_rollback(reg
             raise RuntimeError("rollback fixture")
     assert events == []
     save_column_workflow(
-        owner, SnowflakeID(20), SnowflakeID(211), "active", "Committed", {"ko": {"name": "작업"}}, initial["revision"]
+        owner, SnowflakeID(20), SnowflakeID(211), "active", "Committed", {"ko": {"name": "Work"}}, initial["revision"]
     )
     assert len(events) == 1
     payload, models = events[0]
     assert payload["name"] == "Doing" and payload["description"] == "Committed"
-    assert payload["translations"] == {"ko": {"name": "작업"}}
+    assert payload["translations"] == {"ko": {"name": "Work"}}
     assert len(models) == 2 and all(model.topic_id == SnowflakeID(20).to_short_code() for model in models)
     assert {model.event for model in models} == {
         f"board:column:name:changed:{SnowflakeID(20).to_short_code()}",
@@ -1202,3 +1211,47 @@ def test_column_metadata_publication_occurs_after_commit_and_not_on_rollback(reg
     with pytest.raises(AppGovernanceConflict):
         save_column_workflow(owner, SnowflakeID(20), SnowflakeID(211), None, "Stale", {}, initial["revision"])
     assert len(events) == 1
+
+
+@pytest.mark.parametrize("operation", ["resources", "mapping", "column"])
+def test_settings_reads_hold_no_write_locks_and_allow_concurrent_updates(registered, operation):
+    engine, (_, owner, _), personal, _ = registered
+    AppResourceBinding.__table__.create(engine)
+    WorkflowStageDefinition.__table__.create(engine)
+    ProjectColumn.__table__.create(engine)
+    with Session(engine) as db:
+        declaration = deepcopy(DECLARATION)
+        declaration["workflow_requirements"] = {"required": ["active"], "optional": []}
+        db.execute(update(AppDefinition).values(declaration=declaration))
+        db.add(WorkflowStageDefinition(id=201, key="active", name="Active", is_builtin=True))
+        db.flush()
+        db.add(ProjectColumn(id=211, project_id=20, name="Doing", workflow_stage="active"))
+        db.commit()
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if get_ident() == reader_thread:
+            statements.append(statement)
+
+    reader_thread = get_ident()
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with DbSession.atomic():
+            if operation == "resources":
+                assert list_resource_selections(owner, SnowflakeID(20), "example", personal.id)["items"] == []
+            elif operation == "mapping":
+                assert read_workflow_mapping(owner, SnowflakeID(20), "example")["choices"]
+            else:
+                assert read_column_workflow(owner, SnowflakeID(20), SnowflakeID(211))["workflow_stage"] == "active"
+            assert not any("FOR UPDATE" in sql.upper() or "PG_ADVISORY" in sql.upper() for sql in statements)
+
+            def writer():
+                with engine.begin() as connection:
+                    connection.execute(text("SET LOCAL lock_timeout = '750ms'"))
+                    for model in (User, AppDefinition, ProjectColumn, AppConnection, BoardAppBinding):
+                        connection.execute(update(model).values(updated_at=SafeDateTime.now()))
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(writer).result(timeout=5)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)

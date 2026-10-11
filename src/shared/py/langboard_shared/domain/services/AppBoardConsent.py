@@ -13,18 +13,17 @@ from .AppGovernance import (
 )
 
 
-def _context(db, actor, project_id, app_key, *, lock_binding=True):
-    actor = _actor(db, actor)
-    definition = db.exec(
-        SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key).with_for_update()
-    ).first()
+def _context(db, actor, project_id, app_key, *, lock_binding=True, for_update=True):
+    actor = _actor(db, actor, for_update=for_update)
+    definition_statement = SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key)
+    definition = db.exec(definition_statement.with_for_update() if for_update else definition_statement).first()
     if definition is None:
         raise AppGovernanceDenied()
-    project = _authorized_board(db, actor, project_id)
+    project = _authorized_board(db, actor, project_id, for_update=for_update)
     statement = SqlBuilder.select.table(BoardAppBinding).where(
         BoardAppBinding.project_id == project.id, BoardAppBinding.app_key == app_key
     )
-    binding = db.exec(statement.with_for_update() if lock_binding else statement).first()
+    binding = db.exec(statement.with_for_update() if for_update and lock_binding else statement).first()
     return definition, project, binding
 
 

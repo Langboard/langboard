@@ -56,28 +56,26 @@ def _current(db, model, identifier, *, for_update=True):
     return db.exec(statement).first()
 
 
-def _actor(db, actor):
-    current = _current(db, User, actor.id)
+def _actor(db, actor, *, for_update=True):
+    current = _current(db, User, actor.id, for_update=for_update)
     if current is None or current.deleted_at or not current.activated_at:
         raise AppGovernanceDenied()
     return current
 
 
-def _authorized_board(db, actor, project_id):
-    project = _current(db, Project, project_id)
+def _authorized_board(db, actor, project_id, *, for_update=True):
+    project = _current(db, Project, project_id, for_update=for_update)
     if project is None or project.deleted_at:
         raise AppGovernanceDenied()
     if not actor.is_admin and actor.id != project.owner_id:
-        member = db.exec(
-            SqlBuilder.select.table(ProjectAssignedUser)
-            .where(ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id)
-            .with_for_update()
-        ).first()
-        role = db.exec(
-            SqlBuilder.select.table(ProjectRole)
-            .where(ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id)
-            .with_for_update()
-        ).first()
+        member_statement = SqlBuilder.select.table(ProjectAssignedUser).where(
+            ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id
+        )
+        role_statement = SqlBuilder.select.table(ProjectRole).where(
+            ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id
+        )
+        member = db.exec(member_statement.with_for_update() if for_update else member_statement).first()
+        role = db.exec(role_statement.with_for_update() if for_update else role_statement).first()
         if member is None or role is None or not role.is_granted(ProjectRoleAction.Update):
             raise AppGovernanceDenied()
     return project

@@ -54,7 +54,7 @@ def _resolve(db, definition, project, explicit):
 
 def read_workflow_mapping(actor, project_id, app_key):
     with DbSession.atomic() as db:
-        definition, project, binding = _context(db, actor, project_id, app_key)
+        definition, project, binding = _context(db, actor, project_id, app_key, for_update=False)
         if binding is None:
             raise AppGovernanceDenied()
         resolved = _resolve(db, definition, project, binding.workflow_mapping)

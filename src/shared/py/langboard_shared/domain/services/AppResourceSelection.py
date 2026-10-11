@@ -8,12 +8,12 @@ from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy, lock_policy_mutation
 
 
-def _selection_context(db, actor, project_id, app_key, connection_id, *, withdrawal=False):
-    definition, project, binding = _context(db, actor, project_id, app_key, lock_binding=False)
-    connection = _current(db, AppConnection, connection_id)
+def _selection_context(db, actor, project_id, app_key, connection_id, *, withdrawal=False, for_update=True):
+    definition, project, binding = _context(db, actor, project_id, app_key, lock_binding=False, for_update=for_update)
+    connection = _current(db, AppConnection, connection_id, for_update=for_update)
     if binding is None or connection is None or connection.app_key != app_key:
         raise AppGovernanceDenied()
-    binding = _current(db, BoardAppBinding, binding.id)
+    binding = _current(db, BoardAppBinding, binding.id, for_update=for_update)
     if connection.ownership == "personal":
         if connection.owner_id != actor.id or connection.organization_id is not None:
             raise AppGovernanceDenied()
@@ -123,7 +123,7 @@ def list_resource_selections(actor, project_id, app_key, connection_id, *, after
         raise ValueError("Resource page limit must be 1 to 50")
     with DbSession.atomic() as db:
         definition, binding, connection = _selection_context(
-            db, actor, project_id, app_key, connection_id, withdrawal=True
+            db, actor, project_id, app_key, connection_id, withdrawal=True, for_update=False
         )
         query = SqlBuilder.select.table(AppResourceBinding).where(
             AppResourceBinding.board_binding_id == binding.id, AppResourceBinding.connection_id == connection.id
