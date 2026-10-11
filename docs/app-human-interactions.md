@@ -443,3 +443,17 @@ the submitting app and does not label every app request as AI-generated. Verifie
 AI author attribution on external requests/comments remains a separate gate.
 Server tests verify app readback and native user listing, and browser fixtures
 verify the badge at mobile and desktop widths. These do not prove live deployment.
+
+
+## Independent second-app package proof
+
+The separately built example-monitor 0.1.1 wheel uses native AppCardInteractions
+for questions, current response reads and received ACKs. Native HTTP/database
+regression runs both baseline and example-monitor identities on SQLite and
+PostgreSQL, with real human response storage, signed answered event verification,
+current readback, replay/conflict/cancel/revocation and receipt-only ACK semantics.
+A different app owning the card causes the packaged question request to fail 403.
+Only test setup selects the alternate app identity; host and shared SDK production
+code has no example-monitor branch. Owner/resource/declaration fixture setup is
+not end-user installation, real provider IO or deployed canary evidence. Those
+remain separate vertical acceptance gates.
