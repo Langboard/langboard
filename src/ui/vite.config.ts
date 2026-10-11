@@ -138,6 +138,9 @@ export default defineConfig(({ mode }) => {
             },
         },
         define: {
+            "process.env.PUBLIC_SENTRY_DSN": JSON.stringify(process.env.PUBLIC_SENTRY_DSN || ""),
+            "process.env.PUBLIC_SENTRY_ENVIRONMENT": JSON.stringify(process.env.PUBLIC_SENTRY_ENVIRONMENT || ""),
+            "process.env.PUBLIC_SENTRY_RELEASE": JSON.stringify(process.env.PUBLIC_SENTRY_RELEASE || ""),
             "process.env.IS_PRODUCTION": JSON.stringify(String(mode === "production")),
             "process.env.PROJECT_NAME": JSON.stringify(process.env.PROJECT_NAME),
             "process.env.PROJECT_SHORT_NAME": JSON.stringify(process.env.PROJECT_SHORT_NAME),

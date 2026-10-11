@@ -4,11 +4,19 @@ import ReactDOM from "react-dom/client";
 import "@/core/injection";
 import App from "@/App";
 import { setupPreloadRecovery } from "@/core/helpers/setupPreloadRecovery";
+import { initializeBrowserTelemetry } from "@/core/helpers/BrowserTelemetry";
 import "@/assets/styles/main.css";
 
 const Strict = process.env.IS_PRODUCTION !== "true" ? React.StrictMode : React.Fragment;
 
 setupPreloadRecovery(window);
+
+// Telemetry is optional and must never hold application startup behind its network.
+void initializeBrowserTelemetry({
+    dsn: process.env.PUBLIC_SENTRY_DSN || "",
+    environment: process.env.PUBLIC_SENTRY_ENVIRONMENT || "",
+    release: process.env.PUBLIC_SENTRY_RELEASE || "",
+}).catch(() => console.warn("Browser telemetry could not be initialized"));
 
 const configuredPublicUIURL = new URL(process.env.PUBLIC_UI_URL || window.location.origin);
 const currentURL = new URL(window.location.href);
