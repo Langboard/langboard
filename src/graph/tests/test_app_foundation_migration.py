@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["e7bc206a954d"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["f8cd317ba65e"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -540,6 +540,48 @@ def test_execution_outbox_migration_retains_payload_and_unique_request(monkeypat
             )
         with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
             assert db.execute(text("SELECT count(*) FROM app_execution_outbox")).scalar() == 1
+            migration.downgrade()
+            migration.upgrade()
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_execution_ack_migration_retains_identity_and_unique_request(monkeypatch):
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "execution_ack_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261012160000-f8cd317ba65e.py"
+    spec = importlib.util.spec_from_file_location("ack_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "e7bc206a954d"
+    try:
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            migration.upgrade()
+            db.execute(
+                text(
+                    "INSERT INTO app_execution_acknowledgment (id,request_id,event_id,app_key,connection_id,runtime_reference) "
+                    "VALUES (1,2,3,'example',4,'runtime-1')"
+                )
+            )
+        assert inspect(engine).get_foreign_keys("app_execution_acknowledgment") == []
+        with engine.begin() as db, pytest.raises(IntegrityError):
+            db.execute(
+                text(
+                    "INSERT INTO app_execution_acknowledgment (id,request_id,event_id,app_key,connection_id,runtime_reference) "
+                    "VALUES (5,2,6,'example',4,'runtime-1')"
+                )
+            )
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            assert db.execute(text("SELECT count(*) FROM app_execution_acknowledgment")).scalar() == 1
             migration.downgrade()
             migration.upgrade()
     finally:

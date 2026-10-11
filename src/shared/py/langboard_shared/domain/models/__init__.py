@@ -6,6 +6,7 @@ from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .AppDefinition import AppDefinition
+from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
 from .AppExecutionOutbox import AppExecutionOutbox
 from .AppGovernancePolicy import AppGovernancePolicy
 from .AppMcpConsent import AppMcpConsent
@@ -120,6 +121,7 @@ __all__ = [
     "ProjectColumnBotDefaultScope",
     "BotSchedule",
     "Card",
+    "AppExecutionAcknowledgment",
     "AppExecutionOutbox",
     "CardExecutionGeneration",
     "CardExecutionIntent",

@@ -613,3 +613,21 @@ The Tabbable plugin configuration also declares its public plugin type explicitl
 preventing TypeScript from naming an internal dependency file in exported types.
 Clean generated-screen state and cleared incremental caches are verified locally;
 the broader remote image, cluster, broker and analysis gates remain separate.
+
+## App delivery acknowledgment
+
+The native SDK acknowledgment route accepts only the request's owning connection,
+matching event, board and card after current authority and generation validation.
+Pending events cannot be acknowledged. An event must be marked delivering or
+delivered by a delivery worker; that worker is not implemented yet. Tests explicitly
+set this state as a fixture and do not establish signed delivery acceptance.
+
+Acknowledgments are retained without foreign keys, unique by request and event.
+Concurrent identical calls return the same receipt; changed runtime references
+conflict. Credential revocation is serialized through the credential row and
+authentication is repeated after the lock wait. Receipt writes and current
+authority validation share the native atomic transaction. A failed write rolls
+back; the SDK reports MutationOutcomeUnknown and must not infer success or retry
+automatically. The receipt says received and started=false. It is not a runtime
+permit. Signed delivery, durable ACK recovery, lease admission and HITL remain
+unimplemented.

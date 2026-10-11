@@ -10,7 +10,7 @@ from .AppGovernance import AppGovernanceDenied, _actor, _current
 from .CardExecutionIntent import _configuration, _generation
 
 
-def read_app_execution_request(token, project_id, card_id, request_id):
+def read_app_execution_request(token, project_id, card_id, request_id, *, for_update=False):
     with DbSession.atomic() as db:
         principal = authenticate_connection_credential(token)
         intent = _current(db, CardExecutionIntent, request_id, for_update=False)
@@ -21,10 +21,10 @@ def read_app_execution_request(token, project_id, card_id, request_id):
             or intent.connection_id != principal.connection_id
         ):
             raise AppGovernanceDenied()
-        actor = _current(db, User, intent.actor_id, for_update=False)
+        actor = _current(db, User, intent.actor_id, for_update=for_update)
         if actor is None:
             raise AppGovernanceDenied()
-        actor = _actor(db, actor, for_update=False)
+        actor = _actor(db, actor, for_update=for_update)
         card, connection, snapshot = _configuration(
             db,
             actor,
@@ -32,9 +32,11 @@ def read_app_execution_request(token, project_id, card_id, request_id):
             card_id,
             principal.app_key,
             principal.connection_id,
-            for_update=False,
+            for_update=for_update,
         )
-        generation = _generation(db, card_id, for_update=False)
+        if for_update:
+            intent = _current(db, CardExecutionIntent, request_id)
+        generation = _generation(db, card_id, for_update=for_update)
         if (
             generation is None
             or generation.execution_generation != intent.execution_generation

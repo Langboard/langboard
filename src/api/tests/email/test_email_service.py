@@ -46,6 +46,8 @@ def test_send_template_preserves_smtp_contract(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_strict_template_send_does_not_claim_development_smtp_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(type(Env), "MAIL_FROM", property(lambda self: "noreply@example.test"))
+
     async def fail(message: EmailMessage, **kwargs: Any) -> None:
         raise OSError("SMTP unavailable")
 

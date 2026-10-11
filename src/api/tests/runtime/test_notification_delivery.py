@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from unittest.mock import Mock, call
 import pytest
@@ -61,6 +61,7 @@ def _user(user_id: int) -> User:
 def test_notification_email_titles_render_all_templates(
     monkeypatch: MonkeyPatch, notification_method: str, template_name: TEmailTemplateName
 ) -> None:
+    monkeypatch.setattr(type(Env), "MAIL_FROM", property(lambda self: "noreply@example.test"))
     service = NotificationService(lambda service_type: None, lambda name: None, Mock())
     project = Project.model_construct(title="Project <one>")
     card = Card.model_construct(title="Card <two>", description=None)
@@ -648,7 +649,9 @@ def test_stale_sending_worker_cannot_complete_retried_delivery(monkeypatch: Monk
         persisted = connection.execute(select(NotificationEmailDelivery.__table__)).one()
     assert persisted.status == NotificationEmailDeliveryStatus.Sending
     assert second_worker.claimed_at is not None
-    assert persisted.claimed_at == second_worker.claimed_at.replace(tzinfo=None)
+    assert persisted.claimed_at == datetime.fromtimestamp(second_worker.claimed_at.timestamp(), timezone.utc).replace(
+        tzinfo=None
+    )
 
     repository.complete_sending(second_worker, NotificationEmailDeliveryStatus.Sent)
     with engine.connect() as connection:

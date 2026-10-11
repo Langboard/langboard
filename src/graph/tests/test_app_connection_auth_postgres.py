@@ -31,6 +31,7 @@ from langboard.card_workspace.application.queries import get_card_bundle, get_pr
 from langboard.card_workspace.domain import CommentPage, SectionPage
 from langboard.card_workspace.infrastructure.native import NativeCardWorkspaceAdapter
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_sdk.client import MutationOutcomeUnknown
 from langboard_sdk.execution import AppExecution
 from langboard_sdk.resources import AppResources
 from langboard_sdk.rest import HttpTransport
@@ -44,6 +45,7 @@ from langboard_shared.domain.models import (
     AppConnection,
     AppConnectionCredential,
     AppDefinition,
+    AppExecutionAcknowledgment,
     AppExecutionOutbox,
     AppMcpConsent,
     AppResourceBinding,
@@ -110,7 +112,7 @@ from langboard_shared.publishers import CardRelationshipPublisher, ProjectColumn
 from langboard_shared.security import Auth
 from langboard_shared.tasks.activities import CardRelationshipActivityTask
 from langboard_shared.tasks.bots import CardBotTask
-from sqlalchemy import event, text, update
+from sqlalchemy import event, select, text, update
 from sqlalchemy.orm import Session
 from test_app_governance_postgres import governance  # noqa: F401
 
@@ -1606,6 +1608,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         CardExecutionGeneration,
         CardExecutionIntent,
         AppExecutionOutbox,
+        AppExecutionAcknowledgment,
         ProjectRole,
     ):
         model.__table__.create(engine)
@@ -1790,6 +1793,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         assert outbox.payload["generation"] == 1 and outbox.payload["started"] is False
         assert outbox.payload["resource_uids"] == [SnowflakeID(301).to_short_code()]
         assert outbox.state == "pending"
+        event_uid = outbox.get_uid()
         db.execute(update(AppResourceBinding).values(access_state="granted"))
         db.commit()
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-intent-secret-32bytes"))
@@ -1839,10 +1843,128 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             )
             other_token = issue_connection_credential(owner, shared.id)["token"]
             assert client.get(app_path, headers={"Authorization": f"Bearer {other_token}"}).status_code == 403
+            ack_path = app_path + "/acknowledgments"
+            ack_body = {"event_uid": event_uid, "runtime_reference": "runtime-example-1"}
+            app_headers = {"Authorization": f"Bearer {token}"}
+            assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
+            with Session(engine) as db:
+                assert db.query(AppExecutionAcknowledgment).count() == 0
+                db.execute(update(AppExecutionOutbox).values(state="delivering"))
+                db.commit()
+            with Session(engine) as db:
+                delivered_payload = deepcopy(db.query(AppExecutionOutbox).one().payload)
+                db.execute(update(AppExecutionOutbox).values(payload={**delivered_payload, "generation": 999}))
+                db.commit()
+            assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
+            with Session(engine) as db:
+                db.execute(update(AppExecutionOutbox).values(payload=delivered_payload))
+                db.commit()
+            assert client.post(ack_path, json=ack_body).status_code == 401
+            assert client.post(ack_path, headers=headers, json=ack_body).status_code == 403
+            assert (
+                client.post(ack_path, headers={"Authorization": f"Bearer {other_token}"}, json=ack_body).status_code
+                == 403
+            )
+            assert (
+                client.post(
+                    ack_path, headers=app_headers, json={**ack_body, "event_uid": SnowflakeID(999).to_short_code()}
+                ).status_code
+                == 403
+            )
+
+            async def sdk_ack():
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    return await AppExecution(HttpTransport(session)).acknowledge(
+                        SnowflakeID(20).to_short_code(),
+                        SnowflakeID(221).to_short_code(),
+                        request_uid=receipts[0]["request_uid"],
+                        event_uid=event_uid,
+                        runtime_reference="runtime-example-1",
+                    )
+
+            original_insert = DbSession.insert
+
+            def fail_ack_insert(db, model):
+                if isinstance(model, AppExecutionAcknowledgment):
+                    raise RuntimeError("Acknowledgment persistence failed")
+                return original_insert(db, model)
+
+            monkeypatch.setattr(DbSession, "insert", fail_ack_insert)
+            with pytest.raises(MutationOutcomeUnknown):
+                asyncio.run(sdk_ack())
+            monkeypatch.setattr(DbSession, "insert", original_insert)
+            with Session(engine) as db:
+                assert db.query(AppExecutionAcknowledgment).count() == 0
+                assert db.query(CardExecutionGeneration).one().execution_generation == 1
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                acknowledgments = list(pool.map(lambda _: asyncio.run(sdk_ack()), range(2)))
+            assert sorted(row["changed"] for row in acknowledgments) == [False, True]
+            assert len({row["acknowledgment_uid"] for row in acknowledgments}) == 1
+            assert all(row["state"] == "received" and row["started"] is False for row in acknowledgments)
+            assert client.post(ack_path, headers=app_headers, json=ack_body).headers["cache-control"] == "no-store"
+            assert (
+                client.post(
+                    ack_path, headers=app_headers, json={**ack_body, "runtime_reference": "runtime-example-2"}
+                ).status_code
+                == 409
+            )
+            with Session(engine) as db:
+                db.execute(
+                    update(AppConnectionCredential)
+                    .where(AppConnectionCredential.connection_id == personal.id)
+                    .values(revoked_at=SafeDateTime.now())
+                )
+                db.commit()
+            assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
+            with Session(engine) as db:
+                db.execute(
+                    update(AppConnectionCredential)
+                    .where(AppConnectionCredential.connection_id == personal.id)
+                    .values(revoked_at=None)
+                )
+                db.commit()
+            with ThreadPoolExecutor(max_workers=1) as pool, Session(engine) as revoker:
+                credential = revoker.execute(
+                    select(AppConnectionCredential)
+                    .where(AppConnectionCredential.connection_id == personal.id)
+                    .with_for_update()
+                ).scalar_one()
+                revoker.execute(text("SET LOCAL lock_timeout='5s'"))
+                future = pool.submit(lambda: client.post(ack_path, headers=app_headers, json=ack_body))
+                deadline = monotonic() + 5
+                waiting = False
+                while monotonic() < deadline:
+                    revoker.execute(text("SELECT pg_stat_clear_snapshot()"))
+                    waiting = revoker.execute(
+                        text(
+                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%app_connection_credential%' AND pid<>pg_backend_pid())"
+                        )
+                    ).scalar()
+                    if waiting:
+                        break
+                    sleep(0.01)
+                revoker.execute(
+                    update(AppConnectionCredential)
+                    .where(AppConnectionCredential.id == credential.id)
+                    .values(revoked_at=SafeDateTime.now())
+                )
+                revoker.commit()
+                assert waiting
+                assert future.result(timeout=5).status_code == 403
+            with Session(engine) as db:
+                db.execute(
+                    update(AppConnectionCredential)
+                    .where(AppConnectionCredential.connection_id == personal.id)
+                    .values(revoked_at=None)
+                )
+                db.commit()
             with Session(engine) as db:
                 db.execute(update(CardExecutionGeneration).values(execution_generation=2))
                 db.commit()
             assert client.get(app_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
+            assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
             with Session(engine) as db:
                 db.execute(update(CardExecutionGeneration).values(execution_generation=1))
                 db.execute(update(User).where(User.id == owner.id).values(activated_at=None))
@@ -1869,6 +1991,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         assert db.query(CardExecutionGeneration).count() == 0
         assert db.query(CardExecutionIntent).count() == 1
         assert db.query(AppExecutionOutbox).count() == 1
+        assert db.query(AppExecutionAcknowledgment).count() == 1
 
 
 def test_relationship_replacement_atomic_blocks_cycles_and_concurrent_writers(request, monkeypatch):
