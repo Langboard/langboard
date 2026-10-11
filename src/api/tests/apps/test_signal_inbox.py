@@ -822,6 +822,7 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
         AppConnection,
         AppDefinition,
         AppGovernancePolicy,
+        AppMcpConsent,
         AppResourceBinding,
         AppSignal,
         BoardAppBinding,
@@ -831,6 +832,7 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
     from pydantic import SecretStr
 
     state, card, linked, _ = scoped
+    AppMcpConsent.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     service = state[0]
     domain = DomainService()
     service.card = domain.card

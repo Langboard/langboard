@@ -123,7 +123,7 @@ def test_current_board_authority_revocation(board, gate):
 def test_organization_connection_preserves_current_board_authority(board, gate):
     from langboard_shared.domain.models import Organization
 
-    Organization.__table__.create(DbEngine.get_main_engine())
+    Organization.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     connection, _, _, _, _ = scope(board)
     with DbSession.atomic() as db:
         organization = Organization(name="Shared organization", slug="shared", owner_user_id=board[1].id)

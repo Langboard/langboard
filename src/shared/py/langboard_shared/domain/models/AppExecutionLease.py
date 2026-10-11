@@ -1,18 +1,12 @@
 """Runtime-specific revocable permit; acquiring it is not proof of execution."""
 
 from typing import Any
-from sqlalchemy import JSON, CheckConstraint
+from sqlalchemy import JSON
 from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime
 
 
 class AppExecutionLease(BaseDbModel, table=True):
-    __table_args__ = (
-        CheckConstraint(
-            "state IN ('authorized','stop_requested','stopped')",
-            name="ck_app_execution_lease_state",
-        ),
-    )
     request_id: int = SnowflakeIDField(nullable=False, unique=True)
     acknowledgment_id: int = SnowflakeIDField(nullable=False)
     credential_id: int | None = SnowflakeIDField(nullable=True)

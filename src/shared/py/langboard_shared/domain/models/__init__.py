@@ -239,3 +239,6 @@ __all__ = [
     "UserProfile",
     "WebhookSetting",
 ]
+
+# Attach app database invariants after all native model tables are registered.
+from . import AppSchema  # noqa: E402, F401
