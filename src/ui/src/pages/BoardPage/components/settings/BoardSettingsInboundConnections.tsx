@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import BoardSettingsMcpConsent from "./BoardSettingsMcpConsent";
 import BoardSettingsInboundCredentials from "./BoardSettingsInboundCredentials";
 import BoardSettingsInboundResources from "./BoardSettingsInboundResources";
 
@@ -21,6 +22,7 @@ export default function BoardSettingsInboundConnections({ app, onBusy }: { app: 
     const [t] = useTranslation();
     const { currentUser, canEditBasicInfo } = useBoardSettings();
     const [credentialConnection, setCredentialConnection] = useState<Connection | null>(null);
+    const [mcpConnection, setMcpConnection] = useState<string | null>(null);
     const [resourceConnection, setResourceConnection] = useState<string | null>(null);
     const [resourceBusy, setResourceBusy] = useState(false);
     const [scope, setScope] = useState("");
@@ -96,6 +98,20 @@ export default function BoardSettingsInboundConnections({ app, onBusy }: { app: 
                     key={`${currentUser?.uid}:${credentialConnection.connection_uid}`}
                     connectionUID={credentialConnection.connection_uid}
                     canIssue={app.is_available !== false && credentialConnection.state === "connected"}
+                    onBusy={setResourceBusy}
+                />
+            </>
+        );
+    if (mcpConnection && currentUser)
+        return (
+            <>
+                <Button size="sm" variant="outline" disabled={resourceBusy} onClick={() => setMcpConnection(null)}>
+                    {t("common.Close")}
+                </Button>
+                <BoardSettingsMcpConsent
+                    key={`${currentUser.uid}:${mcpConnection}`}
+                    connectionUID={mcpConnection}
+                    userUID={currentUser.uid}
                     onBusy={setResourceBusy}
                 />
             </>
@@ -184,6 +200,16 @@ export default function BoardSettingsInboundConnections({ app, onBusy }: { app: 
                         >
                             {t("project.settings.Manage service credentials")}
                         </Button>
+                        {app.capabilities.some((capability) => capability.startsWith("mcp.")) && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy || failed || list.isError || !!confirm}
+                                onClick={() => setMcpConnection(connection.connection_uid)}
+                            >
+                                {t("project.settings.Connection MCP consent")}
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="sm"
