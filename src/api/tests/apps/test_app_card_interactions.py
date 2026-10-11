@@ -108,11 +108,30 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             row.expires_at = SafeDateTime.now() - timedelta(seconds=1)
             db.update(row)
         assert client.get(read_path, headers=headers).json()["state"] == "expired"
+        assert (
+            client.post(read_path + "/cancel", json={"expected_revision": 1}, headers=headers).json()["state"]
+            == "expired"
+        )
+        cancel_body = {**body, "app_request_key": "cancel-choice"}
+        pending = client.post(path, json={"request": cancel_body}, headers=headers).json()
+        cancel_path = path + "/" + pending["interaction_uid"] + "/cancel"
+        assert client.post(cancel_path, json={"expected_revision": 2}, headers=headers).status_code == 409
+        assert client.post(cancel_path, json={"expected_revision": True}, headers=headers).status_code == 400
+        assert client.post(cancel_path, json={"expected_revision": 1}).status_code == 401
+        cancelled = client.post(cancel_path, json={"expected_revision": 1}, headers=headers).json()
+        assert cancelled["state"] == "cancelled" and cancelled["revision"] == 2 and cancelled["changed"] is True
+        retry = client.post(cancel_path, json={"expected_revision": 1}, headers=headers).json()
+        assert retry["state"] == "cancelled" and retry["changed"] is False
+        assert client.post(cancel_path, json={"expected_revision": 2}, headers=headers).status_code == 409
+        replay = client.post(path, json={"request": cancel_body}, headers=headers).json()
+        assert replay["state"] == "cancelled" and replay["execution_resumed"] is False
         with DbSession.atomic() as db:
             connection.state = "revoked"
             db.update(connection)
         assert client.get(read_path, headers=headers).status_code == 401
         assert client.post(path, json={"request": body}, headers=headers).status_code == 401
+        assert client.post(cancel_path, json={"expected_revision": 1}, headers=headers).status_code == 401
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
-        assert len(rows) == 1 and rows[0].request == body
+        assert len(rows) == 2 and {row.app_request_key for row in rows} == {"deployment-choice", "cancel-choice"}
+        assert next(row for row in rows if row.state == "cancelled").request == cancel_body
