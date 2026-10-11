@@ -185,3 +185,14 @@ and permission, deletion, generation and hash changes during serialization.
 Current primary binding checks for vector reads also passed. This supplies the
 agent's page follow-up read; optional board-wide vector composition and UI
 page-link navigation remain separate incomplete requirements.
+# Current source read regression evidence
+
+Attachment byte reads revalidate card visibility and the attachment on the primary
+database after storage IO. The native service regression makes any replica read
+fail, then commits deletion, file replacement or membership withdrawal while IO
+is in progress. The attachment MCP suite passes 18 cases across SQLite and a
+disposable PostgreSQL database, including unchanged-source success. This does
+not prove deployed provider processing or multilingual transcription quality.
+Keyword language labels reuse the existing locale resources while retaining the
+stored `ko`, `en`, `ja` and `zh` values. Standard-library `re` is imported once;
+optional LangChain/Qdrant integrations retain deferred loading.
