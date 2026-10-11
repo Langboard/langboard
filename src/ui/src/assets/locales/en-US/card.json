@@ -273,5 +273,24 @@
     "retained": "Saved selection",
     "moreRetained": "More saved connections",
     "firstRetained": "First saved connections"
+  },
+  "appInteractions": {
+    "title": "App requests",
+    "help": "Decisions belong to this card. Inbox state and execution are separate.",
+    "refresh": "Refresh",
+    "unavailable": "Requests unavailable. Refresh to recheck access.",
+    "empty": "No app requests.",
+    "previous": "Previous",
+    "next": "Next",
+    "pending": "Pending",
+    "answered": "Answered",
+    "expired": "Expired",
+    "cancelled": "Cancelled",
+    "reactionHelp": "Respond with a new reaction on the linked comment:",
+    "acceptedHelp": "Response recorded. This does not confirm external execution.",
+    "textAnswer": "Text answer",
+    "readback": "Refresh to read back the result before submitting again.",
+    "submit": "Submit response",
+    "openComment": "Open comment"
   }
 }

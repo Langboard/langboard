@@ -12,7 +12,7 @@ export interface IReactCardCommentForm {
 }
 
 const useReactCardComment = (options?: TMutationOptions<IReactCardCommentForm>) => {
-    const { mutate } = useQueryMutation();
+    const { mutate, queryClient } = useQueryMutation();
 
     const reactCardComment = async (params: IReactCardCommentForm) => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.COMMENT.REACT, {
@@ -38,6 +38,10 @@ const useReactCardComment = (options?: TMutationOptions<IReactCardCommentForm>) 
     const result = mutate(["react-card-comment"], reactCardComment, {
         ...options,
         retry: 0,
+        onSuccess: async (...args) => {
+            await queryClient.invalidateQueries({ queryKey: ["card-interactions", args[1].project_uid, args[1].card_uid] });
+            await options?.onSuccess?.(...args);
+        },
     });
 
     return result;
