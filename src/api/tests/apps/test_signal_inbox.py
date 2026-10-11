@@ -29,7 +29,14 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     from fastapi.testclient import TestClient
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.routing import AppRouter
-    from langboard_shared.domain.models import AppConnectionCredential, AppDefinition, AppResourceBinding
+    from langboard_shared.domain.models import (
+        AppConnectionCredential,
+        AppDefinition,
+        AppResourceBinding,
+        BoardAppBinding,
+        Project,
+        ProjectAssignedUser,
+    )
     from langboard_shared.domain.services.AppConnectionAuthentication import (
         issue_connection_credential,
         revoke_connection_credential,
@@ -76,13 +83,13 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         "app_revision": definition.edit_revision(), "binding_revision": state[3].edit_revision(),
         "event_id": "fixture-external-1", "event_type": "issue.observed", "external_id": "55",
         "outcome": "open", "commit_sha": "", "occurred_at": "2026-10-11T00:00:00Z"}
-    def receive(value, *, signature=None):
+    def receive(value, *, signature=None, board_uid=None):
         body = json.dumps(value, sort_keys=True).encode()
         stamp = str(int(time.time()))
         digest = hmac.new(token.encode(), stamp.encode() + b"." + body, hashlib.sha256).hexdigest()
         headers = {"x-langboard-webhook-version": "1", "x-langboard-webhook-timestamp": stamp,
             "x-langboard-webhook-signature": signature or "v1=" + digest}
-        return client.post(f"/apps/v1/boards/{state[1][2].get_uid()}/signals", content=body,
+        return client.post(f"/apps/v1/boards/{board_uid or state[1][2].get_uid()}/signals", content=body,
                            headers={**headers, "Authorization": "Bearer " + token})
     first_response = receive(envelope)
     assert first_response.status_code == 200, first_response.text
@@ -132,6 +139,31 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     second = receive({**envelope, "resource_uid": second_resource.get_uid(), "external_id": "second-issue"})
     assert second.status_code == 200 and second.json()["signal_uid"] != first["signal_uid"]
     assert {row["resource_uid"] for row in inbox(scoped)["items"]} == {state[4].get_uid(), second_resource.get_uid()}
+    with DbSession.atomic() as db:
+        other_board = db.exec(SqlBuilder.select.table(Project).where(Project.id == 11)).first()
+        other_board.organization_id = state[1][2].organization_id
+        other_board.owner_id = actor.id
+        db.update(other_board)
+        db.insert(ProjectAssignedUser(project_id=other_board.id, user_id=actor.id))
+    other_envelope = {**envelope, "board_uid": other_board.get_uid()}
+    assert receive(other_envelope, board_uid=other_board.get_uid()).status_code == 403
+    with DbSession.atomic() as db:
+        other_binding = BoardAppBinding(project_id=other_board.id, app_key="example-monitor", state="enabled",
+            granted_capabilities=["signals.read", "signals.publish"])
+        db.insert(other_binding)
+        other_resource = AppResourceBinding(board_binding_id=other_binding.id, connection_id=state[2].id,
+            resource_type="issue", external_resource_id="other-board-issue", access_state="granted")
+        db.insert(other_resource)
+    other_envelope.update(binding_revision=other_binding.edit_revision(), resource_uid=other_resource.get_uid(),
+                          external_id="other-board-issue")
+    received_other = receive(other_envelope, board_uid=other_board.get_uid())
+    assert received_other.status_code == 200, received_other.text
+    assert received_other.json()["signal_uid"] != first["signal_uid"]
+    assert receive({**other_envelope, "resource_uid": state[4].get_uid()}, board_uid=other_board.get_uid()).status_code == 403
+    assert receive({**envelope, "resource_uid": other_resource.get_uid()}).status_code == 403
+    other_rows = list_board_signals(state[0], actor, other_board.get_uid())["items"]
+    assert {row["resource_uid"] for row in other_rows} == {other_resource.get_uid()}
+    assert other_resource.get_uid() not in {row["resource_uid"] for row in inbox(scoped)["items"]}
     with DbSession.atomic() as db:
         link.is_enabled = True
         db.update(link)
