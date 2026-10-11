@@ -1,4 +1,4 @@
-# App human interactions v1 — agreed contract, implementation pending
+# App human interactions v1 — implementation and acceptance boundaries
 
 ## Scope and evidence
 
@@ -13,7 +13,7 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. SDK 0.2.19 provides request/value validation and app-authenticated create/read/cancel. Host human response storage, optional signed response outbox and app reception ACK are implemented; Broker dispatch and bounded cron recovery are wired in source; production scheduling verification, native UI and runtime continuation remain pending.
+proof. SDK 0.2.19 provides request/value validation and app-authenticated create/read/cancel. Host human response storage, optional signed response outbox and app reception ACK are implemented; Broker dispatch and bounded cron recovery are wired in source; native card UI and explicit workflow application are implemented in source. Production scheduling, authenticated canary UI/API acceptance and observed external runtime continuation remain pending.
 
 ## Implemented app cancellation
 
@@ -53,7 +53,7 @@ seen events and unrelated comments cannot approve. Removing a reaction cannot
 reverse a previously accepted decision. Explicit rejection uses a new authorized
 request where needed.
 
-Illustrative request (wire endpoints are not implemented):
+Illustrative request (validated by the implemented app request endpoint):
 
 ```json
 {
@@ -200,11 +200,12 @@ execution context is checked against the existing execution authority.
 
 Question requests may preserve predefined stable choice IDs while offering custom
 non-secret input through `choice_or_text` with required `max_length` (1–16000).
-The future response shape is exactly one of `choice_id` or `text`; both together
+The validated response shape is exactly one of `choice_id` or `text`; both together
 are invalid. Predefined choices may retain existing workflow outcome mappings.
 Custom text has no implicit outcome or approval semantics. Approval/action kinds
-and comment-reaction presentation reject this question type. Request storage is
-implemented; response acceptance, widgets and external continuation are pending.
+and comment-reaction presentation reject this question type. Request storage,
+response acceptance and native widgets are implemented in source; deployed
+acceptance and external continuation remain pending.
 
 ## Shared response value validation (SDK 0.2.18)
 
@@ -389,10 +390,10 @@ immutable destination intent, not a movement receipt: `workflow_transitioned`
 remains false. Pre-migration signed events without the field retain their wire
 body. The migration refuses to discard nonempty frozen history on downgrade.
 
-Actual native card movement is still pending. It must revalidate the frozen
-mapping and current authority and use native ordering, workflow effects,
-readiness and history paths. Moving out of Ready invalidates the old execution
-permit; neither an answer nor a planned target silently renews that permit.
+Explicit native movement is implemented as described below. It revalidates the
+frozen mapping and current authority and uses native ordering, workflow effects,
+readiness and history paths. Deployed downstream history delivery remains pending.
+Moving out of Ready invalidates the old execution permit; neither an answer nor a planned target silently renews that permit.
 
 ## Explicit native workflow application
 
