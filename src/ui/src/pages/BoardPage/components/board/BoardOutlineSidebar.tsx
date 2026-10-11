@@ -39,7 +39,7 @@ function CardOutline({ card, onRelations, onNavigate }: { card: ProjectCard.TMod
     const hasDescription = card.useField("has_description") ?? false;
     const contentBlocks = card.useField("content_blocks") ?? [];
     const relationships = card.useForeignFieldArray("relationships");
-    const attachments = ProjectCardAttachment.Model.useModels((attachment) => attachment.card_uid === card.uid, [card.uid]);
+    const attachments = ProjectCardAttachment.Model.useModels((attachment) => attachment.card_uid === card.uid, [card]);
     const sections: Array<{ key: TOutlineSection; label: string; count?: string }> = [
         ...(hasDescription ? [{ key: "description" as const, label: t("card.Description") }] : []),
         ...(checklistTotal

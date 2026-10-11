@@ -84,7 +84,7 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
     const bots = BotModel.Model.useModels(() => true);
     const mentionables = useMemo(() => (visibility === "PRIVATE" ? [] : [...projectMembers, ...bots]), [visibility, projectMembers, bots]);
     const cards = ProjectCard.Model.useModels((model) => model.uid !== card.uid && model.project_uid === projectUID, [projectUID, card]);
-    const modelComments = ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid, [card.uid]);
+    const modelComments = ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const { data: commentsData } = useGetCardComments({ project_uid: projectUID, card_uid: card.uid });
     const comments = commentsData?.comments ?? modelComments;
     const description = card.useField("description");

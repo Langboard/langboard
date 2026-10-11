@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+for (const width of [1440, 390]) {
+    test(`outline follows the current card attachment models at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/src/components/Layout/outline-model.fixture.html");
+        const attachmentSection = page.getByRole("button", { name: "Attached files 1", exact: true });
+        await expect(page.getByText("first", { exact: true })).toBeVisible();
+        await expect(attachmentSection).toHaveCount(0);
+        await page.getByRole("button", { name: "Switch card" }).click();
+        await expect(page.getByText("second", { exact: true })).toBeVisible();
+        await expect(attachmentSection).toBeVisible();
+        await page.getByRole("button", { name: "Switch card" }).click();
+        await expect(page.getByText("first", { exact: true })).toBeVisible();
+        await expect(attachmentSection).toHaveCount(0);
+    });
+}
+
 test("route changes retain the physical shell and preserve page context in its sidebar", async ({ page }) => {
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
     await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
