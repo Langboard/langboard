@@ -110,3 +110,14 @@ Installed SDK 0.2.27 panel signal scope subset: 14 authenticated HTTP cases on S
 Panel SDK 0.2.3 shares source-scoped pager lifetime management. Standalone panel SDK: 20 tests. GlitchTip: 18 tests; Dokploy: 14 tests, both consuming the reviewed 0.2.3 tarball. These are local contract checks, not deployed browser or provider readback.
 
 Host SDK artifact was installed in an isolated offline Yarn project and matched reviewed inbox source bytes. Full host offline install was blocked by an existing axios@^1.20.0 cache miss; no full UI build success is claimed for this change.
+
+Independent provider snapshots: `tests/apps/vendor/provider-signal-contracts.json`
+records current external repository commits, their generated publishing declarations
+and normalizer evidence. Six native HTTP/SQL cases passed across SQLite and
+PostgreSQL: signed acceptance, immutable stored fields, inbox/time-basis readback,
+duplicate replay, undeclared outcomes and revoked credentials. Snapshots are
+compatibility fixtures, not execution of external services in the host test process.
+Refreshing a fixture requires running the referenced app's actual declaration and
+normalizer functions and retaining its source commit. This local gate is included
+in the existing contract workflow; deployed account/connection/browser acceptance
+remains separate.
