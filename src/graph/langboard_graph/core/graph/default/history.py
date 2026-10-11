@@ -366,9 +366,10 @@ def normalize_card_comment(
         "source": "card_comment",
         "change_type": _get_mutable_change_type(comment.created_at, comment.updated_at, comment.deleted_at),
         "sender": _create_sender(user, bot),
-        "content": _trim_text(comment.content.content),
+        # Preserve deletion metadata for delta reconciliation, never deleted body text.
+        "content": None if comment.deleted_at else _trim_text(comment.content.content),
         "timestamp": _to_iso(comment.created_at) or "",
-        "updated_at": _to_iso(comment.updated_at),
+        "updated_at": _to_iso(comment.deleted_at or comment.updated_at),
         "parent_id": "current_card",
         "scope": {"card": "current"},
         "lineage": {"source": "card_comment"},

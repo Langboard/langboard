@@ -245,3 +245,17 @@ collectors against real role rows. The full 114-test suite passes in 44.04
 seconds. Chat history remains scoped to the signed user's own chat session;
 this change does not establish bot execution identity, runtime credential
 isolation, or end-to-end graph HTTP authorization.
+
+## Deleted comment tombstones
+
+Deleted card comments remain in bounded history as tombstones for delta
+reconciliation, but their body is no longer supplied to the model or persisted
+in the newly collected history state. The message ID and deletion change type
+are retained. The effective update timestamp is the deletion timestamp, so
+a deletion after the last synchronization is delivered even when the original
+edit timestamp is older. SQLite and PostgreSQL fixtures exercise actual deleted
+rows; full/delta and summary configuration checks verify body omission and
+unchanged tombstone identity. The combined suite passes 120 tests in 44.14
+seconds. Original database bodies and already persisted checkpoints are not
+erased by this change; historical checkpoint retention remains a separate
+requirement.
