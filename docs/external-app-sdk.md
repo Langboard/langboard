@@ -1096,7 +1096,7 @@ The panel pager package 0.2.2 accepts bounded provider keys rather than a built-
 three-provider allowlist. This is client transport compatibility only: it neither
 installs a signal adapter nor grants native data authority.
 
-External-provider ingestion is not implemented yet. Built-in compatibility
+External-provider ingestion has an initial native signed HTTP implementation. Built-in compatibility
 policies remain in `AppManifest.APP_MANIFESTS`. Current approved external
 AppDefinitions now contribute their validated policies through `approved_manifests`
 to `AppSignalProjection` and `SignalInbox`: event eligibility, resource types,
@@ -1112,9 +1112,22 @@ the app's `resource_types`, finite `outcome_states`, `commit_mode` and `time_bas
 Outcomes map to evidence states, never reviewer approval. `signals.publish` is a
 separate declaration capability and requires this policy. A policy change removes
 existing signal read/publication consent while retaining unrelated grants. This
-is a declaration and read-projection contract; no generic ingestion endpoint or
-app-side signal publication method has been enabled. Signed-envelope ingestion
-still requires implementation. Existing HITL wire bodies are unchanged.
+The native `POST /apps/v1/boards/{board_uid}/signals` accepts at most 64 KiB of
+exact signed JSON bytes. Bearer authentication uses the existing owner-issued
+connection credential; native v1 webhook headers use that credential as the HMAC
+key. No provider credential or connection identity is accepted from the envelope.
+Version 1 requires `board_uid`, `resource_uid`, current `app_revision` and
+`binding_revision`, `event_id`, `event_type`, timezone-aware `occurred_at`,
+`external_id`, `outcome` and `commit_sha`. Unknown/duplicate JSON fields are rejected.
+Current declaration/publication consent, unattended organization connection,
+owner board update authority, selected resource and active SecretRef are checked.
+The native credential row is locked and revalidated before storing evidence.
+Identical event retries return the same signal receipt; changed bytes for that
+resource/event conflict. Reverse-order events remain append-only observations;
+projection still chooses occurrence order. The response does not create a card,
+triage an inbox or transition workflow. External publisher SDK methods, independent
+app onboarding and two-board/two-resource acceptance remain unfinished. Existing
+HITL wire bodies are unchanged.
 
 The remaining generic contract must keep normalization in the external app and
 validate an approved finite event/resource/outcome policy, a versioned signed

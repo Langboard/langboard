@@ -19,13 +19,26 @@ def inbox(scoped, after=None):
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
-def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped):
-    from langboard_shared.domain.models import AppDefinition, AppSignal
+def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped, monkeypatch):
+    import hashlib
+    import hmac
+    import json
+    import time
+    import langboard.routes.settings.AppSignalApi as signal_api
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.domain.models import AppConnectionCredential, AppDefinition
+    from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
     from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
+    from langboard_shared.publishers import CardPublisher
 
     state, card, link, _ = scoped
     actor = state[1][1]
+    AppConnectionCredential.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    monkeypatch.setattr(CardPublisher, "app_signal_changed", lambda _: None)
     policy = {"version": 1, "event_types": ["issue.observed"], "resource_types": ["issue"],
               "outcome_states": {"open": "failed", "closed": "resolved"},
               "commit_mode": "empty", "time_basis": "observation"}
@@ -38,16 +51,41 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     with DbSession.atomic() as db:
         state[2].app_key = state[3].app_key = "example-monitor"
         state[3].state = "enabled"
-        state[3].granted_capabilities = ["signals.read"]
+        state[3].granted_capabilities = ["signals.read", "signals.publish"]
         state[4].resource_type = "issue"
         link.commit_sha = ""
         link.is_enabled = False
         for row in (state[2], state[3], state[4], link):
             db.update(row)
-        signal = AppSignal(resource_id=state[4].id, provider="example-monitor", event_id="fixture-external-1",
-            event_type="issue.observed", external_id="55", outcome="open", commit_sha="",
-            occurred_at="2026-10-11T00:00:00Z", payload_digest="a" * 64)
-        db.insert(signal)
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
+    token = issue_connection_credential(actor, state[2].id)["token"]
+    state[0].close = lambda: None
+    monkeypatch.setattr(signal_api, "DomainService", lambda: state[0])
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    client = TestClient(app)
+    envelope = {"version": 1, "board_uid": state[1][2].get_uid(), "resource_uid": state[4].get_uid(),
+        "app_revision": definition.edit_revision(), "binding_revision": state[3].edit_revision(),
+        "event_id": "fixture-external-1", "event_type": "issue.observed", "external_id": "55",
+        "outcome": "open", "commit_sha": "", "occurred_at": "2026-10-11T00:00:00Z"}
+    def receive(value, *, signature=None):
+        body = json.dumps(value, sort_keys=True).encode()
+        stamp = str(int(time.time()))
+        digest = hmac.new(token.encode(), stamp.encode() + b"." + body, hashlib.sha256).hexdigest()
+        headers = {"x-langboard-webhook-version": "1", "x-langboard-webhook-timestamp": stamp,
+            "x-langboard-webhook-signature": signature or "v1=" + digest}
+        return client.post(f"/apps/v1/boards/{state[1][2].get_uid()}/signals", content=body,
+                           headers={**headers, "Authorization": "Bearer " + token})
+    first_response = receive(envelope)
+    assert first_response.status_code == 200, first_response.text
+    first = first_response.json()
+    assert not first["duplicate"] and receive(envelope).json() == {**first, "duplicate": True}
+    assert receive(envelope, signature="v1=" + "0" * 64).status_code == 400
+    assert receive({**envelope, "outcome": "closed"}).status_code == 409
+    assert receive({**envelope, "event_type": "undeclared"}).status_code == 400
+    assert receive({**envelope, "board_uid": "foreign"}).status_code == 400
+    older = receive({**envelope, "event_id": "older", "occurred_at": "2026-10-10T00:00:00Z", "outcome": "closed"})
+    assert older.status_code == 200
     result = inbox(scoped)
     assert [row["provider"] for row in result["items"]] == ["example-monitor"]
     assert result["items"][0]["time_basis"] == "observation"
@@ -62,6 +100,8 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         db.update(definition)
     assert inbox(scoped)["items"] == []
     assert card_signal_projections([card]) == {}
+    assert receive({**envelope, "event_id": "after-revoke"}).status_code == 403
+    client.close()
 
 
 def test_inbox_hides_visible_links_but_not_private_link_existence(scoped):
