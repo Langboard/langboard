@@ -180,7 +180,7 @@ export default function BoardSettingsApps() {
                             </Button>
                         </div>
                     )}
-                    <div className="grid gap-3 sm:grid-cols-3">
+                    <div className={managedKey ? "grid gap-3" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"}>
                         {!composition &&
                             !managedKey &&
                             compositions.map((group) => (
@@ -241,14 +241,20 @@ export default function BoardSettingsApps() {
                                                         </Button>
                                                     ))}
                                                 </nav>
-                                                {section === "connections" && key === "github" && (
-                                                    <BoardSettingsGitHub onStatusChange={() => void refreshStore()} />
+                                                {key === "github" && (
+                                                    <div hidden={section !== "connections"}>
+                                                        <BoardSettingsGitHub onStatusChange={() => void refreshStore()} />
+                                                    </div>
                                                 )}
-                                                {section === "connections" && key === "glitchtip" && (
-                                                    <BoardSettingsGlitchTip onStatusChange={() => void refreshStore()} />
+                                                {key === "glitchtip" && (
+                                                    <div hidden={section !== "connections"}>
+                                                        <BoardSettingsGlitchTip onStatusChange={() => void refreshStore()} />
+                                                    </div>
                                                 )}
-                                                {section === "connections" && key === "dokploy" && (
-                                                    <BoardSettingsDokploy onStatusChange={() => void refreshStore()} />
+                                                {key === "dokploy" && (
+                                                    <div hidden={section !== "connections"}>
+                                                        <BoardSettingsDokploy onStatusChange={() => void refreshStore()} />
+                                                    </div>
                                                 )}
                                                 <span className="self-start rounded-md bg-muted px-2 py-1 text-xs">
                                                     {t(`project.settings.App state ${state}`)}

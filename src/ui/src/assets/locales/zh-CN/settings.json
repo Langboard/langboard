@@ -319,5 +319,9 @@
   "App first organizations": "第一页",
   "App mode inherit": "继承实例策略",
   "App mode inherit description": "不增加组织限制，使用实例策略上限。",
-  "App organization ceiling": "组织限制不能解除实例策略上限。"
+  "App organization ceiling": "组织限制不能解除实例策略上限。",
+  "Workspace setup": "工作空间配置",
+  "People and notifications": "用户与通知",
+  "AI and automation": "AI 与自动化",
+  "Apps and integrations": "应用与集成"
 }

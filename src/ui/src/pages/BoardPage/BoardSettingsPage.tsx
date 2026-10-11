@@ -7,10 +7,11 @@ import BoardSettingsList from "@/pages/BoardPage/components/settings/BoardSettin
 import { BoardSettingsProvider } from "@/core/providers/BoardSettingsProvider";
 import BoardSettingsUserList from "@/pages/BoardPage/components/settings/BoardSettingsUserList";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
+import SettingsLoadState from "@/pages/SettingsPage/SettingsLoadState";
 import { EHttpStatus } from "@langboard/core/enums";
 
 const BoardSettingsPage = memo(({ project, currentUser }: IBoardRelatedPageProps) => {
-    const { data, error } = useGetProjectDetails({ uid: project.uid, includeCards: false });
+    const { data, error, isFetching, refetch } = useGetProjectDetails({ uid: project.uid, includeCards: false });
     const navigate = usePageNavigateRef();
 
     useEffect(() => {
@@ -32,10 +33,10 @@ const BoardSettingsPage = memo(({ project, currentUser }: IBoardRelatedPageProps
 
     return (
         <>
-            <BoardSettingsUserList currentUser={currentUser} project={project} />
+            {!data && <SettingsLoadState error={Boolean(error)} isFetching={isFetching} retry={() => void refetch()} />}
             {data && (
                 <BoardSettingsProvider project={project} currentUser={currentUser}>
-                    <BoardSettingsList />
+                    <BoardSettingsList notifications={<BoardSettingsUserList currentUser={currentUser} project={project} />} />
                 </BoardSettingsProvider>
             )}
         </>

@@ -380,3 +380,20 @@ test("disabled app exposes credential cleanup but prevents issuance", async ({ p
     await page.getByRole("button", { name: "Manage credentials" }).click();
     await expect(page.getByRole("button", { name: "Issue credential", exact: true })).toBeDisabled();
 });
+
+for (const width of [1440, 390]) {
+    test(`connection draft survives section navigation at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store`);
+        const tile = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GlitchTip", exact: true }) });
+        await tile.getByRole("button", { name: "Manage App", exact: true }).click();
+        await page.getByLabel("Instance URL", { exact: true }).fill("https://errors.example.test");
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+        await expect(page.getByLabel("Instance URL", { exact: true })).not.toBeVisible();
+        await page.getByRole("button", { name: "Connections", exact: true }).click();
+        await expect(page.getByLabel("Instance URL", { exact: true })).toHaveValue("https://errors.example.test");
+        const rect = await page.getByRole("article").boundingBox();
+        const container = await page.locator("main").boundingBox();
+        expect(rect!.width).toBeGreaterThan(container!.width * 0.85);
+    });
+}

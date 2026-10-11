@@ -1,23 +1,31 @@
 import Flex from "@/components/base/Flex";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
-import BoardSettingsApps from "@/pages/BoardPage/components/settings/BoardSettingsApps";
-import BoardSettingsBasic from "@/pages/BoardPage/components/settings/BoardSettingsBasic";
-import BoardSettingsDock from "@/pages/BoardPage/components/settings/BoardSettingsDock";
-import BoardSettingsEmailNotifications from "@/pages/BoardPage/components/settings/BoardSettingsEmailNotifications";
-import BoardSettingsExecutionBindingStatus from "@/pages/BoardPage/components/settings/BoardSettingsExecutionBindingStatus";
-import BoardSettingsOther from "@/pages/BoardPage/components/settings/BoardSettingsOther";
+
 import BoardSettingsSection from "@/pages/BoardPage/components/settings/BoardSettingsSection";
-import BoardSettingsChatTemplateList from "@/pages/BoardPage/components/settings/chat/BoardSettingsChatTemplateList";
-import BoardSettingsInternalBotList from "@/pages/BoardPage/components/settings/internalBots/BoardSettingsInternalBotList";
-import BoardSettingsLabelList from "@/pages/BoardPage/components/settings/label/BoardSettingsLabelList";
-import BoardSettingsMemberRoleList from "@/pages/BoardPage/components/settings/roles/BoardSettingsMemberRoleList";
-import { memo, useMemo } from "react";
+
+import { lazy, memo, Suspense, useMemo, useState } from "react";
+import Button from "@/components/base/Button";
+import { useTranslation } from "react-i18next";
+
+const BoardSettingsApps = lazy(() => import("./BoardSettingsApps"));
+const BoardSettingsBasic = lazy(() => import("./BoardSettingsBasic"));
+const BoardSettingsDock = lazy(() => import("./BoardSettingsDock"));
+const BoardSettingsEmailNotifications = lazy(() => import("./BoardSettingsEmailNotifications"));
+const BoardSettingsExecutionBindingStatus = lazy(() => import("./BoardSettingsExecutionBindingStatus"));
+const BoardSettingsOther = lazy(() => import("./BoardSettingsOther"));
+const BoardSettingsChatTemplateList = lazy(() => import("./chat/BoardSettingsChatTemplateList"));
+const BoardSettingsInternalBotList = lazy(() => import("./internalBots/BoardSettingsInternalBotList"));
+const BoardSettingsLabelList = lazy(() => import("./label/BoardSettingsLabelList"));
+const BoardSettingsMemberRoleList = lazy(() => import("./roles/BoardSettingsMemberRoleList"));
 
 export function SkeletonSettingsList() {
     return <></>;
 }
 
-const BoardSettingsList = memo(() => {
+const BoardSettingsList = memo(({ notifications }: { notifications?: React.ReactNode }) => {
+    const [t] = useTranslation();
+    const [section, setSection] = useState("board");
+    const [visited, setVisited] = useState(["board"]);
     const { project, currentUser } = useBoardSettings();
     const ownerUID = project.useField("owner_uid");
     const allMembers = project.useForeignFieldArray("all_members");
@@ -30,43 +38,83 @@ const BoardSettingsList = memo(() => {
     );
 
     return (
-        <Flex direction="col" gap="3" p={{ initial: "4", md: "6", lg: "8" }} items="center">
-            <BoardSettingsSection title="project.settings.Basic info">
-                <BoardSettingsBasic />
-            </BoardSettingsSection>
-            <BoardSettingsSection title="board.Shared dock">
-                <BoardSettingsDock key={project.uid} />
-            </BoardSettingsSection>
-            <BoardSettingsSection title="project.settings.Apps">
-                <BoardSettingsApps key={project.uid} />
-            </BoardSettingsSection>
-            <BoardSettingsSection title="project.settings.Email notifications">
-                <BoardSettingsEmailNotifications />
-            </BoardSettingsSection>
-            {isAdmin || project.owner_uid === currentUser.uid ? (
-                <BoardSettingsSection title="project.settings.Execution binding">
-                    <BoardSettingsExecutionBindingStatus />
-                </BoardSettingsSection>
-            ) : null}
-            <BoardSettingsSection title="project.settings.Internal bots">
-                <BoardSettingsInternalBotList key={`board-settings-internal-bots-${project.uid}`} />
-            </BoardSettingsSection>
-            {numMembers > 0 && (
-                <BoardSettingsSection title="project.settings.Member roles">
-                    <BoardSettingsMemberRoleList key={`board-settings-member-roles-${project.uid}`} />
-                </BoardSettingsSection>
-            )}
-            <BoardSettingsSection title="project.settings.Label">
-                <BoardSettingsLabelList />
-            </BoardSettingsSection>
-            <BoardSettingsSection title="project.settings.Chat templates">
-                <BoardSettingsChatTemplateList key={`board-settings-chat-templates-${project.uid}`} />
-            </BoardSettingsSection>
-            {isAdmin || project.owner_uid === currentUser.uid ? (
-                <BoardSettingsSection title="common.Other">
-                    <BoardSettingsOther />
-                </BoardSettingsSection>
-            ) : null}
+        <Flex direction="col" gap="3" p={{ initial: "4", md: "6", lg: "8" }}>
+            <nav aria-label={t("board.Settings")} className="flex flex-wrap gap-2 border-b pb-3">
+                {[
+                    ["board", "project.settings.Basic info"],
+                    ["apps", "project.settings.Apps"],
+                    ["people", "settings.People and notifications"],
+                    ["automation", "settings.AI and automation"],
+                ].map(([key, label]) => (
+                    <Button
+                        key={key}
+                        size="sm"
+                        variant={section === key ? "secondary" : "ghost"}
+                        aria-pressed={section === key}
+                        onClick={() => {
+                            setSection(key);
+                            setVisited((previous) => (previous.includes(key) ? previous : [...previous, key]));
+                        }}
+                    >
+                        {t(label)}
+                    </Button>
+                ))}
+            </nav>
+            <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
+                {visited.includes("board") && (
+                    <div hidden={section !== "board"} className="space-y-6">
+                        <BoardSettingsSection title="project.settings.Basic info">
+                            <BoardSettingsBasic />
+                        </BoardSettingsSection>
+                        <BoardSettingsSection title="board.Shared dock">
+                            <BoardSettingsDock key={project.uid} />
+                        </BoardSettingsSection>
+                        <BoardSettingsSection title="project.settings.Label">
+                            <BoardSettingsLabelList />
+                        </BoardSettingsSection>
+                        {(isAdmin || project.owner_uid === currentUser.uid) && (
+                            <BoardSettingsSection title="common.Other">
+                                <BoardSettingsOther />
+                            </BoardSettingsSection>
+                        )}
+                    </div>
+                )}
+                {visited.includes("apps") && (
+                    <div hidden={section !== "apps"}>
+                        <BoardSettingsSection title="project.settings.Apps" wide>
+                            <BoardSettingsApps key={project.uid} />
+                        </BoardSettingsSection>
+                    </div>
+                )}
+                {visited.includes("people") && (
+                    <div hidden={section !== "people"} className="space-y-6">
+                        {notifications}
+                        {numMembers > 0 && (
+                            <BoardSettingsSection title="project.settings.Member roles">
+                                <BoardSettingsMemberRoleList key={project.uid} />
+                            </BoardSettingsSection>
+                        )}
+                        <BoardSettingsSection title="project.settings.Email notifications">
+                            <BoardSettingsEmailNotifications />
+                        </BoardSettingsSection>
+                    </div>
+                )}
+                {visited.includes("automation") && (
+                    <div hidden={section !== "automation"} className="space-y-6">
+                        {(isAdmin || project.owner_uid === currentUser.uid) && (
+                            <BoardSettingsSection title="project.settings.Execution binding">
+                                <BoardSettingsExecutionBindingStatus />
+                            </BoardSettingsSection>
+                        )}
+                        <BoardSettingsSection title="project.settings.Internal bots">
+                            <BoardSettingsInternalBotList key={project.uid} />
+                        </BoardSettingsSection>
+                        <BoardSettingsSection title="project.settings.Chat templates">
+                            <BoardSettingsChatTemplateList key={project.uid} />
+                        </BoardSettingsSection>
+                    </div>
+                )}
+            </Suspense>
         </Flex>
     );
 });
