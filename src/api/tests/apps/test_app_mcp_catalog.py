@@ -71,6 +71,8 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
             db.update(binding)
         assert client.get(path, headers=headers).json()["tools"] == []  # Board consent cannot approve a private connection.
         consent = read_mcp_connection_consent(board[1], connection.id)
+        assert consent["available_tools"] == {"read": ["read_issue"], "write": ["write_issue"]}
+        assert consent["granted_tools"] == {}
         save_mcp_connection_consent(board[1], connection.id, ["read", "write"], consent["revision"], consent["identity_revision"], consent["app_revision"])
         response = client.get(path, headers=headers)
         assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
@@ -127,7 +129,10 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
         with pytest.raises(AppGovernanceConflict):
             save_mcp_connection_consent(board[1], connection.id, ["read", "write"], 1,
                                        consent["identity_revision"], consent["app_revision"])
-        assert read_mcp_connection_consent(board[1], connection.id)["scopes"] == ["read"]
+        reviewed = read_mcp_connection_consent(board[1], connection.id)
+        assert reviewed["scopes"] == ["read"]
+        assert reviewed["granted_tools"] == {"read": ["read_issue"]}
+        assert reviewed["available_tools"]["write"] == ["close_issue", "write_issue"]
         # Reverting the tool set never resurrects the revoked write consent.
         with DbSession.use(readonly=False) as db:
             from langboard_shared.domain.models import AppDefinition

@@ -1306,3 +1306,10 @@ consent invalidation contract. Disabling an app blocks its current hosted panel 
 Local parser, authenticated HTTP and store browser tests establish source behavior. Actual
 GitHub release downloads, native board activation, provider traffic and canary UI acceptance
 remain separate delivery checks.
+
+
+### Reviewing connection MCP consent
+
+The authenticated human connection manager reads `GET /settings/apps/connections/{connection_uid}/mcp-consent`. The response includes the current `available_tools` grouped by authority scope and the retained `granted_tools`, alongside the consent, app, and trust identity revisions. The native connection UI displays the actual declared tool names before explicit scope selection. It does not grant permissions automatically and does not grant when the host cannot describe the tool set.
+
+A registry update withdraws affected scope grants permanently; the newly available tool set and retained grants remain distinct. Restoring a previous declaration does not reinstate consent. Remote MCP execution remains unsupported by this consent/catalog contract.

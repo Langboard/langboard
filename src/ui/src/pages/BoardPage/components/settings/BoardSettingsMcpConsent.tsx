@@ -12,6 +12,8 @@ interface Consent {
     identity_revision: string;
     scopes: Scope[];
     available_scopes: Scope[];
+    available_tools: Partial<Record<Scope, string[]>>;
+    granted_tools: Partial<Record<Scope, string[]>>;
     execution_supported: boolean;
 }
 
@@ -54,7 +56,13 @@ export default function BoardSettingsMcpConsent({
         }
     };
     const scopes = draft ?? query.data?.scopes ?? [];
-    const disabled = pending || query.isFetching || query.isError || failed || !query.data;
+    const disabled =
+        pending ||
+        query.isFetching ||
+        query.isError ||
+        failed ||
+        !query.data ||
+        !query.data.available_scopes.every((scope) => Array.isArray(query.data?.available_tools?.[scope]));
     const save = async () => {
         if (disabled || writing.current || !query.data) return;
         writing.current = true;
@@ -90,13 +98,18 @@ export default function BoardSettingsMcpConsent({
                 </p>
             )}
             {query.data?.available_scopes.map((scope) => (
-                <Checkbox
-                    key={scope}
-                    label={t(`project.settings.Connection MCP ${scope}`)}
-                    checked={scopes.includes(scope)}
-                    disabled={disabled}
-                    onCheckedChange={(checked) => setDraft(checked === true ? [...scopes, scope] : scopes.filter((value) => value !== scope))}
-                />
+                <div key={`${scope}-group`} className="space-y-1 rounded-sm bg-muted/30 p-2">
+                    <Checkbox
+                        key={scope}
+                        label={t(`project.settings.Connection MCP ${scope}`)}
+                        checked={scopes.includes(scope)}
+                        disabled={disabled}
+                        onCheckedChange={(checked) => setDraft(checked === true ? [...scopes, scope] : scopes.filter((value) => value !== scope))}
+                    />
+                    <p className="pl-6 text-xs text-muted-foreground">
+                        {(query.data?.available_tools?.[scope] ?? []).join(", ") || t("project.settings.Connection MCP no tools")}
+                    </p>
+                </div>
             ))}
             {(failed || query.isError) && (
                 <p role="alert" className="text-sm">
