@@ -304,5 +304,19 @@
   "No app archive history": "No app archive history.",
   "Archive outcome": "Archive outcome",
   "Event delivery": "Event delivery",
-  "Provider reported state": "Provider reported state"
+  "Provider reported state": "Provider reported state",
+  "appRuntimes": {
+    "title": "App execution",
+    "help": "Latest 10 requests. Permit state is not proof of a running process. A stop request waits for the external runtime to report termination.",
+    "stop": "Request stop",
+    "unresolved": "Result unconfirmed. Refresh before another request.",
+    "empty": "No execution requests.",
+    "generation": "Generation {{count}}",
+    "states": {
+      "authorized": "Permit issued",
+      "awaiting_permit": "Awaiting permit",
+      "stop_requested": "Stop requested — awaiting runtime termination",
+      "stopped": "Runtime reported stopped"
+    }
+  }
 }
