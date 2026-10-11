@@ -115,6 +115,20 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             ).status_code
             == 400
         )
+        from langboard_sdk import validate_card_interaction_values
+
+        retained = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), mixed_receipt["interaction_uid"]))[
+            "request"
+        ]
+        assert validate_card_interaction_values(retained, {"action": {"choice_id": "review"}}) == {
+            "action": {"choice_id": "review"}
+        }
+        assert validate_card_interaction_values(retained, {"action": {"text": "추가 검토 필요"}}) == {
+            "action": {"text": "추가 검토 필요"}
+        }
+        for answer in ({"choice_id": "Review"}, {"choice_id": "review", "text": "override"}, {"text": "x" * 2001}):
+            with pytest.raises(ValueError):
+                validate_card_interaction_values(retained, {"action": answer})
         assert client.post(path, json={"request": {**body, "kind": "unknown"}}, headers=headers).status_code == 400
         with DbSession.atomic() as db:
             binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "interactions.request"]
