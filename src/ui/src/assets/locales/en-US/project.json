@@ -70,7 +70,6 @@
     "Save reviewed permissions": "Save reviewed permissions",
     "Clear App permissions": "Clear selection",
     "Back and refresh App permissions": "Back and refresh",
-
     "Confirm inbound change": "Confirm",
     "Manage inbound connections": "Manage service connections",
     "Inbound connection help": "Registers a Langboard inbound service identity. Does not sign in to an external account or grant board access.",
@@ -83,7 +82,6 @@
     "First inbound connections": "First page",
     "Create inbound connection": "Register service connection",
     "Inbound disconnect help": "Disconnecting blocks current credentials and new credential issuance.",
-
     "Copy as template": "Copy as template",
     "Template name": "Template name",
     "Basic info": "Basic info",
@@ -390,7 +388,12 @@
     "Service credential value": "Service credential",
     "Hide service credential": "Hide value",
     "Revoke service credential": "Revoke credential",
-    "Issue service credential": "Issue credential"
+    "Issue service credential": "Issue credential",
+    "Review archive synchronization": "Review archive synchronization",
+    "Archive synchronization help": "Native archive is recorded first. Provider actions run only for card types you explicitly enable.",
+    "Provider archive action": "External provider action after archive",
+    "Refresh required": "Refresh required before writing again.",
+    "Disable archive synchronization": "Disable archive synchronization"
   },
   "App panel": "App panel",
   "Close App panel": "Close App panel",

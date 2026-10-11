@@ -70,7 +70,6 @@
     "Save reviewed permissions": "確認した権限を保存",
     "Clear App permissions": "選択をクリア",
     "Back and refresh App permissions": "戻って更新",
-
     "Confirm inbound change": "確認",
     "Manage inbound connections": "サービス接続の管理",
     "Inbound connection help": "Langboard の受信サービスIDを登録します。外部ログインやボード権限の付与は行いません。",
@@ -83,7 +82,6 @@
     "First inbound connections": "最初のページ",
     "Create inbound connection": "サービス接続を登録",
     "Inbound disconnect help": "接続解除後は現在の認証情報の使用と新規発行が拒否されます。",
-
     "Copy as template": "テンプレートとしてコピー",
     "Template name": "テンプレート名",
     "Basic info": "基本情報",
@@ -390,7 +388,12 @@
     "Service credential value": "サービス認証情報",
     "Hide service credential": "値を隠す",
     "Revoke service credential": "認証情報を取り消す",
-    "Issue service credential": "認証情報を発行"
+    "Issue service credential": "認証情報を発行",
+    "Review archive synchronization": "アーカイブ同期を確認",
+    "Archive synchronization help": "カードのアーカイブを先に記録します。明示的に有効にしたカード種類のみ外部処理を実行します。",
+    "Provider archive action": "アーカイブ後の外部処理",
+    "Refresh required": "再保存する前に更新してください。",
+    "Disable archive synchronization": "アーカイブ同期を解除"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",

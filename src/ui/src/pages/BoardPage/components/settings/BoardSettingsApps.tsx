@@ -13,6 +13,7 @@ import BoardSettingsDokploy from "./BoardSettingsDokploy";
 import BoardSettingsAppWorkflow from "./BoardSettingsAppWorkflow";
 import BoardSettingsInboundConnections from "./BoardSettingsInboundConnections";
 import BoardSettingsAppConsent from "./BoardSettingsAppConsent";
+import BoardSettingsAppArchiveSync from "./BoardSettingsAppArchiveSync";
 
 export default function BoardSettingsApps() {
     const [t, i18n] = useTranslation();
@@ -162,6 +163,13 @@ export default function BoardSettingsApps() {
                                     {app.inbound_connection_management && (
                                         <BoardSettingsAppConsent
                                             key={`${app.key}:${app.app_revision}:${app.binding?.revision}`}
+                                            app={app}
+                                            onRefresh={refetch}
+                                        />
+                                    )}
+                                    {app.inbound_connection_management && (
+                                        <BoardSettingsAppArchiveSync
+                                            key={`archive:${app.key}:${app.app_revision}:${app.binding?.revision}`}
                                             app={app}
                                             onRefresh={refetch}
                                         />
