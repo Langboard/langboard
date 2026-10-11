@@ -201,6 +201,11 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
     app.include_router(AppRouter.api)
     url = f"/apps/v1/boards/{board[2].get_uid()}/archives/{row.get_uid()}/outcome"
     headers = {"Authorization": f"Bearer {token}"}
+    async def sdk_read():
+        from httpx import ASGITransport, AsyncClient
+        from langboard_sdk import AppCards, HttpTransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver", headers=headers) as session:
+            return await AppCards(HttpTransport(session)).read_archive_outcome(board[2].get_uid(), row.get_uid())
     async def sdk_report(expected_revision, state, external_state, readback_confirmed):
         from httpx import ASGITransport, AsyncClient
         from langboard_sdk import AppCards, HttpTransport
@@ -222,7 +227,7 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
         assert client.post(url, json=body, headers=headers).status_code == 400
         assert client.post(url, json=body).status_code == 401
         assert asyncio.run(sdk_report(0, "unknown", None, False))["receipt"]["state"] == "unknown"
-        receipt = client.get(read_url, headers=headers).json()
+        receipt = asyncio.run(sdk_read())
         assert receipt["receipt"]["outcome_revision"] == 1
         assert receipt["receipt"]["state"] == "unknown"
         finish_app_event(event.id, claimed["claim_token"], delivered=False)
@@ -234,7 +239,7 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
         response = asyncio.run(sdk_report(1, "applied", "resolved", True))
         assert response["receipt"]["state"] == "applied"
         assert response["receipt"]["outcome_source"] == "authenticated_app_report"
-        assert client.get(read_url, headers=headers).json()["receipt"]["outcome_revision"] == 2
+        assert asyncio.run(sdk_read())["receipt"]["outcome_revision"] == 2
         assert asyncio.run(sdk_report(1, "applied", "resolved", True))["changed"] is False
         body["outcome"]["external_state"] = "unresolved"
         assert client.post(url, json=body, headers=headers).status_code == 409
@@ -247,6 +252,10 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
         body["outcome"]["external_state"] = "resolved"
         assert client.post(url, json=body, headers=headers).status_code == 409
         assert client.get(read_url, headers=headers).status_code == 409
+        from langboard_sdk import NativeApiError
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(sdk_read())
+        assert denied.value.status_code == 409
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
 def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(creation, monkeypatch):
@@ -271,7 +280,7 @@ def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(crea
         from httpx import ASGITransport, AsyncClient
         from langboard_sdk import AppManager, HttpTransport
         import importlib.metadata
-        assert importlib.metadata.version("langboard-sdk") == "0.2.25"
+        assert importlib.metadata.version("langboard-sdk") == "0.2.26"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver", headers=headers,
                                cookies={Env.REFRESH_TOKEN_NAME: refresh}) as session:
             return await AppManager(HttpTransport(session), board[2].get_uid()).set_archive_sync(
