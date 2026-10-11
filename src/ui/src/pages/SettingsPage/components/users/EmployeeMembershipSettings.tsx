@@ -59,7 +59,9 @@ export default function EmployeeMembershipSettings() {
             <p className="mt-1 text-sm text-muted-foreground">{t("settings.Employee membership guidance")}</p>
             {settings && (
                 <>
-                    <p className="mt-3 break-all text-xs text-muted-foreground">SCIM: {settings.issuer || t("settings.Not configured")}</p>
+                    <p className="mt-3 break-all text-xs text-muted-foreground">
+                        {t("settings.SCIM issuer")}: {settings.issuer || t("settings.Not configured")}
+                    </p>
                     {!settings.groups.length && <p className="mt-3 text-sm">{t("settings.No synchronized SCIM groups")}</p>}
                     <div className="my-3 grid gap-2 sm:grid-cols-2">
                         {settings.groups.map((group) => (
@@ -74,9 +76,13 @@ export default function EmployeeMembershipSettings() {
                                 />
                                 <span className="min-w-0">
                                     <span className="block text-sm font-medium">{group.display_name}</span>
-                                    <span className="block break-all text-xs text-muted-foreground">ID: {group.uid}</span>
+                                    <span className="block break-all text-xs text-muted-foreground">
+                                        {t("settings.Group ID")}: {group.uid}
+                                    </span>
                                     {group.external_id && (
-                                        <span className="block break-all text-xs text-muted-foreground">externalId: {group.external_id}</span>
+                                        <span className="block break-all text-xs text-muted-foreground">
+                                            {t("settings.External group ID")}: {group.external_id}
+                                        </span>
                                     )}
                                 </span>
                             </label>

@@ -246,3 +246,21 @@ authenticated HTTP on both databases. Eight browser fixture cases cover missing
 stage assignment/creation, discard, read-only denial and explicit replacement
 confirmation on desktop/mobile. These remain local evidence; deployed workflow
 mapping acceptance is still required.
+
+## Localization regression gate
+
+The native UI literal audit identified ten new candidates in the current union.
+SCIM issuer, group ID, external group ID, and GitHub app connection identity now
+use English, Korean, Japanese, and Chinese locale keys. Connection identifiers
+remain interpolation values rather than translated user data.
+
+The six remaining candidates are invariant product names (Langboard, GlitchTip,
+Dokploy) and literal URI examples (`https://`, `secret://ref/`). Their exact file,
+kind, text, and occurrence count are recorded in the existing baseline; the
+scanner is not weakened and additional occurrences still fail the gate.
+
+Local verification: no new UI literal candidates, four scanner tests passed,
+29 namespaces and 2538 values per translated locale passed complete parity and
+placeholder checks, changed-file ESLint and UI TypeScript passed. This is
+source-level evidence and does not establish deployed localization acceptance
+or finish the full UI string migration card.
