@@ -30,7 +30,7 @@ def list_definitions(actor):
         return [row.registry_response() for row in db.exec(SqlBuilder.select.table(AppDefinition).order_by(AppDefinition.key)).all()]
 
 
-def save_definition(actor, declaration, expected_revision=None):
+def save_definition(actor, declaration, expected_revision=None, *, package=None):
     declaration = validate_app_definition(declaration)
     key = declaration["key"]
     if key in APP_MANIFESTS:
@@ -45,7 +45,7 @@ def save_definition(actor, declaration, expected_revision=None):
         if row is None:
             if expected_revision is not None:
                 raise AppRegistryConflict()
-            row = AppDefinition(key=key, declaration=declaration, approved_by=actor.id)
+            row = AppDefinition(key=key, declaration=declaration, approved_by=actor.id, package=package)
             db.insert(row)
         else:
             if expected_revision is None or row.edit_revision() != expected_revision:
@@ -54,6 +54,7 @@ def save_definition(actor, declaration, expected_revision=None):
                 raise ValueError("An app update needs a newer version")
             _update_bindings(db, key, row.declaration, declaration)
             row.declaration = declaration
+            row.package = package
             row.is_enabled = True
             row.generation += 1
             row.approved_by = actor.id

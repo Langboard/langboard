@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { Blocks, Puzzle } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
+import { Blocks } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/core/helpers/Api";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import useBoardAppCatalog, { useBoardAppCompositions, type CatalogApp } from "@/controllers/api/board/useBoardAppCatalog";
 import { deletePanelState } from "@/core/apps/PanelSession";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
+import AppPackageIcon from "@/components/AppPackageIcon";
 import Button from "@/components/base/Button";
 import Checkbox from "@/components/base/Checkbox";
 import BoardSettingsGitHub from "./BoardSettingsGitHub";
@@ -15,6 +16,7 @@ import BoardSettingsAppWorkflow from "./BoardSettingsAppWorkflow";
 import BoardSettingsInboundConnections from "./BoardSettingsInboundConnections";
 import BoardSettingsAppConsent from "./BoardSettingsAppConsent";
 import BoardSettingsAppArchiveSync from "./BoardSettingsAppArchiveSync";
+const AppPackagesPage = lazy(() => import("@/pages/SettingsPage/AppPackagesPage"));
 
 export default function BoardSettingsApps() {
     const [t, i18n] = useTranslation();
@@ -25,6 +27,7 @@ export default function BoardSettingsApps() {
     const [compositionKey, setCompositionKey] = useState<string | null>(null);
     const [managedKey, setManagedKey] = useState<string | null>(null);
     const [section, setSection] = useState<"connections" | "permissions" | "workflow" | "panel">("connections");
+    const [installing, setInstalling] = useState(false);
     // Group membership and module state must come from the same server snapshot.
     const snapshot = compositionQuery.isError ? undefined : compositionQuery.data;
     const apps = snapshot?.apps ?? data ?? [];
@@ -116,6 +119,23 @@ export default function BoardSettingsApps() {
             setPending(false);
         }
     };
+    if (installing && currentUser)
+        return (
+            <div>
+                <Button variant="ghost" onClick={() => setInstalling(false)}>
+                    {t("project.settings.Back to App Store")}
+                </Button>
+                <Suspense fallback={<p role="status">{t("common.Loading")}</p>}>
+                    <AppPackagesPage
+                        currentUser={currentUser}
+                        onInstalled={async () => {
+                            const result = await refreshStore();
+                            if (result.isError) throw new Error("Board catalog readback failed");
+                        }}
+                    />
+                </Suspense>
+            </div>
+        );
     return (
         <div className="flex w-full flex-col gap-4 py-4">
             {connections ? (
@@ -171,7 +191,14 @@ export default function BoardSettingsApps() {
                             {t("common.Retry")}
                         </Button>
                     )}
-                    <h3 className="text-base font-semibold">{t("project.settings.App Store")}</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-base font-semibold">{t("project.settings.App Store")}</h3>
+                        {currentUser?.is_admin && (
+                            <Button size="sm" variant="outline" disabled={pending || dirty} onClick={() => setInstalling(true)}>
+                                {t("settings.Download and install")}
+                            </Button>
+                        )}
+                    </div>
                     <p className="text-sm text-muted-foreground">{t("project.settings.App Store browse help")}</p>
                     {managedKey && (
                         <Button
@@ -290,9 +317,7 @@ export default function BoardSettingsApps() {
                                         className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <span className="rounded-xl bg-muted p-3">
-                                                <Puzzle className="size-5 text-muted-foreground" aria-hidden="true" />
-                                            </span>
+                                            <AppPackageIcon appKey={key} installation={app.installation} />
                                             <h4 className="min-w-0 break-words font-semibold">{name}</h4>
                                         </div>
                                         {!managedKey ? (

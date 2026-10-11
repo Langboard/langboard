@@ -8,3 +8,4 @@ class StorageName(Enum):
     BotAvatar = "bot_avatar"
     InternalBot = "internal_bot"
     Graph = "graph"
+    AppPackage = "app_package"
