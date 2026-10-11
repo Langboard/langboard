@@ -201,22 +201,29 @@ def test_public_archive_outcome_requires_readback_and_current_authority(creation
     app.include_router(AppRouter.api)
     url = f"/apps/v1/boards/{board[2].get_uid()}/archives/{row.get_uid()}/outcome"
     headers = {"Authorization": f"Bearer {token}"}
+    async def sdk_report(expected_revision, state, external_state, readback_confirmed):
+        from httpx import ASGITransport, AsyncClient
+        from langboard_sdk import AppCards, HttpTransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver", headers=headers) as session:
+            return await AppCards(HttpTransport(session)).report_archive_outcome(
+                board[2].get_uid(), row.get_uid(), expected_revision=expected_revision,
+                state=state, external_state=external_state, readback_confirmed=readback_confirmed)
+    import asyncio
     with TestClient(app) as client:
         body = {"expected_revision": 0, "outcome": {"state": "applied", "external_state": "resolved", "readback_confirmed": False}}
         assert client.post(url, json=body, headers=headers).status_code == 400
         assert client.post(url, json=body).status_code == 401
-        unknown = {"expected_revision": 0, "outcome": {"state": "unknown", "external_state": None, "readback_confirmed": False}}
-        assert client.post(url, json=unknown, headers=headers).json()["receipt"]["state"] == "unknown"
+        assert asyncio.run(sdk_report(0, "unknown", None, False))["receipt"]["state"] == "unknown"
         finish_app_event(event.id, claimed["claim_token"], delivered=False)
         assert claim_app_event(event.id, 1) is None
         with DbSession.atomic() as db:
             assert db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first().state == "blocked"
         body["expected_revision"] = 1
         body["outcome"]["readback_confirmed"] = True
-        response = client.post(url, json=body, headers=headers)
-        assert response.status_code == 200 and response.json()["receipt"]["state"] == "applied"
-        assert response.json()["receipt"]["outcome_source"] == "authenticated_app_report"
-        assert client.post(url, json=body, headers=headers).json()["changed"] is False
+        response = asyncio.run(sdk_report(1, "applied", "resolved", True))
+        assert response["receipt"]["state"] == "applied"
+        assert response["receipt"]["outcome_source"] == "authenticated_app_report"
+        assert asyncio.run(sdk_report(1, "applied", "resolved", True))["changed"] is False
         body["outcome"]["external_state"] = "unresolved"
         assert client.post(url, json=body, headers=headers).status_code == 409
 
@@ -246,12 +253,22 @@ def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(crea
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
     access, refresh = AuthSecurity.authenticate(board[1].id)
     headers = {"Authorization": f"Bearer {access}"}
+    async def sdk_configure():
+        from httpx import ASGITransport, AsyncClient
+        from langboard_sdk import AppManager, HttpTransport
+        import importlib.metadata
+        assert importlib.metadata.version("langboard-sdk") == "0.2.25"
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver", headers=headers,
+                               cookies={Env.REFRESH_TOKEN_NAME: refresh}) as session:
+            return await AppManager(HttpTransport(session), board[2].get_uid()).set_archive_sync(
+                binding.app_key, binding.edit_revision(), ["issue"])
+    import asyncio
     with TestClient(app) as client:
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         url = f"/board/{board[2].get_uid()}/apps/{binding.app_key}/archive-sync"
         body = {"expected_revision": binding.edit_revision(), "card_types": ["issue"]}
-        response = client.put(url, json=body, headers=headers)
-        assert response.status_code == 200 and response.json()["archive_sync_types"] == ["issue"]
+        response = asyncio.run(sdk_configure())
+        assert response["archive_sync_types"] == ["issue"]
         assert client.put(url, json=body, headers=headers).status_code == 409
         receipts = client.get(f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/archives", headers=headers)
         assert receipts.status_code == 200
@@ -260,6 +277,6 @@ def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(crea
         from langboard_shared.core.types import SnowflakeID
         other_access, other_refresh = AuthSecurity.authenticate(SnowflakeID(2))
         client.cookies.set(Env.REFRESH_TOKEN_NAME, other_refresh)
-        body["expected_revision"] = response.json()["revision"]
+        body["expected_revision"] = response["revision"]
         assert client.put(url, json=body, headers={"Authorization": f"Bearer {other_access}"}).status_code == 403
     assert queues == []
