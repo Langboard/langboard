@@ -20,6 +20,9 @@ def inbox(scoped, after=None):
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped, monkeypatch):
+    from langboard_shared.core.caching.Cache import Cache
+    from langboard_shared.core.caching.InMemoryCache import InMemoryCache
+    monkeypatch.setattr(Cache, "_cache", InMemoryCache())
     from packaged_monitor import load_monitor
     Monitor = load_monitor(monkeypatch, "example-monitor-provenance.json")
     import hashlib
@@ -61,6 +64,9 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     with DbSession.atomic() as db:
         actor.is_admin = True
         db.update(actor)
+    # Match the native role update path; authentication may already cache this actor.
+    from langboard_shared.security import Auth
+    Auth.reset_user(actor)
     import importlib
     from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
     from langboard_shared.core.security import AuthSecurity
@@ -798,7 +804,7 @@ def test_dokploy_registry_override_hides_stored_deployments(dokploy_inbox, chang
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
-@pytest.mark.parametrize("trust_change", ["publisher", "panel", "mcp_identity", "authentication_origins", "mcp_origins", "data_origins"])
+@pytest.mark.parametrize("trust_change", ["publisher", "panel", "mcp_identity", "authentication_origins", "mcp_origins", "data_origins", "resource_types"])
 def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped, monkeypatch, trust_change):
     import importlib
     from datetime import datetime, timezone
@@ -905,6 +911,16 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             form["app_revision"] = definition.edit_revision()
             other_result = client.post(path, json={**form, "provider": "glitchtip"}, headers=headers)
             assert other_result.status_code == 200, other_result.text
+            # Provider consent alone cannot expand the panel's declared resource types.
+            assert other_result.json() == {"items": [], "next_cursor": None}
+            assert client.post(path, json={**form, "provider": "glitchtip", "after": other_signal.get_uid()}, headers=headers).status_code == 400
+            with DbSession.atomic() as db:
+                definition.declaration = {**definition.declaration, "resource_types": ["repository", "project"]}
+                db.update(definition)
+            assert client.post(path, json=form, headers=headers).status_code == 409
+            form["app_revision"] = definition.edit_revision()
+            other_result = client.post(path, json={**form, "provider": "glitchtip"}, headers=headers)
+            assert other_result.status_code == 200, other_result.text
             assert [item["signal_uid"] for item in other_result.json()["items"]] == [other_signal.get_uid()]
             assert client.post(path, json={**form, "after": other_signal.get_uid()}, headers=headers).status_code == 400
             with DbSession.atomic() as db:
@@ -990,6 +1006,8 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
                 changed["panel"] = {**changed["panel"], "url": "https://new-panel.example.invalid"}
             elif trust_change == "mcp_identity":
                 changed["mcp"] = {"identity": "changed-mcp-server", "tools": []}
+            elif trust_change == "resource_types":
+                changed["resource_types"] = [*changed["resource_types"], "application"]
             else:
                 changed["trust"] = {key: [] for key in ("authentication_origins", "mcp_origins", "data_origins")}
                 changed["trust"][trust_change] = ["https://changed.example.invalid"]
@@ -1006,8 +1024,12 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             with DbSession.use(readonly=False) as db:
                 binding_now = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == panel_binding.id)).first()
                 connection_now = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == panel_connection.id)).first()
-                assert binding_now.state == "needs_attention" and binding_now.granted_capabilities == []
-                assert connection_now.state == "revoked"
+                if trust_change == "resource_types":
+                    assert binding_now.state == "enabled" and binding_now.granted_capabilities == ["panels.render"]
+                    assert connection_now.state == "connected"
+                else:
+                    assert binding_now.state == "needs_attention" and binding_now.granted_capabilities == []
+                    assert connection_now.state == "revoked"
             renewed = client.put(
                 f"/board/{state[1][2].get_uid()}/settings/apps/github-panel/consent",
                 json={"app_revision": updated.json()["app"]["revision"], "binding_uid": binding_now.get_uid(),
@@ -1018,7 +1040,8 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             form.update(app_revision=updated.json()["app"]["revision"], binding_revision=renewed.json()["revision"])
             assert len(client.post(path, json=form, headers=headers).json()["items"]) == 1
             with DbSession.use(readonly=False) as db:
-                assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == panel_connection.id)).first().state == "revoked"
+                expected_state = "connected" if trust_change == "resource_types" else "revoked"
+                assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == panel_connection.id)).first().state == expected_state
             service.secret_reference.revoke(state[1][1], state[2].credential_reference, 0)
             assert client.post(path, json=form, headers=headers).json()["items"] == []
     finally:

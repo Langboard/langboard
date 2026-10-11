@@ -31,7 +31,7 @@ from .GitHubManifest import GitHubManifestUnavailable
 _resource_name = signal_resource_name
 
 
-def list_board_signals(service, actor, project_uid, after=None, *, channel=CollaborationChannel.Api, provider=None, page_size=25):
+def list_board_signals(service, actor, project_uid, after=None, *, channel=CollaborationChannel.Api, provider=None, page_size=25, resource_types=None):
     if service.workflow_stage._authorized_app_board(actor, project_uid, ProjectRoleAction.Read) is None:
         raise GitHubManifestUnavailable()
     resolved = service.card.resolve_visibility_context(project_uid, actor, channel)
@@ -119,6 +119,8 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
     )
     if provider is not None:
         query = query.where(AppSignal.provider == provider)
+    if resource_types is not None:
+        query = query.where(AppResourceBinding.resource_type.in_(resource_types))
     with DbSession.use(readonly=False) as db:
         if after is not None:
             cursor_id = InfraHelper.convert_id(after)
