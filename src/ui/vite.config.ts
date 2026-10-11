@@ -155,6 +155,14 @@ export default defineConfig(({ mode }) => {
             rollupOptions: {
                 input: { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") },
                 preserveEntrySignatures: "strict",
+                output: {
+                    // The backend reads every namespace for one language together.
+                    // Keep languages lazy, but share one download per language.
+                    manualChunks(id) {
+                        const locale = id.replace(/\\/g, "/").match(/\/src\/assets\/locales\/([^/]+)\/[^/]+\.json$/)?.[1];
+                        if (locale) return `locale-${locale}`;
+                    },
+                },
             },
             // Keep content-hashed assets from the previous deployment so an
             // already-open client can still lazy-load its remaining chunks.
