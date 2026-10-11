@@ -75,3 +75,17 @@ This is one successful reload after prior failed loads, not proof that intermitt
 cancellation is fixed or that the new Store/settings commits are deployed.
 The central Langboard project view still showed only the earlier isolated SDK
 acceptance issue with one event; actual canary event-to-board acceptance remains open.
+
+## Fresh capture during the next immutable build
+
+A 2026-10-11 authenticated reload reproduced the partial settings shell while
+immutable API image run `38128233263` was still building. The original refresh
+POST, identity GET and board GET returned 200. The original details GET
+(`17668.349`), dock GET (`17668.333`) and approval-count GET (`17668.345`)
+ended with `net::ERR_ABORTED`, `canceled: true`, after their separate OPTIONS
+requests returned 200. The capture had neither truncation nor remaining pages.
+The deployed asset remained `index-CHcBG7Il.js`. Browser console reported Axios
+`Request aborted`; this is not evidence that the session guard caused the abort.
+The observed API origin is `https://api-langboard.yamon.io`. No credential
+material was read. Current source auth transport regression passed 16 cases;
+that local result does not resolve this deployed reproduction.
