@@ -323,5 +323,18 @@
   "Workspace setup": "업무 구성",
   "People and notifications": "사용자 · 알림",
   "AI and automation": "AI · 자동화",
-  "Apps and integrations": "앱 · 연동"
+  "Apps and integrations": "앱 · 연동",
+  "App groups": "앱 그룹",
+  "App groups help": "설치된 모듈을 골라 스토어 타일 하나로 묶습니다. 모듈별 권한·연결·버전은 유지됩니다.",
+  "App groups conflict": "변경을 확인할 수 없습니다. 입력은 보존했습니다. 다시 변경하기 전에 현재 그룹을 불러오세요.",
+  "App groups reload": "그룹 다시 불러오기 · 입력 취소",
+  "App groups saved": "앱 그룹을 저장했습니다.",
+  "App group create": "그룹 만들기",
+  "App group key": "그룹 키",
+  "App group modules": "설치된 모듈 (최대 16개)",
+  "App group ungroup": "그룹 해제",
+  "App group ungroup help": "스토어 그룹을 해제할까요? 모듈·연결·권한·카드는 유지됩니다.",
+  "App group name": "이름",
+  "App group description": "설명",
+  "App group confirm ungroup": "그룹 해제 확인"
 }

@@ -65,6 +65,7 @@ export const ROUTES = {
         ROUTE: "/settings",
         API_KEYS: "/settings/api-keys",
         APPS: "/settings/apps",
+        APP_GROUPS: "/settings/app-groups",
         WORKFLOW_STAGES: "/settings/workflow-stages",
         GLOBAL_LABELS: "/settings/global-labels",
         PROJECT_TEMPLATES: "/settings/project-templates",
