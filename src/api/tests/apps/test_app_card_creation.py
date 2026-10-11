@@ -48,12 +48,14 @@ def creation(board, monkeypatch):
     if engine.dialect.name != "postgresql":
         pytest.skip("Native card creation requires PostgreSQL sequence/readiness SQL")
     from langboard_shared.domain.models import Organization
+    from sqlalchemy import inspect
     from sqlalchemy.schema import CreateColumn
 
-    # The shared board fixture provides only the organization ID FK stub.
+    # Some board fixtures provide the full organization; older ones use an ID stub.
+    organization_columns = {column["name"] for column in inspect(engine).get_columns("organization")}
     with engine.begin() as db:
         for column in Organization.__table__.columns:
-            if column.name != "id":
+            if column.name not in organization_columns:
                 db.execute(
                     text(
                         "ALTER TABLE organization ADD COLUMN "
@@ -344,8 +346,7 @@ def test_foreign_presentation_namespace_cannot_claim_identity(creation):
 
 def test_created_app_card_can_request_interaction_with_its_retained_resources(creation):
     from datetime import timedelta
-    from langboard_shared.core.types import SafeDateTime
-    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.core.types import SafeDateTime, SnowflakeID
     from langboard_shared.domain.services.AppCardInteractions import create_app_card_interaction
 
     board, token, _, binding, _, definition, _ = creation
@@ -366,6 +367,71 @@ def test_created_app_card_can_request_interaction_with_its_retained_resources(cr
         db.update(binding)
     with pytest.raises(AppGovernanceDenied):
         create_app_card_interaction(token, board[2].id, SnowflakeID.from_short_code(card["card_uid"]), request)
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_independent_monitor_creates_owned_card_then_requests_hitl_over_http(creation, monkeypatch):
+    """Ownership comes from the public creation transaction, never a fixture row."""
+    import asyncio
+    from datetime import timedelta
+    from types import SimpleNamespace
+    import langboard.routes.settings.AppCardCreationApi  # noqa: F401
+    import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard_sdk import HttpTransport, NativeApiError
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.types import SafeDateTime, SnowflakeID
+    from packaged_monitor import load_monitor
+
+    Monitor = load_monitor(monkeypatch, "example-monitor-hitl-provenance.json")
+    board, _, connection, binding, resource, definition, events = creation
+    with DbSession.atomic() as db:
+        connection.app_key = definition.key = binding.app_key = "example-monitor"
+        definition.declaration = {**definition.declaration, "key": "example-monitor",
+            "capabilities": [*definition.declaration["capabilities"], "interactions.request"]}
+        binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
+        for row in (connection, definition, binding):
+            db.update(row)
+    token = issue_connection_credential(board[1], connection.id)["token"]
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    with TestClient(app) as client:
+        async def send(method, path, **kwargs):
+            return client.request(method, path, headers={"Authorization": "Bearer " + token}, **kwargs)
+        transport = HttpTransport(SimpleNamespace(request=send))
+        creation_path = f"/apps/v1/boards/{board[2].get_uid()}/cards"
+        body = {"resource_uid": resource.get_uid(), "external_id": "monitor-owned-issue",
+                "title": "Independent issue requiring a human choice", "card_type": "issue"}
+        created = asyncio.run(transport.request("POST", creation_path, json=body))
+        assert created["created"] is True
+        replay = asyncio.run(transport.request("POST", creation_path, json=body))
+        assert replay["created"] is False and replay["card_uid"] == created["card_uid"]
+        request = {"schema_version": 1, "kind": "question", "app_request_key": "monitor-triage",
+            "prompt": {"en": "Choose the next step"},
+            "questions": [{"id": "next", "prompt": {"en": "Next step"}, "type": "single_choice",
+                           "choices": [{"id": "hold", "label": {"en": "Hold"}}]}],
+            "presentation": {"type": "choice_card"},
+            "expires_at": (SafeDateTime.now() + timedelta(hours=1)).isoformat()}
+        first = asyncio.run(Monitor.question(transport, board[2].get_uid(), created["card_uid"], request))
+        repeated = asyncio.run(Monitor.question(transport, board[2].get_uid(), created["card_uid"], request))
+        assert first["state"] == "pending" and first["execution_resumed"] is False
+        assert repeated["changed"] is False and repeated["interaction_uid"] == first["interaction_uid"]
+        current = asyncio.run(Monitor.current_response(transport, board[2].get_uid(), created["card_uid"], first["interaction_uid"]))
+        assert current["request"] == request
+        with DbSession.atomic() as db:
+            card_id = SnowflakeID.from_short_code(created["card_uid"])
+            ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card_id)).first()
+            assert ownership.app_key == "example-monitor" and ownership.revision == 1
+            assert len(db.exec(SqlBuilder.select.table(CardAppOwnershipAudit).where(CardAppOwnershipAudit.card_id == card_id)).all()) == 1
+            selection = db.exec(SqlBuilder.select.table(CardAppResourceSelection).where(CardAppResourceSelection.card_id == card_id)).first()
+            assert selection.resource_uids == [resource.get_uid()] and selection.connection_id == connection.id
+            binding.granted_capabilities = [value for value in binding.granted_capabilities if value != "interactions.request"]
+            db.update(binding)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(Monitor.current_response(transport, board[2].get_uid(), created["card_uid"], first["interaction_uid"]))
+        assert denied.value.status_code == 403
+        assert len(events) == 1
 
 
 def test_concurrent_postgres_replays_create_one_card(creation):
