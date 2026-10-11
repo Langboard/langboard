@@ -1253,3 +1253,12 @@ calls exercise native user-authenticated consent preparation and grants on
 SQLite/HTTP and PostgreSQL; preparation alone cannot publish signals or enable
 workflow transitions. HITL wire contracts are unchanged. This is not registry
 publication or deployed acceptance.
+
+
+The independent [example-monitor app](https://github.com/yamonco/langboard-app-example-monitor)
+uses only public SDK/API contracts. Host regression consumes its built wheel
+rather than copying its implementation. The package participates in real HTTP
+board consent, resource selection and signed publication on SQLite/PostgreSQL.
+Registration and connection helpers exist, but their complete package-driven
+installation flow is not yet exercised. No app-owned card or workflow transition
+is implicitly created. Test artifact provenance is retained beside the wheel.
