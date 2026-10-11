@@ -529,3 +529,21 @@ stop report changes the lease to `stopped`; the human request does not claim tha
 termination already happened. No automatic resume, generation change or workflow
 transition is performed. The UI control, explicit resume and deployed external
 termination acceptance remain unfinished.
+
+The native card also provides a lazy **App execution** section. Its authenticated
+GET `/board/{project_uid}/card/{card_uid}/apps/executions` returns at most the
+latest ten request identities and retained permit states after current native
+read authority checks. It never exposes runtime tokens or credential hashes and
+uses one request query plus one batched lease query. These are authorization
+states, not independent process health or proof of execution.
+
+The section performs no background polling. Human stop controls require current
+UI update permission (the API rechecks it), and are unavailable while sending or
+while a prior result is unresolved. A lost stop response never triggers a second
+POST: the user explicitly refreshes before another action. Stop requested and
+runtime-reported stopped have distinct translated labels in English, Korean,
+Japanese and Chinese. Queries include the user and card and are discarded on
+unmount. Local browser acceptance covers 390px/1440px lost-response readback and
+read-only denial alongside eleven existing request/transition regressions.
+Explicit resume and deployed external process termination acceptance are still
+unfinished.

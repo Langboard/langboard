@@ -82,3 +82,28 @@ for (const flag of ["move", "move&lost"]) {
         expect(writes[0].data).toEqual({ response_uid: "00000000006", expected_card_revision: 12 });
     });
 }
+
+for (const width of [390, 1440]) {
+    test(`human stop lost response reads back without replay at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`${fixture}?runtime&lost`);
+        expect(await page.evaluate(() => (window as any).interactionCalls.length)).toBe(0);
+        await page.getByRole("button", { name: "App execution", exact: true }).click();
+        await expect(page.getByText("Permit issued", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Request stop", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Request stop", exact: true })).toBeDisabled();
+        await page.getByRole("button", { name: "Refresh", exact: true }).click();
+        await expect(page.getByText("Stop requested — awaiting runtime termination", { exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Request stop", exact: true })).toHaveCount(0);
+        const writes = await page.evaluate(() => (window as any).interactionCalls.filter((c: any) => c.method === "post"));
+        expect(writes).toHaveLength(1);
+        expect(writes[0].data).toEqual({ generation: 7 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+test("read-only card cannot request runtime stop", async ({ page }) => {
+    await page.goto(`${fixture}?runtime&readonly`);
+    await page.getByRole("button", { name: "App execution", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Request stop", exact: true })).toBeDisabled();
+});

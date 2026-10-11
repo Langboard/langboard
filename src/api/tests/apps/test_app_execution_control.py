@@ -55,9 +55,15 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
             db.update(board[4])
             connection.state = "revoked"
             db.update(connection)
+        listed = client.get(path.rsplit("/", 2)[0], headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["items"][0]["request_uid"] == request.get_uid()
+        assert listed.json()["items"][0]["state"] == "authorized"
+        assert "runtime_token" not in listed.text and "token_hash" not in listed.text
         first = client.post(path, json={"generation": request.generation}, headers=headers)
         assert first.status_code == 200, first.text
         assert first.json()["state"] == "stop_requested"
+        assert client.get(path.rsplit("/", 2)[0], headers=headers).json()["items"][0]["state"] == "stop_requested"
         assert first.json()["permit_execution"] is False
         assert first.json()["started"] is False
         assert first.json()["execution_resumed"] is False
