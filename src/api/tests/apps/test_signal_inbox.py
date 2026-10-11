@@ -25,6 +25,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     import json
     import time
     import langboard.routes.settings.AppInboundConnectionApi as inbound_api
+    import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
     import langboard.routes.settings.AppSignalApi as signal_api
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -64,7 +65,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         db.update(actor)
     saved = save_definition(actor, {"schema_version": 2, "key": "example-monitor", "version": "1.0.0",
         "name": "Example Monitor", "description": "Independent issue observations.",
-        "capabilities": ["signals.read", "signals.publish"], "resource_types": ["issue"], "signal_policy": policy})
+        "capabilities": ["signals.read", "signals.publish"], "resource_types": ["issue"], "signal_sources": ["example-monitor"], "signal_policy": policy})
     import importlib
     from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
     from langboard_shared.core.security import AuthSecurity
@@ -189,10 +190,23 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         db.insert(ProjectAssignedUser(project_id=other_board.id, user_id=actor.id))
     other_envelope = {**envelope, "board_uid": other_board.get_uid()}
     assert receive(other_envelope, board_uid=other_board.get_uid()).status_code == 403
+    consent_url = f"/board/{other_board.get_uid()}/settings/apps/example-monitor/consent"
+    assert client.post(consent_url, json={"app_revision": "0" * 64}, headers=user_headers).status_code == 409
+    prepared = client.post(consent_url, json={"app_revision": definition.edit_revision()}, headers=user_headers)
+    assert prepared.status_code == 200, prepared.text
+    draft = prepared.json()
+    assert draft["state"] == "disabled" and draft["granted_capabilities"] == []
+    assert not draft["stage_transitions_enabled"]
+    assert receive(other_envelope, board_uid=other_board.get_uid()).status_code == 403
+    assert client.post(consent_url, json={"app_revision": definition.edit_revision()}, headers=user_headers).json() == draft
+    accepted = client.put(consent_url, json={"app_revision": definition.edit_revision(),
+        "binding_uid": draft["uid"], "expected_revision": draft["revision"],
+        "capabilities": ["signals.read", "signals.publish"]}, headers=user_headers)
+    assert accepted.status_code == 200, accepted.text
+    assert not accepted.json()["stage_transitions_enabled"]
     with DbSession.atomic() as db:
-        other_binding = BoardAppBinding(project_id=other_board.id, app_key="example-monitor", state="enabled",
-            granted_capabilities=["signals.read", "signals.publish"])
-        db.insert(other_binding)
+        other_binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.id == SnowflakeID.from_short_code(draft["uid"]))).first()
     selected_other = select_resource(other_board, other_binding, "other-board-issue")
     with DbSession.atomic() as db:
         other_resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
