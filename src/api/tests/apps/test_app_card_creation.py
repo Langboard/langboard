@@ -12,6 +12,10 @@ from langboard_shared.domain.models import (
     AppResourceBinding,
     BoardAppBinding,
     Card,
+    CardAppOwnership,
+    CardAppOwnershipAudit,
+    CardAppResourceSelection,
+    CardAppResourceSelectionAudit,
     CardMetadata,
     ExternalImportRecord,
     ProjectAssignedUser,
@@ -281,6 +285,15 @@ def test_native_backlog_presentation_and_replay(creation):
         assert loads(metadata.value) == PRESENTATION
         assert len(db.exec(SqlBuilder.select.table(ExternalImportRecord)).all()) == 1
         assert loads(db.exec(SqlBuilder.select.table(ExternalImportRecord)).first().provenance)["card_type"] == "issue"
+        owners = db.exec(SqlBuilder.select.table(CardAppOwnership)).all()
+        selections = db.exec(SqlBuilder.select.table(CardAppResourceSelection)).all()
+        assert len(owners) == len(selections) == 1
+        owner, selection = owners[0], selections[0]
+        assert owner.card_id == cards[0].id and owner.app_key == "example-erp" and owner.revision == 1
+        assert selection.card_id == cards[0].id and selection.connection_id == creation[2].id
+        assert selection.resource_uids == [creation[4].get_uid()]
+        assert len(db.exec(SqlBuilder.select.table(CardAppOwnershipAudit)).all()) == 1
+        assert len(db.exec(SqlBuilder.select.table(CardAppResourceSelectionAudit)).all()) == 1
     with pytest.raises(AppCardCreationConflict):
         call(creation, title="Changed payload")
     with pytest.raises(AppCardCreationConflict):
@@ -327,6 +340,32 @@ def test_foreign_presentation_namespace_cannot_claim_identity(creation):
     with pytest.raises(AppGovernanceDenied):
         call(creation, presentation={**PRESENTATION, "key": "app.other.issue"})
     assert creation[-1] == []
+
+
+def test_created_app_card_can_request_interaction_with_its_retained_resources(creation):
+    from datetime import timedelta
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.services.AppCardInteractions import create_app_card_interaction
+
+    board, token, _, binding, _, definition, _ = creation
+    with DbSession.atomic() as db:
+        definition.declaration = {**definition.declaration, "capabilities": [*definition.declaration["capabilities"], "interactions.request"]}
+        binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
+        db.update(definition)
+        db.update(binding)
+    card = call(creation)
+    request = {"schema_version": 1, "kind": "action", "app_request_key": "review-issue",
+               "prompt": {"en": "Review the issue"},
+               "questions": [{"id": "next", "prompt": {"en": "Choose the next step"}, "type": "single_choice", "choices": [{"id": "hold", "label": {"en": "Hold"}}]}],
+               "presentation": {"type": "choice_card"}, "expires_at": (SafeDateTime.now() + timedelta(hours=1)).isoformat()}
+    result = create_app_card_interaction(token, board[2].id, SnowflakeID.from_short_code(card["card_uid"]), request)
+    assert result["state"] == "pending" and result["execution_resumed"] is False
+    with DbSession.atomic() as db:
+        binding.granted_capabilities = [scope for scope in binding.granted_capabilities if scope != "interactions.request"]
+        db.update(binding)
+    with pytest.raises(AppGovernanceDenied):
+        create_app_card_interaction(token, board[2].id, SnowflakeID.from_short_code(card["card_uid"]), request)
 
 
 def test_concurrent_postgres_replays_create_one_card(creation):
@@ -398,6 +437,10 @@ def test_presentation_failure_rolls_back_card_and_source_receipt(creation, monke
     with DbSession.use(readonly=False) as db:
         assert db.exec(SqlBuilder.select.table(Card)).all() == []
         assert db.exec(SqlBuilder.select.table(ExternalImportRecord)).all() == []
+        assert db.exec(SqlBuilder.select.table(CardAppOwnership)).all() == []
+        assert db.exec(SqlBuilder.select.table(CardAppOwnershipAudit)).all() == []
+        assert db.exec(SqlBuilder.select.table(CardAppResourceSelection)).all() == []
+        assert db.exec(SqlBuilder.select.table(CardAppResourceSelectionAudit)).all() == []
     assert creation[-1] == []
 
 
