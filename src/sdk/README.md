@@ -134,3 +134,12 @@ of signed interaction responses. The host regression authenticates exact signed
 bytes through the same wheel's `verify_webhook`, then uses the SDK method against
 the native HTTP acknowledgment route. Reception, delivery and execution remain
 separate outcomes; the SDK does not automatically resume or poll.
+
+
+Python SDK 0.2.23 provides `AppManager.prepare_consent` and `set_consent` for
+workflow-independent disabled drafts and explicit grants/withdrawal. The host
+pins the independently built wheel and provenance digest. Actual SDK transport
+calls exercise native user-authenticated consent preparation and grants on
+SQLite/HTTP and PostgreSQL; preparation alone cannot publish signals or enable
+workflow transitions. HITL wire contracts are unchanged. This is not registry
+publication or deployed acceptance.

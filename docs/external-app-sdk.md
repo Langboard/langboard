@@ -1244,3 +1244,12 @@ resource access nor signal publication. Local HTTP/PostgreSQL tests exercise
 this sequence through native user authentication, followed by resource selection,
 signed publication and explicit native card creation. Independently packaged app
 installation and deployed acceptance remain separate gates.
+
+
+Python SDK 0.2.23 provides `AppManager.prepare_consent` and `set_consent` for
+workflow-independent disabled drafts and explicit grants/withdrawal. The host
+pins the independently built wheel and provenance digest. Actual SDK transport
+calls exercise native user-authenticated consent preparation and grants on
+SQLite/HTTP and PostgreSQL; preparation alone cannot publish signals or enable
+workflow transitions. HITL wire contracts are unchanged. This is not registry
+publication or deployed acceptance.
