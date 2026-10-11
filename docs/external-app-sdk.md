@@ -1104,6 +1104,16 @@ external AppDefinitions currently do not install such policies. A fourth provide
 therefore still requires host work; the pager change does not establish the
 no-core-change acceptance gate.
 
+Python SDK 0.2.21 adds a validated optional `signal_policy` declaration with six
+required fields: schema `version: 1`, finite unique `event_types`, a subset of
+the app's `resource_types`, finite `outcome_states`, `commit_mode` and `time_basis`.
+Outcomes map to evidence states, never reviewer approval. `signals.publish` is a
+separate declaration capability and requires this policy. A policy change removes
+existing signal read/publication consent while retaining unrelated grants. This
+is an approval contract only; no generic ingestion endpoint or app-side signal
+publication method has been enabled. Host policy projection and signed-envelope
+ingestion still require implementation. Existing HITL wire bodies are unchanged.
+
 The remaining generic contract must keep normalization in the external app and
 validate an approved finite event/resource/outcome policy, a versioned signed
 envelope, current connection/resource/board authority and replay identity at the
