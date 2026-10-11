@@ -76,8 +76,16 @@ export default function BoardSettingsAppConsent({ app, onRefresh }: { app: Catal
                         <Checkbox
                             key={capability}
                             label={capability}
+                            description={
+                                capability === "signals.read"
+                                    ? t("project.settings.App signal source consent help", {
+                                          sources: app.signal_sources?.join(", ") || t("project.settings.App signal sources missing"),
+                                      })
+                                    : undefined
+                            }
                             checked={grants.includes(capability)}
                             disabled={
+                                (capability === "signals.read" && !app.signal_sources?.length && !grants.includes(capability)) ||
                                 !canEditBasicInfo ||
                                 pending ||
                                 failed ||

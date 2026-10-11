@@ -282,8 +282,23 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
         registry = AppRegistry(transport)
         manager = AppManager(transport, board[2].get_uid())
         declaration = {**DECLARATION, "capabilities": ["panels.render", "signals.read"], "workflow_requirements": None, "signal_sources": ["github", "example-adapter"]}
-        approved = await registry.approve(declaration)
+        approved = await registry.approve({k: v for k, v in declaration.items() if k != "signal_sources"})
         saved = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=True))["binding"]
+        with pytest.raises(NativeApiError) as missing_sources:
+            await manager.set_panel_consent("example-erp", approved["revision"], enabled=True, read_signals=True,
+                binding_uid=saved["uid"], expected_revision=saved["revision"])
+        assert missing_sources.value.status_code == 400
+        denied_generic = await request("PUT", f"/board/{board[2].get_uid()}/settings/apps/example-erp/consent", json={
+            "app_revision": approved["revision"], "binding_uid": saved["uid"],
+            "expected_revision": saved["revision"], "capabilities": ["panels.render", "signals.read"],
+        })
+        assert denied_generic.status_code == 400
+
+        declaration["version"] = "1.0.1"
+        approved = await registry.approve(declaration, expected_revision=approved["revision"])
+        catalog = await manager.catalog()
+        external = next(item for item in catalog["apps"] if item["key"] == "example-erp")
+        assert external["signal_sources"] == ["github", "example-adapter"]
         path = f"/board/{board[2].get_uid()}/apps/example-erp/panel/signals"
         form = {"app_revision": approved["revision"], "binding_revision": saved["revision"], "provider": "github"}
         denied = await request("POST", path, json=form)
@@ -304,6 +319,19 @@ async def test_external_panel_read_needs_independent_consent_and_current_revisio
         assert (await request("POST", path, json={**form, "provider": "../github"})).status_code == 400
         assert requested_providers == ["github", "example-adapter"]
         assert (await request("POST", path, json={**form, "binding_revision": "0" * 64})).status_code == 409
+        approved = await registry.approve({**declaration, "version": "1.0.2", "signal_sources": ["github", "glitchtip"]},
+            expected_revision=approved["revision"])
+        current = next(item for item in (await manager.catalog())["apps"] if item["key"] == "example-erp")
+        saved = current["binding"]
+        assert saved["granted_capabilities"] == ["panels.render"]
+        form.update(app_revision=approved["revision"], binding_revision=saved["revision"])
+        assert (await request("POST", path, json={**form, "provider": "glitchtip"})).status_code == 404
+        saved = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=True, read_signals=True,
+            binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]
+        form["binding_revision"] = saved["revision"]
+        assert (await request("POST", path, json={**form, "provider": "glitchtip"})).status_code == 200
+        assert (await request("POST", path, json={**form, "provider": "dokploy"})).status_code == 404
+
         disabled = (await manager.set_panel_consent("example-erp", approved["revision"], enabled=False,
             binding_uid=saved["uid"], expected_revision=saved["revision"]))["binding"]
         assert disabled["granted_capabilities"] == []
