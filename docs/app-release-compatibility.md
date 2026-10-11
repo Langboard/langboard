@@ -264,3 +264,17 @@ Local verification: no new UI literal candidates, four scanner tests passed,
 placeholder checks, changed-file ESLint and UI TypeScript passed. This is
 source-level evidence and does not establish deployed localization acceptance
 or finish the full UI string migration card.
+
+## Card column history model transition
+
+The timeline effect now depends on the card model, matching the model hook
+contract. It clears the previous snapshot when its card/column subscription is
+replaced; outstanding requests remain aborted and aborted responses cannot
+write history. The existing committed activity listener and API env cast remain.
+
+A browser fixture uses real ProjectCard models, BoardCardProvider and
+CardColumnHistory, with the history HTTP response held during a card switch.
+Before the fix both 1440px and 390px cases displayed the previous card history.
+After the fix both pass, including ordered return transitions and keyboard-focus
+actor details. This uses controlled HTTP responses, not deployed activity
+persistence or actual multi-user socket delivery.
