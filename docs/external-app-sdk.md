@@ -1127,6 +1127,11 @@ separately and rejects cross-provider cursors. The approval and renewed-consent
 lifecycle is exercised separately by the registry HTTP tests. Removing panel
 read consent or disabling its definition rejects subsequent reads; revoking only
 the GlitchTip connection hides its observation while GitHub remains readable.
+The same authenticated HTTP regression removes the actor's board read grant and
+disables global app policy, verifying denial with data still stored. A visible
+linked card removes duplicate inbox presentation; a private card that the actor
+cannot read neither suppresses the signal nor exposes its card identity. Once
+the actor owns that private card, its readable link suppresses the duplicate.
 Deselecting the GitHub resource or revoking its SecretRef removes its signal;
 a cursor for a deselected resource is rejected. External provider HTTP remains a
 fixture; GlitchTip observation storage is seeded, not fetched from a live provider.
