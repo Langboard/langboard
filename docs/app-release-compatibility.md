@@ -21,7 +21,7 @@ Exact reviewed artifact digests:
 | Python SDK `0.2.23` wheel | `eab73a2ca2b1ec47946000cafddfe5ada484d86db44de89823c89cb4ecbb423e` |
 | Python SDK `0.2.26` wheel | `57e31b39c2bea7c09fddd47617e23726e9b472984d0ad856ee24d159f7e3be69` |
 | Python SDK `0.2.27` wheel | `afee6ebe8a8ef4426960c0d3cb5bca6f9be977cde10664385c2981d8dd06bd07` |
-| Panel SDK `0.2.3` tarball | `773f5db4cf0c05aef47cc760208efa3a15e7ec5f` |
+| Panel SDK `0.2.3` tarball | `b347a9ebb87be8a48b38daca38e03a099b284094cebc21e867e6cb8f7481b383` |
 | Panel SDK `0.2.0` tarball used by existing apps | `6e232e4e055760a6dd30d1e07a86de491af60e36471d6da4705512d6aeb3661b` |
 | Example Monitor `0.1.1` wheel | `7ce265d8009f346263d3f157a8406d981da71b45b5dcd3dd6d1e4d2ac21b6cf9` |
 
