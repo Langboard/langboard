@@ -51,6 +51,7 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition)).first()
         definition.declaration = {**definition.declaration, "workflow_requirements": {"required": ["ready"], "optional": ["review"]}}
+        definition.declaration["capabilities"] = [*definition.declaration["capabilities"], "cards.read"]
         db.update(definition)
         board[5][1].workflow_stage = "review"
         board[6][1].key = "review"
@@ -58,6 +59,7 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
         db.update(board[5][1])
         db.update(board[6][1])
         binding = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+        binding.granted_capabilities = [*binding.granted_capabilities, "cards.read"]
         binding.workflow_mapping = {**binding.workflow_mapping, "review": board[5][1].get_uid()}
         db.update(binding)
     body = {"generation": request.generation, "expected_card_revision": card.last_change_seq,
@@ -68,6 +70,10 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
     headers = {"Authorization": f"Bearer {token}"}
     with TestClient(app, raise_server_exceptions=False) as client:
         assert client.post(path, json=body).status_code == 401
+        assert client.get(path).status_code == 401
+        absent = client.get(path, headers=headers)
+        assert absent.status_code == 200 and absent.json()["state"] == "not_recorded"
+        assert absent.json()["receipt"] is None and absent.json()["changed"] is False
         assert client.post(path, json={**body, "actor_uid": board[1].get_uid()}, headers=headers).status_code == 400
         assert client.post(path, json=body, headers=headers).status_code == 403  # Not stopped or started.
         check_app_runtime(lease_id, runtime, stopped=True)
@@ -115,6 +121,10 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
         assert first.json()["started"] is False and first.json()["execution_resumed"] is False
         replay = client.post(path, json=body, headers=headers)
         assert replay.status_code == 200 and replay.json()["changed"] is False
+        recorded = client.get(path, headers=headers)
+        assert recorded.status_code == 200 and recorded.headers["cache-control"] == "no-store"
+        assert recorded.json()["state"] == "recorded" and recorded.json()["receipt"]["inputs"] == body
+        assert client.get(path.replace(card.get_uid(), board[2].get_uid()), headers=headers).status_code == 403
         assert len(moves) == 1
         # Consume the independently built wheel over the same native HTTP route.
         import asyncio
@@ -126,6 +136,8 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
         sdk_replay = asyncio.run(sdk.request_review(board[2].get_uid(), card.get_uid(),
                                 request_uid=request.get_uid(), **body))
         assert sdk_replay["changed"] is False and sdk_replay["to_column_uid"] == board[5][1].get_uid()
+        sdk_read = asyncio.run(sdk.read_review(board[2].get_uid(), card.get_uid(), request_uid=request.get_uid()))
+        assert sdk_read["receipt"]["inputs"] == first.json()["inputs"] and sdk_read["changed"] is False
         # Immutable receipt recovery never bypasses changed ownership/selection
         # or selected resource authority, even with a still-valid credential.
         for model, field in ((CardAppOwnership, "revision"), (CardAppResourceSelection, "revision"),
@@ -136,6 +148,7 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
                 setattr(row, field, retained_revision + 1)
                 db.update(row)
             assert client.post(path, json=body, headers=headers).status_code == 403
+            assert client.get(path, headers=headers).status_code == 403
             with DbSession.atomic() as db:
                 setattr(row, field, retained_revision)
                 db.update(row)
@@ -145,12 +158,32 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
             board[6][1].counts_as_completed = True
             db.update(board[6][1])
         assert client.post(path, json=body, headers=headers).status_code == 409
+        assert client.get(path, headers=headers).json()["receipt"]["inputs"] == first.json()["inputs"]
+        # Historical readback needs read consent, not new execution/transition authority.
+        with DbSession.atomic() as db:
+            saved_grants = binding.granted_capabilities
+            binding.granted_capabilities = [grant for grant in saved_grants if grant != "execution.run"]
+            db.update(binding)
+        assert client.get(path, headers=headers).status_code == 200
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = [grant for grant in saved_grants if grant != "resources.read"]
+            db.update(binding)
+        assert client.get(path, headers=headers).status_code == 403
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = [grant for grant in saved_grants if grant != "cards.read"]
+            db.update(binding)
+        assert client.get(path, headers=headers).status_code == 403
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = saved_grants
+            db.update(binding)
+        body["expected_binding_revision"] = binding.edit_revision()
         with DbSession.atomic() as db:
             board[6][1].counts_as_completed = False
             db.update(board[6][1])
             connection.state = "revoked"
             db.update(connection)
         assert client.post(path, json=body, headers=headers).status_code == 401
+        assert client.get(path, headers=headers).status_code == 401
         with engine.begin() as db:
             module.op = Operations(MigrationContext.configure(db))
             with pytest.raises(RuntimeError, match="retained"):
