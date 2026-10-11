@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -7,6 +7,9 @@ import type { CatalogApp } from "@/controllers/api/board/useBoardAppCatalog";
 import { loadPanelResources, readPanelDesign } from "@/core/apps/PanelDesign";
 import { activePanelDisposals, panelStateCache } from "@/core/apps/PanelSession";
 import { createPanelHost, type JsonValue } from "@langboard/app-panel";
+
+import type { PanelInteractionTarget } from "./PanelInteractionDialog";
+const PanelInteractionDialog = lazy(() => import("./PanelInteractionDialog"));
 
 interface Props {
     app: CatalogApp;
@@ -32,6 +35,10 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
     const [intersecting, setIntersecting] = useState(false);
     const [visible, setVisible] = useState(!document.hidden);
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+    const [interaction, setInteraction] = useState<PanelInteractionTarget | null>(null);
+    const interactionOpen = useRef(false);
+    const closeInteraction = () => { interactionOpen.current = false; setInteraction(null); };
+    const failRef = useRef<() => void>(() => {});
     const failedScope = useRef<string | null>(null);
     useEffect(() => {
         const update = () => setVisible(!document.hidden);
@@ -55,6 +62,8 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         let themeObserver: MutationObserver | undefined;
         let stateKey = JSON.stringify([userUID, projectUID, app.key, app.version]);
         const teardown = () => {
+            interactionOpen.current = false;
+            setInteraction(null);
             controller.abort();
             clearTimeout(loadTimer);
             themeObserver?.disconnect();
@@ -68,6 +77,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
             teardown();
             setStatus("error");
         };
+        failRef.current = fail;
         activePanelDisposals.set(stateKey, fail);
         const onHidden = () => {
             if (document.hidden) teardown();
@@ -104,6 +114,17 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                     try {
                                         if (!params || typeof params !== "object" || Array.isArray(params))
                                             throw new Error("Invalid panel request parameters");
+                                        if (operation === "interactions.open") {
+                                            if (Object.keys(params).some(key => key !== "card_uid" && key !== "interaction_uid") ||
+                                                typeof params.card_uid !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.card_uid) ||
+                                                typeof params.interaction_uid !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.interaction_uid) ||
+                                                interactionOpen.current || signal.aborted || controller.signal.aborted)
+                                                throw new Error("Invalid interaction request parameters");
+                                            interactionOpen.current = true;
+                                            setInteraction({card_uid:params.card_uid,interaction_uid:params.interaction_uid,
+                                                app_revision:data.app_revision,binding_revision:data.binding_revision});
+                                            return {state:"opened",interaction_uid:params.interaction_uid};
+                                        }
                                         let endpoint: "resources" | "signals" | "interactions";
                                         if (operation === "resources.list") {
                                             if (
@@ -125,10 +146,12 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                             endpoint = "signals";
                                         } else if (operation === "interactions.list") {
                                             if (
-                                                Object.keys(params).some((key) => key !== "card_uid" && key !== "cursor" && key !== "limit") ||
+                                                Object.keys(params).some((key) => key !== "card_uid" && key !== "cursor" && key !== "limit" && key !== "interaction_uid") ||
                                                 typeof params.card_uid !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.card_uid) ||
                                                 (params.cursor !== undefined && params.cursor !== null &&
                                                     (typeof params.cursor !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.cursor))) ||
+                                                (params.interaction_uid !== undefined && params.interaction_uid !== null &&
+                                                    (typeof params.interaction_uid !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.interaction_uid))) ||
                                                 (params.limit !== undefined && (!Number.isInteger(params.limit) ||
                                                     Number(params.limit) < 1 || Number(params.limit) > 25))
                                             ) throw new Error("Invalid interaction request parameters");
@@ -180,12 +203,12 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
             teardown();
         };
     }, [visible, intersecting, language, projectUID, userUID, app.key, app.version, app.panel?.url, app.app_revision, app.binding?.revision]);
-    return { container, status };
+    return { container, status, interaction, closeInteraction, denyPanel: () => failRef.current() };
 }
 
 export default function AppPanel(props: Props) {
     const [t] = useTranslation();
-    const { container, status } = useAppPanel(props);
+    const { container, status, interaction, closeInteraction, denyPanel } = useAppPanel(props);
     return (
         <div className="flex h-full min-h-0 flex-col" role="region" aria-label={props.app.panel?.name ?? props.app.name}>
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -205,6 +228,8 @@ export default function AppPanel(props: Props) {
                 </p>
             )}
             <div ref={container} className="min-h-0 flex-1" />
+            {interaction && <Suspense fallback={null}><PanelInteractionDialog projectUID={props.projectUID} userUID={props.userUID}
+                appKey={props.app.key} target={interaction} onClose={closeInteraction} onAuthorityDenied={denyPanel} /></Suspense>}
         </div>
     );
 }
