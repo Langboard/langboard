@@ -274,3 +274,62 @@ async def durable_saver(request):
             yield saver
         finally:
             await saver.adelete_thread("second-approval")
+
+
+@pytest.mark.asyncio
+async def test_postgres_approval_checkpoint_survives_killed_worker(tmp_path):
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+    from uuid import uuid4
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg import AsyncConnection
+
+    raw_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not raw_url:
+        pytest.skip("Requires disposable PostgreSQL")
+    url = raw_url.replace("postgresql+psycopg://", "postgresql://")
+    table = "graph_restart_" + uuid4().hex
+    thread = "restart-" + uuid4().hex
+    marker = tmp_path / "checkpointed"
+    worker = Path(__file__).with_name("durable_process_worker.py")
+    env = dict(
+        os.environ,
+        PYTHONPATH=os.pathsep.join(sys.path),
+        LANGBOARD_RESTART_TABLE=table,
+        LANGBOARD_RESTART_THREAD=thread,
+        LANGBOARD_RESTART_MARKER=str(marker),
+        LANGBOARD_RESTART_PHASE="start",
+    )
+    async with await AsyncConnection.connect(url, autocommit=True) as db:
+        await db.execute(f'CREATE TABLE "{table}" (value integer NOT NULL)')
+    async with AsyncPostgresSaver.from_conn_string(url) as saver:
+        await saver.setup()
+    process = subprocess.Popen([sys.executable, str(worker)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        deadline = time.monotonic() + 20
+        while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        assert marker.exists(), process.communicate(timeout=1)
+        async with await AsyncConnection.connect(url, autocommit=True) as db:
+            result = await db.execute(f'SELECT value FROM "{table}"')
+            assert await result.fetchall() == [(1,)]
+        process.kill()
+        process.communicate(timeout=5)
+        env["LANGBOARD_RESTART_PHASE"] = "resume"
+        resumed = await asyncio.to_thread(
+            subprocess.run, [sys.executable, str(worker)], env=env, capture_output=True, text=True, timeout=20
+        )
+        assert resumed.returncode == 0, resumed.stderr
+        async with await AsyncConnection.connect(url, autocommit=True) as db:
+            result = await db.execute(f'SELECT value FROM "{table}" ORDER BY value')
+            assert await result.fetchall() == [(1,), (2,)]
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+        async with AsyncPostgresSaver.from_conn_string(url) as saver:
+            await saver.adelete_thread(thread)
+        async with await AsyncConnection.connect(url, autocommit=True) as db:
+            await db.execute(f'DROP TABLE "{table}"')
