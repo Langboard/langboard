@@ -1,0 +1,108 @@
+# Logical apps and independently authorized modules
+
+Status: implementation contract; catalog grouping and migration are not yet shipped.
+
+## Outcome
+
+Show one explicitly configured logical app in the Store and one details screen
+for its modules. Preserve all existing module keys and authorization records.
+Signals, an inbox, app-owned workflow cards, and a rail panel remain separate
+features. A logical app is a management grouping, never an execution identity.
+
+## Composition ownership and validation
+
+The instance administrator approves a host-managed composition with a stable key,
+English fallback name, description, generation, and an ordered set of existing
+module keys. An app cannot place itself into another publisher's composition.
+Neither provider names nor `*-panel` suffixes, icons, URLs, or `signal_sources`
+create a composition. Each module belongs to at most one composition. Reject
+duplicate module keys, unknown definitions, and cyclic/nested compositions.
+Removal from a composition changes presentation only.
+
+Composition edits use optimistic revision checks and current administrator
+authorization. An unavailable or disabled module remains visible in details
+when it has retained records, with its current status. Missing module definitions
+cannot silently fall back to another module or borrow that module's capabilities.
+
+## Module identity and independent features
+
+Each module retains its exact key, definition version and revision, publisher,
+trust targets, resource types, declared capabilities, and board binding revision.
+One logical tile does not sum grants or join credentials. Details show each
+feature's declared availability separately from its actual consent/status.
+
+| Feature | Meaning | Required boundary |
+| --- | --- | --- |
+| Signal | Normalized external event or observation | Current publisher/adapter, signed connection, selected resource and publication policy |
+| Inbox | Read and triage authorized signals | Current reader, source/resource-type consent and provider resource access |
+| App-owned card | Durable workflow object owned by a declared app | Card creation grant, lifecycle declaration, durable ownership and selected resources |
+| Rail panel | Optional UI contributed by a module | Panel rendering grant; separate grants for data reads and commands |
+
+Signal receipt does not create a card. Explicit native inbox card creation
+creates an ordinary card with an evidence link, not app ownership. A card-owned
+interaction or archive command resolves through the owning module key and never
+the composition key. Native comments, checklists and relationships remain usable.
+
+## Connection and board management
+
+The details screen displays module-specific connections, selected resources,
+panel consent, card lifecycle and workflow mapping together. Every mutation
+still addresses one exact module and its current revisions. Connections retain
+their personal/organization owner; grouping does not expose another user's
+credentials or turn a personal connection into shared automation authority.
+
+Workflow mapping uses the host's built-in stage registry. A composition cannot
+introduce provider-specific stage identities. Each applicable module retains
+its mapping and transition opt-in. No mapping or transition is enabled merely
+by installing a panel, reading an inbox, or receiving a signal.
+
+## Updates and revocation
+
+Review updates per module. Preserve only the capability intersection allowed
+by `update_consent`; source, resource-type and signal-policy changes renew the
+affected read/publication consent. Publisher, authentication, MCP or data target
+changes renew the affected trust approval and connection consent.
+
+Composition label/order edits do not renew module consent. Adding a module shows
+its existing authorized state or requires its own new consent; it grants nothing
+through the already-installed logical app. Removing a module does not revoke it
+implicitly: offer an explicit separate disable action and retain its records.
+
+Panel-only disable withdraws `panels.render` and panel state, preserving independent
+signal/card/workflow grants. Full logical-app disable is an explicit operation
+over its current module set. Lock the composition revision and module bindings,
+authorize all targets before mutation, and clear their execution grants in one
+host transaction. Preserve connections, signals, cards, ownership and history.
+Any unavailable/revoked target blocks the operation rather than yielding a false
+success for a partially disabled composition. External effects already executed
+are not reported as rolled back.
+
+## Existing installations and compatibility
+
+Migration is presentation-only: approve explicit compositions and assign exact
+existing keys without renaming or copying definitions, connections, tokens,
+bindings, resources, cards or signal receipts. This avoids inventing consent and
+preserves existing foreign-key/history references. Re-running the migration is
+idempotent; conflicting membership is rejected for administrator review.
+
+Keep the existing flat module catalog and module-addressed API for old SDK/MCP
+clients. Add composition discovery separately, including the composition revision
+and exact member keys. The new Store resolves members from the same authorized
+catalog snapshot and renders ungrouped modules as standalone apps. If discovery
+is unavailable, retain the flat catalog with a visible degraded state; do not
+infer provider grouping. Rollback removes presentation memberships only.
+
+## Acceptance gates
+
+1. The explicitly grouped provider appears once in the Store, with all module
+   revisions, connections, resources and separate feature controls in details.
+2. A third provider can be grouped through administrator configuration without
+   a host code change, name heuristic or permission promotion.
+3. Panel-only disable, module disable and full-composition disable have distinct
+   tested effects; no stored card, signal or connection is deleted.
+4. Trust/source/resource updates renew only affected consent. A concurrent
+   composition/module update rejects stale mutations before any partial write.
+5. An idempotent migration and rollback preserve exact existing record identities,
+   owner scopes, grants and API responses for old SDK/MCP clients.
+6. PostgreSQL HTTP tests and authenticated desktop/mobile browser flows prove
+   these operations. Source checks and this document alone do not satisfy them.
