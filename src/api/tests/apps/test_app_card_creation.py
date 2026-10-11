@@ -83,6 +83,7 @@ def creation(board, monkeypatch):
                 "capabilities": ["resources.read", "cards.create", "cards.presentation"],
                 "resource_types": ["project"],
                 "workflow_requirements": {"required": ["backlog"], "optional": []},
+                "card_lifecycle": {kind: {"archive": {"mode": "retain", "description": "Retain source history."}, "restore": "retain_external_state"} for kind in ("issue", "task")},
             },
         )
         db.insert(definition)
@@ -118,6 +119,7 @@ def call(creation, **kwargs):
         kwargs.pop("title", "ERP issue"),
         description="External issue body",
         presentation=kwargs.pop("presentation", PRESENTATION),
+        card_type=kwargs.pop("card_type", "issue"),
         **kwargs,
     )
 
@@ -278,11 +280,23 @@ def test_native_backlog_presentation_and_replay(creation):
         metadata = db.exec(SqlBuilder.select.table(CardMetadata)).first()
         assert loads(metadata.value) == PRESENTATION
         assert len(db.exec(SqlBuilder.select.table(ExternalImportRecord)).all()) == 1
+        assert loads(db.exec(SqlBuilder.select.table(ExternalImportRecord)).first().provenance)["card_type"] == "issue"
     with pytest.raises(AppCardCreationConflict):
         call(creation, title="Changed payload")
+    with pytest.raises(AppCardCreationConflict):
+        call(creation, card_type="task")
 
 
-@pytest.mark.parametrize("revoke", ["resource", "grant", "definition", "column", "shared_personal"])
+@pytest.mark.parametrize("kind", [None, "undeclared"])
+def test_undeclared_card_type_cannot_create(creation, kind):
+    with pytest.raises(AppGovernanceDenied):
+        call(creation, card_type=kind)
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(Card)).all()
+        assert not db.exec(SqlBuilder.select.table(ExternalImportRecord)).all()
+
+
+@pytest.mark.parametrize("revoke", ["resource", "grant", "definition", "column", "shared_personal", "lifecycle"])
 def test_current_scope_rechecked_before_replay(creation, revoke):
     call(creation)
     board, _, _, binding, resource, definition, _ = creation
@@ -299,6 +313,9 @@ def test_current_scope_rechecked_before_replay(creation, revoke):
         elif revoke == "column":
             board[5][0].workflow_stage = "active"
             db.update(board[5][0])
+        elif revoke == "lifecycle":
+            definition.declaration = {key: value for key, value in definition.declaration.items() if key != "card_lifecycle"}
+            db.update(definition)
         else:
             db.insert(ProjectAssignedUser(project_id=board[2].id, user_id=2))
     with pytest.raises(AppGovernanceDenied):
@@ -338,10 +355,13 @@ def test_http_create_replay_conflict_and_authentication(creation):
         "title": "ERP HTTP issue",
         "description": "Issue body",
         "presentation": PRESENTATION,
+        "card_type": "issue",
     }
     with TestClient(app) as client:
         assert client.post(url, json=body).status_code == 401
         headers = {"Authorization": "Bearer " + token}
+        assert client.post(url, json={key: value for key, value in body.items() if key != "card_type"}, headers=headers).status_code == 403
+        assert client.post(url, json={**body, "card_type": "undeclared"}, headers=headers).status_code == 403
         first = client.post(url, json=body, headers=headers)
         assert first.status_code == 201, first.text
         again = client.post(url, json=body, headers=headers)

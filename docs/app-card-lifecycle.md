@@ -16,7 +16,11 @@ silently inherit an external action. The host must reject creation of undeclared
 types and require migration before enabling card creation for old definitions.
 Host approval/update now requires lifecycle policies for card-producing apps,
 including schema 1 submissions; old approved definitions remain readable.
-Creation-time type enforcement and migration remain pending.
+Creation now requires an explicit declared `card_type`, validates it against the
+current app lifecycle and records it in immutable import provenance. Replays
+retain the original type; changed types conflict. Definitions without lifecycle
+must be explicitly updated before creating new cards. Existing native cards and
+their history remain intact; automatic migration and lifecycle dispatch are pending.
 
 Archive policies use `retain` or `external`. External policies name a stable
 app-owned action, have `default_enabled: false`, and provide explanatory text.
