@@ -222,3 +222,10 @@ error boundary and do not create an app definition. The package suite passes
 30 cases, and the authenticated package HTTP suite passes four SQLite/PostgreSQL
 cases, including malformed-response rejection and existing install/update/disable
 behavior. These local checks do not replace deployed installation acceptance.
+
+The native contract workflow includes package validation and authenticated
+installation regressions. Its runner must support GitHub service containers
+for the declared disposable PostgreSQL service, or the operator must supply an
+approved equivalent database lifecycle contract before changing the workflow.
+Runner labels alone do not provide Docker daemon/container-hook support. No
+production database or shared application database is an acceptable substitute.
