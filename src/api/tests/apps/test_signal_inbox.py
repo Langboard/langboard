@@ -192,18 +192,18 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert receive(other_envelope, board_uid=other_board.get_uid()).status_code == 403
     consent_url = f"/board/{other_board.get_uid()}/settings/apps/example-monitor/consent"
     assert client.post(consent_url, json={"app_revision": "0" * 64}, headers=user_headers).status_code == 409
-    prepared = client.post(consent_url, json={"app_revision": definition.edit_revision()}, headers=user_headers)
-    assert prepared.status_code == 200, prepared.text
-    draft = prepared.json()
+    from langboard_sdk import AppManager
+    async def sdk_management_request(method, path, **kwargs):
+        return client.request(method, path, headers=user_headers, **kwargs)
+    manager = AppManager(HttpTransport(SimpleNamespace(request=sdk_management_request)), other_board.get_uid())
+    draft = asyncio.run(manager.prepare_consent("example-monitor", definition.edit_revision()))
     assert draft["state"] == "disabled" and draft["granted_capabilities"] == []
     assert not draft["stage_transitions_enabled"]
     assert receive(other_envelope, board_uid=other_board.get_uid()).status_code == 403
-    assert client.post(consent_url, json={"app_revision": definition.edit_revision()}, headers=user_headers).json() == draft
-    accepted = client.put(consent_url, json={"app_revision": definition.edit_revision(),
-        "binding_uid": draft["uid"], "expected_revision": draft["revision"],
-        "capabilities": ["signals.read", "signals.publish"]}, headers=user_headers)
-    assert accepted.status_code == 200, accepted.text
-    assert not accepted.json()["stage_transitions_enabled"]
+    assert asyncio.run(manager.prepare_consent("example-monitor", definition.edit_revision())) == draft
+    accepted = asyncio.run(manager.set_consent("example-monitor", definition.edit_revision(),
+        draft["uid"], draft["revision"], ["signals.read", "signals.publish"]))
+    assert not accepted["stage_transitions_enabled"]
     with DbSession.atomic() as db:
         other_binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
             BoardAppBinding.id == SnowflakeID.from_short_code(draft["uid"]))).first()
