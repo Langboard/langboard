@@ -3,6 +3,7 @@ from typing import Any, TypedDict
 from httpx import TimeoutException, post
 from .....core.db import BaseDbModel, DbSession
 from .....core.logger import Logger
+from .....core.security.GraphServiceAuth import graph_service_headers
 from .....core.utils.Converter import convert_python_data
 from .....domain.models import Bot, BotLog, Project
 from .....domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
@@ -102,7 +103,7 @@ class BaseBotRequest(ABC):
         }
 
         if self._bot.platform == BotPlatform.Default:
-            pass
+            headers.update(graph_service_headers())
         elif self._bot.platform == BotPlatform.Langflow:
             headers["X-API-KEY"] = self._bot.api_key
         elif self._bot.platform == BotPlatform.N8N:

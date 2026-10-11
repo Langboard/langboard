@@ -4,6 +4,7 @@ from urllib.parse import quote
 from httpx import HTTPError, delete, post
 from ....core.domain import BaseDomainService
 from ....core.logger import Logger
+from ....core.security.GraphServiceAuth import graph_service_headers
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TProjectParam
 from ....domain.models import (
@@ -730,6 +731,7 @@ class GraphApprovalRequestService(BaseDomainService):
         try:
             response = post(
                 f"{Env.DEFAULT_GRAPH_URL}/api/v1/graph/resume/{quote(approval.thread_id, safe='')}",
+                headers=graph_service_headers(),
                 json={
                     "resume": resume,
                     "session_id": approval.thread_id,
@@ -750,6 +752,7 @@ class GraphApprovalRequestService(BaseDomainService):
         try:
             response = delete(
                 f"{Env.DEFAULT_GRAPH_URL}/api/v1/graph/status/{quote(approval.thread_id, safe='')}",
+                headers=graph_service_headers(),
                 timeout=Env.AI_REQUEST_TIMEOUT,
             )
             response.raise_for_status()
