@@ -286,3 +286,21 @@ without authentication and 108.00 with authentication, an added 29.54
 microseconds. This synthetic endpoint measurement is not deployed throughput
 or latency evidence. Service-token reuse beyond a request and no-auth fallback
 are deliberately not introduced.
+
+## Socket chat resume ownership
+
+Board chat resume now requires the message's chat session to belong to the
+current socket user, as well as the existing board/session match. The requested
+thread must equal the approval thread stored in the server-side message; a
+client-supplied compatibility session ID cannot redirect the request. Existing
+chat reuse also checks both board identity and session owner before updating
+permission or inserting messages. Resume adds one bounded ChatSession query;
+the stored thread check is an in-memory comparison, with no extra remote call.
+
+A production-handler harness covers seven resume paths: owner success, foreign
+owner, wrong board, replaced thread, missing interrupt, missing message and
+missing session. The regression fails on the previous source because a denied
+case reaches the graph transport, and all seven pass after the fix. Storage and
+transport are substituted in this harness; it does not prove a deployed socket
+or database integration flow. Socket TypeScript checking passes with no
+diagnostics. Graph HTTP service authentication remains a separate boundary.
