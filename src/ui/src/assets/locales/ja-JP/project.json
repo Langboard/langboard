@@ -393,7 +393,17 @@
     "Archive synchronization help": "カードのアーカイブを先に記録します。明示的に有効にしたカード種類のみ外部処理を実行します。",
     "Provider archive action": "アーカイブ後の外部処理",
     "Refresh required": "再保存する前に更新してください。",
-    "Disable archive synchronization": "アーカイブ同期を解除"
+    "Disable archive synchronization": "アーカイブ同期を解除",
+    "Manage App modules": "アプリの構成要素を管理",
+    "App grouping unavailable": "アプリのグループを読み込めません。個別の構成要素を表示します。",
+    "Manage App": "アプリを管理",
+    "Back to App overview": "アプリの概要に戻る",
+    "App Store browse help": "アプリを探し、各アプリで接続・権限・任意の機能を管理します。",
+    "App management sections": "アプリ管理項目",
+    "App section connections": "接続",
+    "App section permissions": "権限",
+    "App section workflow": "ワークフロー",
+    "App section panel": "パネル"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",

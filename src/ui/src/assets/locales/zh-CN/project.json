@@ -393,7 +393,17 @@
     "Archive synchronization help": "先记录卡片归档。仅对明确启用的卡片类型执行外部操作。",
     "Provider archive action": "归档后的外部服务操作",
     "Refresh required": "再次保存前请刷新。",
-    "Disable archive synchronization": "关闭归档同步"
+    "Disable archive synchronization": "关闭归档同步",
+    "Manage App modules": "管理应用组件",
+    "App grouping unavailable": "无法加载应用分组。显示各个组件。",
+    "Manage App": "管理应用",
+    "Back to App overview": "返回应用概览",
+    "App Store browse help": "在此浏览应用，并在各个应用中管理连接、权限和可选功能。",
+    "App management sections": "应用管理区域",
+    "App section connections": "连接",
+    "App section permissions": "权限",
+    "App section workflow": "工作流",
+    "App section panel": "面板"
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",

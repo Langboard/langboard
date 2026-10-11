@@ -75,13 +75,19 @@ api.defaults.adapter = async (config) => {
         if (!config.url?.endsWith("/workflow")) repaired = true;
         if (config.url?.endsWith("/disable")) disabled = true;
     }
-    if (config.url?.endsWith("/settings/apps"))
+    if (config.url?.endsWith("/settings/apps/compositions") && new URLSearchParams(location.search).has("groupfail"))
+        throw new Error("Grouping discovery unavailable");
+    if (config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions"))
         return {
             config,
             status: 200,
             statusText: "OK",
             headers: {},
             data: {
+                compositions: new URLSearchParams(location.search).has("grouped") ? [{
+                    key: "review-suite", name: "Review Suite", description: "Independent features in one management view.",
+                    revision: "c".repeat(64), module_keys: ["github", "example-erp"],
+                }] : [],
                 apps: ["github", "glitchtip", "dokploy", ...(new URLSearchParams(location.search).has("external") ? ["example-erp"] : [])].map(
                     (key) => ({
                         key,

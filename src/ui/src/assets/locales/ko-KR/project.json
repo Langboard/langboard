@@ -393,7 +393,17 @@
     "Archive synchronization help": "카드 아카이브를 먼저 기록합니다. 명시적으로 활성화한 카드 종류만 외부 처리를 실행합니다.",
     "Provider archive action": "아카이브 후 외부 서비스 처리",
     "Refresh required": "다시 저장하기 전에 새로고침하세요.",
-    "Disable archive synchronization": "아카이브 동기화 해제"
+    "Disable archive synchronization": "아카이브 동기화 해제",
+    "Manage App modules": "앱 구성요소 관리",
+    "App grouping unavailable": "앱 묶음을 불러오지 못했습니다. 개별 구성요소를 표시합니다.",
+    "Manage App": "앱 관리",
+    "Back to App overview": "앱 개요로 돌아가기",
+    "App Store browse help": "앱을 탐색하고, 각 앱에서 연결·권한·선택 기능을 관리하세요.",
+    "App management sections": "앱 관리 영역",
+    "App section connections": "연결",
+    "App section permissions": "권한",
+    "App section workflow": "워크플로우",
+    "App section panel": "패널"
   },
   "App panel": "앱 패널",
   "Close App panel": "앱 패널 닫기",

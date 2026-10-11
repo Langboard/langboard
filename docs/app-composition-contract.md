@@ -1,8 +1,26 @@
 # Logical apps and independently authorized modules
 
-Status: host persistence and HTTP discovery implemented and locally verified;
-Store grouping, administrator UI, full-composition disable and deployed migration
-acceptance remain open.
+Status: host persistence, HTTP discovery and board Store grouping implemented
+and locally verified. Administrator composition editor, full-composition disable
+and deployed migration/browser acceptance remain open.
+
+## Board Store and app management
+
+The Store shows overview tiles; it does not eagerly mount every provider's
+connection editor. Explicit compositions have one tile and a module overview.
+Each module's management view has separate Connections, Permissions, Workflow
+and Panel sections. Editors and provider reads mount only in the selected section.
+Commands continue to address the exact module key and its approved revisions.
+Panel activation does not enable signal publication or create app-owned cards.
+
+Modern discovery returns membership and modules together. The UI uses one request
+and one snapshot; it does not merge grants across modules. If composition discovery
+fails, the UI reports degraded grouping and loads the unchanged flat module list.
+It does not display an old grouped snapshot as a successful current refresh.
+English, Korean, Japanese and Chinese management labels are provided. Local
+desktop/mobile tests cover group navigation, module-targeted panel writes,
+retained signal consent, workflow drafts, credential recovery, read-only authority
+and degraded discovery. These fixture tests do not prove canary deployment.
 
 ## Current host API
 
