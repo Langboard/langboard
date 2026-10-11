@@ -1,0 +1,79 @@
+name: Check App Contracts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/check-app-contracts.yaml
+      - src/api/tests/apps/**
+      - src/api/langboard/apps/**
+      - src/api/langboard/routes/settings/App*.py
+      - src/api/langboard/routes/board/SignalInboxApi.py
+      - src/shared/py/langboard_shared/domain/services/App*.py
+      - src/shared/py/langboard_shared/domain/services/CardApp*.py
+      - src/shared/py/langboard_shared/domain/models/App*.py
+      - src/shared/py/langboard_shared/domain/models/CardApp*.py
+      - src/api/langboard/migrations/**
+      - src/sdk/vendor/**
+      - scripts/sdk/verify_python_artifact*.py
+      - src/shared/py/pyproject.toml
+      - src/shared/py/uv.lock
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-contracts:
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: langboard_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d langboard_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PROJECT_NAME: langboard
+      PROJECT_SHORT_NAME: lb
+      LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/langboard_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the reviewed SDK before dependency installation
+        run: python scripts/sdk/verify_python_artifact.py
+      - run: uv sync --frozen
+      - name: Independent signal, Inbox, owned card and human-response contracts
+        run: >-
+          uv run --no-sync pytest -p no:tach -o log_cli=false -q --junitxml=app-contracts.xml
+          src/api/tests/apps/test_signal_inbox.py::test_registered_external_signal_policy_drives_inbox_and_card_evidence
+          src/api/tests/apps/test_app_card_interactions.py
+          src/api/tests/apps/test_app_card_creation.py
+          src/api/tests/apps/test_card_app_ownership.py
+          src/api/tests/apps/test_connection_ownership_revision.py
+      - name: Preserve contract results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-contracts-${{ github.sha }}
+          path: app-contracts.xml
+          if-no-files-found: warn
+          retention-days: 14
