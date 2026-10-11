@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/pages/SettingsPage",
-    testMatch: "AppGovernance.spec.ts",
+    testMatch: ["AppGovernance.spec.ts", "AppMcpConsent.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4216", channel: "chrome", headless: true },
