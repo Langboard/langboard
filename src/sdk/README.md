@@ -1,5 +1,19 @@
 # Independently versioned SDK consumption
 
+Python SDK 0.2.24 adds `AppCards.read(board_uid, card_uid, offset=0, limit=16000)`
+for current app-owned content through `GET /apps/v1/boards/{board}/cards/{card}`.
+It requires separately declared and approved `cards.read` consent. Each page
+checks current connection, app ownership, selected resources and card visibility;
+PRIVATE, archived, foreign-owned and revoked resources are denied. The response
+contains title, bounded Markdown, current card/ownership/selection/binding
+revisions and the card's selected resource identities/access revisions. It does
+not contain credentials, execution grants or runtime authority. Recheck the
+execution authority separately before starting work; compare content revisions
+when assembling more than one page. Withdrawn HITL consent does not revoke an
+independently retained read grant. Both Python manifests and locks consume the
+same reviewed 0.2.24 wheel; the standalone shared lock's older 0.2.11 entry is
+corrected as part of this update.
+
 SDK source and package tests live in [langboard-sdk](https://github.com/yamonco/langboard-sdk).
 This host consumes the same reviewed npm tarball and Python wheel as external apps.
 `vendor/provenance.json` records package versions and SHA256 digests. The UI lockfile

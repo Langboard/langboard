@@ -377,9 +377,10 @@ def test_independent_monitor_creates_owned_card_then_requests_hitl_over_http(cre
     from types import SimpleNamespace
     import langboard.routes.settings.AppCardCreationApi  # noqa: F401
     import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
+    import langboard.routes.settings.AppCardReadApi  # noqa: F401
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from langboard_sdk import HttpTransport, NativeApiError
+    from langboard_sdk import AppCards, HttpTransport, NativeApiError
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.types import SafeDateTime, SnowflakeID
     from packaged_monitor import load_monitor
@@ -407,6 +408,67 @@ def test_independent_monitor_creates_owned_card_then_requests_hitl_over_http(cre
         assert created["created"] is True
         replay = asyncio.run(transport.request("POST", creation_path, json=body))
         assert replay["created"] is False and replay["card_uid"] == created["card_uid"]
+        read_path = creation_path + "/" + created["card_uid"]
+        assert client.get(read_path).status_code == 401
+        assert client.get(read_path, headers={"Authorization": "Bearer invalid"}).status_code == 401
+        reader = AppCards(transport)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))
+        assert denied.value.status_code == 403
+        from langboard_shared.core.db import EditorContentModel
+        with DbSession.atomic() as db:
+            definition.declaration = {**definition.declaration, "capabilities": [*definition.declaration["capabilities"], "cards.read"]}
+            binding.granted_capabilities = [*binding.granted_capabilities, "cards.read"]
+            db.update(definition)
+            db.update(binding)
+            native_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == SnowflakeID.from_short_code(created["card_uid"]))).first()
+            native_card.description = EditorContentModel(content="한글 current content")
+            db.update(native_card)
+        current_card = asyncio.run(reader.read(board[2].get_uid(), created["card_uid"], limit=2))
+        assert current_card["title"] == body["title"]
+        assert current_card["description"] == {"content": "한글", "format": "markdown", "total_chars": 18, "next_offset": 2}
+        assert current_card["resources"][0]["resource_uid"] == resource.get_uid()
+        assert current_card["ownership_revision"] == current_card["selection_revision"] == 1
+        assert "credential" not in str(current_card) and token not in str(current_card)
+        next_page = asyncio.run(reader.read(board[2].get_uid(), created["card_uid"], offset=2))
+        assert next_page["description"]["content"] == " current content"
+        with DbSession.atomic() as db:
+            resource.access_state = "revoked"
+            db.update(resource)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))
+        assert denied.value.status_code == 403
+        with DbSession.atomic() as db:
+            resource.access_state = "granted"
+            native_card.visibility = "PRIVATE"
+            native_card.owner_user_id = board[1].id
+            db.update(resource)
+            db.update(native_card)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))
+        assert denied.value.status_code == 403
+        with DbSession.atomic() as db:
+            native_card.visibility = "INTERNAL"
+            native_card.owner_user_id = None
+            db.update(native_card)
+        with DbSession.atomic() as db:
+            current_owner = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == native_card.id)).first()
+            current_owner.app_key = "different-app"
+            db.update(current_owner)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))
+        assert denied.value.status_code == 403
+        with DbSession.atomic() as db:
+            current_owner.app_key = "example-monitor"
+            native_card.archived_at = SafeDateTime.now()
+            db.update(current_owner)
+            db.update(native_card)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))
+        assert denied.value.status_code == 403
+        with DbSession.atomic() as db:
+            native_card.archived_at = None
+            db.update(native_card)
         request = {"schema_version": 1, "kind": "question", "app_request_key": "monitor-triage",
             "prompt": {"en": "Choose the next step"},
             "questions": [{"id": "next", "prompt": {"en": "Next step"}, "type": "single_choice",
@@ -430,6 +492,14 @@ def test_independent_monitor_creates_owned_card_then_requests_hitl_over_http(cre
             db.update(binding)
         with pytest.raises(NativeApiError) as denied:
             asyncio.run(Monitor.current_response(transport, board[2].get_uid(), created["card_uid"], first["interaction_uid"]))
+        assert denied.value.status_code == 403
+        # Read consent is independent of the withdrawn HITL write capability.
+        assert asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))["title"] == body["title"]
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = [value for value in binding.granted_capabilities if value != "cards.read"]
+            db.update(binding)
+        with pytest.raises(NativeApiError) as denied:
+            asyncio.run(reader.read(board[2].get_uid(), created["card_uid"]))
         assert denied.value.status_code == 403
         assert len(events) == 1
 
