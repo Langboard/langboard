@@ -94,6 +94,7 @@ jobs:
           src/api/tests/apps/test_app_composition.py
           src/api/tests/apps/test_binding_storage.py
           src/api/tests/apps/test_sdk_resources_http.py
+          src/api/tests/apps/test_registered_connection_context.py
       - name: Preserve contract results
         if: always()
         uses: actions/upload-artifact@v4
