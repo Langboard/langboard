@@ -319,5 +319,9 @@
   "App first organizations": "첫 페이지",
   "App mode inherit": "인스턴스 정책 상속",
   "App mode inherit description": "별도 조직 제한 없이 인스턴스 정책 상한을 적용합니다.",
-  "App organization ceiling": "조직 제한은 인스턴스 정책 상한을 해제할 수 없습니다."
+  "App organization ceiling": "조직 제한은 인스턴스 정책 상한을 해제할 수 없습니다.",
+  "Workspace setup": "업무 구성",
+  "People and notifications": "사용자 · 알림",
+  "AI and automation": "AI · 자동화",
+  "Apps and integrations": "앱 · 연동"
 }

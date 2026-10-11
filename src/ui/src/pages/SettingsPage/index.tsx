@@ -6,32 +6,37 @@ import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { AppSettingProvider } from "@/core/providers/AppSettingProvider";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { ROUTES } from "@/core/routing/constants";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import Button from "@/components/base/Button";
 import { useTranslation } from "react-i18next";
 import { useSocket } from "@/core/providers/SocketProvider";
 import { EHttpStatus, ESettingSocketTopicID, ESocketTopic } from "@langboard/core/enums";
 import { IS_OLLAMA_RUNNING } from "@/constants";
 import { Navigate, useLocation } from "react-router";
-import BotsPage from "@/pages/SettingsPage/BotsPage";
-import ApiComfortToolsPage from "@/pages/SettingsPage/ApiComfortToolsPage";
-import GlobalRelationshipsPage from "@/pages/SettingsPage/GlobalRelationshipsPage";
-import InternalBotsPage from "@/pages/SettingsPage/InternalBotsPage";
-import WebhooksPage from "@/pages/SettingsPage/WebhooksPage";
-import NotificationSchedulePage from "@/pages/SettingsPage/NotificationSchedulePage";
-import UsersPage from "@/pages/SettingsPage/UsersPage";
-import ApiKeysPage from "@/pages/SettingsPage/ApiKeysPage";
-import OllamaPage from "@/pages/SettingsPage/OllamaPage";
-import McpServerPage from "@/pages/SettingsPage/McpServerPage";
+
 import { AuthUser } from "@/core/models";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { ApiKeyRole, McpRole, SettingRole } from "@/core/models/roles";
 import useGetOllamaHealth from "@/controllers/api/settings/ollama/useGetOllamaHealth";
-import WorkflowStagesPage from "@/pages/SettingsPage/WorkflowStagesPage";
-import GlobalLabelsPage from "@/pages/SettingsPage/GlobalLabelsPage";
-import ProjectTemplatesPage from "@/pages/SettingsPage/ProjectTemplatesPage";
+
 import SettingsLoadState from "./SettingsLoadState";
-import AppGovernancePage from "./AppGovernancePage";
+
 import { settingsRedirect } from "@/pages/SettingsPage/SettingsNavigation";
+
+const BotsPage = lazy(() => import("./BotsPage"));
+const ApiComfortToolsPage = lazy(() => import("./ApiComfortToolsPage"));
+const GlobalRelationshipsPage = lazy(() => import("./GlobalRelationshipsPage"));
+const InternalBotsPage = lazy(() => import("./InternalBotsPage"));
+const WebhooksPage = lazy(() => import("./WebhooksPage"));
+const NotificationSchedulePage = lazy(() => import("./NotificationSchedulePage"));
+const UsersPage = lazy(() => import("./UsersPage"));
+const ApiKeysPage = lazy(() => import("./ApiKeysPage"));
+const OllamaPage = lazy(() => import("./OllamaPage"));
+const McpServerPage = lazy(() => import("./McpServerPage"));
+const WorkflowStagesPage = lazy(() => import("./WorkflowStagesPage"));
+const GlobalLabelsPage = lazy(() => import("./GlobalLabelsPage"));
+const ProjectTemplatesPage = lazy(() => import("./ProjectTemplatesPage"));
+const AppGovernancePage = lazy(() => import("./AppGovernancePage"));
 
 function SettingsProxy(): React.JSX.Element {
     const { currentUser } = useAuth();
@@ -255,6 +260,35 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
         settingsNavs[pathname].active = true;
     }
 
+    const groups = [
+        {
+            label: "Workspace setup",
+            icon: "layout-template",
+            paths: [
+                ROUTES.SETTINGS.PROJECT_TEMPLATES,
+                ROUTES.SETTINGS.WORKFLOW_STAGES,
+                ROUTES.SETTINGS.GLOBAL_LABELS,
+                ROUTES.SETTINGS.GLOBAL_RELATIONSHIPS,
+            ],
+        },
+        { label: "People and notifications", icon: "users", paths: [ROUTES.SETTINGS.USERS, ROUTES.SETTINGS.NOTIFICATION_SCHEDULE] },
+        { label: "AI and automation", icon: "bot", paths: [ROUTES.SETTINGS.INTERNAL_BOTS, ROUTES.SETTINGS.BOTS, ROUTES.SETTINGS.OLLAMA] },
+        {
+            label: "Apps and integrations",
+            icon: "app-window",
+            paths: [
+                ROUTES.SETTINGS.APPS,
+                ROUTES.SETTINGS.MCP_TOOL_GROUPS,
+                ROUTES.SETTINGS.API_KEYS,
+                ROUTES.SETTINGS.WEBHOOKS,
+                ROUTES.SETTINGS.API_COMFORT_TOOLS,
+            ],
+        },
+    ]
+        .map((group) => ({ ...group, paths: group.paths.filter((path) => settingsNavs[path] && !settingsNavs[path].hidden) }))
+        .filter((group) => group.paths.length);
+    const activeGroup = groups.find((group) => group.paths.some((path) => path === pathname)) ?? groups[0];
+
     let pageContent;
     switch (pathname) {
         case ROUTES.SETTINGS.APPS:
@@ -307,8 +341,40 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     }, [pathname, currentUser.is_admin, hasApiKeyRoleAction, hasSettingRoleAction, hasMcpRoleAction, isOllamaAvailable]);
 
     return (
-        <DashboardStyledLayout headerNavs={[]} headerTitle={t("board.Settings")} activityRailItems={Object.values(settingsNavs)}>
-            <AppSettingProvider currentUser={currentUser}>{pageContent}</AppSettingProvider>
+        <DashboardStyledLayout
+            headerNavs={[]}
+            headerTitle={t("board.Settings")}
+            activityRailItems={groups.map((group) => ({
+                icon: group.icon,
+                label: t(`settings.${group.label}`),
+                active: group === activeGroup,
+                onClick: () => navigate(group.paths[0]),
+            }))}
+        >
+            <AppSettingProvider currentUser={currentUser}>
+                <nav aria-label={t("board.Settings")} className="flex flex-wrap gap-2 border-b p-4">
+                    {activeGroup?.paths.map((path) => (
+                        <Button
+                            key={path}
+                            size="sm"
+                            variant={pathname === path ? "secondary" : "ghost"}
+                            aria-current={pathname === path ? "page" : undefined}
+                            onClick={settingsNavs[path].onClick}
+                        >
+                            {settingsNavs[path].label}
+                        </Button>
+                    ))}
+                </nav>
+                <Suspense
+                    fallback={
+                        <div role="status" className="p-6 text-sm text-muted-foreground">
+                            {t("common.Loading...")}
+                        </div>
+                    }
+                >
+                    {pageContent}
+                </Suspense>
+            </AppSettingProvider>
         </DashboardStyledLayout>
     );
 }
