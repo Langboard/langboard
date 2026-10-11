@@ -270,3 +270,13 @@ mutation until an explicit successful reload, with one recovery button. The
 focused browser suite passes four cases including failed readback at desktop and
 mobile sizes and unknown write recovery; 41 existing workflow/Store cases also
 passed. This remains local browser acceptance pending canary deployment.
+
+### Store visual review (2026-10-11)
+
+Overview tiles reuse the host card, muted icon surface, typography and button
+components. Composition and individual module icons are decorative; long app
+names wrap without expanding the grid. No remote icon assets or new dependency
+are required. The current Store browser suite passed 44 cases, including 1440px
+and 390px management, consent, resource selection, draft retention and failed
+readback guards. The local rendered overview was visually inspected. These
+checks do not establish deployment or a live provider connection.

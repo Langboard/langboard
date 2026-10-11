@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Blocks, Puzzle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/core/helpers/Api";
 import { formatNumber } from "@/core/utils/LocaleFormat";
@@ -260,8 +261,16 @@ export default function BoardSettingsApps() {
                         {!composition &&
                             !managedKey &&
                             compositions.map((group) => (
-                                <article key={`composition:${group.key}`} className="card card-border min-w-0 rounded-lg border p-4">
-                                    <h4 className="font-semibold">{group.name}</h4>
+                                <article
+                                    key={`composition:${group.key}`}
+                                    className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className="rounded-xl bg-muted p-3">
+                                            <Blocks className="size-5 text-muted-foreground" aria-hidden="true" />
+                                        </span>
+                                        <h4 className="min-w-0 break-words font-semibold">{group.name}</h4>
+                                    </div>
                                     <p className="my-3 flex-1 text-sm text-muted-foreground">{group.description}</p>
                                     <Button size="sm" variant="outline" onClick={() => setCompositionKey(group.key)}>
                                         {t("project.settings.Manage App modules")}
@@ -276,8 +285,16 @@ export default function BoardSettingsApps() {
                                 const state = app.is_available === false ? "disabled" : (binding?.state ?? "unconfigured");
                                 const workflowLabel = workflow_requirements ? "Configure workflow" : "App workflow contract pending";
                                 return (
-                                    <article key={key} className="card card-border flex min-w-0 flex-col gap-3 rounded-lg border p-4">
-                                        <h4 className="font-semibold">{name}</h4>
+                                    <article
+                                        key={key}
+                                        className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span className="rounded-xl bg-muted p-3">
+                                                <Puzzle className="size-5 text-muted-foreground" aria-hidden="true" />
+                                            </span>
+                                            <h4 className="min-w-0 break-words font-semibold">{name}</h4>
+                                        </div>
                                         {!managedKey ? (
                                             <>
                                                 <span className="self-start rounded-md bg-muted px-2 py-1 text-xs">
