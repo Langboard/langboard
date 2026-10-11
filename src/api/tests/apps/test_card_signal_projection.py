@@ -79,6 +79,37 @@ def test_occurrence_order_exact_scope_conflict_and_staleness(scoped):
             scoped[3].downgrade()
 
 
+def test_same_occurrence_provenance_comes_from_the_selected_signal_row(scoped, monkeypatch):
+    from dataclasses import replace
+    import langboard_shared.domain.services.AppManifest as manifest_module
+    import langboard_shared.domain.services.AppRegistry as registry_module
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.domain.models import AppSignal
+
+    manifests = dict(manifest_module.APP_MANIFESTS)
+    github = manifests["github"]
+    manifests["github"] = replace(github, signal_policy=replace(
+        github.signal_policy, event_types=("check.completed", "check.acknowledged"),
+    ))
+    monkeypatch.setattr(manifest_module, "APP_MANIFESTS", manifests)
+    monkeypatch.setattr(registry_module, "APP_MANIFESTS", manifests)
+
+    state, _, _, _ = scoped
+    send(state)
+    with DbSession.atomic() as db:
+        first = db.exec(SqlBuilder.select.table(AppSignal)).first()
+        later = AppSignal(
+            resource_id=first.resource_id, provider=first.provider, event_id="second-same-time",
+            event_type="check.acknowledged", occurred_at=first.occurred_at, external_id=first.external_id,
+            outcome=first.outcome, commit_sha=first.commit_sha, payload_digest="b" * 64,
+        )
+        db.insert(later)
+    proof = evidence(scoped)
+    assert proof["signal_uid"] == later.get_uid()
+    assert proof["event_type"] == later.event_type
+    assert proof["state"] == "passed"
+
+
 @pytest.mark.parametrize(
     "failure",
     [
