@@ -27,14 +27,16 @@ class Response:
 
 
 class RequestContract(unittest.TestCase):
-    def run_request(self, tag=None, dispatch=None, changes=None):
+    def run_request(self, tag=None, dispatch=None, changes=None, annotation=None):
         env = dict(IMAGE_BUILD_REPOSITORY='example/executor', IMAGE_BUILD_WORKFLOW='build.yml',
                    IMAGE_BUILD_REF=TAG, IMAGE_BUILD_COMMIT=SHA, SOURCE_REPOSITORY='example/source',
                    SOURCE_REVISION='b' * 40, IMAGE_BUILD_PROFILE='ui', REQUEST_ID='1-2-1',
                    IMAGE_BUILD_REQUEST_TOKEN='test-only')
         env.update(changes or {})
-        responses = [tag or Response(200, {'ref': TAG, 'object': {'type': 'commit', 'sha': SHA}}),
-                     dispatch or Response(204, {})]
+        responses = [tag or Response(200, {'ref': TAG, 'object': {'type': 'commit', 'sha': SHA}})]
+        if annotation is not None:
+            responses.append(annotation)
+        responses.append(dispatch or Response(204, {}))
         with tempfile.TemporaryDirectory() as directory:
             env['GITHUB_STEP_SUMMARY'] = str(Path(directory) / 'summary')
             with patch.dict(os.environ, env, clear=True), patch('urllib.request.urlopen', side_effect=responses) as calls:
@@ -54,12 +56,38 @@ class RequestContract(unittest.TestCase):
         self.assertEqual(payload['inputs']['source_ref'], 'b' * 40)
         self.assertEqual(payload['inputs']['profile'], 'ui')
 
-    def test_moved_annotated_or_wrong_tag_never_dispatches(self):
-        for ref, kind, sha in [(TAG, 'commit', 'c' * 40), (TAG, 'tag', SHA), ('refs/tags/other', 'commit', SHA)]:
+    def test_moved_or_wrong_tag_never_dispatches(self):
+        for ref, kind, sha in [(TAG, 'commit', 'c' * 40), (TAG, 'tree', SHA), ('refs/tags/other', 'commit', SHA)]:
             with self.subTest(ref=ref, kind=kind, sha=sha):
                 outcome, calls = self.run_request(tag=Response(200, {'ref': ref, 'object': {'type': kind, 'sha': sha}}))
                 self.assertIn('does not match', outcome)
                 self.assertEqual(len(calls), 1)
+
+    def test_annotated_tag_is_dispatched_only_after_exact_commit_verification(self):
+        annotation_sha = 'd' * 40
+        tag = Response(200, {'ref': TAG, 'object': {'type': 'tag', 'sha': annotation_sha}})
+        outcome, calls = self.run_request(tag=tag, annotation=Response(200, {
+            'sha': annotation_sha, 'object': {'type': 'commit', 'sha': SHA},
+        }))
+        self.assertEqual(outcome, 'accepted')
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(calls[1].args[0].full_url.endswith('/git/tags/' + annotation_sha))
+        self.assertEqual(json.loads(calls[2].args[0].data)['ref'], TAG)
+
+    def test_wrong_nested_or_unavailable_annotation_never_dispatches(self):
+        annotation_sha = 'd' * 40
+        for annotation in [
+            Response(200, {'sha': annotation_sha, 'object': {'type': 'commit', 'sha': 'c' * 40}}),
+            Response(200, {'sha': 'c' * 40, 'object': {'type': 'commit', 'sha': SHA}}),
+            Response(200, {'sha': annotation_sha, 'object': {'type': 'tag', 'sha': SHA}}),
+            urllib.error.URLError('test'),
+        ]:
+            outcome, calls = self.run_request(
+                tag=Response(200, {'ref': TAG, 'object': {'type': 'tag', 'sha': annotation_sha}}),
+                annotation=annotation,
+            )
+            self.assertNotEqual(outcome, 'accepted')
+            self.assertEqual(len(calls), 2)
 
     def test_missing_commit_mutable_ref_and_disagreement_fail_before_network(self):
         for change in [{'IMAGE_BUILD_COMMIT': ''}, {'IMAGE_BUILD_REF': 'main'}, {'IMAGE_BUILD_COMMIT': 'c' * 40}]:
