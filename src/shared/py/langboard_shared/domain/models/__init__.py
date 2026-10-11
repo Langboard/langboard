@@ -17,6 +17,7 @@ from .AppConnectionCredential import AppConnectionCredential
 from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
 from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
 from .AppDefinition import AppDefinition
+from .AppComposition import AppComposition, AppCompositionMember
 from .AppGovernancePolicy import AppGovernancePolicy
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
