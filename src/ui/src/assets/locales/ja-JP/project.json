@@ -414,7 +414,8 @@
     "Connection MCP write": "外部サービスの変更",
     "Connection MCP automation": "外部自動化の実行",
     "Connection MCP refresh required": "アクセス拒否、状態変更、またはリクエスト失敗。更新して再確認してください。",
-    "Connection MCP no tools": "宣言されたツールなし"
+    "Connection MCP no tools": "宣言されたツールなし",
+    "GitHub app connection identity": "GitHub アプリ {{appId}} · {{connectionId}}"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",

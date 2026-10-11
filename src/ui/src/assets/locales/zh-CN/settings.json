@@ -362,5 +362,8 @@
   "App catalog filter": "应用目录筛选",
   "Search apps": "搜索应用",
   "App details": "应用详情",
-  "No apps found": "没有符合条件的应用"
+  "No apps found": "没有符合条件的应用",
+  "SCIM issuer": "SCIM 签发者",
+  "Group ID": "组 ID",
+  "External group ID": "外部组 ID"
 }
