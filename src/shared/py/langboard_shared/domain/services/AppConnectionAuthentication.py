@@ -23,6 +23,12 @@ class AuthenticatedAppConnection:
     organization_id: int | None
 
 
+def is_native_inbound_connection(connection):
+    """Match the host-owned inbound constructor, never a provider secret fallback."""
+    return (connection.app_key not in APP_MANIFESTS and connection.credential_reference is None
+            and connection.instance_url == "" and connection.external_account_id == "")
+
+
 def _connection(db, identifier):
     row = _current(db, AppConnection, identifier, for_update=False)
     if row is None or row.state != "connected":
@@ -56,8 +62,9 @@ def _manage(db, actor, connection):
         _authorize(db, current, connection.organization_id)
 
 
-def _identity_hash(db, connection):
-    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)).first()
+def _identity_hash(db, connection, *, definition=None):
+    if definition is None:
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)).first()
     try:
         trust = declaration_trust_fingerprint(definition.declaration) if definition else "builtin"
     except ValueError as exc:
