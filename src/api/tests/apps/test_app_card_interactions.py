@@ -26,10 +26,8 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
     enqueues = []
     monkeypatch.setattr(AppEventDeliveryTask, "app_event_delivery_task", lambda *args: enqueues.append(args))
     if app_profile == "example-monitor":
-        import sys
-        from pathlib import Path
-        monkeypatch.delitem(sys.modules, "example_monitor", raising=False)
-        monkeypatch.syspath_prepend(str(Path(__file__).parent / "vendor/langboard_app_example_monitor-0.1.1-py3-none-any.whl"))
+        from packaged_monitor import load_monitor
+        Monitor = load_monitor(monkeypatch, "example-monitor-hitl-provenance.json")
         import test_app_connection_resources as resources_fixture
         original_setup = resources_fixture.setup
         def monitor_setup(actor):
@@ -181,7 +179,6 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
 
         sdk = AppCardInteractions(HttpTransport(SimpleNamespace(request=send)))
         if app_profile == "example-monitor":
-            from example_monitor import Monitor
             class PackagedInteractions:
                 async def create(self, board_uid, card_uid, request):
                     return await Monitor.question(transport, board_uid, card_uid, request)
