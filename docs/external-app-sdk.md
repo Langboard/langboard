@@ -1132,6 +1132,14 @@ disables global app policy, verifying denial with data still stored. A visible
 linked card removes duplicate inbox presentation; a private card that the actor
 cannot read neither suppresses the signal nor exposes its card identity. Once
 the actor owns that private card, its readable link suppresses the duplicate.
+The stored-data regression also approves an update through the authenticated
+administrator registry HTTP endpoint and renews board consent through native
+HTTP. It covers publisher, panel URL, MCP identity and each authentication/MCP/data
+origin set on both databases. A non-admin update is denied; a stale administrator
+revision conflicts. Each approved trust change clears existing board grants and
+revokes the app's connection. Panel reads remain denied until explicit board
+consent is renewed. Renewing panel read consent does not reactivate the revoked
+app connection; independently authorized provider evidence remains readable.
 Deselecting the GitHub resource or revoking its SecretRef removes its signal;
 a cursor for a deselected resource is rejected. External provider HTTP remains a
 fixture; GlitchTip observation storage is seeded, not fetched from a live provider.
