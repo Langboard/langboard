@@ -18,10 +18,13 @@ from langboard_shared.domain.models import (
     AppMcpConsent,
     AppResourceBinding,
     BoardAppBinding,
+    GlobalCardRelationshipType,
     Organization,
     Project,
     User,
 )
+from langboard_shared.domain.services.DomainService import DomainService
+from langboard_shared.domain.services.RelationshipTypeBootstrap import bootstrap_relationship_types
 from langboard_shared.domain.services.WorkflowStageBootstrap import bootstrap_workflow_stages
 from sqlalchemy import MetaData, create_engine, inspect, text, update
 from sqlalchemy.exc import IntegrityError
@@ -38,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["c5fa084e732b"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["d6ab195f843c"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -418,6 +421,85 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
             assert connection.execute(text("SELECT count(*) FROM card_execution_intent")).scalar() == 1
             execution_intent_migration.downgrade()
             execution_intent_migration.upgrade()
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_relationship_semantics_migration_preserves_legacy_and_default_identity(monkeypatch):
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "relationship_semantics_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    root = Path(__file__).parents[2] / "api/langboard/migrations/versions"
+    spec = importlib.util.spec_from_file_location("relationship_migration", root / "20261012140000-d6ab195f843c.py")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "c5fa084e732b"
+    try:
+        table = GlobalCardRelationshipType.__table__.to_metadata(MetaData())
+        for name in ("machine_semantic", "is_system_default", "is_active", "affects_readiness"):
+            table._columns.remove(table.c[name])
+        table.create(engine)
+        with engine.begin() as db:
+            db.execute(
+                text(
+                    "INSERT INTO global_card_relationship_type (id,parent_name,child_name,description) "
+                    "VALUES (1,'Blocks','Depends on','Legacy relationship')"
+                )
+            )
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            migration.upgrade()
+        assert bootstrap_relationship_types() == {"inserted": 3}
+        assert bootstrap_relationship_types() == {"inserted": 0}
+        with Session(engine) as db:
+            legacy = db.get(GlobalCardRelationshipType, 1)
+            assert legacy.machine_semantic is None and not legacy.affects_readiness
+            assert not legacy.is_system_default and legacy.is_active
+            defaults = db.query(GlobalCardRelationshipType).filter_by(is_system_default=True).all()
+            assert {r.machine_semantic: r.affects_readiness for r in defaults} == {
+                "contains": False,
+                "blocks": True,
+                "references": False,
+            }
+            original_ids = {r.machine_semantic: r.id for r in defaults}
+            blocker = next(r for r in defaults if r.machine_semantic == "blocks")
+            db.execute(
+                update(GlobalCardRelationshipType)
+                .where(GlobalCardRelationshipType.id == blocker.id)
+                .values(parent_name="Custom prerequisite label", is_active=False)
+            )
+            db.commit()
+        assert bootstrap_relationship_types() == {"inserted": 0}
+        with Session(engine) as db:
+            defaults = db.query(GlobalCardRelationshipType).filter_by(is_system_default=True).all()
+            assert {r.machine_semantic: r.id for r in defaults} == original_ids
+            blocker = db.get(GlobalCardRelationshipType, original_ids["blocks"])
+            assert blocker.parent_name == "Custom prerequisite label" and not blocker.is_active
+            assert blocker.api_response()["machine_semantic"] == "blocks"
+            assert blocker.api_response()["affects_readiness"] is True
+        service = DomainService()
+        assert service.app_setting.delete_global_relationship(original_ids["blocks"]) is False
+        assert service.app_setting.delete_selected_global_relationships([1, original_ids["contains"]]) is False
+        with Session(engine) as db:
+            assert db.get(GlobalCardRelationshipType, 1) is not None
+            assert db.get(GlobalCardRelationshipType, original_ids["contains"]) is not None
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            migration.downgrade()
+            assert db.execute(text("SELECT count(*) FROM global_card_relationship_type")).scalar() == 4
+            assert (
+                db.execute(text("SELECT description FROM global_card_relationship_type WHERE id=1")).scalar()
+                == "Legacy relationship"
+            )
+            migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:

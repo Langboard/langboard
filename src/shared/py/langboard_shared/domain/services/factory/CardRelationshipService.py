@@ -23,7 +23,10 @@ class CardRelationshipService(BaseDomainService):
             return []
 
         raw_relationships = self.repo.card_relationship.get_all_by_card(card, limit=limit)
-        relationships = [relationship.api_response() for relationship, _ in raw_relationships]
+        relationships = [
+            self._relationship_response(relationship, relationship_type)
+            for relationship, relationship_type in raw_relationships
+        ]
         return relationships
 
     def get_api_list_by_by_project(self, project: TProjectParam | None) -> list[dict[str, Any]]:
@@ -32,8 +35,21 @@ class CardRelationshipService(BaseDomainService):
             return []
 
         raw_relationships = self.repo.card_relationship.get_all_by_project(project)
-        relationships = [relationship.api_response() for relationship, _ in raw_relationships]
+        relationships = [
+            self._relationship_response(relationship, relationship_type)
+            for relationship, relationship_type in raw_relationships
+        ]
         return relationships
+
+    @staticmethod
+    def _relationship_response(relationship, relationship_type) -> dict[str, Any]:
+        return {
+            **relationship.api_response(),
+            "machine_semantic": relationship_type.machine_semantic,
+            "affects_readiness": relationship_type.affects_readiness,
+            "is_system_default": relationship_type.is_system_default,
+            "is_active": relationship_type.is_active,
+        }
 
     def update(
         self,

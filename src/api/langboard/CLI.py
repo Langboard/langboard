@@ -1,6 +1,7 @@
 from time import sleep
 from typing import cast
 from langboard_shared.core.bootstrap import BaseCommand, Commander
+from langboard_shared.domain.services.RelationshipTypeBootstrap import bootstrap_relationship_types
 from langboard_shared.domain.services.WorkflowStageBootstrap import bootstrap_workflow_stages
 from langboard_shared.Env import Env
 from langboard_shared.FastAPIAppConfig import FastAPIAppConfig
@@ -32,6 +33,7 @@ def _run_app(options: RunCommandOptions):
     if Env.WORKER == "main":
         DbUpgradeCommand().execute(DbUpgradeCommandOptions())
         bootstrap_workflow_stages()
+        bootstrap_relationship_types()
         _init_internal_bots()
         _init_admin()
         _set_full_admin_access()

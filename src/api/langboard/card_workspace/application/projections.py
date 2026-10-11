@@ -22,6 +22,10 @@ _LABEL_KEYS = ("uid", "name", "color", "description", "order")
 _RELATIONSHIP_KEYS = (
     "uid",
     "relationship_type_uid",
+    "machine_semantic",
+    "affects_readiness",
+    "is_system_default",
+    "is_active",
     "parent_card_uid",
     "child_card_uid",
     "card_uid_parent",

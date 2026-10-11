@@ -93,7 +93,7 @@ class AppSettingService(BaseDomainService):
 
     def delete_global_relationship(self, global_relationship: TGlobalCardRelationshipTypeParam | None) -> bool:
         global_relationship = InfraHelper.get_by_id_like(GlobalCardRelationshipType, global_relationship)
-        if not global_relationship:
+        if not global_relationship or global_relationship.is_system_default:
             return False
 
         self.repo.global_card_relationship_type.delete(global_relationship)
@@ -103,7 +103,12 @@ class AppSettingService(BaseDomainService):
         return True
 
     def delete_selected_global_relationships(self, relationships: Sequence[TGlobalCardRelationshipTypeParam]) -> bool:
-        self.repo.global_card_relationship_type.delete(relationships)
+        selected = [relationships] if isinstance(relationships, str) else list(relationships)
+        for relationship in selected:
+            model = InfraHelper.get_by_id_like(GlobalCardRelationshipType, relationship)
+            if model and model.is_system_default:
+                return False
+        self.repo.global_card_relationship_type.delete(selected)
 
         if isinstance(relationships, str):
             relationships = [relationships]

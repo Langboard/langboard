@@ -508,3 +508,25 @@ connection authority, execution leases, signed outbox and external provider proo
 remain required at the subsequent app runtime admission boundary. Current tests
 prove PostgreSQL concurrency, CAS, idempotency, current resource denial and native
 HTTP inputs/identity; they do not prove a running external app or live Phoenix flow.
+
+
+## Explicit relationship semantics
+
+The Phoenix-compatible foundation retains the existing global relationship table
+and edge identities. Migration `d6ab195f843c` adds `machine_semantic`,
+`is_system_default`, `is_active`, and `affects_readiness`; it does not classify
+legacy rows by their display names. Legacy meanings remain unset until an audited,
+explicit administrator mapping is implemented.
+
+Main API startup inserts missing built-in `contains`, `blocks`, and `references`
+types from a packaged locale resource under a transaction advisory lock. This is
+an idempotent global bootstrap, not a per-board reconciler. Renamed and disabled
+defaults are preserved. The existing single and bulk deletion paths reject
+built-in types, including a mixed bulk request, before deleting custom rows.
+Relationship read responses and bounded MCP relationship projections retain the
+explicit semantic fields.
+
+This restores the data and response prerequisites only. Execution dependency
+checks, hidden-blocker redaction, cycle policy, administrator semantic mapping,
+localized relationship UI, and deployed REST/MCP/browser acceptance remain
+pending. A `blocks` metadata row is not itself proof of an execution gate.
