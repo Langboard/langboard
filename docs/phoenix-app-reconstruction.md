@@ -21,9 +21,48 @@ foundation. Applying only the candidate delta is therefore insufficient.
 Copying the whole legacy candidate would delete Phoenix source and restore Node
 package, Docker and workflow paths. Neither action is an accepted reconstruction.
 
-The current PR 684 is a focused bridge, not the full reconstruction: Graph
-service authentication and signed chat-session history isolation. The combined
-Python ASGI plus SQLite/PostgreSQL suite passes 83 tests in 16.26 seconds on the
-main lock environment. It does not prove app/HITL acceptance, Phoenix compilation
+PR 684 contains the Graph authentication/history bridge and the initial
+app database foundation described below. It remains an incomplete
+reconstruction, rather than full app/HITL acceptance. It does not prove app/HITL acceptance, Phoenix compilation
 or operational deployment. All existing review PRs and the local canary union
 remain preserved; no merge or protected deployment-reference update is made.
+
+
+## App database foundation reconstructed
+
+The first dependency slice reuses these models from fixed candidate
+`6a4ece1d4`: Organization, AppDefinition, AppConnection, BoardAppBinding,
+AppGovernancePolicy, AppComposition and AppCompositionMember. The original
+AppRegistry name denotes a service; the persisted declaration is AppDefinition.
+No provider-specific identifiers, adapters or company defaults are added.
+
+Migration `a7c9e31b6204` follows current main head `0cc6abc4b020`. It adds seven
+new tables and does not rewrite existing card, run, approval or Phoenix tables.
+Fresh model metadata and the migration both enforce connection ownership/state,
+instance/organization policy scope and one app binding per board/app key.
+Bindings default to disabled, connections to pending. Registry declarations
+remain administrator approval records; importing their model does not install
+an app or grant any execution permission.
+
+For new uniquely keyed fields, redundant `index=True` flags are removed: the
+UNIQUE constraint already provides an index in PostgreSQL. Foreign-key/query
+indexes are retained. This avoids duplicating write/storage overhead while
+preserving lookup and uniqueness behavior. The shared ORM is unchanged.
+
+The PostgreSQL migration regression applies upgrade on the native user/project
+prerequisites, persists personal and organization connections, rejects invalid
+ownership/state/policy and duplicate board bindings, checks index duplication,
+then downgrades without deleting existing user/project rows and upgrades again.
+This is the new migration delta; it does not claim a replay of all historical
+migrations or a migration from the old canary schema.
+
+Remaining dependencies include organization membership/project boundaries,
+CardVisibility/CardWorkState, SDK dependency/registry services and ordered app
+consent/resource/execution/receipt migrations. App registration endpoints,
+policy execution and second-app integration are not enabled by this schema.
+Phoenix workers, Kafka ownership, fixed PR683 and old union remain preserved.
+
+Validation: the combined 133-test regression passed in 31.89 seconds before
+the final board binding-state constraint. The final migration delta, including
+that constraint and independent negative fixtures, passed its PostgreSQL
+integration test in 1.28 seconds. Ruff and diff checks pass.

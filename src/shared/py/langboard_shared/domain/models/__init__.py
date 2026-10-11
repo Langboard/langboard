@@ -2,6 +2,11 @@ from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
 from .ApiKeyUsage import ApiKeyUsage
+from .AppComposition import AppComposition, AppCompositionMember
+from .AppConnection import AppConnection
+from .AppDefinition import AppDefinition
+from .AppGovernancePolicy import AppGovernancePolicy
+from .BoardAppBinding import BoardAppBinding
 from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotLog import BotLog
@@ -37,8 +42,9 @@ from .McpRole import McpRole
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
 from .NotificationEmailDelivery import NotificationEmailDelivery
-from .OllamaModelPull import OllamaModelPull
 from .NotificationScheduleRule import NotificationScheduleRule
+from .OllamaModelPull import OllamaModelPull
+from .Organization import Organization
 from .Project import Project
 from .ProjectActivity import ProjectActivity
 from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
@@ -83,6 +89,13 @@ from .WebhookSetting import WebhookSetting
 
 
 __all__ = [
+    "Organization",
+    "AppDefinition",
+    "AppConnection",
+    "BoardAppBinding",
+    "AppGovernancePolicy",
+    "AppComposition",
+    "AppCompositionMember",
     "ApiComfortTool",
     "ApiKeyRole",
     "ApiKeySetting",
@@ -167,3 +180,5 @@ __all__ = [
     "UserProfile",
     "WebhookSetting",
 ]
+
+from . import AppSchema as _app_schema  # noqa: F401
