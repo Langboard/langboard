@@ -13,7 +13,19 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. SDK 0.2.14 provides request validation and app-authenticated create/read. Host storage is implemented; human response, cancel, delivery, native UI and runtime continuation remain pending.
+proof. SDK 0.2.15 provides request validation and app-authenticated create/read. Host storage and app-authenticated cancellation are implemented; human response, delivery, native UI and runtime continuation remain pending. The SDK cancellation convenience method is not yet shipped.
+
+## Implemented app cancellation
+
+`POST /apps/v1/boards/{board}/cards/{card}/interactions/{interaction}/cancel`
+accepts only a strict positive integer `expected_revision`. Current credentials,
+card ownership, resource selection and `interactions.request` scope are rechecked.
+A pending unexpired request changes to `cancelled` and increments its revision
+under the request row lock. The original request remains unchanged. Repeating the
+original revision returns `changed: false`; other stale revisions or terminal
+states conflict. An expired request stays expired without mutation. Every receipt
+retains `execution_resumed: false`. Revoked credentials cannot cancel or read.
+This endpoint does not deliver an event or cancel an external runtime.
 
 ## Request and response data
 

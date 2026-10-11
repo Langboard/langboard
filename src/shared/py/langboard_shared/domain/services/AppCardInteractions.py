@@ -182,3 +182,35 @@ def read_app_card_interaction(token, project_id, card_id, interaction_id):
         if row is None:
             raise AppGovernanceDenied()
         return _receipt(row)
+
+
+def cancel_app_card_interaction(token, project_id, card_id, interaction_id, expected_revision):
+    """Retain the immutable request and fence cancellation against its revision."""
+    if type(expected_revision) is not int or expected_revision < 1:
+        raise ValueError("A positive interaction revision is required")
+    with DbSession.atomic() as db:
+        principal, _ = _scope(db, token, project_id, card_id)
+        row = db.exec(
+            SqlBuilder.select.table(AppCardInteraction)
+            .where(
+                AppCardInteraction.id == interaction_id,
+                AppCardInteraction.card_id == card_id,
+                AppCardInteraction.project_id == project_id,
+                AppCardInteraction.connection_id == principal.connection_id,
+                AppCardInteraction.app_key == principal.app_key,
+            )
+            .with_for_update()
+        ).first()
+        if row is None:
+            raise AppGovernanceDenied()
+        if row.state == "cancelled" and row.revision == expected_revision + 1:
+            return {**_receipt(row), "changed": False}
+        if row.revision != expected_revision or row.state != "pending":
+            raise AppCardInteractionConflict()
+        if _expired(row.expires_at, SafeDateTime.now()):
+            # Expiry is already authoritative; cancellation cannot change it.
+            return {**_receipt(row), "changed": False}
+        row.state = "cancelled"
+        row.revision += 1
+        db.update(row)
+        return {**_receipt(row), "changed": True}

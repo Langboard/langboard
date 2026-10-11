@@ -2,6 +2,19 @@
 
 ## Independent features
 
+| Concept | Purpose | Durable effect |
+| --- | --- | --- |
+| Signal | Observe an external event or state change | Evidence with an external identity; no implied workflow mutation |
+| Inbox | Receive, group and triage signals | Inbox read/triage state; no implied card completion or approval |
+| App-owned card | Track actionable work in an existing board workflow | Native card identity, app provenance, comments, relations and checklists |
+
+These are distinct resources and functions, not alternate names for one card.
+An app may provide only an inbox, only workflow cards, or both. Linking a signal
+to a card preserves both identities and histories. Reading, dismissing or resolving
+an inbox entry does not complete or archive a linked card. A card response or
+archive does not silently consume its inbox evidence. Any configured conversion
+or synchronization requires its own explicit feature, authority and receipt.
+
 Signal inbox ingestion, app-owned workflow card creation, card interactions and
 archive synchronization are separately enabled connection features. Receiving a
 signal never enables any of the others. New connections default to no card
