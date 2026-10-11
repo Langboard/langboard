@@ -13,7 +13,7 @@ commands, and claim/receipt delivery. It has no generic Langboard interaction AP
 explicit approval kind, native column mapping, or resume/cancel contract. Its
 question options currently identify answers by label, not stable choice ID.
 These are consumer constraints; they are not host vocabulary or implementation
-proof. SDK 0.2.16 provides request validation and app-authenticated create/read. Host storage, app-authenticated cancellation and authenticated human response storage are implemented; delivery, native UI and runtime continuation remain pending. SDK 0.2.16 also provides the cancellation method; human response and runtime cancellation remain separate gates.
+proof. SDK 0.2.18 provides request/value validation and app-authenticated create/read/cancel. Host human response storage, optional signed response outbox and app reception ACK are implemented; production delivery scheduling, native UI and runtime continuation remain pending.
 
 ## Implemented app cancellation
 
@@ -214,8 +214,9 @@ use stable IDs, never labels. Multiple selection enforces unique IDs and declare
 count limits. Text preserves content while enforcing non-empty and declared
 length bounds. Choice or text is exclusive. Extra/secret fields and non-finite
 JSON are rejected; total values are capped at 32 KiB. This is input validation
-only. Human authentication, acceptance, revision/generation/expiry checks, durable
-response storage, delivery and execution continuation remain unimplemented gates.
+only. The host response operation additionally checks human authentication, current
+authority, revision/generation and expiry. Execution continuation remains a
+separate gate from value validation, acceptance, delivery and reception.
 
 ## Implemented human response storage
 
@@ -239,11 +240,43 @@ refuses to discard retained response history.
 
 `answered` is the response projection, not a new card-wide acknowledgment status.
 The receipt explicitly reports `execution_resumed: false`,
-`workflow_transitioned: false` and `delivery_state: not_queued`. No event is
-queued and no provider action or column movement follows acceptance yet. Those
-remaining gates must use the retained response identity and their own receipts.
+`workflow_transitioned: false`. Delivery is `not_queued` unless the explicit
+response-event destination/grants below are enabled. No provider action or column
+movement follows acceptance yet. Those remaining gates must use the retained
+response identity and their own receipts.
 SQLite and disposable PostgreSQL HTTP/storage regressions cover authentication,
 exact retries, conflicts, expiry, cancellation and current grant revocation.
 Four concurrent identical PostgreSQL submissions return one response UID with
 exactly one changed receipt. Competing different actors/bodies remain explicit
 conflicts; external delivery and continuation are not covered by this test.
+
+## Response outbox and reception acknowledgment
+
+An accepted response queues `io.langboard.app.interaction.answered.v1` in the same
+transaction only when the board grants `events.receive` and the approved owning
+connection has a destination explicitly subscribing to that event. Missing or
+disabled delivery configuration leaves `delivery_state: not_queued`; acceptance
+never silently installs a webhook or grants a feature. The event contains stable
+interaction/response/event IDs, actor, immutable values, optional execution
+context and the pinned destination revision. The existing outbox, exact-byte
+signature, bounded retry, delivery history and claim-token fence are reused.
+Execution request events keep their existing contract and authority checks.
+
+Claim and post-DNS revalidation check the current native responder, owner app,
+connection, selected resource, interaction/event grants, optional execution
+authority and exact approved destination. Revocation blocks delivery. This is
+an explicit delivery worker primitive; production scheduling and real receiver
+integration remain separate gates.
+
+App-authenticated `POST /apps/v1/boards/{board}/cards/{card}/interactions/{interaction}/acknowledgments`
+accepts `event_uid` and bounded `runtime_reference`. The event must be delivered
+or have a current live delivery claim. The same app and current authority are
+required. One immutable acknowledgment is retained per response; exact retry is
+unchanged, a different event/reference conflicts. HTTP transport delivery and
+app reception are distinct receipts. Readback exposes both. Neither means an
+observed execution continuation, provider action, or workflow transition.
+
+HTTP/storage/signature regression in SQLite and disposable PostgreSQL includes
+response→outbox→claim→exact signed payload→pre-send revalidation→failed attempt→
+same-event retry→app-authenticated ACK→delivery finish→readback. The tests do not
+send to a production receiver or prove deployed scheduling/UI/runtime behavior.

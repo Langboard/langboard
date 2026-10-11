@@ -23,7 +23,7 @@ from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppEventDelivery import _expired
 from .AppExecutionAcknowledgments import _request
 from .AppExecutionGrant import AppExecutionCredentialDenied
-from .AppGovernance import AppGovernanceDenied, _current, require_connection_access
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, require_connection_access
 from .DomainService import DomainService
 
 
@@ -120,6 +120,7 @@ def _receipt(row):
                 AppCardInteractionResponse.interaction_id == row.id
             )
         ).first()
+        delivery = _response_delivery(db, answer) if answer else {}
     return {
         "schema_version": 1,
         "interaction_uid": row.get_uid(),
@@ -140,6 +141,7 @@ def _receipt(row):
         if answer
         else None,
         "execution_resumed": False,
+        **delivery,
     }
 
 
@@ -381,6 +383,7 @@ def respond_to_app_card_interaction(
             db.insert(answer)
             row.revision += 1
             db.update(row)
+            _queue_response_event(db, row, answer)
             changed = True
         return {
             "schema_version": 1,
@@ -393,5 +396,186 @@ def respond_to_app_card_interaction(
             "changed": changed,
             "execution_resumed": False,
             "workflow_transitioned": False,
-            "delivery_state": "not_queued",
+            **_response_delivery(db, answer),
+        }
+
+
+def _response_delivery(db, answer):
+    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
+    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
+
+    event = db.exec(
+        SqlBuilder.select.table(AppExecutionOutbox).where(
+            AppExecutionOutbox.request_id == answer.id, AppExecutionOutbox.event_type == APP_INTERACTION_RESPONSE_EVENT
+        )
+    ).first()
+    ack = (
+        db.exec(
+            SqlBuilder.select.table(AppExecutionAcknowledgment).where(
+                AppExecutionAcknowledgment.request_id == answer.id
+            )
+        ).first()
+        if event
+        else None
+    )
+    return {
+        "event_uid": event.get_uid() if event else None,
+        "delivery_state": event.state if event else "not_queued",
+        "acknowledgment_uid": ack.get_uid() if ack else None,
+        "reception_state": "received" if ack else "not_received",
+    }
+
+
+def _queue_response_event(db, row, answer):
+    from ..models import AppExecutionOutbox
+    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT, current_destination
+
+    binding = db.exec(
+        SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.project_id == row.project_id, BoardAppBinding.app_key == row.app_key
+        )
+    ).first()
+    if "events.receive" not in binding.granted_capabilities:
+        return
+    connection = _current(db, AppConnection, row.connection_id)
+    try:
+        destination, _ = current_destination(db, connection, APP_INTERACTION_RESPONSE_EVENT)
+    except (AppGovernanceDenied, AppGovernanceConflict):
+        return
+    event = AppExecutionOutbox(
+        request_id=answer.id,
+        project_id=row.project_id,
+        app_key=row.app_key,
+        connection_id=row.connection_id,
+        event_type=APP_INTERACTION_RESPONSE_EVENT,
+    )
+    db.insert(event)
+    event.payload = {
+        "schema_version": 1,
+        "event_uid": event.get_uid(),
+        "event_type": event.event_type,
+        "app_key": row.app_key,
+        "connection_uid": SnowflakeID(row.connection_id).to_short_code(),
+        "board_uid": SnowflakeID(row.project_id).to_short_code(),
+        "card_uid": SnowflakeID(row.card_id).to_short_code(),
+        "interaction_uid": row.get_uid(),
+        "response_uid": answer.get_uid(),
+        "actor_uid": SnowflakeID(answer.actor_id).to_short_code(),
+        "values": answer.values,
+        "execution": row.request.get("execution"),
+        "state": "answered",
+        "execution_resumed": False,
+        "destination": {"destination_uid": destination.get_uid(), "revision": destination.revision},
+    }
+    db.update(event)
+
+
+def revalidate_response_event(db, event):
+    """Current native responder and owning app authority, independent of transport."""
+    answer = _current(db, AppCardInteractionResponse, event.request_id, for_update=False)
+    row = _current(db, AppCardInteraction, answer.interaction_id, for_update=False) if answer else None
+    if (
+        row is None
+        or event.connection_id != row.connection_id
+        or event.app_key != row.app_key
+        or event.project_id != row.project_id
+        or event.payload.get("response_uid") != answer.get_uid()
+        or event.payload.get("interaction_uid") != row.get_uid()
+        or event.payload.get("card_uid") != SnowflakeID(row.card_id).to_short_code()
+        or event.payload.get("event_uid") != event.get_uid()
+        or event.payload.get("event_type") != event.event_type
+        or event.payload.get("board_uid") != SnowflakeID(row.project_id).to_short_code()
+        or event.payload.get("connection_uid") != SnowflakeID(row.connection_id).to_short_code()
+        or event.payload.get("app_key") != row.app_key
+        or event.payload.get("state") != "answered"
+        or event.payload.get("execution_resumed") is not False
+        or event.payload.get("values") != answer.values
+        or event.payload.get("actor_uid") != SnowflakeID(answer.actor_id).to_short_code()
+        or event.payload.get("execution") != row.request.get("execution")
+    ):
+        raise AppGovernanceDenied()
+    actor = _current(db, User, answer.actor_id, for_update=False)
+    respond_to_app_card_interaction(
+        DomainService(),
+        actor,
+        row.project_id,
+        row.card_id,
+        row.id,
+        answer.expected_revision,
+        answer.idempotency_key,
+        answer.values,
+        answer.execution_generation,
+    )
+    binding = db.exec(
+        SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.project_id == row.project_id, BoardAppBinding.app_key == row.app_key
+        )
+    ).first()
+    if "events.receive" not in binding.granted_capabilities:
+        raise AppGovernanceDenied()
+    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT, current_destination
+
+    connection = _current(db, AppConnection, row.connection_id)
+    destination, _ = current_destination(db, connection, APP_INTERACTION_RESPONSE_EVENT)
+    if event.payload.get("destination") != {"destination_uid": destination.get_uid(), "revision": destination.revision}:
+        from .AppGovernance import AppGovernanceConflict
+
+        raise AppGovernanceConflict()
+    return row, answer
+
+
+def acknowledge_app_interaction_response(token, project_id, card_id, interaction_id, event_id, runtime_reference):
+    """Acknowledge event reception only; never imply provider execution or resume."""
+    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
+    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
+
+    if not isinstance(runtime_reference, str) or not runtime_reference.strip() or len(runtime_reference) > 200:
+        raise ValueError("Runtime reference must contain 1 to 200 characters")
+    with DbSession.atomic() as db:
+        event = _current(db, AppExecutionOutbox, event_id)
+        principal, _ = _scope(db, token, project_id, card_id)
+        row = _current(db, AppCardInteraction, interaction_id, for_update=False)
+        if (
+            event is None
+            or row is None
+            or event.event_type != APP_INTERACTION_RESPONSE_EVENT
+            or row.project_id != project_id
+            or row.card_id != card_id
+            or row.connection_id != principal.connection_id
+            or row.app_key != principal.app_key
+            or event.payload.get("interaction_uid") != row.get_uid()
+            or event.connection_id != principal.connection_id
+            or event.app_key != principal.app_key
+            or event.state not in ("delivering", "delivered")
+            or (event.state == "delivering" and _expired(event.lease_until, SafeDateTime.now()))
+        ):
+            raise AppGovernanceDenied()
+        _, answer = revalidate_response_event(db, event)
+        ack = db.exec(
+            SqlBuilder.select.table(AppExecutionAcknowledgment)
+            .where(AppExecutionAcknowledgment.request_id == answer.id)
+            .with_for_update()
+        ).first()
+        changed = ack is None
+        if ack is None:
+            ack = AppExecutionAcknowledgment(
+                request_id=answer.id,
+                event_id=event.id,
+                connection_id=row.connection_id,
+                app_key=row.app_key,
+                runtime_reference=runtime_reference,
+            )
+            db.insert(ack)
+        elif ack.event_id != event.id or ack.runtime_reference != runtime_reference:
+            raise AppCardInteractionConflict()
+        return {
+            "schema_version": 1,
+            "interaction_uid": row.get_uid(),
+            "response_uid": answer.get_uid(),
+            "event_uid": event.get_uid(),
+            "acknowledgment_uid": ack.get_uid(),
+            "runtime_reference": ack.runtime_reference,
+            "state": "received",
+            "changed": changed,
+            "execution_resumed": False,
         }

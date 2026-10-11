@@ -1,4 +1,4 @@
-"""App-scoped event identity, independent of the legacy board ready outbox."""
+"""App-scoped execution/interaction events, independent of the board ready outbox."""
 
 from typing import Any
 from sqlalchemy import JSON, CheckConstraint, UniqueConstraint

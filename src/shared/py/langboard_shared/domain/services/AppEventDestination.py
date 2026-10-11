@@ -11,13 +11,15 @@ from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _
 
 
 APP_EXECUTION_EVENT = "io.langboard.app.execution.requested.v1"
+APP_INTERACTION_RESPONSE_EVENT = "io.langboard.app.interaction.answered.v1"
+APP_EVENTS = {APP_EXECUTION_EVENT, APP_INTERACTION_RESPONSE_EVENT}
 
 
 def _target_revision(setting):
     return sha256(dumps([setting.url, setting.secret_id, setting.events], sort_keys=True).encode()).hexdigest()
 
 
-def current_destination(db, connection):
+def current_destination(db, connection, event_type=None):
     connection = _connection(db, connection.id)
     row = db.exec(
         SqlBuilder.select.table(AppEventDestination)
@@ -42,7 +44,9 @@ def current_destination(db, connection):
         declaration
     ):
         raise AppGovernanceConflict()
-    if "events.receive" not in declaration.get("capabilities", []) or APP_EXECUTION_EVENT not in (setting.events or []):
+    if "events.receive" not in declaration.get("capabilities", []) or not (
+        ({event_type} if event_type else APP_EVENTS) & set(setting.events or [])
+    ):
         raise AppGovernanceDenied()
     try:
         url = urlsplit(setting.url)
@@ -116,7 +120,7 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
         event = _current(db, AppExecutionOutbox, event_id)
         if (
             event is None
-            or event.event_type != APP_EXECUTION_EVENT
+            or event.event_type not in APP_EVENTS
             or (claim_token is None and event.state != "pending")
             or (claim_token is not None and (event.state != "delivering" or event.claim_token != claim_token))
         ):
@@ -124,7 +128,7 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
         connection = _current(db, AppConnection, event.connection_id)
         if connection is None or connection.app_key != event.app_key:
             raise AppGovernanceDenied()
-        destination, setting = current_destination(db, connection)
+        destination, setting = current_destination(db, connection, event.event_type)
         if destination.revision != expected_destination_revision:
             raise AppGovernanceConflict()
         snapshot = {"destination_uid": destination.get_uid(), "revision": destination.revision}
