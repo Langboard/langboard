@@ -9,6 +9,7 @@ from langboard_shared.domain.constants.TaskMetadata import BYPASS_APPROVAL_ACTIO
 from langboard_shared.Env import Env
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
+from .privacy import redact_graph_credentials
 
 
 _GRAPH_COMPONENT = "Graph"
@@ -40,9 +41,9 @@ def create_langboard_context_prompt(tweaks: dict[str, Any]) -> str:
 
     current_runner_data = variables.get("current_runner_data")
     if current_runner_data:
-        lines.append(f"- current_runner_data: {json_dumps(current_runner_data, ensure_ascii=False, sort_keys=True)}")
+        lines.append(f"- current_runner_data: {json_dumps(redact_graph_credentials(current_runner_data), ensure_ascii=False, sort_keys=True)}")
     if rest_data:
-        lines.append(f"- rest_data: {json_dumps(rest_data, ensure_ascii=False, sort_keys=True)}")
+        lines.append(f"- rest_data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False, sort_keys=True)}")
 
     return "\n".join(lines)
 
@@ -61,7 +62,7 @@ def create_langboard_event_input(input_value: str, tweaks: dict[str, Any]) -> st
         [
             f"Handle the Langboard event: {event}.",
             "Use the runtime context and available tools to decide the next action.",
-            f"Event data: {json_dumps(rest_data, ensure_ascii=False)}" if rest_data else "Event data: {}",
+            f"Event data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False)}" if rest_data else "Event data: {}",
         ]
     )
 
