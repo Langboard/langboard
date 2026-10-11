@@ -7,6 +7,7 @@ import { AuthUser } from "@/core/models";
 import { useState } from "react";
 import { normalizeLocale } from "@/core/utils/LocalePolicy";
 import { useUserAvatar } from "@/components/UserAvatar/Provider";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 
 export interface IUserPreferenceLanguageSwitcherProps extends Omit<React.ComponentProps<typeof LanguageSwitcher>, "asForm"> {
     currentUser: AuthUser.TModel;
@@ -16,11 +17,13 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
     const [isValidating, setIsValidating] = useState(false);
     const [t, i18n] = useTranslation();
     const { mutateAsync } = useUpdatePreferredLanguage({ interceptToast: true });
+    const queryClient = useQueryClient();
+    const languageWrites = useIsMutating({ mutationKey: ["update-preferred-language"] });
     const preferredLang = currentUser.useField("preferred_lang");
     const { getAvatarHoverCardAttrs, setIsHoverLocked } = useUserAvatar();
 
     const handleUpdate = (lang: string) => {
-        if (isValidating || lang === preferredLang) {
+        if (isValidating || queryClient.isMutating({ mutationKey: ["update-preferred-language"] }) || lang === preferredLang) {
             return;
         }
 
@@ -56,7 +59,7 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
             onOpenChange={setIsHoverLocked}
             asForm={{
                 initialValue: normalizeLocale(i18n.language),
-                disabled: isValidating,
+                disabled: isValidating || languageWrites > 0,
                 onChange: handleUpdate,
             }}
         />
