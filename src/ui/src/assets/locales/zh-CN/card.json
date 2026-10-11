@@ -297,5 +297,12 @@
     "applyMove": "应用卡片移动",
     "moveHelp": "将卡片移至 {{stage}}。不会恢复执行。",
     "moveRecorded": "卡片移动已记录。"
-  }
+  },
+  "App archive history": "应用归档历史",
+  "App archive receipt help": "事件投递与外部处理结果独立。外部结果由已认证应用报告。",
+  "App archive history unavailable": "无法加载归档历史。",
+  "No app archive history": "暂无应用归档历史。",
+  "Archive outcome": "归档结果",
+  "Event delivery": "事件投递",
+  "Provider reported state": "应用报告的外部状态"
 }

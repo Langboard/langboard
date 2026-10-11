@@ -125,7 +125,7 @@ def test_external_archive_defaults_off_and_stale_config_denied(creation, monkeyp
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
-@pytest.mark.parametrize("change", ["consent", "reenable", "resource", "connection", "definition", "restore", "ownership", "payload"])
+@pytest.mark.parametrize("change", ["consent", "reenable", "disable_reenable", "resource", "connection", "definition", "restore", "ownership", "payload"])
 def test_archive_pending_delivery_rechecks_current_authority(creation, monkeypatch, change):
     card, _, _ = setup_archive(creation, monkeypatch)
     board, _, connection, binding, resource, definition, _ = creation
@@ -153,12 +153,25 @@ def test_archive_pending_delivery_rechecks_current_authority(creation, monkeypat
             owner = db.exec(SqlBuilder.select.table(CardAppOwnership)).first()
             owner.revision += 1
             db.update(owner)
-        else:
+        elif change == "payload":
             event.payload = {**event.payload, "action": "delete_issue"}
             db.update(event)
-    if change == "reenable":
+    if change in ("reenable", "disable_reenable"):
         service = DomainService()
         try:
+            if change == "disable_reenable":
+                with DbSession.atomic() as db:
+                    binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
+                disabled = service.workflow_stage.disable_app_binding(board[1], board[2].get_uid(), connection.app_key,
+                                                                      binding.get_uid(), binding.edit_revision())
+                assert disabled.archive_sync_types == []
+                assert disabled.archive_sync_revision == binding.archive_sync_revision + 1
+                with DbSession.atomic() as db:
+                    current = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
+                    current.state = "enabled"
+                    current.granted_capabilities = binding.granted_capabilities
+                    db.update(current)
+                    binding = current
             saved = configure_archive_sync(service, board[1], board[2].id, connection.app_key,
                                            binding.edit_revision(), [])
             configure_archive_sync(service, board[1], board[2].id, connection.app_key, saved["revision"], ["issue"])

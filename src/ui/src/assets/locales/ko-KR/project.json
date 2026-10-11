@@ -70,7 +70,6 @@
     "Save reviewed permissions": "검토한 권한 저장",
     "Clear App permissions": "선택 비우기",
     "Back and refresh App permissions": "돌아가서 새로 조회",
-
     "Confirm inbound change": "확인",
     "Manage inbound connections": "서비스 연결 관리",
     "Inbound connection help": "Langboard 인입 서비스 주체를 등록합니다. 외부 계정 로그인이나 보드 권한 부여는 수행하지 않습니다.",
@@ -83,7 +82,6 @@
     "First inbound connections": "첫 페이지",
     "Create inbound connection": "서비스 연결 등록",
     "Inbound disconnect help": "연결을 해제하면 현재 자격증명 사용과 새 발급이 차단됩니다.",
-
     "Copy as template": "템플릿으로 복사",
     "Template name": "템플릿 이름",
     "Basic info": "기본 정보",
@@ -390,7 +388,12 @@
     "Service credential value": "서비스 자격증명",
     "Hide service credential": "값 숨기기",
     "Revoke service credential": "자격증명 철회",
-    "Issue service credential": "자격증명 발급"
+    "Issue service credential": "자격증명 발급",
+    "Review archive synchronization": "아카이브 동기화 검토",
+    "Archive synchronization help": "카드 아카이브를 먼저 기록합니다. 명시적으로 활성화한 카드 종류만 외부 처리를 실행합니다.",
+    "Provider archive action": "아카이브 후 외부 서비스 처리",
+    "Refresh required": "다시 저장하기 전에 새로고침하세요.",
+    "Disable archive synchronization": "아카이브 동기화 해제"
   },
   "App panel": "앱 패널",
   "Close App panel": "앱 패널 닫기",
