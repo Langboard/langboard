@@ -384,3 +384,87 @@ def test_connection_authority_has_no_duplicate_scope_queries(governance):
         event.remove(engine, "before_cursor_execute", record)
     # actor, project, connection, global policy, organization, organization policy
     assert len(statements) == 6
+
+
+def test_http_policy_routes_current_admin_owner_and_stale_revision(governance, monkeypatch):
+    import langboard.routes.settings.AppGovernanceSettingsApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+
+    _, (admin, owner, outsider), org, *_ = governance
+    from langboard_shared.core.caching import Cache
+
+    monkeypatch.setattr(
+        type(Env), "JWT_SECRET_KEY", property(lambda self: "fixture-app-policy-signing-key-only-32bytes")
+    )
+    # Real auth cache is populated; policy still rechecks current primary authority.
+    Cache.clear()
+    from langboard_shared.security import Auth
+
+    for actor in (admin, owner, outsider):
+        Auth.reset_user(actor)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    with TestClient(app) as client:
+
+        def request(actor, method, path, **kwargs):
+            access, refresh = AuthSecurity.authenticate(actor.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            return client.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+
+        path = "/settings/apps/governance"
+        assert client.get(path).status_code == 401
+        organizations_path = f"{path}/organizations"
+        managed = request(owner, "GET", organizations_path)
+        assert managed.status_code == 200
+        assert managed.json() == {"items": [{"uid": org.get_uid(), "name": "Org"}], "next_cursor": None}
+        first = request(admin, "GET", organizations_path, params={"limit": 1})
+        assert first.status_code == 200 and first.json()["next_cursor"] == org.get_uid()
+        next_page = request(admin, "GET", organizations_path, params={"limit": 1, "cursor": org.get_uid()})
+        assert next_page.status_code == 200 and next_page.json()["items"][0]["name"] == "Other"
+        assert request(owner, "GET", organizations_path, params={"limit": 51}).status_code in (400, 422)
+        assert request(owner, "GET", organizations_path, params={"cursor": "bad cursor"}).status_code == 400
+        response = request(admin, "GET", path)
+        assert response.status_code == 200
+        initial = response.json()
+        assert set(initial) == {"mode", "effective_mode", "revision"}
+        saved = request(admin, "PUT", path, json={"mode": "personal_allowed", "expected_revision": initial["revision"]})
+        assert saved.status_code == 200 and saved.json()["mode"] == "personal_allowed"
+        assert (
+            request(admin, "PUT", path, json={"mode": "disabled", "expected_revision": initial["revision"]}).status_code
+            == 409
+        )
+        assert request(owner, "GET", path).status_code == 403
+        assert request(owner, "GET", f"{path}/organizations/not-a-uid").status_code in (400, 422)
+        org_path = f"{path}/organizations/{org.get_uid()}"
+        org_policy = request(owner, "GET", org_path)
+        assert org_policy.status_code == 200 and org_policy.json()["mode"] is None
+        assert request(outsider, "GET", org_path).status_code == 403
+        assert (
+            request(
+                owner, "PUT", org_path, json={"mode": "disabled", "expected_revision": org_policy.json()["revision"]}
+            ).status_code
+            == 200
+        )
+        current = request(owner, "GET", org_path).json()
+        inherited = request(owner, "PUT", org_path, json={"mode": None, "expected_revision": current["revision"]})
+        assert inherited.status_code == 200 and inherited.json()["mode"] is None
+        assert request(
+            admin, "PUT", path, json={"mode": "invalid", "expected_revision": initial["revision"]}
+        ).status_code in (400, 422)
+        # Cached admin/user identity must not preserve revoked current authority.
+        with Session(governance[0]) as db:
+            db.execute(update(User).where(User.id == admin.id).values(is_admin=False))
+            db.commit()
+        assert request(admin, "GET", path).status_code == 403
+        with Session(governance[0]) as db:
+            db.execute(update(User).where(User.id == owner.id).values(activated_at=None))
+            db.commit()
+        assert request(owner, "GET", org_path).status_code == 403
+
+    Cache.clear()

@@ -16,6 +16,7 @@ class ApiErrorCode(Enum):
     EX3001 = "Bot uname already exists."
     EX3002 = "Default internal bot cannot be deleted."
     EX3003 = "MCP tool name already exists."
+    EX3004 = "The resource changed. Refresh it before retrying."
 
     # Permission Errors
     PE1001 = "Not enough permissions to access this endpoint."

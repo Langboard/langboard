@@ -21,8 +21,8 @@ foundation. Applying only the candidate delta is therefore insufficient.
 Copying the whole legacy candidate would delete Phoenix source and restore Node
 package, Docker and workflow paths. Neither action is an accepted reconstruction.
 
-PR 684 contains the Graph authentication/history bridge and the initial
-app database foundation described below. It remains an incomplete
+PR 684 contains the Graph authentication/history bridge. The dependent
+app foundation review branch contains the reconstruction described below. It remains an incomplete
 reconstruction, rather than full app/HITL acceptance. It does not prove app/HITL acceptance, Phoenix compilation
 or operational deployment. All existing review PRs and the local canary union
 remain preserved; no merge or protected deployment-reference update is made.
@@ -108,3 +108,27 @@ PostgreSQL governance regression passes 16 tests in 13.24 seconds, including
 six SELECTs for the board owner's organization connection authorization.
 Nested atomic repository calls check out one connection. Ruff and diff checks
 pass. Historical/canary schema migration and deployed runtime remain pending.
+
+
+## Governance HTTP settings boundary
+
+AppGovernanceSettingsApi now exposes instance policy read/update, bounded
+organization policy scope discovery and organization policy read/update through
+the native AppRouter and ApiAuthMiddleware. Global routes require an admin;
+organization routes still check current ownership or current admin status in
+the service. Organization UID paths validate their shape before decoding.
+Policy conflicts return EX3004/409, unauthorized operations return 403 and
+invalid mode/cursor input returns validation errors. No identity, token or app
+connection data is returned by organization discovery.
+
+The PostgreSQL HTTP regression uses real signed access/refresh credentials and
+the real user auth cache, with cached users populated before requests. It does
+not replace the authentication middleware or policy implementation. Anonymous
+requests, foreign organization access, bounded pagination, malformed UIDs,
+stale revisions, inheritance and invalid input are exercised. Current admin
+removal and account deactivation are rejected even while their prior identity
+remains cached. This covers local ASGI authentication and policy behavior;
+production SSO, browser settings and Phoenix event consumption are pending.
+
+Final combined local regression: 150 tests pass in 55.92 seconds, including
+the native authenticated policy routes on PostgreSQL. Ruff and diff checks pass.
