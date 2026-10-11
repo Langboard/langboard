@@ -323,5 +323,18 @@
   "Workspace setup": "ワークスペース設定",
   "People and notifications": "ユーザー・通知",
   "AI and automation": "AI・自動化",
-  "Apps and integrations": "アプリ・連携"
+  "Apps and integrations": "アプリ・連携",
+  "App groups": "アプリグループ",
+  "App groups help": "インストール済みモジュールを1つのストア項目にまとめます。権限・接続・バージョンは各モジュールで維持されます。",
+  "App groups conflict": "変更を確認できません。入力は保持されます。次の変更前に現在のグループを再読み込みしてください。",
+  "App groups reload": "再読み込み・入力破棄",
+  "App groups saved": "アプリグループを保存しました。",
+  "App group create": "グループを作成",
+  "App group key": "グループキー",
+  "App group modules": "インストール済みモジュール（最大16）",
+  "App group ungroup": "グループ解除",
+  "App group ungroup help": "ストアのグループを解除しますか？モジュール・接続・権限・カードは保持されます。",
+  "App group name": "名前",
+  "App group description": "説明",
+  "App group confirm ungroup": "解除を確認"
 }

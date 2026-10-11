@@ -29,6 +29,19 @@ def list_compositions(actor):
         return _list(db)
 
 
+def composition_catalog(actor):
+    """Administrator discovery uses exact installed keys, never provider-name guesses."""
+    with DbSession.atomic() as db:
+        _admin(db, actor)
+        modules = [{"key": key, "name": manifest.name, "version": manifest.version,
+                    "is_enabled": True, "builtin": True} for key, manifest in APP_MANIFESTS.items()]
+        for row in db.exec(SqlBuilder.select.table(AppDefinition).order_by(AppDefinition.key)).all():
+            modules.append({"key": row.key, "name": row.declaration.get("name", row.key),
+                            "version": row.declaration.get("version"), "is_enabled": row.is_enabled,
+                            "builtin": False})
+        return {"compositions": _list(db), "modules": modules}
+
+
 def board_compositions(service, actor, project_uid):
     from ..models.ProjectRole import ProjectRoleAction
     with DbSession.atomic() as db:

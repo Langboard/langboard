@@ -323,5 +323,18 @@
   "Workspace setup": "Workspace setup",
   "People and notifications": "People and notifications",
   "AI and automation": "AI and automation",
-  "Apps and integrations": "Apps and integrations"
+  "Apps and integrations": "Apps and integrations",
+  "App groups": "App groups",
+  "App groups help": "Group exact installed modules into one Store tile. Each module keeps its own permissions, connections and version.",
+  "App groups conflict": "The change could not be confirmed. Your draft is retained. Reload the current groups before another change.",
+  "App groups reload": "Reload groups and discard draft",
+  "App groups saved": "App groups saved.",
+  "App group create": "Create group",
+  "App group key": "Group key",
+  "App group modules": "Installed modules (up to 16)",
+  "App group ungroup": "Ungroup",
+  "App group ungroup help": "Remove the Store grouping? Modules, connections, permissions and cards are retained.",
+  "App group name": "Name",
+  "App group description": "Description",
+  "App group confirm ungroup": "Confirm"
 }
