@@ -317,6 +317,8 @@
       "awaiting_permit": "Awaiting permit",
       "stop_requested": "Stop requested — awaiting runtime termination",
       "stopped": "Runtime reported stopped"
-    }
+    },
+    "resume": "Request resume",
+    "resumeRequested": "Resume requested — awaiting new runtime"
   }
 }

@@ -8,6 +8,8 @@ interface Runtime {
     request_uid: string;
     app_key: string;
     generation: number;
+    current_generation?: number;
+    resume_request_uid?: string | null;
     state: "awaiting_permit" | "authorized" | "stop_requested" | "stopped";
 }
 export default function CardAppRuntimes({
@@ -49,10 +51,10 @@ export default function CardAppRuntimes({
         const result = await query.refetch();
         if (!result.isError) setUnresolved(false);
     }
-    async function stop(item: Runtime) {
+    async function control(item: Runtime, action: "stop" | "resume") {
         setSending(true);
         try {
-            await api.post(`${path}/${item.request_uid}/stop`, { generation: item.generation }, { env: { interceptToast: true } as never });
+            await api.post(`${path}/${item.request_uid}/${action}`, { generation: item.generation }, { env: { interceptToast: true } as never });
             // POST receipts are not runtime termination evidence. Read current state.
             const result = await query.refetch();
             setUnresolved(result.isError);
@@ -85,12 +87,27 @@ export default function CardAppRuntimes({
                                 <p role="status" className="text-sm">
                                     {t(`card.appRuntimes.states.${item.state}`)}
                                 </p>
+                                {item.resume_request_uid && (
+                                    <p role="status" className="text-sm">
+                                        {t("card.appRuntimes.resumeRequested")}
+                                    </p>
+                                )}
+                                {item.state === "stopped" && !item.resume_request_uid && (item.current_generation ?? 0) > item.generation && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={!canRespond || sending || unresolved}
+                                        onClick={() => void control(item, "resume")}
+                                    >
+                                        {t("card.appRuntimes.resume")}
+                                    </Button>
+                                )}
                                 {item.state === "authorized" && (
                                     <Button
                                         size="sm"
                                         variant="outline"
                                         disabled={!canRespond || sending || unresolved}
-                                        onClick={() => void stop(item)}
+                                        onClick={() => void control(item, "stop")}
                                     >
                                         {t("card.appRuntimes.stop")}
                                     </Button>

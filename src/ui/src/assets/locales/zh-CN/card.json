@@ -317,6 +317,8 @@
       "awaiting_permit": "等待执行许可",
       "stop_requested": "已请求停止 — 等待运行时终止",
       "stopped": "运行时已报告停止"
-    }
+    },
+    "resume": "请求恢复",
+    "resumeRequested": "已请求恢复 — 等待新运行时"
   }
 }
