@@ -478,3 +478,33 @@ An isolated browser frame exercises the SDK-to-host route and pinned revisions.
 These are source/local acceptance proofs, not deployed canary acceptance. This
 read does not submit a human response, transition workflow, stop execution or
 authorize resume; those panel control operations remain unfinished.
+
+## Host-owned response form for isolated panels
+
+Panel SDK 0.2.5 adds `interactions.open` with `{card_uid, interaction_uid}`. The
+operation returns `{state: "opened", interaction_uid}` immediately. This means
+only that the host opened its human form, not that an answer was accepted. No app
+provided values, actor, revision or approval are accepted in this operation.
+
+The host rereads the exact interaction via `interactions.list` with the optional
+`interaction_uid` filter and current pinned app/binding revisions. It renders the
+existing native question form in a lazy host dialog. Queries are scoped to the
+current human/board/app/request and discarded on unmount. Only one dialog is open.
+The authenticated human chooses or enters values and presses Submit.
+
+The form posts to `/board/{project}/apps/{app}/panel/cards/{card}/interactions/{id}/responses`.
+Current consent, app ownership, card ACL, request revision, expiry, responder
+authority, idempotency and execution generation are checked through the native
+service. A removed grant denies even a repeated accepted response. Foreign app
+requests cannot be submitted through this route. Submission does not move a card
+or resume a runtime. A lost POST response triggers readback, never an automatic
+second write. Closing/revoking/hiding the panel removes the host dialog; external
+changes already committed are not represented as cancelled or reverted.
+
+Two app profiles on SQLite and PostgreSQL pass authenticated HTTP response,
+readback, duplicate, identity injection, foreign ownership, stale revision and
+revocation checks. A 390px isolated-frame browser regression rejects app-injected
+answers, submits only after a human click, and reads back a committed answer after
+a 500 response. Eleven existing native card interaction browser tests also pass.
+These remain local source proofs; deployed canary and external runtime acceptance,
+stop and explicit resume are still unfinished.

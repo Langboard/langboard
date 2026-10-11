@@ -8,13 +8,18 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
-from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
+from langboard_shared.domain.services.AppCardInteractions import (
+    AppCardInteractionConflict,
+    list_card_interactions,
+    respond_to_app_card_interaction,
+)
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.AppPanel import get_panel
 from langboard_shared.security import Auth
 from pydantic import BaseModel, ConfigDict, Field
 from ...apps.GitHubManifest import GitHubManifestUnavailable
 from ...apps.SignalInbox import list_board_signals
+from .CardAppInteractionsApi import HumanResponseBody
 
 
 class PanelSignalsForm(BaseModel):
@@ -80,6 +85,7 @@ class PanelInteractionsForm(PanelResourcesForm):
     card_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
     cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{11}$")
     limit: int = Field(default=10, strict=True, ge=1, le=25)
+    interaction_uid: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{11}$")
 
 
 @AppRouter.api.post("/board/{project_uid}/apps/{app_key}/panel/interactions", tags=["Board.Apps"])
@@ -98,9 +104,51 @@ def read_panel_interactions(request: Request, project_uid: str, app_key: str, fo
                 service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(form.card_uid),
                 limit=form.limit, before=SnowflakeID.from_short_code(form.cursor) if form.cursor else None,
                 channel=request.scope.get("collaboration_channel", CollaborationChannel.Api), app_key=app_key,
+                interaction_id=SnowflakeID.from_short_code(form.interaction_uid) if form.interaction_uid else None,
             )
         except AppGovernanceDenied:
             raise ApiException.NotFound_404() from None
+        except ValueError:
+            raise ApiException.BadRequest_400() from None
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+class PanelHumanResponseForm(HumanResponseBody):
+    app_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@AppRouter.api.post(
+    "/board/{project_uid}/apps/{app_key}/panel/cards/{card_uid}/interactions/{interaction_uid}/responses",
+    tags=["Board.Apps"],
+)
+@AuthFilter.add("user")
+def respond_from_panel(request: Request, project_uid: str, app_key: str, card_uid: str, interaction_uid: str,
+                       form: PanelHumanResponseForm, user: User = Auth.scope("user"),
+                       service: DomainService = DomainService.scope()):
+    """The host human form submits; a panel cannot inject an actor or another app's request."""
+    with DbSession.atomic():
+        panel = get_panel(service.workflow_stage, user, project_uid, app_key, lock=True)
+        if panel is None or "interactions.request" not in panel["granted_capabilities"]:
+            raise ApiException.NotFound_404()
+        if panel["app_revision"] != form.app_revision or panel["binding_revision"] != form.binding_revision:
+            raise ApiException.Conflict_409()
+        try:
+            project_id, card_id, interaction_id = (SnowflakeID.from_short_code(value)
+                                                   for value in (project_uid, card_uid, interaction_uid))
+            channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
+            page = list_card_interactions(service, user, project_id, card_id, app_key=app_key,
+                                          interaction_id=interaction_id, limit=1, channel=channel)
+            if not page["items"]:
+                raise ApiException.NotFound_404()
+            result = respond_to_app_card_interaction(
+                service, user, project_id, card_id, interaction_id, form.expected_revision,
+                form.idempotency_key, form.values, form.execution_generation, channel,
+            )
+        except AppGovernanceDenied:
+            raise ApiException.Forbidden_403() from None
+        except AppCardInteractionConflict:
+            raise ApiException.Conflict_409() from None
         except ValueError:
             raise ApiException.BadRequest_400() from None
         return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
