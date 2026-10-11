@@ -43,7 +43,9 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         revoke_connection_credential,
     )
     from langboard_shared.domain.services.AppConnectionManagement import (
-        create_inbound_connection, select_inbound_resource, list_inbound_resources,
+        create_inbound_connection,
+        list_inbound_resources,
+        select_inbound_resource,
     )
     from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
