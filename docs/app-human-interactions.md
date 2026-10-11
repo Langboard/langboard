@@ -619,3 +619,11 @@ authority and the destination revision before sending signed bytes. Acceptance
 without a valid approved destination does not infer a network target or retarget
 the event later. A request receipt remains `started=false`; neither persistence
 nor queue submission proves that an external runtime started.
+
+The local SQLite/PostgreSQL resume integration check now follows one retained
+stopped generation through human resume, the committed destination snapshot,
+exact-byte signature verification, app reception acknowledgment, a new runtime
+permit, and app start attestation. Replay retains one event and the old lease
+remains stopped. Readiness generation advancement and queue submission are
+controlled test inputs; this does not prove a deployed producer, broker, provider
+process or checkpoint restoration.
