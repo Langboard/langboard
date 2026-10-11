@@ -28,11 +28,12 @@ def app_notifications(monkeypatch, tmp_path):
 
 
 DECLARATION = {
-    "schema_version": 1, "key": "example-erp", "version": "1.0.0", "name": "Example ERP",
+    "schema_version": 2, "key": "example-erp", "version": "1.0.0", "name": "Example ERP",
     "description": "A separately hosted ERP issue integration.",
     "capabilities": ["cards.create", "cards.presentation"], "resource_types": ["issue"],
     "workflow_requirements": {"required": ["backlog"], "optional": ["active"]},
     "panel": {"url": "https://erp.example.invalid/panel", "name": "ERP outbox", "icon": "📋"},
+    "card_lifecycle": {"issue": {"archive": {"mode": "retain", "description": "Retain the external issue history."}, "restore": "retain_external_state"}},
 }
 
 
@@ -61,6 +62,15 @@ async def test_registration_workflow_update_disable_and_admin_revocation(board, 
         transport = HttpTransport(SimpleNamespace(request=request))
         registry = AppRegistry(transport)
         manager = AppManager(transport, board[2].get_uid())
+        # Raw requests prove host validation, rather than SDK-only rejection.
+        missing = {key: value for key, value in DECLARATION.items() if key != "card_lifecycle"}
+        denied = session.post("/settings/apps/registry", json={"declaration": missing}, headers={"Authorization": f"Bearer {access}"})
+        assert denied.status_code == 400
+        denied = session.post("/settings/apps/registry", json={"declaration": {**missing, "schema_version": 1}}, headers={"Authorization": f"Bearer {access}"})
+        assert denied.status_code == 400
+        invalid = {**DECLARATION, "card_lifecycle": {"issue": {"archive": {"mode": "retain", "description": "History"}, "restore": "reopen"}}}
+        denied = session.post("/settings/apps/registry", json={"declaration": invalid}, headers={"Authorization": f"Bearer {access}"})
+        assert denied.status_code == 400
         saved = await registry.approve(DECLARATION)
         assert saved["is_enabled"] and saved["generation"] == 1
         assert (await registry.list())[0]["declaration"] == DECLARATION
