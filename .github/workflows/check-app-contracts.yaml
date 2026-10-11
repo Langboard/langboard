@@ -17,6 +17,8 @@ on:
       - src/shared/py/langboard_shared/domain/services/App*.py
       - src/shared/py/langboard_shared/domain/services/CardApp*.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
+      - src/shared/py/langboard_shared/tasks/webhooks/ExecutionReadinessUow.py
+      - src/api/tests/webhooks/test_execution_readiness_uow_postgres.py
       - src/shared/py/langboard_shared/tasks/webhooks/AppEvent*.py
       - src/shared/py/langboard_shared/tasks/webhooks/WebhookTask.py
       - src/shared/py/langboard_shared/tasks/webhooks/utils.py
@@ -62,6 +64,8 @@ jobs:
       PROJECT_NAME: langboard
       PROJECT_SHORT_NAME: lb
       LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/langboard_test
+      LANGBOARD_OUTBOX_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/langboard_test
+      PYTHONPATH: src/api/tests/apps
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -89,6 +93,8 @@ jobs:
           src/api/tests/apps/test_app_event_destination.py
           src/api/tests/apps/test_app_event_delivery.py
           src/api/tests/apps/test_app_event_http.py
+          src/api/tests/apps/test_app_execution_control.py
+          src/api/tests/webhooks/test_execution_readiness_uow_postgres.py
           src/api/tests/apps/test_app_governance.py
           src/api/tests/apps/test_sdk_app_registry_http.py
           src/api/tests/apps/test_app_composition.py
