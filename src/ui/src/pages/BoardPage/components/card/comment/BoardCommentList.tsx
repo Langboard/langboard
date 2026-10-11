@@ -70,7 +70,7 @@ function BoardCommentListResult({ scrollableRef, className }: IBoardCommentListP
     const { card, viewportRef } = useBoardCard();
     const [t] = useTranslation();
     const PAGE_SIZE = 10;
-    const flatComments = ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid);
+    const flatComments = ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const sortedComments = useMemo(() => flatComments.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime()), [flatComments]);
     const { items: comments, nextPage, forceUpdate, hasMore } = useInfiniteScrollPager({ allItems: sortedComments, size: PAGE_SIZE });
 

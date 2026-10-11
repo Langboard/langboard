@@ -386,8 +386,8 @@ function BoardTaskCardResult({
     const { boardChat } = useBoardController();
     const { cancelSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
-    const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid);
-    const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid);
+    const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
+    const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const description = card.useField("description");
     const visibility = card.useField("visibility");
     const visibilityMembers = card.useForeignFieldArray("project_members");
@@ -424,7 +424,7 @@ function BoardTaskCardResult({
                         ? ([...document.querySelectorAll<HTMLElement>("[data-card-comment-uid]")].find(
                               (element) => element.dataset.cardCommentUid === commentUID && element.getBoundingClientRect().width > 0
                           ) ??
-                          [...document.querySelectorAll<HTMLElement>('[data-card-outline-section="comments"]')].find(
+                          [...document.querySelectorAll<HTMLElement>("[data-card-outline-section=comments]")].find(
                               (element) => element.getBoundingClientRect().width > 0
                           ))
                         : blockUID
@@ -446,7 +446,7 @@ function BoardTaskCardResult({
         };
         window.addEventListener(WORKBENCH_OUTLINE_EVENT, openOutlineSection);
         return () => window.removeEventListener(WORKBENCH_OUTLINE_EVENT, openOutlineSection);
-    }, [card.uid, setIsCommentPanelOpen]);
+    }, [card, setIsCommentPanelOpen]);
 
     useEffect(() => {
         return () => {
