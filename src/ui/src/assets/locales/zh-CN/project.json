@@ -374,6 +374,8 @@
     "Confirm App panel": "确认允许应用面板",
     "Disable App panel": "禁用应用面板",
     "Allow App signal reads": "允许读取应用信号",
+    "App signal source consent help": "仅读取已批准的信号来源：{{sources}}。仍需当前账户和所选资源权限。",
+    "App signal sources missing": "未声明来源；需要批准应用更新。",
     "App signal read consent help": "允许此面板读取此看板中所选资源的信号。此权限独立于打开面板的权限，不允许修改。",
     "App panel consent help": "允许 {{name}} 在此看板打开隔离的面板。外部应用会收到看板标识和语言，并可在本次会话中保留少量草稿。此权限不允许工作流转换或卡片更改。",
     "Manage service resources": "管理服务资源",
