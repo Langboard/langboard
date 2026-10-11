@@ -169,6 +169,8 @@ def set_board_consent(service, actor, project_uid, app_key, app_revision, bindin
             raise AppRegistryDenied()
         if definition.edit_revision() != app_revision:
             raise AppRegistryConflict()
+        if "signals.read" in capabilities and not definition.declaration.get("signal_sources"):
+            raise ValueError("Signal consent requires explicit approved sources")
         if not set(capabilities).issubset(definition.declaration.get("capabilities", [])):
             raise ValueError("Consent exceeds the approved app declaration")
         binding = db.exec(

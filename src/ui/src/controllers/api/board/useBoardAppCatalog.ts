@@ -11,6 +11,7 @@ export interface CatalogApp {
     inbound_connection_management?: boolean;
     panel: { url: string; name: string; icon?: string | null } | null;
     capabilities: string[];
+    signal_sources?: string[];
     workflow_requirements: { required: string[]; optional: string[] } | null;
     resources: {
         selected_count: number;
