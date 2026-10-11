@@ -107,6 +107,87 @@ def test_archive_signed_delivery_does_not_resume_or_apply_external_change(creati
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("first_state,second_state", [("failed", "unknown"), ("unknown", "applied")])
+@pytest.mark.parametrize("delivery_lock_first", [False, True])
+def test_concurrent_archive_outcomes_recheck_revision_after_actual_row_lock(
+    creation, monkeypatch, first_state, second_state, delivery_lock_first
+):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.domain.services.AppCardArchive import report_archive_outcome
+    from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+    from sqlalchemy import func, select, text
+
+    setup_archive(creation, monkeypatch)
+    board, _, connection, *_ = creation
+    token = issue_connection_credential(board[1], connection.id)["token"]
+    with DbSession.atomic() as db:
+        row = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+    assert claim_app_event(event.id, 1) is not None
+    first_outcome = {"state": first_state, "external_state": None, "readback_confirmed": False}
+    second_outcome = {
+        "state": second_state, "external_state": "resolved" if second_state == "applied" else None,
+        "readback_confirmed": second_state == "applied",
+    }
+    locked, release, contender_ready = Event(), Event(), Event()
+    contender_pid = []
+
+    def winner():
+        with DbSession.atomic() as db:
+            if delivery_lock_first:
+                # Delivery owns outbox first, then revalidates archive authority.
+                db.exec(SqlBuilder.select.table(AppExecutionOutbox).where(
+                    AppExecutionOutbox.id == event.id
+                ).with_for_update()).first()
+            else:
+                receipt = report_archive_outcome(token, board[2].id, row.id, 0, first_outcome)
+            locked.set()
+            assert release.wait(15), "Test did not release archive transaction"
+            if delivery_lock_first:
+                receipt = report_archive_outcome(token, board[2].id, row.id, 0, first_outcome)
+            return receipt
+
+    def contender():
+        with DbSession.atomic() as db:
+            contender_pid.append(db.exec(select(func.pg_backend_pid())).first()[0])
+            contender_ready.set()
+            return report_archive_outcome(token, board[2].id, row.id, 0, second_outcome)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(winner)
+        assert locked.wait(10)
+        second = pool.submit(contender)
+        try:
+            assert contender_ready.wait(10)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                with DbEngine.get_main_engine().connect() as db:
+                    waiting = db.execute(text(
+                        "SELECT wait_event_type FROM pg_stat_activity WHERE pid=:pid"
+                    ), {"pid": contender_pid[0]}).scalar_one()
+                if waiting == "Lock":
+                    break
+                if second.done():
+                    pytest.fail("Archive report did not wait on the concurrent transaction")
+                time.sleep(0.02)
+            else:
+                pytest.fail("No PostgreSQL archive lock waiter observed")
+        finally:
+            release.set()
+        assert first.result(timeout=10)["changed"] is True
+        with pytest.raises(AppGovernanceConflict):
+            second.result(timeout=10)
+    with DbSession.atomic() as db:
+        saved = db.exec(SqlBuilder.select.table(AppCardArchive).where(AppCardArchive.id == row.id)).first()
+        assert saved.receipt["outcome_revision"] == 1
+        assert saved.receipt["provider_report"] == first_outcome
+    assert report_archive_outcome(token, board[2].id, row.id, 0, first_outcome)["changed"] is False
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
 def test_external_archive_defaults_off_and_stale_config_denied(creation, monkeypatch):
     _, queues, _ = setup_archive(creation, monkeypatch, enabled=False)
     board, _, connection, binding, *_ = creation

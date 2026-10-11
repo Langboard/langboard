@@ -20,6 +20,20 @@ The historical migration-head and full-suite entries below must not be read as
 the installed canary revision or a rerun of every current contract. Exact live
 database, image and authenticated provider/browser evidence remain release gates.
 
+### Archive outcome concurrency review
+
+The shared `_current` helper already acquired `FOR UPDATE` by default, so the
+reported unlocked archive-read race was not present in the reviewed source.
+The outcome read/report path now explicitly uses the delivery path's outbox ->
+archive lock order, then refreshes the locked archive receipt with
+`populate_existing`. This avoids inversion with a delivery transaction that
+already owns the event and ensures revision comparison uses the committed
+receipt after waiting. Two real PostgreSQL transactions exercise different
+reports at the same expected revision, including an outbox-first delivery lock.
+Exactly one report commits; the other conflicts, the persisted report remains
+unchanged, and replaying the accepted report is idempotent. This is local
+database evidence, not provider or deployed acceptance.
+
 ### App model review boundary
 
 Native app models declare compound uniqueness through existing `unique_groups`
