@@ -34,3 +34,14 @@ Validation on the exact main-based Python lock environment:
   the current local host does not provide Elixir/Mix. This PR remains Draft.
 - No merge or deployment has been performed. Older PR 681 and the local canary
   union remain preserved and are not assumed compatible with current main.
+
+## Signed chat history on current main
+
+The independent chat-history authority guard is now reconstructed on current
+main. Signed user identity, active primary account and current ChatSession
+ownership are required before any history is returned. An anchor-only request
+is scoped to its actual session rather than every session. Invalid, expired,
+wrong-kind and out-of-range subjects fail closed. Combined authentication and
+SQLite/PostgreSQL chat fixtures pass 83 tests in 16.26 seconds. Card visibility
+and app/runtime checkpoint changes are not copied without their missing domain
+foundation; see `phoenix-app-reconstruction.md`.
