@@ -175,13 +175,20 @@ api.interceptors.response.use(
 
 /** One-shot credential transport. Global auth attachment remains active. */
 export const submitSecretInput = (url: string, value: string, reasonCode?: string) =>
-    api.post(
-        url,
-        { value, ...(reasonCode ? { reason_code: reasonCode } : {}) },
-        {
-            // Skip automatic gzip: the server's normal decompressor spools to disk.
-            transformRequest: [(data) => JSON.stringify(data)],
-            headers: { "Content-Type": "application/json" },
-            env: { secretInput: true } as never,
-        }
-    );
+    api
+        .post(
+            url,
+            { value, ...(reasonCode ? { reason_code: reasonCode } : {}) },
+            {
+                // Skip automatic gzip: the server's normal decompressor spools to disk.
+                transformRequest: [(data) => JSON.stringify(data)],
+                headers: { "Content-Type": "application/json" },
+                env: { secretInput: true } as never,
+            }
+        )
+        .then((response) => {
+            if (response.data?.state !== "completed" || !/^secret:\/\/ref\/[A-Za-z0-9]{1,11}$/.test(response.data?.secret_ref ?? "")) {
+                throw new Error("Secret input failed");
+            }
+            return response;
+        });
