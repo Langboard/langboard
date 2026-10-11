@@ -2503,57 +2503,76 @@ async function assertConcurrentCardComments(owner, peer, credentials) {
     (_, index) => `Concurrent comment ${index} ${runId}`,
   );
   const cardUrl = `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(cardUrl, { waitUntil: "networkidle" });
-    await page.getByText("No description", { exact: true }).waitFor();
-  }));
-  await Promise.all(pagesUnderTest.map(async (page, index) => {
-    const comments = page.getByRole("button", { name: "Comments", exact: true });
-    const composer = page.getByText(`Add a comment as ${credentials.users[index].name}`, {
-      exact: true,
-    }).and(page.locator(":visible"));
-    if (!(await composer.isVisible())) {
-      await comments.click();
-    }
-    try {
-      await composer.click();
-    } catch (error) {
-      const layout = await page.evaluate(() => ({
-        width: innerWidth,
-        desktopLayout: matchMedia("(min-width: 768px)").matches,
-        panels: [...document.querySelectorAll("[aria-hidden]")].map((element) => ({
-          hidden: element.getAttribute("aria-hidden"),
-          width: element.getBoundingClientRect().width,
-          text: element.textContent?.slice(0, 80),
-        })),
-        commentForms: document.querySelectorAll("[data-card-comment-form]").length,
-        pressed: [...document.querySelectorAll("button")].filter((button) =>
-          button.textContent?.trim() === "Comments").map((button) => button.getAttribute("aria-pressed")),
-      }));
-      throw new Error(`${error}\nComment layout: ${JSON.stringify(layout)}`);
-    }
-    const editor = page.locator(
-      '[data-card-comment-form] [data-slate-editor="true"]:visible',
-    );
-    try {
-      await editor.waitFor();
-    } catch (error) {
-      const layout = await page.evaluate(() => ({
-        pressed: [...document.querySelectorAll("button")].filter((button) =>
-          button.textContent?.trim() === "Comments").map((button) => button.getAttribute("aria-pressed")),
-        forms: [...document.querySelectorAll("[data-card-comment-form]")].map((form) => ({
-          visible: form.getClientRects().length > 0,
-          text: form.textContent?.slice(0, 100),
-        })),
-      }));
-      throw new Error(`Comment editor did not open: ${JSON.stringify(layout)}`, { cause: error });
-    }
-    await editor.fill(texts[index]);
-    await page
-      .getByRole("button", { name: "Save", exact: true })
-      .and(page.locator(":visible"))
-      .waitFor();
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(cardUrl, { waitUntil: "networkidle" });
+      await page.getByText("No description", { exact: true }).waitFor();
+    }),
+  );
+  await Promise.all(
+    pagesUnderTest.map(async (page, index) => {
+      const comments = page.getByRole("button", {
+        name: "Comments",
+        exact: true,
+      });
+      const composer = page
+        .getByText(`Add a comment as ${credentials.users[index].name}`, {
+          exact: true,
+        })
+        .and(page.locator(":visible"));
+      if (!(await composer.isVisible())) {
+        await comments.click();
+      }
+      try {
+        await composer.click();
+      } catch (error) {
+        const layout = await page.evaluate(() => ({
+          width: innerWidth,
+          desktopLayout: matchMedia("(min-width: 768px)").matches,
+          panels: [...document.querySelectorAll("[aria-hidden]")].map(
+            (element) => ({
+              hidden: element.getAttribute("aria-hidden"),
+              width: element.getBoundingClientRect().width,
+              text: element.textContent?.slice(0, 80),
+            }),
+          ),
+          commentForms: document.querySelectorAll("[data-card-comment-form]")
+            .length,
+          pressed: [...document.querySelectorAll("button")]
+            .filter((button) => button.textContent?.trim() === "Comments")
+            .map((button) => button.getAttribute("aria-pressed")),
+        }));
+        throw new Error(`${error}\nComment layout: ${JSON.stringify(layout)}`);
+      }
+      const editor = page.locator(
+        '[data-card-comment-form] [data-slate-editor="true"]:visible',
+      );
+      try {
+        await editor.waitFor();
+      } catch (error) {
+        const layout = await page.evaluate(() => ({
+          pressed: [...document.querySelectorAll("button")]
+            .filter((button) => button.textContent?.trim() === "Comments")
+            .map((button) => button.getAttribute("aria-pressed")),
+          forms: [...document.querySelectorAll("[data-card-comment-form]")].map(
+            (form) => ({
+              visible: form.getClientRects().length > 0,
+              text: form.textContent?.slice(0, 100),
+            }),
+          ),
+        }));
+        throw new Error(
+          `Comment editor did not open: ${JSON.stringify(layout)}`,
+          { cause: error },
+        );
+      }
+      await editor.fill(texts[index]);
+      await page
+        .getByRole("button", { name: "Save", exact: true })
+        .and(page.locator(":visible"))
+        .waitFor();
+    }),
+  );
 
   const offsets = await Promise.all(
     pagesUnderTest.map((page) =>
@@ -2624,7 +2643,10 @@ async function assertConcurrentCardComments(owner, peer, credentials) {
       { offset: offsets[index], cardUID: credentials.card_uid },
     );
     assert.equal(events.length, 2);
-    assert.equal(new Set(events.map((event) => event.data?.comment?.uid)).size, 2);
+    assert.equal(
+      new Set(events.map((event) => event.data?.comment?.uid)).size,
+      2,
+    );
   }
   const response = await requestApi(
     credentials,
@@ -2640,17 +2662,25 @@ async function assertConcurrentCardComments(owner, peer, credentials) {
       1,
     );
   }
-  assert.equal(new Set(comments.map((comment) => comment.uid)).size, comments.length);
+  assert.equal(
+    new Set(comments.map((comment) => comment.uid)).size,
+    comments.length,
+  );
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByText("No description", { exact: true }).waitFor();
-    const commentsButton = page.getByRole("button", { name: "Comments", exact: true });
+    const commentsButton = page.getByRole("button", {
+      name: "Comments",
+      exact: true,
+    });
     if ((await commentsButton.getAttribute("aria-pressed")) !== "true") {
       await commentsButton.click();
     }
     for (const content of texts) await waitForVisibleSlateText(page, content);
   }
-  steps.push("two-distinct-users-overlapping-comment-posts-persisted-once-and-fanned-out-to-both-browsers");
+  steps.push(
+    "two-distinct-users-overlapping-comment-posts-persisted-once-and-fanned-out-to-both-browsers",
+  );
 }
 
 async function assertConcurrentChecklists(owner, peer, credentials) {
@@ -2659,18 +2689,28 @@ async function assertConcurrentChecklists(owner, peer, credentials) {
   const titles = pagesUnderTest.map(
     (_, index) => `Concurrent checklist ${index} ${runId}`,
   );
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/${credentials.card_uid}`, { waitUntil: "networkidle" });
-    await page.getByText("No description", { exact: true }).waitFor();
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(
+        `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`,
+        { waitUntil: "networkidle" },
+      );
+      await page.getByText("No description", { exact: true }).waitFor();
+    }),
+  );
   for (const [index, page] of pagesUnderTest.entries()) {
-    const addChecklist = page.getByRole("button", { name: "Add checklist", exact: true });
+    const addChecklist = page.getByRole("button", {
+      name: "Add checklist",
+      exact: true,
+    });
     const actions = page.getByRole("button", { name: "Actions", exact: true });
     if (!(await addChecklist.isVisible())) {
       await actions.click();
     }
     await addChecklist.click();
-    await page.getByLabel("Checklist title", { exact: true }).fill(titles[index]);
+    await page
+      .getByLabel("Checklist title", { exact: true })
+      .fill(titles[index]);
     await page
       .getByRole("button", { name: "Save", exact: true })
       .and(page.locator(":visible"))
@@ -2729,7 +2769,8 @@ async function assertConcurrentChecklists(owner, peer, credentials) {
         window.__chatFrames
           .slice(offset)
           .filter(
-            (frame) => frame.event === `board:card:checklist:created:${cardUID}`,
+            (frame) =>
+              frame.event === `board:card:checklist:created:${cardUID}`,
           ).length >= 2,
       { offset: offsets[index], cardUID: credentials.card_uid },
       { timeout: 30000 },
@@ -2739,12 +2780,16 @@ async function assertConcurrentChecklists(owner, peer, credentials) {
         window.__chatFrames
           .slice(offset)
           .filter(
-            (frame) => frame.event === `board:card:checklist:created:${cardUID}`,
+            (frame) =>
+              frame.event === `board:card:checklist:created:${cardUID}`,
           ),
       { offset: offsets[index], cardUID: credentials.card_uid },
     );
     assert.equal(events.length, 2);
-    assert.equal(new Set(events.map((event) => event.data?.checklist?.uid)).size, 2);
+    assert.equal(
+      new Set(events.map((event) => event.data?.checklist?.uid)).size,
+      2,
+    );
     for (const title of titles) {
       await page.getByText(title, { exact: true }).waitFor();
     }
@@ -2756,7 +2801,10 @@ async function assertConcurrentChecklists(owner, peer, credentials) {
   );
   const { checklists } = await response.json();
   for (const title of titles) {
-    assert.equal(checklists.filter((checklist) => checklist.title === title).length, 1);
+    assert.equal(
+      checklists.filter((checklist) => checklist.title === title).length,
+      1,
+    );
   }
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -2765,29 +2813,44 @@ async function assertConcurrentChecklists(owner, peer, credentials) {
       await page.getByText(title, { exact: true }).waitFor();
     }
   }
-  steps.push("two-distinct-users-overlapping-checklist-posts-persisted-once-and-fanned-out-to-both-browsers");
+  steps.push(
+    "two-distinct-users-overlapping-checklist-posts-persisted-once-and-fanned-out-to-both-browsers",
+  );
 }
 
 async function assertConcurrentCheckitems(owner, peer, credentials) {
   const pagesUnderTest = [owner, peer];
   const checklistPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}/checklist`;
   const checklistTitle = `Concurrent checkitems ${runId}`;
-  const created = await requestApi(credentials, credentials.users[0], checklistPath, {
-    method: "POST",
-    body: JSON.stringify({ title: checklistTitle }),
-  });
+  const created = await requestApi(
+    credentials,
+    credentials.users[0],
+    checklistPath,
+    {
+      method: "POST",
+      body: JSON.stringify({ title: checklistTitle }),
+    },
+  );
   assert.equal(created.status, 201);
   const checklistUID = (await created.json()).checklist.uid;
   const itemPath = `${checklistPath}/${checklistUID}/checkitem`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/${credentials.card_uid}`, { waitUntil: "networkidle" });
-    const checklist = page.getByText(checklistTitle, { exact: true })
-      .locator("xpath=ancestor::div[contains(@class,'snap-center')]");
-    await checklist.locator("button:has(svg.lucide-plus)").waitFor();
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(
+        `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`,
+        { waitUntil: "networkidle" },
+      );
+      const checklist = page
+        .getByText(checklistTitle, { exact: true })
+        .locator("xpath=ancestor::div[contains(@class,'snap-center')]");
+      await checklist.locator("button:has(svg.lucide-plus)").waitFor();
+    }),
+  );
   let arrivals = 0;
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   const holdBothPosts = async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     arrivals += 1;
@@ -2795,47 +2858,91 @@ async function assertConcurrentCheckitems(owner, peer, credentials) {
     await gate;
     await route.continue();
   };
-  for (const page of pagesUnderTest) await page.route(`**${itemPath}`, holdBothPosts);
+  for (const page of pagesUnderTest)
+    await page.route(`**${itemPath}`, holdBothPosts);
   let timeout;
   try {
-    await Promise.race([Promise.all(pagesUnderTest.map((page) => page.getByText(checklistTitle, { exact: true })
-      .locator("xpath=ancestor::div[contains(@class,'snap-center')]")
-      .locator("button:has(svg.lucide-plus)").click())),
-      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error(`Only ${arrivals}/2 checkitem POSTs arrived`)), 15000); }),
+    await Promise.race([
+      Promise.all(
+        pagesUnderTest.map((page) =>
+          page
+            .getByText(checklistTitle, { exact: true })
+            .locator("xpath=ancestor::div[contains(@class,'snap-center')]")
+            .locator("button:has(svg.lucide-plus)")
+            .click(),
+        ),
+      ),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Only ${arrivals}/2 checkitem POSTs arrived`)),
+          15000,
+        );
+      }),
     ]);
   } finally {
     clearTimeout(timeout);
     release();
-    for (const page of pagesUnderTest) await page.unroute(`**${itemPath}`, holdBothPosts);
+    for (const page of pagesUnderTest)
+      await page.unroute(`**${itemPath}`, holdBothPosts);
   }
   assert.equal(arrivals, 2);
   for (const page of pagesUnderTest) {
-    const checklist = page.getByText(checklistTitle, { exact: true })
+    const checklist = page
+      .getByText(checklistTitle, { exact: true })
       .locator("xpath=ancestor::div[contains(@class,'snap-center')]");
-    const expand = checklist.getByRole("button", { name: "Expand", exact: true });
+    const expand = checklist.getByRole("button", {
+      name: "Expand",
+      exact: true,
+    });
     if (await expand.count()) await expand.click();
     await page.waitForFunction((title) => {
-      const checklist = [...document.querySelectorAll(".snap-center")].find((element) => element.textContent?.includes(title));
-      return checklist && [...checklist.querySelectorAll("*")].filter((element) => element.textContent?.trim() === "New checkitem").length >= 2;
+      const checklist = [...document.querySelectorAll(".snap-center")].find(
+        (element) => element.textContent?.includes(title),
+      );
+      return (
+        checklist &&
+        [...checklist.querySelectorAll("*")].filter(
+          (element) => element.textContent?.trim() === "New checkitem",
+        ).length >= 2
+      );
     }, checklistTitle);
   }
-  const response = await requestApi(credentials, credentials.users[0], checklistPath);
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    checklistPath,
+  );
   const { checklists } = await response.json();
-  const items = checklists.find((checklist) => checklist.uid === checklistUID)?.checkitems ?? [];
-  assert.equal(items.filter((item) => item.title === "New checkitem").length, 2);
+  const items =
+    checklists.find((checklist) => checklist.uid === checklistUID)
+      ?.checkitems ?? [];
+  assert.equal(
+    items.filter((item) => item.title === "New checkitem").length,
+    2,
+  );
   assert.equal(new Set(items.map((item) => item.uid)).size, items.length);
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByText(checklistTitle, { exact: true }).waitFor();
-    const reloaded = page.getByText(checklistTitle, { exact: true })
+    const reloaded = page
+      .getByText(checklistTitle, { exact: true })
       .locator("xpath=ancestor::div[contains(@class,'snap-center')]");
     await reloaded.getByRole("button", { name: "Expand", exact: true }).click();
     await page.waitForFunction((title) => {
-      const checklist = [...document.querySelectorAll(".snap-center")].find((element) => element.textContent?.includes(title));
-      return checklist && [...checklist.querySelectorAll("*")].filter((element) => element.textContent?.trim() === "New checkitem").length >= 2;
+      const checklist = [...document.querySelectorAll(".snap-center")].find(
+        (element) => element.textContent?.includes(title),
+      );
+      return (
+        checklist &&
+        [...checklist.querySelectorAll("*")].filter(
+          (element) => element.textContent?.trim() === "New checkitem",
+        ).length >= 2
+      );
     }, checklistTitle);
   }
-  steps.push("two-distinct-users-overlapping-checkitem-posts-persisted-once-and-fanned-out-to-both-browsers");
+  steps.push(
+    "two-distinct-users-overlapping-checkitem-posts-persisted-once-and-fanned-out-to-both-browsers",
+  );
 }
 
 async function assertConcurrentCheckitemDetails(owner, peer, credentials) {
@@ -2844,57 +2951,102 @@ async function assertConcurrentCheckitemDetails(owner, peer, credentials) {
   const checklistTitle = `Concurrent checkitem details ${runId}`;
   const itemTitle = `Original checkitem ${runId}`;
   const newTitle = `Renamed checkitem ${runId}`;
-  const checklistResponse = await requestApi(credentials, credentials.users[0], checklistPath, {
-    method: "POST",
-    body: JSON.stringify({ title: checklistTitle }),
-  });
+  const checklistResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    checklistPath,
+    {
+      method: "POST",
+      body: JSON.stringify({ title: checklistTitle }),
+    },
+  );
   assert.equal(checklistResponse.status, 201);
   const checklistUID = (await checklistResponse.json()).checklist.uid;
-  const itemResponse = await requestApi(credentials, credentials.users[0], `${checklistPath}/${checklistUID}/checkitem`, {
-    method: "POST",
-    body: JSON.stringify({ title: itemTitle }),
-  });
+  const itemResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `${checklistPath}/${checklistUID}/checkitem`,
+    {
+      method: "POST",
+      body: JSON.stringify({ title: itemTitle }),
+    },
+  );
   assert.equal(itemResponse.status, 201);
   const itemUID = (await itemResponse.json()).checkitem.uid;
   const itemPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}/checkitem/${itemUID}`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/${credentials.card_uid}`, { waitUntil: "networkidle" });
-    await page.getByText(checklistTitle, { exact: true }).waitFor();
-    await page.getByText(checklistTitle, { exact: true })
-      .locator("xpath=ancestor::div[contains(@class,'snap-center')]")
-      .getByRole("button", { name: "Expand", exact: true }).click();
-    await page.getByText(itemTitle, { exact: true }).waitFor();
-  }));
-  const itemRow = (page) => page.getByText(itemTitle, { exact: true })
-    .locator("xpath=ancestor::div[contains(@class,'border-accent')][1]");
-  await itemRow(owner).getByRole("button", { name: "More", exact: true }).click();
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(
+        `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`,
+        { waitUntil: "networkidle" },
+      );
+      await page.getByText(checklistTitle, { exact: true }).waitFor();
+      await page
+        .getByText(checklistTitle, { exact: true })
+        .locator("xpath=ancestor::div[contains(@class,'snap-center')]")
+        .getByRole("button", { name: "Expand", exact: true })
+        .click();
+      await page.getByText(itemTitle, { exact: true }).waitFor();
+    }),
+  );
+  const itemRow = (page) =>
+    page
+      .getByText(itemTitle, { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'border-accent')][1]");
+  await itemRow(owner)
+    .getByRole("button", { name: "More", exact: true })
+    .click();
   await owner.getByRole("menuitem", { name: "Edit title" }).click();
-  await owner.getByPlaceholder("Checkitem title", { exact: true }).fill(newTitle);
-  const titleResponse = owner.waitForResponse((response) => response.request().method() === "PUT" &&
-    response.url().includes(`${itemPath}/title`));
-  const checkedResponse = peer.waitForResponse((response) => response.request().method() === "PUT" &&
-    response.url().includes(`${itemPath}/toggle-checked`));
+  await owner
+    .getByPlaceholder("Checkitem title", { exact: true })
+    .fill(newTitle);
+  const titleResponse = owner.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().includes(`${itemPath}/title`),
+  );
+  const checkedResponse = peer.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().includes(`${itemPath}/toggle-checked`),
+  );
   await Promise.all([
     owner.getByRole("button", { name: "Save", exact: true }).click(),
     itemRow(peer).getByRole("checkbox").click(),
   ]);
-  assert.deepEqual((await Promise.all([titleResponse, checkedResponse])).map((response) => response.status()), [200, 200]);
-  const persisted = await requestApi(credentials, credentials.users[0], checklistPath);
-  const item = (await persisted.json()).checklists.find((checklist) => checklist.uid === checklistUID)
+  assert.deepEqual(
+    (await Promise.all([titleResponse, checkedResponse])).map((response) =>
+      response.status(),
+    ),
+    [200, 200],
+  );
+  const persisted = await requestApi(
+    credentials,
+    credentials.users[0],
+    checklistPath,
+  );
+  const item = (await persisted.json()).checklists
+    .find((checklist) => checklist.uid === checklistUID)
     ?.checkitems.find((checkitem) => checkitem.uid === itemUID);
   assert.equal(item?.title, newTitle);
   assert.equal(item?.is_checked, true);
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByText(checklistTitle, { exact: true })
+    await page
+      .getByText(checklistTitle, { exact: true })
       .locator("xpath=ancestor::div[contains(@class,'snap-center')]")
-      .getByRole("button", { name: "Expand", exact: true }).click();
+      .getByRole("button", { name: "Expand", exact: true })
+      .click();
     await page.getByText(newTitle, { exact: true }).waitFor({ timeout: 30000 });
-    await page.getByText(newTitle, { exact: true })
+    await page
+      .getByText(newTitle, { exact: true })
       .locator("xpath=ancestor::div[contains(@class,'border-accent')][1]")
-      .locator('[role="checkbox"][data-state="checked"]').waitFor();
+      .locator('[role="checkbox"][data-state="checked"]')
+      .waitFor();
   }
-  steps.push("two-distinct-users-concurrent-same-checkitem-title-and-checked-state-preserved-after-reload");
+  steps.push(
+    "two-distinct-users-concurrent-same-checkitem-title-and-checked-state-preserved-after-reload",
+  );
 }
 
 async function assertConcurrentBoardChatSends(owner, peer, credentials) {
@@ -2968,11 +3120,16 @@ async function assertConcurrentBoardChatSends(owner, peer, credentials) {
     const runs = after.runs.filter((run) => run.client_task_id === taskId);
     assert.equal(runs.length, 1);
     assert.ok(
-      ["InternalBotRunStatus.Completed", "InternalBotRunStatus.AwaitingApproval"].includes(runs[0].status),
+      [
+        "InternalBotRunStatus.Completed",
+        "InternalBotRunStatus.AwaitingApproval",
+      ].includes(runs[0].status),
       `${taskId}: ${runs[0].status}`,
     );
     if (runs[0].status === "InternalBotRunStatus.AwaitingApproval") {
-      await pagesUnderTest[index].getByText("Human input required", { exact: true }).waitFor();
+      await pagesUnderTest[index]
+        .getByText("Human input required", { exact: true })
+        .waitFor();
     }
     assert.ok(!before.runs.some((run) => run.client_task_id === taskId));
   }
@@ -2981,7 +3138,9 @@ async function assertConcurrentBoardChatSends(owner, peer, credentials) {
     await openBoardChat(page);
     await page.getByText(messages[index], { exact: true }).waitFor();
   }
-  steps.push("two-distinct-users-concurrent-board-chat-sends-completed-or-awaiting-approval-and-survived-reload");
+  steps.push(
+    "two-distinct-users-concurrent-board-chat-sends-completed-or-awaiting-approval-and-survived-reload",
+  );
 }
 
 async function assertConcurrentNotificationReads(owner, peer, credentials) {
@@ -2993,7 +3152,17 @@ async function assertConcurrentNotificationReads(owner, peer, credentials) {
   }
   const created = await exec(
     "docker",
-    ["exec", apiContainer, "uv", "run", "--no-sync", "python", fixturePath, "notify", runId],
+    [
+      "exec",
+      apiContainer,
+      "uv",
+      "run",
+      "--no-sync",
+      "python",
+      fixturePath,
+      "notify",
+      runId,
+    ],
     { timeout: diagnosticCommandTimeout },
   );
   const notificationUIDs = JSON.parse(created.stdout.trim()).notification_uids;
@@ -3002,25 +3171,33 @@ async function assertConcurrentNotificationReads(owner, peer, credentials) {
     [notificationUIDs.peer],
   ];
   for (const [index, page] of pagesUnderTest.entries()) {
-    await notificationButton(page).getByText(String(expectedUIDs[index].length), { exact: true }).waitFor();
+    await notificationButton(page)
+      .getByText(String(expectedUIDs[index].length), { exact: true })
+      .waitFor();
     await notificationButton(page).click();
     await readAllNotificationsButton(page).waitFor();
   }
   const offsets = await Promise.all(
-    pagesUnderTest.map((page) => page.evaluate(() => window.__chatFrames.length)),
+    pagesUnderTest.map((page) =>
+      page.evaluate(() => window.__chatFrames.length),
+    ),
   );
-  await Promise.all(pagesUnderTest.map((page) => readAllNotificationsButton(page).click()));
+  await Promise.all(
+    pagesUnderTest.map((page) => readAllNotificationsButton(page).click()),
+  );
   for (const [index, page] of pagesUnderTest.entries()) {
     await page.waitForFunction(
       ({ offset, userUID }) =>
-        window.__chatFrames.slice(offset).some(
-          (frame) =>
-            frame.event === "user:notification:mutated" &&
-            frame.topic === "user_private" &&
-            frame.topic_id === userUID &&
-            frame.data?.action === "read_all" &&
-            frame.data?.unread_count === 0,
-        ),
+        window.__chatFrames
+          .slice(offset)
+          .some(
+            (frame) =>
+              frame.event === "user:notification:mutated" &&
+              frame.topic === "user_private" &&
+              frame.topic_id === userUID &&
+              frame.data?.action === "read_all" &&
+              frame.data?.unread_count === 0,
+          ),
       { offset: offsets[index], userUID: credentials.users[index].uid },
       { timeout: 30000 },
     );
@@ -3028,51 +3205,82 @@ async function assertConcurrentNotificationReads(owner, peer, credentials) {
       .getByText(String(expectedUIDs[index].length), { exact: true })
       .waitFor({ state: "detached" });
     for (const uid of expectedUIDs[index]) {
-      await waitForNotificationState(credentials, credentials.users[index], uid, "read");
+      await waitForNotificationState(
+        credentials,
+        credentials.users[index],
+        uid,
+        "read",
+      );
     }
   }
-  steps.push("two-distinct-users-concurrent-notification-read-all-kept-private-counts-consistent");
+  steps.push(
+    "two-distinct-users-concurrent-notification-read-all-kept-private-counts-consistent",
+  );
 }
 
 function dashboardProjectCounts(page) {
   return page.evaluate((title) => {
-    const heading = [...document.querySelectorAll("h3")]
-      .find((element) => element.textContent?.trim() === title);
+    const heading = [...document.querySelectorAll("h3")].find(
+      (element) => element.textContent?.trim() === title,
+    );
     const project = heading?.parentElement?.parentElement;
     if (!project) return null;
-    return [...project.lastElementChild.querySelectorAll("span.text-sm.font-semibold")]
-      .map((element) => Number(element.textContent));
+    return [
+      ...project.lastElementChild.querySelectorAll(
+        "span.text-sm.font-semibold",
+      ),
+    ].map((element) => Number(element.textContent));
   }, `Migration editor access probe ${runId}`);
 }
 
-async function assertConcurrentCardCreation(owner, peer, credentials, dashboard) {
+async function assertConcurrentCardCreation(
+  owner,
+  peer,
+  credentials,
+  dashboard,
+) {
   const pagesUnderTest = [owner, peer];
   const createPath = `/board/${credentials.project_uid}/card`;
   const titles = pagesUnderTest.map(
     (_, index) => `Concurrent board card ${index} ${runId}`,
   );
-  const dashboardBefore = dashboard ? await dashboardProjectCounts(dashboard) : null;
+  const dashboardBefore = dashboard
+    ? await dashboardProjectCounts(dashboard)
+    : null;
   if (dashboard) assert.ok(dashboardBefore);
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForBoardSocketReady(page, credentials.project_uid);
-    await page.getByRole("button", { name: "Add a card", exact: true }).first().waitFor();
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await waitForBoardSocketReady(page, credentials.project_uid);
+      await page
+        .getByRole("button", { name: "Add a card", exact: true })
+        .first()
+        .waitFor();
+    }),
+  );
   const cancelledTitle = `Cancelled board card ${runId}`;
-  const ownerColumn = owner.getByText("Editor verification", { exact: true })
+  const ownerColumn = owner
+    .getByText("Editor verification", { exact: true })
     .locator("xpath=ancestor::*[contains(@class, 'snap-center')][1]");
   let cancelledRequests = 0;
   const onOwnerRequest = (request) => {
-    if (request.method() === "POST" && new URL(request.url()).pathname.endsWith(createPath)) {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname.endsWith(createPath)
+    ) {
       cancelledRequests += 1;
     }
   };
   owner.on("request", onOwnerRequest);
   try {
-    await ownerColumn.getByRole("button", { name: "Add a card", exact: true }).click();
-    await ownerColumn.getByPlaceholder("Enter a title", { exact: true }).fill(cancelledTitle);
+    await ownerColumn
+      .getByRole("button", { name: "Add a card", exact: true })
+      .click();
+    await ownerColumn
+      .getByPlaceholder("Enter a title", { exact: true })
+      .fill(cancelledTitle);
     await ownerColumn.locator("button:has(svg.lucide-x)").click();
     await owner.getByRole("button", { name: "Filters", exact: true }).click();
     assert.equal(cancelledRequests, 0);
@@ -3080,12 +3288,21 @@ async function assertConcurrentCardCreation(owner, peer, credentials, dashboard)
   } finally {
     owner.off("request", onOwnerRequest);
   }
-  await Promise.all(pagesUnderTest.map(async (page, index) => {
-    await page.getByRole("button", { name: "Add a card", exact: true }).first().click();
-    await page.getByPlaceholder("Enter a title", { exact: true }).fill(titles[index]);
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page, index) => {
+      await page
+        .getByRole("button", { name: "Add a card", exact: true })
+        .first()
+        .click();
+      await page
+        .getByPlaceholder("Enter a title", { exact: true })
+        .fill(titles[index]);
+    }),
+  );
   const offsets = await Promise.all(
-    pagesUnderTest.map((page) => page.evaluate(() => window.__chatFrames.length)),
+    pagesUnderTest.map((page) =>
+      page.evaluate(() => window.__chatFrames.length),
+    ),
   );
   let arrivals = 0;
   let release;
@@ -3109,7 +3326,9 @@ async function assertConcurrentCardCreation(owner, peer, credentials, dashboard)
   try {
     const clicks = Promise.all(
       pagesUnderTest.map((page) =>
-        page.getByRole("button", { name: "Add card", exact: true }).click({ noWaitAfter: true }),
+        page
+          .getByRole("button", { name: "Add card", exact: true })
+          .click({ noWaitAfter: true }),
       ),
     );
     await Promise.race([
@@ -3123,13 +3342,20 @@ async function assertConcurrentCardCreation(owner, peer, credentials, dashboard)
     ]);
     await clicks;
   } catch (error) {
-    const states = await Promise.all(pagesUnderTest.map((page) => page.evaluate(() => ({
-      pathname: location.pathname,
-      editorValue: document.querySelector('textarea[placeholder="Enter a title"]')?.value ?? null,
-      addCardButtons: [...document.querySelectorAll("button")]
-        .filter((button) => button.textContent?.trim() === "Add card").length,
-      visibleText: document.body.innerText.slice(-600),
-    }))));
+    const states = await Promise.all(
+      pagesUnderTest.map((page) =>
+        page.evaluate(() => ({
+          pathname: location.pathname,
+          editorValue:
+            document.querySelector('textarea[placeholder="Enter a title"]')
+              ?.value ?? null,
+          addCardButtons: [...document.querySelectorAll("button")].filter(
+            (button) => button.textContent?.trim() === "Add card",
+          ).length,
+          visibleText: document.body.innerText.slice(-600),
+        })),
+      ),
+    );
     throw new Error(`${error}\nCard editor states: ${JSON.stringify(states)}`);
   } finally {
     clearTimeout(timeout);
@@ -3143,17 +3369,18 @@ async function assertConcurrentCardCreation(owner, peer, credentials, dashboard)
   for (const [index, page] of pagesUnderTest.entries()) {
     await page.waitForFunction(
       ({ offset }) =>
-        window.__chatFrames.slice(offset).filter(
-          (frame) => frame.event.startsWith("board:card:created:"),
-        ).length >= 2,
+        window.__chatFrames
+          .slice(offset)
+          .filter((frame) => frame.event.startsWith("board:card:created:"))
+          .length >= 2,
       { offset: offsets[index] },
       { timeout: 30000 },
     );
     const events = await page.evaluate(
       (offset) =>
-        window.__chatFrames.slice(offset).filter(
-          (frame) => frame.event.startsWith("board:card:created:"),
-        ),
+        window.__chatFrames
+          .slice(offset)
+          .filter((frame) => frame.event.startsWith("board:card:created:")),
       offsets[index],
     );
     assert.equal(events.length, 2);
@@ -3166,7 +3393,11 @@ async function assertConcurrentCardCreation(owner, peer, credentials, dashboard)
         .waitFor();
     }
   }
-  const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/cards`);
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/cards`,
+  );
   const { cards } = await response.json();
   assert.equal(cards.filter((card) => card.title === cancelledTitle).length, 0);
   for (const title of titles) {
@@ -3184,43 +3415,79 @@ async function assertConcurrentCardCreation(owner, peer, credentials, dashboard)
   if (dashboard) {
     await dashboard.waitForFunction(
       ({ title, count }) => {
-        const heading = [...document.querySelectorAll("h3")]
-          .find((element) => element.textContent?.trim() === title);
+        const heading = [...document.querySelectorAll("h3")].find(
+          (element) => element.textContent?.trim() === title,
+        );
         const project = heading?.parentElement?.parentElement;
-        const counts = [...(project?.lastElementChild?.querySelectorAll("span.text-sm.font-semibold") ?? [])]
-          .map((element) => Number(element.textContent));
+        const counts = [
+          ...(project?.lastElementChild?.querySelectorAll(
+            "span.text-sm.font-semibold",
+          ) ?? []),
+        ].map((element) => Number(element.textContent));
         return counts.reduce((sum, value) => sum + value, 0) === count + 2;
       },
-      { title: `Migration editor access probe ${runId}`, count: dashboardBefore.reduce((sum, value) => sum + value, 0) },
+      {
+        title: `Migration editor access probe ${runId}`,
+        count: dashboardBefore.reduce((sum, value) => sum + value, 0),
+      },
       { timeout: 30000 },
     );
   }
-  steps.push("two-distinct-users-overlapping-card-creates-persisted-once-and-fanned-out-to-both-boards");
+  steps.push(
+    "two-distinct-users-overlapping-card-creates-persisted-once-and-fanned-out-to-both-boards",
+  );
 }
 
-async function assertConcurrentColumnCreation(owner, peer, credentials, dashboard) {
+async function assertConcurrentColumnCreation(
+  owner,
+  peer,
+  credentials,
+  dashboard,
+) {
   const pagesUnderTest = [owner, peer];
-  const names = pagesUnderTest.map((_, index) => `Concurrent column ${index} ${runId}`);
-  const dashboardBefore = dashboard ? await dashboardProjectCounts(dashboard) : null;
+  const names = pagesUnderTest.map(
+    (_, index) => `Concurrent column ${index} ${runId}`,
+  );
+  const dashboardBefore = dashboard
+    ? await dashboardProjectCounts(dashboard)
+    : null;
   if (dashboard) assert.ok(dashboardBefore);
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}`, { waitUntil: "domcontentloaded" });
-    await waitForBoardSocketReady(page, credentials.project_uid);
-    await page.getByRole("button", { name: "Add column", exact: true }).waitFor();
-  }));
-  await Promise.all(pagesUnderTest.map(async (page, index) => {
-    await page.getByRole("button", { name: "Add column", exact: true }).click();
-    await page.getByPlaceholder("Enter a name", { exact: true }).fill(names[index]);
-  }));
-  await Promise.all(pagesUnderTest.map((page) =>
-    page.getByPlaceholder("Enter a name", { exact: true }).press("Enter"),
-  ));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await waitForBoardSocketReady(page, credentials.project_uid);
+      await page
+        .getByRole("button", { name: "Add column", exact: true })
+        .waitFor();
+    }),
+  );
+  await Promise.all(
+    pagesUnderTest.map(async (page, index) => {
+      await page
+        .getByRole("button", { name: "Add column", exact: true })
+        .click();
+      await page
+        .getByPlaceholder("Enter a name", { exact: true })
+        .fill(names[index]);
+    }),
+  );
+  await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.getByPlaceholder("Enter a name", { exact: true }).press("Enter"),
+    ),
+  );
   for (const page of pagesUnderTest) {
     for (const name of names) {
       await page.getByText(name, { exact: true }).waitFor();
     }
   }
-  const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/columns`);
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/columns`,
+  );
   const { columns } = await response.json();
   for (const name of names) {
     assert.equal(columns.filter((column) => column.name === name).length, 1);
@@ -3234,51 +3501,96 @@ async function assertConcurrentColumnCreation(owner, peer, credentials, dashboar
   if (dashboard) {
     await dashboard.waitForFunction(
       ({ title, count }) => {
-        const heading = [...document.querySelectorAll("h3")]
-          .find((element) => element.textContent?.trim() === title);
+        const heading = [...document.querySelectorAll("h3")].find(
+          (element) => element.textContent?.trim() === title,
+        );
         const project = heading?.parentElement?.parentElement;
-        return project?.lastElementChild?.querySelectorAll("span.text-sm.font-semibold").length === count + 2;
+        return (
+          project?.lastElementChild?.querySelectorAll(
+            "span.text-sm.font-semibold",
+          ).length ===
+          count + 2
+        );
       },
-      { title: `Migration editor access probe ${runId}`, count: dashboardBefore.length },
+      {
+        title: `Migration editor access probe ${runId}`,
+        count: dashboardBefore.length,
+      },
       { timeout: 30000 },
     );
   }
-  steps.push("two-distinct-users-concurrent-column-creates-persisted-once-and-fanned-out-to-both-boards");
+  steps.push(
+    "two-distinct-users-concurrent-column-creates-persisted-once-and-fanned-out-to-both-boards",
+  );
 }
 
 async function assertConcurrentColumnRename(owner, peer, credentials) {
   const pagesUnderTest = [owner, peer];
-  const originalNames = pagesUnderTest.map((_, index) => `Concurrent column ${index} ${runId}`);
+  const originalNames = pagesUnderTest.map(
+    (_, index) => `Concurrent column ${index} ${runId}`,
+  );
   const renamedNames = originalNames.map((name) => `${name} renamed`);
-  const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/columns`);
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/columns`,
+  );
   const { columns } = await response.json();
-  const targetColumns = originalNames.map((name) => columns.find((column) => column.name === name));
+  const targetColumns = originalNames.map((name) =>
+    columns.find((column) => column.name === name),
+  );
   assert.ok(targetColumns.every(Boolean));
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}`, { waitUntil: "networkidle" });
-    await waitForBoardSocketReady(page, credentials.project_uid);
-    for (const name of originalNames) await page.getByText(name, { exact: true }).waitFor();
-  }));
-  await Promise.all(pagesUnderTest.map(async (page, index) => {
-    const column = page.getByText(originalNames[index], { exact: true }).locator("xpath=../..");
-    await column.locator("button[aria-haspopup='menu']").click();
-    await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
-    await page.getByPlaceholder("Enter a name", { exact: true }).fill(renamedNames[index]);
-  }));
-  await Promise.all(pagesUnderTest.map((page) => page.getByRole("button", { name: "Save", exact: true }).click()));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}`, {
+        waitUntil: "networkidle",
+      });
+      await waitForBoardSocketReady(page, credentials.project_uid);
+      for (const name of originalNames)
+        await page.getByText(name, { exact: true }).waitFor();
+    }),
+  );
+  await Promise.all(
+    pagesUnderTest.map(async (page, index) => {
+      const column = page
+        .getByText(originalNames[index], { exact: true })
+        .locator("xpath=../..");
+      await column.locator("button[aria-haspopup='menu']").click();
+      await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+      await page
+        .getByPlaceholder("Enter a name", { exact: true })
+        .fill(renamedNames[index]);
+    }),
+  );
+  await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.getByRole("button", { name: "Save", exact: true }).click(),
+    ),
+  );
   for (const page of pagesUnderTest) {
-    for (const name of renamedNames) await page.getByText(name, { exact: true }).waitFor({ timeout: 30000 });
+    for (const name of renamedNames)
+      await page.getByText(name, { exact: true }).waitFor({ timeout: 30000 });
   }
-  const persistedResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/columns`);
+  const persistedResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/columns`,
+  );
   const persisted = (await persistedResponse.json()).columns;
   for (const [index, column] of targetColumns.entries()) {
-    assert.equal(persisted.find((item) => item.uid === column.uid)?.name, renamedNames[index]);
+    assert.equal(
+      persisted.find((item) => item.uid === column.uid)?.name,
+      renamedNames[index],
+    );
   }
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
-    for (const name of renamedNames) await page.getByText(name, { exact: true }).waitFor({ timeout: 30000 });
+    for (const name of renamedNames)
+      await page.getByText(name, { exact: true }).waitFor({ timeout: 30000 });
   }
-  steps.push("two-distinct-users-concurrent-column-renames-persisted-and-fanned-out-to-both-boards");
+  steps.push(
+    "two-distinct-users-concurrent-column-renames-persisted-and-fanned-out-to-both-boards",
+  );
 }
 
 async function assertConcurrentCardDetails(owner, peer, credentials) {
@@ -3286,27 +3598,50 @@ async function assertConcurrentCardDetails(owner, peer, credentials) {
   const title = `Concurrent card title ${runId}`;
   const description = `Concurrent card description ${runId}`;
   const cardUrl = `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(cardUrl, { waitUntil: "networkidle" });
-    await page.getByText("No description", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Edit", exact: true }).last().click();
-    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(cardUrl, { waitUntil: "networkidle" });
+      await page.getByText("No description", { exact: true }).waitFor();
+      await page
+        .getByRole("button", { name: "Edit", exact: true })
+        .last()
+        .click();
+      await page.getByRole("button", { name: "Save", exact: true }).waitFor();
+    }),
+  );
   const cardDialog = pagesUnderTest[0].locator('[data-dialog-content="true"]');
-  await cardDialog.getByText(credentials.card_title, { exact: true }).first().click();
-  const titleInput = cardDialog.locator('textarea:visible').first();
+  await cardDialog
+    .getByText(credentials.card_title, { exact: true })
+    .first()
+    .click();
+  const titleInput = cardDialog.locator("textarea:visible").first();
   await titleInput.waitFor();
   await titleInput.fill(title);
   await pagesUnderTest[1].locator("[data-card-description]").click();
-  const descriptionEditor = pagesUnderTest[1].locator('[data-card-description] [data-slate-editor="true"]:visible');
+  const descriptionEditor = pagesUnderTest[1].locator(
+    '[data-card-description] [data-slate-editor="true"]:visible',
+  );
   await descriptionEditor.waitFor();
   await descriptionEditor.fill(description);
-  const beforeSave = await Promise.all(pagesUnderTest.map((page) => page.evaluate(() => ({
-    buttons: [...document.querySelectorAll("button")].filter((button) => ["Edit", "Save"].includes(button.textContent?.trim())).map((button) => button.textContent?.trim()),
-    title: document.querySelector("textarea")?.value,
-    editor: document.querySelector('[data-card-description] [data-slate-editor="true"]')?.textContent,
-  }))));
-  assert.ok(beforeSave.every((state) => state.buttons.includes("Save")), JSON.stringify(beforeSave));
+  const beforeSave = await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.evaluate(() => ({
+        buttons: [...document.querySelectorAll("button")]
+          .filter((button) =>
+            ["Edit", "Save"].includes(button.textContent?.trim()),
+          )
+          .map((button) => button.textContent?.trim()),
+        title: document.querySelector("textarea")?.value,
+        editor: document.querySelector(
+          '[data-card-description] [data-slate-editor="true"]',
+        )?.textContent,
+      })),
+    ),
+  );
+  assert.ok(
+    beforeSave.every((state) => state.buttons.includes("Save")),
+    JSON.stringify(beforeSave),
+  );
   const detailPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}/details`;
   const requests = [];
   for (const [index, page] of pagesUnderTest.entries()) {
@@ -3316,142 +3651,279 @@ async function assertConcurrentCardDetails(owner, peer, credentials) {
       }
     });
   }
-  const responsePromises = pagesUnderTest.map((page) => page.waitForResponse((response) =>
-    response.request().method() === "PUT" && response.url().includes(detailPath), { timeout: 15000 })
-    .catch((error) => error));
-  await Promise.all(pagesUnderTest.map((page) => page.getByRole("button", { name: "Save", exact: true }).click()));
+  const responsePromises = pagesUnderTest.map((page) =>
+    page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === "PUT" &&
+          response.url().includes(detailPath),
+        { timeout: 15000 },
+      )
+      .catch((error) => error),
+  );
+  await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.getByRole("button", { name: "Save", exact: true }).click(),
+    ),
+  );
   const responses = await Promise.all(responsePromises);
   if (responses.some((response) => response instanceof Error)) {
-    const states = await Promise.all(pagesUnderTest.map((page) => page.evaluate(() => ({
-      editButtons: [...document.querySelectorAll("button")].filter((button) => ["Edit", "Save"].includes(button.textContent?.trim())).map((button) => button.textContent?.trim()),
-      title: document.querySelector("textarea")?.value,
-      editor: document.querySelector('[data-card-description] [data-slate-editor="true"]')?.textContent,
-      alerts: [...document.querySelectorAll('[role="status"], [role="alert"]')].map((element) => element.textContent),
-    }))));
-    throw new Error(`Card save did not issue two responses: ${JSON.stringify({ requests, states, errors: responses.filter((response) => response instanceof Error).map(String) })}`);
+    const states = await Promise.all(
+      pagesUnderTest.map((page) =>
+        page.evaluate(() => ({
+          editButtons: [...document.querySelectorAll("button")]
+            .filter((button) =>
+              ["Edit", "Save"].includes(button.textContent?.trim()),
+            )
+            .map((button) => button.textContent?.trim()),
+          title: document.querySelector("textarea")?.value,
+          editor: document.querySelector(
+            '[data-card-description] [data-slate-editor="true"]',
+          )?.textContent,
+          alerts: [
+            ...document.querySelectorAll('[role="status"], [role="alert"]'),
+          ].map((element) => element.textContent),
+        })),
+      ),
+    );
+    throw new Error(
+      `Card save did not issue two responses: ${JSON.stringify({ requests, states, errors: responses.filter((response) => response instanceof Error).map(String) })}`,
+    );
   }
-  assert.deepEqual(responses.map((response) => response.status()), [200, 200]);
+  assert.deepEqual(
+    responses.map((response) => response.status()),
+    [200, 200],
+  );
   for (const page of pagesUnderTest) {
-    await page.getByText(title, { exact: true }).first().waitFor({ timeout: 30000 });
-    await page.getByText(description, { exact: true }).first().waitFor({ timeout: 30000 });
+    await page
+      .getByText(title, { exact: true })
+      .first()
+      .waitFor({ timeout: 30000 });
+    await page
+      .getByText(description, { exact: true })
+      .first()
+      .waitFor({ timeout: 30000 });
   }
-  const persistedResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/card/${credentials.card_uid}`);
+  const persistedResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/card/${credentials.card_uid}`,
+  );
   const { card } = await persistedResponse.json();
   assert.equal(card.title, title);
-  assert.ok(card.description?.content?.includes(description), JSON.stringify({ requests, description: card.description }));
+  assert.ok(
+    card.description?.content?.includes(description),
+    JSON.stringify({ requests, description: card.description }),
+  );
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByText(title, { exact: true }).first().waitFor({ timeout: 30000 });
-    await page.getByText(description, { exact: true }).first().waitFor({ timeout: 30000 });
+    await page
+      .getByText(title, { exact: true })
+      .first()
+      .waitFor({ timeout: 30000 });
+    await page
+      .getByText(description, { exact: true })
+      .first()
+      .waitFor({ timeout: 30000 });
   }
-  steps.push("two-distinct-users-concurrent-same-card-title-and-description-preserved-after-reload");
+  steps.push(
+    "two-distinct-users-concurrent-same-card-title-and-description-preserved-after-reload",
+  );
 }
 
 async function assertTwoUserCardDrag(owner, peer, credentials) {
   const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
-  const cardResponse = await requestApi(credentials, credentials.users[0], cardPath);
+  const cardResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    cardPath,
+  );
   const originalColumnUID = (await cardResponse.json()).card.project_column_uid;
-  const columnResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/column`, {
-    method: "POST",
-    body: JSON.stringify({ name: `Drag destination ${runId}` }),
-  });
+  const columnResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/column`,
+    {
+      method: "POST",
+      body: JSON.stringify({ name: `Drag destination ${runId}` }),
+    },
+  );
   assert.equal(columnResponse.status, 201);
   const destinationUID = (await columnResponse.json()).column.uid;
-  const card = (page) => page.locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`);
-  const column = (page, uid) => page.locator(`[data-board-column-touch-dnd-uid="${uid}"]`);
-  await Promise.all([owner, peer].map(async (page) => {
-    await page.setViewportSize({ width: 1920, height: 900 });
-    await page.goto(`${origin}/board/${credentials.project_uid}`, { waitUntil: "networkidle" });
-    await waitForBoardSocketReady(page, credentials.project_uid);
-    if (await page.getByPlaceholder("Enter a message", { exact: true }).isVisible()) {
-      await page.getByRole("button", { name: "Chat with AI", exact: true }).click();
-      await page.getByPlaceholder("Enter a message", { exact: true }).waitFor({ state: "hidden" });
-    }
-    await card(page).waitFor();
-    await column(page, destinationUID).waitFor();
-  }));
+  const card = (page) =>
+    page.locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`);
+  const column = (page, uid) =>
+    page.locator(`[data-board-column-touch-dnd-uid="${uid}"]`);
+  await Promise.all(
+    [owner, peer].map(async (page) => {
+      await page.setViewportSize({ width: 1920, height: 900 });
+      await page.goto(`${origin}/board/${credentials.project_uid}`, {
+        waitUntil: "networkidle",
+      });
+      await waitForBoardSocketReady(page, credentials.project_uid);
+      if (
+        await page
+          .getByPlaceholder("Enter a message", { exact: true })
+          .isVisible()
+      ) {
+        await page
+          .getByRole("button", { name: "Chat with AI", exact: true })
+          .click();
+        await page
+          .getByPlaceholder("Enter a message", { exact: true })
+          .waitFor({ state: "hidden" });
+      }
+      await card(page).waitFor();
+      await column(page, destinationUID).waitFor();
+    }),
+  );
   for (const [actor, observer, targetUID] of [
     [owner, peer, destinationUID],
     [peer, owner, originalColumnUID],
   ]) {
-    const responsePromise = actor.waitForResponse((response) => response.request().method() === "PUT" &&
-      response.url().includes(`${cardPath}/order`), { timeout: 30000 }).catch((error) => error);
-    await card(actor).locator(":scope > div").first().dragTo(column(actor, targetUID), {
-      sourcePosition: { x: 100, y: 30 },
-      targetPosition: { x: 100, y: 60 },
-    });
+    const responsePromise = actor
+      .waitForResponse(
+        (response) =>
+          response.request().method() === "PUT" &&
+          response.url().includes(`${cardPath}/order`),
+        { timeout: 30000 },
+      )
+      .catch((error) => error);
+    await card(actor)
+      .locator(":scope > div")
+      .first()
+      .dragTo(column(actor, targetUID), {
+        sourcePosition: { x: 100, y: 30 },
+        targetPosition: { x: 100, y: 60 },
+      });
     const response = await responsePromise;
     if (response instanceof Error) {
       const state = await actor.evaluate(() => ({
-        dragging: [...document.querySelectorAll('[data-board-card-touch-dnd-uid]')].map((element) => ({
+        dragging: [
+          ...document.querySelectorAll("[data-board-card-touch-dnd-uid]"),
+        ].map((element) => ({
           uid: element.getAttribute("data-board-card-touch-dnd-uid"),
           text: element.textContent?.slice(0, 80),
         })),
-        alerts: [...document.querySelectorAll('[role="alert"], [role="status"]')].map((element) => element.textContent),
+        alerts: [
+          ...document.querySelectorAll('[role="alert"], [role="status"]'),
+        ].map((element) => element.textContent),
       }));
-      throw new Error(`Card drag did not send order update to ${targetUID}: ${JSON.stringify(state)}`);
+      throw new Error(
+        `Card drag did not send order update to ${targetUID}: ${JSON.stringify(state)}`,
+      );
     }
     assert.equal(response.status(), 200);
-    await observer.waitForFunction(({ cardUID, columnUID }) =>
-      document.querySelector(`[data-board-column-touch-dnd-uid="${columnUID}"]`)
-        ?.querySelector(`[data-board-card-touch-dnd-uid="${cardUID}"]`) !== null,
-    { cardUID: credentials.card_uid, columnUID: targetUID }, { timeout: 30000 });
-    const persisted = await requestApi(credentials, credentials.users[0], cardPath);
+    await observer.waitForFunction(
+      ({ cardUID, columnUID }) =>
+        document
+          .querySelector(`[data-board-column-touch-dnd-uid="${columnUID}"]`)
+          ?.querySelector(`[data-board-card-touch-dnd-uid="${cardUID}"]`) !==
+        null,
+      { cardUID: credentials.card_uid, columnUID: targetUID },
+      { timeout: 30000 },
+    );
+    const persisted = await requestApi(
+      credentials,
+      credentials.users[0],
+      cardPath,
+    );
     assert.equal((await persisted.json()).card.project_column_uid, targetUID);
   }
   for (const page of [owner, peer]) {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await column(page, originalColumnUID).locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`)
+    await column(page, originalColumnUID)
+      .locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`)
       .waitFor({ timeout: 30000 });
   }
-  steps.push("two-distinct-users-bidirectional-card-drag-fanned-out-persisted-and-survived-reload");
+  steps.push(
+    "two-distinct-users-bidirectional-card-drag-fanned-out-persisted-and-survived-reload",
+  );
 }
 
 async function assertMobileTouchCardScrollAndDrag(owner, peer, credentials) {
   const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
-  const cardResponse = await requestApi(credentials, credentials.users[0], cardPath);
+  const cardResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    cardPath,
+  );
   const initialCard = (await cardResponse.json()).card;
   const columnUID = initialCard.project_column_uid;
   const titles = [];
   for (let index = 0; index < 12; index += 1) {
     const title = `Touch scroll card ${index} ${runId}`;
-    const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/card`, {
-      method: "POST",
-      body: JSON.stringify({ title, project_column_uid: columnUID }),
-    });
+    const response = await requestApi(
+      credentials,
+      credentials.users[0],
+      `/board/${credentials.project_uid}/card`,
+      {
+        method: "POST",
+        body: JSON.stringify({ title, project_column_uid: columnUID }),
+      },
+    );
     assert.equal(response.status, 201);
     titles.push(title);
   }
-  await Promise.all([owner, peer].map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}`, { waitUntil: "domcontentloaded" });
-    await waitForBoardSocketReady(page, credentials.project_uid);
-    await page.getByText(titles[0], { exact: true }).waitFor();
-  }));
-  const column = peer.locator(`[data-board-column-touch-dnd-uid="${columnUID}"]`);
-  const scrollable = column.locator("[data-radix-scroll-area-viewport]").first();
-  const source = column.locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`);
+  await Promise.all(
+    [owner, peer].map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await waitForBoardSocketReady(page, credentials.project_uid);
+      await page.getByText(titles[0], { exact: true }).waitFor();
+    }),
+  );
+  const column = peer.locator(
+    `[data-board-column-touch-dnd-uid="${columnUID}"]`,
+  );
+  const scrollable = column
+    .locator("[data-radix-scroll-area-viewport]")
+    .first();
+  const source = column.locator(
+    `[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`,
+  );
   await column.evaluate((element) => {
-    const boardViewport = element.parentElement?.closest("[data-radix-scroll-area-viewport]");
+    const boardViewport = element.parentElement?.closest(
+      "[data-radix-scroll-area-viewport]",
+    );
     if (!boardViewport) throw new Error("Board viewport was not found");
-    boardViewport.scrollLeft += element.getBoundingClientRect().left - boardViewport.getBoundingClientRect().left - 40;
+    boardViewport.scrollLeft +=
+      element.getBoundingClientRect().left -
+      boardViewport.getBoundingClientRect().left -
+      40;
   });
   await source.scrollIntoViewIfNeeded();
   const scrollMetrics = await scrollable.evaluate((element) => ({
     height: element.clientHeight,
     contentHeight: element.scrollHeight,
   }));
-  assert.ok(scrollMetrics.contentHeight > scrollMetrics.height, JSON.stringify(scrollMetrics));
-  await scrollable.evaluate((element) => { element.scrollTop = 300; });
+  assert.ok(
+    scrollMetrics.contentHeight > scrollMetrics.height,
+    JSON.stringify(scrollMetrics),
+  );
+  await scrollable.evaluate((element) => {
+    element.scrollTop = 300;
+  });
   const scrollStart = await scrollable.evaluate((element) => element.scrollTop);
   assert.ok(scrollStart > 0);
   const swipePoint = await peer.evaluate((uid) => {
-    const columnElement = document.querySelector(`[data-board-column-touch-dnd-uid="${uid}"]`);
-    const viewport = columnElement?.querySelector("[data-radix-scroll-area-viewport]");
+    const columnElement = document.querySelector(
+      `[data-board-column-touch-dnd-uid="${uid}"]`,
+    );
+    const viewport = columnElement?.querySelector(
+      "[data-radix-scroll-area-viewport]",
+    );
     if (!viewport) return null;
     const viewportRect = viewport.getBoundingClientRect();
-    for (const card of columnElement.querySelectorAll("[data-board-card-touch-dnd-uid]")) {
+    for (const card of columnElement.querySelectorAll(
+      "[data-board-card-touch-dnd-uid]",
+    )) {
       const rect = card.getBoundingClientRect();
-      if (rect.top > viewportRect.top + 20 && rect.bottom < viewportRect.bottom - 20) {
+      if (
+        rect.top > viewportRect.top + 20 &&
+        rect.bottom < viewportRect.bottom - 20
+      ) {
         return { x: rect.left + 80, y: rect.top + 30 };
       }
     }
@@ -3459,10 +3931,11 @@ async function assertMobileTouchCardScrollAndDrag(owner, peer, credentials) {
   }, columnUID);
   assert.ok(swipePoint);
   const cdp = await peer.context().newCDPSession(peer);
-  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", {
-    type,
-    touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }],
-  });
+  const touch = (type, x, y) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }],
+    });
   try {
     const { x, y } = swipePoint;
     await touch("touchStart", x, y);
@@ -3471,25 +3944,43 @@ async function assertMobileTouchCardScrollAndDrag(owner, peer, credentials) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     await touch("touchEnd", x, y + 150);
-    const scrollState = await peer.evaluate(({ uid, x, y }) => {
-      const viewport = document.querySelector(`[data-board-column-touch-dnd-uid="${uid}"] [data-radix-scroll-area-viewport]`);
-      const hit = document.elementFromPoint(x, y);
-      return {
-        scrollTop: viewport?.scrollTop,
-        height: viewport?.clientHeight,
-        contentHeight: viewport?.scrollHeight,
-        hit: hit?.outerHTML.slice(0, 250),
-        touchAction: hit ? getComputedStyle(hit).touchAction : null,
-      };
-    }, { uid: columnUID, x, y });
-    assert.ok(scrollState.scrollTop < scrollStart, JSON.stringify({ scrollStart, scrollState }));
-    const unchanged = await requestApi(credentials, credentials.users[0], cardPath);
+    const scrollState = await peer.evaluate(
+      ({ uid, x, y }) => {
+        const viewport = document.querySelector(
+          `[data-board-column-touch-dnd-uid="${uid}"] [data-radix-scroll-area-viewport]`,
+        );
+        const hit = document.elementFromPoint(x, y);
+        return {
+          scrollTop: viewport?.scrollTop,
+          height: viewport?.clientHeight,
+          contentHeight: viewport?.scrollHeight,
+          hit: hit?.outerHTML.slice(0, 250),
+          touchAction: hit ? getComputedStyle(hit).touchAction : null,
+        };
+      },
+      { uid: columnUID, x, y },
+    );
+    assert.ok(
+      scrollState.scrollTop < scrollStart,
+      JSON.stringify({ scrollStart, scrollState }),
+    );
+    const unchanged = await requestApi(
+      credentials,
+      credentials.users[0],
+      cardPath,
+    );
     assert.equal((await unchanged.json()).card.project_column_uid, columnUID);
-    steps.push("mobile-touch-swipe-starting-on-card-scrolls-column-without-moving-card");
+    steps.push(
+      "mobile-touch-swipe-starting-on-card-scrolls-column-without-moving-card",
+    );
 
-    await scrollable.evaluate((element) => { element.scrollTop = 0; });
+    await scrollable.evaluate((element) => {
+      element.scrollTop = 0;
+    });
     await source.scrollIntoViewIfNeeded();
-    const target = column.getByText(titles[0], { exact: true }).locator(`xpath=ancestor::*[@data-board-card-touch-dnd-uid][1]`);
+    const target = column
+      .getByText(titles[0], { exact: true })
+      .locator(`xpath=ancestor::*[@data-board-card-touch-dnd-uid][1]`);
     await target.scrollIntoViewIfNeeded();
     const start = await source.boundingBox();
     const finish = await target.boundingBox();
@@ -3497,37 +3988,77 @@ async function assertMobileTouchCardScrollAndDrag(owner, peer, credentials) {
     const startX = start.x + Math.min(80, start.width / 2);
     const startY = start.y + Math.min(30, start.height / 2);
     const finishY = finish.y + finish.height - 10;
-    const responsePromise = peer.waitForResponse((response) => response.request().method() === "PUT" &&
-      response.url().includes(`${cardPath}/order`), { timeout: 30000 });
+    const responsePromise = peer.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().includes(`${cardPath}/order`),
+      { timeout: 30000 },
+    );
     await touch("touchStart", startX, startY);
     await new Promise((resolve) => setTimeout(resolve, 400));
     for (let index = 1; index <= 8; index += 1) {
-      await touch("touchMove", startX, startY + (finishY - startY) * index / 8);
+      await touch(
+        "touchMove",
+        startX,
+        startY + ((finishY - startY) * index) / 8,
+      );
     }
     await touch("touchEnd", startX, finishY);
     assert.equal((await responsePromise).status(), 200);
-    const persisted = await requestApi(credentials, credentials.users[0], cardPath);
+    const persisted = await requestApi(
+      credentials,
+      credentials.users[0],
+      cardPath,
+    );
     const persistedCard = (await persisted.json()).card;
-    assert.notEqual(persistedCard.order, initialCard.order, JSON.stringify({ initialCard, persistedCard }));
+    assert.notEqual(
+      persistedCard.order,
+      initialCard.order,
+      JSON.stringify({ initialCard, persistedCard }),
+    );
     const isAfterTarget = ({ cardUID, targetTitle }) => {
-      const card = document.querySelector(`[data-board-card-touch-dnd-uid="${cardUID}"]`);
-      const target = [...document.querySelectorAll("[data-board-card-touch-dnd-uid]")]
-        .find((element) => element.textContent?.includes(targetTitle));
-      return Boolean(card && target && card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING);
+      const card = document.querySelector(
+        `[data-board-card-touch-dnd-uid="${cardUID}"]`,
+      );
+      const target = [
+        ...document.querySelectorAll("[data-board-card-touch-dnd-uid]"),
+      ].find((element) => element.textContent?.includes(targetTitle));
+      return Boolean(
+        card &&
+        target &&
+        card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING,
+      );
     };
     const orderArgs = { cardUID: credentials.card_uid, targetTitle: titles[0] };
-    await owner.waitForFunction(isAfterTarget, orderArgs, { timeout: 5000 }).catch(async (error) => {
-      const state = await Promise.all([owner, peer].map((page) => page.evaluate(({ cardUID, targetTitle }) => {
-        const card = document.querySelector(`[data-board-card-touch-dnd-uid="${cardUID}"]`);
-        const target = [...document.querySelectorAll("[data-board-card-touch-dnd-uid]")]
-          .find((element) => element.textContent?.includes(targetTitle));
-        return { card: card?.textContent?.slice(0, 90), target: target?.textContent?.slice(0, 90), position: card?.compareDocumentPosition(target) };
-      }, orderArgs)));
-      throw new Error(`${error.message}; ${JSON.stringify({ initialOrder: initialCard.order, persistedOrder: persistedCard.order, state })}`);
-    });
+    await owner
+      .waitForFunction(isAfterTarget, orderArgs, { timeout: 5000 })
+      .catch(async (error) => {
+        const state = await Promise.all(
+          [owner, peer].map((page) =>
+            page.evaluate(({ cardUID, targetTitle }) => {
+              const card = document.querySelector(
+                `[data-board-card-touch-dnd-uid="${cardUID}"]`,
+              );
+              const target = [
+                ...document.querySelectorAll("[data-board-card-touch-dnd-uid]"),
+              ].find((element) => element.textContent?.includes(targetTitle));
+              return {
+                card: card?.textContent?.slice(0, 90),
+                target: target?.textContent?.slice(0, 90),
+                position: card?.compareDocumentPosition(target),
+              };
+            }, orderArgs),
+          ),
+        );
+        throw new Error(
+          `${error.message}; ${JSON.stringify({ initialOrder: initialCard.order, persistedOrder: persistedCard.order, state })}`,
+        );
+      });
     await owner.reload({ waitUntil: "domcontentloaded" });
     await owner.waitForFunction(isAfterTarget, orderArgs);
-    steps.push("mobile-long-press-touch-card-reorder-fanned-out-and-survived-reload");
+    steps.push(
+      "mobile-long-press-touch-card-reorder-fanned-out-and-survived-reload",
+    );
   } finally {
     await cdp.detach();
   }
@@ -3535,115 +4066,242 @@ async function assertMobileTouchCardScrollAndDrag(owner, peer, credentials) {
 
 async function assertTwoUserCardArchive(owner, peer, credentials) {
   const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
-  const boardResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/cards`);
-  const archiveUID = (await boardResponse.json()).columns.find((column) => column.is_archive)?.uid;
+  const boardResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/cards`,
+  );
+  const archiveUID = (await boardResponse.json()).columns.find(
+    (column) => column.is_archive,
+  )?.uid;
   assert.ok(archiveUID);
   await Promise.all([
-    owner.goto(`${origin}/board/${credentials.project_uid}/${credentials.card_uid}`, { waitUntil: "networkidle" }),
-    peer.goto(`${origin}/board/${credentials.project_uid}`, { waitUntil: "networkidle" }),
+    owner.goto(
+      `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`,
+      { waitUntil: "networkidle" },
+    ),
+    peer.goto(`${origin}/board/${credentials.project_uid}`, {
+      waitUntil: "networkidle",
+    }),
   ]);
   await waitForBoardSocketReady(peer, credentials.project_uid);
-  const peerCard = peer.locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`);
+  const peerCard = peer.locator(
+    `[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`,
+  );
   await peerCard.waitFor();
-  await owner.getByRole("button", { name: "Actions", exact: true }).last().click();
-  await owner.getByRole("button", { name: "Archive card", exact: true }).click();
-  const responsePromise = owner.waitForResponse((response) => response.request().method() === "PUT" &&
-    response.url().includes(`${cardPath}/archive`), { timeout: 30000 });
+  await owner
+    .getByRole("button", { name: "Actions", exact: true })
+    .last()
+    .click();
+  await owner
+    .getByRole("button", { name: "Archive card", exact: true })
+    .click();
+  const responsePromise = owner.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().includes(`${cardPath}/archive`),
+    { timeout: 30000 },
+  );
   await owner.getByRole("button", { name: "Archive", exact: true }).click();
   assert.equal((await responsePromise).status(), 200);
-  await peer.locator(`[data-board-column-touch-dnd-uid="${archiveUID}"]`)
+  await peer
+    .locator(`[data-board-column-touch-dnd-uid="${archiveUID}"]`)
     .locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`)
     .waitFor({ timeout: 30000 });
-  const persisted = await requestApi(credentials, credentials.users[0], cardPath);
+  const persisted = await requestApi(
+    credentials,
+    credentials.users[0],
+    cardPath,
+  );
   const archived = (await persisted.json()).card;
   assert.equal(archived.project_column_uid, archiveUID);
   assert.ok(archived.archived_at);
   await peer.reload({ waitUntil: "domcontentloaded" });
-  await peer.locator(`[data-board-column-touch-dnd-uid="${archiveUID}"]`)
+  await peer
+    .locator(`[data-board-column-touch-dnd-uid="${archiveUID}"]`)
     .locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`)
     .waitFor({ timeout: 30000 });
-  steps.push("two-distinct-users-card-archive-button-fanned-out-and-persisted-after-reload");
+  steps.push(
+    "two-distinct-users-card-archive-button-fanned-out-and-persisted-after-reload",
+  );
 }
 
 async function assertTwoUserCardRelationship(owner, peer, credentials) {
   const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
-  const board = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/cards`);
-  const columnUID = (await board.json()).columns.find((column) => column.name === "Editor verification")?.uid;
+  const board = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/cards`,
+  );
+  const columnUID = (await board.json()).columns.find(
+    (column) => column.name === "Editor verification",
+  )?.uid;
   assert.ok(columnUID);
   const candidateTitle = `Concurrent related card ${runId}`;
-  const candidateResponse = await requestApi(credentials, credentials.users[0],
-    `/board/${credentials.project_uid}/card`, {
+  const candidateResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/card`,
+    {
       method: "POST",
-      body: JSON.stringify({ title: candidateTitle, project_column_uid: columnUID }),
-    });
+      body: JSON.stringify({
+        title: candidateTitle,
+        project_column_uid: columnUID,
+      }),
+    },
+  );
   const candidateUID = (await candidateResponse.json()).card.uid;
   const relationshipType = credentials.relationship_type_uid;
   assert.ok(relationshipType);
-  await Promise.all([owner, peer].map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/${credentials.card_uid}`, { waitUntil: "networkidle" });
-    await waitForBoardSocketReady(page, credentials.project_uid);
-    await page.locator('[data-dialog-content="true"] button:has(svg.lucide-git-fork)').first().waitFor();
-  }));
-  const parentButton = (page) => page.locator('[data-dialog-content="true"] button:has(svg.lucide-git-fork)').first();
+  await Promise.all(
+    [owner, peer].map(async (page) => {
+      await page.goto(
+        `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`,
+        { waitUntil: "networkidle" },
+      );
+      await waitForBoardSocketReady(page, credentials.project_uid);
+      await page
+        .locator('[data-dialog-content="true"] button:has(svg.lucide-git-fork)')
+        .first()
+        .waitFor();
+    }),
+  );
+  const parentButton = (page) =>
+    page
+      .locator('[data-dialog-content="true"] button:has(svg.lucide-git-fork)')
+      .first();
   await parentButton(owner).click();
-  await owner.getByRole("button", { name: "Select cards", exact: true }).click();
-  await owner.locator(`[data-board-card-touch-dnd-uid="${candidateUID}"] #board-card-${candidateUID}`).click();
+  await owner
+    .getByRole("button", { name: "Select cards", exact: true })
+    .click();
+  await owner
+    .locator(
+      `[data-board-card-touch-dnd-uid="${candidateUID}"] #board-card-${candidateUID}`,
+    )
+    .click();
   const picker = owner.getByRole("dialog").last();
-  await picker.getByRole("button", { name: `Migration parent ${runId}`, exact: true }).click();
+  await picker
+    .getByRole("button", { name: `Migration parent ${runId}`, exact: true })
+    .click();
   await picker.getByRole("button", { name: "Save", exact: true }).click();
-  const saved = owner.waitForResponse((response) => response.request().method() === "PUT" &&
-    response.url().includes(`${cardPath}/relationships`), { timeout: 30000 });
+  const saved = owner.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().includes(`${cardPath}/relationships`),
+    { timeout: 30000 },
+  );
   await owner.getByRole("button", { name: "Save", exact: true }).click();
   assert.equal((await saved).status(), 200);
-  const relatedTitle = peer.getByRole("button", { name: `Migration parent ${runId} > ${candidateTitle}` });
+  const relatedTitle = peer.getByRole("button", {
+    name: `Migration parent ${runId} > ${candidateTitle}`,
+  });
   await parentButton(peer).click();
   await relatedTitle.waitFor({ timeout: 30000 });
-  const persisted = await requestApi(credentials, credentials.users[0], cardPath);
+  const persisted = await requestApi(
+    credentials,
+    credentials.users[0],
+    cardPath,
+  );
   const relationships = (await persisted.json()).card.relationships;
-  assert.ok(relationships.some((relationship) => relationship.parent_card_uid === candidateUID &&
-    relationship.child_card_uid === credentials.card_uid && relationship.relationship_type_uid === relationshipType));
+  assert.ok(
+    relationships.some(
+      (relationship) =>
+        relationship.parent_card_uid === candidateUID &&
+        relationship.child_card_uid === credentials.card_uid &&
+        relationship.relationship_type_uid === relationshipType,
+    ),
+  );
   await peer.reload({ waitUntil: "domcontentloaded" });
   await parentButton(peer).click();
   await relatedTitle.waitFor({ timeout: 30000 });
-  steps.push("two-distinct-users-card-relationship-selection-fanned-out-and-persisted-after-reload");
+  steps.push(
+    "two-distinct-users-card-relationship-selection-fanned-out-and-persisted-after-reload",
+  );
 }
 
 async function assertTwoUserCardMemberAssignment(owner, peer, credentials) {
   const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
-  await Promise.all([owner, peer].map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/${credentials.card_uid}`, { waitUntil: "networkidle" });
-    await page.locator('[data-dialog-content="true"]')
-      .getByText("Members", { exact: true }).waitFor();
-  }));
+  await Promise.all(
+    [owner, peer].map(async (page) => {
+      await page.goto(
+        `${origin}/board/${credentials.project_uid}/${credentials.card_uid}`,
+        { waitUntil: "networkidle" },
+      );
+      await page
+        .locator('[data-dialog-content="true"]')
+        .getByText("Members", { exact: true })
+        .waitFor();
+    }),
+  );
   await owner.getByRole("button", { name: "Edit", exact: true }).last().click();
-  await owner.locator('[data-dialog-content="true"]')
-    .getByText("Members", { exact: true }).locator("xpath=..").locator("button").first().click();
-  await owner.locator('[data-radix-popper-content-wrapper] [data-slate-editor="true"]:visible')
-    .last().fill(credentials.users[1].name.split(" ").at(-1));
+  await owner
+    .locator('[data-dialog-content="true"]')
+    .getByText("Members", { exact: true })
+    .locator("xpath=..")
+    .locator("button")
+    .first()
+    .click();
+  await owner
+    .locator(
+      '[data-radix-popper-content-wrapper] [data-slate-editor="true"]:visible',
+    )
+    .last()
+    .fill(credentials.users[1].name.split(" ").at(-1));
   const requests = [];
   owner.on("request", (request) => {
-    if (request.url().includes("assigned-users")) requests.push({ method: request.method(), url: request.url(), body: request.postData() });
+    if (request.url().includes("assigned-users"))
+      requests.push({
+        method: request.method(),
+        url: request.url(),
+        body: request.postData(),
+      });
   });
-  const responsePromise = owner.waitForResponse((response) => response.request().method() === "PUT" &&
-    response.url().includes(`${cardPath}/assigned-users`), { timeout: 30000 }).catch((error) => error);
-  await owner.getByRole("option", { name: credentials.users[1].name, exact: true }).click();
+  const responsePromise = owner
+    .waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().includes(`${cardPath}/assigned-users`),
+      { timeout: 30000 },
+    )
+    .catch((error) => error);
+  await owner
+    .getByRole("option", { name: credentials.users[1].name, exact: true })
+    .click();
   const response = await responsePromise;
   if (response instanceof Error) {
     const state = await owner.evaluate(() => ({
-      selected: [...document.querySelectorAll('[data-avatar-user]')].map((element) => element.getAttribute("data-avatar-user")),
-      popover: [...document.querySelectorAll('[data-radix-popper-content-wrapper]')].map((element) => element.textContent?.slice(0, 200)),
+      selected: [...document.querySelectorAll("[data-avatar-user]")].map(
+        (element) => element.getAttribute("data-avatar-user"),
+      ),
+      popover: [
+        ...document.querySelectorAll("[data-radix-popper-content-wrapper]"),
+      ].map((element) => element.textContent?.slice(0, 200)),
     }));
-    throw new Error(`Card member selection sent no update: ${JSON.stringify({ requests, state })}`);
+    throw new Error(
+      `Card member selection sent no update: ${JSON.stringify({ requests, state })}`,
+    );
   }
   assert.equal(response.status(), 200);
-  const peerAvatar = peer.locator('[data-dialog-content="true"]')
-    .locator(`[data-avatar-user="${credentials.users[1].uid}"]`).first();
+  const peerAvatar = peer
+    .locator('[data-dialog-content="true"]')
+    .locator(`[data-avatar-user="${credentials.users[1].uid}"]`)
+    .first();
   await peerAvatar.waitFor({ timeout: 30000 });
-  const persisted = await requestApi(credentials, credentials.users[0], cardPath);
-  assert.ok((await persisted.json()).card.member_uids.includes(credentials.users[1].uid));
+  const persisted = await requestApi(
+    credentials,
+    credentials.users[0],
+    cardPath,
+  );
+  assert.ok(
+    (await persisted.json()).card.member_uids.includes(
+      credentials.users[1].uid,
+    ),
+  );
   await peer.reload({ waitUntil: "domcontentloaded" });
   await peerAvatar.waitFor({ timeout: 30000 });
-  steps.push("two-distinct-users-card-member-assignment-persisted-and-visible-after-reload");
+  steps.push(
+    "two-distinct-users-card-member-assignment-persisted-and-visible-after-reload",
+  );
 }
 
 async function assertConcurrentProjectSettings(owner, peer, credentials) {
@@ -3652,86 +4310,177 @@ async function assertConcurrentProjectSettings(owner, peer, credentials) {
   const saveRequests = [];
   for (const [index, page] of pagesUnderTest.entries()) {
     page.on("request", (request) => {
-      if (request.method() === "PUT" && request.url().includes(`/board/${credentials.project_uid}/settings/details`)) {
+      if (
+        request.method() === "PUT" &&
+        request
+          .url()
+          .includes(`/board/${credentials.project_uid}/settings/details`)
+      ) {
         saveRequests.push({ user: index, body: request.postDataJSON() });
       }
     });
   }
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/settings`, { waitUntil: "networkidle" });
-    await page.locator('form input[name="title"]').waitFor();
-  }));
-  const forms = pagesUnderTest.map((page) => page.locator("form")
-    .filter({ has: page.locator('input[name="title"]') }));
-  const initialDays = await Promise.all(forms.map((form) =>
-    form.locator('input[name="archive_visible_days"]').inputValue()));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}/settings`, {
+        waitUntil: "networkidle",
+      });
+      await page.locator('form input[name="title"]').waitFor();
+    }),
+  );
+  const forms = pagesUnderTest.map((page) =>
+    page.locator("form").filter({ has: page.locator('input[name="title"]') }),
+  );
+  const initialDays = await Promise.all(
+    forms.map((form) =>
+      form.locator('input[name="archive_visible_days"]').inputValue(),
+    ),
+  );
   const originalDays = Number(initialDays[0]);
   const changedDays = originalDays + 1;
-  await Promise.all(forms.map((form) => form.getByRole("button", { name: "Edit", exact: true }).click()));
-  await Promise.all(forms.map((form) => form.getByRole("button", { name: "Save", exact: true }).waitFor()));
-  await Promise.all(pagesUnderTest.map((page) => page.waitForFunction(() =>
-    ["title", "description", "archive_visible_days"].every((name) => {
-      const input = document.querySelector(`[name="${name}"]`);
-      return input && !input.disabled;
-    }),
-  )));
+  await Promise.all(
+    forms.map((form) =>
+      form.getByRole("button", { name: "Edit", exact: true }).click(),
+    ),
+  );
+  await Promise.all(
+    forms.map((form) =>
+      form.getByRole("button", { name: "Save", exact: true }).waitFor(),
+    ),
+  );
+  await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.waitForFunction(() =>
+        ["title", "description", "archive_visible_days"].every((name) => {
+          const input = document.querySelector(`[name="${name}"]`);
+          return input && !input.disabled;
+        }),
+      ),
+    ),
+  );
   await Promise.all([
     forms[0].locator('textarea[name="description"]').fill(description),
-    forms[1].locator('input[name="archive_visible_days"]').fill(String(changedDays)),
+    forms[1]
+      .locator('input[name="archive_visible_days"]')
+      .fill(String(changedDays)),
   ]);
   try {
-    await Promise.all(pagesUnderTest.map((page) => page.waitForFunction(
-      ({ description, days }) =>
-        document.querySelector('textarea[name="description"]')?.value === description &&
-        document.querySelector('input[name="archive_visible_days"]')?.value === String(days),
-      { description, days: changedDays },
-      { timeout: 10000 },
-    )));
+    await Promise.all(
+      pagesUnderTest.map((page) =>
+        page.waitForFunction(
+          ({ description, days }) =>
+            document.querySelector('textarea[name="description"]')?.value ===
+              description &&
+            document.querySelector('input[name="archive_visible_days"]')
+              ?.value === String(days),
+          { description, days: changedDays },
+          { timeout: 10000 },
+        ),
+      ),
+    );
   } catch (error) {
-    const values = await Promise.all(pagesUnderTest.map((page) => page.evaluate(() => ({
-      description: document.querySelector('textarea[name="description"]')?.value,
-      days: document.querySelector('input[name="archive_visible_days"]')?.value,
-    }))));
-    throw new Error(`${error}\nInitial days: ${JSON.stringify(initialDays)}; expected days: ${changedDays}; collaborative settings values: ${JSON.stringify(values)}`);
+    const values = await Promise.all(
+      pagesUnderTest.map((page) =>
+        page.evaluate(() => ({
+          description: document.querySelector('textarea[name="description"]')
+            ?.value,
+          days: document.querySelector('input[name="archive_visible_days"]')
+            ?.value,
+        })),
+      ),
+    );
+    throw new Error(
+      `${error}\nInitial days: ${JSON.stringify(initialDays)}; expected days: ${changedDays}; collaborative settings values: ${JSON.stringify(values)}`,
+    );
   }
-  const saveResponses = await Promise.all(pagesUnderTest.map(async (page, index) => {
-    const responsePromise = page.waitForResponse((response) => response.request().method() === "PUT" &&
-      response.url().includes(`/board/${credentials.project_uid}/settings/details`));
-    await forms[index].getByRole("button", { name: "Save", exact: true }).click();
-    return responsePromise;
-  }));
-  assert.deepEqual(saveResponses.map((response) => response.status()), [200, 200]);
-  const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/details`);
+  const saveResponses = await Promise.all(
+    pagesUnderTest.map(async (page, index) => {
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === "PUT" &&
+          response
+            .url()
+            .includes(`/board/${credentials.project_uid}/settings/details`),
+      );
+      await forms[index]
+        .getByRole("button", { name: "Save", exact: true })
+        .click();
+      return responsePromise;
+    }),
+  );
+  assert.deepEqual(
+    saveResponses.map((response) => response.status()),
+    [200, 200],
+  );
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/details`,
+  );
   const { project } = await response.json();
-  assert.equal(project.description, description, JSON.stringify({ initialDays, saveRequests, description: project.description, archive_visible_days: project.archive_visible_days }));
-  assert.equal(project.archive_visible_days, changedDays, JSON.stringify({ initialDays, saveRequests, description: project.description, archive_visible_days: project.archive_visible_days }));
+  assert.equal(
+    project.description,
+    description,
+    JSON.stringify({
+      initialDays,
+      saveRequests,
+      description: project.description,
+      archive_visible_days: project.archive_visible_days,
+    }),
+  );
+  assert.equal(
+    project.archive_visible_days,
+    changedDays,
+    JSON.stringify({
+      initialDays,
+      saveRequests,
+      description: project.description,
+      archive_visible_days: project.archive_visible_days,
+    }),
+  );
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(
       ({ description, days }) =>
-        document.querySelector('textarea[name="description"]')?.value === description &&
-        document.querySelector('input[name="archive_visible_days"]')?.value === String(days),
+        document.querySelector('textarea[name="description"]')?.value ===
+          description &&
+        document.querySelector('input[name="archive_visible_days"]')?.value ===
+          String(days),
       { description, days: changedDays },
       { timeout: 30000 },
     );
   }
-  steps.push("two-distinct-users-concurrent-project-settings-preserved-both-fields-after-reload");
+  steps.push(
+    "two-distinct-users-concurrent-project-settings-preserved-both-fields-after-reload",
+  );
 }
 
 async function assertConcurrentLabelCreation(owner, peer, credentials) {
   const pagesUnderTest = [owner, peer];
   const settingsUrl = `${origin}/board/${credentials.project_uid}/settings`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(settingsUrl, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "Add a label", exact: true }).waitFor();
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(settingsUrl, { waitUntil: "networkidle" });
+      await page
+        .getByRole("button", { name: "Add a label", exact: true })
+        .waitFor();
+    }),
+  );
 
   const labelPath = `/board/${credentials.project_uid}/settings/label`;
-  const beforeResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/details`);
-  const beforeCount = (await beforeResponse.json()).project.labels.filter((label) => label.name === "New Label").length;
+  const beforeResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/details`,
+  );
+  const beforeCount = (await beforeResponse.json()).project.labels.filter(
+    (label) => label.name === "New Label",
+  ).length;
   let arrivals = 0;
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   const holdBothPosts = async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     arrivals += 1;
@@ -3743,19 +4492,44 @@ async function assertConcurrentLabelCreation(owner, peer, credentials) {
     await page.route(`**${labelPath}`, holdBothPosts);
   }
   try {
-    const responses = await Promise.all(pagesUnderTest.map(async (page) => {
-      const responsePromise = page.waitForResponse((response) => response.request().method() === "POST" &&
-        response.url().includes(labelPath));
-      await page.getByRole("button", { name: "Add a label", exact: true }).click();
-      return responsePromise;
-    }));
-    assert.deepEqual(responses.map((response) => response.status()), [201, 201]);
-    await Promise.all(pagesUnderTest.map((page) => page.getByText("New Label", { exact: true })
-      .and(page.locator(":visible")).nth(beforeCount + 1).waitFor({ timeout: 30000 })));
-    const afterResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/details`);
-    const afterCount = (await afterResponse.json()).project.labels.filter((label) => label.name === "New Label").length;
+    const responses = await Promise.all(
+      pagesUnderTest.map(async (page) => {
+        const responsePromise = page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            response.url().includes(labelPath),
+        );
+        await page
+          .getByRole("button", { name: "Add a label", exact: true })
+          .click();
+        return responsePromise;
+      }),
+    );
+    assert.deepEqual(
+      responses.map((response) => response.status()),
+      [201, 201],
+    );
+    await Promise.all(
+      pagesUnderTest.map((page) =>
+        page
+          .getByText("New Label", { exact: true })
+          .and(page.locator(":visible"))
+          .nth(beforeCount + 1)
+          .waitFor({ timeout: 30000 }),
+      ),
+    );
+    const afterResponse = await requestApi(
+      credentials,
+      credentials.users[0],
+      `/board/${credentials.project_uid}/details`,
+    );
+    const afterCount = (await afterResponse.json()).project.labels.filter(
+      (label) => label.name === "New Label",
+    ).length;
     assert.equal(afterCount, beforeCount + 2);
-    steps.push("two-distinct-users-concurrent-label-creates-persisted-and-fanned-out-to-both-settings-pages");
+    steps.push(
+      "two-distinct-users-concurrent-label-creates-persisted-and-fanned-out-to-both-settings-pages",
+    );
   } finally {
     for (const page of pagesUnderTest) {
       await page.unroute(`**${labelPath}`, holdBothPosts);
@@ -3769,24 +4543,49 @@ async function assertConcurrentLabelDetails(owner, peer, credentials) {
   const newName = `Renamed label ${runId}`;
   const newDescription = `Concurrent label description ${runId}`;
   const labelPath = `/board/${credentials.project_uid}/settings/label`;
-  const created = await requestApi(credentials, credentials.users[0], labelPath, {
-    method: "POST",
-    body: JSON.stringify({ name: labelName, color: "#228b72", description: "Original description" }),
-  });
+  const created = await requestApi(
+    credentials,
+    credentials.users[0],
+    labelPath,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: labelName,
+        color: "#228b72",
+        description: "Original description",
+      }),
+    },
+  );
   assert.equal(created.status, 201);
   const labelUID = (await created.json()).label.uid;
   const detailPath = `${labelPath}/${labelUID}/details`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/settings`, { waitUntil: "networkidle" });
-    await page.getByText(labelName, { exact: true }).first().waitFor();
-  }));
-  await Promise.all(pagesUnderTest.map(async (page, index) => {
-    const row = page.getByText(labelName, { exact: true }).first().locator("xpath=ancestor::div[contains(@class,'relative')][1]");
-    await row.getByRole("button", { name: "More", exact: true }).click();
-    await page.getByRole("menuitem", { name: index === 0 ? "Rename" : "Change description" }).click();
-    await page.getByPlaceholder(index === 0 ? "Label name" : "Description", { exact: true })
-      .fill(index === 0 ? newName : newDescription);
-  }));
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}/settings`, {
+        waitUntil: "networkidle",
+      });
+      await page.getByText(labelName, { exact: true }).first().waitFor();
+    }),
+  );
+  await Promise.all(
+    pagesUnderTest.map(async (page, index) => {
+      const row = page
+        .getByText(labelName, { exact: true })
+        .first()
+        .locator("xpath=ancestor::div[contains(@class,'relative')][1]");
+      await row.getByRole("button", { name: "More", exact: true }).click();
+      await page
+        .getByRole("menuitem", {
+          name: index === 0 ? "Rename" : "Change description",
+        })
+        .click();
+      await page
+        .getByPlaceholder(index === 0 ? "Label name" : "Description", {
+          exact: true,
+        })
+        .fill(index === 0 ? newName : newDescription);
+    }),
+  );
   const requests = [];
   for (const [index, page] of pagesUnderTest.entries()) {
     page.on("request", (request) => {
@@ -3795,22 +4594,60 @@ async function assertConcurrentLabelDetails(owner, peer, credentials) {
       }
     });
   }
-  const responses = pagesUnderTest.map((page) => page.waitForResponse((response) =>
-    response.request().method() === "PUT" && response.url().includes(detailPath), { timeout: 30000 }));
-  await Promise.all(pagesUnderTest.map((page) => page.getByRole("button", { name: "Save", exact: true }).click()));
-  assert.deepEqual((await Promise.all(responses)).map((response) => response.status()), [200, 200]);
-  assert.ok(requests.some((request) => request.user === 0 && request.body.name === newName), JSON.stringify(requests));
-  assert.ok(requests.some((request) => request.user === 1 && request.body.description === newDescription), JSON.stringify(requests));
-  const detailResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/details`);
-  const label = (await detailResponse.json()).project.labels.find((item) => item.uid === labelUID);
+  const responses = pagesUnderTest.map((page) =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().includes(detailPath),
+      { timeout: 30000 },
+    ),
+  );
+  await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.getByRole("button", { name: "Save", exact: true }).click(),
+    ),
+  );
+  assert.deepEqual(
+    (await Promise.all(responses)).map((response) => response.status()),
+    [200, 200],
+  );
+  assert.ok(
+    requests.some(
+      (request) => request.user === 0 && request.body.name === newName,
+    ),
+    JSON.stringify(requests),
+  );
+  assert.ok(
+    requests.some(
+      (request) =>
+        request.user === 1 && request.body.description === newDescription,
+    ),
+    JSON.stringify(requests),
+  );
+  const detailResponse = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/details`,
+  );
+  const label = (await detailResponse.json()).project.labels.find(
+    (item) => item.uid === labelUID,
+  );
   assert.equal(label?.name, newName);
   assert.equal(label?.description, newDescription);
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByText(newName, { exact: true }).first().waitFor({ timeout: 30000 });
-    await page.getByText(newDescription, { exact: true }).first().waitFor({ timeout: 30000 });
+    await page
+      .getByText(newName, { exact: true })
+      .first()
+      .waitFor({ timeout: 30000 });
+    await page
+      .getByText(newDescription, { exact: true })
+      .first()
+      .waitFor({ timeout: 30000 });
   }
-  steps.push("two-distinct-users-concurrent-same-label-name-and-description-preserved-after-reload");
+  steps.push(
+    "two-distinct-users-concurrent-same-label-name-and-description-preserved-after-reload",
+  );
 }
 
 async function assertConcurrentWikiCreation(owner, peer, credentials) {
@@ -3864,21 +4701,31 @@ async function assertConcurrentWikiCreation(owner, peer, credentials) {
   assert.equal(arrivals, 2);
   for (const page of pagesUnderTest) {
     await page.waitForFunction(
-      () => [...document.querySelectorAll("[id^='board-wiki-'][id$='-tab']")]
-        .filter((tab) => tab.textContent?.includes("New page")).length === 2,
+      () =>
+        [
+          ...document.querySelectorAll("[id^='board-wiki-'][id$='-tab']"),
+        ].filter((tab) => tab.textContent?.includes("New page")).length === 2,
     );
   }
-  const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/wikis`);
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/wikis`,
+  );
   const { wikis } = await response.json();
   assert.equal(wikis.filter((wiki) => wiki.title === "New page").length, 2);
   for (const page of pagesUnderTest) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(
-      () => [...document.querySelectorAll("[id^='board-wiki-'][id$='-tab']")]
-        .filter((tab) => tab.textContent?.includes("New page")).length === 2,
+      () =>
+        [
+          ...document.querySelectorAll("[id^='board-wiki-'][id$='-tab']"),
+        ].filter((tab) => tab.textContent?.includes("New page")).length === 2,
     );
   }
-  steps.push("two-distinct-users-overlapping-wiki-creates-persisted-once-and-fanned-out-to-both-tabs");
+  steps.push(
+    "two-distinct-users-overlapping-wiki-creates-persisted-once-and-fanned-out-to-both-tabs",
+  );
 }
 
 async function assertConcurrentWikiDetails(owner, peer, credentials) {
@@ -3886,27 +4733,57 @@ async function assertConcurrentWikiDetails(owner, peer, credentials) {
   const title = `Concurrent wiki title ${runId}`;
   const content = `Concurrent wiki content ${runId}`;
   const detailsPath = `/board/${credentials.project_uid}/wiki/${credentials.wiki_uid}/details`;
-  await Promise.all(pagesUnderTest.map(async (page) => {
-    await page.goto(`${origin}/board/${credentials.project_uid}/wiki`, { waitUntil: "networkidle" });
-    await page.locator(`#board-wiki-${credentials.wiki_uid}-tab`).click();
-    await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
-  }));
-  await owner.locator("h1 span").filter({ hasText: `Migration wiki ${runId}` }).click();
-  await owner.locator("textarea:visible:enabled:not([placeholder])").fill(title);
+  await Promise.all(
+    pagesUnderTest.map(async (page) => {
+      await page.goto(`${origin}/board/${credentials.project_uid}/wiki`, {
+        waitUntil: "networkidle",
+      });
+      await page.locator(`#board-wiki-${credentials.wiki_uid}-tab`).click();
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).waitFor();
+    }),
+  );
+  await owner
+    .locator("h1 span")
+    .filter({ hasText: `Migration wiki ${runId}` })
+    .click();
+  await owner
+    .locator("textarea:visible:enabled:not([placeholder])")
+    .fill(title);
   await peer.locator("[data-wiki-content]").click();
-  const editor = peer.locator('[data-wiki-content] [data-slate-editor="true"]:visible');
+  const editor = peer.locator(
+    '[data-wiki-content] [data-slate-editor="true"]:visible',
+  );
   await editor.waitFor();
   await editor.click();
   await peer.keyboard.press("ControlOrMeta+A");
   await editor.pressSequentially(content, { delay: 10 });
-  await peer.waitForFunction((expected) => document.querySelector('[data-wiki-content] [data-slate-editor="true"]')?.textContent?.includes(expected), content);
-  const beforeSave = await Promise.all(pagesUnderTest.map((page) => page.evaluate(() => ({
-    buttons: [...document.querySelectorAll("button")].filter((button) => ["Edit", "Save"].includes(button.textContent?.trim())).map((button) => button.textContent?.trim()),
-    title: document.querySelector("textarea:not([placeholder])")?.value,
-    content: document.querySelector('[data-wiki-content] [data-slate-editor="true"]')?.textContent,
-  }))));
-  assert.ok(beforeSave.every((state) => state.buttons.includes("Save")), JSON.stringify(beforeSave));
+  await peer.waitForFunction(
+    (expected) =>
+      document
+        .querySelector('[data-wiki-content] [data-slate-editor="true"]')
+        ?.textContent?.includes(expected),
+    content,
+  );
+  const beforeSave = await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.evaluate(() => ({
+        buttons: [...document.querySelectorAll("button")]
+          .filter((button) =>
+            ["Edit", "Save"].includes(button.textContent?.trim()),
+          )
+          .map((button) => button.textContent?.trim()),
+        title: document.querySelector("textarea:not([placeholder])")?.value,
+        content: document.querySelector(
+          '[data-wiki-content] [data-slate-editor="true"]',
+        )?.textContent,
+      })),
+    ),
+  );
+  assert.ok(
+    beforeSave.every((state) => state.buttons.includes("Save")),
+    JSON.stringify(beforeSave),
+  );
   const requests = [];
   for (const [index, page] of pagesUnderTest.entries()) {
     page.on("request", (request) => {
@@ -3915,17 +4792,49 @@ async function assertConcurrentWikiDetails(owner, peer, credentials) {
       }
     });
   }
-  const responses = pagesUnderTest.map((page) => page.waitForResponse((response) =>
-    response.request().method() === "PUT" && response.url().includes(detailsPath), { timeout: 30000 }).catch((error) => error));
-  await Promise.all(pagesUnderTest.map((page) => page.getByRole("button", { name: "Save", exact: true }).click()));
+  const responses = pagesUnderTest.map((page) =>
+    page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === "PUT" &&
+          response.url().includes(detailsPath),
+        { timeout: 30000 },
+      )
+      .catch((error) => error),
+  );
+  await Promise.all(
+    pagesUnderTest.map((page) =>
+      page.getByRole("button", { name: "Save", exact: true }).click(),
+    ),
+  );
   const results = await Promise.all(responses);
   if (results.some((result) => result instanceof Error)) {
-    throw new Error(`Wiki save did not issue two responses: ${JSON.stringify({ beforeSave, requests, errors: results.filter((result) => result instanceof Error).map(String) })}`);
+    throw new Error(
+      `Wiki save did not issue two responses: ${JSON.stringify({ beforeSave, requests, errors: results.filter((result) => result instanceof Error).map(String) })}`,
+    );
   }
-  assert.deepEqual(results.map((response) => response.status()), [200, 200]);
-  assert.ok(requests.some((request) => request.user === 0 && request.body.title === title), JSON.stringify(requests));
-  assert.ok(requests.some((request) => request.user === 1 && request.body.content?.content?.includes(content)), JSON.stringify(requests));
-  const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/wiki/${credentials.wiki_uid}`);
+  assert.deepEqual(
+    results.map((response) => response.status()),
+    [200, 200],
+  );
+  assert.ok(
+    requests.some(
+      (request) => request.user === 0 && request.body.title === title,
+    ),
+    JSON.stringify(requests),
+  );
+  assert.ok(
+    requests.some(
+      (request) =>
+        request.user === 1 && request.body.content?.content?.includes(content),
+    ),
+    JSON.stringify(requests),
+  );
+  const response = await requestApi(
+    credentials,
+    credentials.users[0],
+    `/board/${credentials.project_uid}/wiki/${credentials.wiki_uid}`,
+  );
   const { wiki } = await response.json();
   assert.equal(wiki.title, title);
   assert.ok(wiki.content?.content?.includes(content));
@@ -3935,7 +4844,9 @@ async function assertConcurrentWikiDetails(owner, peer, credentials) {
     await page.getByText(title, { exact: true }).first().waitFor();
     await page.getByText(content, { exact: true }).first().waitFor();
   }
-  steps.push("two-distinct-users-concurrent-same-wiki-title-and-content-preserved-after-reload");
+  steps.push(
+    "two-distinct-users-concurrent-same-wiki-title-and-content-preserved-after-reload",
+  );
 }
 
 async function assertCardCommentRealtimeLifecycle(owner, peer, credentials) {
@@ -3997,7 +4908,10 @@ async function assertCardCommentRealtimeLifecycle(owner, peer, credentials) {
         text: form.textContent?.slice(0, 100),
       })),
     }));
-    throw new Error(`Desktop comment composer did not render: ${JSON.stringify(state)}`, { cause: error });
+    throw new Error(
+      `Desktop comment composer did not render: ${JSON.stringify(state)}`,
+      { cause: error },
+    );
   }
   await peer.setViewportSize({ width: 390, height: 844 });
   try {
@@ -5420,7 +6334,9 @@ async function main() {
     : credentials.users;
   for (const [index, user] of users.entries()) {
     const context = await browser.newContext(
-      index === 1 && (failoverStage !== "concurrent-ui" || process.env.PHOENIX_CONCURRENT_UI_MOBILE_PEER === "true")
+      index === 1 &&
+        (failoverStage !== "concurrent-ui" ||
+          process.env.PHOENIX_CONCURRENT_UI_MOBILE_PEER === "true")
         ? {
             viewport: { width: 390, height: 844 },
             isMobile: true,
@@ -5654,11 +6570,12 @@ async function main() {
     }
     steps.push("owner-and-member-browser-sockets-use-authenticated-route-keys");
   } else {
-  steps.push(
-    failoverStage === "concurrent-ui" && process.env.PHOENIX_CONCURRENT_UI_MOBILE_PEER !== "true"
-      ? "desktop-owner-and-desktop-member-connected-to-live-phoenix"
-      : "desktop-owner-and-mobile-member-connected-to-live-phoenix",
-  );
+    steps.push(
+      failoverStage === "concurrent-ui" &&
+        process.env.PHOENIX_CONCURRENT_UI_MOBILE_PEER !== "true"
+        ? "desktop-owner-and-desktop-member-connected-to-live-phoenix"
+        : "desktop-owner-and-mobile-member-connected-to-live-phoenix",
+    );
   }
   for (const page of pages) {
     await page.waitForFunction(
@@ -6014,16 +6931,22 @@ async function main() {
     await assertConcurrentWikiCreation(owner, peer, credentials);
     await assertConcurrentWikiDetails(owner, peer, credentials);
     const dashboard = await owner.context().newPage();
-    await dashboard.goto(`${origin}/dashboard/projects/all`, { waitUntil: "domcontentloaded" });
-    await dashboard.getByRole("heading", {
-      name: `Migration editor access probe ${runId}`,
-      exact: true,
-    }).waitFor();
+    await dashboard.goto(`${origin}/dashboard/projects/all`, {
+      waitUntil: "domcontentloaded",
+    });
+    await dashboard
+      .getByRole("heading", {
+        name: `Migration editor access probe ${runId}`,
+        exact: true,
+      })
+      .waitFor();
     await assertConcurrentCardCreation(owner, peer, credentials, dashboard);
     await assertConcurrentColumnCreation(owner, peer, credentials, dashboard);
     await assertConcurrentColumnRename(owner, peer, credentials);
     await dashboard.close();
-    steps.push("open-dashboard-reflected-concurrent-card-and-column-creates-without-reload");
+    steps.push(
+      "open-dashboard-reflected-concurrent-card-and-column-creates-without-reload",
+    );
     await assertConcurrentProjectSettings(owner, peer, credentials);
     await assertConcurrentLabelCreation(owner, peer, credentials);
     await assertConcurrentLabelDetails(owner, peer, credentials);
@@ -6467,7 +7390,10 @@ async function main() {
   if (race) {
     await Promise.all([
       owner
-        .getByRole("button", { name: race === "approve" ? "Approve" : "Reject", exact: true })
+        .getByRole("button", {
+          name: race === "approve" ? "Approve" : "Reject",
+          exact: true,
+        })
         .click(),
       pages[2]
         .getByRole("button", {

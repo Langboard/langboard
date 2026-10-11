@@ -1430,11 +1430,15 @@ async function runConcurrentEditorWrites(owner, peer) {
   stage = "editor-concurrent-write";
   const initial = `Editor concurrent ${runId}`;
   await appendEditorText(owner, initial);
-  await Promise.all([owner, peer].map((page) => waitForEditorText(page, initial)));
+  await Promise.all(
+    [owner, peer].map((page) => waitForEditorText(page, initial)),
+  );
 
   const additions = [" owner-write", " peer-write"];
   await Promise.all(
-    [owner, peer].map((page, index) => appendEditorText(page, additions[index])),
+    [owner, peer].map((page, index) =>
+      appendEditorText(page, additions[index]),
+    ),
   );
   await Promise.all(
     [owner, peer].map((page) =>
@@ -1443,7 +1447,9 @@ async function runConcurrentEditorWrites(owner, peer) {
           const content = document.querySelector(
             '[data-card-description] [contenteditable="true"]',
           )?.innerText;
-          return content && texts.every((text) => content.includes(text.trim()));
+          return (
+            content && texts.every((text) => content.includes(text.trim()))
+          );
         },
         additions,
         { timeout: 30000 },
@@ -1463,14 +1469,23 @@ async function runConcurrentEditorWrites(owner, peer) {
   for (const page of [owner, peer]) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(
-      (text) => document.querySelector("[data-card-description]")?.innerText.trim() === text,
+      (text) =>
+        document.querySelector("[data-card-description]")?.innerText.trim() ===
+        text,
       expected,
       { timeout: 30000 },
     );
   }
   await fs.writeFile(
     path.join(output, "result.json"),
-    JSON.stringify({ success: true, steps: ["two-user-concurrent-editor-writes-converged-and-persisted"] }, null, 2),
+    JSON.stringify(
+      {
+        success: true,
+        steps: ["two-user-concurrent-editor-writes-converged-and-persisted"],
+      },
+      null,
+      2,
+    ),
   );
 }
 
