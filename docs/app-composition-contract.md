@@ -73,9 +73,11 @@ signal/card/workflow grants. Full logical-app disable is an explicit operation
 over its current module set. Lock the composition revision and module bindings,
 authorize all targets before mutation, and clear their execution grants in one
 host transaction. Preserve connections, signals, cards, ownership and history.
-Any unavailable/revoked target blocks the operation rather than yielding a false
-success for a partially disabled composition. External effects already executed
-are not reported as rolled back.
+Already-disabled modules are idempotent targets. An unavailable definition or
+organization policy never prevents withdrawal of retained board grants through
+the existing revocation authorization path. A changed composition/binding revision
+or lost board revocation authority rejects the whole write. External effects
+already executed are not reported as rolled back.
 
 ## Existing installations and compatibility
 
