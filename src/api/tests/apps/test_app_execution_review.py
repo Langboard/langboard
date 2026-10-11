@@ -88,6 +88,7 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
             saved_grants = binding.granted_capabilities
             binding.granted_capabilities = [grant for grant in saved_grants if grant != "resources.read"]
             db.update(binding)
+        body["expected_binding_revision"] = binding.edit_revision()
         assert client.post(path, json=body, headers=headers).status_code == 403
         with DbSession.atomic() as db:
             binding.granted_capabilities = saved_grants
