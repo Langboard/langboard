@@ -18,7 +18,7 @@ from ..models import (
     User,
 )
 from ..models.ProjectRole import ProjectRoleAction
-from .AppConnectionAuthentication import authenticate_connection_credential
+from .AppConnectionAuthentication import authenticate_connection_credential, is_native_inbound_connection
 from .AppGovernance import AppGovernanceDenied, require_connection_access
 
 
@@ -91,14 +91,15 @@ def receive_external_signal(service, token, project_uid, body, headers):
             AppResourceBinding.resource_type.in_(policy["resource_types"]),
             AppResourceBinding.is_selected == True, AppResourceBinding.access_state == "granted",  # noqa: E712
         ).with_for_update()).first()
-        if resource is None or not connection.credential_reference:
+        if resource is None:
             raise AppGovernanceDenied()
-        try:
-            secret = service.secret_reference._find(owner, connection.credential_reference, lock=True)
-        except Exception:
-            raise AppGovernanceDenied() from None
-        if secret.state != "active":
-            raise AppGovernanceDenied()
+        if not is_native_inbound_connection(connection):
+            try:
+                secret = service.secret_reference._find(owner, connection.credential_reference, lock=True)
+            except Exception:
+                raise AppGovernanceDenied() from None
+            if secret.state != "active":
+                raise AppGovernanceDenied()
         values = {field: envelope[field] for field in ("event_id", "event_type", "external_id", "outcome", "commit_sha")}
         values.update(provider=principal.app_key, occurred_at=stamp.astimezone(timezone.utc).isoformat(timespec="microseconds"),
                       payload_digest=hashlib.sha256(json.dumps(

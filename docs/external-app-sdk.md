@@ -1121,6 +1121,14 @@ Version 1 requires `board_uid`, `resource_uid`, current `app_revision` and
 `external_id`, `outcome` and `commit_sha`. Unknown/duplicate JSON fields are rejected.
 Current declaration/publication consent, unattended organization connection,
 owner board update authority, selected resource and active SecretRef are checked.
+Native inbound connections created by host onboarding have no upstream SecretRef.
+They use the existing host-issued connection credential instead; the exemption
+requires an external app key and no provider URL/account/reference fields.
+Signal reads batch-check active, unexpired, unrevoked credential hashes against
+current connection and declaration identity. Removing the last valid credential
+hides native inbound evidence. Provider-backed connections retain their existing
+SecretRef authority check; missing provider secrets do not fall back to inbound
+identity. Native policy/credential lookups are batched across connection rows.
 The native credential row is locked and revalidated before storing evidence.
 Identical event retries return the same signal receipt. Exact wire bytes are
 authenticated, while replay digests use canonical JSON so harmless whitespace
