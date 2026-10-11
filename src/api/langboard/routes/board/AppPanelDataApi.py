@@ -152,3 +152,65 @@ def respond_from_panel(request: Request, project_uid: str, app_key: str, card_ui
         except ValueError:
             raise ApiException.BadRequest_400() from None
         return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+class PanelRuntimesForm(PanelResourcesForm):
+    card_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
+    cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{11}$")
+
+
+class PanelRuntimeControlForm(PanelResourcesForm):
+    generation: int = Field(strict=True, ge=1)
+    cursor: None = None
+
+
+def _runtime_panel(service, user, project_uid, app_key, form):
+    panel = get_panel(service.workflow_stage, user, project_uid, app_key, lock=True)
+    if panel is None or "execution.run" not in panel["granted_capabilities"]:
+        raise ApiException.NotFound_404()
+    if panel["app_revision"] != form.app_revision or panel["binding_revision"] != form.binding_revision:
+        raise ApiException.Conflict_409()
+
+
+@AppRouter.api.post("/board/{project_uid}/apps/{app_key}/panel/runtimes", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def read_panel_runtimes(request: Request, project_uid: str, app_key: str, form: PanelRuntimesForm,
+                        user: User = Auth.scope("user"), service: DomainService = DomainService.scope()):
+    from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes
+    with DbSession.atomic():
+        _runtime_panel(service, user, project_uid, app_key, form)
+        try:
+            result = list_human_card_runtimes(service, user, SnowflakeID.from_short_code(project_uid),
+                SnowflakeID.from_short_code(form.card_uid), request.scope.get("collaboration_channel", CollaborationChannel.Api),
+                before=SnowflakeID.from_short_code(form.cursor) if form.cursor else None, app_key=app_key)
+        except AppGovernanceDenied:
+            raise ApiException.NotFound_404() from None
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+@AppRouter.api.post("/board/{project_uid}/apps/{app_key}/panel/cards/{card_uid}/runtimes/{request_uid}/{action}", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def control_panel_runtime(request: Request, project_uid: str, app_key: str, card_uid: str, request_uid: str,
+                          action: str, form: PanelRuntimeControlForm,
+                          user: User = Auth.scope("user"), service: DomainService = DomainService.scope()):
+    from langboard_shared.domain.services.AppExecutionControl import (
+        request_human_runtime_resume,
+        request_human_runtime_stop,
+    )
+    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
+    if action not in ("stop", "resume"):
+        raise ApiException.NotFound_404()
+    with DbSession.atomic():
+        _runtime_panel(service, user, project_uid, app_key, form)
+        operation = request_human_runtime_stop if action == "stop" else request_human_runtime_resume
+        try:
+            result = operation(service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+                SnowflakeID.from_short_code(request_uid), form.generation,
+                request.scope.get("collaboration_channel", CollaborationChannel.Api), app_key=app_key)
+        except AppGovernanceDenied:
+            raise ApiException.NotFound_404() from None
+        except AppExecutionRequestConflict:
+            raise ApiException.Conflict_409() from None
+        except ValueError:
+            raise ApiException.BadRequest_400() from None
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})

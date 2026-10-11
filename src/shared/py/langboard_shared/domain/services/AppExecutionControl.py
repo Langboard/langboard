@@ -9,7 +9,7 @@ from .AppExecutionRequests import AppExecutionRequestConflict
 from .AppGovernance import AppGovernanceDenied, _current
 
 
-def request_human_runtime_stop(service, actor, project_id, card_id, request_id, generation, channel=None):
+def request_human_runtime_stop(service, actor, project_id, card_id, request_id, generation, channel=None, *, app_key=None):
     """Revoke this permit; only the external runtime can attest actual termination.
 
     App revocation must not prevent a still-authorized human from stopping a
@@ -26,7 +26,7 @@ def request_human_runtime_stop(service, actor, project_id, card_id, request_id, 
             AppExecutionRequest.project_id == project_id,
             AppExecutionRequest.card_id == card_id,
         )).first()
-        if request is None:
+        if request is None or (app_key is not None and request.app_key != app_key):
             raise AppGovernanceDenied()
         if request.generation != generation:
             raise AppExecutionRequestConflict()
@@ -46,7 +46,7 @@ def request_human_runtime_stop(service, actor, project_id, card_id, request_id, 
         return {**_result(db, lease), "changed": changed, "execution_resumed": False}
 
 
-def list_human_card_runtimes(service, actor, project_id, card_id, channel=None, *, before=None):
+def list_human_card_runtimes(service, actor, project_id, card_id, channel=None, *, before=None, app_key=None):
     """Bounded retained runtime identities; no private credentials or inferred runs."""
     from .AppExecutionLeases import runtime_timestamp
 
@@ -66,6 +66,8 @@ def list_human_card_runtimes(service, actor, project_id, card_id, channel=None, 
         query = SqlBuilder.select.table(AppExecutionRequest).where(
             AppExecutionRequest.project_id == project_id, AppExecutionRequest.card_id == card_id
         )
+        if app_key is not None:
+            query = query.where(AppExecutionRequest.app_key == app_key)
         if before is not None:
             query = query.where(AppExecutionRequest.id < before)
         page = db.exec(query.order_by(AppExecutionRequest.id.desc()).limit(11)).all()
@@ -115,7 +117,7 @@ def _human_control_scope(db, service, actor, project_id, card_id, channel):
     return current
 
 
-def request_human_runtime_resume(service, actor, project_id, card_id, request_id, generation, channel=None):
+def request_human_runtime_resume(service, actor, project_id, card_id, request_id, generation, channel=None, *, app_key=None):
     """Accept a newer producer-issued ready generation; never reopen a stopped lease."""
     from .AppExecutionGrant import evaluate_connection_execution_grant
     from .AppExecutionRequests import accept_authorized_execution_request
@@ -131,7 +133,7 @@ def request_human_runtime_resume(service, actor, project_id, card_id, request_id
             AppExecutionRequest.id == request_id, AppExecutionRequest.project_id == project_id,
             AppExecutionRequest.card_id == card_id,
         )).first()
-        if request is None:
+        if request is None or (app_key is not None and request.app_key != app_key):
             raise AppGovernanceDenied()
         if request.generation != generation:
             raise AppExecutionRequestConflict()
