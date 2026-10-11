@@ -275,6 +275,8 @@
     "firstRetained": "저장된 연결 첫 페이지"
   },
   "appInteractions": {
+    "source": "요청 앱: {{app}}",
+    "sourceHelp": "이 앱이 제출한 요청입니다. AI 작성 여부를 의미하지 않습니다.",
     "title": "앱 요청",
     "help": "이 카드에 대한 결정입니다. 인박스 상태와 실행은 별개입니다.",
     "refresh": "새로고침",

@@ -1,3 +1,4 @@
+import Badge from "@/components/base/Badge";
 import Button from "@/components/base/Button";
 import Checkbox from "@/components/base/Checkbox";
 import Textarea from "@/components/base/Textarea";
@@ -20,6 +21,7 @@ interface Question {
 }
 export interface CardInteraction {
     interaction_uid: string;
+    source?: { app_key: string; connection_uid: string };
     revision: number;
     state: "pending" | "answered" | "expired" | "cancelled";
     request: {
@@ -226,6 +228,11 @@ function InteractionForm({
     return (
         <article className="card card-border card-sm border-border" aria-busy={pending}>
             <div className="card-body min-w-0 p-3">
+                {item.source && (
+                    <Badge variant="outline" className="max-w-full self-start break-all" title={t("card.appInteractions.sourceHelp")}>
+                        {t("card.appInteractions.source", { app: item.source.app_key })}
+                    </Badge>
+                )}
                 <h3 className="card-title break-words text-sm">{localized(item.request.prompt)}</h3>
                 <p className="text-xs text-muted-foreground">{t(`card.appInteractions.${state}`)}</p>
                 {reaction && (
