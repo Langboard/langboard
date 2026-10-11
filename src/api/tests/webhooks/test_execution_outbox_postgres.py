@@ -149,7 +149,9 @@ def test_legacy_execution_squash_reconciliation_preserves_rows_and_matches_fresh
                                       "WHERE card_id = 101").fetchone()[0] == 4
             assert connection.execute("SELECT state FROM execution_outbox WHERE card_id = 101").fetchone()[0] == "delivered"
             constraints = {row[0] for row in connection.execute(
-                "SELECT conname FROM pg_constraint WHERE conrelid = 'card_execution_generation'::regclass"
+                # PostgreSQL 18 also exposes column NOT NULL constraints here.
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'card_execution_generation'::regclass "
+                "AND contype <> 'n'"
             )}
             assert constraints == {"pk_card_execution_generation", "fk_card_execution_generation_card_id_card"}
             with pytest.raises(psycopg.errors.RaiseException):
@@ -332,6 +334,38 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
                 connection.execute(text("SELECT state FROM execution_outbox WHERE card_id = 100")).scalar_one()
                 == "delivering"
             )
+
+        # Recovery skips a row locked by another claimant without waiting.
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE execution_outbox SET state = 'pending', attempt_count = 0, lease_until = NULL"))
+        with engine.begin() as claimant:
+            event_id = claimant.execute(text("SELECT id FROM execution_outbox FOR UPDATE")).scalar_one()
+            assert not asyncio_run(worker.drain_one())
+
+        # The event-specific hot path and recovery share one live claim while HTTP is in flight.
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        entered, release = Event(), Event()
+        async def waiting_post(model, webhook_uid):
+            entered.set()
+            assert release.wait(5), "test delivery was not released"
+            await fake_post(model, webhook_uid)
+
+        monkeypatch.setattr(worker, "post_signed_webhook", waiting_post)
+        posts_before = len(posted_webhooks)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            hot_path = executor.submit(lambda: asyncio_run(worker.drain_one(event_id)))
+            try:
+                assert entered.wait(5), "hot path did not reach delivery"
+                assert not asyncio_run(worker.drain_one())
+            finally:
+                release.set()
+            assert hot_path.result(timeout=5)
+        monkeypatch.setattr(worker, "post_signed_webhook", fake_post)
+        assert len(posted_webhooks) == posts_before + 1
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT state, attempt_count FROM execution_outbox")).one() == ("delivered", 1)
 
         # Operator recovery re-queues terminal failures with a fresh attempt budget.
         with engine.begin() as connection:
