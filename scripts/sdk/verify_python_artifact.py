@@ -28,12 +28,23 @@ def verify(root: Path) -> Path:
         package = BytesParser().parsebytes(wheel.read(metadata[0]))
     if package["Name"] != "langboard-sdk" or package["Version"] != version:
         raise ValueError("SDK package identity mismatch")
-    lock = tomllib.loads((root / "uv.lock").read_text())
-    entries = [entry for entry in lock["package"] if entry["name"] == "langboard-sdk"]
-    if len(entries) != 1 or entries[0]["version"] != version or entries[0]["source"]["path"] != artifact.relative_to(root.resolve()).as_posix():
-        raise ValueError("SDK lock identity mismatch")
-    if entries[0]["wheels"] != [{"filename": artifact.name, "hash": "sha256:" + expected}]:
-        raise ValueError("SDK lock digest mismatch")
+    for project_root in (root, root / "src/shared/py"):
+        config = tomllib.loads((project_root / "pyproject.toml").read_text())
+        source = config["tool"]["uv"]["sources"]["langboard-sdk"]["path"]
+        if (project_root / source).resolve() != artifact:
+            raise ValueError("SDK project artifact mismatch")
+        lock = tomllib.loads((project_root / "uv.lock").read_text())
+        entries = [entry for entry in lock["package"] if entry["name"] == "langboard-sdk"]
+        lock_path = entries[0]["source"].get("path") if len(entries) == 1 else None
+        if (
+            len(entries) != 1
+            or entries[0]["version"] != version
+            or not isinstance(lock_path, str)
+            or (project_root / lock_path).resolve() != artifact
+        ):
+            raise ValueError("SDK lock identity mismatch")
+        if entries[0]["wheels"] != [{"filename": artifact.name, "hash": "sha256:" + expected}]:
+            raise ValueError("SDK lock digest mismatch")
     return artifact
 
 
