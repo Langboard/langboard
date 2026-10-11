@@ -1087,3 +1087,24 @@ cleanup, without exposing credentials or granting execution. Follow `next_cursor
 explicitly; the SDK does not scan every page or retry mutations.
 
 Detailed agreed contract and consumer acceptance: [App human interactions v1](app-human-interactions.md). App request create/read are available in SDK 0.2.14; response and continuation methods remain pending.
+
+## Panel signal source consent (SDK 0.2.20)
+
+External panel declarations use `signal_sources` to name 1–16 unique adapter keys.
+The field requires `signals.read`; it does not install an adapter, create provider
+credentials or grant access to another account or resource. Approval reviews the
+finite source set. Board panel consent grants this reviewed set only, and native
+user/board/connection/resource/SecretRef checks still apply to every read.
+
+The server rejects signal consent for old declarations without explicit sources.
+An existing old signal grant cannot bypass this rule: panel reads reject every
+undeclared provider before invoking native discovery. Update the declaration and
+explicitly consent again; no provider is inferred from an app name or URL.
+Changing the source set removes `signals.read` from retained board grants and
+requires renewed consent; changing order alone retains consent. This does not
+revoke unrelated connections or rendering consent. A source that is declared but
+has no installed native adapter still fails native support validation.
+
+This is a panel read boundary. Signal ingestion, inbox triage and app-owned card
+creation remain independent functions and authority scopes. SDK 0.2.19 interaction
+requests, responses, reception ACK and signed response bodies are unchanged.
