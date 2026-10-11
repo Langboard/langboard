@@ -12,13 +12,15 @@ from langboard_shared.domain.models import (
     User,
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.AppConnectionAuthentication import is_native_inbound_connection
 from langboard_shared.domain.services.AppGovernance import (
     AppGovernanceDenied,
     connection_discovery_scope,
     require_connection_access,
 )
-from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
+from langboard_shared.domain.services.AppRegistry import approved_manifests
 from langboard_shared.domain.services.AppSignalProjection import (
+    authorized_signal_rows,
     card_signal_projections,
     registered_capability_condition,
     supported_signal_condition,
@@ -56,16 +58,17 @@ def authorized_card(service, actor, project_uid, card_uid, *, channel=Collaborat
 
 
 def authorized_signal_scope(service, db, actor, project_uid, connection_uid, resource_uid, signal_uid):
+    manifests = approved_manifests()
     signal = db.exec(
         SqlBuilder.select.table(AppSignal).where(
             AppSignal.id == InfraHelper.convert_id(signal_uid),
             AppSignal.resource_id == InfraHelper.convert_id(resource_uid),
-            supported_signal_condition(),
+            supported_signal_condition(manifests),
         )
     ).first()
     if signal is None or not signal.external_id:
         raise GitHubManifestUnavailable()
-    manifest = APP_MANIFESTS.get(signal.provider)
+    manifest = manifests.get(signal.provider)
     policy = manifest.signal_policy if manifest else None
     if policy is None or policy.requires_commit and not signal.commit_sha:
         raise GitHubManifestUnavailable()
@@ -113,6 +116,10 @@ def authorized_signal_scope(service, db, actor, project_uid, connection_uid, res
     ).first()
     if resource is None:
         raise GitHubManifestUnavailable()
+    if is_native_inbound_connection(connection):
+        if not authorized_signal_rows(db, [(resource, connection, None)]):
+            raise GitHubManifestUnavailable()
+        return signal, connection, resource
     try:
         meta = service.secret_reference._find(owner, connection.credential_reference, lock=True).metadata()
     except SecretReferenceUnavailable:
