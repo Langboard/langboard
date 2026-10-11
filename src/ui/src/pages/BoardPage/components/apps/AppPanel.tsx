@@ -32,6 +32,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
     const [intersecting, setIntersecting] = useState(false);
     const [visible, setVisible] = useState(!document.hidden);
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+    const failedScope = useRef<string | null>(null);
     useEffect(() => {
         const update = () => setVisible(!document.hidden);
         document.addEventListener("visibilitychange", update);
@@ -45,7 +46,8 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         return () => observer.disconnect();
     }, []);
     useEffect(() => {
-        if (!visible || !intersecting || !container.current) return;
+        const scope = JSON.stringify([userUID, projectUID, app.key, app.version]);
+        if (!visible || !intersecting || !container.current || failedScope.current === scope) return;
         const controller = new AbortController();
         let frame: HTMLIFrameElement | undefined;
         let loadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -60,6 +62,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
             frame?.remove();
         };
         const fail = () => {
+            failedScope.current = scope;
             activePanelDisposals.delete(stateKey);
             panelStateCache.delete(stateKey);
             teardown();

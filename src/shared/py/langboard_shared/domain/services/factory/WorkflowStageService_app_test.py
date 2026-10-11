@@ -14,6 +14,7 @@ from ...models import (
     AppGovernancePolicy,
     AppResourceBinding,
     BoardAppBinding,
+    Organization,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
@@ -45,10 +46,9 @@ def board(monkeypatch, request):
             db.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine.dispose()
         engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-        with engine.begin() as db:
-            db.execute(text("CREATE TABLE organization (id BIGINT PRIMARY KEY)"))
     for model in (
         User,
+        Organization,
         AppDefinition,
         AppGovernancePolicy,
         Project,
