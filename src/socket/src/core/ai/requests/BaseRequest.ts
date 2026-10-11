@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { AI_REQUEST_TIMEOUT, AI_REQUEST_TRIALS } from "@/Constants";
+import { createGraphServiceHeaders } from "@/core/ai/BotOneTimeToken";
 import BaseStreamResponse from "@/core/ai/responses/BaseStreamResponse";
 import { IBotRequestModel } from "@/core/ai/types";
 import { api } from "@/core/helpers/Api";
@@ -101,6 +102,7 @@ abstract class BaseRequest {
 
         switch (this.internalBot.platform) {
             case EBotPlatform.Default:
+                Object.assign(headers, createGraphServiceHeaders());
                 break;
             case EBotPlatform.Langflow:
                 headers["X-API-KEY"] = this.internalBot.api_key;

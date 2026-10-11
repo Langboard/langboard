@@ -1,0 +1,98 @@
+"""Graph HTTP must reject untrusted callers before route or checkpoint work."""
+
+from time import time
+import httpx
+import pytest
+from fastapi import FastAPI
+from jwt import encode
+from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security.GraphServiceAuth import graph_service_headers
+from langboard_shared.Env import Env
+from langboard_graph.middlewares.GraphServiceAuthMiddleware import GraphServiceAuthMiddleware
+from langboard_graph.routes import RunApi
+
+
+@pytest.fixture
+def app(monkeypatch):
+    monkeypatch.setattr(
+        type(Env), "JWT_SECRET_KEY", property(lambda self: "test-only-graph-service-signing-key-32bytes")
+    )
+    api = FastAPI()
+    api.include_router(AppRouter.api)
+    api.add_middleware(GraphServiceAuthMiddleware)
+    touched = []
+
+    async def checkpoint(thread):
+        touched.append(thread)
+        return {"values": {}, "interrupts": [], "next": []}
+
+    monkeypatch.setattr(RunApi, "get_default_graph_status", checkpoint)
+    return api, touched
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [
+        "anonymous",
+        "invalid",
+        "expired",
+        "ordinary",
+        "wrong_kind",
+        "wrong_audience",
+        "wrong_issuer",
+        "missing_exp",
+        "excess_lifetime",
+    ],
+)
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("POST", "/api/v1/graph/run/session"),
+        ("POST", "/api/v1/graph/webhook/session"),
+        ("POST", "/api/v1/graph/resume/thread"),
+        ("GET", "/api/v1/graph/status/thread"),
+        ("DELETE", "/api/v1/graph/status/thread"),
+    ],
+)
+async def test_untrusted_http_never_reaches_graph(app, case, method, path):
+    api, touched = app
+    now = int(time())
+    payload = {
+        "sub": "langboard-service",
+        "iss": Env.PROJECT_NAME,
+        "aud": "langboard-graph",
+        "internal": "graph_service",
+        "iat": now,
+        "exp": now + 300,
+    }
+    if case == "expired":
+        payload.update(iat=now - 600, exp=now - 300)
+    elif case == "ordinary":
+        payload["sub"] = "1"
+        payload.pop("internal")
+    elif case == "wrong_kind":
+        payload["internal"] = "bot"
+    elif case == "wrong_audience":
+        payload["aud"] = "another-service"
+    elif case == "wrong_issuer":
+        payload["iss"] = "another-instance"
+    elif case == "missing_exp":
+        payload.pop("exp")
+    elif case == "excess_lifetime":
+        payload["exp"] = now + 3600
+    token = "invalid" if case == "invalid" else encode(payload, Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
+    headers = {} if case == "anonymous" else {"Authorization": "Bearer " + token}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.request(method, path, headers=headers, json={})
+    assert response.status_code == 401
+    assert touched == []
+
+
+@pytest.mark.asyncio
+async def test_backend_service_token_reaches_actual_status_route(app):
+    api, touched = app
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.get("/api/v1/graph/status/thread", headers=graph_service_headers())
+    assert response.status_code == 200
+    assert touched == ["thread"]
