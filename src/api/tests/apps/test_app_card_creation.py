@@ -130,6 +130,98 @@ def call(creation, **kwargs):
     )
 
 
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("policy", ["retain", "external", "missing"])
+def test_native_archive_records_independent_receipt_and_rearchive(creation, monkeypatch, policy):
+    from langboard_shared.domain.models import AppCardArchive, ProjectColumn
+    from langboard_shared.domain.services import DomainService
+
+    board, _, _, _, _, definition, _ = creation
+    call(creation)
+    with DbSession.atomic() as db:
+        card = db.exec(SqlBuilder.select.table(Card).where(Card.title == "ERP issue")).first()
+        original_uid = card.get_uid()
+        if policy == "missing":
+            definition.declaration = {key: value for key, value in definition.declaration.items() if key != "card_lifecycle"}
+        elif policy == "external":
+            definition.declaration = {
+                **definition.declaration,
+                "card_lifecycle": {"issue": {
+                    "archive": {"mode": "external", "action": "resolve_issue", "default_enabled": False,
+                                "description": "Resolve only when explicitly enabled."},
+                    "restore": "retain_external_state",
+                }},
+            }
+        db.update(definition)
+        archive = ProjectColumn(project_id=board[2].id, name="Archive", order=20, is_archive=True)
+        db.insert(archive)
+    monkeypatch.setattr(CardService, "notify_order_changed", lambda *args: None)
+    service = DomainService()
+    try:
+        assert service.card.change_order(board[1], board[2], card, 0, archive)
+        with DbSession.atomic() as db:
+            stored = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+            receipt = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+            assert stored.archived_at is not None and stored.get_uid() == original_uid
+            assert receipt.receipt["card_type"] == "issue"
+            assert receipt.receipt["external_resource_id"] == "issue-1"
+            assert receipt.receipt["external_action"] == "none"
+            assert receipt.receipt["state"] == ("blocked" if policy == "missing" else "retained")
+            assert receipt.receipt["reason"] == {
+                "retain": "declared_retain", "external": "external_sync_disabled",
+                "missing": "lifecycle_missing_or_ambiguous",
+            }[policy]
+            first_revision = receipt.card_revision
+            first_archived_at = stored.archived_at
+        # Reorder inside Archive does not create a new lifecycle operation.
+        assert service.card.change_order(board[1], board[2], card, 0, archive)
+        with DbSession.atomic() as db:
+            assert len(db.exec(SqlBuilder.select.table(AppCardArchive)).all()) == 1
+            assert db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first().archived_at == first_archived_at
+        assert service.card.change_order(board[1], board[2], card, 0, board[5][0])
+        assert service.card.change_order(board[1], board[2], card, 0, archive)
+        with DbSession.atomic() as db:
+            receipts = db.exec(SqlBuilder.select.table(AppCardArchive)).all()
+            assert len(receipts) == 2
+            assert len({r.card_revision for r in receipts}) == 2
+            assert first_revision in {r.card_revision for r in receipts}
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_archive_receipt_failure_rolls_back_native_movement(creation, monkeypatch):
+    from langboard_shared.domain.models import AppCardArchive, ProjectColumn
+    from langboard_shared.domain.services import DomainService
+    import langboard_shared.domain.services.AppCardArchive as lifecycle
+
+    board = creation[0]
+    call(creation)
+    with DbSession.atomic() as db:
+        card = db.exec(SqlBuilder.select.table(Card).where(Card.title == "ERP issue")).first()
+        original_column = card.project_column_id
+        archive = ProjectColumn(project_id=board[2].id, name="Archive", order=20, is_archive=True)
+        db.insert(archive)
+    original = lifecycle.record_app_card_archive
+
+    def fail_after_record(*args):
+        original(*args)
+        raise RuntimeError("Forced lifecycle persistence failure")
+
+    monkeypatch.setattr(lifecycle, "record_app_card_archive", fail_after_record)
+    monkeypatch.setattr(CardService, "notify_order_changed", lambda *args: pytest.fail("Failed archive cannot publish"))
+    service = DomainService()
+    try:
+        with pytest.raises(RuntimeError, match="Forced lifecycle"):
+            service.card.change_order(board[1], board[2], card, 0, archive)
+        with DbSession.atomic() as db:
+            stored = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+            assert stored.archived_at is None and stored.project_column_id == original_column
+            assert db.exec(SqlBuilder.select.table(AppCardArchive)).all() == []
+    finally:
+        service.close()
+
+
 def test_inbound_connection_and_resource_onboarding(creation):
     from langboard_shared.core.types import SnowflakeID
     from langboard_shared.domain.services import DomainService

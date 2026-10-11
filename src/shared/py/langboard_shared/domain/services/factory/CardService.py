@@ -1891,9 +1891,10 @@ class CardService(BaseDomainService):
                     return self._delete_card(user_or_bot, project, card)
             execution.watch_card_and_dependents(card.id)
             old_order = card.order
+            entering_archive = bool(new_column and new_column.is_archive and not card.archived_at)
             if new_column:
                 card.project_column_id = new_column.id
-                card.archived_at = SafeDateTime.now() if new_column.is_archive else None
+                card.archived_at = (card.archived_at or SafeDateTime.now()) if new_column.is_archive else None
             card.order = order
             self.repo.card.update_row_order(
                 card, old_column, old_order, order, new_column, preserve_shifted_updated_at=True
@@ -1908,6 +1909,10 @@ class CardService(BaseDomainService):
                 card.last_change_target_id = None
                 card.last_change_at = SafeDateTime.now()
                 self.repo.card.update(card)
+            if entering_archive:
+                from ..AppCardArchive import record_app_card_archive
+
+                record_app_card_archive(execution.db, user_or_bot, project, card)
             execution.db.after_commit(
                 lambda: self.notify_order_changed(user_or_bot, project, card, old_column, new_column)
             )
