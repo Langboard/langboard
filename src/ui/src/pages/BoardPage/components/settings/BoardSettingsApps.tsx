@@ -230,7 +230,9 @@ export default function BoardSettingsApps() {
                                                 onClick={() => {
                                                     if (panelEnabled) void setPanel(app, false);
                                                     else {
-                                                        setReadSignals(false);
+                                                        // Preserve an existing independent signal grant when reopening
+                                                        // the panel editor; clearing it must be explicit.
+                                                        setReadSignals(binding?.granted_capabilities.includes("signals.read") ?? false);
                                                         setPanelTarget(key);
                                                     }
                                                 }}
