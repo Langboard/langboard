@@ -167,3 +167,16 @@ JWTs, wrong internal claims, deactivated/deleted users and an ownership change
 between runs: forty-four tests pass in 15.20 seconds. This closes the history
 read authority case; bot-owned trigger history still needs an explicit
 server-side execution identity contract.
+
+## Chat-history anchor scope
+
+A history-only request previously excluded its anchor message but selected all
+sessions owned by the actor. Collection now resolves the anchor's session from
+primary storage and constrains the existing ownership-checked query to that
+session. Missing anchors and conflicting explicit sessions return no history.
+The lookup is limited to one anchor row and the existing bounded history list;
+no process cache or second authority store is introduced. Four cases run on
+SQLite and PostgreSQL: own anchor only, foreign anchor, missing anchor and an
+explicit session mismatch. All eight failed before the change; the combined
+suite now passes fifty-two cases in 18.90 seconds. This is session scoping proof,
+not completion of the wider fresh-runtime or board/card authority contract.
