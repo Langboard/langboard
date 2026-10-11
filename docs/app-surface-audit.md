@@ -75,3 +75,15 @@ The registry HTTP tests cover close, denial at the panel bridge and explicit
 signal withdrawal on SQLite and PostgreSQL. The three-service publication tests
 also cover panel-only close, preserved native inbox reads, rejection of stale or
 modified replay envelopes, new signed event acceptance and credential revocation.
+
+### Full board app disablement
+
+The three independent provider contracts additionally exercise
+`disable_app_binding` with the current board binding revision. After full
+withdrawal, all board grants are empty, signed publication is denied, and the
+provider-specific inbox is empty. Both stored event receipts, pre-existing cards,
+evidence links and the connection record remain intact. Credential revocation is
+exercised first and then a fresh native credential is issued, so the board-disable
+assertion cannot pass merely because an old credential was revoked. This proves
+native storage and authority behavior; live service cancellation and browser
+acceptance remain separate.

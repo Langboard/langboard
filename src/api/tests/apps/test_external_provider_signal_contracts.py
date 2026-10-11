@@ -154,5 +154,16 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
     assert publish({**envelope, "outcome": "undeclared"}).status_code == 400
     revoke_connection_credential(actor, connection.id, SnowflakeID.from_short_code(issued["credential_uid"]))
     assert publish().status_code == 403
+    # A fresh credential isolates board disablement from credential revocation.
+    token = issue_connection_credential(actor, connection.id)["token"]
+    assert publish().json() == {**after_close.json(), "duplicate": True}
+    disabled = service.workflow_stage.disable_app_binding(actor, project.get_uid(), definition["key"],
+        binding.get_uid(), closed["revision"])
+    assert disabled.state == "disabled" and disabled.granted_capabilities == []
+    assert publish().status_code == 403
+    assert list_board_signals(service, actor, project.get_uid(), provider=definition["key"])["items"] == []
     with DbSession.use(readonly=False) as db:
         assert len(db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.resource_id == resource.id)).all()) == 2
+        assert {row.id for row in db.exec(SqlBuilder.select.table(Card)).all()} == cards_before
+        assert {row.id for row in db.exec(SqlBuilder.select.table(CardAppSignalBinding)).all()} == links_before
+        assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == connection.id)).first().state == "connected"
