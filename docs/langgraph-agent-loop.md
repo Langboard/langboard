@@ -121,3 +121,22 @@ now passes nineteen tests. This does not yet remove credentials from the
 `tweaks` state supplied at graph start; provider/API credential resolution must
 move to server-owned runtime context before the State/Runtime checklist can
 close.
+
+## Context projection isolation
+
+`create_runtime_context_state` now projects from a recursively redacted copy.
+Runner metadata, parent/child relationships and ontology fields no longer
+copy structured credential values into additional state channels or share
+mutable dictionary references with the original invocation. A regression
+preserves actor/project/card identities, relationship directions and titles,
+and verifies source immutability. The PostgreSQL approval case also reads
+`project_context` directly from the saved checkpoint. Twenty tests passed in
+7.00 seconds locally.
+
+The unresolved runtime input path is explicit: bot triggers supply current
+Bot.value and Bot.app_api_token; socket chat supplies current InternalBot.value
+and a user one-time token. `GraphApprovalRequestService.__resume_graph` sends
+only the decision and session ID, so it currently depends on saved tweaks.
+Removing secrets from tweaks must be paired with fresh server credential
+resolution and current authority checks on resume. Redacting tweaks alone
+would break tool/model execution and is not the completed design.

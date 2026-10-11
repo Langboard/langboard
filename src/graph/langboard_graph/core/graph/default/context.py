@@ -1,8 +1,10 @@
 from typing import Any
+from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
 
 
 def create_runtime_context_state(tweaks: dict[str, Any]) -> DefaultGraphState:
+    tweaks = redact_graph_credentials(tweaks)
     variables = _get_variables(tweaks)
     rest_data = variables.get("rest_data")
     rest_data = rest_data if isinstance(rest_data, dict) else {}
