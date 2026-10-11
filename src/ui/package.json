@@ -6,7 +6,8 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite --force",
-    "build": "tsc && vite build",
+    "build": "yarn typecheck && vite build",
+    "typecheck": "node prepare-responsive-types.mjs && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint . -c eslint.config.js --ignore-pattern node_modules/ --ignore-pattern dist/ --report-unused-disable-directives --max-warnings 0",
     "test:card-hierarchy": "node --experimental-strip-types src/pages/BoardPage/components/board/BoardColumnCardHierarchy.test.ts",
     "test:board-chat-store": "node --experimental-strip-types src/core/stores/BoardChatStore.test.ts",

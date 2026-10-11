@@ -598,3 +598,18 @@ A failed event write rolls back generation and request acceptance. This is durab
 storage only: pending events are not automatically delivered, signed, acknowledged
 or authorized to run. Destination approval, bounded retry/worker claims,
 revocation checks, signing and ACK receipt integration remain pending.
+
+## Clean UI typecheck before Phoenix acceptance
+
+Tailwind Variants 0.3.1 generates its responsive screen declaration when the
+Tailwind configuration loads. A clean install initially contains default screens,
+so checking TypeScript before a CSS build incorrectly rejects the existing `xs`
+breakpoint. `yarn typecheck` first loads the existing Tailwind configuration through
+its public loader, then checks both application and build configuration projects.
+The regular UI build and Phoenix migration gate share this command. No screens
+are duplicated and no type checks are suppressed.
+
+The Tabbable plugin configuration also declares its public plugin type explicitly,
+preventing TypeScript from naming an internal dependency file in exported types.
+Clean generated-screen state and cleared incremental caches are verified locally;
+the broader remote image, cluster, broker and analysis gates remain separate.

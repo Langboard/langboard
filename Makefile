@@ -168,6 +168,7 @@ dev_socket_phoenix: ## run the Phoenix socket migration runtime on port 5691
 	cd $(SOCKET_DIR) && PORT=5691 mix phx.server
 
 test_socket_phoenix: ## verify the isolated Phoenix migration runtime and shared contract
+	cd $(UI_DIR) && yarn typecheck
 	uv run python src/socket/test/integration/test-phoenix-config.py "$(SHELL)"
 	uv run python -m pytest -q src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff check src/socket/test/unit/test_phoenix_owner_preflight.py
@@ -198,8 +199,6 @@ test_socket_phoenix: ## verify the isolated Phoenix migration runtime and shared
 	cd $(SOCKET_DIR) && mix test
 	cd $(SOCKET_DIR) && mix deps.unlock --check-unused
 	cd $(TS_SHARED_DIR) && yarn test
-	cd $(UI_DIR) && yarn tsc -p tsconfig.app.json --noEmit
-	cd $(UI_DIR) && yarn tsc -p tsconfig.node.json --noEmit
 	cd $(UI_DIR) && yarn prettier --check ../../src/socket/test/browser/test-phoenix-browser-ui.cjs ../../src/socket/test/browser/test-phoenix-editor-ai-ui.cjs ../../src/socket/test/browser/test-phoenix-socket-ui.cjs ../../src/socket/test/browser/test-phoenix-ollama-ui.cjs ../../src/socket/test/integration/test-editor-document-roundtrip.mjs
 	cd $(UI_DIR) && yarn test:board-chat-store
 	cd $(UI_DIR) && yarn test:socket-runtime
