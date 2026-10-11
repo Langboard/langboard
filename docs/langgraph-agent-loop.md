@@ -73,3 +73,20 @@ unstructured strings or provider errors are not handled by key redaction. The
 State/Runtime Context roadmap must still move credentials to non-persisted
 server runtime inputs and resolve fresh credentials on resume. It must also
 verify current actor/project authority rather than trusting saved context.
+
+## PostgreSQL worker restart proof
+
+A dedicated subprocess test performs its controlled external effects in a
+separate PostgreSQL table, invokes the real nested agent graph, and stops at
+the second call's approval interrupt. The parent verifies only the first effect
+exists, force-kills the stopped worker, and starts a new Python process that
+loads the same AsyncPostgresSaver thread and resumes. The resulting table has
+exactly one row for effect 1 and one for effect 2. The parent removes the thread
+and temporary effect table. With the other loop cases, twelve tests passed
+locally in 6.26 seconds against disposable PostgreSQL.
+
+This kill occurs after a completed tool step and persisted approval checkpoint.
+It does not cover the external-commit/checkpoint crash window, concurrent resume,
+event generation fencing or external API idempotency. These acceptance items
+remain incomplete. The test worker uses fixed generated identifiers and
+controlled SQL writes; it does not invoke a production provider or service.
