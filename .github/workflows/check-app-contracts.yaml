@@ -91,6 +91,7 @@ jobs:
           src/api/tests/apps/test_app_card_interactions.py
           src/api/tests/apps/test_app_card_creation.py
           src/api/tests/apps/test_app_card_archive_migration.py
+          src/api/tests/apps/test_app_retained_history_migrations.py
           src/api/tests/apps/test_app_card_archive_delivery.py
           src/api/tests/apps/test_card_app_ownership.py
           src/api/tests/apps/test_connection_ownership_revision.py
