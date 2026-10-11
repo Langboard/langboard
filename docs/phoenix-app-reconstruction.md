@@ -212,3 +212,30 @@ validation and a second app name using the same API. This is not full independen
 app execution acceptance. Inbound onboarding, 1:N resource grants, common stage
 mapping/events, execution fences, outbox/permanent receipts, HITL and deployed
 Phoenix/canary acceptance remain pending. No merge or deployment.
+
+
+## Native inbound connection onboarding
+
+Users can create a host-owned inbound identity for an approved app declaration,
+list their personal identities or an explicitly managed organization scope, and
+disconnect using the current identity revision. Personal ownership always comes
+from the current actor. Organization connection creation requires current
+organization ownership or instance administrator authority. Forms accept no
+caller-selected owner, provider credential reference, destination or grants.
+This is inbound service identity registration, not external account verification.
+
+Disconnect uses the existing definition/connection/consent lock ordering, revokes
+all unrevoked credentials for that connection and durably empties retained MCP
+scopes. It preserves connection and credential receipts. Stale disconnect
+revisions return a conflict; management discovery remains available after app
+policy disablement. Provider-backed identities are excluded from native inbound
+management by their metadata shape rather than provider-name hardcoding.
+
+Personal connection pages issue three SELECTs (current actor, declaration,
+bounded connection page), with one declaration reused for all identity hashes.
+Maximum page size is 50. Actual API auth and PostgreSQL regressions cover owner
+isolation, organization authority, injected fields, stale revisions, current
+account deactivation, disconnect/token invalidation and paging query counts.
+Frozen API environment: 41 tests pass in 29.23 seconds. Board resource consent,
+common workflow stages/events, execution fences/outbox/permanent receipts/HITL
+and deployed independent-app acceptance remain pending. No merge or deployment.

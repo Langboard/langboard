@@ -5,7 +5,7 @@ from datetime import timedelta
 from hashlib import sha256
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     AppConnection,
     AppConnectionCredential,
@@ -435,3 +435,132 @@ def test_concurrent_trust_update_and_owner_consent_cannot_deadlock_or_restore_gr
     finally:
         event.remove(engine, "after_cursor_execute", after_statement)
     assert read_mcp_connection_consent(owner, personal.id)["scopes"] == []
+
+
+def test_native_onboarding_private_and_organization_ownership(registered):
+    from langboard_shared.domain.services.AppConnectionManagement import (
+        create_inbound_connection,
+        disconnect_inbound_connection,
+        list_inbound_connections,
+    )
+    from langboard_shared.domain.services.AppRegistry import AppRegistryConflict, list_definitions
+
+    _, (admin, owner, outsider), personal, shared = registered
+    definition = list_definitions(admin)["items"][0]
+    with pytest.raises(AppRegistryConflict):
+        create_inbound_connection(owner, "example", "0" * 64)
+    created = create_inbound_connection(owner, "example", definition["revision"])
+    created_id = SnowflakeID.from_short_code(created["connection_uid"])
+    assert created["ownership"] == "personal" and created["state"] == "connected"
+    token = issue_connection_credential(owner, created_id)["token"]
+    assert authenticate_connection_credential(token).owner_id == owner.id
+    assert list_inbound_connections(admin, "example")["items"] == []
+    assert list_inbound_connections(outsider, "example")["items"] == []
+    with pytest.raises(AppGovernanceDenied):
+        create_inbound_connection(outsider, "example", definition["revision"], 10)
+    with pytest.raises(AppGovernanceDenied):
+        disconnect_inbound_connection(admin, created_id, created["revision"])
+    organization = create_inbound_connection(owner, "example", definition["revision"], 10)
+    assert organization["ownership"] == "organization"
+    assert len(list_inbound_connections(admin, "example", organization_id=10)["items"]) == 2
+    initial = read_mcp_connection_consent(owner, created_id)
+    save_mcp_connection_consent(
+        owner, created_id, ["read"], initial["revision"], initial["identity_revision"], initial["app_revision"]
+    )
+    disconnected = disconnect_inbound_connection(owner, created_id, created["revision"])
+    assert disconnected["state"] == "disconnected"
+    with pytest.raises(AppGovernanceDenied):
+        authenticate_connection_credential(token)
+    assert read_mcp_connection_consent(owner, created_id)["granted_tools"] == {}
+    with pytest.raises(AppRegistryConflict):
+        disconnect_inbound_connection(owner, created_id, created["revision"])
+
+
+def test_native_connection_listing_is_bounded_without_per_row_definition_queries(registered):
+    from langboard_shared.domain.services.AppConnectionManagement import (
+        create_inbound_connection,
+        list_inbound_connections,
+    )
+    from langboard_shared.domain.services.AppRegistry import list_definitions
+    from sqlalchemy import event
+
+    engine, (admin, owner, _), *_ = registered
+    definition = list_definitions(admin)["items"][0]
+    for _ in range(3):
+        create_inbound_connection(owner, "example", definition["revision"])
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        page = list_inbound_connections(owner, "example", limit=2)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert len(page["items"]) == 2 and page["next_cursor"] is not None
+    # Current actor, declaration, bounded connection page; no per-row SQL.
+    assert len(statements) == 3
+    assert list_inbound_connections(
+        owner, "example", after_id=SnowflakeID.from_short_code(page["next_cursor"]), limit=2
+    )["items"]
+
+
+def test_native_onboarding_http_revisions_permissions_and_no_credential_injection(registered, monkeypatch):
+    import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_shared.core.caching import Cache
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.services.AppRegistry import list_definitions
+    from langboard_shared.Env import Env
+    from langboard_shared.security import Auth
+
+    engine, (admin, owner, outsider), *_ = registered
+    revision = list_definitions(admin)["items"][0]["revision"]
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-onboarding-http-secret-32bytes"))
+    Cache.clear()
+    for actor in (admin, owner, outsider):
+        Auth.reset_user(actor)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+        with TestClient(app) as client:
+
+            def request(actor, method, path, **kwargs):
+                access, refresh = AuthSecurity.authenticate(actor.id)
+                client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+                return client.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+
+            path = "/settings/apps/registry/example/inbound-connections"
+            body = {"app_revision": revision}
+            assert client.get(path).status_code == 401
+            created = request(owner, "POST", path, json=body)
+            assert created.status_code == 200 and created.headers["cache-control"] == "no-store"
+            record = created.json()
+            assert record["ownership"] == "personal"
+            assert request(admin, "GET", path).json()["items"] == []
+            assert request(owner, "POST", path, json={**body, "app_revision": "0" * 64}).status_code == 409
+            for field in ("owner_id", "credential_reference", "instance_url", "granted_capabilities"):
+                assert request(owner, "POST", path, json={**body, field: "injected"}).status_code in (400, 422)
+            org_body = {**body, "organization_uid": SnowflakeID(10).to_short_code()}
+            assert request(outsider, "POST", path, json=org_body).status_code == 403
+            assert request(owner, "POST", path, json=org_body).status_code == 200
+            assert request(owner, "GET", path, params={"after": "bad"}).status_code in (400, 422)
+            assert request(owner, "GET", path, params={"limit": 51}).status_code in (400, 422)
+            disconnect = f"/settings/apps/inbound-connections/{record['connection_uid']}/disconnect"
+            revoke = {"expected_revision": record["revision"]}
+            assert request(admin, "POST", disconnect, json=revoke).status_code == 403
+            assert request(owner, "POST", disconnect, json={"expected_revision": "0" * 64}).status_code == 409
+            result = request(owner, "POST", disconnect, json=revoke)
+            assert result.status_code == 200 and result.json()["state"] == "disconnected"
+            with Session(engine) as db:
+                db.execute(update(User).where(User.id == owner.id).values(activated_at=None))
+                db.commit()
+            assert request(owner, "POST", path, json=body).status_code == 403
+    finally:
+        Cache.clear()
