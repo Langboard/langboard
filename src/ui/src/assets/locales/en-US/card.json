@@ -275,6 +275,8 @@
     "firstRetained": "First saved connections"
   },
   "appInteractions": {
+    "source": "Requested by app: {{app}}",
+    "sourceHelp": "This request was submitted by the app. It does not establish that AI authored it.",
     "title": "App requests",
     "help": "Decisions belong to this card. Inbox state and execution are separate.",
     "refresh": "Refresh",
