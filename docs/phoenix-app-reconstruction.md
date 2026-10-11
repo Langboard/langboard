@@ -422,3 +422,20 @@ with a database lock timeout. It also inspects executed statements for unintende
 row or advisory locks. Existing mutation concurrency and stale-authority tests
 remain part of the same suite. This is service-level database proof, not a live
 canary latency measurement or complete application acceptance.
+
+## Native MCP workflow guidance
+
+The existing project-column service now includes explicit stage metadata and
+composed stage/column descriptions. Referenced stage definitions are fetched in
+one query for the whole column page, avoiding one query per column. Unmapped
+columns retain only their own description; display names never imply a stage.
+Inactive stages are reported as inactive rather than treated as executable.
+
+The native card-workspace adapter retains this context in project identity and
+card bundle workflow DTOs. Metadata editing, app mappings and MCP projection
+share the same description composition function. A PostgreSQL integration check
+uses actual DomainService and native adapter/query DTOs, checks the single batch
+lookup and observes changed stage descriptions/activity on a subsequent read.
+The existing bounded-source and privacy projection tests remain exercised.
+Transport authorization remains owned by the existing MCP role filter; this test
+does not claim an authenticated live canary MCP session or provider execution.

@@ -43,7 +43,7 @@ def _service(people: list[dict[str, Any]] | None = None) -> tuple[Any, list[tupl
 
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda uid: project),
-        project_column=SimpleNamespace(get_by_id_like=lambda uid: column),
+        project_column=SimpleNamespace(get_by_id_like=lambda uid: column, get_workflow_context=lambda _: {}),
         card=SimpleNamespace(
             get_by_id_like=lambda uid: card,
             get_api_assigned_user_list=lambda target, limit: people or [],
@@ -108,7 +108,7 @@ def test_native_checkitem_continuation_reads_only_the_requested_checklist() -> N
     calls: list[tuple[Any, Any, int]] = []
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _uid: project),
-        project_column=SimpleNamespace(get_by_id_like=lambda _uid: column),
+        project_column=SimpleNamespace(get_by_id_like=lambda _uid: column, get_workflow_context=lambda _: {}),
         card=SimpleNamespace(get_by_id_like=lambda _uid: card),
         checklist=SimpleNamespace(
             get_by_id_like=lambda _uid: checklist,

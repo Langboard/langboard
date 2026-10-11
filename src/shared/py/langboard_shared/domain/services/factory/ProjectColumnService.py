@@ -9,6 +9,7 @@ from ....publishers import ProjectColumnPublisher
 from ....tasks.activities import ProjectColumnActivityTask
 from ....tasks.bots import ProjectColumnBotTask
 from ...models import Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
+from ..WorkflowGuidance import column_workflow_contexts
 from .GraphApprovalRequestService import GraphApprovalRequestService
 
 
@@ -29,11 +30,15 @@ class ProjectColumnService(BaseDomainService):
     ) -> list[dict[str, Any]]:
         raw_columns = self.repo.project_column.get_all_by_project(projects, limit=limit)
 
+        contexts = column_workflow_contexts([column for column, _ in raw_columns])
         columns = []
         for raw_column, count in raw_columns:
-            columns.append({**raw_column.api_response(), "count": count})
+            columns.append({**raw_column.api_response(), **contexts[raw_column.id], "count": count})
 
         return columns
+
+    def get_workflow_context(self, column: ProjectColumn) -> dict[str, Any]:
+        return column_workflow_contexts([column])[column.id]
 
     def get_api_bot_scopes_by_project(
         self, project: TProjectParam | None, limit: int | None = None

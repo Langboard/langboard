@@ -7,6 +7,7 @@ from ..models import ProjectColumn, WorkflowStageDefinition
 from .AppBoardConsent import _context
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, current_policy, lock_policy_mutation
 from .AppWorkflowPolicy import resolve_app_workflow
+from .WorkflowGuidance import compose_workflow_guidance
 
 
 def _requirements(definition):
@@ -38,13 +39,9 @@ def _resolve(db, definition, project, explicit):
                 "status": choice.status,
                 "column_uid": choice.column_uid,
                 "candidates": list(choice.candidates),
-                "workflow_guidance": "\n\n".join(
-                    text
-                    for text in (
-                        stages_by_key[choice.stage].description if choice.stage in stages_by_key else "",
-                        columns_by_uid[choice.column_uid].description if choice.column_uid in columns_by_uid else "",
-                    )
-                    if text
+                "workflow_guidance": compose_workflow_guidance(
+                    stages_by_key[choice.stage].description if choice.stage in stages_by_key else "",
+                    columns_by_uid[choice.column_uid].description if choice.column_uid in columns_by_uid else "",
                 ),
             }
             for choice in result.choices

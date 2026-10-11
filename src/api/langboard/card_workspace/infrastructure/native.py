@@ -49,6 +49,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             return None
         details = card.api_response()
         details["project_column_name"] = column.name
+        details.update(self._service.project_column.get_workflow_context(column))
 
         if "people" in requested_sections:
             people = self._bounded_source(
@@ -179,6 +180,19 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                     "uid": str(column["uid"]),
                     "name": str(column["name"]),
                     "order": int(column["order"]),
+                    **{
+                        key: column[key]
+                        for key in (
+                            "description",
+                            "translations",
+                            "workflow_stage",
+                            "workflow_stage_status",
+                            "workflow_stage_description",
+                            "column_description",
+                            "workflow_guidance",
+                        )
+                        if key in column
+                    },
                 }
                 for column in self._bounded_source(
                     self._service.project_column.get_api_list_by_project(project, limit=_SOURCE_QUERY_LIMIT),

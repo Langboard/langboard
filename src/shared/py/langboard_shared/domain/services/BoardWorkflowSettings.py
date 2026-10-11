@@ -7,6 +7,7 @@ from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher, ProjectColumnPublisher
 from ..models import ProjectColumn, WorkflowStageDefinition
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _authorized_board, _current
+from .WorkflowGuidance import compose_workflow_guidance
 
 
 def _translations(value):
@@ -46,9 +47,7 @@ def _column_response(column, stage):
         "description": column.description,
         "translations": column.translations,
         "workflow_stage": column.workflow_stage,
-        "workflow_guidance": "\n\n".join(
-            text for text in (stage.description if stage else "", column.description) if text
-        ),
+        "workflow_guidance": compose_workflow_guidance(stage.description if stage else "", column.description),
     }
 
 

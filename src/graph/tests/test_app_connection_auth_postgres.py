@@ -23,11 +23,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
+from langboard.card_workspace.application.queries import get_card_bundle, get_project_identity
+from langboard.card_workspace.domain import CommentPage, SectionPage
+from langboard.card_workspace.infrastructure.native import NativeCardWorkspaceAdapter
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard_sdk.resources import AppResources
 from langboard_sdk.rest import HttpTransport
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
@@ -38,6 +42,7 @@ from langboard_shared.domain.models import (
     AppMcpConsent,
     AppResourceBinding,
     BoardAppBinding,
+    Card,
     Organization,
     ProjectAssignedUser,
     ProjectColumn,
@@ -78,6 +83,7 @@ from langboard_shared.domain.services.AppRegistry import (
 from langboard_shared.domain.services.AppResourceSelection import list_resource_selections, save_resource_selection
 from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_mapping, save_workflow_mapping
 from langboard_shared.domain.services.BoardWorkflowSettings import read_column_workflow, save_column_workflow
+from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.publishers import ProjectColumnPublisher
 from langboard_shared.security import Auth
@@ -1255,3 +1261,57 @@ def test_settings_reads_hold_no_write_locks_and_allow_concurrent_updates(registe
                 executor.submit(writer).result(timeout=5)
     finally:
         event.remove(engine, "before_cursor_execute", capture)
+
+
+def test_native_mcp_workflow_guidance_uses_explicit_stage_and_batch_lookup(registered, monkeypatch):
+    engine, (_, owner, _), *_ = registered
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    WorkflowStageDefinition.__table__.create(engine)
+    ProjectColumn.__table__.create(engine)
+    Card.__table__.create(engine)
+    with Session(engine) as db:
+        db.add(WorkflowStageDefinition(id=201, key="active", name="Active", description="Stage instructions"))
+        db.flush()
+        db.add(
+            ProjectColumn(
+                id=211, project_id=20, name="Arbitrary", description="Column instructions", workflow_stage="active"
+            )
+        )
+        db.add(ProjectColumn(id=212, project_id=20, name="Doing", description="Unmapped instructions"))
+        db.add(ProjectColumn(id=213, project_id=20, name="Archive", is_archive=True))
+        db.flush()
+        db.add(Card(id=221, project_id=20, project_column_id=211, title="Example"))
+        db.commit()
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    service = DomainService()
+    adapter = NativeCardWorkspaceAdapter(owner, service)
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        identity = get_project_identity(adapter, SnowflakeID(20).to_short_code()).model_dump()
+        columns = identity["columns"]["items"]
+        mapped = next(column for column in columns if column["uid"] == SnowflakeID(211).to_short_code())
+        assert mapped["workflow_guidance"] == "Stage instructions\n\nColumn instructions"
+        assert mapped["workflow_stage"] == "active"
+        unmapped = next(column for column in columns if column["uid"] == SnowflakeID(212).to_short_code())
+        assert unmapped["workflow_stage"] is None
+        assert unmapped["workflow_guidance"] == "Unmapped instructions"
+        assert len([sql for sql in statements if "FROM workflow_stage_definition" in sql]) == 1
+        bundle = get_card_bundle(
+            adapter, SnowflakeID(20).to_short_code(), SnowflakeID(221).to_short_code(), CommentPage(), SectionPage()
+        ).model_dump()
+        assert bundle["card"]["workflow"]["workflow_guidance"] == mapped["workflow_guidance"]
+        with Session(engine) as db:
+            db.execute(update(WorkflowStageDefinition).values(description="Updated instructions", is_active=False))
+            db.commit()
+        refreshed = get_card_bundle(
+            adapter, SnowflakeID(20).to_short_code(), SnowflakeID(221).to_short_code(), CommentPage(), SectionPage()
+        ).model_dump()
+        assert refreshed["card"]["workflow"]["workflow_stage_status"] == "inactive"
+        assert refreshed["card"]["workflow"]["workflow_guidance"] == "Updated instructions\n\nColumn instructions"
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+        service.close()
