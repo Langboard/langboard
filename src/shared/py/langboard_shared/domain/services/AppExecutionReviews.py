@@ -52,6 +52,9 @@ def request_execution_review(token, project_id, card_id, request_id, generation,
         if not binding.stage_transitions_enabled or binding.edit_revision() != expected_binding_revision:
             raise AppExecutionRequestConflict()
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key)).first()
+        if ("resources.read" not in definition.declaration.get("capabilities", [])
+            or "resources.read" not in binding.granted_capabilities):
+            raise AppGovernanceDenied()
         requirements = definition.declaration.get("workflow_requirements") or {}
         if "review" not in requirements.get("required", []) + requirements.get("optional", []):
             raise AppGovernanceDenied()

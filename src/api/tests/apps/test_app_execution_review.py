@@ -13,8 +13,11 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.domain.models import (
     AppDefinition,
     AppExecutionReview,
+    AppResourceBinding,
     BoardAppBinding,
     Card,
+    CardAppOwnership,
+    CardAppResourceSelection,
     EmployeeMembershipPolicy,
     ProjectExecutionBinding,
 )
@@ -81,6 +84,15 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
             binding.granted_capabilities = saved_grants
             db.update(binding)
         body["expected_binding_revision"] = binding.edit_revision()
+        with DbSession.atomic() as db:
+            saved_grants = binding.granted_capabilities
+            binding.granted_capabilities = [grant for grant in saved_grants if grant != "resources.read"]
+            db.update(binding)
+        assert client.post(path, json=body, headers=headers).status_code == 403
+        with DbSession.atomic() as db:
+            binding.granted_capabilities = saved_grants
+            db.update(binding)
+        body["expected_binding_revision"] = binding.edit_revision()
         # A native policy failure must roll back movement and receipt together.
         from langboard_shared.domain.services.factory.WorkflowStagePolicyService import WorkflowStagePolicyService
         with monkeypatch.context() as failure:
@@ -113,6 +125,20 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
         sdk_replay = asyncio.run(sdk.request_review(board[2].get_uid(), card.get_uid(),
                                 request_uid=request.get_uid(), **body))
         assert sdk_replay["changed"] is False and sdk_replay["to_column_uid"] == board[5][1].get_uid()
+        # Immutable receipt recovery never bypasses changed ownership/selection
+        # or selected resource authority, even with a still-valid credential.
+        for model, field in ((CardAppOwnership, "revision"), (CardAppResourceSelection, "revision"),
+                             (AppResourceBinding, "access_revision")):
+            with DbSession.atomic() as db:
+                row = db.exec(SqlBuilder.select.table(model)).first()
+                retained_revision = getattr(row, field)
+                setattr(row, field, retained_revision + 1)
+                db.update(row)
+            assert client.post(path, json=body, headers=headers).status_code == 403
+            with DbSession.atomic() as db:
+                setattr(row, field, retained_revision)
+                db.update(row)
+        assert client.post(path, json=body, headers=headers).status_code == 200
         assert client.post(path, json={**body, "evidence_reference": "different"}, headers=headers).status_code == 409
         with DbSession.atomic() as db:
             board[6][1].counts_as_completed = True
