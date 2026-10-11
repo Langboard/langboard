@@ -1,0 +1,252 @@
+# ruff: noqa: F811
+"""Archive consent, signed delivery and current grants are independent of runtime start."""
+
+import hashlib
+import hmac
+import json
+import pytest
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.security import KeyVault
+from langboard_shared.domain.models import (
+    AppCardArchive,
+    AppExecutionOutbox,
+    BoardAppBinding,
+    Card,
+    ProjectColumn,
+    WebhookSetting,
+)
+from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.AppCardArchive import configure_archive_sync
+from langboard_shared.domain.services.AppEventDelivery import claim_app_event, finish_app_event
+from langboard_shared.domain.services.AppEventDestination import APP_CARD_ARCHIVE_EVENT, bind_app_event_destination
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
+from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
+from test_app_card_creation import call, creation  # noqa: F401
+
+
+def setup_archive(creation, monkeypatch, enabled=True):
+    board, _, connection, binding, resource, definition, _ = creation
+    queues = []
+    from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+
+    monkeypatch.setattr(AppEventDeliveryTask, "app_event_delivery_task", lambda *args: queues.append(args))
+    monkeypatch.setattr(KeyVault, "get_key", staticmethod(lambda _: "test-signing-secret"))
+    monkeypatch.setattr(CardService, "notify_order_changed", lambda *args: None)
+    with DbSession.atomic() as db:
+        board[1].is_admin = True
+        db.update(board[1])
+        definition.declaration = {
+            **definition.declaration,
+            "capabilities": [*definition.declaration["capabilities"], "events.receive"],
+            "trust": {"authentication_origins": [], "mcp_origins": [], "data_origins": ["https://app.example"]},
+            "card_lifecycle": {"issue": {"archive": {"mode": "external", "action": "resolve_issue",
+                               "default_enabled": False, "description": "Resolve linked issue after explicit consent."},
+                               "restore": "retain_external_state"}},
+        }
+        db.update(definition)
+        binding.granted_capabilities = [*binding.granted_capabilities, "events.receive"]
+        db.update(binding)
+        webhook = WebhookSetting(name="App archive", url="https://app.example/events", secret_id="test-secret",
+                                 events=[APP_CARD_ARCHIVE_EVENT])
+        db.insert(webhook)
+        archive = ProjectColumn(project_id=board[2].id, name="Archive", is_archive=True, order=20)
+        db.insert(archive)
+    # Creating from the current app credentials is needed after trust changes.
+    from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+
+    token = issue_connection_credential(board[1], connection.id)["token"]
+    current = (board, token, connection, binding, resource, definition, creation[6])
+    call(current)
+    bind_app_event_destination(board[1], connection.id, webhook.id, None)
+    service = DomainService()
+    try:
+        if enabled:
+            saved = configure_archive_sync(service, board[1], board[2].id, connection.app_key,
+                                           binding.edit_revision(), ["issue"])
+            assert saved["archive_sync_types"] == ["issue"]
+        with DbSession.atomic() as db:
+            card = db.exec(SqlBuilder.select.table(Card).where(Card.title == "ERP issue")).first()
+        assert service.card.change_order(board[1], board[2], card, 0, archive)
+    finally:
+        service.close()
+    return card, queues, webhook
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_archive_signed_delivery_does_not_resume_or_apply_external_change(creation, monkeypatch):
+    card, queues, _ = setup_archive(creation, monkeypatch)
+    with DbSession.atomic() as db:
+        row = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+        assert row.receipt["state"] == "pending" and row.receipt["external_action"] == "resolve_issue"
+        assert row.receipt["external_state"] is None
+        assert queues == [(event.get_uid(), 1)]
+        archived = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        archive = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == archived.project_column_id)).first()
+    service = DomainService()
+    try:
+        assert service.card.change_order(creation[0][1], creation[0][2], card, 0, archive)
+    finally:
+        service.close()
+    # Archive reorder retains the same incarnation and pending external operation.
+    delivery = claim_app_event(event.id, 1)
+    assert delivery is not None
+    body = json.loads(delivery["body"])
+    assert body["card_uid"] == card.get_uid() and body["archive_uid"] == row.get_uid()
+    assert body["action"] == "resolve_issue" and body["external_resource_id"] == "issue-1"
+    timestamp = delivery["headers"]["X-Langboard-Webhook-Timestamp"]
+    signature = hmac.new(b"test-signing-secret", timestamp.encode() + b"." + delivery["body"], hashlib.sha256).hexdigest()
+    assert delivery["headers"]["X-Langboard-Webhook-Signature"] == "v1=" + signature
+    assert claim_app_event(event.id, 1) is None
+    finish_app_event(event.id, delivery["claim_token"], delivered=True)
+    with DbSession.atomic() as db:
+        current = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        assert current.receipt["state"] == "pending" and current.receipt["external_state"] is None
+        assert db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first().state == "delivered"
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_external_archive_defaults_off_and_stale_config_denied(creation, monkeypatch):
+    _, queues, _ = setup_archive(creation, monkeypatch, enabled=False)
+    board, _, connection, binding, *_ = creation
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(AppCardArchive)).first().receipt["state"] == "retained"
+        assert db.exec(SqlBuilder.select.table(AppExecutionOutbox)).all() == []
+    assert queues == []
+    service = DomainService()
+    try:
+        with pytest.raises(AppGovernanceConflict):
+            configure_archive_sync(service, board[1], board[2].id, connection.app_key, "0" * 64, ["issue"])
+        with pytest.raises(ValueError, match="explicit external"):
+            configure_archive_sync(service, board[1], board[2].id, connection.app_key, binding.edit_revision(), ["undeclared"])
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("change", ["consent", "reenable", "resource", "connection", "definition", "restore", "ownership", "payload"])
+def test_archive_pending_delivery_rechecks_current_authority(creation, monkeypatch, change):
+    card, _, _ = setup_archive(creation, monkeypatch)
+    board, _, connection, binding, resource, definition, _ = creation
+    with DbSession.atomic() as db:
+        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+        if change in ("consent", "reenable"):
+            binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
+            binding.archive_sync_types = []
+            db.update(binding)
+        elif change == "resource":
+            resource.access_state = "revoked"
+            db.update(resource)
+        elif change == "connection":
+            connection.state = "revoked"
+            db.update(connection)
+        elif change == "definition":
+            definition.is_enabled = False
+            db.update(definition)
+        elif change == "restore":
+            card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+            card.archived_at = None
+            db.update(card)
+        elif change == "ownership":
+            from langboard_shared.domain.models import CardAppOwnership
+            owner = db.exec(SqlBuilder.select.table(CardAppOwnership)).first()
+            owner.revision += 1
+            db.update(owner)
+        else:
+            event.payload = {**event.payload, "action": "delete_issue"}
+            db.update(event)
+    if change == "reenable":
+        service = DomainService()
+        try:
+            saved = configure_archive_sync(service, board[1], board[2].id, connection.app_key,
+                                           binding.edit_revision(), [])
+            configure_archive_sync(service, board[1], board[2].id, connection.app_key, saved["revision"], ["issue"])
+        finally:
+            service.close()
+    assert claim_app_event(event.id, 1) is None
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first().state == "blocked"
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_public_archive_outcome_requires_readback_and_current_authority(creation, monkeypatch):
+    import langboard.routes.settings.AppCardArchiveOutcomeApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+
+    setup_archive(creation, monkeypatch)
+    board, _, connection, binding, *_ = creation
+    token = issue_connection_credential(board[1], connection.id)["token"]
+    with DbSession.atomic() as db:
+        row = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+    claimed = claim_app_event(event.id, 1)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    url = f"/apps/v1/boards/{board[2].get_uid()}/archives/{row.get_uid()}/outcome"
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app) as client:
+        body = {"expected_revision": 0, "outcome": {"state": "applied", "external_state": "resolved", "readback_confirmed": False}}
+        assert client.post(url, json=body, headers=headers).status_code == 400
+        assert client.post(url, json=body).status_code == 401
+        unknown = {"expected_revision": 0, "outcome": {"state": "unknown", "external_state": None, "readback_confirmed": False}}
+        assert client.post(url, json=unknown, headers=headers).json()["receipt"]["state"] == "unknown"
+        finish_app_event(event.id, claimed["claim_token"], delivered=False)
+        assert claim_app_event(event.id, 1) is None
+        with DbSession.atomic() as db:
+            assert db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first().state == "blocked"
+        body["expected_revision"] = 1
+        body["outcome"]["readback_confirmed"] = True
+        response = client.post(url, json=body, headers=headers)
+        assert response.status_code == 200 and response.json()["receipt"]["state"] == "applied"
+        assert response.json()["receipt"]["outcome_source"] == "authenticated_app_report"
+        assert client.post(url, json=body, headers=headers).json()["changed"] is False
+        body["outcome"]["external_state"] = "unresolved"
+        assert client.post(url, json=body, headers=headers).status_code == 409
+
+        with DbSession.atomic() as db:
+            current = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
+            current.archive_sync_types = []
+            db.update(current)
+        body["outcome"]["external_state"] = "resolved"
+        assert client.post(url, json=body, headers=headers).status_code == 409
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_public_consent_and_receipts_do_not_retroactively_queue_old_archive(creation, monkeypatch):
+    import langboard.routes.board.CardAppArchiveApi  # noqa: F401
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+
+    card, queues, _ = setup_archive(creation, monkeypatch, enabled=False)
+    board = creation[0]
+    with DbSession.atomic() as db:
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(board[1].id)
+    headers = {"Authorization": f"Bearer {access}"}
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        url = f"/board/{board[2].get_uid()}/apps/{binding.app_key}/archive-sync"
+        body = {"expected_revision": binding.edit_revision(), "card_types": ["issue"]}
+        response = client.put(url, json=body, headers=headers)
+        assert response.status_code == 200 and response.json()["archive_sync_types"] == ["issue"]
+        assert client.put(url, json=body, headers=headers).status_code == 409
+        receipts = client.get(f"/board/{board[2].get_uid()}/card/{card.get_uid()}/apps/archives", headers=headers)
+        assert receipts.status_code == 200
+        assert receipts.headers["cache-control"] == "no-store"
+        assert receipts.json()["items"][0]["receipt"]["state"] == "retained"
+        from langboard_shared.core.types import SnowflakeID
+        other_access, other_refresh = AuthSecurity.authenticate(SnowflakeID(2))
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, other_refresh)
+        body["expected_revision"] = response.json()["revision"]
+        assert client.put(url, json=body, headers={"Authorization": f"Bearer {other_access}"}).status_code == 403
+    assert queues == []

@@ -17,7 +17,7 @@ from .AppGovernance import AppGovernanceDenied, _current, require_connection_acc
 from .DomainService import DomainService
 
 
-def require_app_card_scope(db, principal, project_id, card_id, *, capability, role_action):
+def require_app_card_scope(db, principal, project_id, card_id, *, capability, role_action, allow_archived=False):
     project = _current(db, Project, project_id)
     card = _current(db, Card, card_id)
     connection = _current(db, AppConnection, principal.connection_id)
@@ -26,7 +26,7 @@ def require_app_card_scope(db, principal, project_id, card_id, *, capability, ro
         any(row is None for row in (project, card, connection, actor))
         or card.project_id != project.id
         or card.deleted_at
-        or card.archived_at
+        or (card.archived_at and not allow_archived)
         or card.source_type
     ):
         raise AppGovernanceDenied()
