@@ -383,7 +383,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             with DbSession.atomic() as db:
                 definition.declaration = {**definition.declaration,
                     "capabilities": [*definition.declaration["capabilities"], "panels.render"],
-                    "panel": {"url": "https://panel.example.invalid/panel", "name": "Requests"}}
+                    "panel": {"url": "https://panel.example.invalid/panel", "name": "Requests", "icon": "message-square"}}
                 binding.granted_capabilities = [*binding.granted_capabilities, "panels.render"]
                 db.update(definition)
                 db.update(binding)
@@ -400,10 +400,35 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
                 assert human_client.post(panel_path, json={**panel_form, **extra}, headers=human_headers).status_code == 400
             assert human_client.post(panel_path, json={**panel_form,"app_revision":"0" * 64}, headers=human_headers).status_code == 409
             assert human_client.post(panel_path, json={**panel_form,"card_uid":"A" * 11}, headers=human_headers).status_code == 404
+            from langboard_shared.domain.services.AppCardInteractions import create_app_card_interaction
+            panel_token = issue_connection_credential(board[1], connection.id)["token"]
+            panel_request = create_app_card_interaction(panel_token, board[2].id, card.id,
+                {**mixed,"app_request_key":"panel-human-answer","outcomes":{}})
+            panel_answer_path = panel_path.rsplit("/",1)[0] + f"/cards/{card.get_uid()}/interactions/{panel_request['interaction_uid']}/responses"
+            panel_answer_form = {**form,"app_revision":definition.edit_revision(),"binding_revision":binding.edit_revision()}
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=headers).status_code == 401
+            assert human_client.post(panel_answer_path,json={**panel_answer_form,"actor_uid":"A"*11},headers=human_headers).status_code == 400
+            assert human_client.post(panel_answer_path,json={**panel_answer_form,"binding_revision":"0"*64},headers=human_headers).status_code == 409
+            with DbSession.atomic() as db:
+                isolated = db.exec(SqlBuilder.select.table(AppCardInteraction).where(
+                    AppCardInteraction.app_request_key == "panel-human-answer")).first()
+                isolated.app_key = "other-app"
+                db.update(isolated)
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers).status_code == 404
+            with DbSession.atomic() as db:
+                isolated.app_key = connection.app_key
+                db.update(isolated)
+            native_panel_answer = human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers)
+            assert native_panel_answer.status_code == 200, native_panel_answer.text
+            assert native_panel_answer.json()["state"] == "answered" and native_panel_answer.json()["execution_resumed"] is False
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers).json()["changed"] is False
+            selected_page = human_client.post(panel_path,json={**panel_form,"interaction_uid":panel_request["interaction_uid"]},headers=human_headers)
+            assert selected_page.json()["items"][0]["response"]["values"] == answer
             with DbSession.atomic() as db:
                 binding.granted_capabilities = [value for value in binding.granted_capabilities if value != "panels.render"]
                 db.update(binding)
             assert human_client.post(panel_path, json=panel_form, headers=human_headers).status_code == 404
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers).status_code == 404
             with DbSession.atomic() as db:
                 definition.declaration = previous_declaration
                 binding.granted_capabilities = previous_grants
@@ -788,7 +813,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
 
         retained = list_card_interactions(args[0], board[1], board[2].id, card.id)
-        assert len(retained["items"]) == 5
+        assert len(retained["items"]) == 6
         retained_answer = next(
             row for row in retained["items"] if row["interaction_uid"] == mixed_receipt["interaction_uid"]
         )
@@ -808,7 +833,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         with DbSession.atomic() as db:
             role.actions = previous_actions
             db.update(role)
-        assert len(list_card_interactions(args[0], board[1], board[2].id, card.id)["items"]) == 5
+        assert len(list_card_interactions(args[0], board[1], board[2].id, card.id)["items"]) == 6
         with pytest.raises(AppGovernanceDenied):
             list_card_interactions(args[0], board[1], 11, card.id)
         with DbSession.atomic() as db:
@@ -828,7 +853,8 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             list_card_interactions(args[0], board[1], board[2].id, card.id)
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
-        assert len(rows) == 5 and {row.app_request_key for row in rows} == {
+        assert len(rows) == 6 and {row.app_request_key for row in rows} == {
+            "panel-human-answer",
             "deployment-choice",
             "cancel-choice",
             "choice-or-text",
@@ -839,7 +865,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         from langboard_shared.domain.models import AppCardInteractionResponse
 
         answers = db.exec(SqlBuilder.select.table(AppCardInteractionResponse)).all()
-        assert len(answers) == 2
+        assert len(answers) == 3
         assert next(row for row in answers if row.values == answer).actor_id == board[1].id
     with DbEngine.get_main_engine().begin() as db:
         original = response_migration.op

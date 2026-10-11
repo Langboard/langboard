@@ -127,13 +127,14 @@ function InteractionList({ projectUID, cardUID, userUID, canRespond }: Props) {
         </section>
     );
 }
-function InteractionForm({
+export function InteractionForm({
     item,
     path,
     canRespond,
     refresh,
     onBusy,
     cardRevision,
+    responseContext,
 }: {
     item: CardInteraction;
     path: string;
@@ -141,6 +142,7 @@ function InteractionForm({
     refresh: () => Promise<{ isError: boolean }>;
     onBusy: (busy: boolean) => void;
     cardRevision: number;
+    responseContext?: { app_revision: string; binding_revision: string };
 }) {
     const [t, i18n] = useTranslation();
     const localized = (value: Localized) => value[i18n.resolvedLanguage ?? i18n.language] ?? value[i18n.language.split("-")[0]] ?? value.en;
@@ -183,6 +185,7 @@ function InteractionForm({
             await api.post(
                 `${path}/${item.interaction_uid}/responses`,
                 {
+                    ...responseContext,
                     expected_revision: item.revision,
                     idempotency_key: key.current,
                     values,
@@ -195,6 +198,7 @@ function InteractionForm({
         } catch {
             // A timeout may follow a committed answer. Read back before any replay.
             setUncertain(true);
+            if (responseContext) await refresh();
         } finally {
             setPending(false);
             writing.current = false;
@@ -202,7 +206,7 @@ function InteractionForm({
         }
     };
     const applyMove = async () => {
-        if (writing.current || !canRespond || uncertain || item.workflow_plan?.state !== "planned" || !item.response) return;
+        if (responseContext || writing.current || !canRespond || uncertain || item.workflow_plan?.state !== "planned" || !item.response) return;
         writing.current = true;
         setPending(true);
         onBusy(true);
@@ -242,7 +246,7 @@ function InteractionForm({
                         onClick={() =>
                             window.dispatchEvent(
                                 new CustomEvent(WORKBENCH_OUTLINE_EVENT, {
-                                    detail: { cardUID: path.split("/")[4], section: "comments", commentUID: item.request.presentation.comment_uid },
+                                    detail: { cardUID: path.includes("/panel/cards/") ? path.split("/")[7] : path.split("/")[4], section: "comments", commentUID: item.request.presentation.comment_uid },
                                 })
                             )
                         }
@@ -263,7 +267,7 @@ function InteractionForm({
                             .join(" · ")}
                     </p>
                 )}
-                {item.response && item.workflow_plan?.state === "planned" && (
+                {!responseContext && item.response && item.workflow_plan?.state === "planned" && (
                     <>
                         {item.workflow_receipt ? (
                             <p role="status" className="text-xs text-muted-foreground">
