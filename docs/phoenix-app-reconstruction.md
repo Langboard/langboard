@@ -439,3 +439,21 @@ lookup and observes changed stage descriptions/activity on a subsequent read.
 The existing bounded-source and privacy projection tests remain exercised.
 Transport authorization remains owned by the existing MCP role filter; this test
 does not claim an authenticated live canary MCP session or provider execution.
+
+## Explicit card app ownership
+
+Card app ownership is an independent record rather than a card author, assignee,
+label or signal. Human-authenticated board managers can read, assign or release
+it through the native card settings API. App Bearer credentials cannot claim a
+card. Assignment requires a current enabled approved definition, an enabled board
+binding with cards.create consent, a lifecycle declaration and current policy.
+App revision and ownership revision guard stale changes; repeated identical
+assignments do not append duplicate audit records. Disabled apps can be released.
+
+The Alembic CLI generates the two ownership tables from model metadata. Ownership
+is unique per card; positive revisions are database constraints. Card deletion
+cascades the current assignment but not its independent audit ledger. Neither
+assignment nor its receipt grants execution, selects resources or resumes work.
+The current core card fields and native checklist/comment/relationship services
+are not replaced by app ownership. UI controls, app creation lineage, execution
+fences and deployed app acceptance are separate remaining work.

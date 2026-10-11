@@ -7,8 +7,8 @@ from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .AppDefinition import AppDefinition
 from .AppGovernancePolicy import AppGovernancePolicy
-from .AppResourceBinding import AppResourceBinding
 from .AppMcpConsent import AppMcpConsent
+from .AppResourceBinding import AppResourceBinding
 from .BoardAppBinding import BoardAppBinding
 from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
@@ -17,6 +17,7 @@ from .BotSchedule import BotSchedule
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
+from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
 from .CardAssignedProjectLabel import CardAssignedProjectLabel
 from .CardAssignedUser import CardAssignedUser
 from .CardAttachment import CardAttachment
@@ -78,7 +79,6 @@ from .ProjectWikiMetadata import ProjectWikiMetadata
 from .ScimGroup import ScimGroup
 from .ScimGroupMember import ScimGroupMember
 from .SettingRole import SettingRole
-from .WorkflowStageDefinition import WorkflowStageDefinition
 from .User import User
 from .UserActivity import UserActivity
 from .UserEmail import UserEmail
@@ -90,6 +90,7 @@ from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
+from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
@@ -116,6 +117,8 @@ __all__ = [
     "ProjectColumnBotDefaultScope",
     "BotSchedule",
     "Card",
+    "CardAppOwnership",
+    "CardAppOwnershipAudit",
     "CardAssignedProjectLabel",
     "CardAssignedUser",
     "CardAttachment",

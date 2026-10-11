@@ -38,7 +38,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["f2c7d95a423b"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["a3d8e62c510f"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -312,6 +312,40 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
                 == "Custom existing column"
             )
             workflow_migration.upgrade()
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE card (id BIGINT PRIMARY KEY)"))
+            connection.execute(text("INSERT INTO card (id) VALUES (130)"))
+        spec = importlib.util.spec_from_file_location(
+            "ownership_migration", migration_root / "versions/20261012110000-a3d8e62c510f.py"
+        )
+        ownership_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ownership_migration)
+        assert ownership_migration.down_revision == workflow_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            ownership_migration.upgrade()
+            connection.execute(
+                text("INSERT INTO card_app_ownership (id,card_id,app_key,revision) VALUES (140,130,'example',1)")
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO card_app_ownership_audit (id,card_id,actor_id,app_key,revision) "
+                    "VALUES (141,130,1,'example',1)"
+                )
+            )
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(text("INSERT INTO card_app_ownership (id,card_id,revision) VALUES (142,130,1)"))
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(text("UPDATE card_app_ownership SET revision=0 WHERE id=140"))
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            connection.execute(text("DELETE FROM card WHERE id=130"))
+            assert connection.execute(text("SELECT count(*) FROM card_app_ownership")).scalar() == 0
+            assert connection.execute(text("SELECT count(*) FROM card_app_ownership_audit")).scalar() == 1
+            ownership_migration.downgrade()
+            assert (
+                connection.execute(text("SELECT name FROM project_column WHERE id=120")).scalar()
+                == "Custom existing column"
+            )
+            ownership_migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:

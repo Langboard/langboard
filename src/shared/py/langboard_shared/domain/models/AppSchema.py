@@ -7,6 +7,7 @@ from .AppGovernancePolicy import AppGovernancePolicy
 from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .BoardAppBinding import BoardAppBinding
+from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
 from .ProjectColumn import ProjectColumn
 
 
@@ -66,3 +67,7 @@ ProjectColumn.__table__.append_constraint(
         name=conv("fk_project_column_workflow_stage"),
     )
 )
+
+
+for model in (CardAppOwnership, CardAppOwnershipAudit):
+    model.__table__.append_constraint(CheckConstraint("revision >= 1", name=conv(f"ck_{model.__tablename__}_revision")))
