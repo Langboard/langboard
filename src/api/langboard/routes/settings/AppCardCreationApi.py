@@ -14,6 +14,7 @@ class AppCardCreationBody(BaseModel):
     external_id: str = Field(strict=True, min_length=1, max_length=200)
     title: str = Field(strict=True, min_length=1, max_length=200)
     description: str = Field(strict=True, default="", max_length=100000)
+    card_type: str | None = Field(default=None, strict=True, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     presentation: dict | None = None
 
 
@@ -32,6 +33,7 @@ def create_external_app_card(
             body.external_id,
             body.title,
             description=body.description,
+            card_type=body.card_type,
             presentation=body.presentation,
         )
     except AppGovernanceDenied as exc:
