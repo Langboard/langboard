@@ -278,3 +278,18 @@ Before the fix both 1440px and 390px cases displayed the previous card history.
 After the fix both pass, including ordered return transitions and keyboard-focus
 actor details. This uses controlled HTTP responses, not deployed activity
 persistence or actual multi-user socket delivery.
+
+## Current retained-history migration gate
+
+A fresh disposable PostgreSQL database upgrades through the complete Alembic
+chain to the single current head `c97659de63f4`, including the merge revision
+`b86548cd52e3`. The former `d3c6fd51a7e9` table entry is historical.
+
+The two latest native migrations are exercised on both SQLite and PostgreSQL:
+empty upgrade/downgrade/re-upgrade, unique connection/request ownership, and
+downgrade refusal with retained identity and JSON consent/Review receipt. Four
+local cases pass and are included in the native contract CI selection.
+
+These checks use disposable databases. They do not establish upgrade safety
+for a production backup or approve an application/image rollback; a database
+containing retained history deliberately refuses that schema downgrade.
