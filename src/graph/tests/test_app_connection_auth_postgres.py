@@ -75,7 +75,9 @@ from langboard_shared.domain.services.AppRegistry import (
 )
 from langboard_shared.domain.services.AppResourceSelection import list_resource_selections, save_resource_selection
 from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_mapping, save_workflow_mapping
+from langboard_shared.domain.services.BoardWorkflowSettings import read_column_workflow, save_column_workflow
 from langboard_shared.Env import Env
+from langboard_shared.publishers import ProjectColumnPublisher
 from langboard_shared.security import Auth
 from sqlalchemy import event, text, update
 from sqlalchemy.orm import Session
@@ -1155,3 +1157,48 @@ def test_workflow_metadata_and_column_editing_http_current_authority(registered,
             )
     finally:
         Cache.clear()
+
+
+def test_column_metadata_publication_occurs_after_commit_and_not_on_rollback(registered, monkeypatch):
+    engine, (_, owner, _), *_ = registered
+    WorkflowStageDefinition.__table__.create(engine)
+    ProjectColumn.__table__.create(engine)
+    with Session(engine) as db:
+        db.add(WorkflowStageDefinition(id=201, key="active", name="Active", is_builtin=True))
+        db.commit()
+        db.add(ProjectColumn(id=211, project_id=20, name="Doing"))
+        db.commit()
+    events = []
+
+    def dispatch(payload, models):
+        with Session(engine) as observer:
+            column = observer.get(ProjectColumn, 211)
+            assert column.description == payload["description"]
+            assert column.workflow_stage == payload["workflow_stage"]
+        events.append((payload, models))
+
+    monkeypatch.setattr(ProjectColumnPublisher, "put_dispather", dispatch)
+    initial = read_column_workflow(owner, SnowflakeID(20), SnowflakeID(211))
+    with pytest.raises(RuntimeError):
+        with DbSession.atomic():
+            save_column_workflow(
+                owner, SnowflakeID(20), SnowflakeID(211), "active", "Uncommitted", {}, initial["revision"]
+            )
+            assert events == []
+            raise RuntimeError("rollback fixture")
+    assert events == []
+    save_column_workflow(
+        owner, SnowflakeID(20), SnowflakeID(211), "active", "Committed", {"ko": {"name": "작업"}}, initial["revision"]
+    )
+    assert len(events) == 1
+    payload, models = events[0]
+    assert payload["name"] == "Doing" and payload["description"] == "Committed"
+    assert payload["translations"] == {"ko": {"name": "작업"}}
+    assert len(models) == 2 and all(model.topic_id == SnowflakeID(20).to_short_code() for model in models)
+    assert {model.event for model in models} == {
+        f"board:column:name:changed:{SnowflakeID(20).to_short_code()}",
+        f"dashboard:project:column:name:changed:{SnowflakeID(20).to_short_code()}",
+    }
+    with pytest.raises(AppGovernanceConflict):
+        save_column_workflow(owner, SnowflakeID(20), SnowflakeID(211), None, "Stale", {}, initial["revision"])
+    assert len(events) == 1

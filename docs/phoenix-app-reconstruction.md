@@ -391,3 +391,19 @@ PostgreSQL upgrade/downgrade checks distinguish the empty migrated table from
 bootstrapped defaults, verify all four locale entries, and prove repeat execution
 preserves a user-edited name. Existing deployments of the earlier draft revision
 require deployment-specific handling; this branch has not been deployed or merged.
+
+## Column metadata publication
+
+Column workflow edits now publish the existing board and dashboard column change
+envelopes only after the database transaction commits. Payload adds description,
+translations and workflow stage while retaining uid/name for older readers.
+Publication stays scoped to the board's existing channels; column contents are
+not sent through the global app invalidation event. Both UI handlers use one
+ProjectColumn metadata method and preserve existing values when optional fields
+are absent from older name-only payloads; an explicit null stage clears it.
+
+The PostgreSQL regression verifies a separate observer sees committed metadata
+when publication runs, rollback emits nothing, stale writes emit nothing, and
+both board-scoped envelopes include metadata. Changed TypeScript files pass
+esbuild transformation; that is not a full UI typecheck or rendered/browser
+acceptance. Live Phoenix broker delivery and browser synchronization remain pending.

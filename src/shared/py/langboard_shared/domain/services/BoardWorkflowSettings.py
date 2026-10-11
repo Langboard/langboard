@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from ...core.db import DbSession, SqlBuilder
-from ...publishers import AppSettingPublisher
+from ...publishers import AppSettingPublisher, ProjectColumnPublisher
 from ..models import ProjectColumn, WorkflowStageDefinition
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _authorized_board, _current
 
@@ -138,5 +138,5 @@ def save_column_workflow(actor, project_id, column_id, stage_key, description, t
             raise ValueError("Choose an active built-in stage for a nonarchive column")
         column.workflow_stage, column.description, column.translations = stage_key, description, translations
         db.update(column)
-        db.after_commit(AppSettingPublisher.apps_changed)
+        db.after_commit(lambda: ProjectColumnPublisher.metadata_changed(project, column))
         return _column_response(column, stage)

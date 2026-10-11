@@ -61,6 +61,35 @@ class ProjectColumnPublisher(BaseSocketPublisher):
         ProjectColumnPublisher.put_dispather(model, publish_models)
 
     @staticmethod
+    def metadata_changed(project: Project, column: ProjectColumn):
+        """Extend the existing column change envelope for backward-compatible readers."""
+        model = {
+            "uid": column.get_uid(),
+            "name": column.name,
+            "description": column.description,
+            "translations": column.translations,
+            "workflow_stage": column.workflow_stage,
+        }
+        topic_id = project.get_uid()
+        ProjectColumnPublisher.put_dispather(
+            model,
+            [
+                SocketPublishModel(
+                    topic=SocketTopic.Board,
+                    topic_id=topic_id,
+                    event=f"board:column:name:changed:{topic_id}",
+                    data_keys=list(model),
+                ),
+                SocketPublishModel(
+                    topic=SocketTopic.Dashboard,
+                    topic_id=topic_id,
+                    event=f"dashboard:project:column:name:changed:{topic_id}",
+                    data_keys=list(model),
+                ),
+            ],
+        )
+
+    @staticmethod
     def order_changed(project: Project, column: ProjectColumn):
         model = {
             "uid": column.get_uid(),

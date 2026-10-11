@@ -6,6 +6,9 @@ import { registerModel } from "@/core/models/ModelRegistry";
 export interface Interface extends IBaseModel {
     project_uid: string;
     name: string;
+    description?: string;
+    translations?: Record<string, { name?: string; description?: string }>;
+    workflow_stage?: string | null;
     order: number;
     is_archive: bool;
 }
@@ -26,6 +29,15 @@ class ProjectColumn extends BaseModel<IStore> {
             projectUID: this.project_uid,
             columnUID: this.uid,
             column: this,
+        });
+    }
+
+    public applyMetadata(data: Pick<Interface, "name" | "description" | "translations" | "workflow_stage">) {
+        this.update({
+            name: data.name,
+            ...(data.description !== undefined ? { description: data.description } : {}),
+            ...(data.translations !== undefined ? { translations: data.translations } : {}),
+            ...(data.workflow_stage !== undefined ? { workflow_stage: data.workflow_stage } : {}),
         });
     }
 
