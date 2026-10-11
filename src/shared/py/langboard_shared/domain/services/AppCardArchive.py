@@ -212,10 +212,30 @@ def revalidate_archive_event(db, event, *, reporting=False):
         raise AppGovernanceConflict()
 
 
+def _locked_archive_outcome(db, principal, project_id, archive_id):
+    """Match delivery's outbox -> archive lock order and refresh the receipt."""
+    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT
+
+    row = _current(db, AppCardArchive, archive_id, for_update=False)
+    if row is None or row.project_id != project_id or row.app_key != principal.app_key:
+        raise AppGovernanceDenied()
+    event = db.exec(SqlBuilder.select.table(AppExecutionOutbox).where(
+        AppExecutionOutbox.request_id == row.id, AppExecutionOutbox.event_type == APP_CARD_ARCHIVE_EVENT
+    ).with_for_update()).first()
+    if event is None or event.connection_id != principal.connection_id:
+        raise AppGovernanceDenied()
+    row = db.exec(
+        SqlBuilder.select.table(AppCardArchive).where(AppCardArchive.id == archive_id).with_for_update(),
+        execution_options={"populate_existing": True},
+    ).first()
+    if row is None or row.project_id != project_id or row.app_key != principal.app_key:
+        raise AppGovernanceDenied()
+    return row, event
+
+
 def read_archive_outcome(token, project_id, archive_id):
     """Current owning-app receipt for ambiguous reports; no mutation or delivery retry."""
     from .AppConnectionAuthentication import authenticate_connection_credential
-    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT
     from .AppExecutionGrant import AppExecutionCredentialDenied
 
     with DbSession.atomic() as db:
@@ -223,14 +243,7 @@ def read_archive_outcome(token, project_id, archive_id):
             principal = authenticate_connection_credential(token)
         except AppGovernanceDenied as exc:
             raise AppExecutionCredentialDenied() from exc
-        row = _current(db, AppCardArchive, archive_id)
-        if row is None or row.project_id != project_id or row.app_key != principal.app_key:
-            raise AppGovernanceDenied()
-        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox).where(
-            AppExecutionOutbox.request_id == row.id, AppExecutionOutbox.event_type == APP_CARD_ARCHIVE_EVENT
-        )).first()
-        if event is None or event.connection_id != principal.connection_id:
-            raise AppGovernanceDenied()
+        row, event = _locked_archive_outcome(db, principal, project_id, archive_id)
         revalidate_archive_event(db, event, reporting=True)
         return {"archive_uid": row.get_uid(), "receipt": row.receipt,
                 "delivery": {"event_uid": event.get_uid(), "state": event.state, "attempt_count": event.attempt_count}}
@@ -239,7 +252,6 @@ def read_archive_outcome(token, project_id, archive_id):
 def report_archive_outcome(token, project_id, archive_id, expected_revision, outcome):
     """Persist an authenticated app report; transport success is not provider success."""
     from .AppConnectionAuthentication import authenticate_connection_credential
-    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT
     from .AppExecutionGrant import AppExecutionCredentialDenied
 
     if type(expected_revision) is not int or expected_revision < 0:
@@ -259,13 +271,8 @@ def report_archive_outcome(token, project_id, archive_id, expected_revision, out
             principal = authenticate_connection_credential(token)
         except AppGovernanceDenied as exc:
             raise AppExecutionCredentialDenied() from exc
-        row = _current(db, AppCardArchive, archive_id)
-        if row is None or row.project_id != project_id or row.app_key != principal.app_key:
-            raise AppGovernanceDenied()
-        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox).where(
-            AppExecutionOutbox.request_id == row.id, AppExecutionOutbox.event_type == APP_CARD_ARCHIVE_EVENT
-        ).with_for_update()).first()
-        if event is None or event.connection_id != principal.connection_id or (event.state not in ("delivering", "delivered") and not (event.state == "blocked" and row.receipt.get("provider_report"))):
+        row, event = _locked_archive_outcome(db, principal, project_id, archive_id)
+        if event.state not in ("delivering", "delivered") and not (event.state == "blocked" and row.receipt.get("provider_report")):
             raise AppGovernanceDenied()
         revalidate_archive_event(db, event, reporting=True)
         revision = row.receipt.get("outcome_revision", 0)
