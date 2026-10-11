@@ -367,3 +367,29 @@ response readback, uncertain results, read-only/expired/reaction restrictions,
 multi-choice bounds, localized approval and literal free text. The fixture mocks
 HTTP. These are UI behavior proofs, not deployed API/runtime integration evidence.
 Workflow outcomes and observed external continuation are still separate gates.
+
+## Frozen workflow outcome destinations
+
+New requests retain a host-owned workflow snapshot separately from the original
+SDK request. When transitions are explicitly enabled on the board binding,
+nonempty outcomes must use the approved app's declared built-in stages and its
+explicit stage-to-column mapping. The host checks each current column's board,
+archive/deletion status, stage and revision and the built-in active stage. It
+never chooses a column by name or by first matching stage.
+
+The snapshot preserves the binding revision and each choice's exact column UID,
+stage and column revision. Fresh mapped answers reject changed bindings or
+columns. Text answers have no mapped workflow outcome. Requests created while
+transitions are disabled remain disabled after a later enable; existing requests
+migrated with an empty snapshot remain `legacy_unbound` and acquire no destination.
+
+Answer/list receipts and new signed response events project a `workflow_plan`
+with `planned`, `disabled`, `no_outcome` or `legacy_unbound` state. `planned` is an
+immutable destination intent, not a movement receipt: `workflow_transitioned`
+remains false. Pre-migration signed events without the field retain their wire
+body. The migration refuses to discard nonempty frozen history on downgrade.
+
+Actual native card movement is still pending. It must revalidate the frozen
+mapping and current authority and use native ordering, workflow effects,
+readiness and history paths. Moving out of Ready invalidates the old execution
+permit; neither an answer nor a planned target silently renews that permit.
