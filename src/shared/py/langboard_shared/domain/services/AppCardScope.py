@@ -17,7 +17,7 @@ from .AppGovernance import AppGovernanceDenied, _current, require_connection_acc
 from .DomainService import DomainService
 
 
-def require_app_card_scope(db, principal, project_id, card_id, *, capability, role_action, allow_archived=False):
+def require_app_card_scope(db, principal, project_id, card_id, *, capability, role_action, allow_archived=False, unattended=True):
     project = _current(db, Project, project_id)
     card = _current(db, Card, card_id)
     connection = _current(db, AppConnection, principal.connection_id)
@@ -30,7 +30,7 @@ def require_app_card_scope(db, principal, project_id, card_id, *, capability, ro
         or card.source_type
     ):
         raise AppGovernanceDenied()
-    require_connection_access(db, actor, project, connection, unattended=True)
+    require_connection_access(db, actor, project, connection, unattended=unattended)
     role = db.exec(
         SqlBuilder.select.table(ProjectRole).where(
             ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id

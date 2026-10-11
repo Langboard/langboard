@@ -33,6 +33,8 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
     from alembic.operations import Operations
     from langboard_shared.core.db.DbEngine import DbEngine
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    from langboard_shared.domain.models import EmployeeMembershipPolicy
+    EmployeeMembershipPolicy.__table__.create(DbEngine.get_main_engine())
     migration = importlib.import_module("langboard.migrations.versions.20261011230000-c97659de63f4")
     original = migration.op
     try:
@@ -81,6 +83,41 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
         assert {tool["qualified_name"] for tool in result["tools"]} == {
             f"{connection.app_key}:{connection.get_uid()}:read_issue", f"{connection.app_key}:{connection.get_uid()}:write_issue"}
         assert all(tool["callable"] is False for tool in result["tools"])
+        # Native user MCP resolves the same catalog without borrowing an app token.
+        from fastmcp import Client
+        from fastmcp.exceptions import ToolError
+        from langboard.mcp_integration import McpTool
+        from langboard.mcp_integration.Annotations import tool_annotations
+        from langboard.mcp_integration.Providers import create_native_domain_provider
+        from langboard.mcp_integration.Server import McpServer, _create_fastmcp
+        from langboard.mcp_tools.CardAppResourcesMcp import get_card_app_mcp_tools  # noqa: F401
+        from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+        from langboard_shared.core.types import SafeDateTime
+        from langboard_shared.domain.models import McpToolGroup
+        from langboard_shared.domain.services.AppMcpCatalog import read_user_app_mcp_catalog
+        assert McpTool.get_tool("get_card_app_mcp_tools")["accessible_type"] == "user"
+        assert tool_annotations("get_card_app_mcp_tools").read_only_hint is True
+        scope = {"project_uid": board[2].get_uid(), "card_uid": card.get_uid(), "connection_uid": connection.get_uid()}
+
+        async def check_native_mcp():
+            server = _create_fastmcp()
+            server.add_provider(create_native_domain_provider(McpServer._wrap_tool, modern_annotations=True))
+            group = McpToolGroup(name="MCP catalog test", tools=["get_card_app_mcp_tools"], activated_at=SafeDateTime.now())
+            context = mcp_auth_context.set({"user_or_bot": board[1], "tool_group": group})
+            try:
+                async with Client(server) as native:
+                    assert [tool.name for tool in await native.list_tools()] == ["get_card_app_mcp_tools"]
+                    receipt = await native.call_tool("get_card_app_mcp_tools", scope)
+                    assert receipt.structured_content["tools"] == result["tools"]
+                    group.tools = []
+                    assert await native.list_tools() == []
+                    with pytest.raises(ToolError):
+                        await native.call_tool("get_card_app_mcp_tools", scope)
+            finally:
+                mcp_auth_context.reset(context)
+
+        asyncio.run(check_native_mcp())
+        assert read_user_app_mcp_catalog(board[1], board[2].id, card.id, connection.id)["tools"] == result["tools"]
         # User transport is independent from the app token. An unrelated
         # instance administrator cannot approve another person's connection.
         from langboard_shared.core.security import AuthSecurity
@@ -95,6 +132,9 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
         user_app.include_router(AppRouter.api)
         user_app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
         management_path = f"/settings/apps/connections/{connection.get_uid()}/mcp-consent"
+        from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+        with pytest.raises(AppGovernanceDenied):
+            read_user_app_mcp_catalog(outsider, board[2].id, card.id, connection.id)
         for actor, status in ((outsider, 403), (board[1], 200)):
             access, refresh = AuthSecurity.authenticate(actor.id)
             with TestClient(user_app) as human:
@@ -112,6 +152,7 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
                     revoked = human.put(management_path, json={**body, "scopes": []}, headers={"Authorization": f"Bearer {access}"})
                     assert revoked.status_code == 200 and revoked.json()["scopes"] == []
                     assert client.get(path, headers=headers).json()["tools"] == []
+                    assert read_user_app_mcp_catalog(board[1], board[2].id, card.id, connection.id)["tools"] == []
                     fresh = read_mcp_connection_consent(board[1], connection.id)
                     save_mcp_connection_consent(board[1], connection.id, ["read", "write"], fresh["revision"],
                                                fresh["identity_revision"], fresh["app_revision"])
@@ -153,7 +194,11 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
             current.access_state = "revoked"
             db.update(current)
         assert client.get(path, headers=headers).status_code == 403
+        with pytest.raises(AppGovernanceDenied):
+            read_user_app_mcp_catalog(board[1], board[2].id, card.id, connection.id)
         with DbSession.atomic() as db:
             connection.state = "revoked"
             db.update(connection)
         assert client.get(path, headers=headers).status_code == 401
+        with pytest.raises(AppGovernanceDenied):
+            read_user_app_mcp_catalog(board[1], board[2].id, card.id, connection.id)

@@ -1313,3 +1313,6 @@ remain separate delivery checks.
 The authenticated human connection manager reads `GET /settings/apps/connections/{connection_uid}/mcp-consent`. The response includes the current `available_tools` grouped by authority scope and the retained `granted_tools`, alongside the consent, app, and trust identity revisions. The native connection UI displays the actual declared tool names before explicit scope selection. It does not grant permissions automatically and does not grant when the host cannot describe the tool set.
 
 A registry update withdraws affected scope grants permanently; the newly available tool set and retained grants remain distinct. Restoring a previous declaration does not reinstate consent. Remote MCP execution remains unsupported by this consent/catalog contract.
+
+
+Native user MCP exposes `get_card_app_mcp_tools(project_uid, card_uid, connection_uid)` for connection-owner discovery. It uses the same catalog projection and board/card/resource/consent checks as the app REST catalog, plus current native MCP visibility and tool-group authorization. It neither issues nor forwards an app credential. Human discovery is distinguished from unattended app execution; it does not transfer a personal connection to organization automation. Results remain non-callable until a separate remote execution contract is implemented.
