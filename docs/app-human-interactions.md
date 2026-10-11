@@ -637,7 +637,8 @@ binding revision and a bounded result reference. App-owned card reads now also
 return `execution_generation`. Keep the original write inputs for an ambiguous
 retry; the SDK does not retry automatically.
 
-This explicit result action requires current owning-app `execution.run` consent,
+This explicit result action requires current owning-app `execution.run` and
+`resources.read` consent,
 organization/connection policy, native card access, unchanged ownership and
 selected-resource revisions, the matching current generation, an app start
 attestation, and a retained stopped lease. The stopped permit supplies termination
