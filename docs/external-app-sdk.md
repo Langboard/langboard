@@ -1117,3 +1117,12 @@ signal reads: 403/404/409 remove the frame and cached panel state; a 500 reports
 request failure without pretending authority was revoked. The common Axios
 interceptor preserves 403 as a rejected error for callers to handle. Browser
 routes are fixtures, not a deployed account or provider-data acceptance proof.
+
+A stored-signal regression also ingests a signed GitHub event and reads its real
+database evidence through authenticated panel HTTP on SQLite and PostgreSQL.
+Undeclared providers are rejected even with a known signal cursor. Deselecting
+the resource or revoking its SecretRef removes the signal from subsequent reads;
+a cursor for a deselected resource is rejected. External provider HTTP remains a
+fixture. This does not establish multi-provider data isolation or live deployment
+acceptance. The shared secret fixture now reuses the actual Organization table
+instead of rebuilding columns from the former placeholder.
