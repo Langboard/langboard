@@ -307,7 +307,7 @@
   "Provider reported state": "Provider reported state",
   "appRuntimes": {
     "title": "App execution",
-    "help": "Latest 10 requests. Permit state is not proof of a running process. A stop request waits for the external runtime to report termination.",
+    "help": "10 requests per page. Permit state is not proof of a running process. A stop request waits for the external runtime to report termination.",
     "stop": "Request stop",
     "unresolved": "Result unconfirmed. Refresh before another request.",
     "empty": "No execution requests.",
