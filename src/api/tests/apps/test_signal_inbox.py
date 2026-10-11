@@ -42,7 +42,9 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         issue_connection_credential,
         revoke_connection_credential,
     )
-    from langboard_shared.domain.services.AppConnectionManagement import create_inbound_connection
+    from langboard_shared.domain.services.AppConnectionManagement import (
+        create_inbound_connection, select_inbound_resource, list_inbound_resources,
+    )
     from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
     from langboard_shared.publishers import CardPublisher
@@ -141,12 +143,23 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     result = inbox(scoped)
     assert {row["provider"] for row in result["items"]} == {"example-monitor"}
     assert result["items"][0]["time_basis"] == "observation"
-    with DbSession.atomic() as db:
-        second_resource = AppResourceBinding(
-            board_binding_id=state[3].id, connection_id=state[2].id, resource_type="issue",
-            external_resource_id="second-issue", access_state="granted",
+    def select_resource(board_row, binding, external_id, **changes):
+        return select_inbound_resource(
+            state[0].workflow_stage, actor, board_row.get_uid(), "example-monitor",
+            definition.edit_revision(), binding.get_uid(), binding.edit_revision(),
+            state[2].id, "issue", external_id, **changes,
         )
-        db.insert(second_resource)
+
+    selected_second = select_resource(state[1][2], state[3], "second-issue")
+    assert select_resource(state[1][2], state[3], "second-issue",
+                           expected_access_revision=selected_second["access_revision"]) == selected_second
+    with DbSession.atomic() as db:
+        second_resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
+            AppResourceBinding.id == SnowflakeID.from_short_code(selected_second["resource_uid"]),
+        )).first()
+    management_rows = list_inbound_resources(state[0].workflow_stage, actor,
+        state[1][2].get_uid(), "example-monitor", state[2].id)["items"]
+    assert selected_second["resource_uid"] in {row["resource_uid"] for row in management_rows}
     second = receive({**envelope, "resource_uid": second_resource.get_uid(), "external_id": "second-issue"})
     assert second.status_code == 200 and second.json()["signal_uid"] != first["signal_uid"]
     assert {row["resource_uid"] for row in inbox(scoped)["items"]} == {state[4].get_uid(), second_resource.get_uid()}
@@ -162,9 +175,11 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         other_binding = BoardAppBinding(project_id=other_board.id, app_key="example-monitor", state="enabled",
             granted_capabilities=["signals.read", "signals.publish"])
         db.insert(other_binding)
-        other_resource = AppResourceBinding(board_binding_id=other_binding.id, connection_id=state[2].id,
-            resource_type="issue", external_resource_id="other-board-issue", access_state="granted")
-        db.insert(other_resource)
+    selected_other = select_resource(other_board, other_binding, "other-board-issue")
+    with DbSession.atomic() as db:
+        other_resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
+            AppResourceBinding.id == SnowflakeID.from_short_code(selected_other["resource_uid"]),
+        )).first()
     other_envelope.update(binding_revision=other_binding.edit_revision(), resource_uid=other_resource.get_uid(),
                           external_id="other-board-issue")
     received_other = receive(other_envelope, board_uid=other_board.get_uid())
@@ -180,13 +195,17 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         db.update(link)
     assert all(row["external_id"] != "55" for row in inbox(scoped)["items"])
     assert card_signal_projections([card])[card.id][0]["state"] == "failed"
-    with DbSession.atomic() as db:
-        state[4].is_selected = False
-        db.update(state[4])
+    revoked_resource = select_resource(state[1][2], state[3], state[4].external_resource_id,
+        selected=False, expected_access_revision=state[4].access_revision)
+    assert revoked_resource["access_state"] == "revoked"
     assert receive({**envelope, "event_id": "resource-revoked"}).status_code == 403
+    assert all(row["external_id"] != "55" for row in inbox(scoped)["items"])
+    assert card_signal_projections([card]) == {}
+    restored_resource = select_resource(state[1][2], state[3], state[4].external_resource_id,
+        expected_access_revision=revoked_resource["access_revision"])
+    assert restored_resource["access_revision"] == revoked_resource["access_revision"] + 1
+    assert card_signal_projections([card])[card.id][0]["state"] == "failed"
     with DbSession.atomic() as db:
-        state[4].is_selected = True
-        db.update(state[4])
         state[3].granted_capabilities = ["signals.read"]
         db.update(state[3])
     assert receive({**envelope, "event_id": "grant-revoked"}).status_code == 403
