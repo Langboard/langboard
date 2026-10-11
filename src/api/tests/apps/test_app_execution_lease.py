@@ -20,6 +20,46 @@ from langboard_shared.domain.services.factory.WorkflowStageService_app_test impo
 from test_app_execution_ack import scope
 
 
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("sharing", ["member", "organization"])
+def test_personal_runtime_loses_authority_when_board_becomes_shared(board, monkeypatch, sharing):
+    """Board sharing never transfers a private connection's automation authority."""
+    from langboard_shared.domain.models import Organization, ProjectAssignedUser, User
+    from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
+    from langboard_shared.domain.services.AppExecutionRequests import request_app_execution
+
+    connection, card, token, request, ack_id = permit_scope(board, monkeypatch)
+    assert connection.ownership == "personal" and board[2].organization_id is None
+    runtime_token = token_hex(32)
+    permit = authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
+    with DbSession.atomic() as db:
+        if sharing == "member":
+            visitor = User(firstname="External", lastname="Member", email="visitor@example.invalid",
+                           password="test", activated_at=SafeDateTime.now())
+            db.insert(visitor)
+            db.insert(ProjectAssignedUser(project_id=board[2].id, user_id=visitor.id))
+        else:
+            organization = Organization(name="Example", slug="example", owner_user_id=board[1].id)
+            db.insert(organization)
+            board[2].organization_id = organization.id
+            db.update(board[2])
+    with pytest.raises(AppGovernanceDenied):
+        evaluate_current_execution_grant(token, board[2].id, card.id, request.generation)
+    with pytest.raises(AppGovernanceDenied):
+        request_app_execution(token, board[2].id, card.id, request.generation,
+                              expected_authority_version=request.authority["authority_version"])
+    from langboard_shared.core.types import SnowflakeID
+    lease_id = SnowflakeID.from_short_code(permit["lease_uid"])
+    stopped = check_app_runtime(lease_id, runtime_token)
+    assert stopped["state"] == "stop_requested" and stopped["permit_execution"] is False
+    assert check_app_runtime(lease_id, runtime_token, stopped=True)["state"] == "stopped"
+    with DbSession.use(readonly=False) as db:
+        retained = db.exec(SqlBuilder.select.table(AppExecutionRequest)).all()
+        assert len(retained) == 1 and retained[0].authority == request.authority
+        lease = db.exec(SqlBuilder.select.table(AppExecutionLease)).first()
+        assert [entry["state"] for entry in lease.history] == ["authorized", "stop_requested", "stopped"]
+
+
 def permit_scope(board, monkeypatch):
     connection, card, token, event = scope(board, monkeypatch)
     # grant_scope already applies the native permit/credential migrations.
