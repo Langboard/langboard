@@ -10,7 +10,7 @@ for (const width of [1280, 390]) {
         await page.waitForTimeout(700);
         await expect(page.getByRole("menuitem", { name: "한국어" })).toBeVisible();
         await page.getByRole("menuitem", { name: "한국어" }).click();
-        await expect(page.locator("output")).toContainText('"preferred":"ko-KR"');
+        await expect(page.locator("output")).toContainText(JSON.stringify({ preferred: "ko-KR" }).slice(1, -1));
     });
 }
 for (const width of [1280, 390]) {
@@ -97,5 +97,33 @@ for (const width of [1280, 390]) {
         await expect(avatar).toBeFocused();
         await page.keyboard.press("Space");
         await expect(page.getByRole("dialog")).toBeVisible();
+    });
+}
+
+for (const width of [1280, 390]) {
+    test(`account and avatar language controls share a pending save at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        let release: () => void = () => {};
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let writes = 0;
+        await page.route("**/account/preferred-language", async (route) => {
+            writes++;
+            expect(route.request().postDataJSON()).toEqual({ lang: "ko-KR" });
+            await pending;
+            await route.fulfill({ json: {} });
+        });
+        await page.goto("/src/pages/AccountPage/components/preference/PreferenceLanguage.fixture.html");
+        await page.getByRole("button", { name: "English (US)", exact: true }).click();
+        await page.getByRole("menuitem", { name: "한국어" }).click();
+        await expect.poll(() => writes).toBe(1);
+        await page.getByRole("button", { name: "Language Fixture" }).click();
+        const avatarLanguage = page.getByRole("dialog").getByRole("button", { name: "한국어", exact: true });
+        await expect(avatarLanguage).toBeDisabled();
+        release();
+        await expect(avatarLanguage).toBeEnabled();
+        await expect(page.locator("output")).toContainText(JSON.stringify({ preferred: "ko-KR" }).slice(1, -1));
+        expect(writes).toBe(1);
     });
 }
