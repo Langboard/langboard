@@ -2,7 +2,7 @@
 
 import re
 from sqlalchemy import Text, and_, cast, func, or_, select, tuple_
-from ...core.db import DbSession
+from ...core.db import DbSession, SqlBuilder
 from ...helpers import InfraHelper
 from ..models import (
     AppConnection,
@@ -137,8 +137,35 @@ def authorized_signal_rows(db, rows):
                 reference_ids[binding.id] = InfraHelper.convert_id(uri.removeprefix("secret://ref/"))
             except (ValueError, TypeError):
                 continue
+    from ...core.types import SafeDateTime
+    from ..models import AppConnectionCredential
+    from .AppConnectionAuthentication import _identity_hash, is_native_inbound_connection
+    native_connections = {connection.id: connection for _, connection, _ in rows if is_native_inbound_connection(connection)}
+    native_authorized = set()
+    if native_connections:
+        definitions = {definition.key: definition for definition in db.exec(
+            SqlBuilder.select.table(AppDefinition).where(
+                AppDefinition.key.in_({connection.app_key for connection in native_connections.values()}),
+                AppDefinition.is_enabled == True,  # noqa: E712
+            )
+        ).all()}
+        credentials = db.exec(SqlBuilder.select.table(AppConnectionCredential).where(
+            AppConnectionCredential.connection_id.in_(native_connections),
+            AppConnectionCredential.revoked_at.is_(None), AppConnectionCredential.expires_at > SafeDateTime.now(),
+        )).all()
+        identities = {}
+        for credential in credentials:
+            connection = native_connections[credential.connection_id]
+            definition = definitions.get(connection.app_key)
+            if definition is None:
+                continue
+            if connection.id not in identities:
+                identities[connection.id] = _identity_hash(db, connection, definition=definition)
+            if credential.identity_hash == identities[connection.id]:
+                native_authorized.add(connection.id)
+    native_rows = [binding for binding, connection, _ in rows if connection.id in native_authorized]
     if not reference_ids:
-        return []
+        return native_rows
     # Match the native SecretReference scope rules without per-card authority reads.
     scope_member = (
         select(ProjectAssignedUser.id)
@@ -208,7 +235,7 @@ def authorized_signal_rows(db, rows):
     eligible = [
         binding for binding, connection, _ in rows if (reference_ids.get(binding.id), connection.id) in authorized
     ]
-    return eligible
+    return eligible + native_rows
 
 
 def card_signal_projections(cards):

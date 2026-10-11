@@ -30,6 +30,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.domain.models import (
+        AppConnection,
         AppConnectionCredential,
         AppDefinition,
         AppResourceBinding,
@@ -41,11 +42,14 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         issue_connection_credential,
         revoke_connection_credential,
     )
+    from langboard_shared.domain.services.AppConnectionManagement import create_inbound_connection
     from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
     from langboard_shared.publishers import CardPublisher
 
     state, card, link, _ = scoped
+    state = list(state)
+    scoped = (state, card, link, scoped[3])
     actor = state[1][1]
     AppConnectionCredential.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     monkeypatch.setattr(CardPublisher, "app_signal_changed", lambda _: None)
@@ -55,11 +59,18 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     with DbSession.atomic() as db:
         actor.is_admin = True
         db.update(actor)
-    save_definition(actor, {"schema_version": 2, "key": "example-monitor", "version": "1.0.0",
+    saved = save_definition(actor, {"schema_version": 2, "key": "example-monitor", "version": "1.0.0",
         "name": "Example Monitor", "description": "Independent issue observations.",
         "capabilities": ["signals.read", "signals.publish"], "resource_types": ["issue"], "signal_policy": policy})
+    inbound = create_inbound_connection(actor, "example-monitor", saved["revision"], state[1][2].organization_id)
+    from langboard_shared.core.types import SnowflakeID
     with DbSession.atomic() as db:
-        state[2].app_key = state[3].app_key = "example-monitor"
+        state[2] = db.exec(SqlBuilder.select.table(AppConnection).where(
+            AppConnection.id == SnowflakeID.from_short_code(inbound["connection_uid"]),
+        )).first()
+        assert state[2].credential_reference is None
+        state[4].connection_id = state[2].id
+        state[3].app_key = "example-monitor"
         state[3].state = "enabled"
         state[3].granted_capabilities = ["signals.read", "signals.publish"]
         state[4].resource_type = "issue"
@@ -195,6 +206,8 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     from langboard_shared.core.types import SnowflakeID
     revoke_connection_credential(actor, state[2].id, SnowflakeID.from_short_code(issued["credential_uid"]))
     assert receive(envelope).status_code == 403
+    assert inbox(scoped)["items"] == []
+    assert card_signal_projections([card]) == {}
     client.close()
 
 
