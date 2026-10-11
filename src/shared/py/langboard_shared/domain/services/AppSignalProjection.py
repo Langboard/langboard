@@ -350,6 +350,7 @@ def card_signal_projections(cards):
                 "signal_uid": InfraHelper.convert_uid(proof[3]) if proof else None,
                 "occurred_at": proof[4] if proof else None,
                 "time_basis": policy.time_basis,
+                "evidence_kind": policy.evidence_kind,
             }
         )
     return result
