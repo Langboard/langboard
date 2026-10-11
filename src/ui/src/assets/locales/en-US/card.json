@@ -297,5 +297,12 @@
     "applyMove": "Apply card move",
     "moveHelp": "Move this card to {{stage}}. This does not resume execution.",
     "moveRecorded": "Card movement recorded."
-  }
+  },
+  "App archive history": "App archive history",
+  "App archive receipt help": "Delivery and provider outcome are separate. Provider outcomes are reported by the authenticated app.",
+  "App archive history unavailable": "Archive history unavailable.",
+  "No app archive history": "No app archive history.",
+  "Archive outcome": "Archive outcome",
+  "Event delivery": "Event delivery",
+  "Provider reported state": "Provider reported state"
 }

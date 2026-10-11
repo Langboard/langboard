@@ -12,6 +12,7 @@ export interface CatalogApp {
     panel: { url: string; name: string; icon?: string | null } | null;
     capabilities: string[];
     signal_sources?: string[];
+    card_lifecycle?: Record<string, { archive: { mode: "retain" | "external"; action?: string; description?: string; default_enabled?: false } }>;
     workflow_requirements: { required: string[]; optional: string[] } | null;
     resources: {
         selected_count: number;
@@ -19,7 +20,14 @@ export interface CatalogApp {
         health_counts: Record<string, number>;
         connection_counts: Record<string, number>;
     };
-    binding: { uid: string; revision: string; state: string; granted_capabilities: string[]; stage_transitions_enabled: boolean } | null;
+    binding: {
+        uid: string;
+        revision: string;
+        state: string;
+        granted_capabilities: string[];
+        stage_transitions_enabled: boolean;
+        archive_sync_types?: string[];
+    } | null;
 }
 
 export default function useBoardAppCatalog(projectUID: string, userUID: string | undefined) {
