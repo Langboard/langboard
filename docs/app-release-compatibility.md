@@ -69,7 +69,7 @@ SDK against both Python project lockfiles before installation, and preserves
 JUnit results. It includes signed delivery, bounded retries, trust changes and
 revocation, alongside card and HITL contracts. The same selected cases passed
 locally after `uv sync --frozen`, without a wheel import-path override:
-116 passed, 25 skipped, including archive consent, delivery, outcomes and migration
+117 passed, 25 skipped, including installed SDK 0.2.25 public HTTP archive consent, delivery, outcomes and migration
 guards. SDK artifact verification tests: 7 passed.
 That result does not establish a successful remote workflow run. Draft PRs
 remain skipped; a ready same-repository PR or explicit dispatch is required.
