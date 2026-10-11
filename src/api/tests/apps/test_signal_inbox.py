@@ -24,6 +24,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     import hmac
     import json
     import time
+    import langboard.routes.settings.AppInboundConnectionApi as inbound_api
     import langboard.routes.settings.AppSignalApi as signal_api
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -43,9 +44,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         revoke_connection_credential,
     )
     from langboard_shared.domain.services.AppConnectionManagement import (
-        create_inbound_connection,
         list_inbound_resources,
-        select_inbound_resource,
     )
     from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
@@ -66,7 +65,30 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     saved = save_definition(actor, {"schema_version": 2, "key": "example-monitor", "version": "1.0.0",
         "name": "Example Monitor", "description": "Independent issue observations.",
         "capabilities": ["signals.read", "signals.publish"], "resource_types": ["issue"], "signal_policy": policy})
-    inbound = create_inbound_connection(actor, "example-monitor", saved["revision"], state[1][2].organization_id)
+    import importlib
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+    state[0].close = lambda: None
+    monkeypatch.setattr(signal_api, "DomainService", lambda: state[0])
+    monkeypatch.setattr(inbound_api, "DomainService", lambda: state[0])
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    monkeypatch.setattr(importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: state[0])
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    client = TestClient(app, base_url="https://testserver")
+    management_url = "/settings/apps/registry/example-monitor/inbound-connections"
+    form = {"app_revision": saved["revision"],
+            "organization_uid": state[1][2].organization_id.to_short_code()}
+    assert client.post(management_url, json=form).status_code == 401
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+    user_headers = {"Authorization": "Bearer " + access}
+    assert client.post(management_url, json={**form, "app_revision": "0" * 64}, headers=user_headers).status_code == 409
+    registered = client.post(management_url, json=form, headers=user_headers)
+    assert registered.status_code == 200, registered.text
+    inbound = registered.json()
     from langboard_shared.core.types import SnowflakeID
     with DbSession.atomic() as db:
         state[2] = db.exec(SqlBuilder.select.table(AppConnection).where(
@@ -85,15 +107,6 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
     issued = issue_connection_credential(actor, state[2].id)
     token = issued["token"]
-    state[0].close = lambda: None
-    monkeypatch.setattr(signal_api, "DomainService", lambda: state[0])
-    app = FastAPI()
-    app.include_router(AppRouter.api)
-    import importlib
-    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-    monkeypatch.setattr(importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: state[0])
-    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
-    client = TestClient(app)
     envelope = {"version": 1, "board_uid": state[1][2].get_uid(), "resource_uid": state[4].get_uid(),
         "app_revision": definition.edit_revision(), "binding_revision": state[3].edit_revision(),
         "event_id": "fixture-external-1", "event_type": "issue.observed", "external_id": "55",
@@ -146,11 +159,14 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert {row["provider"] for row in result["items"]} == {"example-monitor"}
     assert result["items"][0]["time_basis"] == "observation"
     def select_resource(board_row, binding, external_id, **changes):
-        return select_inbound_resource(
-            state[0].workflow_stage, actor, board_row.get_uid(), "example-monitor",
-            definition.edit_revision(), binding.get_uid(), binding.edit_revision(),
-            state[2].id, "issue", external_id, **changes,
-        )
+        url = (f"/board/{board_row.get_uid()}/settings/apps/example-monitor/"
+               f"inbound-connections/{state[2].get_uid()}/resources")
+        body = {"app_revision": definition.edit_revision(), "binding_uid": binding.get_uid(),
+                "expected_revision": binding.edit_revision(), "resource_type": "issue",
+                "external_resource_id": external_id, **changes}
+        response = client.put(url, json=body, headers=user_headers)
+        assert response.status_code == 200, response.text
+        return response.json()
 
     selected_second = select_resource(state[1][2], state[3], "second-issue")
     assert select_resource(state[1][2], state[3], "second-issue",
@@ -192,9 +208,10 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     other_rows = list_board_signals(state[0], actor, other_board.get_uid())["items"]
     assert {row["resource_uid"] for row in other_rows} == {other_resource.get_uid()}
     assert other_resource.get_uid() not in {row["resource_uid"] for row in inbox(scoped)["items"]}
-    with DbSession.atomic() as db:
-        link.is_enabled = True
-        db.update(link)
+    from langboard.apps.CardSignal import bind_check
+    linked = bind_check(state[0], actor, state[1][2].get_uid(), card.get_uid(),
+        state[2].get_uid(), state[4].get_uid(), first["signal_uid"], card.last_change_seq, link.revision)
+    assert linked["binding_uid"] == link.get_uid()
     assert all(row["external_id"] != "55" for row in inbox(scoped)["items"])
     assert card_signal_projections([card])[card.id][0]["state"] == "failed"
     revoked_resource = select_resource(state[1][2], state[3], state[4].external_resource_id,
@@ -229,6 +246,9 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert receive(envelope).status_code == 403
     assert inbox(scoped)["items"] == []
     assert card_signal_projections([card]) == {}
+    with pytest.raises(GitHubManifestUnavailable):
+        bind_check(state[0], actor, state[1][2].get_uid(), card.get_uid(),
+            state[2].get_uid(), state[4].get_uid(), first["signal_uid"], card.last_change_seq, linked["revision"])
     client.close()
 
 
