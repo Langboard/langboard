@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Row
 from ..core.graph import GraphRunner
 from ..core.graph.checkpoint import lock_graph_thread
+from ..core.graph.default.privacy import redact_graph_credentials
 from ..core.graph.registry import delete_default_graph_thread, get_default_graph_status, run_default_graph
 from ..core.schema import GraphRequestModel, RunResponse
 from ..core.schema.Exception import APIException
@@ -192,7 +193,7 @@ async def delete_graph_status(thread_id: str):
 @AppRouter.api.get("/api/v1/graph/status/{thread_id}")
 async def get_graph_status(thread_id: str):
     try:
-        return JsonResponse(content=await get_default_graph_status(thread_id))
+        return JsonResponse(content=redact_graph_credentials(await get_default_graph_status(thread_id)))
     except Exception as exc:
         raise APIException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, exception=exc) from exc
 
