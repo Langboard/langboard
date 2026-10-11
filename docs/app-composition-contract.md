@@ -235,3 +235,22 @@ An isolated Vite build using the production chunk classifier and all repository
 translations reduced translation chunks from 116 to 4. All 116 namespace exports
 matched their original JSON, and the entry had no eager translation imports.
 This measures asset fan-out, not deployed latency or full production-build acceptance.
+
+Resource isolation acceptance uses the installed SDK over native authenticated
+HTTP on SQLite and PostgreSQL: two boards share one connection and the same
+external resource identity, while selections, health and workflow mappings remain
+independent. Revoking one selection retains the other board; removing current
+ownership denies that board without disabling the remaining board. Combined
+resource HTTP and migration-storage checks: 28 passed. The storage fixture now
+applies connection ownership and archive-setting migrations before comparing ORM
+columns and constraints. These checks are included in the existing contract CI.
+
+Image requests use a protected lightweight tag `refs/tags/image-executor/<sha>`
+and a separate approved `IMAGE_BUILD_COMMIT`. The requester verifies the tag is
+still the exact commit before dispatch; the private executor must independently
+enforce its own protected-ref, dispatcher and approved-source policy. GitHub
+workflow dispatch requires a named branch or tag, so a raw commit SHA alone is
+not a valid dispatch ref. Five isolated request-contract tests cover moved or
+annotated tags, mutable refs, missing pins, lookup failure and unknown dispatch
+outcomes without retry. Repository names, runner credentials and private settings
+remain operator configuration. This is not evidence of a published canary image.
