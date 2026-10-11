@@ -254,3 +254,12 @@ not a valid dispatch ref. Five isolated request-contract tests cover moved or
 annotated tags, mutable refs, missing pins, lookup failure and unknown dispatch
 outcomes without retry. Repository names, runner credentials and private settings
 remain operator configuration. This is not evidence of a published canary image.
+
+Registered panel resource acceptance also runs on SQLite and PostgreSQL (16
+cases): declared resource types and current module consent restrict reads;
+disabled definitions, revoked resources, disconnected connections and another
+owner exclude context. The authenticated panel endpoint filters other apps
+before pagination, rejects stale revisions and returns no credential references.
+The test now relies on the shared current-schema fixture rather than recreating
+organization columns, and runs in the existing contract CI. This proves the
+native read bridge, not an external provider or deployed panel session.
