@@ -20,7 +20,7 @@ def secrets(board, monkeypatch, tmp_path):
 
     engine = DbEngine.get_main_engine()
     if engine.dialect.name == "sqlite":
-        Organization.__table__.create(engine)
+        Organization.__table__.create(engine, checkfirst=True)
     # Exercise the actual migration, not just ORM metadata creation.
     import importlib.util
     from pathlib import Path
@@ -43,15 +43,6 @@ def secrets(board, monkeypatch, tmp_path):
         with engine.begin() as connection:
             monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
             migration.upgrade()
-    if engine.dialect.name == "postgresql":
-        from sqlalchemy import text
-        from sqlalchemy.schema import CreateColumn
-
-        with engine.begin() as connection:
-            for column in Organization.__table__.columns:
-                if column.name != "id":
-                    ddl = str(CreateColumn(column).compile(dialect=engine.dialect))
-                    connection.execute(text("ALTER TABLE organization ADD COLUMN " + ddl))
     monkeypatch.setattr(KeyVault, "provider", LocalDevVaultProvider(tmp_path))
     service = SecretReferenceService(
         lambda cls: board[0] if cls is WorkflowStageService else None, lambda _: None, None
