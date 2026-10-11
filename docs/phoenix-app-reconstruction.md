@@ -295,3 +295,22 @@ the registry's definition/connection/binding order. No provider names are used.
 Provider discovery and verification, connection identity snapshot consent,
 workflow mapping, execution fences and deployed independent-app acceptance
 remain pending. Resource metadata alone must not be used as an execution grant.
+
+## Connection identity consent and SDK resource read boundary
+
+Selection updates now require a current connection identity revision from the
+human management receipt and persist that identity hash. Resource mutations
+increment a board selection generation included in the binding revision, so
+multi-page clients can detect changed selections. Migration e1b6c84f312a retains
+old resource receipts but revokes selections that have no historical identity
+proof; it never infers new consent from the currently connected account.
+
+The app-Bearer GET /apps/v1/boards/{uid}/resources returns the SDK's versioned
+resource page, scoped to the authenticated app/connection and current board
+capability, ownership, user read membership, policy and declared resource types.
+Only selected resources with granted access and a matching current identity are
+returned. Unknown selections stay excluded. Tests use a synthetic stored provider
+verification receipt to exercise the positive response shape; that fixture is
+not actual external provider validation. A changed identity rejects old tokens
+and hides old selections even with a newly issued token. Provider verification
+and runtime execution authority are still pending; no execution grant is implied.

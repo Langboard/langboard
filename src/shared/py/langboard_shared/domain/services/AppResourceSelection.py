@@ -4,6 +4,7 @@ from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
 from ..models import AppConnection, AppResourceBinding, BoardAppBinding, User
 from .AppBoardConsent import _context
+from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy
 
 
@@ -60,6 +61,7 @@ def save_resource_selection(
     expected_revision,
     expected_binding_revision,
     expected_app_revision,
+    expected_identity_revision,
 ):
     if type(selected) is not bool or type(expected_revision) is not int or expected_revision < 0:
         raise ValueError("Invalid resource selection revision")
@@ -75,6 +77,9 @@ def save_resource_selection(
             db, actor, project_id, app_key, connection_id, withdrawal=not selected
         )
         if binding.edit_revision() != expected_binding_revision or definition.edit_revision() != expected_app_revision:
+            raise AppGovernanceConflict()
+        identity = _identity_hash(db, connection, definition=definition)
+        if selected and identity != expected_identity_revision:
             raise AppGovernanceConflict()
         if selected and resource_type not in definition.declaration["resource_types"]:
             raise ValueError("Resource type must be declared by the approved app")
@@ -100,20 +105,25 @@ def save_resource_selection(
             db.insert(row)
         elif row.access_revision != expected_revision:
             raise AppGovernanceConflict()
+        row.identity_hash = identity if selected else ""
         row.is_selected = selected
         row.access_revision += 1
         row.access_state = "unknown" if selected else "revoked"
         row.health = "unknown"
         db.update(row)
+        binding.resource_selection_revision += 1
+        db.update(binding)
         db.after_commit(AppSettingPublisher.apps_changed)
-        return _response(row)
+        return {**_response(row), "binding_revision": binding.edit_revision()}
 
 
 def list_resource_selections(actor, project_id, app_key, connection_id, *, after_id=None, limit=25):
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ValueError("Resource page limit must be 1 to 50")
     with DbSession.atomic() as db:
-        _, binding, connection = _selection_context(db, actor, project_id, app_key, connection_id, withdrawal=True)
+        definition, binding, connection = _selection_context(
+            db, actor, project_id, app_key, connection_id, withdrawal=True
+        )
         query = SqlBuilder.select.table(AppResourceBinding).where(
             AppResourceBinding.board_binding_id == binding.id, AppResourceBinding.connection_id == connection.id
         )
@@ -122,6 +132,7 @@ def list_resource_selections(actor, project_id, app_key, connection_id, *, after
         rows = db.exec(query.order_by(AppResourceBinding.id).limit(limit + 1)).all()
         page = rows[:limit]
         return {
+            "identity_revision": _identity_hash(db, connection, definition=definition),
             "items": [_response(row) for row in page],
             "next_cursor": page[-1].get_uid() if len(rows) > limit else None,
         }

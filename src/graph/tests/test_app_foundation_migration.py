@@ -36,7 +36,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["d9a5b73e201f"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["e1b6c84f312a"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -101,7 +101,11 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
                 package={"storage": "private-path", "version": "1.0"},
             )
             db.add(definition)
-            db.add(BoardAppBinding(id=40, project_id=10, app_key="example.app"))
+            db.execute(
+                text(
+                    "INSERT INTO board_app_binding (id,project_id,app_key,state,workflow_mapping,granted_capabilities,stage_transitions_enabled,archive_sync_types,archive_sync_revision) VALUES (40,10,'example.app','disabled','{}','[]',false,'[]',1)"
+                )
+            )
             db.add(AppConnection(id=50, owner_id=1, app_key="example.app"))
             db.add(
                 AppConnection(id=51, ownership="organization", organization_id=20, owner_id=1, app_key="example.app")
@@ -109,7 +113,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
             db.add(AppGovernancePolicy(id=60, scope_key="global"))
             db.add(AppGovernancePolicy(id=61, scope_key="organization:20", organization_id=20, mode=None))
             db.commit()
-            assert db.get(BoardAppBinding, 40).state == "disabled"
+            assert db.execute(text("SELECT state FROM board_app_binding WHERE id=40")).scalar() == "disabled"
             assert db.get(AppConnection, 50).state == "pending"
             assert "storage" not in definition.registry_response()["installation"]
             db.delete(db.get(AppGovernancePolicy, 60))
@@ -126,7 +130,15 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         ]
         for row in invalid:
             with Session(engine) as db, pytest.raises(IntegrityError):
-                db.add(row)
+                if isinstance(row, BoardAppBinding):
+                    db.execute(
+                        text(
+                            "INSERT INTO board_app_binding (id,project_id,app_key,state,workflow_mapping,granted_capabilities,stage_transitions_enabled,archive_sync_types,archive_sync_revision) VALUES (:id,:project,:key,:state,'{}','[]',false,'[]',1)"
+                        ),
+                        {"id": int(row.id), "project": int(row.project_id), "key": row.app_key, "state": row.state},
+                    )
+                else:
+                    db.add(row)
                 db.commit()
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             migration.downgrade()
@@ -202,6 +214,14 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         assert resource_migration.down_revision == auth_migration.revision
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             resource_migration.upgrade()
+        spec = importlib.util.spec_from_file_location(
+            "identity_migration", migration_root / "versions/20261012083000-e1b6c84f312a.py"
+        )
+        identity_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(identity_migration)
+        assert identity_migration.down_revision == resource_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            identity_migration.upgrade()
         with Session(engine) as db:
             db.add(BoardAppBinding(id=100, project_id=10, app_key="example"))
             db.commit()
@@ -228,9 +248,23 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
                 db.add(AppResourceBinding(**params))
                 db.commit()
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            identity_migration.downgrade()
+            connection.execute(
+                text("UPDATE app_resource_binding SET is_selected=true, access_state='granted' WHERE id=101")
+            )
+            identity_migration.upgrade()
+            assert (
+                connection.execute(text("SELECT is_selected FROM app_resource_binding WHERE id=101")).scalar() is False
+            )
+            assert (
+                connection.execute(text("SELECT access_state FROM app_resource_binding WHERE id=101")).scalar()
+                == "revoked"
+            )
+            identity_migration.downgrade()
             resource_migration.downgrade()
             assert connection.execute(text("SELECT owner_id FROM app_connection WHERE id=90")).scalar() == 1
             resource_migration.upgrade()
+            identity_migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:

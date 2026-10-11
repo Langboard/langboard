@@ -1,5 +1,6 @@
 """Current app connection authentication and explicit consent on PostgreSQL."""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
@@ -11,11 +12,15 @@ import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
 import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
 import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
 import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
+import langboard.routes.settings.AppResourceReadApi  # noqa: F401
 import langboard.routes.settings.AppResourceSelectionApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_sdk.resources import AppResources
+from langboard_sdk.rest import HttpTransport
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.routing import AppRouter
@@ -701,8 +706,10 @@ def test_resource_selection_one_to_many_privacy_revisions_and_withdrawal(registe
         db.commit()
     approval = prepare_board_consent(owner, SnowflakeID(20), "example")
 
+    identity_revision = list_resource_selections(owner, SnowflakeID(20), "example", personal.id)["identity_revision"]
+
     def save(actor, identity, selected=True, revision=0):
-        return save_resource_selection(
+        response = save_resource_selection(
             actor,
             SnowflakeID(20),
             "example",
@@ -713,7 +720,10 @@ def test_resource_selection_one_to_many_privacy_revisions_and_withdrawal(registe
             revision,
             approval["revision"],
             approval["app_revision"],
+            identity_revision,
         )
+        approval["revision"] = response["binding_revision"]
+        return response
 
     first = save(owner, "one")
     save(owner, "two")
@@ -758,6 +768,7 @@ def test_native_resource_selection_http_is_bounded_and_cannot_claim_access(regis
             access, refresh = AuthSecurity.authenticate(owner.id)
             client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             headers = {"Authorization": f"Bearer {access}"}
+            identity_revision = client.get(path, headers=headers).json()["identity_revision"]
             body = {
                 "resource_type": "issue",
                 "external_resource_id": "one",
@@ -765,6 +776,7 @@ def test_native_resource_selection_http_is_bounded_and_cannot_claim_access(regis
                 "expected_revision": 0,
                 "expected_binding_revision": approval["revision"],
                 "expected_app_revision": approval["app_revision"],
+                "expected_identity_revision": identity_revision,
             }
             assert client.put(path, headers=headers, json={**body, "access_state": "granted"}).status_code in (400, 422)
             saved = client.put(path, headers=headers, json=body)
@@ -777,3 +789,97 @@ def test_native_resource_selection_http_is_bounded_and_cannot_claim_access(regis
             assert client.put(path, headers={"Authorization": f"Bearer {token}"}, json=body).status_code == 401
     finally:
         Cache.clear()
+
+
+def test_app_resource_http_only_verified_current_identity_and_sdk_shape(registered, monkeypatch):
+    engine, (_, owner, _), personal, _ = registered
+    AppResourceBinding.__table__.create(engine)
+    with Session(engine) as db:
+        declaration = deepcopy(DECLARATION)
+        declaration["capabilities"].append("resources.read")
+        db.execute(update(AppDefinition).values(declaration=declaration))
+        db.execute(update(BoardAppBinding).values(granted_capabilities=["resources.read"]))
+        db.commit()
+    approval = prepare_board_consent(owner, SnowflakeID(20), "example")
+    identity = list_resource_selections(owner, SnowflakeID(20), "example", personal.id)["identity_revision"]
+    selected = save_resource_selection(
+        owner,
+        SnowflakeID(20),
+        "example",
+        personal.id,
+        "issue",
+        "one",
+        True,
+        0,
+        approval["revision"],
+        approval["app_revision"],
+        identity,
+    )
+    token = issue_connection_credential(owner, personal.id)["token"]
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    path = f"/apps/v1/boards/{SnowflakeID(20).to_short_code()}/resources"
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app) as client:
+        assert client.get(path).status_code == 401
+        page = client.get(path, headers=headers).json()
+        assert page["schema_version"] == 1 and page["connection_uid"] == personal.get_uid()
+        assert page["items"] == []  # Selection is not a verification receipt.
+        assert page["binding_revision"] == selected["binding_revision"]
+        # Synthetic provider verification fixture, not actual provider acceptance.
+        with Session(engine) as db:
+            db.execute(update(AppResourceBinding).values(access_state="granted", health="healthy"))
+            db.commit()
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+
+        async def sdk_read():
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://testserver", headers=headers
+            ) as session:
+                return await AppResources(HttpTransport(session)).list(SnowflakeID(20).to_short_code(), limit=1)
+
+        sdk_page = asyncio.run(sdk_read())
+        assert sdk_page["items"] == response.json()["items"]
+        assert sdk_page["connection_uid"] == personal.get_uid()
+        resource = response.json()["items"][0]
+        assert set(resource) == {
+            "resource_uid",
+            "resource_type",
+            "external_resource_id",
+            "resource_path",
+            "access_revision",
+            "health",
+        }
+        assert resource["external_resource_id"] == "one"
+        assert client.get(path, headers=headers, params={"limit": 51}).status_code in (400, 422)
+        with Session(engine) as db:
+            db.execute(
+                update(AppConnection)
+                .where(AppConnection.id == personal.id)
+                .values(updated_at=SafeDateTime.now() + timedelta(seconds=1))
+            )
+            db.commit()
+        assert client.get(path, headers=headers).status_code == 403
+        new_token = issue_connection_credential(owner, personal.id)["token"]
+        assert client.get(path, headers={"Authorization": f"Bearer {new_token}"}).json()["items"] == []
+        current = prepare_board_consent(owner, SnowflakeID(20), "example")
+        with pytest.raises(AppGovernanceConflict):
+            save_resource_selection(
+                owner,
+                SnowflakeID(20),
+                "example",
+                personal.id,
+                "issue",
+                "one",
+                True,
+                1,
+                current["revision"],
+                current["app_revision"],
+                identity,
+            )
+        with Session(engine) as db:
+            db.execute(update(BoardAppBinding).values(granted_capabilities=[]))
+            db.commit()
+        assert client.get(path, headers={"Authorization": f"Bearer {new_token}"}).status_code == 403

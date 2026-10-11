@@ -20,6 +20,7 @@ class ResourceSelectionForm(BaseFormModel):
     selected: bool = Field(strict=True)
     expected_revision: int = Field(strict=True, ge=0)
     expected_binding_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_identity_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     expected_app_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
@@ -80,4 +81,5 @@ def save_selection(
         form.expected_revision,
         form.expected_binding_revision,
         form.expected_app_revision,
+        form.expected_identity_revision,
     )

@@ -18,6 +18,7 @@ class AppResourceBinding(BaseDbModel, table=True):
     resource_type: str = Field(nullable=False, unique_groups=("identity",))
     external_resource_id: str = Field(nullable=False, unique_groups=("identity",))
     resource_path: list[dict[str, str]] = Field(default_factory=list, sa_type=JSON, nullable=False)
+    identity_hash: str = Field(default="", nullable=False)
     is_selected: bool = Field(default=False, nullable=False)
     access_state: str = Field(default="unknown", nullable=False)
     access_revision: int = Field(default=0, nullable=False)
