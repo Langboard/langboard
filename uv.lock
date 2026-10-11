@@ -1518,10 +1518,10 @@ dev = [
 
 [[package]]
 name = "langboard-sdk"
-version = "0.2.29"
-source = { path = "src/sdk/vendor/langboard_sdk-0.2.29-py3-none-any.whl" }
+version = "0.2.31"
+source = { path = "src/sdk/vendor/langboard_sdk-0.2.31-py3-none-any.whl" }
 wheels = [
-    { filename = "langboard_sdk-0.2.29-py3-none-any.whl", hash = "sha256:dacbe620a46c4a42198618ff10b965e0d4a8a88e0a9ae9e3b487798e058ba61b" },
+    { filename = "langboard_sdk-0.2.31-py3-none-any.whl", hash = "sha256:2cd73ab802153a473f9cb67076a84517308ff84573e57b4224d08a7843bc0a27" },
 ]
 
 [[package]]
@@ -1607,7 +1607,7 @@ requires-dist = [
     { name = "inflect", specifier = ">=7.5.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "kafka-python", specifier = ">=2.2.15" },
-    { name = "langboard-sdk", path = "src/sdk/vendor/langboard_sdk-0.2.29-py3-none-any.whl" },
+    { name = "langboard-sdk", path = "src/sdk/vendor/langboard_sdk-0.2.31-py3-none-any.whl" },
     { name = "langchain-openai", marker = "extra == 'document-retrieval'", specifier = "==1.6.7" },
     { name = "langchain-qdrant", marker = "extra == 'document-retrieval'", specifier = "==1.1.0" },
     { name = "langchain-text-splitters", marker = "extra == 'document-retrieval'", specifier = ">=1.1.3,<2" },
