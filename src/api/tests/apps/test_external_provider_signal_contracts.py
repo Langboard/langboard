@@ -21,6 +21,8 @@ from langboard_shared.domain.models import (
     AppResourceBinding,
     AppSignal,
     BoardAppBinding,
+    Card,
+    CardAppSignalBinding,
 )
 from langboard_shared.domain.services.AppConnectionAuthentication import (
     issue_connection_credential,
@@ -43,6 +45,9 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
 
     state, _, _, _ = scoped
     service, actor, project = state[0], state[1][1], state[1][2]
+    with DbSession.use(readonly=False) as db:
+        cards_before = {row.id for row in db.exec(SqlBuilder.select.table(Card)).all()}
+        links_before = {row.id for row in db.exec(SqlBuilder.select.table(CardAppSignalBinding)).all()}
     definition = validate_app_definition(contract["definition"])
     AppConnectionCredential.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     with DbSession.atomic() as db:
@@ -121,6 +126,11 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
     assert len(visible["items"]) == 1
     assert visible["items"][0]["outcome"] == envelope["outcome"]
     assert visible["items"][0]["time_basis"] == definition["signal_policy"]["time_basis"]
+    # Publication, replay and inbox reads must not create cards or link evidence.
+    # A separately authorized card command owns that transition.
+    with DbSession.use(readonly=False) as db:
+        assert {row.id for row in db.exec(SqlBuilder.select.table(Card)).all()} == cards_before
+        assert {row.id for row in db.exec(SqlBuilder.select.table(CardAppSignalBinding)).all()} == links_before
     assert publish({**envelope, "outcome": "undeclared"}).status_code == 400
     revoke_connection_credential(actor, connection.id, SnowflakeID.from_short_code(issued["credential_uid"]))
     assert publish().status_code == 403
