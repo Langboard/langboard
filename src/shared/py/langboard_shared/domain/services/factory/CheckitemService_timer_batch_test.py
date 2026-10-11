@@ -1,3 +1,4 @@
+# ruff: noqa: F811
 """Checkitem projections batch real timer SQL and retain latest-record semantics."""
 
 from datetime import UTC, datetime
@@ -5,17 +6,21 @@ from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 from ....core.db.DbEngine import DbEngine
-from ....domain.models import CheckitemTimerRecord
+from ....domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist
 from ....domain.models.Checkitem import CheckitemStatus
 from ....infrastructure.repositories.factory.CheckitemTimerRecordRepository import CheckitemTimerRecordRepository
 from .CheckitemService import CheckitemService
+from .WorkflowStageService_app_test import board  # noqa: F401
 
 
 @pytest.mark.parametrize("view", ["checklist", "card", "active"])
-def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(monkeypatch, view):
-    engine = create_engine("sqlite://")
+def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(board, monkeypatch, view):
+    engine = DbEngine.get_main_engine()
+    for model in (Card, Checklist, Checkitem):
+        model.__table__.create(engine)
     CheckitemTimerRecord.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -23,6 +28,13 @@ def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(monkeypat
     project = SimpleNamespace(api_response=lambda: {"uid": "project"})
     checklist = SimpleNamespace(id=3000)
     items = [SimpleNamespace(id=i, checklist_id=3000, api_response=lambda i=i: {"uid": str(i)}) for i in range(1, 1001)]
+    with Session(engine) as db:
+        db.add(Card(id=2000, project_id=10, project_column_id=40, title="Timer batch"))
+        db.commit()
+        db.add(Checklist(id=3000, card_id=2000, title="Work"))
+        db.commit()
+        db.add_all([Checkitem(id=i, checklist_id=3000, title=f"Work {i}") for i in range(1, 1001)])
+        db.commit()
     records = [(item, None, None) for item in items]
     active = [(item, card, project) for item in items]
     timers = CheckitemTimerRecordRepository(None, None)

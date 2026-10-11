@@ -344,3 +344,16 @@ introduced. After the fix, all ten default-language browser cases passed in
 20.4 seconds, including failure rollback, reload persistence, four language
 choices, and keyboard interaction. API persistence is mocked in these browser
 cases; they do not prove the current deployment's database write.
+
+## Timer projection database coverage
+
+The existing 1,000-item timer batch regression now runs against both SQLite
+and disposable PostgreSQL with real parent card/checklist/checkitem rows and
+foreign keys. Checklist, card, and active-work projections each use three
+real timer SELECTs and zero per-item timer point reads. Missing timers,
+Started/Stopped records, and equal-timestamp greater-ID ordering remain
+consistent with the single-event repository read. Six cases passed in 5.25
+seconds. Source row discovery is controlled in this test; native timer SQL
+and projection methods are exercised. This is not a new runtime latency
+measurement or deployed REST/MCP acceptance. The card-workspace CI selection
+now includes these cases and the PostgreSQL fixture environment variable.
