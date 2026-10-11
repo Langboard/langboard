@@ -14,6 +14,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
+FOLLOWUP_MIGRATIONS = (
+    "20261008093000-b541ef460d80.py",
+    "20261008095000-c652f0571e91.py",
+    "20261010010000-d73ef84a91c2.py",
+    "20261011140000-d3c6fd51a7e9.py",
+)
+
+
 @pytest.fixture(params=["sqlite://", "postgresql-test"])
 def storage(request):
     path = Path(__file__).parents[2] / "langboard/migrations/versions/20261008032000-719dab02cf46.py"
@@ -38,11 +46,12 @@ def storage(request):
             db.execute(text("PRAGMA foreign_keys=ON"))
         db.execute(text('CREATE TABLE "user" (id BIGINT PRIMARY KEY)'))
         db.execute(text("CREATE TABLE project (id BIGINT PRIMARY KEY)"))
+        db.execute(text("CREATE TABLE organization (id BIGINT PRIMARY KEY)"))
         db.execute(text('INSERT INTO "user" VALUES (1)'))
         db.execute(text("INSERT INTO project VALUES (10),(11)"))
         with Operations.context(MigrationContext.configure(db)):
             migration.upgrade()
-            for filename in ("20261008093000-b541ef460d80.py", "20261008095000-c652f0571e91.py"):
+            for filename in FOLLOWUP_MIGRATIONS:
                 spec = importlib.util.spec_from_file_location("app_lifecycle_migration", path.with_name(filename))
                 followup = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(followup)
@@ -154,7 +163,7 @@ def test_downgrade_refuses_data_loss_then_removes_empty_tables(storage):
             assert db.execute(text("SELECT COUNT(*) FROM app_resource_binding")).scalar_one() == 4
             for table in ("app_resource_binding", "board_app_binding", "app_connection"):
                 db.execute(text(f"DELETE FROM {table}"))
-            for filename in ("20261008095000-c652f0571e91.py", "20261008093000-b541ef460d80.py"):
+            for filename in reversed(FOLLOWUP_MIGRATIONS):
                 spec = importlib.util.spec_from_file_location(
                     "app_lifecycle_downgrade", Path(__file__).parents[2] / "langboard/migrations/versions" / filename
                 )

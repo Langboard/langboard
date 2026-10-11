@@ -5,6 +5,8 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-app-contracts.yaml
+      - .github/workflows/request-image-build.yaml
+      - scripts/image_build/**
       - src/api/tests/apps/**
       - src/api/langboard/apps/**
       - src/api/langboard/routes/settings/App*.py
@@ -71,6 +73,8 @@ jobs:
           python scripts/sdk/verify_python_artifact.py
           python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py
       - run: uv sync --frozen
+      - name: Verify immutable executor request contract
+        run: uv run --no-sync python -m unittest discover -s scripts/image_build -v
       - name: Independent signal, Inbox, owned card and human-response contracts
         run: >-
           uv run --no-sync pytest -p no:tach -o log_cli=false -q --junitxml=app-contracts.xml
@@ -88,6 +92,8 @@ jobs:
           src/api/tests/apps/test_app_governance.py
           src/api/tests/apps/test_sdk_app_registry_http.py
           src/api/tests/apps/test_app_composition.py
+          src/api/tests/apps/test_binding_storage.py
+          src/api/tests/apps/test_sdk_resources_http.py
       - name: Preserve contract results
         if: always()
         uses: actions/upload-artifact@v4
