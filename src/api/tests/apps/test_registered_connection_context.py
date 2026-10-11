@@ -10,11 +10,10 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
-from langboard_shared.domain.models import Organization, User
+from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
-from sqlalchemy import text
 from test_app_connection_resources import scope
 
 
@@ -23,13 +22,6 @@ from test_app_connection_resources import scope
     "gate", ["enabled", "disabled", "capability", "resource", "connection", "foreign-owner", "type"]
 )
 def test_registered_context_uses_declaration_consent_and_current_owner(board, gate, monkeypatch):
-    engine = DbEngine.get_main_engine()
-    if engine.dialect.name == "postgresql":
-        with engine.begin() as db:
-            db.execute(text("ALTER TABLE organization ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
-            db.execute(text("ALTER TABLE organization ADD COLUMN suspended_at TIMESTAMP"))
-    else:
-        Organization.__table__.create(engine)
     connection, definition, binding, resources, _ = scope(board)
     with DbSession.atomic() as db:
         if gate == "disabled":
@@ -91,13 +83,6 @@ def test_registered_context_uses_declaration_consent_and_current_owner(board, ga
 def test_panel_resource_read_is_app_scoped_before_pagination_and_rechecks_authority(board, monkeypatch):
     from langboard_shared.domain.models import AppConnection, AppDefinition, AppResourceBinding, BoardAppBinding
 
-    engine = DbEngine.get_main_engine()
-    if engine.dialect.name == "postgresql":
-        with engine.begin() as db:
-            db.execute(text("ALTER TABLE organization ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
-            db.execute(text("ALTER TABLE organization ADD COLUMN suspended_at TIMESTAMP"))
-    else:
-        Organization.__table__.create(engine)
     connection, definition, binding, resources, _ = scope(board)
     with DbSession.atomic() as db:
         definition.declaration = {**definition.declaration, "capabilities": ["panels.render", "resources.read"],
