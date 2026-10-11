@@ -298,14 +298,13 @@ def card_signal_projections(cards):
             .group_by(CardAppSignalBinding.id)
             .subquery()
         )
-        evidence = db.exec(
+        summary = (
             select(
-                CardAppSignalBinding.id,
-                func.min(AppSignal.outcome),
-                func.max(AppSignal.outcome),
-                func.max(AppSignal.id),
+                CardAppSignalBinding.id.label("binding_id"),
+                func.min(AppSignal.outcome).label("min_outcome"),
+                func.max(AppSignal.outcome).label("max_outcome"),
+                func.max(AppSignal.id).label("signal_id"),
                 latest.c.occurred_at,
-                func.max(AppSignal.event_type),
             )
             .join(AppResourceBinding, AppResourceBinding.id == CardAppSignalBinding.resource_id)
             .join(AppConnection, AppConnection.id == AppResourceBinding.connection_id)
@@ -315,6 +314,13 @@ def card_signal_projections(cards):
                 and_(matching, AppSignal.occurred_at == latest.c.occurred_at),
             )
             .group_by(CardAppSignalBinding.id, latest.c.occurred_at)
+            .subquery()
+        )
+        evidence = db.exec(
+            select(
+                summary.c.binding_id, summary.c.min_outcome, summary.c.max_outcome,
+                summary.c.signal_id, summary.c.occurred_at, AppSignal.event_type,
+            ).join(AppSignal, AppSignal.id == summary.c.signal_id)
         ).all()
     by_binding = {row[0]: row for row in evidence}
     current_revisions = {binding.card_id: revision for binding, _, revision, _ in rows}
