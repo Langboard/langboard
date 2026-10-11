@@ -103,8 +103,10 @@ from langboard_shared.domain.services.CardExecutionIntent import (
 )
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
-from langboard_shared.publishers import ProjectColumnPublisher
+from langboard_shared.publishers import CardRelationshipPublisher, ProjectColumnPublisher
 from langboard_shared.security import Auth
+from langboard_shared.tasks.activities import CardRelationshipActivityTask
+from langboard_shared.tasks.bots import CardBotTask
 from sqlalchemy import event, text, update
 from sqlalchemy.orm import Session
 from test_app_governance_postgres import governance  # noqa: F401
@@ -1803,3 +1805,86 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         db.commit()
         assert db.query(CardExecutionGeneration).count() == 0
         assert db.query(CardExecutionIntent).count() == 1
+
+
+def test_relationship_replacement_atomic_blocks_cycles_and_concurrent_writers(request, monkeypatch):
+    engine, (_, owner, _), _, project, *_ = request.getfixturevalue("governance")
+    for model in (WorkflowStageDefinition, ProjectColumn, Card, GlobalCardRelationshipType, CardRelationship):
+        model.__table__.create(engine)
+    events = []
+    monkeypatch.setattr(CardRelationshipPublisher, "updated", lambda *args: events.append("published"))
+    monkeypatch.setattr(CardRelationshipActivityTask, "card_relationship_updated", lambda *args: None)
+    monkeypatch.setattr(CardBotTask, "card_relationship_updated", lambda *args: None)
+    with Session(engine) as db:
+        db.add(ProjectColumn(id=211, project_id=project.id, name="Queue"))
+        db.flush()
+        db.add_all(
+            [Card(id=i, project_id=project.id, project_column_id=211, title=f"Card {i}") for i in (221, 222, 223)]
+        )
+        db.add_all(
+            [
+                GlobalCardRelationshipType(
+                    id=501, parent_name="Plan", child_name="Member", machine_semantic="contains"
+                ),
+                GlobalCardRelationshipType(
+                    id=502, parent_name="Context", child_name="Related", machine_semantic="references"
+                ),
+                GlobalCardRelationshipType(
+                    id=503,
+                    parent_name="Custom prerequisite",
+                    child_name="Dependent",
+                    machine_semantic="blocks",
+                    affects_readiness=True,
+                ),
+            ]
+        )
+        db.commit()
+
+    def replace(card_id, related_id, type_id):
+        return DomainService().card_relationship.update(
+            owner,
+            project.id,
+            SnowflakeID(card_id),
+            False,
+            [(SnowflakeID(related_id).to_short_code(), SnowflakeID(type_id).to_short_code())],
+        )
+
+    replace(221, 222, 503)
+    replace(222, 223, 503)
+    assert len(events) == 2
+    with pytest.raises(ValueError, match="blocks cycle"):
+        replace(223, 221, 503)
+    with Session(engine) as db:
+        assert db.query(CardRelationship).count() == 2
+    with pytest.raises(ValueError, match="unavailable"):
+        replace(221, 999, 503)
+    with Session(engine) as db:
+        assert db.query(CardRelationship).filter_by(card_id_parent=221, card_id_child=222).count() == 1
+    replace(223, 221, 501)
+    replace(222, 221, 502)
+    with DbSession.atomic():
+        result = replace(223, 222, 501)
+        assert len(events) == 4
+        assert any(row["machine_semantic"] == "contains" for row in result)
+    assert len(events) == 5
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            replace(223, 221, 501)
+            raise RuntimeError("rollback")
+    assert len(events) == 5
+    with Session(engine) as db:
+        db.query(CardRelationship).delete()
+        db.commit()
+
+    def concurrent(pair):
+        try:
+            replace(*pair, 503)
+            return "saved"
+        except ValueError:
+            return "cycle"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(concurrent, [(221, 222), (222, 221)]))
+    assert sorted(outcomes) == ["cycle", "saved"]
+    with Session(engine) as db:
+        assert db.query(CardRelationship).count() == 1

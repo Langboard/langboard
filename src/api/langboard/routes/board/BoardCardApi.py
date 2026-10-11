@@ -463,7 +463,12 @@ def update_card_relationships(
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    result = service.card_relationship.update(user_or_bot, project_uid, card_uid, form.is_parent, form.relationships)
+    try:
+        result = service.card_relationship.update(
+            user_or_bot, project_uid, card_uid, form.is_parent, form.relationships
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400() from exc
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 

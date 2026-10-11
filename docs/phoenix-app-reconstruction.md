@@ -550,3 +550,20 @@ This is not a runtime permit or a transaction fence for all concurrent card,
 column, and relationship writers. Actual execution admission must revalidate the
 current state under coordinated mutation locks. Runtime fences, cycle rejection,
 MCP/UI blocker projection, and live acceptance remain pending.
+
+
+## Transactional relationship replacement
+
+The native relationship service now owns the transaction shared by REST and MCP
+replacement callers. It locks the current project row, validates all proposed
+cards and active types before deleting existing edges, and rejects a proposed
+`blocks` edge if its dependent can already reach its prerequisite. Only active
+`blocks` edges participate; contains/reference cycles are not execution deadlocks.
+Pre-existing unrelated cycles do not prevent an independent replacement.
+
+Relationship publication, activity recording and bot triggers are deferred until
+commit. A PostgreSQL regression exercises three-card cycle rejection, invalid
+replacement preserving existing edges, contains/reference reverse links,
+rollback publication suppression, and two concurrent reverse prerequisite writes
+where exactly one commits. Administrator semantic changes, all prerequisite
+completion writers and runtime admission still need their coordinated fences.

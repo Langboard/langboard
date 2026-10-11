@@ -455,17 +455,10 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             if related_uid in related_uids:
                 raise ValueError(f"Duplicate related card: {related_uid}")
             related_uids.add(related_uid)
-        existing_relationships = self._bounded_source(
+        self._bounded_source(
             self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT),
             "relationships",
         )
-        for existing in existing_relationships:
-            parent_uid = existing.get("parent_card_uid")
-            child_uid = existing.get("child_card_uid")
-            opposite_uid = child_uid if parent_uid == card_uid else parent_uid
-            card_is_parent = parent_uid == card_uid
-            if opposite_uid in related_uids and card_is_parent == is_parent:
-                raise ValueError(f"Opposite relationship already exists: {opposite_uid}")
         result = self._service.card_relationship.update(self._actor, project, card, is_parent, relationships)
         if result is None:
             raise RuntimeError("Validated relationship replacement failed")

@@ -183,7 +183,7 @@ test_socket_phoenix: ## verify the isolated Phoenix migration runtime and shared
 	uv run python -m pytest -q src/socket/test/unit/test_phoenix_cutover.py
 	uv run ruff check src/socket/test/unit/test_phoenix_cutover.py
 	uv run ruff format --check scripts/bootstrap-phoenix-kafka-group.py scripts/check-phoenix-cutover.py src/socket/test/unit/test_phoenix_cutover.py
-	$(SHELL) -n src/socket/test/browser/test-phoenix-browser-cluster.sh
+	bash -n src/socket/test/browser/test-phoenix-browser-cluster.sh
 	$(SHELL) -n src/socket/test/integration/delete-consumer-group.sh
 	@if $(SHELL) src/socket/test/integration/delete-consumer-group.sh langboard langboard-socket-node-fanout >/dev/null 2>&1; then echo "Probe cleanup accepted an operational consumer group." >&2; exit 1; fi
 	node --check src/socket/test/browser/test-phoenix-browser-ui.cjs
