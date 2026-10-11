@@ -9,6 +9,8 @@ from ..DependencyConditions import BLOCKING_RELATION_JOINS, UNSATISFIED_PREREQUI
 from ..models import (
     AppConnection,
     AppDefinition,
+    AppExecutionLease,
+    AppExecutionRequest,
     AppResourceBinding,
     BoardAppBinding,
     Card,
@@ -171,6 +173,20 @@ def _evaluate_principal(db, principal, project_id, card_id, expected_generation)
     ).first()
     actual_generation = int(generation[0] if hasattr(generation, "__getitem__") else generation)
     if actual_generation != expected_generation:
+        raise AppGovernanceDenied()
+    # The human stop fence is durable for this generation. Current consent alone
+    # cannot make an old event, request or credential executable again.
+    stopped = db.exec(
+        select(AppExecutionLease.id)
+        .join(AppExecutionRequest, AppExecutionRequest.id == AppExecutionLease.request_id)
+        .where(
+            AppExecutionRequest.card_id == card.id,
+            AppExecutionRequest.generation == actual_generation,
+            AppExecutionLease.state.in_(("stop_requested", "stopped")),
+        )
+        .limit(1)
+    ).first()
+    if stopped:
         raise AppGovernanceDenied()
     authority = {
         "schema_version": 1,

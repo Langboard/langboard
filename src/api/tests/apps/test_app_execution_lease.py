@@ -22,22 +22,7 @@ from test_app_execution_ack import scope
 
 def permit_scope(board, monkeypatch):
     connection, card, token, event = scope(board, monkeypatch)
-    module = importlib.import_module("langboard.migrations.versions.20261011050000-ba4e915238c0")
-    original = module.op
-    try:
-        with DbEngine.get_main_engine().begin() as db:
-            module.op = Operations(MigrationContext.configure(db))
-            module.upgrade()
-    finally:
-        module.op = original
-    fence = importlib.import_module("langboard.migrations.versions.20261011060000-dc60b3745ae2")
-    original_fence_op = fence.op
-    try:
-        with DbEngine.get_main_engine().begin() as db:
-            fence.op = Operations(MigrationContext.configure(db))
-            fence.upgrade()
-    finally:
-        fence.op = original_fence_op
+    # grant_scope already applies the native permit/credential migrations.
     claim_app_event(event.id, 1)
     with DbSession.atomic() as db:
         request = db.exec(SqlBuilder.select.table(AppExecutionRequest)).first()
@@ -133,7 +118,7 @@ def test_valid_heartbeat_renews_and_stopped_never_resumes(board, monkeypatch):
         row = db.exec(SqlBuilder.select.table(AppExecutionLease)).first()
         assert not _expired(row.expires_at, SafeDateTime.now() + timedelta(seconds=100))
     check_app_runtime(lease_id, runtime_token, stopped=True)
-    with pytest.raises(AppExecutionRequestConflict):
+    with pytest.raises(AppGovernanceDenied):
         authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
 
 
@@ -307,6 +292,8 @@ def test_legacy_permit_migration_preserves_stop_reason(board, monkeypatch):
     connection, card, token, event = scope(board, monkeypatch)
     module = importlib.import_module("langboard.migrations.versions.20261011050000-ba4e915238c0")
     fence = importlib.import_module("langboard.migrations.versions.20261011060000-dc60b3745ae2")
+    # Rebuild only this empty fixture table to exercise the historical shape.
+    AppExecutionLease.__table__.drop(DbEngine.get_main_engine())
     old_module_op, old_fence_op = module.op, fence.op
     try:
         with DbEngine.get_main_engine().begin() as db:
