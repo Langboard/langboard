@@ -365,6 +365,102 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             retained_event.state = "delivered"
             db.update(retained_event)
 
+        from langboard_shared.domain.models import CardComment, CardCommentReaction
+        from langboard_shared.domain.services.AppCardInteractions import accept_current_comment_reaction
+
+        CardComment.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+        CardCommentReaction.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+        with DbSession.atomic() as db:
+            comment = CardComment(card_id=card.id)
+            db.insert(comment)
+            old_reaction = CardCommentReaction(
+                comment_id=comment.id,
+                user_id=board[1].id,
+                reaction_type="thumbs-up",
+                created_at=SafeDateTime.now() - timedelta(minutes=1),
+            )
+            db.insert(old_reaction)
+        reaction_body = {
+            **body,
+            "kind": "approval",
+            "app_request_key": "reaction-approval",
+            "outcomes": {},
+            "questions": [
+                {
+                    "id": "approval",
+                    "prompt": {"en": "Approve?"},
+                    "type": "single_choice",
+                    "choices": [
+                        {"id": "approve", "label": {"en": "Approve"}},
+                        {"id": "reject", "label": {"en": "Reject"}},
+                    ],
+                }
+            ],
+            "presentation": {
+                "type": "comment_reaction",
+                "comment_uid": comment.get_uid(),
+                "reactions": {"thumbs-up": "approve", "thumbs-down": "reject"},
+            },
+        }
+        reaction_receipt = asyncio.run(sdk.create(board[2].get_uid(), card.get_uid(), reaction_body))
+        assert (
+            client.post(
+                path, json={"request": {**reaction_body, "app_request_key": "competing-reaction"}}, headers=headers
+            ).status_code
+            == 409
+        )
+        reaction_args = (*args[:4], SnowflakeID.from_short_code(reaction_receipt["interaction_uid"]))
+        with pytest.raises(AppGovernanceDenied):
+            respond_to_app_card_interaction(
+                *reaction_args, 1, "forged-reaction", {"approval": {"choice_id": "approve"}}
+            )
+        native_service = DomainService()
+        assert (
+            accept_current_comment_reaction(native_service, board[1], board[2].id, card.id, comment.id, "thumbs-up")
+            is None
+        )
+        assert (
+            accept_current_comment_reaction(native_service, board[1], board[2].id, card.id, comment.id, "eyes") is None
+        )
+        comment_module = importlib.import_module("langboard_shared.domain.services.factory.CardCommentService")
+        monkeypatch.setattr(comment_module.CardCommentPublisher, "reacted", lambda *a, **k: None)
+        for tasks in (comment_module.CardCommentActivityTask, comment_module.CardCommentBotTask):
+            monkeypatch.setattr(tasks, "card_comment_reacted", lambda *a, **k: None)
+            monkeypatch.setattr(tasks, "card_comment_unreacted", lambda *a, **k: None)
+        assert native_service.card_comment.toggle_reaction(board[1], board[2], card, comment, "thumbs-up") is False
+        assert (
+            asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), reaction_receipt["interaction_uid"]))["state"]
+            == "pending"
+        )
+        assert native_service.card_comment.toggle_reaction(board[1], board[2], card, comment, "thumbs-up") is True
+        approved = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), reaction_receipt["interaction_uid"]))
+        assert approved["state"] == "answered" and approved["response"]["values"] == {
+            "approval": {"choice_id": "approve"}
+        }
+        assert approved["execution_resumed"] is False
+        assert len(enqueues) == 2
+        assert native_service.card_comment.toggle_reaction(board[1], board[2], card, comment, "thumbs-up") is False
+        retained = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), reaction_receipt["interaction_uid"]))
+        assert retained["response"]["response_uid"] == approved["response"]["response_uid"]
+        assert native_service.card_comment.toggle_reaction(board[1], board[2], card, comment, "thumbs-up") is True
+        assert len(enqueues) == 2
+        response_event = SnowflakeID.from_short_code(approved["event_uid"])
+        response_claim = claim_app_event(response_event, 2)
+        assert response_claim is not None
+        assert finish_app_event(response_event, response_claim["claim_token"], delivered=True)["state"] == "delivered"
+        subsequent = client.post(
+            path, json={"request": {**reaction_body, "app_request_key": "followup-reaction"}}, headers=headers
+        )
+        assert subsequent.status_code == 200, subsequent.text
+        subsequent_uid = subsequent.json()["interaction_uid"]
+        assert (
+            accept_current_comment_reaction(native_service, board[1], board[2].id, card.id, comment.id, "thumbs-up")
+            is None
+        )
+        assert (
+            asyncio.run(sdk.cancel(board[2].get_uid(), card.get_uid(), subsequent_uid, expected_revision=1))["state"]
+            == "cancelled"
+        )
         from langboard_sdk import NativeApiError
 
         with pytest.raises(NativeApiError):
@@ -394,16 +490,19 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             respond_to_app_card_interaction(*args, 1, "response-1", answer)
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
-        assert len(rows) == 3 and {row.app_request_key for row in rows} == {
+        assert len(rows) == 5 and {row.app_request_key for row in rows} == {
             "deployment-choice",
             "cancel-choice",
             "choice-or-text",
+            "reaction-approval",
+            "followup-reaction",
         }
         assert next(row for row in rows if row.state == "cancelled").request == cancel_body
         from langboard_shared.domain.models import AppCardInteractionResponse
 
         answers = db.exec(SqlBuilder.select.table(AppCardInteractionResponse)).all()
-        assert len(answers) == 1 and answers[0].values == answer and answers[0].actor_id == board[1].id
+        assert len(answers) == 2
+        assert next(row for row in answers if row.values == answer).actor_id == board[1].id
     with DbEngine.get_main_engine().begin() as db:
         original = response_migration.op
         try:
