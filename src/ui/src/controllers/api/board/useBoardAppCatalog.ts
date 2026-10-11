@@ -30,13 +30,38 @@ export interface CatalogApp {
     } | null;
 }
 
-export default function useBoardAppCatalog(projectUID: string, userUID: string | undefined) {
+export interface AppComposition {
+    key: string;
+    name: string;
+    description: string;
+    revision: string;
+    module_keys: string[];
+}
+
+export function useBoardAppCompositions(projectUID: string, userUID: string | undefined) {
+    return useQuery({
+        queryKey: ["board-app-compositions", projectUID, userUID],
+        queryFn: async ({ signal }) =>
+            (
+                await api.get<{ compositions: AppComposition[]; apps: CatalogApp[] }>(`/board/${projectUID}/settings/apps/compositions`, {
+                    signal,
+                    env: { interceptToast: true } as never,
+                })
+            ).data,
+        enabled: !!userUID,
+        retry: 0,
+        staleTime: 30_000,
+        refetchOnWindowFocus: false,
+    });
+}
+
+export default function useBoardAppCatalog(projectUID: string, userUID: string | undefined, enabled = true) {
     return useQuery({
         queryKey: ["board-app-catalog", projectUID, userUID],
         queryFn: async ({ signal }) =>
             (await api.get<{ apps: CatalogApp[] }>(`/board/${projectUID}/settings/apps`, { signal, env: { interceptToast: true } as never })).data
                 .apps,
-        enabled: !!userUID,
+        enabled: !!userUID && enabled,
         retry: 0,
         staleTime: 30_000,
         refetchOnWindowFocus: false,
