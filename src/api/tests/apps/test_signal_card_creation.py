@@ -124,6 +124,8 @@ def prepare_native_creation(service, board, monkeypatch):
     """Prepare native card tables and dispatch isolation for actual PostgreSQL flows."""
     engine = DbEngine.get_main_engine()
     ensure_models_imported()
+    from langboard_shared.domain.models.bases import BaseGraphApprovalRequestModel
+    from langboard_shared.helpers import ModelHelper
     needed = {
         "checklist",
         "checkitem",
@@ -135,7 +137,9 @@ def prepare_native_creation(service, board, monkeypatch):
         "card_assigned_project_label",
         "project_label",
         "user_card_read_state",
+        "card_verification_record",
     }
+    needed.update(model.__tablename__ for model in ModelHelper.get_models_by_base_class(BaseGraphApprovalRequestModel))
     while True:
         previous = len(needed)
         for name in list(needed):
@@ -152,6 +156,7 @@ def prepare_native_creation(service, board, monkeypatch):
         migration.upgrade()
         if engine.dialect.name == "postgresql":
             db.execute(text("CREATE SEQUENCE content_change_seq"))
+            db.execute(text("CREATE TABLE card_execution_generation (card_id BIGINT PRIMARY KEY REFERENCES card(id), execution_generation INTEGER NOT NULL DEFAULT 0)"))
     with DbSession.use(readonly=False) as db:
         board[4].actions = ["read", "update", "card_update"]
         db.update(board[4])

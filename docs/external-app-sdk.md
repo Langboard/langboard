@@ -1264,3 +1264,12 @@ creation, credential issuance and two-board consent/resource selection through
 user-authenticated HTTP. Host/SDK production code needed no provider-specific
 changes for this app. Database readback checks scope and retained evidence. No app-owned card or workflow transition
 is implicitly created. Test artifact provenance is retained beside the wheel.
+
+
+Card evidence now carries the approved policy's `evidence_kind`. Native Work State
+reuses that field without a per-card registry query; legacy built-in evidence
+retains its fallback mapping. `external_observation` produces observation reasons,
+not deployment execution or reviewer approval. Actual PostgreSQL CardService
+work-state reads retain the independent provider evidence and leave approval and
+external execution authority unassigned. The standalone work-state suite also
+preserves existing deployment/issue behavior. Deployment remains a separate gate.
