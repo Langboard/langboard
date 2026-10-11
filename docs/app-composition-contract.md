@@ -208,3 +208,14 @@ including full group confirmation at 1440px/390px and failed-write reload gating
 TypeScript type checking, changed production UI lint, Ruff and diff checks passed.
 These local results do not establish deployed composition migration or provider
 integration acceptance.
+
+Native durable-record acceptance additionally exercises a separately declared
+app with an actual app-owned card, source signal, selected resource, connection,
+archive receipt and pending signed event. Full group withdrawal retains their
+identities and stored content; the pending event is blocked before its first
+delivery attempt, and current credentials cannot create another card. Ordinary
+module updates retain only previously granted capabilities. Publisher changes
+revoke the connection and require attention without changing group presentation
+or deleting the owned card. Stale pre-update binding revisions reject withdrawal.
+The expanded native suite passes 16 cases; provider network/runtime acceptance
+remains a separate gate.

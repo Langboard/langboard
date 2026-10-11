@@ -15,6 +15,7 @@ from langboard_shared.domain.services.AppComposition import (
 )
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict, AppRegistryDenied
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
+from test_app_card_creation import creation  # noqa: F401
 
 
 @pytest.fixture
@@ -253,3 +254,100 @@ def test_schema_upgrade_rollback_preserves_module_tables(board, monkeypatch):
         tables = inspect(connection).get_table_names()
         assert "app_composition" not in tables and "app_composition_member" not in tables
         assert "app_definition" in tables and "board_app_binding" in tables
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_group_withdrawal_preserves_native_app_card_signal_and_blocks_pending_delivery(creation, monkeypatch):
+    from langboard_shared.domain.models import (
+        AppCardArchive,
+        AppConnection,
+        AppExecutionOutbox,
+        AppResourceBinding,
+        AppSignal,
+        Card,
+        CardAppOwnership,
+    )
+    from langboard_shared.domain.services.AppEventDelivery import claim_app_event
+    from test_app_card_archive_delivery import setup_archive
+    from test_app_card_creation import call
+    card, _, _ = setup_archive(creation, monkeypatch)
+    board, _, connection, _, resource, *_ = creation
+    service, actor, project = board[:3]
+    saved = save_composition(actor, "external-tools", "External tools", "Native and independent modules.",
+                             ["github", "example-erp"])
+    with DbSession.atomic() as db:
+        signal = AppSignal(resource_id=resource.id, provider="example-erp", event_id="preserved-evidence",
+                           event_type="issue.updated", occurred_at="2026-10-11T00:00:00Z", external_id="issue-1",
+                           outcome="open", commit_sha="", payload_digest="a" * 64)
+        db.insert(signal)
+        ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
+        archive = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+        preserved = (card.id, card.title, ownership.id, ownership.app_key, ownership.revision,
+                     archive.id, deepcopy(archive.receipt), signal.id, signal.payload_digest,
+                     connection.id, resource.id)
+    snapshot = board_compositions(service, actor, project.get_uid())
+    targets = {app["key"]: app["binding"]["revision"] if app["binding"] else None
+               for app in snapshot["apps"] if app["key"] in saved["module_keys"]}
+    disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], targets)
+    assert claim_app_event(event.id, 1) is None
+    from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+    with pytest.raises(AppGovernanceDenied):
+        call(creation, title="Not allowed after withdrawal")
+    with DbSession.atomic() as db:
+        current_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
+        archive = db.exec(SqlBuilder.select.table(AppCardArchive)).first()
+        signal = db.exec(SqlBuilder.select.table(AppSignal)).first()
+        connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == connection.id)).first()
+        resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(AppResourceBinding.id == resource.id)).first()
+        assert (current_card.id, current_card.title, ownership.id, ownership.app_key, ownership.revision,
+                archive.id, archive.receipt, signal.id, signal.payload_digest, connection.id, resource.id) == preserved
+        assert connection.state == "connected" and resource.is_selected
+        delivery = db.exec(SqlBuilder.select.table(AppExecutionOutbox).where(AppExecutionOutbox.id == event.id)).first()
+        assert delivery.state == "blocked" and delivery.attempt_count == 0
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_grouped_app_update_retains_only_existing_consent_and_preserves_owned_cards(creation, monkeypatch):
+    from langboard_shared.domain.models import AppConnection, Card, CardAppOwnership
+    from langboard_shared.domain.services.AppRegistry import save_definition
+    from langboard_shared.publishers import AppSettingPublisher
+    from test_app_card_creation import call
+    monkeypatch.setattr(AppSettingPublisher, "apps_changed", lambda: None)
+    board, _, connection, binding, _, definition, _ = creation
+    service, actor, project = board[:3]
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+    call(creation)
+    group = save_composition(actor, "external-tools", "External tools", "Explicit external module.", ["example-erp"])
+    before_revision = binding.edit_revision()
+    with DbSession.atomic() as db:
+        card = db.exec(SqlBuilder.select.table(Card).where(Card.title == "ERP issue")).first()
+        ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
+        before = (card.id, card.title, card.description, ownership.id, ownership.app_key, ownership.revision)
+    ordinary = {**definition.declaration, "version": "1.1.0",
+                "capabilities": [*definition.declaration["capabilities"], "panels.render"]}
+    approved = save_definition(actor, ordinary, definition.edit_revision())
+    current = board_compositions(service, actor, project.get_uid())
+    assert current["compositions"] == [group]
+    module = next(app for app in current["apps"] if app["key"] == "example-erp")
+    assert "panels.render" not in module["binding"]["granted_capabilities"]
+    assert module["binding"]["state"] == "enabled"
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == connection.id)).first().state == "connected"
+    changed = {**ordinary, "version": "1.2.0", "publisher": "Different publisher"}
+    save_definition(actor, changed, approved["revision"])
+    with pytest.raises(AppRegistryConflict):
+        disable_board_composition(service, actor, project.get_uid(), group["key"], group["revision"],
+                                  {"example-erp": before_revision})
+    current = board_compositions(service, actor, project.get_uid())
+    assert current["compositions"] == [group]
+    module = next(app for app in current["apps"] if app["key"] == "example-erp")
+    assert module["binding"]["state"] == "needs_attention" and module["binding"]["granted_capabilities"] == []
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == connection.id)).first().state == "revoked"
+        card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        ownership = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
+        assert (card.id, card.title, card.description, ownership.id, ownership.app_key, ownership.revision) == before
