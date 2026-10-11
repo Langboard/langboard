@@ -130,7 +130,12 @@ def test_authenticated_http_composition_management_and_old_catalog(composition, 
     with TestClient(app) as client:
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         before = client.get(board_path, headers=headers).json()
-        assert client.get(path, headers=headers).json() == {"compositions": []}
+        catalog = client.get(path, headers=headers).json()
+        assert catalog["compositions"] == []
+        keys = {row["key"] for row in catalog["modules"]}
+        assert {"github", "independent-panel"}.issubset(keys)
+        assert "github-panel" not in keys
+        assert "declaration" not in catalog["modules"][-1]
         saved = client.post(path, headers=headers, json=payload)
         assert saved.status_code == 200
         revision = saved.json()["composition"]["revision"]

@@ -51,8 +51,8 @@ class SaveAppCompositionForm(BaseFormModel):
 @AppRouter.api.get("/settings/apps/compositions", tags=["AppSettings.AppRegistry"])
 @AuthFilter.add("admin")
 def get_app_compositions(user: User = Auth.scope("user")) -> JsonResponse:
-    from langboard_shared.domain.services.AppComposition import list_compositions
-    return JsonResponse(content={"compositions": _run(list_compositions, user)})
+    from langboard_shared.domain.services.AppComposition import composition_catalog
+    return JsonResponse(content=_run(composition_catalog, user))
 
 
 @AppRouter.api.post("/settings/apps/compositions", tags=["AppSettings.AppRegistry"])

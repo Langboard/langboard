@@ -323,5 +323,18 @@
   "Workspace setup": "工作空间配置",
   "People and notifications": "用户与通知",
   "AI and automation": "AI 与自动化",
-  "Apps and integrations": "应用与集成"
+  "Apps and integrations": "应用与集成",
+  "App groups": "应用分组",
+  "App groups help": "选择已安装模块合并为一个商店条目。各模块保留独立权限、连接和版本。",
+  "App groups conflict": "无法确认更改，已保留草稿。再次修改前请重新加载当前分组。",
+  "App groups reload": "重新加载并放弃草稿",
+  "App groups saved": "应用分组已保存。",
+  "App group create": "创建分组",
+  "App group key": "分组键",
+  "App group modules": "已安装模块（最多16个）",
+  "App group ungroup": "取消分组",
+  "App group ungroup help": "取消商店分组？模块、连接、权限和卡片将保留。",
+  "App group name": "名称",
+  "App group description": "描述",
+  "App group confirm ungroup": "确认取消分组"
 }

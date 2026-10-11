@@ -1,8 +1,7 @@
 # Logical apps and independently authorized modules
 
 Status: host persistence, HTTP discovery and board Store grouping implemented
-and locally verified. Administrator composition editor, full-composition disable
-and deployed migration/browser acceptance remain open.
+and locally verified. The administrator composition editor is implemented and locally verified. Full-composition disable and deployed migration/browser acceptance remain open.
 
 ## Board Store and app management
 
@@ -24,7 +23,7 @@ and degraded discovery. These fixture tests do not prove canary deployment.
 
 ## Current host API
 
-- `GET /settings/apps/compositions`: current administrator lists explicit groups.
+- `GET /settings/apps/compositions`: current administrator lists explicit groups and exact installed module keys, names, versions and enabled status.
 - `POST /settings/apps/compositions`: current administrator creates/updates
   `key`, `name`, `description`, ordered `module_keys`, and `expected_revision`.
 - `POST /settings/apps/compositions/{key}/ungroup`: revision-checked removal
@@ -166,3 +165,23 @@ Board details failures now expose a retry instead of leaving only notification
 settings visible. This recovery affordance does not establish the cause of a
 browser request abort. Canary browser verification reproduced the abort twice;
 the fix must be deployed before its recovery behavior can be verified there.
+
+
+## Administrator composition editor
+
+`/settings/app-groups` is available only to instance administrators, within
+Apps/integrations settings. It creates and updates explicit group metadata,
+selecting existing modules from the authoritative discovery endpoint. A module
+already assigned to another group cannot be selected. Disabled modules can be
+retained/grouped without becoming enabled. Module identities are shown next to
+names and versions; a group never derives members from a provider-name suffix.
+
+The group key is immutable during editing. Updates and confirmed ungrouping
+submit the observed revision. Failed/unknown mutation results retain the draft
+and prevent repeated writes until an explicit reload; reload discards the draft.
+An older host without module discovery exposes recovery and no editable form.
+This UI is presentation management, not an install, credential, grant or
+full-group disable operation. Local desktop/mobile browser tests cover exact
+create/update payloads, confirmed ungrouping, conflict draft retention and
+non-admin exclusion. Native authenticated HTTP tests separately verify current
+administrator authority and preservation of flat module discovery.

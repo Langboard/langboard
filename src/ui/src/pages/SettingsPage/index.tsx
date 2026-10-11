@@ -36,6 +36,7 @@ const McpServerPage = lazy(() => import("./McpServerPage"));
 const WorkflowStagesPage = lazy(() => import("./WorkflowStagesPage"));
 const GlobalLabelsPage = lazy(() => import("./GlobalLabelsPage"));
 const ProjectTemplatesPage = lazy(() => import("./ProjectTemplatesPage"));
+const AppGroupsPage = lazy(() => import("./AppGroupsPage"));
 const AppGovernancePage = lazy(() => import("./AppGovernancePage"));
 
 function SettingsProxy(): React.JSX.Element {
@@ -152,6 +153,12 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             icon: "app-window",
             label: t("settings.Apps"),
             onClick: () => navigate(ROUTES.SETTINGS.APPS),
+        },
+        [ROUTES.SETTINGS.APP_GROUPS]: {
+            icon: "layers",
+            label: t("settings.App groups"),
+            onClick: () => navigate(ROUTES.SETTINGS.APP_GROUPS),
+            hidden: !currentUser.is_admin,
         },
         [ROUTES.SETTINGS.WORKFLOW_STAGES]: {
             icon: "list-tree",
@@ -278,6 +285,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             icon: "app-window",
             paths: [
                 ROUTES.SETTINGS.APPS,
+                ROUTES.SETTINGS.APP_GROUPS,
                 ROUTES.SETTINGS.MCP_TOOL_GROUPS,
                 ROUTES.SETTINGS.API_KEYS,
                 ROUTES.SETTINGS.WEBHOOKS,
@@ -291,6 +299,9 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
 
     let pageContent;
     switch (pathname) {
+        case ROUTES.SETTINGS.APP_GROUPS:
+            pageContent = <AppGroupsPage key={currentUser.uid} currentUser={currentUser} />;
+            break;
         case ROUTES.SETTINGS.APPS:
             pageContent = <AppGovernancePage currentUser={currentUser} />;
             break;
