@@ -51,8 +51,10 @@ def set_panel(service, actor, project_uid, app_key, binding_uid, expected_revisi
             grants.discard("panels.render")
         if enabled and read_signals:
             grants.add("signals.read")
-        else:
+        elif enabled:
             grants.discard("signals.read")
+        # Closing UI must not revoke independently consented signal ingestion
+        # or inbox access. Full app disablement clears all grants separately.
         binding.granted_capabilities = sorted(grants)
         binding.state = "enabled" if grants else "disabled"
         # Rendering does not authorize workflow transitions or card mutation.
