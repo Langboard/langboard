@@ -146,8 +146,108 @@ def _project_receipt(row, answer, delivery):
         if answer
         else None,
         "execution_resumed": False,
+        "workflow_transitioned": False,
+        "workflow_plan": _selected_workflow_plan(row, answer.values) if answer else None,
         **delivery,
     }
+
+
+def _selected_workflow_plan(row, values):
+    snapshot = row.workflow_snapshot
+    if not snapshot:
+        return {"state": "legacy_unbound"}
+    question = row.request["questions"][0]
+    choice = values.get(question["id"], {}).get("choice_id")
+    target = snapshot.get("choices", {}).get(choice)
+    if target:
+        return {"state": "planned", "binding_revision": snapshot["binding_revision"], **target}
+    return {"state": "disabled" if not snapshot.get("enabled") else "no_outcome"}
+
+
+def _freeze_workflow(db, principal, project_id, request):
+    from ..models import ProjectColumn, WorkflowStageDefinition
+
+    binding = db.exec(
+        SqlBuilder.select.table(BoardAppBinding)
+        .where(BoardAppBinding.project_id == project_id, BoardAppBinding.app_key == principal.app_key)
+        .with_for_update()
+    ).first()
+    snapshot = {
+        "enabled": binding.stage_transitions_enabled,
+        "binding_revision": binding.edit_revision(),
+        "choices": {},
+    }
+    outcomes = request.get("outcomes", {})
+    if not snapshot["enabled"] or not outcomes:
+        return snapshot
+    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key)).first()
+    requirements = definition.declaration.get("workflow_requirements") or {}
+    declared = set(requirements.get("required", []) + requirements.get("optional", []))
+    for choice, outcome in outcomes.items():
+        stage_key = outcome["workflow_stage"]
+        uid = binding.workflow_mapping.get(stage_key)
+        if stage_key not in declared or not uid:
+            raise AppCardInteractionConflict()
+        column = _current(db, ProjectColumn, SnowflakeID.from_short_code(uid))
+        stage = db.exec(
+            SqlBuilder.select.table(WorkflowStageDefinition)
+            .where(WorkflowStageDefinition.key == stage_key)
+            .with_for_update()
+        ).first()
+        if (
+            column is None
+            or column.project_id != project_id
+            or column.deleted_at
+            or column.is_archive
+            or column.workflow_stage != stage_key
+            or stage is None
+            or not stage.is_builtin
+            or not stage.is_active
+        ):
+            raise AppCardInteractionConflict()
+        snapshot["choices"][choice] = {
+            "workflow_stage": stage_key,
+            "column_uid": uid,
+            "column_revision": column.updated_at.isoformat(),
+            "stage_revision": stage.updated_at.isoformat(),
+        }
+    return snapshot
+
+
+def _validate_workflow_snapshot(db, row, values):
+    """A saved choice cannot acquire a different target after mapping changes."""
+    from ..models import ProjectColumn, WorkflowStageDefinition
+
+    plan = _selected_workflow_plan(row, values)
+    if plan["state"] != "planned":
+        return plan
+    binding = db.exec(
+        SqlBuilder.select.table(BoardAppBinding)
+        .where(BoardAppBinding.project_id == row.project_id, BoardAppBinding.app_key == row.app_key)
+        .with_for_update()
+    ).first()
+    column = _current(db, ProjectColumn, SnowflakeID.from_short_code(plan["column_uid"]))
+    stage = db.exec(
+        SqlBuilder.select.table(WorkflowStageDefinition)
+        .where(WorkflowStageDefinition.key == plan["workflow_stage"])
+        .with_for_update()
+    ).first()
+    if (
+        binding is None
+        or binding.edit_revision() != plan["binding_revision"]
+        or column is None
+        or column.project_id != row.project_id
+        or column.deleted_at
+        or column.is_archive
+        or column.workflow_stage != plan["workflow_stage"]
+        or column.updated_at.isoformat() != plan["column_revision"]
+        or stage is None
+        or not stage.is_builtin
+        or not stage.is_active
+        or stage.updated_at.isoformat() != plan["stage_revision"]
+    ):
+        raise AppCardInteractionConflict()
+    return plan
 
 
 def list_card_interactions(service, actor, project_id, card_id, *, limit=25, before=None, channel=None):
@@ -294,6 +394,7 @@ def create_app_card_interaction(token, project_id, card_id, body):
             app_key=principal.app_key,
             app_request_key=request["app_request_key"],
             request=request,
+            workflow_snapshot=_freeze_workflow(db, principal, project_id, request),
             expires_at=expiry,
         )
         db.insert(row)
@@ -503,6 +604,7 @@ def respond_to_app_card_interaction(
                 or _expired(row.expires_at, SafeDateTime.now())
             ):
                 raise AppCardInteractionConflict()
+            _validate_workflow_snapshot(db, row, validated)
             answer = AppCardInteractionResponse(
                 interaction_id=row.id,
                 actor_id=current.id,
@@ -527,6 +629,7 @@ def respond_to_app_card_interaction(
             "changed": changed,
             "execution_resumed": False,
             "workflow_transitioned": False,
+            "workflow_plan": _selected_workflow_plan(row, answer.values),
             **_response_delivery(db, answer),
         }
 
@@ -596,6 +699,7 @@ def _queue_response_event(db, row, answer):
         "execution": row.request.get("execution"),
         "state": "answered",
         "execution_resumed": False,
+        "workflow_plan": _selected_workflow_plan(row, answer.values),
         "destination": {"destination_uid": destination.get_uid(), "revision": destination.revision},
     }
     db.update(event)
@@ -630,6 +734,7 @@ def revalidate_response_event(db, event):
         or event.payload.get("values") != answer.values
         or event.payload.get("actor_uid") != SnowflakeID(answer.actor_id).to_short_code()
         or event.payload.get("execution") != row.request.get("execution")
+        or (row.workflow_snapshot and event.payload.get("workflow_plan") != _selected_workflow_plan(row, answer.values))
     ):
         raise AppGovernanceDenied()
     actor = _current(db, User, answer.actor_id, for_update=False)

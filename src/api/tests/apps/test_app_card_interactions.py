@@ -41,6 +41,14 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             response_migration.upgrade()
     finally:
         response_migration.op = original
+    workflow_migration = importlib.import_module("langboard.migrations.versions.20261011110000-a093ca28d4b6")
+    original = workflow_migration.op
+    try:
+        with DbEngine.get_main_engine().begin() as db:
+            workflow_migration.op = Operations(MigrationContext.configure(db))
+            workflow_migration.upgrade()
+    finally:
+        workflow_migration.op = original
     with DbSession.atomic() as db:
         definition = db.exec(
             SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)
@@ -48,13 +56,17 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         definition.declaration = {
             **definition.declaration,
             "capabilities": [*definition.declaration["capabilities"], "interactions.request"],
+            "workflow_requirements": {"required": ["ready"], "optional": ["review"]},
         }
         db.update(definition)
         binding = db.exec(
             SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == connection.app_key)
         ).first()
         binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
+        binding.workflow_mapping = {**binding.workflow_mapping, "review": board[5][1].get_uid()}
         db.update(binding)
+        board[6][1].is_builtin = True
+        db.update(board[6][1])
     from langboard_shared.domain.models import WebhookSetting
     from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
     from langboard_shared.domain.services.AppEventDestination import (
@@ -70,6 +82,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         db.update(binding)
     assert bind_app_event_destination(board[1], connection.id, setting.id, 1)["revision"] == 2
 
+    original_grants = list(binding.granted_capabilities)
     token = issue_connection_credential(board[1], connection.id)["token"]
     body = {
         "schema_version": 1,
@@ -99,6 +112,31 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         receipt = first.json()
         assert receipt["state"] == "pending" and receipt["execution_resumed"] is False
         assert receipt["changed"] is True and receipt["revision"] == 1
+        with DbSession.atomic() as db:
+            frozen = (
+                db.exec(
+                    SqlBuilder.select.table(AppCardInteraction).where(
+                        AppCardInteraction.app_request_key == "deployment-choice"
+                    )
+                )
+                .first()
+                .workflow_snapshot
+            )
+        assert frozen["choices"]["review"]["column_uid"] == board[5][1].get_uid()
+        assert (
+            client.post(
+                path,
+                json={
+                    "request": {
+                        **body,
+                        "app_request_key": "unmapped",
+                        "outcomes": {"review": {"workflow_stage": "closed"}},
+                    }
+                },
+                headers=headers,
+            ).status_code
+            == 409
+        )
         second = client.post(path, json={"request": body}, headers=headers).json()
         assert second["changed"] is False and second["interaction_uid"] == receipt["interaction_uid"]
         assert (
@@ -161,7 +199,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert client.get(read_path, headers=headers).status_code == 403
         assert client.post(path, json={"request": body}, headers=headers).status_code == 403
         with DbSession.atomic() as db:
-            binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
+            binding.granted_capabilities = original_grants
             db.update(binding)
         with DbSession.atomic() as db:
             row = db.exec(
@@ -213,6 +251,31 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             SnowflakeID.from_short_code(mixed_receipt["interaction_uid"]),
         )
         answer = {"action": {"text": "추가 검토 필요"}}
+        from langboard_shared.domain.services.AppCardInteractions import _validate_workflow_snapshot
+
+        with DbSession.atomic() as db:
+            saved_row = db.exec(
+                SqlBuilder.select.table(AppCardInteraction).where(AppCardInteraction.id == args[-1])
+            ).first()
+            plan = _validate_workflow_snapshot(db, saved_row, {"action": {"choice_id": "review"}})
+            assert plan["state"] == "planned" and plan["column_uid"] == board[5][1].get_uid()
+            assert _validate_workflow_snapshot(db, saved_row, answer)["state"] == "no_outcome"
+            binding.workflow_mapping = {**binding.workflow_mapping, "review": board[5][2].get_uid()}
+            db.update(binding)
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*args, 1, "stale-mapping", {"action": {"choice_id": "review"}})
+        with DbSession.atomic() as db:
+            binding.workflow_mapping = {**binding.workflow_mapping, "review": board[5][1].get_uid()}
+            db.update(binding)
+            target = board[5][1]
+            old_revision = target.updated_at
+            target.updated_at = old_revision + timedelta(seconds=1)
+            db.update(target)
+        with pytest.raises(AppCardInteractionConflict):
+            respond_to_app_card_interaction(*args, 1, "stale-column", {"action": {"choice_id": "review"}})
+        with DbSession.atomic() as db:
+            target.updated_at = old_revision
+            db.update(target)
         with pytest.raises(AppCardInteractionConflict):
             respond_to_app_card_interaction(*args, 2, "response-1", answer)
         with pytest.raises(ValueError):
@@ -282,6 +345,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert accepted["state"] == "answered" and accepted["revision"] == 2
         assert accepted["actor_uid"] == board[1].get_uid() and accepted["changed"] is (not concurrent)
         assert accepted["execution_resumed"] is False and accepted["workflow_transitioned"] is False
+        assert accepted["workflow_plan"] == {"state": "no_outcome"}
         assert respond_to_app_card_interaction(*args, 1, "response-1", answer)["changed"] is False
         with pytest.raises(AppCardInteractionConflict):
             respond_to_app_card_interaction(*args, 1, "response-1", {"action": {"choice_id": "retry"}})
@@ -403,7 +467,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             **body,
             "kind": "approval",
             "app_request_key": "reaction-approval",
-            "outcomes": {},
+            "outcomes": {"approve": {"workflow_stage": "review"}},
             "questions": [
                 {
                     "id": "approval",
@@ -457,6 +521,14 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             "approval": {"choice_id": "approve"}
         }
         assert approved["execution_resumed"] is False
+        assert approved["workflow_transitioned"] is False
+        assert approved["workflow_plan"]["state"] == "planned"
+        assert approved["workflow_plan"]["column_uid"] == board[5][1].get_uid()
+        with DbSession.atomic() as db:
+            assert (
+                db.exec(SqlBuilder.select.table(type(card)).where(type(card).id == card.id)).first().project_column_id
+                == board[5][0].id
+            )
         assert len(enqueues) == 2
         assert native_service.card_comment.toggle_reaction(board[1], board[2], card, comment, "thumbs-up") is False
         retained = asyncio.run(sdk.read(board[2].get_uid(), card.get_uid(), reaction_receipt["interaction_uid"]))
@@ -467,11 +539,39 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         response_claim = claim_app_event(response_event, 2)
         assert response_claim is not None
         assert finish_app_event(response_event, response_claim["claim_token"], delivered=True)["state"] == "delivered"
+        # A pre-migration response event has no new plan field. Retain its wire body.
+        from langboard_shared.domain.services.AppCardInteractions import revalidate_response_event
+
+        with DbSession.atomic() as db:
+            legacy = db.exec(
+                SqlBuilder.select.table(AppCardInteraction).where(AppCardInteraction.id == reaction_args[-1])
+            ).first()
+            legacy.workflow_snapshot = {}
+            db.update(legacy)
+            legacy_event = db.exec(
+                SqlBuilder.select.table(AppExecutionOutbox).where(AppExecutionOutbox.id == response_event)
+            ).first()
+            legacy_event.payload = {key: value for key, value in legacy_event.payload.items() if key != "workflow_plan"}
+            db.update(legacy_event)
+            revalidate_response_event(db, legacy_event)
+            binding.stage_transitions_enabled = False
+            db.update(binding)
         subsequent = client.post(
             path, json={"request": {**reaction_body, "app_request_key": "followup-reaction"}}, headers=headers
         )
         assert subsequent.status_code == 200, subsequent.text
         subsequent_uid = subsequent.json()["interaction_uid"]
+        with DbSession.atomic() as db:
+            binding.stage_transitions_enabled = True
+            db.update(binding)
+            disabled_row = db.exec(
+                SqlBuilder.select.table(AppCardInteraction).where(
+                    AppCardInteraction.id == SnowflakeID.from_short_code(subsequent_uid)
+                )
+            ).first()
+            assert _validate_workflow_snapshot(db, disabled_row, {"approval": {"choice_id": "approve"}}) == {
+                "state": "disabled"
+            }
         assert (
             accept_current_comment_reaction(native_service, board[1], board[2].id, card.id, comment.id, "thumbs-up")
             is None
@@ -498,7 +598,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             == 403
         )
         with DbSession.atomic() as db:
-            binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
+            binding.granted_capabilities = original_grants
             db.update(binding)
             connection.state = "revoked"
             db.update(connection)
@@ -571,3 +671,11 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
                 response_migration.downgrade()
         finally:
             response_migration.op = original
+    with DbEngine.get_main_engine().begin() as db:
+        original = workflow_migration.op
+        try:
+            workflow_migration.op = Operations(MigrationContext.configure(db))
+            with pytest.raises(RuntimeError, match="Cannot discard frozen interaction workflow history"):
+                workflow_migration.downgrade()
+        finally:
+            workflow_migration.op = original

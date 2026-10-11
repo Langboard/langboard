@@ -19,6 +19,7 @@ class AppCardInteraction(BaseDbModel, table=True):
     revision: int = Field(default=1, nullable=False)
     state: str = Field(default="pending", nullable=False)
     request: dict[str, Any] = Field(default_factory=dict, sa_type=JSON, nullable=False)
+    workflow_snapshot: dict[str, Any] = Field(default_factory=dict, sa_type=JSON, nullable=False)
     expires_at: SafeDateTime = DateTimeField(default=SafeDateTime.now, nullable=False)
 
     def notification_data(self):
