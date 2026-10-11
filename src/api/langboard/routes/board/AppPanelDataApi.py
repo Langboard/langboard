@@ -58,6 +58,8 @@ def read_panel_signals(request: Request, project_uid: str, app_key: str, form: P
         panel = get_panel(service.workflow_stage, user, project_uid, app_key, lock=True)
         if panel is None or "signals.read" not in panel["granted_capabilities"]:
             raise ApiException.NotFound_404()
+        if form.provider not in panel["signal_sources"]:
+            raise ApiException.NotFound_404()
         if panel["app_revision"] != form.app_revision or panel["binding_revision"] != form.binding_revision:
             raise ApiException.Conflict_409()
         try:
