@@ -341,7 +341,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         with pytest.raises(AppCardInteractionConflict):
             respond_to_app_card_interaction(*cancelled_args, 2, "response-1", {"action": {"choice_id": "review"}})
         from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-        from langboard.routes.board import CardAppInteractionsApi  # noqa: F401
+        from langboard.routes.board import AppPanelDataApi, CardAppInteractionsApi  # noqa: F401
         from langboard_shared.core.security import AuthSecurity
         from langboard_shared.Env import Env
 
@@ -375,6 +375,40 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
                 human_client.post(human_path, json={**form, "actor_uid": "A" * 11}, headers=human_headers).status_code
                 == 400
             )
+            # A live panel reads only its own requests, never another app's retained history.
+            from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
+            assert list_card_interactions(args[0], board[1], board[2].id, card.id, app_key="unrelated-app")["items"] == []
+            previous_declaration = dict(definition.declaration)
+            previous_grants = list(binding.granted_capabilities)
+            with DbSession.atomic() as db:
+                definition.declaration = {**definition.declaration,
+                    "capabilities": [*definition.declaration["capabilities"], "panels.render"],
+                    "panel": {"url": "https://panel.example.invalid/panel", "name": "Requests"}}
+                binding.granted_capabilities = [*binding.granted_capabilities, "panels.render"]
+                db.update(definition)
+                db.update(binding)
+            panel_path = f"/board/{board[2].get_uid()}/apps/{connection.app_key}/panel/interactions"
+            panel_form = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision(),
+                          "card_uid": card.get_uid(), "limit": 1}
+            assert human_client.post(panel_path, json=panel_form, headers=headers).status_code == 401
+            panel_page = human_client.post(panel_path, json=panel_form, headers=human_headers)
+            assert panel_page.status_code == 200, panel_page.text
+            assert panel_page.headers["cache-control"] == "no-store"
+            assert len(panel_page.json()["items"]) == 1 and panel_page.json()["next_cursor"]
+            assert panel_page.json()["items"][0]["source"]["app_key"] == connection.app_key
+            for extra in [{"actor_uid": "A" * 11}, {"limit": True}, {"limit": 26}, {"cursor":"bad"}]:
+                assert human_client.post(panel_path, json={**panel_form, **extra}, headers=human_headers).status_code == 400
+            assert human_client.post(panel_path, json={**panel_form,"app_revision":"0" * 64}, headers=human_headers).status_code == 409
+            assert human_client.post(panel_path, json={**panel_form,"card_uid":"A" * 11}, headers=human_headers).status_code == 404
+            with DbSession.atomic() as db:
+                binding.granted_capabilities = [value for value in binding.granted_capabilities if value != "panels.render"]
+                db.update(binding)
+            assert human_client.post(panel_path, json=panel_form, headers=human_headers).status_code == 404
+            with DbSession.atomic() as db:
+                definition.declaration = previous_declaration
+                binding.granted_capabilities = previous_grants
+                db.update(definition)
+                db.update(binding)
             concurrent = DbEngine.get_main_engine().dialect.name == "postgresql"
             if concurrent:
                 from concurrent.futures import ThreadPoolExecutor
