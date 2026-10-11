@@ -132,6 +132,22 @@ class ExecutionReadinessUow:
             )
             self.before[card_id] = bool(_scalar(self.db, _READY, card_id=card_id))
 
+    def request_new_run(self, card_id: int, expected_generation: int, expected_revision: datetime) -> None:
+        """Explicit caller-authorized rerun through the existing readiness producer.
+
+        Caller must fence human authority and a reaped prior lease first. This
+        method never creates a runtime permit or mutates the card's column.
+        """
+        if type(expected_generation) is not int or expected_generation < 1 or not isinstance(expected_revision, datetime):
+            raise ValueError("Observed generation and card revision required")
+        self.watch([card_id])
+        current = current_execution(card_id, self.db)
+        if (current is None or not current.is_ready or current.generation != expected_generation
+            or current.revision != expected_revision):
+            raise ValueError("Execution readiness changed; read current generation and revision")
+        # Finish uses the exact same generation/outbox writer as a Ready edge.
+        self.before[int(card_id)] = False
+
     def watch_new(self, card_id: int) -> None:
         self.db.exec(
             select(
