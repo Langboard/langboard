@@ -45,3 +45,25 @@ wrong-kind and out-of-range subjects fail closed. Combined authentication and
 SQLite/PostgreSQL chat fixtures pass 83 tests in 16.26 seconds. Card visibility
 and app/runtime checkpoint changes are not copied without their missing domain
 foundation; see `phoenix-app-reconstruction.md`.
+
+
+## Board history query budget
+
+Comment and activity history now require the signed user, an active primary
+account, current board membership and a read role (or board ownership). The
+checks are included in each bounded content SELECT; the separate card-board
+preflight query is removed. Each comment/activity collector performs one
+SELECT, including denied valid-user cases. Missing credentials and bot actors
+perform no database queries. This is a round-trip budget, not a deployed
+latency benchmark. Deleted comments return tombstones without their body.
+SQLite and disposable PostgreSQL tests exercise revocation and cross-board
+requests against current main. CardVisibility and app principal policy remain
+pending reconstruction; these tests do not claim those missing contracts.
+
+The API bot-draft caller now uses the shared service credentials too. A focused
+test executes the actual helper and checks one HTTP request with a valid
+service token. Full API-to-Graph draft generation and Phoenix compilation
+remain pending runtime validation.
+
+Combined regression: 128 tests pass in 37.72 seconds on SQLite and disposable
+PostgreSQL. Ruff and `git diff --check` pass.

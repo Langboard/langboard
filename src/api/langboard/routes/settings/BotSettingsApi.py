@@ -15,6 +15,7 @@ from langboard_shared.core.routing import (
     create_editor_collaboration_document_id,
 )
 from langboard_shared.core.schema import OpenApiSchema
+from langboard_shared.core.security.GraphServiceAuth import graph_service_headers
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.domain.models import Bot, BotDefaultScopeBranch, SettingRole, User
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
@@ -112,6 +113,7 @@ def _request_graph_bot_draft(
                 "current_value": value,
                 "action_candidates": action_candidates,
             },
+            headers=graph_service_headers(),
             timeout=Env.AI_REQUEST_TIMEOUT,
         )
         response.raise_for_status()

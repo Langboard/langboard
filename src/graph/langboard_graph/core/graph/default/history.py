@@ -5,8 +5,21 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ChatSession, ProjectActivity, User
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    CardComment,
+    ChatHistory,
+    ChatSession,
+    Project,
+    ProjectActivity,
+    ProjectAssignedUser,
+    ProjectRole,
+    User,
+)
 from langboard_shared.helpers import InfraHelper
+from sqlalchemy import Text, and_, or_, select
+from sqlalchemy import cast as sql_cast
 from .state import DefaultGraphState
 
 
@@ -87,40 +100,9 @@ def collect_langboard_history_messages(tweaks: dict[str, Any], config: dict[str,
     messages: list[GraphHistoryMessage] = []
 
     messages.extend(collect_chat_history_messages(variables, rest_data, source_limit))
-    card_uid = _first_string(rest_data.get("card_uid"))
-    project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
-    if card_uid and not _card_belongs_to_project(card_uid, project_uid):
-        return messages
-
-    messages.extend(collect_card_comment_messages(rest_data, source_limit))
+    messages.extend(collect_card_comment_messages(rest_data, source_limit, variables))
     messages.extend(collect_project_activity_messages(variables, rest_data, source_limit))
     return messages
-
-
-def _card_belongs_to_project(card_uid: str, project_uid: str) -> bool:
-    if not project_uid:
-        return False
-
-    try:
-        card_id = InfraHelper.convert_id(card_uid)
-        project_id = InfraHelper.convert_id(project_uid)
-    except (TypeError, ValueError):
-        return False
-    if not 0 < card_id <= SnowflakeID.MAX_VALUE or not 0 < project_id <= SnowflakeID.MAX_VALUE:
-        return False
-
-    try:
-        query = (
-            SqlBuilder.select.table(Card)
-            .where(Card.column("id") == card_id)
-            .where(Card.column("project_id") == project_id)
-            .limit(1)
-        )
-        with DbSession.use(readonly=True) as db:
-            return db.exec(query).first() is not None
-    except Exception as exc:
-        Logger.main.exception(exc)
-        return False
 
 
 def _history_actor_id(variables: dict[str, Any]) -> int | None:
@@ -194,14 +176,60 @@ def collect_chat_history_messages(
     return [normalize_chat_history(history) for history in records if _has_chat_history_content(history)]
 
 
-def collect_card_comment_messages(rest_data: dict[str, Any], limit: int) -> list[GraphHistoryMessage]:
+def _project_history_scope(project_uid: str, actor_id: int):
+    # Enforce primary account, membership and read role in the content query.
+    membership = (
+        select(ProjectAssignedUser.id)
+        .where(
+            ProjectAssignedUser.project_id == Project.id,
+            ProjectAssignedUser.user_id == actor_id,
+        )
+        .exists()
+    )
+    actions = "," + sql_cast(ProjectRole.actions, Text) + ","
+    read_grant = (
+        select(ProjectRole.id)
+        .where(
+            ProjectRole.project_id == Project.id,
+            ProjectRole.user_id == actor_id,
+            or_(actions.contains(",read,"), actions.contains(",*,")),
+        )
+        .exists()
+    )
+    return (
+        select(Project.id)
+        .correlate(None)
+        .join(User, User.id == actor_id)
+        .where(
+            Project.id == InfraHelper.convert_id(project_uid),
+            Project.deleted_at.is_(None),
+            User.deleted_at.is_(None),
+            User.activated_at.is_not(None),
+            or_(Project.owner_id == actor_id, and_(membership, or_(User.is_admin.is_(True), read_grant))),
+        )
+        .exists()
+    )
+
+
+def collect_card_comment_messages(
+    rest_data: dict[str, Any],
+    limit: int,
+    variables: dict[str, Any] | None = None,
+) -> list[GraphHistoryMessage]:
     card_uid = _first_string(rest_data.get("card_uid"))
-    if not card_uid:
+    variables = variables or {}
+    project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
+    actor_id = _history_actor_id(variables)
+    if not card_uid or not project_uid or actor_id is None:
         return []
 
     try:
         query = (
             SqlBuilder.select.tables(CardComment, User, Bot, with_deleted=True)
+            .join(Card, CardComment.column("card_id") == Card.column("id"))
+            .where(Card.project_id == InfraHelper.convert_id(project_uid))
+            .where(Card.deleted_at.is_(None))
+            .where(_project_history_scope(project_uid, actor_id))
             .outerjoin(User, CardComment.column("user_id") == User.column("id"))
             .outerjoin(Bot, CardComment.column("bot_id") == Bot.column("id"))
             .where(CardComment.column("card_id") == InfraHelper.convert_id(card_uid))
@@ -209,7 +237,7 @@ def collect_card_comment_messages(rest_data: dict[str, Any], limit: int) -> list
             .limit(limit)
         )
 
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             records = db.exec(query).all()
     except Exception as exc:
         Logger.main.exception(exc)
@@ -231,11 +259,15 @@ def collect_project_activity_messages(
     project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
     card_uid = _first_string(rest_data.get("card_uid"))
     column_uid = _first_string(rest_data.get("project_column_uid"))
-    if not project_uid and not card_uid and not column_uid:
+    actor_id = _history_actor_id(variables)
+    if not project_uid or actor_id is None:
         return []
 
     try:
-        query = SqlBuilder.select.table(ProjectActivity)
+        query = SqlBuilder.select.table(ProjectActivity).where(
+            ProjectActivity.project_id == InfraHelper.convert_id(project_uid),
+            _project_history_scope(project_uid, actor_id),
+        )
         if card_uid:
             query = query.where(ProjectActivity.column("card_id") == InfraHelper.convert_id(card_uid))
         elif column_uid:
@@ -246,7 +278,7 @@ def collect_project_activity_messages(
             limit
         )
 
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             records = db.exec(query).all()
     except Exception as exc:
         Logger.main.exception(exc)
@@ -282,9 +314,9 @@ def normalize_card_comment(
         "source": "card_comment",
         "change_type": _get_mutable_change_type(comment.created_at, comment.updated_at, comment.deleted_at),
         "sender": _create_sender(user, bot),
-        "content": _trim_text(comment.content.content),
+        "content": None if comment.deleted_at else _trim_text(comment.content.content),
         "timestamp": _to_iso(comment.created_at) or "",
-        "updated_at": _to_iso(comment.updated_at),
+        "updated_at": _to_iso(comment.deleted_at or comment.updated_at),
         "parent_id": "current_card",
         "scope": {"card": "current"},
         "lineage": {"source": "card_comment"},
