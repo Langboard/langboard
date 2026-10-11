@@ -3,8 +3,9 @@ from json import dumps as json_dumps
 from typing import Any, Literal, TypedDict
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.logger import Logger
+from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ProjectActivity, User
+from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ChatSession, ProjectActivity, User
 from langboard_shared.helpers import InfraHelper
 from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
@@ -137,15 +138,37 @@ def collect_chat_history_messages(
     if not chat_session_uid and not chat_history_uid:
         return []
 
+    if variables.get("current_runner_type") != "user":
+        return []
+    token = variables.get("app_api_token")
+    if not isinstance(token, str) or not token:
+        return []
     try:
-        query = SqlBuilder.select.table(ChatHistory, with_deleted=True)
+        payload = AuthSecurity.decode_access_token(token)
+        if payload.get("internal") != "bot":
+            return []
+        actor_id = int(payload["sub"])
+        if not 0 < actor_id <= SnowflakeID.MAX_VALUE:
+            return []
+    except Exception:
+        return []
+
+    try:
+        query = (
+            SqlBuilder.select.table(ChatHistory, with_deleted=True)
+            .join(ChatSession, ChatHistory.column("chat_session_id") == ChatSession.column("id"))
+            .join(User, ChatSession.column("user_id") == User.column("id"))
+            .where(ChatSession.column("user_id") == actor_id)
+            .where(User.column("activated_at").is_not(None))
+            .where(User.column("deleted_at").is_(None))
+        )
         if chat_session_uid:
             query = query.where(ChatHistory.column("chat_session_id") == InfraHelper.convert_id(chat_session_uid))
         if chat_history_uid:
             query = query.where(ChatHistory.column("id") != InfraHelper.convert_id(chat_history_uid))
         query = query.order_by(ChatHistory.column("created_at").desc(), ChatHistory.column("id").desc()).limit(limit)
 
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             records = db.exec(query).all()
     except Exception as exc:
         Logger.main.exception(exc)
