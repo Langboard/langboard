@@ -111,3 +111,36 @@ def ungroup_composition(actor, key, expected_revision):
         db.delete(row)
         db.after_commit(AppSettingPublisher.apps_changed)
         return {"key": key, "ungrouped": True}
+
+
+def disable_board_composition(service, actor, project_uid, key, expected_revision, binding_revisions):
+    """Withdraw all current member grants atomically, retaining durable records."""
+    from ...helpers import InfraHelper
+    from ..models import BoardAppBinding, Project
+    from ..models.ProjectRole import ProjectRoleAction
+    with DbSession.atomic() as db:
+        board = db.exec(SqlBuilder.select.table(Project).where(
+            Project.id == InfraHelper.convert_id(project_uid)).with_for_update()).first()
+        if board is None or service._authorized_app_board(
+            actor, board.id, ProjectRoleAction.Update, lock=True, revocation=True) is None:
+            raise AppRegistryDenied()
+        row = db.exec(SqlBuilder.select.table(AppComposition).where(
+            AppComposition.key == key).with_for_update()).first()
+        if row is None:
+            raise AppRegistryConflict()
+        keys = [member.module_key for member in _members(db, row, lock=True)]
+        if row.response(keys)["revision"] != expected_revision or set(binding_revisions) != set(keys):
+            raise AppRegistryConflict()
+        bindings = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.project_id == board.id, BoardAppBinding.app_key.in_(keys))
+            .order_by(BoardAppBinding.app_key).with_for_update()).all()
+        by_key = {binding.app_key: binding for binding in bindings}
+        for module_key in keys:
+            binding = by_key.get(module_key)
+            revision = binding.edit_revision() if binding else None
+            if binding_revisions[module_key] != revision:
+                raise AppRegistryConflict()
+        for binding in bindings:
+            service._disable_locked_app_binding(db, binding)
+        db.after_commit(AppSettingPublisher.apps_changed)
+        return {"key": key, "disabled": True, "module_keys": keys}

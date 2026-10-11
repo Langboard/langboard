@@ -85,6 +85,28 @@ def get_board_app_compositions(project_uid: str, user: User = Auth.scope("user")
         service.close()
 
 
+@form_model
+class DisableBoardCompositionForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding_revisions: dict[str, str | None] = Field(max_length=16)
+
+
+@AppRouter.api.post("/board/{project_uid}/settings/apps/compositions/{key}/disable", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def disable_board_app_composition(
+    project_uid: str, key: str, form: DisableBoardCompositionForm, user: User = Auth.scope("user")
+) -> JsonResponse:
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.domain.services.AppComposition import disable_board_composition
+    service = DomainService()
+    try:
+        return JsonResponse(content=_run(disable_board_composition, service.workflow_stage, user,
+            project_uid, key, form.expected_revision, form.binding_revisions))
+    finally:
+        service.close()
+
+
 @AppRouter.api.get("/settings/apps/registry", tags=["AppSettings.AppRegistry"])
 @AuthFilter.add("admin")
 def get_app_definitions(user: User = Auth.scope("user")) -> JsonResponse:

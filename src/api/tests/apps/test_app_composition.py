@@ -8,6 +8,7 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppComposition, AppCompositionMember, AppDefinition, BoardAppBinding
 from langboard_shared.domain.services.AppComposition import (
     board_compositions,
+    disable_board_composition,
     list_compositions,
     save_composition,
     ungroup_composition,
@@ -87,6 +88,58 @@ def test_competing_membership_and_invalid_targets_rollback(composition):
     assert list_compositions(actor) == [saved]
 
 
+def test_full_disable_is_atomic_and_revocation_survives_unavailable_definition(composition):
+    service, actor, project = composition[:3]
+    saved = save(actor)
+    with DbSession.use(readonly=False) as db:
+        second = db.exec(
+            SqlBuilder.select.table(AppDefinition)).first()
+        second.is_enabled = False
+        db.update(second)
+        db.insert(BoardAppBinding(project_id=project.id, app_key="independent-panel", state="enabled",
+                                 granted_capabilities=["panels.render"], stage_transitions_enabled=True))
+    snapshot = board_compositions(service, actor, project.get_uid())
+    targets = {app["key"]: app["binding"]["revision"] for app in snapshot["apps"] if app["key"] in saved["module_keys"]}
+    for revisions in ({**targets, "independent-panel": "0" * 64}, {"github": targets["github"]}):
+        with pytest.raises(AppRegistryConflict):
+            disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], revisions)
+        current = board_compositions(service, actor, project.get_uid())
+        assert all(app["binding"]["state"] == "enabled" for app in current["apps"] if app["key"] in targets)
+    result = disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], targets)
+    assert result["disabled"] and result["module_keys"] == saved["module_keys"]
+    current = board_compositions(service, actor, project.get_uid())
+    updated = {app["key"]: app["binding"]["revision"] for app in current["apps"] if app["key"] in targets}
+    assert all(app["binding"]["state"] == "disabled" and app["binding"]["granted_capabilities"] == []
+               and not app["binding"]["stage_transitions_enabled"] for app in current["apps"] if app["key"] in targets)
+    assert disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], updated) == result
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(BoardAppBinding)).all()) == 2
+        assert db.exec(SqlBuilder.select.table(AppDefinition)).first().is_enabled is False
+        actor.is_admin = False
+        db.update(actor)
+        db.delete(composition[3])
+    with pytest.raises(AppRegistryDenied):
+        disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], updated)
+
+
+def test_full_disable_rejects_new_binding_or_changed_membership(composition):
+    service, actor, project = composition[:3]
+    saved = save(actor)
+    snapshot = board_compositions(service, actor, project.get_uid())
+    targets = {app["key"]: app["binding"]["revision"] if app["binding"] else None
+               for app in snapshot["apps"] if app["key"] in saved["module_keys"]}
+    with DbSession.use(readonly=False) as db:
+        db.insert(BoardAppBinding(project_id=project.id, app_key="independent-panel", state="enabled",
+                                 granted_capabilities=["panels.render"]))
+    with pytest.raises(AppRegistryConflict):
+        disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], targets)
+    changed = save(actor, module_keys=["github"], expected_revision=saved["revision"])
+    with pytest.raises(AppRegistryConflict):
+        disable_board_composition(service, actor, project.get_uid(), saved["key"], saved["revision"], targets)
+    assert disable_board_composition(service, actor, project.get_uid(), saved["key"], changed["revision"],
+                                     {"github": targets["github"]})["disabled"]
+
+
 def test_current_admin_and_board_read_authority_are_required(composition):
     actor = composition[1]
     saved = save(actor)
@@ -149,6 +202,15 @@ def test_authenticated_http_composition_management_and_old_catalog(composition, 
         assert grouped.json()["compositions"][0]["module_keys"] == payload["module_keys"]
         assert client.post(path + "/review-tools/ungroup", headers=headers,
                            json={"expected_revision": "0" * 64}).status_code == 409
+        targets = {app["key"]: app["binding"]["revision"] if app["binding"] else None
+                   for app in before["apps"] if app["key"] in payload["module_keys"]}
+        disable_path = board_path + "/compositions/review-tools/disable"
+        assert client.post(disable_path, headers=headers, json={"expected_revision": revision,
+            "binding_revisions": {**targets, "github": "0" * 64}}).status_code == 409
+        assert client.get(board_path, headers=headers).json() == before
+        disabled = client.post(disable_path, headers=headers, json={"expected_revision": revision,
+            "binding_revisions": targets})
+        assert disabled.status_code == 200 and disabled.json()["disabled"]
         with DbSession.use(readonly=False) as db:
             board[1].is_admin = False
             db.update(board[1])

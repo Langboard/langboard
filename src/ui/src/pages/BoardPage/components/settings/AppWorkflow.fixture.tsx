@@ -70,6 +70,10 @@ api.defaults.adapter = async (config) => {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
         throw new Error("outcome unknown");
     }
+    if (config.url?.includes("/compositions/") && config.url.endsWith("/disable") && new URLSearchParams(location.search).has("groupdisablefail")) {
+        writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
+        throw new Error("Group revision changed");
+    }
     if (config.method === "put" || config.method === "post") {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
         if (!config.url?.endsWith("/workflow")) repaired = true;

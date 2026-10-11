@@ -62,3 +62,16 @@ original board GET aborted. No details request was dispatched on that load.
 Do not treat a successful OPTIONS response as success of its original GET.
 The board settings source now renders an explicit failed-load retry, but its
 canary recovery remains unverified until deployment.
+
+
+## Later authenticated settings readback
+
+A subsequent in-app browser reload returned HTTP 200 for the original
+`/auth/refresh`, `/auth/me`, `/board/2RRwwB5JNm0`, `/details`, `/columns` and
+`/column/dock` requests. The full settings screen rendered and its GlitchTip
+connection selector showed only the new-connection option. The deployed screen
+still used the old combined settings layout and UI asset `index-CHcBG7Il.js`.
+This is one successful reload after prior failed loads, not proof that intermittent
+cancellation is fixed or that the new Store/settings commits are deployed.
+The central Langboard project view still showed only the earlier isolated SDK
+acceptance issue with one event; actual canary event-to-board acceptance remains open.

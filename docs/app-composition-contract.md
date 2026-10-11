@@ -1,7 +1,7 @@
 # Logical apps and independently authorized modules
 
 Status: host persistence, HTTP discovery and board Store grouping implemented
-and locally verified. The administrator composition editor is implemented and locally verified. Full-composition disable and deployed migration/browser acceptance remain open.
+and locally verified. The administrator composition editor is implemented and locally verified. Full-composition disable is implemented with atomic revision checks. Deployed migration/browser acceptance remains open.
 
 ## Board Store and app management
 
@@ -185,3 +185,26 @@ full-group disable operation. Local desktop/mobile browser tests cover exact
 create/update payloads, confirmed ungrouping, conflict draft retention and
 non-admin exclusion. Native authenticated HTTP tests separately verify current
 administrator authority and preservation of flat module discovery.
+
+
+### Board group withdrawal
+
+`POST /board/{project_uid}/settings/apps/compositions/{key}/disable` accepts
+`expected_revision` for the composition and `binding_revisions` keyed by every
+exact member. An unconfigured member uses `null`; the server does not create a
+binding for it. All current binding revisions must match before any grants are
+changed. This board-scoped operation reuses module withdrawal semantics and
+requires current board update/revocation authority. It does not disable global
+app definitions or delete connections, resources, signals or cards.
+
+The Store lists affected module keys before confirmation. A failed write or
+readback blocks another group write until an explicit successful snapshot reload.
+There is no group-level automatic re-enable: modules keep their own consent gates.
+
+
+Local withdrawal acceptance: 14 native SQLite/PostgreSQL, authenticated HTTP and
+migration cases passed. The Store/workflow browser suite passed all 41 cases,
+including full group confirmation at 1440px/390px and failed-write reload gating.
+TypeScript type checking, changed production UI lint, Ruff and diff checks passed.
+These local results do not establish deployed composition migration or provider
+integration acceptance.
