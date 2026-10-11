@@ -88,6 +88,17 @@ provider-code execution hook. Provider verbs and credentials stay in each app.
 
 ## Current implementation evidence
 
+Native archive entry now records an `AppCardArchive` receipt in the same
+transaction as movement, including its card revision, owner, declaration,
+selection and immutable import source. Reordering within Archive retains the
+original archive time and does not create another operation. Restoring and
+archiving again creates a separate receipt. A persistence failure rolls back
+movement; stored history prevents destructive schema downgrade. The receipt
+records `retained` when the declared policy retains state or external sync is
+disabled, and `blocked` for missing or ambiguous lifecycle provenance. This
+stage does not enable external sync, create delivery events, or expose receipts
+in the archive UI. Those release requirements remain pending.
+
 The independent Example Monitor artifacts exercise signed signal ingestion,
 native Inbox card creation and native app-owned human interactions in one test
 process on SQLite and PostgreSQL. Artifact SHA-256 and imported module paths

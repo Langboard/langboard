@@ -13,11 +13,13 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Card,
+    CardAppOwnership,
     Checkitem,
     CheckitemTimerRecord,
     Checklist,
     Project,
     ProjectColumn,
+    User,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -66,7 +68,7 @@ def flow(monkeypatch, request):
             connection.execute(text("INSERT INTO project VALUES (1)"))
             connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
             connection.execute(text('INSERT INTO "user" VALUES (1)'))
-    for model in (WorkflowStageDefinition, ProjectColumn, Card, Checklist, Checkitem, CheckitemTimerRecord):
+    for model in (WorkflowStageDefinition, ProjectColumn, Card, CardAppOwnership, Checklist, Checkitem, CheckitemTimerRecord):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -133,6 +135,7 @@ def flow(monkeypatch, request):
         service=service,
         bulk=get(CheckitemService),
         project=project,
+        actor=User(id=1, firstname="Test", lastname="Actor", email="actor@example.invalid", password="test-only", activated_at=SafeDateTime.now()),
         card=card,
         old=old,
         new=new,
@@ -164,7 +167,7 @@ def snapshot(engine, card_id):
 
 def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):
     f = flow
-    assert f.service.change_order(None, f.project, f.card, 0, f.new) is True
+    assert f.service.change_order(f.actor, f.project, f.card, 0, f.new) is True
     column, items, timers = snapshot(f.engine, f.card.id)
     assert column == f.new.id and timers == 4
     assert all(row[1] for row in items[:4])
@@ -174,10 +177,10 @@ def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):
     f.summary.assert_called_once()
     assert len(f.summary.call_args.args[2]) == 3
     assert f.notifications[0] == (column, items, timers)
-    assert f.service.change_order(None, f.project, f.card, 0, f.same) is True
+    assert f.service.change_order(f.actor, f.project, f.card, 0, f.same) is True
     assert snapshot(f.engine, f.card.id)[2] == 4
     f.summary.assert_called_once()
-    assert f.bulk.complete_unchecked_by_card(None, f.project, f.card) == {"completed": 0, "stopped": 0}
+    assert f.bulk.complete_unchecked_by_card(f.actor, f.project, f.card) == {"completed": 0, "stopped": 0}
     f.summary.assert_called_once()
 
 
@@ -187,7 +190,7 @@ def test_stop_only_keeps_unchecked_and_inactive_definition_applies(flow):
         f.stage.entry_effects = ["stop_running_timers"]
         f.stage.is_active = False
         db.update(f.stage)
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     _, items, timers = snapshot(f.engine, f.card.id)
     assert timers == 4 and not items[0][1] and not items[1][1] and not items[2][1]
     f.summary.assert_called_once()
@@ -195,9 +198,9 @@ def test_stop_only_keeps_unchecked_and_inactive_definition_applies(flow):
 
 def test_archive_and_reorder_do_not_apply_entry_effects(flow):
     f = flow
-    f.service.change_order(None, f.project, f.card, 0, None)
+    f.service.change_order(f.actor, f.project, f.card, 0, None)
     assert snapshot(f.engine, f.card.id)[2] == 2
-    f.service.change_order(None, f.project, f.card, 0, f.archive)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.archive)
     assert snapshot(f.engine, f.card.id)[2] == 2
     f.summary.assert_not_called()
 
@@ -208,7 +211,7 @@ def test_missing_timer_fact_rolls_back_movement_and_every_item(flow):
         db.execute(CheckitemTimerRecord.__table__.delete())
     before = snapshot(f.engine, f.card.id)
     with pytest.raises(ValueError, match="matching timer fact"):
-        f.service.change_order(None, f.project, f.card, 0, f.new)
+        f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     assert snapshot(f.engine, f.card.id) == before
     f.summary.assert_not_called()
     assert f.notifications == []
@@ -219,7 +222,7 @@ def test_outer_rollback_suppresses_summary_and_movement_notifications(flow):
     before = snapshot(f.engine, f.card.id)
     with pytest.raises(RuntimeError, match="rollback"):
         with DbSession.atomic():
-            f.service.change_order(None, f.project, f.card, 0, f.new)
+            f.service.change_order(f.actor, f.project, f.card, 0, f.new)
             f.summary.assert_not_called()
             assert f.notifications == []
             raise RuntimeError("rollback")
@@ -234,7 +237,7 @@ def test_same_stage_does_not_complete_new_unchecked_item(flow):
         f.old.workflow_stage = "released"
         db.update(f.old)
     before = snapshot(f.engine, f.card.id)
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     assert snapshot(f.engine, f.card.id)[1:] == before[1:]
     f.summary.assert_not_called()
 
@@ -246,7 +249,7 @@ def test_deleted_and_cardified_running_items_are_preserved(flow):
         f.items[1].deleted_at = SafeDateTime.now()
         db.update(f.items[0])
         db.update(f.items[1])
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     _, items, timers = snapshot(f.engine, f.card.id)
     assert timers == 2
     assert items[0][2] == CheckitemStatus.Started and not items[0][1]
@@ -257,7 +260,7 @@ def test_deleted_and_cardified_running_items_are_preserved(flow):
 
 def test_retry_same_column_does_not_complete_new_unchecked_item(flow):
     f = flow
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     with DbSession.atomic() as db:
         # The fixture's detached item predates the first transition.
         item = db.exec(SqlBuilder.select.table(Checkitem).where(Checkitem.column("id") == f.items[2].id)).first()
@@ -265,7 +268,7 @@ def test_retry_same_column_does_not_complete_new_unchecked_item(flow):
         item.is_checked = False
         db.update(item)
     assert snapshot(f.engine, f.card.id)[1][2][1] is False
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     assert snapshot(f.engine, f.card.id)[1][2][1] is False
     f.summary.assert_called_once()
 
@@ -276,7 +279,7 @@ def test_system_completion_checkbox_is_kept_in_sync(flow):
         checklist = Checklist(card_id=f.card.id, title="", is_system=True)
         db.insert(checklist)
         db.insert(Checkitem(checklist_id=checklist.id, title="QA"))
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     with f.engine.connect() as db:
         assert (
             db.execute(
@@ -295,7 +298,7 @@ def test_large_checklist_emits_one_summary_and_batches_timer_reads(flow):
     queries = []
     f.service.notify_order_changed = lambda *_: None
     event.listen(f.engine, "before_cursor_execute", lambda _c, _cursor, statement, *_: queries.append(statement))
-    f.service.change_order(None, f.project, f.card, 0, f.new)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     f.summary.assert_called_once()
     assert len(f.summary.call_args.args[2]) == 1003
     timer_reads = [

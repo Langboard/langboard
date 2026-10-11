@@ -13,6 +13,7 @@ on:
       - src/api/langboard/routes/board/BoardSettingApi.py
       - src/shared/py/langboard_shared/domain/services/App*.py
       - src/shared/py/langboard_shared/domain/services/CardApp*.py
+      - src/shared/py/langboard_shared/domain/services/factory/CardService.py
       - src/shared/py/langboard_shared/tasks/webhooks/AppEvent*.py
       - src/shared/py/langboard_shared/tasks/webhooks/WebhookTask.py
       - src/shared/py/langboard_shared/tasks/webhooks/utils.py
@@ -75,6 +76,7 @@ jobs:
           src/api/tests/apps/test_signal_inbox.py::test_registered_external_signal_policy_drives_inbox_and_card_evidence
           src/api/tests/apps/test_app_card_interactions.py
           src/api/tests/apps/test_app_card_creation.py
+          src/api/tests/apps/test_app_card_archive_migration.py
           src/api/tests/apps/test_card_app_ownership.py
           src/api/tests/apps/test_connection_ownership_revision.py
           src/api/tests/apps/test_app_event_destination.py
