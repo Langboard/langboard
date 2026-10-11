@@ -1,6 +1,13 @@
 # Independently versioned SDK consumption
 
-The current host snapshot consumes Python SDK 0.2.29, adding user-authorized
+Python SDK 0.2.31 adds `AppExecution.request_review`, an explicit execution-result
+transition to the mapped built-in Review column under current owning-app consent.
+The host requires retained start/stopped reports, current generation and native
+card/binding revisions; it retains an immutable replay receipt. The independently
+built wheel is exercised over native PostgreSQL HTTP. It does not approve work,
+move to Done/Archive, retry automatically or establish deployed acceptance.
+
+SDK 0.2.29 added user-authorized
 `AppManager.set_archive_sync` and connection-authenticated
 `AppCards.report_archive_outcome` plus `AppCards.read_archive_outcome` for ambiguous report reconciliation. The PostgreSQL public HTTP archive tests
 exercise the installed wheel through `HttpTransport`, including explicit consent,

@@ -627,3 +627,31 @@ permit, and app start attestation. Replay retains one event and the old lease
 remains stopped. Readiness generation advancement and queue submission are
 controlled test inputs; this does not prove a deployed producer, broker, provider
 process or checkpoint restoration.
+
+## App execution result to native Review
+
+SDK 0.2.31 provides `AppExecution.request_review` over
+`POST /apps/v1/boards/{board}/cards/{card}/execution-requests/{request}/review`.
+The caller supplies the producer generation, current card revision, current
+binding revision and a bounded result reference. App-owned card reads now also
+return `execution_generation`. Keep the original write inputs for an ambiguous
+retry; the SDK does not retry automatically.
+
+This explicit result action requires current owning-app `execution.run` consent,
+organization/connection policy, native card access, unchanged ownership and
+selected-resource revisions, the matching current generation, an app start
+attestation, and a retained stopped lease. The stopped permit supplies termination
+evidence only. Review must be declared in the app's workflow requirements and
+explicitly mapped with stage transitions enabled to an active built-in Review
+stage that does not count as completed. Done, Archive and app-invented stages are
+not targets of this action; human acceptance remains separate.
+
+Native `CardService.change_order` and its readiness UoW perform movement. Movement
+and an immutable request-keyed receipt commit together. Current authority is
+rechecked before returning a duplicate receipt; a changed request fingerprint or
+mapping conflicts. A result reference remains app attestation, not verified PR
+or business acceptance. PostgreSQL HTTP coverage includes native-policy rollback,
+four concurrent requests with one movement, current consent/revision/generation
+denial, retained replay through the built SDK wheel and downgrade refusal with
+history. Actual provider result readback and deployed canary acceptance remain
+pending.
