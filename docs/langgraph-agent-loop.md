@@ -191,3 +191,18 @@ own/foreign card and missing-board inputs; six negative cases fail before the
 guard, and all twelve cases pass after it. The full suite reaches sixty-four tests in 23.55 seconds.
 The activity fixture uses current primary rows; it does not claim the broader
 card visibility policy is complete.
+
+## Card comment visibility
+
+Card comment history now validates the signed user token and delegates current
+board/card access to `CardService.resolve_readable_card` before fetching
+comments from the primary database. The graph is an API automation channel,
+not an MCP UI channel; `CollaborationChannel.Api` therefore excludes private
+cards even for the owner. Eight cases run against SQLite and PostgreSQL:
+shared/internal cards, private owner/other, wrong board, nonmember, deleted
+user and bot runner. The combined eighty tests pass in 42.41 seconds. These
+fixtures exercise the actual service and repository policies without overriding
+membership resolution. Bots fail closed until a server-verified execution
+identity is integrated; this pending contract is not inferred from raw runner
+metadata. Activity-history visibility and full credential/runtime migration
+still need independent completion evidence.
