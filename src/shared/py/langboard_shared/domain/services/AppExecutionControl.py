@@ -80,9 +80,12 @@ def list_human_card_runtimes(service, actor, project_id, card_id, channel=None, 
         )).all()
         by_request = {lease.request_id: lease for lease in leases}
         from .ExecutionGeneration import execution_generations
-        current_generation = execution_generations([card_id]).get(card_id, 0)
         resumes = {lease.request_id: next((entry.get("request_uid") for entry in lease.history
-                   if entry.get("action") == "resume_requested"), None) for lease in leases}
+                   if entry.get("action") in ("resume_requested", "new_run_requested")), None) for lease in leases}
+        from ...core.db.DbEngine import DbEngine
+        from ...tasks.webhooks.ExecutionReadinessUow import current_execution
+        observed = current_execution(card_id, db) if DbEngine.get_main_engine().dialect.name == "postgresql" else None
+        current_generation = observed.generation if observed else execution_generations([card_id]).get(card_id, 0)
         return {"items": [{
             "request_uid": request.get_uid(), "app_key": request.app_key,
             "generation": request.generation,
@@ -90,7 +93,12 @@ def list_human_card_runtimes(service, actor, project_id, card_id, channel=None, 
             "expires_at": runtime_timestamp(by_request[request.id].expires_at) if request.id in by_request else None,
             "evidence_kind": "runtime_authorization",
             "current_generation": current_generation,
+            "current_card_revision": observed.revision.isoformat() if observed else None,
+            "new_run_available": bool(observed and observed.is_ready and request.generation == observed.generation
+                and request.id in by_request and by_request[request.id].state == "stopped" and not resumes.get(request.id)),
             "resume_request_uid": resumes.get(request.id),
+            "followup_action": next((entry.get("action") for entry in by_request[request.id].history
+                if entry.get("action") in ("resume_requested", "new_run_requested")), None) if request.id in by_request else None,
         } for request in requests], "limit": 10, "next_cursor": next_cursor}
 
 
@@ -130,6 +138,9 @@ def request_human_runtime_resume(service, actor, project_id, card_id, request_id
     with DbSession.atomic() as db:
         producer = None
         if new_run:
+            from ...core.db.DbEngine import DbEngine
+            if DbEngine.get_main_engine().dialect.name != "postgresql":
+                raise AppExecutionRequestConflict()
             from ...tasks.webhooks.ExecutionReadinessUow import ExecutionReadinessUow
             producer = ExecutionReadinessUow(db)
             # Same producer lock before native card/lease locks.

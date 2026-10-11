@@ -1,5 +1,6 @@
 """Generic read bridge for independently registered app panels; no provider credentials."""
 
+from datetime import datetime
 from fastapi import Request
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.filter import AuthFilter
@@ -161,6 +162,8 @@ class PanelRuntimesForm(PanelResourcesForm):
 
 class PanelRuntimeControlForm(PanelResourcesForm):
     generation: int = Field(strict=True, ge=1)
+    expected_generation: int | None = Field(default=None, strict=True, ge=1)
+    expected_revision: datetime | None = None
     cursor: None = None
 
 
@@ -198,15 +201,26 @@ def control_panel_runtime(request: Request, project_uid: str, app_key: str, card
         request_human_runtime_stop,
     )
     from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
-    if action not in ("stop", "resume"):
+    if action not in ("stop", "resume", "new"):
         raise ApiException.NotFound_404()
-    with DbSession.atomic():
+    if (action == "new") != (form.expected_generation is not None and form.expected_revision is not None):
+        raise ApiException.BadRequest_400()
+    if action != "new" and (form.expected_generation is not None or form.expected_revision is not None):
+        raise ApiException.BadRequest_400()
+    with DbSession.atomic() as db:
+        if action == "new":
+            from langboard_shared.core.db.DbEngine import DbEngine
+            from langboard_shared.tasks.webhooks.ExecutionReadinessUow import ExecutionReadinessUow
+            if DbEngine.get_main_engine().dialect.name != "postgresql":
+                raise ApiException.Conflict_409()
+            ExecutionReadinessUow(db).watch([SnowflakeID.from_short_code(card_uid)])
         _runtime_panel(service, user, project_uid, app_key, form)
         operation = request_human_runtime_stop if action == "stop" else request_human_runtime_resume
         try:
             result = operation(service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
                 SnowflakeID.from_short_code(request_uid), form.generation,
-                request.scope.get("collaboration_channel", CollaborationChannel.Api), app_key=app_key)
+                request.scope.get("collaboration_channel", CollaborationChannel.Api), app_key=app_key,
+                **({"new_run": True, "expected_generation": form.expected_generation, "expected_revision": form.expected_revision} if action == "new" else {}))
         except AppGovernanceDenied:
             raise ApiException.NotFound_404() from None
         except AppExecutionRequestConflict:
