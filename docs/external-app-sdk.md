@@ -1228,3 +1228,19 @@ a cursor for a deselected resource is rejected. External provider HTTP remains a
 fixture; GlitchTip observation storage is seeded, not fetched from a live provider.
 This does not establish live deployment acceptance. The shared secret fixture now reuses the actual Organization table
 instead of rebuilding columns from the former placeholder.
+
+
+### Board consent draft for apps without workflow requirements
+
+`POST /board/{board_uid}/settings/apps/{app_key}/consent` accepts only the
+current approved `app_revision`. Current board update authority is required.
+It creates or returns a disabled board binding with no capabilities and no
+workflow transitions. This supports apps that declare no workflow requirements;
+preparing a workflow mapping is not required to obtain a consent draft.
+Repeating preparation returns the existing binding without resetting its grants.
+Use the returned binding UID/revision in the existing PUT consent endpoint for
+explicit grants. A stale app revision returns 409. Preparation grants neither
+resource access nor signal publication. Local HTTP/PostgreSQL tests exercise
+this sequence through native user authentication, followed by resource selection,
+signed publication and explicit native card creation. Independently packaged app
+installation and deployed acceptance remain separate gates.

@@ -91,3 +91,24 @@ def save_board_app_consent(
         return JsonResponse(content=result)
     finally:
         service.close()
+
+
+@form_model
+class PrepareBoardAppConsentForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    app_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@AppRouter.api.post("/board/{project_uid}/settings/apps/{app_key}/consent", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def prepare_board_app_consent(
+    project_uid: str, app_key: str, form: PrepareBoardAppConsentForm, user: User = Auth.scope("user")
+) -> JsonResponse:
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.domain.services.AppRegistry import prepare_board_consent
+    service = DomainService()
+    try:
+        return JsonResponse(content=_run(
+            prepare_board_consent, service.workflow_stage, user, project_uid, app_key, form.app_revision))
+    finally:
+        service.close()

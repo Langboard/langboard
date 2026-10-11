@@ -146,6 +146,31 @@ def approved_manifests(*, retained_keys=()):
                 version=item["version"], description=item["description"], panel=item.get("panel"), signal_policy=policy)
     return result
 
+def prepare_board_consent(service, actor, project_uid, app_key, app_revision):
+    """Create a disabled binding without granting capabilities or workflow effects."""
+    from ..models.ProjectRole import ProjectRoleAction
+    with DbSession.atomic() as db:
+        board = service._authorized_app_board(actor, project_uid, ProjectRoleAction.Update, lock=True)
+        if board is None:
+            raise AppRegistryDenied()
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(
+            AppDefinition.key == app_key).with_for_update()).first()
+        if definition is None or not definition.is_enabled:
+            raise AppRegistryDenied()
+        if definition.edit_revision() != app_revision:
+            raise AppRegistryConflict()
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.project_id == board.id, BoardAppBinding.app_key == app_key,
+        ).with_for_update()).first()
+        if binding is None:
+            binding = BoardAppBinding(project_id=board.id, app_key=app_key)
+            db.insert(binding)
+            db.after_commit(AppSettingPublisher.apps_changed)
+        return {"uid": binding.get_uid(), "state": binding.state,
+                "revision": binding.edit_revision(), "granted_capabilities": binding.granted_capabilities,
+                "stage_transitions_enabled": binding.stage_transitions_enabled}
+
+
 def set_board_consent(service, actor, project_uid, app_key, app_revision, binding_uid, expected_revision, capabilities):
     """Explicitly replace an external app's board grants; never infer them from its declaration."""
     from ...helpers import InfraHelper
