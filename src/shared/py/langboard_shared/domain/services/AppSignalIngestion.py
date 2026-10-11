@@ -45,6 +45,10 @@ def receive_external_signal(service, token, project_uid, body, headers):
         if (not isinstance(envelope, dict) or set(envelope) != fields or type(envelope["version"]) is not int
             or envelope["version"] != 1 or envelope["board_uid"] != project_uid):
             raise ValueError("Invalid signal envelope scope/schema")
+        for field, pattern in (("board_uid", r"[A-Za-z0-9]{11}"), ("resource_uid", r"[A-Za-z0-9]{11}"),
+                               ("app_revision", r"[0-9a-f]{64}"), ("binding_revision", r"[0-9a-f]{64}")):
+            if not isinstance(envelope[field], str) or not re.fullmatch(pattern, envelope[field]):
+                raise ValueError("Invalid signal identity/revision")
         for field, maximum in (("event_id", 128), ("external_id", 200), ("event_type", 64), ("outcome", 64), ("occurred_at", 40)):
             value = envelope[field]
             if not isinstance(value, str) or not value.strip() or len(value) > maximum:

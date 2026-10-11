@@ -1134,6 +1134,13 @@ triage an inbox or transition workflow. Independent
 app onboarding and two-board/two-resource acceptance remain unfinished. Existing
 HITL wire bodies are unchanged.
 
+Native ingress tests include ApiAuthMiddleware, two selected resources with the
+same event ID (separate signal receipts), resource/publication grant withdrawal,
+credential revocation and malformed identity/revision fields. Invalid types are
+rejected before identifier conversion. These are local HTTP/database tests;
+independent app onboarding, cross-board acceptance and deployed runtime remain
+separate requirements.
+
 The remaining generic contract must keep normalization in the external app and
 validate an approved finite event/resource/outcome policy, a versioned signed
 envelope, current connection/resource/board authority and replay identity at the
