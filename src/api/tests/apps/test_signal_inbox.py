@@ -27,6 +27,7 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     import hmac
     import json
     import time
+    import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
     import langboard.routes.settings.AppInboundConnectionApi as inbound_api
     import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
     import langboard.routes.settings.AppSignalApi as signal_api
@@ -45,13 +46,11 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
         ProjectAssignedUser,
     )
     from langboard_shared.domain.services.AppConnectionAuthentication import (
-        issue_connection_credential,
         revoke_connection_credential,
     )
     from langboard_shared.domain.services.AppConnectionManagement import (
         list_inbound_resources,
     )
-    from langboard_shared.domain.services.AppRegistry import save_definition
     from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
     from langboard_shared.publishers import CardPublisher
 
@@ -61,15 +60,9 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     actor = state[1][1]
     AppConnectionCredential.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     monkeypatch.setattr(CardPublisher, "app_signal_changed", lambda _: None)
-    policy = {"version": 1, "event_types": ["issue.observed"], "resource_types": ["issue"],
-              "outcome_states": {"open": "failed", "closed": "resolved"},
-              "commit_mode": "empty", "time_basis": "observation"}
     with DbSession.atomic() as db:
         actor.is_admin = True
         db.update(actor)
-    saved = save_definition(actor, {"schema_version": 2, "key": "example-monitor", "version": "1.0.0",
-        "name": "Example Monitor", "description": "Independent issue observations.",
-        "capabilities": ["signals.read", "signals.publish"], "resource_types": ["issue"], "signal_sources": ["example-monitor"], "signal_policy": policy})
     import importlib
     from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
     from langboard_shared.core.security import AuthSecurity
@@ -83,34 +76,41 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     app.include_router(AppRouter.api)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
     client = TestClient(app, base_url="https://testserver")
+    import asyncio
+    from types import SimpleNamespace
+    from langboard_sdk import HttpTransport
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+    user_headers = {"Authorization": "Bearer " + access}
+    async def sdk_management_request(method, path, **kwargs):
+        return client.request(method, path, headers=user_headers, **kwargs)
+    monitor = Monitor(HttpTransport(SimpleNamespace(request=sdk_management_request)))
+    saved = asyncio.run(monitor.register())
     management_url = "/settings/apps/registry/example-monitor/inbound-connections"
     form = {"app_revision": saved["revision"],
             "organization_uid": state[1][2].organization_id.to_short_code()}
     assert client.post(management_url, json=form).status_code == 401
-    access, refresh = AuthSecurity.authenticate(actor.id)
-    client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
-    user_headers = {"Authorization": "Bearer " + access}
     assert client.post(management_url, json={**form, "app_revision": "0" * 64}, headers=user_headers).status_code == 409
-    registered = client.post(management_url, json=form, headers=user_headers)
-    assert registered.status_code == 200, registered.text
-    inbound = registered.json()
+    inbound = asyncio.run(monitor.connect(saved["revision"], form["organization_uid"]))
+    accepted_first = asyncio.run(monitor.consent(state[1][2].get_uid(), saved["revision"]))
+    selected_first = asyncio.run(monitor.select(state[1][2].get_uid(), inbound["connection_uid"],
+        saved["revision"], accepted_first, "first-issue"))
     from langboard_shared.core.types import SnowflakeID
     with DbSession.atomic() as db:
         state[2] = db.exec(SqlBuilder.select.table(AppConnection).where(
             AppConnection.id == SnowflakeID.from_short_code(inbound["connection_uid"]),
         )).first()
         assert state[2].credential_reference is None
-        state[4].connection_id = state[2].id
-        state[3].app_key = "example-monitor"
-        state[3].state = "enabled"
-        state[3].granted_capabilities = ["signals.read", "signals.publish"]
-        state[4].resource_type = "issue"
+        state[3] = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.id == SnowflakeID.from_short_code(accepted_first["uid"]))).first()
+        state[4] = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
+            AppResourceBinding.id == SnowflakeID.from_short_code(selected_first["resource_uid"]))).first()
+        link.resource_id = state[4].id
         link.commit_sha = ""
         link.is_enabled = False
-        for row in (state[2], state[3], state[4], link):
-            db.update(row)
+        db.update(link)
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-monitor")).first()
-    issued = issue_connection_credential(actor, state[2].id)
+    issued = asyncio.run(monitor.credential(state[2].get_uid()))
     token = issued["token"]
     envelope = {"version": 1, "board_uid": state[1][2].get_uid(), "resource_uid": state[4].get_uid(),
         "app_revision": definition.edit_revision(), "binding_revision": state[3].edit_revision(),
@@ -195,8 +195,6 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     consent_url = f"/board/{other_board.get_uid()}/settings/apps/example-monitor/consent"
     assert client.post(consent_url, json={"app_revision": "0" * 64}, headers=user_headers).status_code == 409
     from langboard_sdk import AppManager
-    async def sdk_management_request(method, path, **kwargs):
-        return client.request(method, path, headers=user_headers, **kwargs)
     manager = AppManager(HttpTransport(SimpleNamespace(request=sdk_management_request)), other_board.get_uid())
     draft = asyncio.run(manager.prepare_consent("example-monitor", definition.edit_revision()))
     assert draft["state"] == "disabled" and draft["granted_capabilities"] == []
