@@ -11,7 +11,7 @@ from this table. Update it when an artifact, declaration or migration changes.
 | Host API integration source | `878541385a6779591224acd7f75344267a042d54` | Public app creation to independent HITL exercised on PostgreSQL; not a deployed image |
 | API migration head | `d3c6fd51a7e9`, parent `c2b5ec40f6d8` | One Alembic head; archive sync defaults disabled, and archive/response history is durable. Active sync and stored history protect downgrade boundaries |
 | Python SDK | `0.2.27`, source `05440591f1b3d03b9d4037f0b38d67a336012bc6` | Reviewed wheel, both host Python projects pinned; `scripts/sdk/verify_python_artifact.py` passes. Includes archive outcomes/reads and renewed signal consent on resource type changes |
-| Host panel SDK | `@langboard/app-panel@0.2.2`, source `2ad4ea3c5277393e52c5f5d3b1b8b6c59006ceed` | Vendored tarball and UI lockfile. Message protocol remains v1 |
+| Host panel SDK | `@langboard/app-panel@0.2.3`, source `f4477be` | Vendored tarball and UI lockfile. Message protocol remains v1 |
 | Example Monitor | package `0.1.1`, source `5d4d312b2c8e709cfc455d0cfb65eafa47a8a832` | SDK `0.2.23`; baseline declaration schema 2, app version `1.0.0`, signals only. HITL/card creation require a separately approved definition and consent |
 
 Exact reviewed artifact digests:
@@ -106,3 +106,7 @@ or product release workflow remains an explicit delivery blocker.
 The installed SDK 0.2.26 archive API subset passed 13 PostgreSQL cases, including receipt reads after unknown and applied reports and rejection after consent withdrawal. The full 117/25 gate above records the preceding 0.2.25 run; it has not been rerun for 0.2.26.
 
 Installed SDK 0.2.27 panel signal scope subset: 14 authenticated HTTP cases on SQLite/PostgreSQL, including resource-type filtering, scoped cursor rejection and renewed consent on resource scope expansion. SDK standalone: 82 tests. Artifact verifier: 7 tests. Earlier full-gate results remain historical until rerun.
+
+Panel SDK 0.2.3 shares source-scoped pager lifetime management. Standalone panel SDK: 20 tests. GlitchTip: 18 tests; Dokploy: 14 tests, both consuming the reviewed 0.2.3 tarball. These are local contract checks, not deployed browser or provider readback.
+
+Host SDK artifact was installed in an isolated offline Yarn project and matched reviewed inbox source bytes. Full host offline install was blocked by an existing axios@^1.20.0 cache miss; no full UI build success is claimed for this change.
