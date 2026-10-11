@@ -258,6 +258,11 @@ class CardCommentService(BaseDomainService):
 
         reaction_service = self._get_service(ReactionService)
         is_reacted = reaction_service.toggle(user_or_bot, CardCommentReaction, comment.id, reaction)
+        if is_reacted and isinstance(user_or_bot, User):
+            from ..AppCardInteractions import accept_current_comment_reaction
+            from ..DomainService import DomainService
+
+            accept_current_comment_reaction(DomainService(), user_or_bot, project.id, card.id, comment.id, reaction)
 
         CardCommentPublisher.reacted(user_or_bot, project, card, comment, reaction, is_reacted)
 

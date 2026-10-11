@@ -303,3 +303,28 @@ SQLite and PostgreSQL storage tests capture one enqueue after four duplicate
 responses and verify recovery excludes delivered/unpinned events and selects a
 pending pinned event. Queue publishing and the recovery HTTP function are stubbed
 in this test to avoid external sends. That test is not production dispatch proof.
+
+## Native comment reaction responses
+
+A newly added native user comment reaction can satisfy exactly one pending
+interaction mapped to that comment and reaction. The host loads the real
+`CardCommentReaction` row, verifies its user identity, comment/card provenance,
+creation after the request, current responder/app authority and stable mapped
+choice. The response idempotency key retains the reaction UID. Bots, old reactions,
+unmapped reactions, seen events and other comments cannot answer. Ordinary
+comments without a pending interaction take the bounded lookup path without
+locking the project/card for an approval check.
+
+General response submission cannot impersonate a reaction. Accepted responses
+remain immutable when a reaction is removed or re-added, and do not replay an
+outbox event. A comment cannot have two unexpired pending reaction requests;
+creation rejects the ambiguity. Answered/cancelled/expired requests do not block
+an explicit follow-up request. An old reaction cannot answer that follow-up.
+Delivery revalidates the retained authorized response; later reaction removal is
+not a revocation of an already accepted decision.
+
+The native toggle/store/response path is tested on SQLite and disposable
+PostgreSQL, with publisher/activity/bot notifications suppressed in the test.
+These tests include old reaction rejection, remove/add acceptance, direct API
+bypass denial, repeat stability, follow-up freshness and signed outbox claim.
+Production UI guidance and observed external continuation remain pending.
