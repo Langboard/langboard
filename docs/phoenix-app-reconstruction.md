@@ -567,3 +567,18 @@ replacement preserving existing edges, contains/reference reverse links,
 rollback publication suppression, and two concurrent reverse prerequisite writes
 where exactly one commits. Administrator semantic changes, all prerequisite
 completion writers and runtime admission still need their coordinated fences.
+
+
+## SDK request receipt read
+
+The native app Bearer GET request path now matches SDK `AppExecution.read_request`.
+It reads only the authenticated connection's human-created request, checks the
+current requesting user, owning app, board grant, identity/resource selection,
+workflow/dependencies and generation, and rejects a changed authority snapshot.
+The SDK receipt is `requested`, `started=false`; it is neither acknowledgment nor
+runtime permit. Human management keeps its separately authorized retained receipt
+read even after disablement. App reads have no such stale-authority exemption.
+
+The authority card revision uses integer UTC microseconds derived from the native
+card timestamp. Runtime authorization, ACK/event validation, signed delivery,
+lease issuance/recovery/heartbeat and start evidence remain unimplemented.

@@ -152,9 +152,7 @@ try:
             raise RuntimeError("Could not create the synthetic Card")
         card, _response = result
         relationship_type = (
-            service.app_setting.create_global_relationship(
-                f"Migration parent {run_id}", f"Migration child {run_id}"
-            )
+            service.app_setting.create_global_relationship(f"Migration parent {run_id}", f"Migration child {run_id}")
             if args.relationship_type
             else None
         )
@@ -544,9 +542,7 @@ try:
                 expected_card_title = manifest.get("card_title", title)
                 if card.title == f"Concurrent card title {run_id}":
                     expected_card_title = card.title
-                synthetic_card = require_synthetic_card(
-                    card, manifest["project_uid"], expected_card_title
-                )
+                synthetic_card = require_synthetic_card(card, manifest["project_uid"], expected_card_title)
                 for attachment, _ in service.card_attachment.repo.card_attachment.get_list_by_card(synthetic_card):
                     if not Storage.delete(attachment.file):
                         raise RuntimeError("Could not remove synthetic card attachment file")
@@ -580,9 +576,11 @@ try:
                 relationship_type = InfraHelper.get_by_id_like(
                     GlobalCardRelationshipType, manifest["relationship_type_uid"]
                 )
-                if not isinstance(relationship_type, GlobalCardRelationshipType) or (
-                    relationship_type.parent_name != f"Migration parent {run_id}"
-                ) or not service.app_setting.delete_global_relationship(relationship_type):
+                if (
+                    not isinstance(relationship_type, GlobalCardRelationshipType)
+                    or (relationship_type.parent_name != f"Migration parent {run_id}")
+                    or not service.app_setting.delete_global_relationship(relationship_type)
+                ):
                     raise RuntimeError("Could not remove synthetic relationship type")
             service.user.delete(peer)
             service.user.delete(owner)

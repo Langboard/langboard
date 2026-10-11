@@ -12,6 +12,7 @@ from time import monotonic, sleep
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
+import langboard.routes.settings.AppExecutionRequestReadApi  # noqa: F401
 import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
 import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
 import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
@@ -30,6 +31,7 @@ from langboard.card_workspace.application.queries import get_card_bundle, get_pr
 from langboard.card_workspace.domain import CommentPage, SectionPage
 from langboard.card_workspace.infrastructure.native import NativeCardWorkspaceAdapter
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_sdk.execution import AppExecution
 from langboard_sdk.resources import AppResources
 from langboard_sdk.rest import HttpTransport
 from langboard_shared.core.caching import Cache
@@ -1588,7 +1590,7 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 
 
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
-    engine, (_, owner, outsider), personal, _ = registered
+    engine, (_, owner, outsider), personal, shared = registered
     for model in (
         WorkflowStageDefinition,
         ProjectColumn,
@@ -1789,6 +1791,43 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             assert client.post(path, headers=headers, json={**body, "started": True}).status_code in (400, 422)
             token = issue_connection_credential(owner, personal.id)["token"]
             assert client.post(path, headers={"Authorization": f"Bearer {token}"}, json=body).status_code == 401
+
+            async def sdk_read():
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://testserver",
+                    headers={"Authorization": f"Bearer {token}"},
+                ) as session:
+                    return await AppExecution(HttpTransport(session)).read_request(
+                        SnowflakeID(20).to_short_code(),
+                        SnowflakeID(221).to_short_code(),
+                        request_uid=receipts[0]["request_uid"],
+                    )
+
+            app_receipt = asyncio.run(sdk_read())
+            assert app_receipt["state"] == "requested" and app_receipt["started"] is False
+            assert app_receipt["authority"]["generation"] == 1 and app_receipt["authority"]["ownership_revision"] == 1
+            app_path = f"/apps/v1/boards/{SnowflakeID(20).to_short_code()}/cards/{SnowflakeID(221).to_short_code()}/execution-requests/{receipts[0]['request_uid']}"
+            assert client.get(app_path).status_code == 401
+            assert client.get(app_path, headers=headers).status_code == 403
+            assert (
+                client.get(app_path, headers={"Authorization": f"Bearer {token}"}).headers["cache-control"]
+                == "no-store"
+            )
+            other_token = issue_connection_credential(owner, shared.id)["token"]
+            assert client.get(app_path, headers={"Authorization": f"Bearer {other_token}"}).status_code == 403
+            with Session(engine) as db:
+                db.execute(update(CardExecutionGeneration).values(execution_generation=2))
+                db.commit()
+            assert client.get(app_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
+            with Session(engine) as db:
+                db.execute(update(CardExecutionGeneration).values(execution_generation=1))
+                db.execute(update(User).where(User.id == owner.id).values(activated_at=None))
+                db.commit()
+            assert client.get(app_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
+            with Session(engine) as db:
+                db.execute(update(User).where(User.id == owner.id).values(activated_at=SafeDateTime.now()))
+                db.commit()
             receipt_path = path + "/" + receipts[0]["request_uid"]
             assert client.get(receipt_path, headers=headers).json()["snapshot"] == snapshot
             with Session(engine) as db:
@@ -1797,6 +1836,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 db.commit()
             retained = client.get(receipt_path, headers=headers)
             assert retained.status_code == 200 and retained.json()["execution_resumed"] is False
+            assert client.get(app_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
             assert client.post(path, headers=headers, json=body).status_code == 403
     finally:
         Cache.clear()
