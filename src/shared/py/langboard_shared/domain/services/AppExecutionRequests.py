@@ -72,6 +72,7 @@ def accept_authorized_execution_request(db, authority, project_id, card_id, gene
             "started": False,
         }
         db.update(event)
+        _enqueue_execution_event(db, event)
         changed = True
     return {
         "schema_version": 1,
@@ -83,3 +84,38 @@ def accept_authorized_execution_request(db, authority, project_id, card_id, gene
         "changed": changed,
         "authority": row.authority,
     }
+
+
+def _enqueue_execution_event(db, event):
+    """Freeze an already approved destination; recovery retains broker failures."""
+    from ..models import AppConnection, AppDefinition, BoardAppBinding
+    from .AppEventDestination import current_destination
+    from .AppGovernance import AppGovernanceConflict
+
+    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == event.app_key)).first()
+    binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+        BoardAppBinding.project_id == event.project_id, BoardAppBinding.app_key == event.app_key
+    )).first()
+    if (definition is None or "events.receive" not in definition.declaration.get("capabilities", [])
+        or binding is None or "events.receive" not in binding.granted_capabilities):
+        return
+    connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == event.connection_id)).first()
+    if connection is None:
+        return
+    try:
+        destination, _ = current_destination(db, connection, event.event_type)
+    except (AppGovernanceDenied, AppGovernanceConflict):
+        # Preserve acceptance independently of unavailable external delivery.
+        # No destination is guessed or retargeted after acceptance.
+        return
+    event.payload = {**event.payload, "destination": {
+        "destination_uid": destination.get_uid(), "revision": destination.revision,
+    }}
+    db.update(event)
+
+    def enqueue():
+        from ...tasks.webhooks.AppEventDeliveryTask import app_event_delivery_task
+
+        app_event_delivery_task(event.get_uid(), destination.revision)
+
+    db.after_commit(enqueue)
