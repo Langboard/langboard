@@ -254,7 +254,7 @@ for (const appKey of ["example-app", "second-app"])
             await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
             const openControls = page.frameLocator("iframe").getByRole("button", { name: "Runtime controls" });
             await expect(openControls).toBeEnabled();
-            await openControls.evaluate((button: HTMLButtonElement) => button.click());
+            await openControls.click();
             await expect(page.frameLocator("iframe").locator("#result")).toContainText("opened");
             await expect(page.getByRole("dialog")).toBeVisible();
             await expect(page.getByText("Permit issued", { exact: true })).toBeVisible();

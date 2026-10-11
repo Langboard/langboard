@@ -420,6 +420,29 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
                 ).all()
             )
         assert states == {1: "superseded", 2: "delivered"}
+        # Explicit rerun shares the producer; stale retries and rollback emit nothing.
+        observed = current_execution(100)
+        before_dispatch = len(enqueued)
+        with execution_readiness_uow() as execution:
+            execution.request_new_run(100, observed.generation, observed.revision)
+            assert current_execution(100).generation == 2
+            assert len(enqueued) == before_dispatch
+        assert current_execution(100).generation == 3
+        assert len(enqueued) == before_dispatch + 1
+        for generation, revision in ((2, observed.revision), (3, observed.revision.replace(year=2000))):
+            with pytest.raises(ValueError, match="readiness changed"):
+                with execution_readiness_uow() as execution:
+                    execution.request_new_run(100, generation, revision)
+        fresh = current_execution(100)
+        with pytest.raises(RuntimeError, match="abort"):
+            with execution_readiness_uow() as execution:
+                execution.request_new_run(100, fresh.generation, fresh.revision)
+                raise RuntimeError("abort")
+        assert current_execution(100).generation == 3
+        assert len(enqueued) == before_dispatch + 1
+        with engine.connect() as connection:
+            assert dict(connection.execute(text("SELECT execution_generation,state FROM execution_outbox WHERE card_id=100")).all()) == {
+                1: "superseded", 2: "delivered", 3: "pending"}
     finally:
         engine.dispose()
         with admin.begin() as connection:
