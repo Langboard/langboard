@@ -71,6 +71,7 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
     import os
     from uuid import uuid4
     from langboard_graph.core.graph import checkpoint
+    from langboard_graph.core.graph.default import history
     from langboard_graph.core.graph.default.graph import run_default_graph
 
     raw_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
@@ -81,6 +82,20 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
     monkeypatch.setattr(type(checkpoint.Env), "MAIN_DATABASE_URL", property(lambda self: url))
     secret = "fixture-secret-not-real"
     thread = "private-interrupt-" + uuid4().hex
+    monkeypatch.setattr(
+        history,
+        "collect_langboard_history_messages",
+        lambda tweaks, config: [
+            {
+                "msg_id": "activity:fixture",
+                "msg_type": "card_action",
+                "source": "project_activity",
+                "change_type": "new",
+                "timestamp": "2026-10-02T00:00:00+00:00",
+                "content": {"title": "Keep history title", "api_key": secret},
+            }
+        ],
+    )
     tweaks = {
         "Graph": {
             "approval_request": {
@@ -102,6 +117,9 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
             project_context = snapshot.checkpoint["channel_values"]["project_context"]
             assert secret not in str(project_context)
             assert project_context["current_runner_data"]["uid"] == "fixture-actor"
+            for channel in ("history_messages", "history_delta", "history_context_prompt"):
+                assert secret not in str(snapshot.checkpoint["channel_values"][channel])
+            assert "Keep history title" in snapshot.checkpoint["channel_values"]["history_context_prompt"]
             # Only projections/approval metadata are covered; raw tweaks remain a separate gap.
             pending = snapshot.pending_writes
             assert pending
@@ -172,3 +190,67 @@ def test_state_context_projections_do_not_duplicate_credentials():
     state["parent_cards"][0]["title"] = "Changed"
     assert tweaks["LangboardCalledVariablesComponent"]["rest_data"]["related_cards"]["parents"][0]["title"] == "Parent"
     assert tweaks["Graph"]["ontology_context"]["api_key"] == secret
+
+
+@pytest.mark.parametrize("last_sync", [None, "2026-10-01T00:00:00+00:00"])
+@pytest.mark.parametrize("summary_enabled", [False, True])
+def test_history_redacts_state_and_prompt_without_changing_delta_or_summary(monkeypatch, last_sync, summary_enabled):
+    from copy import deepcopy
+    from langboard_graph.core.graph.default import history
+
+    secret = "fixture-secret-not-real"
+    messages = [
+        {
+            "msg_id": "activity:new",
+            "msg_type": "card_action",
+            "source": "project_activity",
+            "change_type": "new",
+            "timestamp": "2026-10-02T00:00:00+00:00",
+            "updated_at": "2026-10-02T00:00:00+00:00",
+            "content": {"title": "New card", "nested": {"client_secret": secret}},
+        },
+        {
+            "msg_id": "comment:edited",
+            "msg_type": "comment",
+            "source": "card_comment",
+            "change_type": "edited",
+            "timestamp": "2026-09-30T00:00:00+00:00",
+            "updated_at": "2026-10-03T00:00:00+00:00",
+            "content": "Edited comment",
+            "lineage": {"Authorization": secret},
+        },
+        {
+            "msg_id": "comment:deleted",
+            "msg_type": "comment",
+            "source": "card_comment",
+            "change_type": "deleted",
+            "timestamp": "2026-09-30T01:00:00+00:00",
+            "updated_at": "2026-10-04T00:00:00+00:00",
+            "content": "Deleted comment",
+        },
+    ]
+    original = deepcopy(messages)
+    monkeypatch.setattr(history, "collect_langboard_history_messages", lambda tweaks, config: messages)
+    state = {} if last_sync is None else {"last_history_sync_at": last_sync}
+    prompt = history.create_langboard_history_context_prompt(
+        {"Graph": {"history_message_limit": 2, "history_summary_enabled": summary_enabled}}, state
+    )
+    assert secret not in prompt
+    assert secret not in str(state)
+    assert state["last_history_sync_at"] == "2026-10-04T00:00:00+00:00"
+    assert state["history_delta"]["type"] == ("full_window" if last_sync is None else "delta")
+    if last_sync:
+        assert state["history_delta"]["new"][0]["msg_id"] == "activity:new"
+        assert state["history_delta"]["edited"][0]["msg_id"] == "comment:edited"
+        assert state["history_delta"]["deleted"][0]["msg_id"] == "comment:deleted"
+    else:
+        assert len(state["history_delta"]["new"]) == 3
+    assert len(state["history_messages"]) == 2
+    if summary_enabled:
+        assert state["history_summary"]["content"]["message_count"] == 2
+        assert "history_summary:" in state["history_messages"][0]["msg_id"]
+    else:
+        assert state["history_summary"] is None
+    assert messages == original
+    state["history_delta"]["new"][0]["content"] = "Changed"
+    assert messages == original

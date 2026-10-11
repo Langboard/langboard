@@ -140,3 +140,17 @@ only the decision and session ID, so it currently depends on saved tweaks.
 Removing secrets from tweaks must be paired with fresh server credential
 resolution and current authority checks on resume. Redacting tweaks alone
 would break tool/model execution and is not the completed design.
+
+## History privacy and delta regression
+
+History records are redacted immediately after collection and before sorting,
+delta extraction, summary creation or model-prompt formatting. This reuses the
+existing structured credential boundary and leaves source objects unchanged.
+Four regressions exercise full windows and incremental new/edited/deleted
+history, with deterministic summaries enabled and disabled. They preserve
+message identities, timestamps and context-window limits. A PostgreSQL case
+reads persisted history messages, delta and prompt channels to verify the
+redaction while preserving the history title. Twenty-four combined tests pass
+in 7.79 seconds. Source database collection is controlled in these cases;
+this does not establish per-user read authority or free-text secret detection.
+The larger fresh-runtime-credentials migration remains required.
