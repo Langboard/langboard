@@ -126,3 +126,32 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
                        {"generation": request.generation + 1, "card_id": int(card.id)})
         assert evaluate_current_execution_grant(replacement_token, board[2].id, card.id, request.generation + 1)["generation"] == request.generation + 1
         assert check_app_runtime(lease.id, runtime_token)["state"] == "stopped"
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_runtime_history_pagination_is_card_scoped_and_older_stop_is_accessible(board, monkeypatch):
+    from langboard_shared.domain.models import AppExecutionRequest
+    from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes
+
+    _, card, token, request, ack_id = permit_scope(board, monkeypatch)
+    EmployeeMembershipPolicy.__table__.create(DbEngine.get_main_engine())
+    authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, token_hex(32))
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    with DbSession.atomic() as db:
+        for index in range(12):
+            db.insert(AppExecutionRequest(project_id=board[2].id, card_id=card.id,
+                app_key=request.app_key, connection_id=request.connection_id,
+                generation=request.generation + index + 1, authority={}))
+        db.insert(AppExecutionRequest(project_id=board[2].id, card_id=card.id + 1,
+            app_key=request.app_key, connection_id=request.connection_id, generation=99, authority={}))
+    first = list_human_card_runtimes(DomainService(), board[1], board[2].id, card.id)
+    assert len(first["items"]) == 10 and first["next_cursor"]
+    assert all(item["state"] == "awaiting_permit" for item in first["items"])
+    from langboard_shared.core.types import SnowflakeID
+    second = list_human_card_runtimes(DomainService(), board[1], board[2].id, card.id,
+                                     before=SnowflakeID.from_short_code(first["next_cursor"]))
+    assert len(second["items"]) == 3 and second["next_cursor"] is None
+    assert second["items"][-1]["request_uid"] == request.get_uid()
+    assert second["items"][-1]["state"] == "authorized"
+    assert not set(item["request_uid"] for item in first["items"]) & set(item["request_uid"] for item in second["items"])
+    assert len({item["generation"] for item in [*first["items"], *second["items"]]}) == 13

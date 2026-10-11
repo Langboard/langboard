@@ -531,8 +531,8 @@ transition is performed. The UI control, explicit resume and deployed external
 termination acceptance remain unfinished.
 
 The native card also provides a lazy **App execution** section. Its authenticated
-GET `/board/{project_uid}/card/{card_uid}/apps/executions` returns at most the
-latest ten request identities and retained permit states after current native
+GET `/board/{project_uid}/card/{card_uid}/apps/executions` returns at most ten
+request identities per page and retained permit states after current native
 read authority checks. It never exposes runtime tokens or credential hashes and
 uses one request query plus one batched lease query. These are authorization
 states, not independent process health or proof of execution.
@@ -562,3 +562,13 @@ advancement on an actual readiness false-to-true transition. No resume endpoint
 increments it merely because a user answered a question. Local regressions cover
 shared authority, duplicate requests, lease heartbeat/recovery and start reports;
 explicit resume and deployed execution acceptance remain pending.
+
+
+Runtime history supports a validated request-ID cursor and previous/next controls.
+The server fetches eleven request identities to determine whether another page
+exists, but loads leases only for the ten displayed requests. All pages retain
+current card/user authority checks. Older authorized runtimes remain reachable
+for explicit stop requests instead of disappearing behind a latest-ten cutoff.
+Uncertain writes block navigation until readback succeeds. SQLite/PostgreSQL
+checks cover 13 requests split into 10+3 with no duplicates or foreign cards;
+browser acceptance exercises next/previous alongside stop and request regressions.
