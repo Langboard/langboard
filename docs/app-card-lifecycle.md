@@ -124,8 +124,13 @@ provider verification. Unknown reports suppress further mutation delivery;
 subsequent current-authority readback can reconcile the outcome. Native users
 can read bounded receipts through
 `GET /board/{board}/card/{card}/apps/archives`; card visibility still applies.
-UI activation controls, receipt rendering and live provider execution remain
-release requirements.
+Board settings now expose explicit per-card-type archive synchronization consent
+with current binding revisions. Disabling a board binding clears this consent and
+advances its generation so re-enabling cannot revive a queued archive operation.
+Card detail loads the latest ten receipts only when the history control is opened;
+it separates event delivery from authenticated app-reported provider outcomes.
+These source changes still require deployed browser acceptance and live provider
+execution before release completion.
 
 The independent Example Monitor artifacts exercise signed signal ingestion,
 native Inbox card creation and native app-owned human interactions in one test
