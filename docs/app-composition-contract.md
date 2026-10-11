@@ -245,13 +245,15 @@ resource HTTP and migration-storage checks: 28 passed. The storage fixture now
 applies connection ownership and archive-setting migrations before comparing ORM
 columns and constraints. These checks are included in the existing contract CI.
 
-Image requests use a protected lightweight tag `refs/tags/image-executor/<sha>`
+Image requests use a protected tag `refs/tags/image-executor/<sha>`
 and a separate approved `IMAGE_BUILD_COMMIT`. The requester verifies the tag is
-still the exact commit before dispatch; the private executor must independently
+still the exact commit before dispatch, resolving one annotation when present.
+Nested annotations are rejected. The private executor must independently
 enforce its own protected-ref, dispatcher and approved-source policy. GitHub
 workflow dispatch requires a named branch or tag, so a raw commit SHA alone is
-not a valid dispatch ref. Five isolated request-contract tests cover moved or
-annotated tags, mutable refs, missing pins, lookup failure and unknown dispatch
+not a valid dispatch ref. Isolated request-contract tests cover lightweight and
+annotated tags, moved targets, nested annotations, mutable refs, missing pins,
+lookup failure and unknown dispatch
 outcomes without retry. Repository names, runner credentials and private settings
 remain operator configuration. This is not evidence of a published canary image.
 
