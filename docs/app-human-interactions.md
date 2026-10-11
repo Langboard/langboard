@@ -343,3 +343,27 @@ Pages contain at most 25 requests, newest first, with an exclusive `cursor` from
 acknowledgments are fetched in bounded batches. Responses use `Cache-Control:
 no-store`; listing does not mark the card seen, triage an inbox, approve a request,
 move a column or resume execution. UI rendering remains a separate gate.
+
+## Card detail interaction UI
+
+The native card detail includes an optional, initially collapsed request section.
+It fetches a 25-request page only while open, with explicit refresh and previous/
+next navigation and no background polling. Query identity includes the current
+user, board and card. Existing host buttons, checkboxes and text areas preserve
+the application theme. English, Korean, Japanese and Chinese host strings are
+included; app prompt/choice labels use the user locale and English fallback.
+
+Approval/card actions, single/multiple choice, free text and choice-or-text
+submit stable question/choice IDs, the observed revision, an idempotency key and
+optional execution generation. Current native card update permission, expiry
+and request state gate the controls; server authority remains decisive. A lost
+response blocks further submissions until explicit readback. Page navigation
+and refresh are disabled during submission. Reaction requests direct users to
+the linked native comment rather than allowing a general form to impersonate a
+reaction. Successful local reaction requests invalidate the open request query.
+
+Browser fixture tests exercise mobile/desktop layout, deferred reads, accepted
+response readback, uncertain results, read-only/expired/reaction restrictions,
+multi-choice bounds, localized approval and literal free text. The fixture mocks
+HTTP. These are UI behavior proofs, not deployed API/runtime integration evidence.
+Workflow outcomes and observed external continuation are still separate gates.

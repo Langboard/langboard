@@ -273,5 +273,24 @@
     "retained": "已保存的选择",
     "moreRetained": "更多已保存连接",
     "firstRetained": "已保存连接第一页"
+  },
+  "appInteractions": {
+    "title": "应用请求",
+    "help": "此决定属于当前卡片。收件箱状态与执行相互独立。",
+    "refresh": "刷新",
+    "unavailable": "无法加载请求。请刷新以检查访问权限。",
+    "empty": "暂无应用请求。",
+    "previous": "上一页",
+    "next": "下一页",
+    "pending": "等待回复",
+    "answered": "已回复",
+    "expired": "已过期",
+    "cancelled": "已取消",
+    "reactionHelp": "请在关联评论中添加新的回应：",
+    "acceptedHelp": "回复已记录，但不表示外部执行已完成。",
+    "textAnswer": "输入文本",
+    "readback": "再次提交前请刷新并确认结果。",
+    "submit": "提交回复",
+    "openComment": "打开评论"
   }
 }
