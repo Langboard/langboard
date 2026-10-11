@@ -7,6 +7,7 @@ from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .AppDefinition import AppDefinition
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppResourceBinding import AppResourceBinding
 from .AppMcpConsent import AppMcpConsent
 from .BoardAppBinding import BoardAppBinding
 from .Bot import Bot
@@ -95,6 +96,7 @@ __all__ = [
     "AppDefinition",
     "AppConnection",
     "AppConnectionCredential",
+    "AppResourceBinding",
     "AppMcpConsent",
     "BoardAppBinding",
     "AppGovernancePolicy",

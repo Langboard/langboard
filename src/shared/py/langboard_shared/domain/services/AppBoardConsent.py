@@ -7,7 +7,7 @@ from ..models.ProjectRole import ProjectRoleAction
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, current_policy
 
 
-def _context(db, actor, project_id, app_key):
+def _context(db, actor, project_id, app_key, *, lock_binding=True):
     actor = _actor(db, actor)
     definition = db.exec(
         SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key).with_for_update()
@@ -28,11 +28,10 @@ def _context(db, actor, project_id, app_key):
         ).first()
         if member is None or role is None or not role.is_granted(ProjectRoleAction.Update):
             raise AppGovernanceDenied()
-    binding = db.exec(
-        SqlBuilder.select.table(BoardAppBinding)
-        .where(BoardAppBinding.project_id == project.id, BoardAppBinding.app_key == app_key)
-        .with_for_update()
-    ).first()
+    statement = SqlBuilder.select.table(BoardAppBinding).where(
+        BoardAppBinding.project_id == project.id, BoardAppBinding.app_key == app_key
+    )
+    binding = db.exec(statement.with_for_update() if lock_binding else statement).first()
     return definition, project, binding
 
 

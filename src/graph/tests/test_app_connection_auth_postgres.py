@@ -11,6 +11,7 @@ import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
 import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
 import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
 import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
+import langboard.routes.settings.AppResourceSelectionApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -25,6 +26,7 @@ from langboard_shared.domain.models import (
     AppConnectionCredential,
     AppDefinition,
     AppMcpConsent,
+    AppResourceBinding,
     BoardAppBinding,
     Organization,
     ProjectAssignedUser,
@@ -61,6 +63,7 @@ from langboard_shared.domain.services.AppRegistry import (
     list_definitions,
     save_definition,
 )
+from langboard_shared.domain.services.AppResourceSelection import list_resource_selections, save_resource_selection
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
 from sqlalchemy import event, update
@@ -685,3 +688,92 @@ def test_board_prepare_never_grants_and_rejects_stale_app(registered):
         save_board_consent(owner, SnowflakeID(20), "example", [], current["revision"], definition_revision)["state"]
         == "disabled"
     )
+
+
+def test_resource_selection_one_to_many_privacy_revisions_and_withdrawal(registered):
+    engine, (admin, owner, outsider), personal, _ = registered
+    AppResourceBinding.__table__.create(engine)
+    with Session(engine) as db:
+        declared = deepcopy(DECLARATION)
+        declared["capabilities"].append("resources.read")
+        db.execute(update(AppDefinition).values(declaration=declared))
+        db.execute(update(BoardAppBinding).values(granted_capabilities=["resources.read"]))
+        db.commit()
+    approval = prepare_board_consent(owner, SnowflakeID(20), "example")
+
+    def save(actor, identity, selected=True, revision=0):
+        return save_resource_selection(
+            actor,
+            SnowflakeID(20),
+            "example",
+            personal.id,
+            "issue",
+            identity,
+            selected,
+            revision,
+            approval["revision"],
+            approval["app_revision"],
+        )
+
+    first = save(owner, "one")
+    save(owner, "two")
+    assert first["access_state"] == "unknown" and first["health"] == "unknown"
+    assert first["is_selected"] and first["revision"] == 1
+    page = list_resource_selections(owner, SnowflakeID(20), "example", personal.id, limit=1)
+    assert len(page["items"]) == 1 and page["next_cursor"]
+    assert len(list_resource_selections(owner, SnowflakeID(20), "example", personal.id)["items"]) == 2
+    with pytest.raises(AppGovernanceConflict):
+        save(owner, "one")
+    with pytest.raises(AppGovernanceDenied):
+        save(admin, "three")
+    with Session(engine) as db:
+        db.execute(update(AppConnection).where(AppConnection.id == personal.id).values(state="disconnected"))
+        db.commit()
+    with pytest.raises(AppGovernanceDenied):
+        save(owner, "three")
+    revoked = save(owner, "one", False, 1)
+    assert not revoked["is_selected"] and revoked["access_state"] == "revoked" and revoked["revision"] == 2
+
+
+def test_native_resource_selection_http_is_bounded_and_cannot_claim_access(registered, monkeypatch):
+    engine, (_, owner, _), personal, _ = registered
+    AppResourceBinding.__table__.create(engine)
+    with Session(engine) as db:
+        declaration = deepcopy(DECLARATION)
+        declaration["capabilities"].append("resources.read")
+        db.execute(update(AppDefinition).values(declaration=declaration))
+        db.execute(update(BoardAppBinding).values(granted_capabilities=["resources.read"]))
+        db.commit()
+    approval = prepare_board_consent(owner, SnowflakeID(20), "example")
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-resource-http-secret-32bytes"))
+    Cache.clear()
+    Auth.reset_user(owner)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+        with TestClient(app) as client:
+            path = f"/board/{SnowflakeID(20).to_short_code()}/apps/example/connections/{personal.get_uid()}/resources"
+            assert client.get(path).status_code == 401
+            access, refresh = AuthSecurity.authenticate(owner.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            headers = {"Authorization": f"Bearer {access}"}
+            body = {
+                "resource_type": "issue",
+                "external_resource_id": "one",
+                "selected": True,
+                "expected_revision": 0,
+                "expected_binding_revision": approval["revision"],
+                "expected_app_revision": approval["app_revision"],
+            }
+            assert client.put(path, headers=headers, json={**body, "access_state": "granted"}).status_code in (400, 422)
+            saved = client.put(path, headers=headers, json=body)
+            assert saved.status_code == 200 and saved.json()["access_state"] == "unknown"
+            assert saved.headers["cache-control"] == "no-store"
+            assert client.put(path, headers=headers, json=body).status_code == 409
+            assert client.get(path, headers=headers, params={"limit": 51}).status_code in (400, 422)
+            assert len(client.get(path, headers=headers).json()["items"]) == 1
+            token = issue_connection_credential(owner, personal.id)["token"]
+            assert client.put(path, headers={"Authorization": f"Bearer {token}"}, json=body).status_code == 401
+    finally:
+        Cache.clear()

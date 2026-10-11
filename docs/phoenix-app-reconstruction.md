@@ -274,3 +274,24 @@ policy must allow new grants; empty withdrawals remain possible after disablemen
 Stage transitions are not automatically activated. Removing event delivery also
 clears archive sync opt-ins. 1:N resource selection, stage/archive opt-in editors,
 runtime execution fences and deployed acceptance still require further work.
+
+## Independent 1:N resource selections
+
+A board app binding can select multiple resources per connection, identified by
+connection/type/external ID. Native PostgreSQL migration d9a5b73e201f adds unique
+identity, foreign keys, bounded access-state/health values and nonnegative
+revision constraints. Selection is explicit and revision checked; duplicate stale
+writes conflict. Declared resource types and current board grants, app policy,
+connection ownership, connection state and owner activation are enforced.
+Personal connections stay private even to instance administrators; organization
+connections must match the board organization. Disconnected accounts retain
+selection receipts and support withdrawal. Selection stores unknown access and
+health; it does not prove access to an external provider. A client cannot supply
+access verification fields. Page size is at most 50 with keyset pagination.
+
+Lock order for selection is actor, definition, board, connection, binding and
+resource. The board authorization helper can defer its binding lock to preserve
+the registry's definition/connection/binding order. No provider names are used.
+Provider discovery and verification, connection identity snapshot consent,
+workflow mapping, execution fences and deployed independent-app acceptance
+remain pending. Resource metadata alone must not be used as an execution grant.

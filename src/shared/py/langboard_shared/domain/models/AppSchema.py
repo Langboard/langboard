@@ -5,6 +5,7 @@ from sqlalchemy.schema import conv
 from .AppConnection import AppConnection
 from .AppGovernancePolicy import AppGovernancePolicy
 from .AppMcpConsent import AppMcpConsent
+from .AppResourceBinding import AppResourceBinding
 from .BoardAppBinding import BoardAppBinding
 
 
@@ -40,3 +41,18 @@ BoardAppBinding.__table__.append_constraint(
 )
 
 AppMcpConsent.__table__.append_constraint(CheckConstraint("revision >= 1", name=conv("ck_app_mcp_consent_revision")))
+
+
+AppResourceBinding.__table__.append_constraint(
+    CheckConstraint("access_revision >= 0", name=conv("ck_app_resource_binding_revision"))
+)
+AppResourceBinding.__table__.append_constraint(
+    CheckConstraint(
+        "access_state IN ('unknown','granted','denied','revoked')", name=conv("ck_app_resource_binding_access")
+    )
+)
+AppResourceBinding.__table__.append_constraint(
+    CheckConstraint(
+        "health IN ('unknown','healthy','degraded','unavailable')", name=conv("ck_app_resource_binding_health")
+    )
+)

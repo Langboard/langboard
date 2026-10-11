@@ -15,6 +15,7 @@ from langboard_shared.domain.models import (
     AppDefinition,
     AppGovernancePolicy,
     AppMcpConsent,
+    AppResourceBinding,
     BoardAppBinding,
     Organization,
     Project,
@@ -35,7 +36,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["c8f4a62d190e"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["d9a5b73e201f"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -193,6 +194,43 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
             assert connection.execute(text("SELECT owner_id FROM app_connection WHERE id=90")).scalar() == 1
             auth_migration.upgrade()
         assert {"app_connection_credential", "app_mcp_consent"} <= set(inspect(engine).get_table_names())
+        spec = importlib.util.spec_from_file_location(
+            "resource_migration", migration_root / "versions/20261012080000-d9a5b73e201f.py"
+        )
+        resource_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(resource_migration)
+        assert resource_migration.down_revision == auth_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            resource_migration.upgrade()
+        with Session(engine) as db:
+            db.add(BoardAppBinding(id=100, project_id=10, app_key="example"))
+            db.commit()
+            db.add(
+                AppResourceBinding(
+                    id=101, board_binding_id=100, connection_id=90, resource_type="issue", external_resource_id="one"
+                )
+            )
+            db.add(
+                AppResourceBinding(
+                    id=102, board_binding_id=100, connection_id=90, resource_type="issue", external_resource_id="two"
+                )
+            )
+            db.commit()
+            assert db.query(AppResourceBinding).count() == 2
+        for values in (
+            {"external_resource_id": "one"},
+            {"external_resource_id": "three", "access_revision": -1},
+            {"external_resource_id": "three", "access_state": "invented"},
+            {"external_resource_id": "three", "connection_id": 999},
+        ):
+            with Session(engine) as db, pytest.raises(IntegrityError):
+                params = {"id": 103, "board_binding_id": 100, "connection_id": 90, "resource_type": "issue", **values}
+                db.add(AppResourceBinding(**params))
+                db.commit()
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            resource_migration.downgrade()
+            assert connection.execute(text("SELECT owner_id FROM app_connection WHERE id=90")).scalar() == 1
+            resource_migration.upgrade()
     finally:
         engine.dispose()
         with admin.begin() as db:
