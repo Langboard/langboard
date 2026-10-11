@@ -259,3 +259,30 @@ unchanged tombstone identity. The combined suite passes 120 tests in 44.14
 seconds. Original database bodies and already persisted checkpoints are not
 erased by this change; historical checkpoint retention remains a separate
 requirement.
+
+## Graph service HTTP authentication
+
+All `/api/v1/graph/` HTTP endpoints require a short-lived service JWT before
+request parsing, runner creation, checkpoint access or resume/delete effects.
+The token uses the existing instance signing key, exact instance issuer,
+`langboard-graph` audience, `graph_service` token kind and a five-minute maximum
+lifetime. Ordinary user and bot API tokens are not service credentials. The
+shared Python bot and approval clients and the socket run/resume clients now
+issue this transport token. Deploy these callers with Graph together; older
+callers without the header receive 401. The service credential is not a
+per-user grant: caller-side user/project authorization and checkpoint/thread
+ownership remain separate requirements. Health checks remain available.
+
+Actual ASGI route tests cover anonymous, malformed, expired, ordinary-user,
+wrong-kind/audience/issuer, missing-expiry and excessive-lifetime tokens across
+run, webhook, resume, status and deletion endpoints. A valid backend token
+reaches the status route. The full suite passes 166 tests in 45.29 seconds;
+socket TypeScript checking reports no diagnostics. A token generated from the
+actual TypeScript helper is accepted by the Python verifier with a fixture key.
+
+Authentication adds no database or network round trip. A local ASGI benchmark
+(1,000 requests per variant after 50 warmups) measures median 78.46 microseconds
+without authentication and 108.00 with authentication, an added 29.54
+microseconds. This synthetic endpoint measurement is not deployed throughput
+or latency evidence. Service-token reuse beyond a request and no-auth fallback
+are deliberately not introduced.
