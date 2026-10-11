@@ -310,3 +310,24 @@ human response. The dock test runner now starts the installed Vite binary with
 the established fixture config, avoiding a Yarn registry-token dependency when
 no installation is performed. Local test JWT key-length warnings remain. These
 checks are not deployed provider acceptance or hosted CI success.
+
+## Published package theme assets
+
+The app-store browser suite accepts `LANGBOARD_OFFICIAL_PACKAGE_ROOT`, a
+directory with `github`, `glitchtip`, and `dokploy` subdirectories containing
+`manifest.json`, `panel/icon-light.svg`, and `panel/icon-dark.svg` extracted
+from the official release ZIPs after checking the catalog SHA-256. Without
+these external artifacts the six published-asset cases explicitly skip.
+
+Run from `src/ui`:
+
+```sh
+LANGBOARD_OFFICIAL_PACKAGE_ROOT=/path/to/verified-assets node_modules/.bin/playwright test --config playwright.app-packages.config.ts
+```
+
+On 2026-10-12 anonymous v0.1.1 downloads matched the three catalog hashes.
+All three real package icons decoded in the actual store detail UI at 1440px
+and 390px through light → dark → light transitions, with no horizontal
+overflow. Six cases passed in 9.5 seconds; screenshots were visually checked.
+The API receipt and asset serving are controlled test responses. This proves
+published SVG/theme compatibility, not a live install or board activation.
