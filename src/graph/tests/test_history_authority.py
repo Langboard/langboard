@@ -11,11 +11,13 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Bot,
     Card,
+    CardComment,
     ChatHistory,
     ChatSession,
     Organization,
     Project,
     ProjectActivity,
+    ProjectAssignedUser,
     ProjectColumn,
     User,
 )
@@ -42,8 +44,11 @@ def history_db(monkeypatch, request):
         engine.dispose()
         engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     models = (User, ChatSession, ChatHistory)
-    if request.node.originalname == "test_activity_scope_always_requires_matching_board":
-        models += (Organization, Project, ProjectColumn, Bot, Card, ProjectActivity)
+    if request.node.originalname in {
+        "test_activity_scope_always_requires_matching_board",
+        "test_comment_history_reuses_current_card_visibility",
+    }:
+        models += (Organization, Project, ProjectColumn, Bot, Card, ProjectActivity, ProjectAssignedUser, CardComment)
     for model in models:
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -223,4 +228,58 @@ def test_activity_scope_always_requires_matching_board(history_db, scope, monkey
     result = collect_project_activity_messages(variables, rest, 20)
     assert [item["content"]["history"]["title"] for item in result] == (
         ["Own event"] if scope in {"board", "own_column", "own_card"} else []
+    )
+
+
+@pytest.mark.parametrize(
+    "case", ["shared", "internal", "private_owner", "private_other", "wrong_board", "nonmember", "deleted_user", "bot"]
+)
+def test_comment_history_reuses_current_card_visibility(history_db, case, monkeypatch):
+    from langboard_shared.core.db import EditorContentModel
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_graph.core.graph.default.history import collect_card_comment_messages
+
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda self: "project_members"))
+    visibility = "PRIVATE" if case.startswith("private") else "INTERNAL" if case == "internal" else "SHARED"
+    creator = 2 if case == "private_other" else 1
+    with Session(history_db) as db:
+        db.add_all([Project(id=30, owner_id=1, title="Board"), Project(id=31, owner_id=1, title="Wrong board")])
+        db.commit()
+        db.add(ProjectColumn(id=40, project_id=30, name="Column"))
+        db.commit()
+        db.add(
+            Card(
+                id=50,
+                project_id=30,
+                project_column_id=40,
+                title="Card",
+                visibility=visibility,
+                owner_user_id=creator if visibility == "PRIVATE" else None,
+                created_by_user_id=creator,
+            )
+        )
+        db.commit()
+        db.add(CardComment(id=60, card_id=50, user_id=1, content=EditorContentModel(content="Scoped comment")))
+        if case == "deleted_user":
+            db.execute(update(User).where(User.id == 1).values(deleted_at=SafeDateTime.now()))
+        db.commit()
+    actor = 2 if case == "nonmember" else 1
+    token = encode(
+        {
+            "sub": str(actor),
+            "iss": Env.PROJECT_NAME,
+            "internal": "bot",
+            "exp": int((SafeDateTime.now() + timedelta(minutes=5)).timestamp()),
+        },
+        Env.JWT_SECRET_KEY,
+        algorithm=Env.JWT_ALGORITHM,
+    )
+    variables = {
+        "current_runner_type": "bot" if case == "bot" else "user",
+        "app_api_token": token,
+        "project_uid": SnowflakeID(31 if case == "wrong_board" else 30).to_short_code(),
+    }
+    result = collect_card_comment_messages({"card_uid": SnowflakeID(50).to_short_code()}, 20, variables)
+    assert [item["content"] for item in result] == (
+        ["Scoped comment"] if case in {"shared", "internal"} else []
     )

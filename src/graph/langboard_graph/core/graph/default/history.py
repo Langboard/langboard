@@ -4,8 +4,10 @@ from typing import Any, Literal, TypedDict
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.security import AuthSecurity
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Bot, Card, CardComment, ChatHistory, ChatSession, ProjectActivity, User
+from langboard_shared.domain.services import DomainService
 from langboard_shared.helpers import InfraHelper
 from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
@@ -93,7 +95,7 @@ def collect_langboard_history_messages(tweaks: dict[str, Any], config: dict[str,
     if card_uid and not _card_belongs_to_project(card_uid, project_uid):
         return messages
 
-    messages.extend(collect_card_comment_messages(rest_data, source_limit))
+    messages.extend(collect_card_comment_messages(rest_data, source_limit, variables))
     messages.extend(collect_project_activity_messages(variables, rest_data, source_limit))
     return messages
 
@@ -192,12 +194,36 @@ def collect_chat_history_messages(
     return [normalize_chat_history(history) for history in records if _has_chat_history_content(history)]
 
 
-def collect_card_comment_messages(rest_data: dict[str, Any], limit: int) -> list[GraphHistoryMessage]:
+def collect_card_comment_messages(
+    rest_data: dict[str, Any], limit: int, variables: dict[str, Any] | None = None
+) -> list[GraphHistoryMessage]:
     card_uid = _first_string(rest_data.get("card_uid"))
     if not card_uid:
         return []
 
     try:
+        variables = variables or {}
+        token = variables.get("app_api_token")
+        if variables.get("current_runner_type") != "user" or not isinstance(token, str):
+            return []
+        payload = AuthSecurity.decode_access_token(token)
+        if payload.get("internal") != "bot":
+            return []
+        actor_id = int(payload["sub"])
+        with DbSession.use(readonly=False) as db:
+            actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
+        if actor is None:
+            return []
+        project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
+        if not project_uid:
+            return []
+        with DomainService.use() as services:
+            if (
+                services.card.resolve_readable_card(project_uid, card_uid, actor, channel=CollaborationChannel.Api)
+                is None
+            ):
+                return []
+
         query = (
             SqlBuilder.select.tables(CardComment, User, Bot, with_deleted=True)
             .outerjoin(User, CardComment.column("user_id") == User.column("id"))
@@ -207,7 +233,7 @@ def collect_card_comment_messages(rest_data: dict[str, Any], limit: int) -> list
             .limit(limit)
         )
 
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             records = db.exec(query).all()
     except Exception as exc:
         Logger.main.exception(exc)
