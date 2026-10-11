@@ -317,6 +317,8 @@
       "awaiting_permit": "実行許可待ち",
       "stop_requested": "停止要求済み — ランタイム終了待ち",
       "stopped": "ランタイム停止報告済み"
-    }
+    },
+    "resume": "再開を要求",
+    "resumeRequested": "再開要求済み — 新しいランタイム待ち"
   }
 }

@@ -118,6 +118,8 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
         replacement_token = issue_connection_credential(actor, connection.id)["token"]
         with pytest.raises(AppGovernanceDenied):
             evaluate_current_execution_grant(replacement_token, board[2].id, card.id, request.generation)
+        resume_path = path.removesuffix("/stop") + "/resume"
+        assert client.post(resume_path, json={"generation": request.generation}, headers=headers).status_code == 409
         # A producer-issued newer readiness generation has its own authority;
         # this does not create a permit or resume the retained stopped runtime.
         from sqlalchemy import text
@@ -126,6 +128,34 @@ def test_human_stop_fences_runtime_and_retains_idempotent_history(board, monkeyp
                        {"generation": request.generation + 1, "card_id": int(card.id)})
         assert evaluate_current_execution_grant(replacement_token, board[2].id, card.id, request.generation + 1)["generation"] == request.generation + 1
         assert check_app_runtime(lease.id, runtime_token)["state"] == "stopped"
+        with DbSession.atomic() as db:
+            board[5][0].workflow_stage = "active"
+            db.update(board[5][0])
+        assert client.post(resume_path, json={"generation": request.generation}, headers=headers).status_code == 403
+        with DbSession.atomic() as db:
+            board[5][0].workflow_stage = "ready"
+            db.update(board[5][0])
+        resumed = client.post(resume_path, json={"generation": request.generation}, headers=headers)
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["state"] == "resume_requested"
+        assert resumed.json()["generation"] == request.generation + 1
+        assert resumed.json()["started"] is False and resumed.json()["execution_resumed"] is False
+        assert resumed.json()["request_uid"] != request.get_uid()
+        assert resumed.json()["changed"] is True
+        replay = client.post(resume_path, json={"generation": request.generation}, headers=headers)
+        assert replay.status_code == 200 and replay.json()["changed"] is False
+        assert replay.json()["request_uid"] == resumed.json()["request_uid"]
+        from langboard_shared.domain.models import AppExecutionOutbox, AppExecutionRequest
+        with DbSession.use(readonly=False) as db:
+            assert len(db.exec(SqlBuilder.select.table(AppExecutionRequest)).all()) == 2
+            assert len(db.exec(SqlBuilder.select.table(AppExecutionOutbox)).all()) == 2
+            retained = db.exec(SqlBuilder.select.table(AppExecutionLease)).first()
+            assert retained.state == "stopped"
+            assert len([entry for entry in retained.history if entry.get("action") == "resume_requested"]) == 1
+        with DbSession.atomic() as db:
+            connection.state = "revoked"
+            db.update(connection)
+        assert client.post(resume_path, json={"generation": request.generation}, headers=headers).status_code == 403
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)

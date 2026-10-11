@@ -317,6 +317,8 @@
       "awaiting_permit": "실행 허가 대기",
       "stop_requested": "중지 요청됨 — 런타임 종료 대기",
       "stopped": "런타임 종료 보고됨"
-    }
+    },
+    "resume": "재개 요청",
+    "resumeRequested": "재개 요청됨 — 새 런타임 대기"
   }
 }

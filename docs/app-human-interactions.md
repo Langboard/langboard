@@ -572,3 +572,34 @@ for explicit stop requests instead of disappearing behind a latest-ten cutoff.
 Uncertain writes block navigation until readback succeeds. SQLite/PostgreSQL
 checks cover 13 requests split into 10+3 with no duplicates or foreign cards;
 browser acceptance exercises next/previous alongside stop and request regressions.
+
+## Explicit resume into a newer Ready generation
+
+`POST /board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/resume`
+accepts only `{generation}` identifying the retained stopped request. It requires
+current native human update authority, a runtime-reported `stopped` lease, and a
+strictly newer producer-issued readiness generation. Current owner-app consent,
+connection ownership, selected resources, built-in Ready mapping, dependencies
+and approval gates are re-evaluated. The endpoint never increments the readiness
+counter, moves the card or reauthorizes the old lease.
+
+The shared request acceptance function persists one new execution request and
+its existing signed-delivery outbox in the same transaction. Actor-attributed
+resume provenance is appended to the old stopped lease. Repeating that resume
+returns the same new request; revoked current authority still denies replay.
+A newer generation already accepted independently conflicts rather than falsely
+attributing it to this action. A different subsequent generation also conflicts
+with that retained resume action. The receipt says `resume_requested`,
+`started: false`, `execution_resumed: false`: external delivery, a new permit and
+actual process start are later, distinct evidence.
+
+The card shows Request resume only for a stopped request with a newer Ready
+generation and no retained resume receipt. A lost response requires explicit
+readback; no second POST is automatic. A recorded resume is displayed as awaiting
+a new runtime. Questions never resume execution automatically. This supports a
+fresh authorized execution generation, not in-process continuation of an old
+runtime/checkpoint. Providers own any compatible checkpoint restoration.
+Local HTTP tests cover same-generation denial, Ready mapping loss, new request
+and outbox, idempotent replay, revoked authority and the unchanged stopped lease.
+Browser coverage includes lost-response resume readback. Deployed external
+runtime and end-to-end readiness producer acceptance remain unfinished.
