@@ -126,3 +126,33 @@ def respond_to_interaction(
         raise ApiException.Conflict_409() from None
     except ValueError:
         raise ApiException.BadRequest_400() from None
+
+
+class HumanRuntimeStopBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    generation: int = Field(strict=True, ge=1)
+
+
+@AppRouter.api.post("/board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/stop", tags=["Board.Card"])
+@AuthFilter.add("user")
+def stop_app_runtime(
+    request: Request, project_uid: str, card_uid: str, request_uid: str,
+    body: HumanRuntimeStopBody, user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.domain.services.AppExecutionControl import request_human_runtime_stop
+    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
+
+    try:
+        result = request_human_runtime_stop(
+            service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            SnowflakeID.from_short_code(request_uid), body.generation,
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except AppExecutionRequestConflict:
+        raise ApiException.Conflict_409() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
