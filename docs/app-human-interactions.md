@@ -33,7 +33,7 @@ A request retains its host UID and revision, board/card and owning app/connectio
 execution request UID and native execution generation, app request key, kind,
 localized prompt, question schema, presentation, expiry and responder policy.
 Request kinds are `approval`, `question` and `action`. Runtime instructions are separate authorized commands; they do not require a prior app request. Response schemas explicitly
-support `single_choice`, `multi_choice` and `free_text`; an array alone does not
+support `single_choice`, `multi_choice`, `free_text` and `choice_or_text`; an array alone does not
 imply multiple selection. An instruction may also be submitted by an authorized
 human to a currently running app without an outstanding app question. This does
 not authorize a stopped runtime to resume.
@@ -195,3 +195,13 @@ changed body conflicts. Expiry is explicit and bounded to seven days. Readback
 projects expired requests without a global scan. No request calls a provider,
 accepts a human response, moves a card or renews/resumes execution. Optional
 execution context is checked against the existing execution authority.
+
+## Choice or text request support (SDK 0.2.17)
+
+Question requests may preserve predefined stable choice IDs while offering custom
+non-secret input through `choice_or_text` with required `max_length` (1–16000).
+The future response shape is exactly one of `choice_id` or `text`; both together
+are invalid. Predefined choices may retain existing workflow outcome mappings.
+Custom text has no implicit outcome or approval semantics. Approval/action kinds
+and comment-reaction presentation reject this question type. Request storage is
+implemented; response acceptance, widgets and external continuation are pending.
