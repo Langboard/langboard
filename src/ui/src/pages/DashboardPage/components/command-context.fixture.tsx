@@ -11,13 +11,30 @@ import "@/assets/styles/main.css";
 
 // Delay the panel's inner content indefinitely; the command focus owner must still exist.
 const PendingContent = lazy(() => new Promise<{ default: () => null }>(() => {}));
-api.defaults.adapter = async (config) => ({
-    status: 200,
-    statusText: "OK",
-    headers: {},
-    config,
-    data: config.url?.includes("/search") ? { items: [], next_cursor: null } : { projects: [], columns: [] },
-});
+api.defaults.adapter = async (config) => {
+    const search = config.url?.includes("/cards/context");
+    if (search && config.params.input_value === "slow") await new Promise((resolve) => setTimeout(resolve, 1000));
+    return {
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+        data: search
+            ? {
+                  cards: [
+                      {
+                          uid: config.params.input_value,
+                          title: `Found ${config.params.input_value}`,
+                          project_column_name: "Backlog",
+                          document_matches: [{ attachment_uid: "attachment", filename: "Meeting.pdf", snippet: "전사검색 日本語 中文 document" }],
+                      },
+                  ],
+              }
+            : config.url?.includes("/search")
+              ? { items: [], next_cursor: null }
+              : { projects: [], columns: [] },
+    };
+};
 function Panel({ mode }: { mode: string }) {
     const content = (
         <div data-workbench-command-context={mode} tabIndex={-1} role="region" aria-label={mode} className="h-40 w-full">
