@@ -20,6 +20,7 @@ RUN apt-get update \
 
 RUN uv --version
 
+COPY ./src/sdk/vendor ./src/sdk/vendor
 COPY ./src/shared/py ./src/shared/py
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 

@@ -132,3 +132,32 @@ production SSO, browser settings and Phoenix event consumption are pending.
 
 Final combined local regression: 150 tests pass in 55.92 seconds, including
 the native authenticated policy routes on PostgreSQL. Ruff and diff checks pass.
+
+
+## Connection authentication and owner MCP consent
+
+The host consumes the independent langboard-sdk 0.2.33 wheel with SHA256
+b021a7a849b3a712851069eac887dca3c937f669eea6095edf1ba1c5d4f3bd12.
+The shared, API and Graph locks retain their existing package versions and
+include that exact artifact. API and Graph image contexts copy the artifact
+before dependency installation; private SDK repository access is not required.
+
+Migration c8f4a62d190e adds hashed inbound credentials and owner MCP consent
+following b6d3e71f9042. Authentication rechecks the connected state, active
+owner, enabled declaration, current instance/organization policy and declared
+trust identity. Credentials expire, support explicit revocation and never
+expose their stored hash in bounded receipt listings. Instance administrators
+cannot mint credentials or consent for another person's private connection.
+
+Consent is explicitly versioned and separate from authentication. It preserves
+unchanged tool scopes, rejects stale revisions and requires consent for scope
+expansion or trust changes. Current owner deactivation and removed declared
+capabilities deny effective scopes. No credential or consent is an execution
+grant; the receipt explicitly reports execution_supported=false until the
+separate execution boundary is restored.
+
+Native PostgreSQL regression: 32 tests pass in 21.44 seconds, covering policy,
+credential/consent services and migration upgrade/downgrade. No SQLite was used
+for this acceptance run. Public connection routes, app registration and update
+fences, external MCP execution, outbox receipts, Phoenix event consumption and
+real independent-app acceptance remain pending. No merge or deployment.

@@ -4,8 +4,10 @@ from .ApiKeySetting import ApiKeySetting
 from .ApiKeyUsage import ApiKeyUsage
 from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
+from .AppConnectionCredential import AppConnectionCredential
 from .AppDefinition import AppDefinition
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppMcpConsent import AppMcpConsent
 from .BoardAppBinding import BoardAppBinding
 from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
@@ -92,6 +94,8 @@ __all__ = [
     "Organization",
     "AppDefinition",
     "AppConnection",
+    "AppConnectionCredential",
+    "AppMcpConsent",
     "BoardAppBinding",
     "AppGovernancePolicy",
     "AppComposition",

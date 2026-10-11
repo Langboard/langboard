@@ -4,6 +4,7 @@ from sqlalchemy import CheckConstraint, UniqueConstraint
 from sqlalchemy.schema import conv
 from .AppConnection import AppConnection
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppMcpConsent import AppMcpConsent
 from .BoardAppBinding import BoardAppBinding
 
 
@@ -37,3 +38,5 @@ BoardAppBinding.__table__.append_constraint(
         "state IN ('disabled','enabled','needs_attention','disconnected')", name=conv("ck_board_app_binding_state")
     )
 )
+
+AppMcpConsent.__table__.append_constraint(CheckConstraint("revision >= 1", name=conv("ck_app_mcp_consent_revision")))

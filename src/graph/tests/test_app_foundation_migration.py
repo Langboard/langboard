@@ -11,8 +11,10 @@ from alembic.script import ScriptDirectory
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     AppConnection,
+    AppConnectionCredential,
     AppDefinition,
     AppGovernancePolicy,
+    AppMcpConsent,
     BoardAppBinding,
     Organization,
     Project,
@@ -33,7 +35,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["b6d3e71f9042"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["c8f4a62d190e"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -157,6 +159,40 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade():
             assert connection.execute(text("SELECT title FROM project WHERE id=10")).scalar() == "Board"
             project_migration.upgrade()
             assert connection.execute(text("SELECT organization_id FROM project WHERE id=10")).scalar() is None
+        spec = importlib.util.spec_from_file_location(
+            "app_auth_migration", migration_root / "versions/20261012070000-c8f4a62d190e.py"
+        )
+        auth_migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(auth_migration)
+        assert auth_migration.down_revision == project_migration.revision
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            auth_migration.upgrade()
+        with Session(engine) as db:
+            db.add(AppConnection(id=90, app_key="example", owner_id=1, state="connected"))
+            db.commit()
+            db.add(
+                AppConnectionCredential(
+                    id=91,
+                    connection_id=90,
+                    issued_by=1,
+                    token_hash="hashed",
+                    identity_hash="identity",
+                    expires_at=SafeDateTime.now(),
+                )
+            )
+            db.add(AppMcpConsent(id=92, connection_id=90, identity_hash="identity", scope_tools={}))
+            db.commit()
+        with Session(engine) as db, pytest.raises(IntegrityError):
+            db.execute(update(AppMcpConsent).values(revision=0))
+            db.commit()
+        with Session(engine) as db, pytest.raises(IntegrityError):
+            db.add(AppMcpConsent(id=93, connection_id=999, identity_hash="identity", scope_tools={}))
+            db.commit()
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            auth_migration.downgrade()
+            assert connection.execute(text("SELECT owner_id FROM app_connection WHERE id=90")).scalar() == 1
+            auth_migration.upgrade()
+        assert {"app_connection_credential", "app_mcp_consent"} <= set(inspect(engine).get_table_names())
     finally:
         engine.dispose()
         with admin.begin() as db:
