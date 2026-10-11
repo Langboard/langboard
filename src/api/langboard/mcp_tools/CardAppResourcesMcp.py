@@ -58,3 +58,21 @@ def set_card_app_resource_selection(
     return _configure(
         set_card_app_resources, service, user, project_uid, card_uid, connection_uid, resource_uids, expected_revision
     )
+
+
+@McpTool.add(
+    "user",
+    description="Read current card-bound external app MCP tool declarations for your connection. Requires current board, card, resource and connection consent. Returns non-callable declarations; does not approve scopes or execute remote tools.",
+)
+def get_card_app_mcp_tools(
+    project_uid: Uid, card_uid: Uid, connection_uid: Uid, user: User, service: DomainService
+) -> dict[str, Any]:
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.services.AppMcpCatalog import read_user_app_mcp_catalog
+    if service.card.resolve_readable_card(project_uid, card_uid, user, CollaborationChannel.Mcp) is None:
+        raise ToolError("Card app MCP catalog unavailable")
+    try:
+        return read_user_app_mcp_catalog(user, SnowflakeID.from_short_code(project_uid),
+                                         SnowflakeID.from_short_code(card_uid), SnowflakeID.from_short_code(connection_uid))
+    except AppGovernanceDenied:
+        raise ToolError("Card app MCP catalog unavailable") from None
