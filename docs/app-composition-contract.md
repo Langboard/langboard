@@ -227,3 +227,11 @@ The SDK-to-native authenticated HTTP suite runs against SQLite and PostgreSQL,
 including stale withdrawal rejection, unbound-member null revisions and preserved
 module state after ungrouping. Combined composition/registry suite: 24 passed.
 The standalone SDK suite passes 86 Python cases, including Python 3.13 imports.
+
+UI loading also groups translation namespaces into one lazy Rollup chunk per
+language. The existing i18next backend still loads the selected language and its
+English fallback; locale selection, fallback and translation content are unchanged.
+An isolated Vite build using the production chunk classifier and all repository
+translations reduced translation chunks from 116 to 4. All 116 namespace exports
+matched their original JSON, and the entry had no eager translation imports.
+This measures asset fan-out, not deployed latency or full production-build acceptance.
