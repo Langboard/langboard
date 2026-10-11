@@ -4,7 +4,7 @@
 import pytest
 from langboard.apps.GitHubManifest import GitHubManifestUnavailable
 from langboard.apps.SignalInbox import list_board_signals
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.services import DomainService
 from test_card_signal_projection import scoped  # noqa: F401
 from test_dokploy_connection import setup  # noqa: F401
@@ -498,9 +498,12 @@ def test_dokploy_registry_override_hides_stored_deployments(dokploy_inbox, chang
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
-def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped, monkeypatch):
+@pytest.mark.parametrize("trust_change", ["publisher", "panel", "mcp_identity", "authentication_origins", "mcp_origins", "data_origins"])
+def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped, monkeypatch, trust_change):
     import importlib
     from datetime import datetime, timezone
+    import langboard.routes.board.BoardSettingApi  # noqa: F401
+    import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from langboard.apps.GlitchTipSignal import normalize_issue
@@ -516,6 +519,7 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
         AppResourceBinding,
         AppSignal,
         BoardAppBinding,
+        User,
     )
     from langboard_shared.Env import Env
     from pydantic import SecretStr
@@ -668,6 +672,53 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
                 state[4].is_selected = True
                 db.update(state[4])
             assert len(client.post(path, json=form, headers=headers).json()["items"]) == 1
+            # Real admin update and native renewed consent, with provider data still stored.
+            with DbSession.atomic() as db:
+                admin = db.exec(SqlBuilder.select.table(User).where(User.id == 2)).first()
+                admin.is_admin = True
+                db.update(admin)
+                panel_connection = AppConnection(
+                    app_key="github-panel", owner_id=state[1][1].id, state="connected",
+                    credential_reference=state[2].credential_reference,
+                )
+                db.insert(panel_connection)
+            admin_access, admin_refresh = AuthSecurity.authenticate(admin.id)
+            changed = {**definition.declaration, "version": "0.1.2"}
+            if trust_change == "publisher":
+                changed["publisher"] = "Changed publisher"
+            elif trust_change == "panel":
+                changed["panel"] = {**changed["panel"], "url": "https://new-panel.example.invalid"}
+            elif trust_change == "mcp_identity":
+                changed["mcp"] = {"identity": "changed-mcp-server", "tools": []}
+            else:
+                changed["trust"] = {key: [] for key in ("authentication_origins", "mcp_origins", "data_origins")}
+                changed["trust"][trust_change] = ["https://changed.example.invalid"]
+            payload = {"declaration": changed, "expected_revision": form["app_revision"]}
+            assert client.post("/settings/apps/registry", json=payload, headers=headers).status_code == 403
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, admin_refresh)
+            admin_headers = {"Authorization": f"Bearer {admin_access}"}
+            stale = client.post("/settings/apps/registry", json={**payload, "expected_revision": "0" * 64}, headers=admin_headers)
+            assert stale.status_code == 409
+            updated = client.post("/settings/apps/registry", json=payload, headers=admin_headers)
+            assert updated.status_code == 200, updated.text
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            assert client.post(path, json=form, headers=headers).status_code == 404
+            with DbSession.use(readonly=False) as db:
+                binding_now = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == panel_binding.id)).first()
+                connection_now = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == panel_connection.id)).first()
+                assert binding_now.state == "needs_attention" and binding_now.granted_capabilities == []
+                assert connection_now.state == "revoked"
+            renewed = client.put(
+                f"/board/{state[1][2].get_uid()}/settings/apps/github-panel/consent",
+                json={"app_revision": updated.json()["app"]["revision"], "binding_uid": binding_now.get_uid(),
+                      "expected_revision": binding_now.edit_revision(), "capabilities": ["panels.render", "signals.read"]},
+                headers=headers,
+            )
+            assert renewed.status_code == 200, renewed.text
+            form.update(app_revision=updated.json()["app"]["revision"], binding_revision=renewed.json()["revision"])
+            assert len(client.post(path, json=form, headers=headers).json()["items"]) == 1
+            with DbSession.use(readonly=False) as db:
+                assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == panel_connection.id)).first().state == "revoked"
             service.secret_reference.revoke(state[1][1], state[2].credential_reference, 0)
             assert client.post(path, json=form, headers=headers).json()["items"] == []
     finally:
