@@ -1039,7 +1039,7 @@ removes duplicate HTTP/authority boilerplate without merging the two server
 contracts. The iframe regression now exercises both `resources.list` and
 `signals.list`, including revision metadata.
 
-## Optional app-owned human interaction contract (implementation pending)
+## Optional app-owned human interaction contract
 
 An app-owned workflow card retains native card features. Users and user-delegated
 MCP clients use the existing comment, reaction, relationship, checklist, timer,
@@ -1070,8 +1070,13 @@ removal must not replay or reverse an already accepted response. Expired, cancel
 or revoked requests cannot resume an agent. Concurrent responses must yield one
 accepted outcome with an inspectable conflict for the others.
 
-SDK 0.2.16 implements validated app request create/read storage and revision-fenced app cancellation. Human response, delivery, UI and runtime continuation remain pending. Native
-LangGraph approval endpoints do not establish the external-app contract.
+SDK 0.2.19 provides validated app request create/read/cancel and response reception ACK.
+The host implements human responses, a signed response outbox, bounded delivery
+recovery, native card UI and explicit frozen workflow application. Local server
+and browser fixture tests cover these paths; deployed scheduling, authenticated
+canary acceptance and observed external runtime continuation remain pending.
+See [implementation and acceptance boundaries](app-human-interactions.md).
+Native LangGraph approval endpoints do not establish the external-app contract.
 
 ## Retained resource selection enumeration (SDK 0.2.13)
 
