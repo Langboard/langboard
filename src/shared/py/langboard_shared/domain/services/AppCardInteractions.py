@@ -122,6 +122,10 @@ def _receipt(row):
             )
         ).first()
         delivery = _response_delivery(db, answer) if answer else {}
+    return _project_receipt(row, answer, delivery)
+
+
+def _project_receipt(row, answer, delivery):
     return {
         "schema_version": 1,
         "interaction_uid": row.get_uid(),
@@ -144,6 +148,90 @@ def _receipt(row):
         "execution_resumed": False,
         **delivery,
     }
+
+
+def list_card_interactions(service, actor, project_id, card_id, *, limit=25, before=None, channel=None):
+    """Read retained requests using native card ACLs; never require an app credential.
+
+    Disconnecting an app prevents new execution, but does not erase card history.
+    Related response/delivery records are fetched once per page, not once per row.
+    """
+    from ...core.security.CollaborationChannel import CollaborationChannel
+    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
+    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
+
+    if type(limit) is not int or not 1 <= limit <= 25:
+        raise ValueError("Interaction page size must be between 1 and 25")
+    readable = (
+        service.card.resolve_readable_card(project_id, card_id, actor, channel or CollaborationChannel.Api)
+        if isinstance(actor, User)
+        else None
+    )
+    if readable is None:
+        raise AppGovernanceDenied()
+    with DbSession.use(readonly=False) as db:
+        if readable[0].owner_id != actor.id:
+            role = db.exec(
+                SqlBuilder.select.table(ProjectRole).where(
+                    ProjectRole.project_id == project_id, ProjectRole.user_id == actor.id
+                )
+            ).first()
+            if role is None or not role.is_granted("read"):
+                raise AppGovernanceDenied()
+        query = SqlBuilder.select.table(AppCardInteraction).where(
+            AppCardInteraction.project_id == project_id, AppCardInteraction.card_id == card_id
+        )
+        if before is not None:
+            query = query.where(AppCardInteraction.id < before)
+        rows = db.exec(query.order_by(AppCardInteraction.id.desc()).limit(limit + 1)).all()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        if not rows:
+            return {"items": [], "next_cursor": None}
+        answers = db.exec(
+            SqlBuilder.select.table(AppCardInteractionResponse).where(
+                AppCardInteractionResponse.interaction_id.in_([row.id for row in rows])
+            )
+        ).all()
+        by_interaction = {answer.interaction_id: answer for answer in answers}
+        events, acknowledgments = {}, {}
+        if answers:
+            answer_ids = [answer.id for answer in answers]
+            events = {
+                event.request_id: event
+                for event in db.exec(
+                    SqlBuilder.select.table(AppExecutionOutbox).where(
+                        AppExecutionOutbox.request_id.in_(answer_ids),
+                        AppExecutionOutbox.event_type == APP_INTERACTION_RESPONSE_EVENT,
+                    )
+                ).all()
+            }
+            if events:
+                acknowledgments = {
+                    ack.request_id: ack
+                    for ack in db.exec(
+                        SqlBuilder.select.table(AppExecutionAcknowledgment).where(
+                            AppExecutionAcknowledgment.request_id.in_(list(events))
+                        )
+                    ).all()
+                }
+        items = []
+        for row in rows:
+            answer = by_interaction.get(row.id)
+            event = events.get(answer.id) if answer else None
+            ack = acknowledgments.get(answer.id) if answer else None
+            delivery = (
+                {
+                    "event_uid": event.get_uid() if event else None,
+                    "delivery_state": event.state if event else "not_queued",
+                    "acknowledgment_uid": ack.get_uid() if ack else None,
+                    "reception_state": "received" if ack else "not_received",
+                }
+                if answer
+                else {}
+            )
+            items.append(_project_receipt(row, answer, delivery))
+        return {"items": items, "next_cursor": rows[-1].get_uid() if more else None}
 
 
 def create_app_card_interaction(token, project_id, card_id, body):
