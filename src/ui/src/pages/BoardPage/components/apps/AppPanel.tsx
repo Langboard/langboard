@@ -301,6 +301,7 @@ export default function AppPanel(props: Props) {
                                 userUID={props.userUID}
                                 canRespond
                                 panelContext={{ appKey: props.app.key, ...runtimeTarget }}
+                                onAuthorityDenied={denyPanel}
                             />
                         </Suspense>
                     </Dialog.Content>
