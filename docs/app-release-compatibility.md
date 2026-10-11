@@ -10,7 +10,7 @@ from this table. Update it when an artifact, declaration or migration changes.
 | --- | --- | --- |
 | Host API integration source | `878541385a6779591224acd7f75344267a042d54` | Public app creation to independent HITL exercised on PostgreSQL; not a deployed image |
 | API migration head | `d3c6fd51a7e9`, parent `c2b5ec40f6d8` | One Alembic head; archive sync defaults disabled, and archive/response history is durable. Active sync and stored history protect downgrade boundaries |
-| Python SDK | `0.2.26`, source `35e1301c27d9b2dca277d4ff0f67057ac4273bfe` | Reviewed wheel, both host Python projects pinned; `scripts/sdk/verify_python_artifact.py` passes. Adds explicit archive consent, authenticated provider outcome reports and current receipt reads |
+| Python SDK | `0.2.27`, source `05440591f1b3d03b9d4037f0b38d67a336012bc6` | Reviewed wheel, both host Python projects pinned; `scripts/sdk/verify_python_artifact.py` passes. Includes archive outcomes/reads and renewed signal consent on resource type changes |
 | Host panel SDK | `@langboard/app-panel@0.2.2`, source `2ad4ea3c5277393e52c5f5d3b1b8b6c59006ceed` | Vendored tarball and UI lockfile. Message protocol remains v1 |
 | Example Monitor | package `0.1.1`, source `5d4d312b2c8e709cfc455d0cfb65eafa47a8a832` | SDK `0.2.23`; baseline declaration schema 2, app version `1.0.0`, signals only. HITL/card creation require a separately approved definition and consent |
 
@@ -20,6 +20,7 @@ Exact reviewed artifact digests:
 | --- | --- |
 | Python SDK `0.2.23` wheel | `eab73a2ca2b1ec47946000cafddfe5ada484d86db44de89823c89cb4ecbb423e` |
 | Python SDK `0.2.26` wheel | `57e31b39c2bea7c09fddd47617e23726e9b472984d0ad856ee24d159f7e3be69` |
+| Python SDK `0.2.27` wheel | `afee6ebe8a8ef4426960c0d3cb5bca6f9be977cde10664385c2981d8dd06bd07` |
 | Panel SDK `0.2.2` tarball | `b63dda02bb181aa6ca8c19d8246bd977529a748f429d212d2bfbae937d9a58ea` |
 | Panel SDK `0.2.0` tarball used by existing apps | `6e232e4e055760a6dd30d1e07a86de491af60e36471d6da4705512d6aeb3661b` |
 | Example Monitor `0.1.1` wheel | `7ce265d8009f346263d3f157a8406d981da71b45b5dcd3dd6d1e4d2ac21b6cf9` |
@@ -31,16 +32,19 @@ schema, app version and database revision must not be treated as one version.
 
 ## Existing independent apps
 
-All three packages are `0.1.0`; their generated declaration app version is
-`0.1.1`, schema 1. They consume panel SDK `0.2.0` and declare only
-`panels.render` and `signals.read`. Their optional archive/action helpers do not
-enable card creation, HITL or provider writes through these declarations.
+All three packages are `0.1.0`; their default declaration is app version
+`0.1.1`, schema 1, with `panels.render` and `signals.read`. Explicit
+`--workflow-cards` selects app version `0.2.0`, schema 2, card creation/read and
+mandatory lifecycle policies in CLI and HTTP declarations. GitHub interactions
+are a separate optional profile. GitHub/GlitchTip server helpers consume
+`@langboard/app-server@0.1.0`; Dokploy retention requests no external action.
+All three retain panel SDK `0.2.0`.
 
 | App | Reviewed source | Native external resource | Fresh source test result |
 | --- | --- | --- | --- |
-| GitHub Panel | `9e11149e6918b3cb999af426838253ec1ec2d248` | `repository` | 10 passed |
-| GlitchTip Panel | `a5df1045f789f2df764c225690bcc74832752385` | `project` | 7 passed |
-| Dokploy Panel | `fecf530be508cab99322d5f6f67708789a961f7d` | `application`, `compose` | 5 passed |
+| GitHub Panel | `98ebc3ed23c776f3da772670446846d3423e6587` | `repository` | 16 passed |
+| GlitchTip Panel | `f0c43017c0cc8e7af50e4008b526e0078b28bc8a` | `project` | 13 passed |
+| Dokploy Panel | `d0766448164b31636610d8e01f207fa7ad8c1dfb` | `application`, `compose` | 7 passed |
 
 These local tests cover static service/manifest, host widget rendering, signal
 requests, cancellation and optional adapter behavior. They do not prove the
@@ -100,3 +104,5 @@ public repository. The host uses generic runner configuration. A missing runner
 or product release workflow remains an explicit delivery blocker.
 
 The installed SDK 0.2.26 archive API subset passed 13 PostgreSQL cases, including receipt reads after unknown and applied reports and rejection after consent withdrawal. The full 117/25 gate above records the preceding 0.2.25 run; it has not been rerun for 0.2.26.
+
+Installed SDK 0.2.27 panel signal scope subset: 14 authenticated HTTP cases on SQLite/PostgreSQL, including resource-type filtering, scoped cursor rejection and renewed consent on resource scope expansion. SDK standalone: 82 tests. Artifact verifier: 7 tests. Earlier full-gate results remain historical until rerun.
