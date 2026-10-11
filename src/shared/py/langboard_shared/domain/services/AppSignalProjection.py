@@ -82,26 +82,28 @@ def signal_resource_conditions(*, app_key="github", resource_type="repository", 
     )
 
 
-def supported_signal_condition():
-    from .AppManifest import APP_MANIFESTS
+def supported_signal_condition(manifests=None):
+    from .AppRegistry import approved_manifests
 
     predicates = []
-    for manifest in APP_MANIFESTS.values():
+    for manifest in (approved_manifests() if manifests is None else manifests).values():
         policy = manifest.signal_policy
         if policy is None:
             continue
         conditions = [AppSignal.provider == manifest.key, AppSignal.event_type.in_(policy.event_types)]
         if policy.requires_empty_commit:
             conditions.append(AppSignal.commit_sha == "")
+        if policy.requires_commit:
+            conditions.append(AppSignal.commit_sha != "")
         predicates.append(and_(*conditions))
     return or_(False, *predicates)
 
 
-def provider_resource_condition():
-    from .AppManifest import APP_MANIFESTS
+def provider_resource_condition(manifests=None):
+    from .AppRegistry import approved_manifests
 
     predicates = []
-    for manifest in APP_MANIFESTS.values():
+    for manifest in (approved_manifests() if manifests is None else manifests).values():
         policy = manifest.signal_policy
         if policy is None:
             continue
@@ -211,10 +213,11 @@ def authorized_signal_rows(db, rows):
 
 def card_signal_projections(cards):
     """Caller supplies its authorized card batch; current consumer authority is checked on primary."""
-    from .AppManifest import APP_MANIFESTS
+    from .AppRegistry import approved_manifests
 
     if not cards:
         return {}
+    manifests = approved_manifests()
     card_ids = [card.id for card in cards]
     with DbSession.use(readonly=False) as db:
         rows = db.exec(
@@ -237,7 +240,7 @@ def card_signal_projections(cards):
             .where(
                 Card.id.in_(card_ids),
                 Card.deleted_at.is_(None),
-                provider_resource_condition(),
+                provider_resource_condition(manifests),
                 BoardAppBinding.project_id == Card.project_id,
                 CardAppSignalBinding.is_enabled == True,  # noqa: E712
             )
@@ -251,7 +254,7 @@ def card_signal_projections(cards):
             return {}
         matching = and_(
             AppSignal.resource_id == CardAppSignalBinding.resource_id,
-            supported_signal_condition(),
+            supported_signal_condition(manifests),
             AppSignal.provider == AppConnection.app_key,
             AppSignal.external_id == CardAppSignalBinding.external_id,
             AppSignal.commit_sha == CardAppSignalBinding.commit_sha,
@@ -290,13 +293,13 @@ def card_signal_projections(cards):
     current_revisions = {binding.card_id: revision for binding, _, revision, _ in rows}
     resources = {binding.id: (connection.app_key, resource) for binding, connection, _, resource in rows}
     outcome_states = {
-        provider: dict(APP_MANIFESTS[provider].signal_policy.outcome_states)
+        provider: dict(manifests[provider].signal_policy.outcome_states)
         for provider, _ in resources.values()
     }
     result = {}
     for binding in eligible:
         provider, resource = resources[binding.id]
-        policy = APP_MANIFESTS[provider].signal_policy
+        policy = manifests[provider].signal_policy
         proof = by_binding.get(binding.id)
         state = "stale" if binding.source_change_seq != current_revisions[binding.card_id] else "unavailable"
         outcome = None

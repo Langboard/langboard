@@ -7,7 +7,7 @@ from langboard_sdk.workflow import WorkflowRequirements
 from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
 from ..models import AppConnection, AppDefinition, BoardAppBinding, User
-from .AppManifest import APP_MANIFESTS, AppManifest
+from .AppManifest import APP_MANIFESTS, AppManifest, AppSignalPolicy
 
 
 class AppRegistryConflict(Exception):
@@ -134,8 +134,16 @@ def approved_manifests(*, retained_keys=()):
             item = validate_app_definition(row.declaration)
             workflow = item.get("workflow_requirements")
             requirements = WorkflowRequirements(tuple(workflow["required"]), tuple(workflow["optional"])) if workflow else None
+            declared_policy = item.get("signal_policy")
+            policy = None if declared_policy is None else AppSignalPolicy(
+                event_types=tuple(declared_policy["event_types"]), resource_types=tuple(declared_policy["resource_types"]),
+                requires_empty_commit=declared_policy["commit_mode"] == "empty",
+                requires_commit=declared_policy["commit_mode"] == "required",
+                time_basis=declared_policy["time_basis"], evidence_kind="external_observation",
+                outcome_states=tuple(declared_policy["outcome_states"].items()),
+            )
             result[row.key] = AppManifest(row.key, item["name"], tuple(item["resource_types"]), tuple(item["capabilities"]) if row.is_enabled else (), requirements,
-                version=item["version"], description=item["description"], panel=item.get("panel"))
+                version=item["version"], description=item["description"], panel=item.get("panel"), signal_policy=policy)
     return result
 
 def set_board_consent(service, actor, project_uid, app_key, app_revision, binding_uid, expected_revision, capabilities):
