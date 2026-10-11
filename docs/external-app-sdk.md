@@ -1259,6 +1259,8 @@ The independent [example-monitor app](https://github.com/yamonco/langboard-app-e
 uses only public SDK/API contracts. Host regression consumes its built wheel
 rather than copying its implementation. The package participates in real HTTP
 board consent, resource selection and signed publication on SQLite/PostgreSQL.
-Registration and connection helpers exist, but their complete package-driven
-installation flow is not yet exercised. No app-owned card or workflow transition
+The built package now drives administrator registration, native connection
+creation, credential issuance and two-board consent/resource selection through
+user-authenticated HTTP. Host/SDK production code needed no provider-specific
+changes for this app. Database readback checks scope and retained evidence. No app-owned card or workflow transition
 is implicitly created. Test artifact provenance is retained beside the wheel.
