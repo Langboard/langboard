@@ -12,6 +12,10 @@ from ..models import (
     AppResourceBinding,
     BoardAppBinding,
     Card,
+    CardAppOwnership,
+    CardAppOwnershipAudit,
+    CardAppResourceSelection,
+    CardAppResourceSelectionAudit,
     ExternalImportRecord,
     Project,
     ProjectColumn,
@@ -145,6 +149,12 @@ def create_app_card(token, project_id, resource_id, external_id, title, *, descr
             if result is None:
                 raise AppGovernanceDenied()
             card, payload = result
+            # App credentials already passed current board/resource grants.
+            # Preserve that identity instead of creating an orphan native card.
+            db.insert(CardAppOwnership(card_id=card.id, app_key=principal.app_key))
+            db.insert(CardAppOwnershipAudit(card_id=card.id, actor_id=actor.id, previous_app_key=None, app_key=principal.app_key, revision=1))
+            db.insert(CardAppResourceSelection(card_id=card.id, app_key=principal.app_key, connection_id=connection.id, resource_uids=[resource.get_uid()]))
+            db.insert(CardAppResourceSelectionAudit(card_id=card.id, actor_id=actor.id, app_key=principal.app_key, connection_id=connection.id, resource_uids=[resource.get_uid()], revision=1))
             if card.visibility == "PRIVATE":
                 card.visibility = "INTERNAL"
                 card.owner_user_id = None
