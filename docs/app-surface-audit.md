@@ -54,3 +54,24 @@ require their own durable ownership and selected resources.
 These are local contract/database checks. They do not prove deployed provider
 onboarding, authenticated browser acceptance, module consolidation, migration or
 production rollout.
+
+## Panel-only withdrawal
+
+Closing a panel removes only `panels.render`. Independently granted
+`signals.read`, `signals.publish`, card capabilities and workflow settings remain
+unchanged. Panel HTTP still rejects reads because rendering consent is required
+for that bridge. An explicitly granted native inbox or publisher keeps its own
+current authority. Full app disablement and explicit capability withdrawal remain
+the ways to stop those functions.
+
+Enabling/reviewing a panel with its signal-read checkbox cleared explicitly
+withdraws `signals.read`; checked consent still requires declared sources.
+Every change updates the binding revision. Old publisher envelopes fail with 409,
+and editing a persisted envelope's revision cannot turn it into a valid replay.
+A new provider event uses the current revision. Existing receipts remain stored;
+the inbox projects current evidence rather than one row per receipt.
+
+The registry HTTP tests cover close, denial at the panel bridge and explicit
+signal withdrawal on SQLite and PostgreSQL. The three-service publication tests
+also cover panel-only close, preserved native inbox reads, rejection of stale or
+modified replay envelopes, new signed event acceptance and credential revocation.
