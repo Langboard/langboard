@@ -3,6 +3,40 @@ from langboard_graph.core.graph.default.privacy import redact_graph_credentials
 from langboard_graph.core.graph.default.tooling import create_langboard_context_prompt, create_langboard_event_input
 
 
+@pytest.mark.parametrize("delta", [False, True])
+@pytest.mark.parametrize("summary", [False, True])
+def test_deleted_card_comment_history_does_not_expose_body(monkeypatch, delta, summary):
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_graph.core.graph.default import history
+
+    now = SafeDateTime.now()
+    comment = SimpleNamespace(
+        id=1,
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=1),
+        deleted_at=now,
+        content=SimpleNamespace(content="deleted secret body"),
+        get_uid=lambda: "deleted-comment",
+    )
+    message = history.normalize_card_comment(comment)
+    assert message["change_type"] == "deleted"
+    assert message["content"] is None
+    assert message["updated_at"] == now.isoformat()
+    monkeypatch.setattr(history, "collect_langboard_history_messages", lambda tweaks, config: [message])
+    state = {"last_history_sync_at": (now - timedelta(hours=1)).isoformat()} if delta else {}
+    prompt = history.create_langboard_history_context_prompt(
+        {"Graph": {"history_summary_enabled": summary}},
+        state,
+    )
+    assert "deleted secret body" not in str(state)
+    assert "deleted secret body" not in prompt
+    assert "deleted-comment" in str(state)
+    if delta:
+        assert state["history_delta"]["deleted"] == [message]
+
+
 def test_nested_credentials_are_redacted_without_mutating_authority_input():
     secret = "fixture-secret-not-real"
     state = {

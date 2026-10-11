@@ -276,6 +276,7 @@ def test_activity_scope_always_requires_matching_board(history_db, scope, monkey
         "wrong_board",
         "nonmember",
         "deleted_user",
+        "deleted_comment",
         "bot",
         "member_read",
         "member_all",
@@ -323,6 +324,9 @@ def test_comment_history_reuses_current_card_visibility(history_db, case, monkey
                     else ["card_write"],
                 )
             )
+        if case == "deleted_comment":
+            db.flush()
+            db.execute(update(CardComment).where(CardComment.id == 60).values(deleted_at=SafeDateTime.now()))
         if case == "deleted_user":
             db.execute(update(User).where(User.id == 1).values(deleted_at=SafeDateTime.now()))
         db.commit()
@@ -349,8 +353,15 @@ def test_comment_history_reuses_current_card_visibility(history_db, case, monkey
             db.commit()
     result = collect_card_comment_messages({"card_uid": SnowflakeID(50).to_short_code()}, 20, variables)
     assert [item["content"] for item in result] == (
-        ["Scoped comment"] if case in {"shared", "internal", "member_read", "member_all"} else []
+        ["Scoped comment"]
+        if case in {"shared", "internal", "member_read", "member_all"}
+        else [None]
+        if case == "deleted_comment"
+        else []
     )
+    if case == "deleted_comment":
+        assert result[0]["change_type"] == "deleted"
+        assert result[0]["msg_id"] == "card_comment:" + SnowflakeID(60).to_short_code()
 
 
 @pytest.mark.parametrize(
