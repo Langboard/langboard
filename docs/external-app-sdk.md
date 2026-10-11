@@ -1120,9 +1120,15 @@ routes are fixtures, not a deployed account or provider-data acceptance proof.
 
 A stored-signal regression also ingests a signed GitHub event and reads its real
 database evidence through authenticated panel HTTP on SQLite and PostgreSQL.
-Undeclared providers are rejected even with a known signal cursor. Deselecting
-the resource or revoking its SecretRef removes the signal from subsequent reads;
+The same database contains a GlitchTip status observation produced by the native
+normalizer. Both providers are readable in the inbox, but a GitHub-only panel
+rejects GlitchTip. A fixture-approved two-source declaration returns each source
+separately and rejects cross-provider cursors. The approval and renewed-consent
+lifecycle is exercised separately by the registry HTTP tests. Removing panel
+read consent or disabling its definition rejects subsequent reads; revoking only
+the GlitchTip connection hides its observation while GitHub remains readable.
+Deselecting the GitHub resource or revoking its SecretRef removes its signal;
 a cursor for a deselected resource is rejected. External provider HTTP remains a
-fixture. This does not establish multi-provider data isolation or live deployment
-acceptance. The shared secret fixture now reuses the actual Organization table
+fixture; GlitchTip observation storage is seeded, not fetched from a live provider.
+This does not establish live deployment acceptance. The shared secret fixture now reuses the actual Organization table
 instead of rebuilding columns from the former placeholder.

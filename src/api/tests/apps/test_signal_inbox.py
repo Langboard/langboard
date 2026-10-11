@@ -500,21 +500,33 @@ def test_dokploy_registry_override_hides_stored_deployments(dokploy_inbox, chang
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped, monkeypatch):
     import importlib
+    from datetime import datetime, timezone
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+    from langboard.apps.GlitchTipSignal import normalize_issue
     from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
     from langboard.routes.board.AppPanelDataApi import read_panel_signals
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.domain.models import AppDefinition, BoardAppBinding
+    from langboard_shared.domain.models import (
+        AppConnection,
+        AppDefinition,
+        AppResourceBinding,
+        AppSignal,
+        BoardAppBinding,
+    )
     from langboard_shared.Env import Env
+    from pydantic import SecretStr
 
     state, card, linked, _ = scoped
     service = state[0]
     domain = DomainService()
     service.card = domain.card
     service.close = lambda: None
+    reference = service.secret_reference.create(
+        state[1][1], "personal", "me", "panel/glitchtip", SecretStr("fixture-panel-token")
+    )
     with DbSession.atomic() as db:
         linked.is_enabled = False
         db.update(linked)
@@ -528,6 +540,29 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
         panel_binding = BoardAppBinding(project_id=card.project_id, app_key="github-panel", state="enabled",
             granted_capabilities=["panels.render", "signals.read"])
         db.insert(panel_binding)
+        other_connection = AppConnection(
+            app_key="glitchtip", owner_id=state[1][1].id, state="connected",
+            credential_reference=reference["uri"], instance_url="https://errors.example.invalid",
+        )
+        db.insert(other_connection)
+        other_binding = BoardAppBinding(
+            project_id=card.project_id, app_key="glitchtip", state="enabled",
+            granted_capabilities=["resources.read", "signals.read"],
+        )
+        db.insert(other_binding)
+        other_resource = AppResourceBinding(
+            board_binding_id=other_binding.id, connection_id=other_connection.id,
+            resource_type="project", external_resource_id="2", access_state="granted",
+            resource_path=[{"type": "organization", "id": "test-org"},
+                           {"type": "project", "id": "2", "slug": "test-project"}],
+        )
+        db.insert(other_resource)
+        observed = normalize_issue({
+            "id": "10", "project": {"id": "2", "slug": "test-project"}, "status": "unresolved",
+            "firstSeen": "2026-10-08T00:00:00Z", "lastSeen": "2026-10-08T00:01:00Z",
+        }, "2", "test-project", datetime(2026, 10, 9, tzinfo=timezone.utc))
+        other_signal = AppSignal(resource_id=other_resource.id, event_id="fixture-observation", **observed)
+        db.insert(other_signal)
     send(state)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     monkeypatch.setattr(importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service)
@@ -547,6 +582,8 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             access, refresh = AuthSecurity.authenticate(state[1][1].id)
             client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             headers = {"Authorization": f"Bearer {access}"}
+            visible = list_board_signals(service, state[1][1], state[1][2].get_uid())
+            assert {item["provider"] for item in visible["items"]} == {"github", "glitchtip"}
             result = client.post(path, json=form, headers=headers)
             assert result.status_code == 200, result.text
             items = result.json()["items"]
@@ -555,6 +592,37 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             for provider in ("glitchtip", "dokploy"):
                 denied = client.post(path, json={**form, "provider": provider, "after": items[0]["signal_uid"]}, headers=headers)
                 assert denied.status_code == 404 and "items" not in denied.json()
+            assert client.post(path, json={**form, "provider": "glitchtip"}, headers=headers).status_code == 404
+            with DbSession.atomic() as db:
+                definition.declaration = {**definition.declaration, "signal_sources": ["github", "glitchtip"]}
+                db.update(definition)
+            assert client.post(path, json=form, headers=headers).status_code == 409
+            form["app_revision"] = definition.edit_revision()
+            other_result = client.post(path, json={**form, "provider": "glitchtip"}, headers=headers)
+            assert other_result.status_code == 200, other_result.text
+            assert [item["signal_uid"] for item in other_result.json()["items"]] == [other_signal.get_uid()]
+            assert client.post(path, json={**form, "after": other_signal.get_uid()}, headers=headers).status_code == 400
+            with DbSession.atomic() as db:
+                panel_binding.granted_capabilities = ["panels.render"]
+                db.update(panel_binding)
+            assert client.post(path, json=form, headers=headers).status_code == 404
+            with DbSession.atomic() as db:
+                panel_binding.granted_capabilities = ["panels.render", "signals.read"]
+                db.update(panel_binding)
+            form["binding_revision"] = panel_binding.edit_revision()
+            with DbSession.atomic() as db:
+                other_connection.state = "revoked"
+                db.update(other_connection)
+            assert client.post(path, json={**form, "provider": "glitchtip"}, headers=headers).json()["items"] == []
+            assert len(client.post(path, json=form, headers=headers).json()["items"]) == 1
+            with DbSession.atomic() as db:
+                definition.is_enabled = False
+                db.update(definition)
+            assert client.post(path, json=form, headers=headers).status_code == 404
+            with DbSession.atomic() as db:
+                definition.is_enabled = True
+                db.update(definition)
+            form["app_revision"] = definition.edit_revision()
             with DbSession.atomic() as db:
                 state[4].is_selected = False
                 db.update(state[4])
