@@ -146,7 +146,7 @@ def read_card_attachment(
 
 
 @McpTool.add(
-    "user", description="Read one bounded transcription excerpt without embeddings; continue by offset and generation."
+    "user", description="Read a bounded transcription or Docling source page without embeddings; continue by page, offset and generation."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def read_card_document(
@@ -158,10 +158,13 @@ def read_card_document(
     offset: Annotated[int, Field(ge=0)] = 0,
     max_chars: Annotated[int, Field(ge=128, le=8000)] = 4000,
     expected_generation: str | None = None,
+    page: Annotated[int | None, Field(ge=1)] = None,
 ) -> dict:
     """Recheck current permissions and live ancestry before loading document content."""
     if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 128 <= max_chars <= 8000:
         raise ValueError("Invalid document excerpt bounds")
+    if page is not None and (type(page) is not int or page < 1):
+        raise ValueError("Invalid document source page")
     _, card, attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     source_file, source_name = attachment.file, attachment.filename
     document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
@@ -185,9 +188,37 @@ def read_card_document(
     if document.get("status") != "indexed":
         return {**result, "content": "", "next_offset": None}
     text = (document.get("content") or {}).get("markdown", "")
+    if page is not None:
+        from docling_core.types.doc import DoclingDocument
+
+        structure = service.docling_metadata.get_structural_document(
+            card, attachment_uid, generation=generation, content_hash=document.get("content_hash")
+        )
+        if structure is None:
+            raise ValueError("Document source pages unavailable")
+        try:
+            source = DoclingDocument.model_validate(structure)
+            if page not in source.pages:
+                raise ValueError("Missing source page")
+            text = source.export_to_markdown(page_no=page, traverse_pictures=True)
+        except Exception:
+            raise ValueError("Document source page unavailable") from None
     if not isinstance(text, str) or offset > len(text):
         raise ValueError("Document excerpt unavailable")
     end = min(offset + max_chars, len(text))
+    # Serialization can outlive permission or generation changes. Recheck before
+    # returning either a full-document excerpt or a page-specific excerpt.
+    _, _, final_attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
+    latest = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
+    if (
+        final_attachment.file != source_file
+        or final_attachment.filename != source_name
+        or not latest
+        or latest.get("status") != "indexed"
+        or latest.get("generation") != generation
+        or latest.get("content_hash") != document.get("content_hash")
+    ):
+        raise ValueError("Document generation changed; restart reading")
     return {
         **result,
         "content": text[offset:end],
@@ -195,6 +226,7 @@ def read_card_document(
         "next_offset": end if end < len(text) else None,
         "total_chars": len(text),
         "content_format": "markdown",
+        **({"page": page} if page is not None else {}),
     }
 
 
