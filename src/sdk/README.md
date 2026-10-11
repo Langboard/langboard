@@ -1,6 +1,6 @@
 # Independently versioned SDK consumption
 
-The current host snapshot consumes Python SDK 0.2.28, adding user-authorized
+The current host snapshot consumes Python SDK 0.2.29, adding user-authorized
 `AppManager.set_archive_sync` and connection-authenticated
 `AppCards.report_archive_outcome` plus `AppCards.read_archive_outcome` for ambiguous report reconciliation. The PostgreSQL public HTTP archive tests
 exercise the installed wheel through `HttpTransport`, including explicit consent,
@@ -18,7 +18,7 @@ not contain credentials, execution grants or runtime authority. Recheck the
 execution authority separately before starting work; compare content revisions
 when assembling more than one page. Withdrawn HITL consent does not revoke an
 independently retained read grant. Both Python manifests and locks consume the
-same reviewed 0.2.28 wheel.
+same reviewed 0.2.29 wheel.
 
 SDK source and package tests live in [langboard-sdk](https://github.com/yamonco/langboard-sdk).
 This host consumes the same reviewed npm tarball and Python wheel as external apps.
@@ -167,3 +167,7 @@ publication or deployed acceptance.
 Python SDK 0.2.28 adds explicit administrator App Store composition management and
 board-scoped atomic group withdrawal. Grouping grants no authority; compatible
 host discovery/migration and current revisions are required.
+
+Python SDK 0.2.29 validates native signal publication receipts. Missing or
+malformed signal_uid/duplicate fields raise MutationOutcomeUnknown, preserving
+the caller-owned envelope for reconciliation without automatic retry.
