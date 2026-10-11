@@ -238,3 +238,90 @@ def test_panel_runtime_http_pins_app_and_current_human_authority(board, monkeypa
             binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "execution.run"]
             db.update(binding)
         assert client.post(path + "/runtimes", json=body, headers=headers).status_code == 404
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board, monkeypatch):
+    from langboard_shared.domain.models import (
+        CardAssignedProjectLabel,
+        CardAssignedUser,
+        ProjectExecutionBinding,
+        WebhookSetting,
+    )
+    from langboard_shared.domain.services.AppExecutionControl import (
+        request_human_runtime_resume,
+        request_human_runtime_stop,
+    )
+    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
+    from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+    from langboard_shared.tasks.webhooks import ExecutionOutboxTask
+    from langboard_shared.tasks.webhooks.ExecutionReadinessUow import WORK_EVENT, current_execution
+    from sqlalchemy import text
+
+    connection, card, token, request, ack_id = permit_scope(board, monkeypatch)
+    engine = DbEngine.get_main_engine()
+    EmployeeMembershipPolicy.__table__.create(engine)
+    tables = set()
+    def include(table):
+        if table in tables:
+            return
+        tables.add(table)
+        for fk in table.foreign_keys:
+            include(fk.column.table)
+    for model in (CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding):
+        include(model.__table__)
+    ProjectExecutionBinding.metadata.create_all(engine, tables=list(tables), checkfirst=True)
+    with engine.begin() as db:
+        db.execute(text("CREATE TABLE execution_outbox (id uuid PRIMARY KEY, project_id bigint NOT NULL, card_id bigint NOT NULL, execution_generation integer NOT NULL, occurred_at timestamptz NOT NULL, event_type text NOT NULL, payload_json jsonb, state text NOT NULL DEFAULT 'pending', UNIQUE(card_id, execution_generation))"))
+        db.execute(WebhookSetting.__table__.insert(), WebhookSetting(id=1, name="Test webhook", secret_id="test-secret", url="https://example.invalid/hook", events=[WORK_EVENT]).model_dump())
+        db.execute(text("UPDATE global_card_relationship_type SET machine_semantic='blocks', is_active=true"))
+        # No relationship row is needed, but the readiness registry must be explicit.
+        if not db.execute(text("SELECT id FROM global_card_relationship_type")).first():
+            from langboard_shared.domain.models import GlobalCardRelationshipType
+            db.execute(GlobalCardRelationshipType.__table__.insert(), GlobalCardRelationshipType(id=999, parent_name="Blocks", child_name="Blocked by", machine_semantic="blocks").model_dump())
+        type_id = db.execute(text("SELECT id FROM global_card_relationship_type LIMIT 1")).scalar_one()
+    with DbSession.atomic() as db:
+        db.insert(ProjectExecutionBinding(project_id=board[2].id, is_enabled=True,
+            column_semantic_ids={str(int(card.project_column_id)): "ready"},
+            prerequisite_relationship_type_id=type_id, webhook_id=1, webhook_uid="test-hook", events=[WORK_EVENT]))
+    enqueued = []
+    monkeypatch.setattr(ExecutionOutboxTask, "execution_outbox_task", enqueued.append)
+    runtime_token = token_hex(32)
+    permit = authorize_app_runtime(token, board[2].id, card.id, request.id, ack_id, runtime_token)
+    service = DomainService()
+    args = (service, board[1], board[2].id, card.id, request.id, request.generation)
+    request_human_runtime_stop(*args)
+    observed = current_execution(card.id)
+    choice = {"new_run": True, "expected_generation": observed.generation, "expected_revision": observed.revision}
+    with pytest.raises(AppExecutionRequestConflict):
+        request_human_runtime_resume(*args, **choice)
+    from langboard_shared.core.types import SnowflakeID
+    assert check_app_runtime(SnowflakeID.from_short_code(permit['lease_uid']), runtime_token, stopped=True)["state"] == "stopped"
+    with DbSession.atomic() as db:
+        from langboard_shared.domain.models import BoardAppBinding
+        binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == request.app_key)).first()
+        capabilities = list(binding.granted_capabilities)
+        binding.granted_capabilities = [c for c in capabilities if c != "execution.run"]
+        db.update(binding)
+    with pytest.raises(AppGovernanceDenied):
+        request_human_runtime_resume(*args, **choice)
+    assert current_execution(card.id).generation == observed.generation
+    assert not enqueued
+    with DbSession.atomic() as db:
+        binding.granted_capabilities = capabilities
+        db.update(binding)
+    result = request_human_runtime_resume(*args, **choice)
+    assert result["state"] == "new_run_requested" and result["generation"] == observed.generation + 1
+    assert result["started"] is False and result["execution_resumed"] is False
+    assert len(enqueued) == 1
+    replay = request_human_runtime_resume(*args, **choice)
+    assert replay["request_uid"] == result["request_uid"] and replay["changed"] is False
+    assert len(enqueued) == 1
+    with pytest.raises(AppExecutionRequestConflict):
+        request_human_runtime_resume(*args)
+    with engine.connect() as db:
+        assert db.execute(text("SELECT COUNT(*) FROM execution_outbox")).scalar_one() == 1
+    with DbSession.use(readonly=False) as db:
+        retained = db.exec(SqlBuilder.select.table(AppExecutionLease).where(AppExecutionLease.request_id == request.id)).first()
+        assert retained.state == "stopped"
+        assert len([entry for entry in retained.history if entry.get("action") == "new_run_requested"]) == 1

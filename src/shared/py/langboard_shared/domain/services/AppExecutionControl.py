@@ -117,8 +117,8 @@ def _human_control_scope(db, service, actor, project_id, card_id, channel):
     return current
 
 
-def request_human_runtime_resume(service, actor, project_id, card_id, request_id, generation, channel=None, *, app_key=None):
-    """Accept a newer producer-issued ready generation; never reopen a stopped lease."""
+def request_human_runtime_resume(service, actor, project_id, card_id, request_id, generation, channel=None, *, app_key=None, new_run=False, expected_generation=None, expected_revision=None):
+    """Explicit human choice; retain old leases and reuse the readiness producer."""
     from .AppExecutionGrant import evaluate_connection_execution_grant
     from .AppExecutionRequests import accept_authorized_execution_request
     from .ExecutionGeneration import execution_generations
@@ -128,6 +128,12 @@ def request_human_runtime_resume(service, actor, project_id, card_id, request_id
     if not isinstance(actor, User):
         raise AppGovernanceDenied()
     with DbSession.atomic() as db:
+        producer = None
+        if new_run:
+            from ...tasks.webhooks.ExecutionReadinessUow import ExecutionReadinessUow
+            producer = ExecutionReadinessUow(db)
+            # Same producer lock before native card/lease locks.
+            producer.watch([card_id])
         current = _human_control_scope(db, service, actor, project_id, card_id, channel)
         request = db.exec(SqlBuilder.select.table(AppExecutionRequest).where(
             AppExecutionRequest.id == request_id, AppExecutionRequest.project_id == project_id,
@@ -142,10 +148,28 @@ def request_human_runtime_resume(service, actor, project_id, card_id, request_id
             AppExecutionLease.request_id == request.id
         ).with_for_update()).first()
         latest = execution_generations([card_id]).get(card_id, 0)
-        if lease is None or lease.state != "stopped" or latest <= generation:
+        if lease is None or lease.state != "stopped":
             raise AppExecutionRequestConflict()
-        prior = next((entry for entry in lease.history if entry.get("action") == "resume_requested"), None)
-        if prior is not None and prior.get("generation") != latest:
+        action = "new_run_requested" if new_run else "resume_requested"
+        prior = next((entry for entry in lease.history if entry.get("action") in ("resume_requested", "new_run_requested")), None)
+        if prior is not None and (prior.get("action") != action or prior.get("generation") != latest):
+            raise AppExecutionRequestConflict()
+        if new_run:
+            if type(expected_generation) is not int or expected_generation < 1 or expected_revision is None:
+                raise ValueError("Observed generation and card revision required")
+            if prior is not None:
+                if prior.get("source_generation") != expected_generation or prior.get("source_revision") != expected_revision.isoformat():
+                    raise AppExecutionRequestConflict()
+            else:
+                if latest != generation or expected_generation != latest:
+                    raise AppExecutionRequestConflict()
+                try:
+                    producer.request_new_run(card_id, expected_generation, expected_revision)
+                except ValueError:
+                    raise AppExecutionRequestConflict() from None
+                producer.finish()
+                latest = execution_generations([card_id]).get(card_id, 0)
+        elif latest <= generation:
             raise AppExecutionRequestConflict()
         existing = db.exec(SqlBuilder.select.table(AppExecutionRequest).where(
             AppExecutionRequest.card_id == card_id, AppExecutionRequest.generation == latest
@@ -159,8 +183,9 @@ def request_human_runtime_resume(service, actor, project_id, card_id, request_id
             raise AppGovernanceDenied()
         result = accept_authorized_execution_request(db, authority, project_id, card_id, latest)
         if result["changed"]:
-            lease.history = [*lease.history, {"state": "stopped", "action": "resume_requested",
+            lease.history = [*lease.history, {"state": "stopped", "action": action,
                 "at": SafeDateTime.now().isoformat(), "actor_uid": current.get_uid(),
-                "request_uid": result["request_uid"], "generation": latest}]
+                "request_uid": result["request_uid"], "generation": latest,
+                **({"source_generation": expected_generation, "source_revision": expected_revision.isoformat()} if new_run else {})}]
             db.update(lease)
-        return {**result, "state": "resume_requested", "execution_resumed": False}
+        return {**result, "state": action, "execution_resumed": False}
