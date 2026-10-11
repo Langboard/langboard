@@ -212,3 +212,13 @@ Run `node_modules/.bin/playwright test -c playwright.collaborative-draft.config.
 from `src/ui`, with the UI and socket workspace dependencies installed. The
 transport-only fixture replaces authentication; production authentication,
 multiple-user collaboration and deployed acceptance remain separate gates.
+### Official release failure handling
+
+Official installation validates the bounded GitHub release response before
+downloading an asset: valid JSON object, an asset list of objects, stable release
+identity, positive integer asset ID/size, and a SHA256 digest string are required.
+Malformed responses are reported as bad requests through the existing registry
+error boundary and do not create an app definition. The package suite passes
+30 cases, and the authenticated package HTTP suite passes four SQLite/PostgreSQL
+cases, including malformed-response rejection and existing install/update/disable
+behavior. These local checks do not replace deployed installation acceptance.
