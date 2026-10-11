@@ -224,7 +224,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
                             bot: result.bot,
                             projectUID: project.uid,
                         });
-                        setChatResizableSidebar(() => ({
+                        setChatResizableSidebar((prev) => ({
                             children: (
                                 <Suspense>
                                     <ChatSidebar ref={chatSidebarRef} />
@@ -236,7 +236,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
                             floatingTitle: t("project.Chat with AI"),
                             floatingFullScreen: true,
                             widthCssVariable: "--board-chat-sidebar-width",
-                            hidden: window.innerWidth < ScreenMap.size.md || getBoardChatStore().isChatHidden(project.uid),
+                            hidden: window.innerWidth < ScreenMap.size.md ? (prev?.hidden ?? true) : getBoardChatStore().isChatHidden(project.uid),
                         }));
                     } else {
                         setBoardChat(undefined);
@@ -455,7 +455,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
 
     useEffect(() => {
         setChatResizableSidebar((prev) => {
-            if (!prev || !boardChat) {
+            if (!prev) {
                 return prev;
             }
 
@@ -464,7 +464,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, project }: IBoardProxyDispla
                 hidden: isMobile ? true : getBoardChatStore().isChatHidden(project.uid),
             };
         });
-    }, [boardChat, isMobile, project, setChatResizableSidebar]);
+    }, [isMobile, project, setChatResizableSidebar]);
 
     const headerNavs: IHeaderNavItem[] = [
         {

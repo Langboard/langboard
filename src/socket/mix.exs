@@ -60,7 +60,6 @@ defmodule LangboardSocket.MixProject do
       {:broadway_kafka, "~> 0.6.1"},
       {:brod, "~> 4.6.3"},
       {:castore, "~> 1.0"},
-      {:redix, "~> 1.9"},
       {:opentelemetry_broadway, "~> 0.3.0"},
       {:y_ex, "~> 0.11.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

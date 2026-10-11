@@ -49,7 +49,6 @@ defmodule LangboardSocketWeb.Telemetry do
         unit: {:native, :millisecond}
       ),
       counter("langboard_socket.kafka.message.count", tags: [:result, :topic]),
-      counter("langboard_socket.kafka.legacy_fallback.count", tags: [:result]),
       counter("langboard_socket.kafka.processing_retry.count", tags: [:operation]),
       counter("langboard_socket.kafka.dead_letter.count", tags: [:result, :reason]),
       last_value("langboard_socket.kafka.lag.count"),

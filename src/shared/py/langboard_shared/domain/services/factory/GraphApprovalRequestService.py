@@ -80,7 +80,7 @@ class GraphApprovalRequestService(BaseDomainService):
             run = self.repo.internal_bot_run.get_board_chat_run_by_approval(approval.id)
             response["durable_run"] = run is not None
             response["durable_run_status"] = run.status.value if run is not None else None
-        detail = detail or self.repo.graph_approval_request.get_detail(approval)
+        detail = detail or self.repo.graph_approval_request.get_detail(approval, readonly=False)
         if detail:
             detail_response = detail.api_response(is_graph_approval_request=True)
             for base_key in ("uid", "created_at", "updated_at", "approval_request_uid"):

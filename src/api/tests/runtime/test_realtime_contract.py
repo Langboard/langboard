@@ -41,14 +41,11 @@ def test_runtime_inventory_is_scoped_and_unique() -> None:
     assert len(runtime["editor_sync"]["lifecycle_hooks"]) == len(set(runtime["editor_sync"]["lifecycle_hooks"]))
 
 
-def test_broker_envelope_contract_declares_v2_with_legacy_fallback() -> None:
+def test_broker_envelope_contract_declares_v2() -> None:
     contract = orjson.loads(CONTRACT_PATH.read_bytes())
 
     assert contract["broker_envelope"] == {
         "current_schema_version": "2",
-        "legacy_cache_key_field": "cache_key",
-        "legacy_cache_key_prefix": "broadcast-",
-        "legacy_cache_key_max_length": 160,
         "required_fields": ["schema_version", "event_id", "event", "occurred_at", "data"],
     }
     assert contract["dead_letter"] == {

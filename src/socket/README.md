@@ -22,7 +22,7 @@ Runtime modules and tests use matching paths:
 - `LangboardSocket.Editor` (`editor/`): AI runs, collaborative documents, sync storage and manifests.
 - `LangboardSocket.Api` (`api/`): Python API authorization, bot status, notification, and Ollama command clients.
 - `LangboardSocket.Graph` (`graph/`): Graph/Langflow streaming and approval-resume clients.
-- `LangboardSocket.Broker` (`broker/`): Kafka ingress, acknowledgements, dead letters, lag, and transitional Redis payload storage.
+- `LangboardSocket.Broker` (`broker/`): Kafka ingress, acknowledgements, dead letters, and lag.
 - `LangboardSocketWeb`: HTTP/WebSocket adapters, controllers and command dispatch.
 
 Editor document registration and lifecycle lock keys retain their original identity
@@ -41,7 +41,7 @@ Other paths are relative to the repository root. Phoenix module names resolve un
 | Responsibility | Execution owner | Durable/domain owner |
 | --- | --- | --- |
 | JSON connection, subscriptions, command dispatch | `SocketHandler`, `SubscriptionTopic`, `Phoenix.PubSub` | Python `routes/auth/SocketAuthApi.py` and `SocketAuthorization.py` authorize current access |
-| `SocketConsumer` broker projection and fanout | `Broker.Kafka.Ingress`, `Broker.Envelope`, `Broker.EventProjector` | Python publishers emit inline v2 envelopes; `Broker.LegacyPayloadStore` is transitional only |
+| `SocketConsumer` broker projection and fanout | `Broker.Kafka.Ingress`, `Broker.Envelope`, `Broker.EventProjector` | Python publishers emit inline v2 envelopes |
 | `NotificationConsumer` creation, unsubscribe checks, email | Python `NotificationService` and notification recovery tasks | Python notification repositories and email outbox; Phoenix does not send email |
 | Notification read/delete commands | `NotificationClient` forwards authenticated commands | Python `routes/notification/NotificationApi.py` |
 | Board bot status and chat availability | `BotStatusClient`, `ChatAvailabilityClient` | Graph status endpoint and Python socket authorization API |

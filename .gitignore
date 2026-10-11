@@ -202,6 +202,7 @@ dist-ssr
 
 # Custom
 local
+**/erl_crash.dump
 
 docker/volumes
 *.db*

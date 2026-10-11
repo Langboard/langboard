@@ -39,12 +39,6 @@ defmodule LangboardSocket.RealtimeContract do
   def internal_api_contract_version!, do: get_in(@contract, ["internal_api", "contract_version"])
   def broker_schema_version!, do: get_in(@contract, ["broker_envelope", "current_schema_version"])
 
-  def legacy_cache_key_prefix!,
-    do: get_in(@contract, ["broker_envelope", "legacy_cache_key_prefix"])
-
-  def legacy_cache_key_max_length!,
-    do: get_in(@contract, ["broker_envelope", "legacy_cache_key_max_length"])
-
   def broker_event!(purpose), do: Map.fetch!(@broker_consumers, purpose)
   def dead_letter_schema_version!, do: get_in(@contract, ["dead_letter", "schema_version"])
   def dead_letter_topic!(purpose), do: get_in(@contract, ["dead_letter", "#{purpose}_topic"])

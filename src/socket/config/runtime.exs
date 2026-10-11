@@ -66,12 +66,6 @@ config :langboard_socket,
       String.to_integer(System.get_env("SOCKET_KAFKA_PROCESSING_MAX_ATTEMPTS", "3")),
     processing_retry_backoff_ms:
       String.to_integer(System.get_env("SOCKET_KAFKA_PROCESSING_RETRY_BACKOFF_MS", "100")),
-    legacy_redis: [
-      enabled: System.get_env("SOCKET_PHOENIX_LEGACY_REDIS_ENABLED", "true") == "true",
-      url: System.get_env("CACHE_URL", ""),
-      max_payload_bytes:
-        String.to_integer(System.get_env("BROADCAST_MAX_MESSAGE_BYTES", "10485760"))
-    ],
     dead_letter_topic: System.get_env("BROADCAST_PHOENIX_DEAD_LETTER_TOPIC"),
     dead_letter_max_payload_bytes:
       String.to_integer(System.get_env("SOCKET_KAFKA_DEAD_LETTER_MAX_PAYLOAD_BYTES", "65536")),

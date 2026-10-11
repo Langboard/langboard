@@ -44,7 +44,8 @@ git remote set-url --push upstream no_push
     ```
 - `pipx`: Required by `make init` tool checks and commonly used to manage Python CLI tools.
 - `uv`: The project uses `uv` to coordinate Python packages, including the built-in `graph` runtime package. Install instructions at [uv](https://docs.astral.sh/uv/getting-started/installation/).
-- `Yarn`: The `ui`, the `socket`, and the `ts/core` are built with Node.js (`v22 LTS`) and `yarn` (`v1.22`). Install instructions at [Node.js](https://nodejs.org/en/download), and [Yarn](https://classic.yarnpkg.com/lang/en/docs/install)
+- `Yarn`: The `ui` and `ts/core` are built with Node.js (`v22 LTS`) and `yarn` (`v1.22`). Install instructions at [Node.js](https://nodejs.org/en/download), and [Yarn](https://classic.yarnpkg.com/lang/en/docs/install).
+- `Elixir` and `Erlang/OTP`: The Phoenix socket runtime is built with Elixir and Mix. Use the versions specified in `.github/workflows/check-socket-phoenix.yaml`.
 - `Docker` and `Docker Compose`: The project uses Docker to containerize and manage services, ensuring consistency across development and production environments.
   - On Windows, Docker Desktop requires `WSL` and must be installed accordingly. For installation of them, you can visit [Docker](https://docs.docker.com/desktop/setup/install/windows-install/)
 
@@ -69,14 +70,6 @@ make init
   You do not need to set them in `.env`.
 
 ## Start local development
-
-If `nodemon` is not installed globally, install it for socket watching.
-
-```bash
-yarn global add nodemon
-# Some computers can't find nodemon even if it was installed through Yarn
-npm i -g nodemon
-```
 
 You should prepare at least 6 bash terminals for hot-reload systems.
 
@@ -104,14 +97,14 @@ make dev_graph
 make dev_ts_core_build
 ```
 
-- `socket`
-  - For build,
+- `socket` (Phoenix)
+  - For compilation,
 
   ```bash
   make dev_socket_build
   ```
 
-  - For watching the built files
+  - For running the server
 
   ```bash
   make dev_socket

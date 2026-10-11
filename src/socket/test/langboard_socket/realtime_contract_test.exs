@@ -13,8 +13,6 @@ defmodule LangboardSocket.RealtimeContractTest do
   test "broker ownership is read from the shared contract" do
     assert RealtimeContract.broker_schema_version!() == "2"
     assert RealtimeContract.broker_event!("fanout") == "socket_publish"
-    assert RealtimeContract.legacy_cache_key_prefix!() == "broadcast-"
-    assert RealtimeContract.legacy_cache_key_max_length!() == 160
     assert RealtimeContract.dead_letter_schema_version!() == "1"
     assert RealtimeContract.dead_letter_topic!("fanout") == "socket_publish_dead_letter"
   end

@@ -421,7 +421,7 @@ test_socket_protocol: ## verify the running Phoenix WebSocket contract
 	uv run python src/socket/test/integration/test-socket-protocol.py \
 		--target phoenix=ws://127.0.0.1:$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)
 
-test_socket_phoenix_kafka: build_socket_phoenix_image ## verify Phoenix WebSocket fanout, Redis fallback, and dead-letter delivery
+test_socket_phoenix_kafka: build_socket_phoenix_image ## verify Phoenix WebSocket fanout and dead-letter delivery
 	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
 	if [ -z "$$project_name" ]; then \
 		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \

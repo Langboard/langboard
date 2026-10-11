@@ -14,7 +14,6 @@ from langboard_shared.core.broadcast.kafka.KafkaDispatcherQueue import KafkaDisp
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
-from redis import Redis
 
 
 SOCKET_TOPIC = os.environ["SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC"]
@@ -121,7 +120,6 @@ async def _run() -> None:
         group_id=f"{dead_letter_topic}-{probe_id}",
         value_deserializer=lambda value: json.loads(value.decode()),
     )
-    cache = Redis.from_url(Env.CACHE_URL)
 
     try:
         await asyncio.to_thread(_wait_for_assignment, dead_letter_consumer)
@@ -154,14 +152,8 @@ async def _run() -> None:
             assert len(partitions) == 1, "Events for one user must share a Kafka partition"
             await _receive_ordered_events(websocket, ordered_prefix, probe_id, 12)
 
-            legacy_event = f"probe:legacy:{probe_id}"
-            cache_key = f"broadcast-phoenix-probe-{probe_id}"
-            cache.set(cache_key, json.dumps(_socket_data(user_uid, probe_id, legacy_event)), ex=60)
-            producer.send(SOCKET_TOPIC, {"cache_key": cache_key}).get(timeout=10)
-            await _receive_event(websocket, legacy_event, probe_id)
-
             rejected_payload = json.dumps(
-                {"cache_key": f"invalid-phoenix-probe-{probe_id}"},
+                {"cache_key": f"broadcast-phoenix-probe-{probe_id}"},
                 separators=(",", ":"),
             ).encode()
             producer.send(SOCKET_TOPIC, json.loads(rejected_payload)).get(timeout=10)
@@ -176,7 +168,6 @@ async def _run() -> None:
             assert b64decode(dead_letter["payload_base64"]) == rejected_payload
             assert dead_letter["source"]["topic"] == SOCKET_TOPIC
     finally:
-        cache.delete(f"broadcast-phoenix-probe-{probe_id}")
         dead_letter_consumer.close()
         producer.close()
         if inline_publisher.producer:

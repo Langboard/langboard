@@ -41,6 +41,9 @@ from langboard_shared.domain.services.factory.GraphApprovalRequestService import
 from langboard_shared.domain.services.factory.InternalBotRunService import InternalBotRunService
 from langboard_shared.domain.services.factory.ProjectService import ProjectService
 from langboard_shared.helpers import MiddlewareHelper
+from langboard_shared.infrastructure.repositories.factory.GraphApprovalRequestRepository import (
+    GraphApprovalRequestRepository,
+)
 from langboard_shared.infrastructure.repositories.factory.InternalBotRunRepository import InternalBotRunRepository
 from langboard_shared.publishers import GraphApprovalPublisher
 from langboard_shared.security import RoleSecurity
@@ -1497,6 +1500,7 @@ def _editor_approval_interrupt(run: InternalBotRun) -> dict[str, Any]:
 
 def test_editor_pause_persists_one_owned_approval_and_is_idempotent(
     run_repository: InternalBotRunRepository,
+    monkeypatch: MonkeyPatch,
 ) -> None:
     run = _claimed_editor(run_repository)
     interrupt = _editor_approval_interrupt(run)
@@ -1524,6 +1528,17 @@ def test_editor_pause_persists_one_owned_approval_and_is_idempotent(
     with DbEngine.get_main_engine().connect() as connection:
         assert connection.scalar(select(func.count()).select_from(GraphApprovalRequest.__table__)) == 1
         assert connection.scalar(select(func.count()).select_from(EditorGraphApprovalRequest.__table__)) == 1
+
+    repository = Mock()
+    repository.graph_approval_request = GraphApprovalRequestRepository(lambda repository_type: None, lambda name: None)
+    repository.internal_bot_run.get_editor_run_by_approval.return_value = None
+    monkeypatch.setattr(
+        GraphApprovalRequestRepository,
+        "_GraphApprovalRequestRepository__get_model_classes",
+        staticmethod(lambda: [EditorGraphApprovalRequest]),
+    )
+    response = GraphApprovalRequestService(lambda service_type: None, lambda name: None, repository).get_api_response(approval)
+    assert response["document_name"] == run.request_payload["document_name"]
 
 
 @pytest.mark.parametrize(

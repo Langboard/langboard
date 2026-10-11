@@ -3407,6 +3407,132 @@ async function assertTwoUserCardDrag(owner, peer, credentials) {
   steps.push("two-distinct-users-bidirectional-card-drag-fanned-out-persisted-and-survived-reload");
 }
 
+async function assertMobileTouchCardScrollAndDrag(owner, peer, credentials) {
+  const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
+  const cardResponse = await requestApi(credentials, credentials.users[0], cardPath);
+  const initialCard = (await cardResponse.json()).card;
+  const columnUID = initialCard.project_column_uid;
+  const titles = [];
+  for (let index = 0; index < 12; index += 1) {
+    const title = `Touch scroll card ${index} ${runId}`;
+    const response = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/card`, {
+      method: "POST",
+      body: JSON.stringify({ title, project_column_uid: columnUID }),
+    });
+    assert.equal(response.status, 201);
+    titles.push(title);
+  }
+  await Promise.all([owner, peer].map(async (page) => {
+    await page.goto(`${origin}/board/${credentials.project_uid}`, { waitUntil: "domcontentloaded" });
+    await waitForBoardSocketReady(page, credentials.project_uid);
+    await page.getByText(titles[0], { exact: true }).waitFor();
+  }));
+  const column = peer.locator(`[data-board-column-touch-dnd-uid="${columnUID}"]`);
+  const scrollable = column.locator("[data-radix-scroll-area-viewport]").first();
+  const source = column.locator(`[data-board-card-touch-dnd-uid="${credentials.card_uid}"]`);
+  await column.evaluate((element) => {
+    const boardViewport = element.parentElement?.closest("[data-radix-scroll-area-viewport]");
+    if (!boardViewport) throw new Error("Board viewport was not found");
+    boardViewport.scrollLeft += element.getBoundingClientRect().left - boardViewport.getBoundingClientRect().left - 40;
+  });
+  await source.scrollIntoViewIfNeeded();
+  const scrollMetrics = await scrollable.evaluate((element) => ({
+    height: element.clientHeight,
+    contentHeight: element.scrollHeight,
+  }));
+  assert.ok(scrollMetrics.contentHeight > scrollMetrics.height, JSON.stringify(scrollMetrics));
+  await scrollable.evaluate((element) => { element.scrollTop = 300; });
+  const scrollStart = await scrollable.evaluate((element) => element.scrollTop);
+  assert.ok(scrollStart > 0);
+  const swipePoint = await peer.evaluate((uid) => {
+    const columnElement = document.querySelector(`[data-board-column-touch-dnd-uid="${uid}"]`);
+    const viewport = columnElement?.querySelector("[data-radix-scroll-area-viewport]");
+    if (!viewport) return null;
+    const viewportRect = viewport.getBoundingClientRect();
+    for (const card of columnElement.querySelectorAll("[data-board-card-touch-dnd-uid]")) {
+      const rect = card.getBoundingClientRect();
+      if (rect.top > viewportRect.top + 20 && rect.bottom < viewportRect.bottom - 20) {
+        return { x: rect.left + 80, y: rect.top + 30 };
+      }
+    }
+    return null;
+  }, columnUID);
+  assert.ok(swipePoint);
+  const cdp = await peer.context().newCDPSession(peer);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", {
+    type,
+    touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }],
+  });
+  try {
+    const { x, y } = swipePoint;
+    await touch("touchStart", x, y);
+    for (let offset = 15; offset <= 150; offset += 15) {
+      await touch("touchMove", x, y + offset);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await touch("touchEnd", x, y + 150);
+    const scrollState = await peer.evaluate(({ uid, x, y }) => {
+      const viewport = document.querySelector(`[data-board-column-touch-dnd-uid="${uid}"] [data-radix-scroll-area-viewport]`);
+      const hit = document.elementFromPoint(x, y);
+      return {
+        scrollTop: viewport?.scrollTop,
+        height: viewport?.clientHeight,
+        contentHeight: viewport?.scrollHeight,
+        hit: hit?.outerHTML.slice(0, 250),
+        touchAction: hit ? getComputedStyle(hit).touchAction : null,
+      };
+    }, { uid: columnUID, x, y });
+    assert.ok(scrollState.scrollTop < scrollStart, JSON.stringify({ scrollStart, scrollState }));
+    const unchanged = await requestApi(credentials, credentials.users[0], cardPath);
+    assert.equal((await unchanged.json()).card.project_column_uid, columnUID);
+    steps.push("mobile-touch-swipe-starting-on-card-scrolls-column-without-moving-card");
+
+    await scrollable.evaluate((element) => { element.scrollTop = 0; });
+    await source.scrollIntoViewIfNeeded();
+    const target = column.getByText(titles[0], { exact: true }).locator(`xpath=ancestor::*[@data-board-card-touch-dnd-uid][1]`);
+    await target.scrollIntoViewIfNeeded();
+    const start = await source.boundingBox();
+    const finish = await target.boundingBox();
+    assert.ok(start && finish);
+    const startX = start.x + Math.min(80, start.width / 2);
+    const startY = start.y + Math.min(30, start.height / 2);
+    const finishY = finish.y + finish.height - 10;
+    const responsePromise = peer.waitForResponse((response) => response.request().method() === "PUT" &&
+      response.url().includes(`${cardPath}/order`), { timeout: 30000 });
+    await touch("touchStart", startX, startY);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    for (let index = 1; index <= 8; index += 1) {
+      await touch("touchMove", startX, startY + (finishY - startY) * index / 8);
+    }
+    await touch("touchEnd", startX, finishY);
+    assert.equal((await responsePromise).status(), 200);
+    const persisted = await requestApi(credentials, credentials.users[0], cardPath);
+    const persistedCard = (await persisted.json()).card;
+    assert.notEqual(persistedCard.order, initialCard.order, JSON.stringify({ initialCard, persistedCard }));
+    const isAfterTarget = ({ cardUID, targetTitle }) => {
+      const card = document.querySelector(`[data-board-card-touch-dnd-uid="${cardUID}"]`);
+      const target = [...document.querySelectorAll("[data-board-card-touch-dnd-uid]")]
+        .find((element) => element.textContent?.includes(targetTitle));
+      return Boolean(card && target && card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING);
+    };
+    const orderArgs = { cardUID: credentials.card_uid, targetTitle: titles[0] };
+    await owner.waitForFunction(isAfterTarget, orderArgs, { timeout: 5000 }).catch(async (error) => {
+      const state = await Promise.all([owner, peer].map((page) => page.evaluate(({ cardUID, targetTitle }) => {
+        const card = document.querySelector(`[data-board-card-touch-dnd-uid="${cardUID}"]`);
+        const target = [...document.querySelectorAll("[data-board-card-touch-dnd-uid]")]
+          .find((element) => element.textContent?.includes(targetTitle));
+        return { card: card?.textContent?.slice(0, 90), target: target?.textContent?.slice(0, 90), position: card?.compareDocumentPosition(target) };
+      }, orderArgs)));
+      throw new Error(`${error.message}; ${JSON.stringify({ initialOrder: initialCard.order, persistedOrder: persistedCard.order, state })}`);
+    });
+    await owner.reload({ waitUntil: "domcontentloaded" });
+    await owner.waitForFunction(isAfterTarget, orderArgs);
+    steps.push("mobile-long-press-touch-card-reorder-fanned-out-and-survived-reload");
+  } finally {
+    await cdp.detach();
+  }
+}
+
 async function assertTwoUserCardArchive(owner, peer, credentials) {
   const cardPath = `/board/${credentials.project_uid}/card/${credentials.card_uid}`;
   const boardResponse = await requestApi(credentials, credentials.users[0], `/board/${credentials.project_uid}/cards`);
@@ -5294,7 +5420,7 @@ async function main() {
     : credentials.users;
   for (const [index, user] of users.entries()) {
     const context = await browser.newContext(
-      index === 1 && failoverStage !== "concurrent-ui"
+      index === 1 && (failoverStage !== "concurrent-ui" || process.env.PHOENIX_CONCURRENT_UI_MOBILE_PEER === "true")
         ? {
             viewport: { width: 390, height: 844 },
             isMobile: true,
@@ -5529,7 +5655,7 @@ async function main() {
     steps.push("owner-and-member-browser-sockets-use-authenticated-route-keys");
   } else {
   steps.push(
-    failoverStage === "concurrent-ui"
+    failoverStage === "concurrent-ui" && process.env.PHOENIX_CONCURRENT_UI_MOBILE_PEER !== "true"
       ? "desktop-owner-and-desktop-member-connected-to-live-phoenix"
       : "desktop-owner-and-mobile-member-connected-to-live-phoenix",
   );
@@ -5788,8 +5914,18 @@ async function main() {
   const owner = pages[0];
   const peer = pages[1];
   if (failoverStage === "concurrent-ui") {
+    if (process.env.PHOENIX_CONCURRENT_UI_ONLY === "mobile-touch") {
+      await assertMobileTouchCardScrollAndDrag(owner, peer, credentials);
+      assert.deepEqual(errors, []);
+      return;
+    }
     if (process.env.PHOENIX_CONCURRENT_UI_ONLY === "comment") {
       await assertConcurrentCardComments(owner, peer, credentials);
+      assert.deepEqual(errors, []);
+      return;
+    }
+    if (process.env.PHOENIX_CONCURRENT_UI_ONLY === "chat") {
+      await assertConcurrentBoardChatSends(owner, peer, credentials);
       assert.deepEqual(errors, []);
       return;
     }

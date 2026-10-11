@@ -146,22 +146,14 @@ defmodule LangboardSocket.Application do
   defp kafka_children do
     if Ingress.enabled?() do
       config = Application.fetch_env!(:langboard_socket, :kafka)
-      legacy_redis = Keyword.fetch!(config, :legacy_redis)
 
-      legacy_children =
-        if Keyword.fetch!(legacy_redis, :enabled),
-          do: [{LangboardSocket.Broker.LegacyPayloadStore, legacy_redis}],
-          else: []
-
-      legacy_children ++
-        [
-          {DeadLetter, config},
-          Ingress,
-          {LagMonitor,
-           config: config,
-           poll_interval_ms:
-             Application.fetch_env!(:langboard_socket, :kafka_lag_poll_interval_ms)}
-        ]
+      [
+        {DeadLetter, config},
+        Ingress,
+        {LagMonitor,
+         config: config,
+         poll_interval_ms: Application.fetch_env!(:langboard_socket, :kafka_lag_poll_interval_ms)}
+      ]
     else
       []
     end

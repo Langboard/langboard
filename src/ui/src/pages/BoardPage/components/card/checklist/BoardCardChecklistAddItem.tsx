@@ -71,7 +71,7 @@ function BoardCardChecklistAddItem(): React.JSX.Element {
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="hidden h-8 w-5 sm:inline-flex sm:size-8"
+            className="h-8 w-5 sm:size-8"
             title={t("card.Add checkitem")}
             onClick={() => createCheckitem()}
         >

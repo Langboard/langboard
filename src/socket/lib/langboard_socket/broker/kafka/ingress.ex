@@ -10,7 +10,6 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
   alias LangboardSocket.Broker.{Envelope, EventProjector}
   alias LangboardSocket.Broker.Kafka.Acknowledger
   alias LangboardSocket.Broker.Kafka.DeadLetter
-  alias LangboardSocket.Broker.LegacyPayloadStore
   alias LangboardSocket.RealtimeContract, as: Contract
   alias LangboardSocket.SubscriptionTopic
 
@@ -27,18 +26,12 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
     invalid_publish_model: "invalid_publish_model",
     invalid_data_keys: "invalid_data_keys",
     invalid_custom_data: "invalid_custom_data",
-    legacy_fallback_disabled: "legacy_fallback_disabled",
-    legacy_payload_missing: "legacy_payload_missing",
-    legacy_payload_too_large: "legacy_payload_too_large",
-    invalid_legacy_payload: "invalid_legacy_payload",
-    legacy_store_unavailable: "legacy_store_unavailable",
     pubsub_unavailable: "pubsub_unavailable"
   }
 
   def ready? do
     not enabled?() or
-      (is_pid(Process.whereis(__MODULE__)) and DeadLetter.ready?() and legacy_store_ready?() and
-         cluster_assigned?())
+      (is_pid(Process.whereis(__MODULE__)) and DeadLetter.ready?() and cluster_assigned?())
   end
 
   def assigned? do
@@ -88,7 +81,7 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
     topic = Map.get(message.metadata, :topic, Contract.broker_event!("fanout"))
     context = context(context)
 
-    case resolve_payload(message.data, topic, context) do
+    case resolve_payload(message.data, topic) do
       {:ok, data, source, event_id} ->
         message = put_broker_metadata(message, source, event_id)
 
@@ -111,7 +104,7 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
     Enum.map(messages, &dead_letter(&1, context))
   end
 
-  defp resolve_payload(payload, topic, context) do
+  defp resolve_payload(payload, topic) do
     Tracer.with_span "langboard.kafka.resolve" do
       case Envelope.decode(payload, topic) do
         {:ok, envelope} ->
@@ -122,47 +115,10 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
 
           {:ok, envelope.data, :inline, envelope.event_id}
 
-        {:legacy, cache_key} ->
-          resolve_legacy_payload(cache_key, context)
-
         {:error, reason} ->
           Tracer.set_status(:error, Atom.to_string(reason))
           {:error, reason}
       end
-    end
-  end
-
-  defp resolve_legacy_payload(_cache_key, %{legacy_redis_enabled: false}) do
-    emit_legacy_result(:disabled)
-    {:error, :legacy_fallback_disabled}
-  end
-
-  defp resolve_legacy_payload(cache_key, context) do
-    Tracer.set_attribute("langboard.broker.source", "legacy_redis")
-
-    result =
-      retry(
-        fn ->
-          fetch_legacy_payload(
-            context.legacy_payload_store,
-            cache_key,
-            context.legacy_max_payload_bytes
-          )
-        end,
-        :legacy_fetch,
-        context,
-        &(&1 == :legacy_store_unavailable)
-      )
-
-    case result do
-      {:ok, data} ->
-        emit_legacy_result(:hit)
-        {:ok, data, :legacy, nil}
-
-      {:error, reason} ->
-        emit_legacy_result(legacy_result(reason))
-        Tracer.set_status(:error, Atom.to_string(reason))
-        {:error, reason}
     end
   end
 
@@ -316,9 +272,6 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
 
   defp context(
          %{
-           legacy_redis_enabled: _legacy_redis_enabled,
-           legacy_payload_store: _legacy_payload_store,
-           legacy_max_payload_bytes: _legacy_max_payload_bytes,
            dead_letter_publisher: _dead_letter_publisher,
            dead_letter_topic: _dead_letter_topic,
            dead_letter_max_payload_bytes: _dead_letter_max_payload_bytes,
@@ -330,13 +283,7 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
        do: context
 
   defp context(config) when is_list(config) do
-    legacy_redis = Keyword.fetch!(config, :legacy_redis)
-
     %{
-      legacy_redis_enabled: Keyword.fetch!(legacy_redis, :enabled),
-      legacy_payload_store: Application.fetch_env!(:langboard_socket, :legacy_payload_store),
-      legacy_max_payload_bytes:
-        legacy_redis |> Keyword.fetch!(:max_payload_bytes) |> positive_integer!(),
       dead_letter_publisher: Application.fetch_env!(:langboard_socket, :dead_letter_publisher),
       dead_letter_topic: configured_dead_letter_topic(Keyword.fetch!(config, :dead_letter_topic)),
       dead_letter_max_payload_bytes:
@@ -353,12 +300,6 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
   defp context(_context) do
     Application.fetch_env!(:langboard_socket, :kafka) |> context()
   end
-
-  defp fetch_legacy_payload(store, cache_key, max_payload_bytes) when is_function(store, 2),
-    do: store.(cache_key, max_payload_bytes)
-
-  defp fetch_legacy_payload(store, cache_key, max_payload_bytes),
-    do: store.fetch(cache_key, max_payload_bytes)
 
   defp publish_dead_letter(publisher, record, timeout_ms) when is_function(publisher, 2),
     do: publisher.(record, timeout_ms)
@@ -378,13 +319,6 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
   defp fail(message, reason, topic) do
     emit_result(:error, topic)
     Message.failed(message, reason)
-  end
-
-  defp legacy_store_ready? do
-    config = Application.fetch_env!(:langboard_socket, :kafka)
-    legacy_redis = Keyword.fetch!(config, :legacy_redis)
-
-    not Keyword.fetch!(legacy_redis, :enabled) or LegacyPayloadStore.ready?()
   end
 
   defp cluster_assigned? do
@@ -422,16 +356,10 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
     do: Map.get(metadata, key, Map.get(metadata, Atom.to_string(key)))
 
   defp source_name(:inline), do: "inline"
-  defp source_name(:legacy), do: "legacy_redis"
   defp source_name(_source), do: "unknown"
 
   defp reason_code({:failed, reason}), do: reason_code(reason)
   defp reason_code(reason), do: Map.get(@reason_codes, reason, "processing_failure")
-
-  defp legacy_result(:legacy_payload_missing), do: :missing
-  defp legacy_result(:legacy_payload_too_large), do: :too_large
-  defp legacy_result(:invalid_legacy_payload), do: :invalid
-  defp legacy_result(_reason), do: :unavailable
 
   defp configured_dead_letter_topic(topic) when is_binary(topic) and topic != "", do: topic
   defp configured_dead_letter_topic(_topic), do: Contract.dead_letter_topic!("fanout")
@@ -444,14 +372,6 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
       [:langboard_socket, :kafka, :message],
       %{count: 1},
       %{result: result, topic: topic}
-    )
-  end
-
-  defp emit_legacy_result(result) do
-    :telemetry.execute(
-      [:langboard_socket, :kafka, :legacy_fallback],
-      %{count: 1},
-      %{result: result}
     )
   end
 

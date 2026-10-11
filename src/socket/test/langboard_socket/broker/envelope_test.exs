@@ -10,8 +10,7 @@ defmodule LangboardSocket.Broker.EnvelopeTest do
         event_id: "event-1",
         event: "socket_publish",
         occurred_at: "2026-09-12T12:00:00Z",
-        data: %{value: "ok"},
-        cache_key: "legacy-key"
+        data: %{value: "ok"}
       })
 
     assert {:ok, envelope} = Envelope.decode(payload, "socket_publish")
@@ -19,28 +18,17 @@ defmodule LangboardSocket.Broker.EnvelopeTest do
     assert envelope.data == %{"value" => "ok"}
   end
 
-  test "accepts only legacy keys from the broadcast namespace" do
-    assert {:legacy, "broadcast-legacy-key"} =
-             Envelope.decode(
-               Jason.encode!(%{cache_key: "broadcast-legacy-key"}),
-               "socket_publish"
-             )
-
+  test "rejects a cache pointer without an inline envelope" do
     assert {:error, :invalid_broker_envelope} =
-             Envelope.decode(Jason.encode!(%{cache_key: "other-key"}), "socket_publish")
-
-    oversized_key = "broadcast-" <> String.duplicate("x", 151)
-
-    assert {:error, :invalid_broker_envelope} =
-             Envelope.decode(Jason.encode!(%{cache_key: oversized_key}), "socket_publish")
+             Envelope.decode(Jason.encode!(%{cache_key: "broadcast-old-key"}), "socket_publish")
   end
 
-  test "never falls back when a versioned envelope is invalid" do
+  test "rejects an invalid versioned envelope" do
     assert {:error, :invalid_broker_envelope} =
              Envelope.decode(
                Jason.encode!(%{
                  schema_version: "invalid",
-                 cache_key: "broadcast-legacy-key"
+                 data: %{}
                }),
                "socket_publish"
              )
