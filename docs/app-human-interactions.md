@@ -508,3 +508,24 @@ answers, submits only after a human click, and reads back a committed answer aft
 a 500 response. Eleven existing native card interaction browser tests also pass.
 These remain local source proofs; deployed canary and external runtime acceptance,
 stop and explicit resume are still unfinished.
+
+## Human stop request
+
+`POST /board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/stop`
+accepts only `{generation}` under authenticated native user authority. The host
+rechecks the current user, readable card, board membership and `card_update`
+permission, then matches the retained execution request to that board/card and
+its generation. App credentials and caller-provided identities are not accepted.
+
+An authorized lease becomes `stop_requested`, `permit_execution: false`, with
+one actor-attributed history entry. Repeated requests retain the same receipt;
+`stopped` never becomes authorized again. App disconnection does not prevent a
+human who still has card authority from requesting termination. A missing lease
+or mismatched generation returns conflict instead of creating a runtime.
+
+This revokes authorization immediately. The existing external runtime heartbeat
+observes the stop request and must terminate its process. Only its subsequent
+stop report changes the lease to `stopped`; the human request does not claim that
+termination already happened. No automatic resume, generation change or workflow
+transition is performed. The UI control, explicit resume and deployed external
+termination acceptance remain unfinished.
