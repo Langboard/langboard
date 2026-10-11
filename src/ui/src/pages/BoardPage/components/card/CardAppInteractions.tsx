@@ -1,3 +1,4 @@
+import CardAppRuntimes from "./CardAppRuntimes";
 import Badge from "@/components/base/Badge";
 import Button from "@/components/base/Button";
 import Checkbox from "@/components/base/Checkbox";
@@ -46,7 +47,12 @@ interface Props {
 }
 const config = { env: { interceptToast: true } as never };
 export default function CardAppInteractions(props: Props) {
-    return <InteractionList key={`${props.userUID}/${props.projectUID}/${props.cardUID}`} {...props} />;
+    return (
+        <div key={`${props.userUID}/${props.projectUID}/${props.cardUID}`} className="space-y-3">
+            <InteractionList {...props} />
+            <CardAppRuntimes {...props} />
+        </div>
+    );
 }
 function InteractionList({ projectUID, cardUID, userUID, canRespond }: Props) {
     const [t] = useTranslation();
@@ -246,7 +252,11 @@ export function InteractionForm({
                         onClick={() =>
                             window.dispatchEvent(
                                 new CustomEvent(WORKBENCH_OUTLINE_EVENT, {
-                                    detail: { cardUID: path.includes("/panel/cards/") ? path.split("/")[7] : path.split("/")[4], section: "comments", commentUID: item.request.presentation.comment_uid },
+                                    detail: {
+                                        cardUID: path.includes("/panel/cards/") ? path.split("/")[7] : path.split("/")[4],
+                                        section: "comments",
+                                        commentUID: item.request.presentation.comment_uid,
+                                    },
                                 })
                             )
                         }

@@ -62,3 +62,38 @@ def request_human_runtime_stop(service, actor, project_id, card_id, request_id, 
             }]
             db.update(lease)
         return {**_result(db, lease), "changed": changed, "execution_resumed": False}
+
+
+def list_human_card_runtimes(service, actor, project_id, card_id, channel=None):
+    """Bounded retained runtime identities; no private credentials or inferred runs."""
+    from .AppExecutionLeases import runtime_timestamp
+
+    if not isinstance(actor, User):
+        raise AppGovernanceDenied()
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id)).first()
+        readable = service.card.resolve_readable_card(project_id, card_id, current, channel or CollaborationChannel.Api) if current else None
+        if current is None or current.deleted_at or not current.activated_at or readable is None:
+            raise AppGovernanceDenied()
+        if readable[0].owner_id != current.id:
+            role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                ProjectRole.project_id == project_id, ProjectRole.user_id == current.id
+            )).first()
+            if role is None or not role.is_granted("read"):
+                raise AppGovernanceDenied()
+        requests = db.exec(SqlBuilder.select.table(AppExecutionRequest).where(
+            AppExecutionRequest.project_id == project_id, AppExecutionRequest.card_id == card_id
+        ).order_by(AppExecutionRequest.id.desc()).limit(10)).all()
+        if not requests:
+            return {"items": [], "limit": 10}
+        leases = db.exec(SqlBuilder.select.table(AppExecutionLease).where(
+            AppExecutionLease.request_id.in_([request.id for request in requests])
+        )).all()
+        by_request = {lease.request_id: lease for lease in leases}
+        return {"items": [{
+            "request_uid": request.get_uid(), "app_key": request.app_key,
+            "generation": request.generation,
+            "state": by_request[request.id].state if request.id in by_request else "awaiting_permit",
+            "expires_at": runtime_timestamp(by_request[request.id].expires_at) if request.id in by_request else None,
+            "evidence_kind": "runtime_authorization",
+        } for request in requests], "limit": 10}

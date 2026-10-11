@@ -156,3 +156,23 @@ def stop_app_runtime(
         raise ApiException.Conflict_409() from None
     except ValueError:
         raise ApiException.BadRequest_400() from None
+
+
+@AppRouter.api.get("/board/{project_uid}/card/{card_uid}/apps/executions", tags=["Board.Card"])
+@AuthFilter.add("user")
+def list_app_runtimes(
+    request: Request, project_uid: str, card_uid: str,
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes
+
+    try:
+        result = list_human_card_runtimes(
+            service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
