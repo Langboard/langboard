@@ -209,3 +209,4 @@ __all__ = [
 from . import AppSchema as _app_schema  # noqa: F401
 from .AppCardInteraction import AppCardInteraction
 from .AppCardInteractionResponse import AppCardInteractionResponse
+from .AppExecutionLease import AppExecutionLease

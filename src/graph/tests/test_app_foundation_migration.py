@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["c1f2a3b4d5e6"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["d2f3a4b5c6d7"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -710,12 +710,54 @@ def test_app_event_claim_migration_roundtrip():
             with Operations.context(MigrationContext.configure(db)):
                 migration.upgrade()
             row = db.execute(
-                text("SELECT attempt, claim_token, claim_expires_at, last_error, delivery_receipts FROM app_execution_outbox")
+                text(
+                    "SELECT attempt, claim_token, claim_expires_at, last_error, delivery_receipts FROM app_execution_outbox"
+                )
             ).one()
             assert tuple(row) == (0, None, None, None, [])
             with Operations.context(MigrationContext.configure(db)):
                 migration.downgrade()
         assert [column["name"] for column in inspect(engine).get_columns("app_execution_outbox")] == ["id"]
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_app_runtime_lease_migration_roundtrip():
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "app_lease_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261012210000-d2f3a4b5c6d7.py"
+    spec = importlib.util.spec_from_file_location("app_lease_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "c1f2a3b4d5e6"
+    try:
+        with engine.begin() as db:
+            with Operations.context(MigrationContext.configure(db)):
+                migration.upgrade()
+            db.execute(
+                text(
+                    "INSERT INTO app_execution_lease(id,request_id,acknowledgment_id,runtime_token_hash,expires_at) VALUES(1,2,3,'hash',now())"
+                )
+            )
+            assert db.execute(text("SELECT state,history FROM app_execution_lease")).one() == ("authorized", [])
+        with pytest.raises(IntegrityError), engine.begin() as db:
+            db.execute(
+                text(
+                    "INSERT INTO app_execution_lease(id,request_id,acknowledgment_id,runtime_token_hash,expires_at) VALUES(2,2,3,'hash',now())"
+                )
+            )
+        with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
+            migration.downgrade()
+        assert "app_execution_lease" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()
         with admin.begin() as db:

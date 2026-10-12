@@ -12,6 +12,7 @@ from time import monotonic, sleep
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
+import langboard.routes.settings.AppExecutionLeaseApi  # noqa: F401
 import langboard.routes.settings.AppExecutionRequestReadApi  # noqa: F401
 import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
 import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
@@ -34,7 +35,7 @@ from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard_sdk.client import MutationOutcomeUnknown
 from langboard_sdk.execution import AppExecution
 from langboard_sdk.resources import AppResources
-from langboard_sdk.rest import HttpTransport
+from langboard_sdk.rest import HttpTransport, NativeApiError
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -1594,7 +1595,10 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
     engine, (_, owner, outsider), personal, shared = registered
+    from langboard_shared.domain.models import AppExecutionLease
+
     for model in (
+        AppExecutionLease,
         WorkflowStageDefinition,
         ProjectColumn,
         Card,
@@ -1932,6 +1936,41 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 ).status_code
                 == 409
             )
+            runtime_token = "a" * 64
+
+            async def sdk_permit():
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    return await AppExecution(HttpTransport(session)).authorize_runtime(
+                        SnowflakeID(20).to_short_code(),
+                        SnowflakeID(221).to_short_code(),
+                        request_uid=receipts[0]["request_uid"],
+                        acknowledgment_uid=acknowledgments[0]["acknowledgment_uid"],
+                        runtime_token=runtime_token,
+                    )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                permits = list(pool.map(lambda _: asyncio.run(sdk_permit()), range(2)))
+            assert sorted(row["changed"] for row in permits) == [False, True]
+            permit = permits[0]
+            assert permit["state"] == "authorized" and permit["permit_execution"] and not permit["started"]
+            assert len({row["lease_uid"] for row in permits}) == 1
+            recovery_path = f"/apps/v1/execution-requests/{receipts[0]['request_uid']}/runtime-permit-recovery"
+            check_path = f"/apps/v1/runtime-permits/{permit['lease_uid']}/check"
+            recovered = client.post(recovery_path, json={"runtime_token": runtime_token})
+            assert recovered.status_code == 200 and recovered.json()["expires_at"] == permit["expires_at"]
+            assert client.post(check_path, json={"runtime_token": "b" * 64}).status_code == 403
+            assert client.post(check_path, json={"runtime_token": runtime_token, "stopped": "yes"}).status_code in (
+                400,
+                422,
+            )
+            heartbeat = client.post(check_path, json={"runtime_token": runtime_token})
+            assert heartbeat.status_code == 200 and heartbeat.json()["expires_at"] > permit["expires_at"]
+            with Session(engine) as db:
+                lease = db.query(AppExecutionLease).one()
+                assert lease.runtime_token_hash == sha256(runtime_token.encode()).hexdigest()
+                assert runtime_token not in json.dumps(lease.history)
             with Session(engine) as db:
                 db.execute(
                     update(AppConnectionCredential)
@@ -1941,6 +1980,12 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 db.commit()
             assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
             assert client.get(ack_path, headers=app_headers).status_code == 403
+            refused = client.post(check_path, json={"runtime_token": runtime_token}).json()
+            assert refused["state"] == "stop_requested" and refused["permit_execution"] is False
+            assert client.post(recovery_path, json={"runtime_token": runtime_token}).json()["state"] == "stop_requested"
+            stopped = client.post(check_path, json={"runtime_token": runtime_token, "stopped": True}).json()
+            assert stopped["state"] == "stopped" and not stopped["permit_execution"]
+
             with Session(engine) as db:
                 db.execute(
                     update(AppConnectionCredential)
@@ -1948,6 +1993,29 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                     .values(revoked_at=None)
                 )
                 db.commit()
+            assert client.post(check_path, json={"runtime_token": runtime_token}).json()["state"] == "stopped"
+            with Session(engine) as db:
+                # Test-only restored lease to isolate expiry from credential revocation.
+                db.execute(
+                    update(AppExecutionLease).values(
+                        state="authorized", expires_at=SafeDateTime.now() - timedelta(seconds=1)
+                    )
+                )
+                db.commit()
+            expired = client.post(recovery_path, json={"runtime_token": runtime_token}).json()
+            assert expired["state"] == "stop_requested" and not expired["permit_execution"]
+            assert (
+                client.post(check_path, json={"runtime_token": runtime_token}).json()["expires_at"]
+                == expired["expires_at"]
+            )
+            assert (
+                client.post(check_path, json={"runtime_token": runtime_token, "stopped": True}).json()["state"]
+                == "stopped"
+            )
+            with pytest.raises(NativeApiError) as refusal:
+                asyncio.run(sdk_permit())
+            assert refusal.value.status_code == 409
+            assert client.post(recovery_path, json={"runtime_token": runtime_token}).json()["state"] == "stopped"
             with ThreadPoolExecutor(max_workers=1) as pool, Session(engine) as revoker:
                 credential = revoker.execute(
                     select(AppConnectionCredential)

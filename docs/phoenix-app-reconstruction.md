@@ -849,3 +849,33 @@ Final focused PostgreSQL/HTTP/installed SDK recovery regression passed in
 GET recovery. All three host lockfiles pass offline `uv lock --check`.
 Source: SDK c344ac1f17d45e8655122e6d9cd229db5154c837; wheel SHA256
 36b87d3b478e0c724f8c65fd33e92888fe9a48aed52cab9e8175465b7f1b0cf0.
+
+
+### Native bounded runtime admission and stop-only recovery
+
+The current native human intent and retained acknowledgment now back SDK runtime
+permit admission. App Bearer authorization rechecks current request/generation,
+resources, dependencies and credential under the shared policy lock. One lease
+per request is retained with a SHA-256 hash of the caller's privately persisted
+32-byte token. Same-input retries return the same lease; another token, expired
+or terminal lease is refused. Admission stays separate from actual start proof.
+
+A current-authority heartbeat renews a valid 120-second lease. Recovery with the
+same private token never renews or creates a lease. Revocation or expiry changes
+authorized state to stop_requested; a caller's stopped report is an attestation
+and preserves stopped terminal state. The token remains usable for this stop-only
+receipt after the app credential is revoked, without granting other app APIs.
+The host cannot recall external changes and does not claim that reporting stop
+proves process reaping. The caller must perform and verify that separately.
+
+Migration d2f3a4b5c6d7 follows c1f2a3b4d5e6 and retains identities without cascading
+foreign keys. Real PostgreSQL/HTTP/installed SDK admission tests verify concurrent
+requests converge, wrong-token rejection, hashed storage, recovery without renewal,
+heartbeat renewal, revocation and irreversible stopped state. Native Active
+transition, start/report receipts and provider continuation remain unimplemented.
+
+Disposable PostgreSQL suite passed 81 tests in 47.66 seconds; focused expiry
+and stop-only regression passed in 2.66 seconds. The current-authority checker
+also converts policy conflicts into stop_requested. Operational admission is
+not complete: current Ready-only configuration means an Active move is refused
+until native start/report and an explicitly fenced Active snapshot are added.
