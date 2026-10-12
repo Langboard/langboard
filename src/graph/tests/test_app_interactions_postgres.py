@@ -10,7 +10,7 @@ import langboard.routes.settings.CardHumanInteractionApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, MockTransport, Response
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard_sdk.interactions import AppCardInteractions
 from langboard_sdk.rest import HttpTransport
@@ -53,6 +53,12 @@ from langboard_shared.domain.services.AppConnectionAuthentication import (
     issue_connection_credential,
     revoke_connection_credential,
 )
+from langboard_shared.domain.services.AppEventDelivery import (
+    AppEventBusy,
+    claim_event,
+    finish_event,
+    recover_pending_events,
+)
 from langboard_shared.domain.services.AppEventDestination import (
     bind_app_event_destination,
     manage_app_event_destination,
@@ -67,6 +73,8 @@ from langboard_shared.publishers import CardCommentPublisher
 from langboard_shared.security import Auth
 from langboard_shared.tasks.activities import CardCommentActivityTask
 from langboard_shared.tasks.bots import CardCommentBotTask
+from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+from langboard_shared.tasks.webhooks.utils import ResolvedWebhookTarget
 from sqlalchemy import event, update
 from sqlalchemy.orm import Session
 from test_app_connection_auth_postgres import DECLARATION, connected, registered  # noqa: F401
@@ -75,6 +83,10 @@ from test_app_governance_postgres import governance  # noqa: F401
 
 def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, monkeypatch):  # noqa: F811
     engine, (admin, owner, outsider), connection, shared = registered
+    from langboard_shared.core.broker import Broker
+
+    queued = []
+    monkeypatch.setattr(Broker.celery, "send_task", lambda name, args: queued.append((name, args)))
     for model in (
         WorkflowStageDefinition,
         ProjectColumn,
@@ -399,6 +411,104 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         with Session(engine) as db:
             db.execute(update(WebhookSetting).values(url="https://example.test/events"))
             db.commit()
+        sent = []
+
+        async def resolve_target(url):
+            return ResolvedWebhookTarget(
+                url="https://93.184.216.34/events", host_header="example.test", sni_hostname="example.test"
+            )
+
+        def receive(request):
+            verify_webhook(request.content, request.headers, "fixture-signing-secret")
+            sent.append(request)
+            return Response(503 if len(sent) == 1 else 200)
+
+        with monkeypatch.context() as delivery:
+            delivery.setattr(AppEventDeliveryTask, "ensure_public_webhook_url", resolve_target)
+            delivery.setattr(
+                AppEventDeliveryTask,
+                "AsyncClient",
+                lambda **kwargs: AsyncClient(transport=MockTransport(receive), **kwargs),
+            )
+            with pytest.raises(AppEventDeliveryTask.AppEventRetry):
+                asyncio.run(AppEventDeliveryTask.deliver_app_event(event_id))
+            asyncio.run(AppEventDeliveryTask.deliver_app_event(event_id))
+            asyncio.run(AppEventDeliveryTask.deliver_app_event(event_id))
+        assert len(sent) == 2
+        with Session(engine) as db:
+            delivered = db.get(AppExecutionOutbox, event_id)
+            assert delivered.state == "delivered" and delivered.attempt == 2 and delivered.claim_token is None
+            outcomes = [item for item in delivered.delivery_receipts if item["kind"] == "outcome"]
+            assert [(item["attempt"], item["outcome"], item["error"]) for item in outcomes] == [
+                (1, "failed", "http_503"),
+                (2, "delivered", None),
+            ]
+            assert all(item["event_uid"] == event_uid for item in delivered.delivery_receipts)
+            assert [
+                item["destination_revision"] for item in delivered.delivery_receipts if item["kind"] == "destination"
+            ] == [3, 3]
+            retained_receipts = delivered.delivery_receipts
+        with TestClient(app) as client:
+            history_path = f"/settings/apps/events/{event_uid}/delivery"
+            assert client.get(history_path, headers={"Authorization": f"Bearer {token}"}).status_code == 401
+            Auth.reset_user(admin)
+            admin_access, admin_refresh = AuthSecurity.authenticate(admin.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, admin_refresh)
+            reply = client.get(history_path, headers={"Authorization": f"Bearer {admin_access}"})
+            assert reply.status_code == 200
+            assert reply.json()["delivery_receipts"] == retained_receipts
+            assert "fixture-signing-secret" not in reply.text and "claim_token" not in reply.text
+        with Session(engine) as db:
+            # Reset only fixture attempt budget for lease/revocation scenarios.
+            db.execute(update(AppExecutionOutbox).values(state="pending", attempt=0, delivery_receipts=[]))
+            db.commit()
+        token_claim = claim_event(event_id)
+        with pytest.raises(AppEventBusy):
+            claim_event(event_id)
+        assert not finish_event(event_id, "wrong-claim", success=True)
+        assert finish_event(event_id, token_claim, success=False, error="TimeoutError", retryable=True)
+        assert any(name == "langboard.app_event_delivery" for name, _ in queued)
+        # A lease lost with a crashed process can be reclaimed; the former owner
+        # cannot overwrite the new attempt's outcome.
+        previous_claim = claim_event(event_id)
+        with Session(engine) as db:
+            db.execute(update(AppExecutionOutbox).values(claim_expires_at=SafeDateTime.now() - timedelta(seconds=1)))
+            db.commit()
+        queued.clear()
+        assert recover_pending_events(limit=100) is None
+        assert queued == [("langboard.app_event_delivery", [int(event_id)])]
+        recovered_claim = claim_event(event_id)
+        assert recovered_claim != previous_claim
+        with Session(engine) as db:
+            preserved = db.get(AppExecutionOutbox, event_id).delivery_receipts
+        assert not finish_event(event_id, previous_claim, success=True)
+        with Session(engine) as db:
+            assert db.get(AppExecutionOutbox, event_id).delivery_receipts == preserved
+            assert any(item.get("error") == "claim_expired" and item["outcome"] == "uncertain" for item in preserved)
+        finish_event(event_id, recovered_claim, success=False, error="recovery-test", retryable=True)
+
+        # Revocation during DNS must stop the following send, not deliver stale bytes.
+        async def revoke_during_dns(url):
+            with Session(engine) as db:
+                db.execute(update(AppResourceBinding).values(access_state="revoked"))
+                db.commit()
+            return await resolve_target(url)
+
+        with monkeypatch.context() as delivery:
+            delivery.setattr(AppEventDeliveryTask, "ensure_public_webhook_url", revoke_during_dns)
+            delivery.setattr(
+                AppEventDeliveryTask,
+                "AsyncClient",
+                lambda **kwargs: AsyncClient(transport=MockTransport(receive), **kwargs),
+            )
+            asyncio.run(AppEventDeliveryTask.deliver_app_event(event_id))
+        assert len(sent) == 2
+        with Session(engine) as db:
+            assert db.get(AppExecutionOutbox, event_id).state == "failed"
+            db.execute(update(AppResourceBinding).values(access_state="granted"))
+            db.execute(update(AppExecutionOutbox).values(state="pending"))
+            db.commit()
+
         ack_path = f"/apps/v1/boards/{ids[0].to_short_code()}/cards/{ids[1].to_short_code()}/interactions/{uid.to_short_code()}/acknowledgments"
 
         async def sdk_ack(reference="runtime-receipt-1"):
@@ -525,7 +635,13 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             assert db.query(AppCardInteractionResponse).count() == 1
             assert db.get(AppCardInteraction, SnowflakeID.from_short_code(second["interaction_uid"])).revision == 1
         second_uid = SnowflakeID.from_short_code(second["interaction_uid"])
-        cancelled = cancel_app_card_interaction(token, *ids, second_uid, 1)
+        with TestClient(app) as client:
+            cancel_path = f"/apps/v1/boards/{ids[0].to_short_code()}/cards/{ids[1].to_short_code()}/interactions/{second_uid.to_short_code()}/cancel"
+            reply = client.post(
+                cancel_path, headers={"Authorization": f"Bearer {token}"}, json={"expected_revision": 1}
+            )
+            assert reply.status_code == 200
+            cancelled = reply.json()
         assert cancelled["state"] == "cancelled" and cancelled["revision"] == 2
         assert cancel_app_card_interaction(token, *ids, second_uid, 1)["changed"] is False
         with pytest.raises(AppGovernanceConflict):

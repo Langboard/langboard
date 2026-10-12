@@ -84,8 +84,6 @@ def cancel_interaction(
     authorization: str = Header(default="", max_length=256),
 ):
     return _invoke(
-        acknowledge_interaction_response,
-        read_interaction_acknowledgment,
         cancel_app_card_interaction,
         authorization,
         SnowflakeID.from_short_code(project_uid),

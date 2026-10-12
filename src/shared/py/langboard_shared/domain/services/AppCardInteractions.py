@@ -373,6 +373,9 @@ def respond_to_app_card_interaction(
             "workflow_transitioned": False,
         }
         db.update(event)
+        from .AppEventDelivery import enqueue_event
+
+        db.after_commit(lambda: enqueue_event(event.id))
         return _receipt(db, row, changed=True)
 
 

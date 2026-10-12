@@ -793,3 +793,34 @@ without cascading foreign keys. Disposable PostgreSQL regression passed 79 tests
 in 47.97 seconds, including destination migration roundtrip/duplicate connection
 constraint; focused administrator API/signature tests exercise current refusal
 after disable, URL edits, resource revocation and payload tampering.
+
+
+### Retained app event delivery and recovery
+
+The native Celery delivery task now claims retained events with a 60-second
+lease, sends exact signed bytes through the existing public URL policy, and
+rechecks current authority after DNS resolution. At most five delivery attempts
+are admitted. HTTP 429/5xx and transport errors use bounded backoff; permanent
+HTTP rejection and current-authority refusal terminate delivery. Event identity
+is stable across retries, so receiving apps must deduplicate by event ID.
+
+Claim, destination revision and outcome evidence is appended to the existing
+outbox row, bounded by that attempt limit. Success preserves earlier failures;
+expired claims retain an uncertain outcome, and a stale claim cannot overwrite
+the current attempt. Receipts omit payloads, destination URLs and secrets. An
+instance administrator can read delivery receipts and request pending-event
+redelivery through settings APIs. Worker startup recovery pages only pending
+or expired events in batches of 100. It does not reset failed attempt budgets.
+
+Migration c1f2a3b4d5e6 follows b0f1a2c3d4e5. Queue delivery and ACK are transport
+evidence only: neither starts runtime execution nor grants a workflow transition.
+Live Celery/broker and canary acceptance remain required; local HTTP tests use
+a real disposable PostgreSQL database and a controlled HTTP transport.
+
+Disposable PostgreSQL regression passed all 80 tests in 47.69 seconds after
+fixing a migration declaration error and test session-lifetime error. Coverage
+includes 503 failure followed by success with retained history, expired-claim
+recovery, stale-claim rejection, current revocation during DNS, and migration
+upgrade/downgrade. Administrator history reads exclude signing secrets and
+claim tokens. The interaction cancel HTTP adapter was also corrected to invoke
+only the cancel service, with an HTTP regression added.

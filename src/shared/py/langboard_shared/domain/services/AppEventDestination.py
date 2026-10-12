@@ -117,7 +117,7 @@ def bind_app_event_destination(actor, connection_id, webhook_id, expected_revisi
         return {"revision": row.revision, "destination_uid": row.get_uid(), "enabled": row.is_enabled}
 
 
-def prepare_app_event_signature(event_id, expected_destination_revision, *, timestamp=None):
+def prepare_app_event_signature(event_id, expected_destination_revision, *, timestamp=None, claim_token=None):
     """Prepare exact signed bytes without sending or claiming execution authority."""
     from ...core.security import KeyVault
     from ...tasks.webhooks.WebhookTask import sign_webhook_bytes
@@ -128,7 +128,7 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
         event = _current(db, AppExecutionOutbox, event_id, for_update=False)
-        if event is None or event.event_type not in APP_EVENTS or event.state != "pending":
+        if event is None or event.event_type not in APP_EVENTS or not _claim_matches(event, claim_token):
             raise AppGovernanceDenied()
         connection = _current(db, AppConnection, event.connection_id)
         if connection is None or connection.app_key != event.app_key:
@@ -136,7 +136,7 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
         observed_payload = event.payload
         validate_event_authority(db, event, connection)
         event = _current(db, AppExecutionOutbox, event_id)
-        if event is None or event.state != "pending" or event.payload != observed_payload:
+        if event is None or not _claim_matches(event, claim_token) or event.payload != observed_payload:
             raise AppGovernanceConflict()
         destination, setting = current_destination(db, connection, event.event_type)
         if destination.revision != expected_destination_revision:
@@ -278,3 +278,16 @@ def manage_app_event_destination(actor, connection_id, *, expected_revision=None
             "enabled": row.is_enabled,
             "webhook_uid": SnowflakeID(row.webhook_id).to_short_code(),
         }
+
+
+def _claim_matches(event, token):
+    from ...core.types import SafeDateTime
+
+    return (
+        event.state == "pending"
+        if token is None
+        else event.state == "delivering"
+        and event.claim_token == token
+        and event.claim_expires_at is not None
+        and event.claim_expires_at > SafeDateTime.now()
+    )

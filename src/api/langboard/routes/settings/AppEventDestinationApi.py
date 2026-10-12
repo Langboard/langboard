@@ -79,3 +79,19 @@ def disable_destination(
         expected_revision=form.expected_revision,
         disable=True,
     )
+
+
+@AppRouter.api.post("/settings/apps/events/{event_uid}/redeliver", tags=["AppSettings.Events"])
+@AuthFilter.add("user")
+def redeliver_event(event_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")], user: User = Auth.scope("user")):
+    from langboard_shared.domain.services.AppEventDelivery import request_event_redelivery
+
+    return _run(request_event_redelivery, user, SnowflakeID.from_short_code(event_uid))
+
+
+@AppRouter.api.get("/settings/apps/events/{event_uid}/delivery", tags=["AppSettings.Events"])
+@AuthFilter.add("user")
+def read_event_delivery(event_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")], user: User = Auth.scope("user")):
+    from langboard_shared.domain.services.AppEventDelivery import read_event_delivery as read_delivery
+
+    return _run(read_delivery, user, SnowflakeID.from_short_code(event_uid))

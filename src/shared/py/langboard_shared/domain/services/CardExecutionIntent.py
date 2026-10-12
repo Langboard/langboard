@@ -132,6 +132,9 @@ def request_card_execution_intent(
             "started": False,
         }
         db.update(event)
+        from .AppEventDelivery import enqueue_event
+
+        db.after_commit(lambda: enqueue_event(event.id))
         return _receipt(intent, changed=True)
 
 

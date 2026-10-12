@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["b0f1a2c3d4e5"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["c1f2a3b4d5e6"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -682,6 +682,40 @@ def test_app_event_destination_migration_roundtrip():
             with Operations.context(MigrationContext.configure(db)):
                 migration.downgrade()
         assert "app_event_destination" not in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_app_event_claim_migration_roundtrip():
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "app_claim_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261012200000-c1f2a3b4d5e6.py"
+    spec = importlib.util.spec_from_file_location("app_claim_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "b0f1a2c3d4e5"
+    try:
+        with engine.begin() as db:
+            db.execute(text("CREATE TABLE app_execution_outbox (id bigint primary key)"))
+            db.execute(text("INSERT INTO app_execution_outbox VALUES (1)"))
+            with Operations.context(MigrationContext.configure(db)):
+                migration.upgrade()
+            row = db.execute(
+                text("SELECT attempt, claim_token, claim_expires_at, last_error, delivery_receipts FROM app_execution_outbox")
+            ).one()
+            assert tuple(row) == (0, None, None, None, [])
+            with Operations.context(MigrationContext.configure(db)):
+                migration.downgrade()
+        assert [column["name"] for column in inspect(engine).get_columns("app_execution_outbox")] == ["id"]
     finally:
         engine.dispose()
         with admin.begin() as db:
