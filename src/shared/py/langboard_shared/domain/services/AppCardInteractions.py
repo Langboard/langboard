@@ -219,6 +219,32 @@ def read_app_card_interaction(token, project_id, card_id, interaction_id):
         return _receipt(db, row)
 
 
+def read_app_card_interaction_by_request_key(token, project_id, card_id, app_request_key):
+    if not isinstance(app_request_key, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", app_request_key):
+        raise ValueError("Invalid interaction request key")
+    with DbSession.atomic() as db:
+        principal, *_ = _scope(db, token, project_id, card_id, for_update=False)
+        row = db.exec(
+            SqlBuilder.select.table(AppCardInteraction).where(
+                AppCardInteraction.project_id == project_id,
+                AppCardInteraction.card_id == card_id,
+                AppCardInteraction.connection_id == principal.connection_id,
+                AppCardInteraction.app_key == principal.app_key,
+                AppCardInteraction.app_request_key == app_request_key,
+            )
+        ).first()
+        if row is None:
+            return {
+                "state": "missing",
+                "request": None,
+                "response": None,
+                "changed": False,
+                "execution_resumed": False,
+                "workflow_transitioned": False,
+            }
+        return _receipt(db, row)
+
+
 def cancel_app_card_interaction(token, project_id, card_id, interaction_id, expected_revision):
     if type(expected_revision) is not int or expected_revision < 1:
         raise ValueError("A positive interaction revision is required")

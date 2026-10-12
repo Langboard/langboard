@@ -270,6 +270,22 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         created = asyncio.run(sdk_create())
         assert created["revision"] == 1 and created["response"] is None and created["changed"] is True
         assert asyncio.run(sdk_create())["changed"] is False
+        recovery_path = f"/apps/v1/boards/{ids[0].to_short_code()}/cards/{ids[1].to_short_code()}/interactions"
+
+        async def sdk_recover(request=body):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as session:
+                return await AppCardInteractions(HttpTransport(session)).recover(
+                    *(i.to_short_code() for i in ids), request
+                )
+
+        assert asyncio.run(sdk_recover())["request"] == created["request"]
+        assert asyncio.run(sdk_recover({**body, "app_request_key": "missing_request"}))["state"] == "missing"
+        with pytest.raises(ValueError, match="differs"):
+            asyncio.run(sdk_recover({**body, "prompt": {"en": "Changed"}}))
         uid = SnowflakeID.from_short_code(created["interaction_uid"])
         statements = []
 
@@ -279,9 +295,23 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         event.listen(engine, "before_cursor_execute", record_query)
         try:
             assert read_app_card_interaction(token, *ids, uid)["state"] == "pending"
+            assert asyncio.run(sdk_recover())["state"] == "pending"
         finally:
             event.remove(engine, "before_cursor_execute", record_query)
         assert not any("FOR UPDATE" in statement for statement in statements)
+        with TestClient(app) as client:
+            reply = client.get(
+                recovery_path,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"app_request_key": body["app_request_key"]},
+            )
+            assert reply.status_code == 200 and reply.headers["cache-control"] == "no-store"
+            assert (
+                client.get(
+                    recovery_path, headers={"Authorization": f"Bearer {token}"}, params={"app_request_key": "../other"}
+                ).status_code
+                == 400
+            )
 
         with pytest.raises(AppGovernanceConflict):
             create_app_card_interaction(token, *ids, {**body, "prompt": {"en": "Changed"}})
@@ -373,6 +403,16 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             "get_key",
             lambda reference: "fixture-signing-secret" if reference == "fixture-secret-ref" else None,
         )
+        answered_recovery = asyncio.run(sdk_recover())
+        assert answered_recovery["state"] == "answered" and answered_recovery["response"]["values"] == values
+        assert answered_recovery["execution_resumed"] is False
+        with Session(engine) as db:
+            db.execute(update(AppCardInteraction).values(connection_id=connection.id + 1, app_key="other_app"))
+            db.commit()
+        assert asyncio.run(sdk_recover())["state"] == "missing"
+        with Session(engine) as db:
+            db.execute(update(AppCardInteraction).values(connection_id=connection.id, app_key=connection.app_key))
+            db.commit()
         event_id = SnowflakeID.from_short_code(event_uid)
         destination_path = f"/settings/apps/connections/{connection.get_uid()}/event-destination"
         with TestClient(app) as client:
@@ -610,6 +650,14 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             prepare_app_event_signature(event_id, 3)
         with TestClient(app) as client:
             assert client.get(ack_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
+            assert (
+                client.get(
+                    recovery_path,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"app_request_key": body["app_request_key"]},
+                ).status_code
+                == 403
+            )
         with Session(engine) as db:
             db.execute(update(AppResourceBinding).values(access_state="granted"))
             db.commit()
@@ -643,6 +691,7 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             assert reply.status_code == 200
             cancelled = reply.json()
         assert cancelled["state"] == "cancelled" and cancelled["revision"] == 2
+        assert asyncio.run(sdk_recover({**body, "app_request_key": "approval_two"}))["state"] == "cancelled"
         assert cancel_app_card_interaction(token, *ids, second_uid, 1)["changed"] is False
         with pytest.raises(AppGovernanceConflict):
             respond_to_app_card_interaction(owner, *ids, second_uid, values, 1, "response-key-00002")
@@ -721,5 +770,14 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         revoke_connection_credential(owner, connection.id, SnowflakeID.from_short_code(credential["credential_uid"]))
         with pytest.raises(AppGovernanceDenied):
             create_app_card_interaction(token, *ids, {**body, "app_request_key": "approval_three"})
+        with TestClient(app) as client:
+            assert (
+                client.get(
+                    recovery_path,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"app_request_key": "missing_request"},
+                ).status_code
+                == 403
+            )
     finally:
         Cache.clear()

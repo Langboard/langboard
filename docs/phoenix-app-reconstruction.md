@@ -824,3 +824,28 @@ recovery, stale-claim rejection, current revocation during DNS, and migration
 upgrade/downgrade. Administrator history reads exclude signing secrets and
 claim tokens. The interaction cancel HTTP adapter was also corrected to invoke
 only the cancel service, with an HTTP regression added.
+
+
+### Recovering a lost interaction publication receipt
+
+SDK 0.2.36 adds `AppCardInteractions.recover(board_uid, card_uid, request)`.
+The native collection GET accepts the bounded `app_request_key` and rechecks
+current app/connection/card authority before looking up an app-owned request.
+It returns the retained immutable request, current state and human response,
+or a missing receipt with no request/response. It neither recreates requests
+nor claims runtime continuation. Other app or connection receipts are not
+exposed. Authority denial is not converted into a missing receipt.
+
+The SDK compares the recovered request with the original validated input and
+rejects mismatches. A caller must persist original input before creating the
+request and use GET recovery after an uncertain response instead of a second
+POST. Pending, answered and cancelled state are retained without fabrication.
+Standalone SDK suites passed 95 Python tests and Node contract tests; actual
+PostgreSQL plus ASGI/HTTP and the installed wheel exercises request equality,
+missing, cross-owner isolation, current revocation and retained answers.
+
+Final focused PostgreSQL/HTTP/installed SDK recovery regression passed in
+2.85 seconds, including cancelled-state retention and no `FOR UPDATE` during
+GET recovery. All three host lockfiles pass offline `uv lock --check`.
+Source: SDK c344ac1f17d45e8655122e6d9cd229db5154c837; wheel SHA256
+36b87d3b478e0c724f8c65fd33e92888fe9a48aed52cab9e8175465b7f1b0cf0.

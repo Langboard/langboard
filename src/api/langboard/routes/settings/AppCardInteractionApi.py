@@ -1,7 +1,7 @@
 """App-card request storage and reception receipts; human answers use native user routes."""
 
 from typing import Annotated
-from fastapi import Header, Path
+from fastapi import Header, Path, Query
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.services.AppCardInteractions import (
@@ -9,6 +9,7 @@ from langboard_shared.domain.services.AppCardInteractions import (
     cancel_app_card_interaction,
     create_app_card_interaction,
     read_app_card_interaction,
+    read_app_card_interaction_by_request_key,
     read_interaction_acknowledgment,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
@@ -47,6 +48,22 @@ def create_interaction(
         SnowflakeID.from_short_code(project_uid),
         SnowflakeID.from_short_code(card_uid),
         body.request,
+    )
+
+
+@AppRouter.api.get("/apps/v1/boards/{project_uid}/cards/{card_uid}/interactions", tags=["App.Interactions"])
+def recover_interaction(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    card_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    app_request_key: Annotated[str, Query(pattern=r"^[a-z][a-z0-9_-]{0,63}$")],
+    authorization: str = Header(default="", max_length=256),
+):
+    return _invoke(
+        read_app_card_interaction_by_request_key,
+        authorization,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        app_request_key,
     )
 
 
