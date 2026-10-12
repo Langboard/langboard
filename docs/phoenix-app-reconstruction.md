@@ -879,3 +879,29 @@ and stop-only regression passed in 2.66 seconds. The current-authority checker
 also converts policy conflicts into stop_requested. Operational admission is
 not complete: current Ready-only configuration means an Active move is refused
 until native start/report and an explicitly fenced Active snapshot are added.
+
+
+### Immutable native start reports and current runtime evidence
+
+The native start-report API now matches SDK `report_start`. A current live
+permit, app credential, request/generation and private runtime token are
+required. Concurrent identical reports retain one immutable receipt; a different
+execution reference is refused. Reports are explicitly `app_attestation`, not
+independent proof that an external process started, and do not move the card.
+
+SDK `runtime_report` reads current permit state and retained start evidence
+without renewal. Before a start report its evidence kind is none; after a
+report it exposes the retained start reference. Revocation, expiry or stopped
+state clears active_report while preserving the original start evidence. Raw
+runtime tokens remain private and are not stored in start receipts.
+
+Migration e3f4a5b6c7d8 follows d2f3a4b5c6d7. Focused real PostgreSQL/HTTP/installed
+SDK regression passed in 2.67 seconds. Ready-to-Active workflow handoff and
+fenced Active snapshot renewal remain outstanding; report_start itself follows
+the existing SDK contract and intentionally has no workflow side effect.
+
+Disposable PostgreSQL full regression passed 82 tests in 47.07 seconds,
+including both lease/start migration upgrade, duplicate-identity rejection and
+downgrade. SDK Node 22 remote contract validation revealed a separate panel
+fixture wait/cleanup defect; its test-only fix b41722b82611bda015cdc687abb64d69f6d63de7
+is being validated remotely. This does not change the installed 0.2.36 wheel.

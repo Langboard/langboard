@@ -70,3 +70,43 @@ def check_runtime(lease_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
 @AppRouter.api.post("/apps/v1/execution-requests/{request_uid}/runtime-permit-recovery", tags=["App.Execution"])
 def recover_runtime(request_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")], body: RuntimeTokenBody):
     return _run(recover_app_runtime, SnowflakeID.from_short_code(request_uid), body.runtime_token)
+
+
+class RuntimeStartBody(RuntimeTokenBody):
+    lease_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
+    execution_reference: str = Field(min_length=1, max_length=200)
+
+
+@AppRouter.api.post(
+    "/apps/v1/boards/{project_uid}/cards/{card_uid}/execution-requests/{request_uid}/start-reports",
+    tags=["App.Execution"],
+)
+def report_runtime_start(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    card_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    request_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    body: RuntimeStartBody,
+    authorization: str = Header(default="", max_length=256),
+):
+    from langboard_shared.domain.services.AppExecutionStarts import report_app_execution_start
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ApiException.Unauthorized_401()
+    return _run(
+        report_app_execution_start,
+        token,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        SnowflakeID.from_short_code(request_uid),
+        SnowflakeID.from_short_code(body.lease_uid),
+        body.runtime_token,
+        body.execution_reference,
+    )
+
+
+@AppRouter.api.post("/apps/v1/runtime-permits/{lease_uid}/report", tags=["App.Execution"])
+def report_runtime(lease_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")], body: RuntimeTokenBody):
+    from langboard_shared.domain.services.AppExecutionStarts import read_app_runtime_report
+
+    return _run(read_app_runtime_report, SnowflakeID.from_short_code(lease_uid), body.runtime_token)

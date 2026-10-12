@@ -1595,10 +1595,11 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
     engine, (_, owner, outsider), personal, shared = registered
-    from langboard_shared.domain.models import AppExecutionLease
+    from langboard_shared.domain.models import AppExecutionLease, AppExecutionStart
 
     for model in (
         AppExecutionLease,
+        AppExecutionStart,
         WorkflowStageDefinition,
         ProjectColumn,
         Card,
@@ -1967,10 +1968,45 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             )
             heartbeat = client.post(check_path, json={"runtime_token": runtime_token})
             assert heartbeat.status_code == 200 and heartbeat.json()["expires_at"] > permit["expires_at"]
+
+            async def sdk_report():
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as session:
+                    return await AppExecution(HttpTransport(session)).runtime_report(permit["lease_uid"], runtime_token)
+
+            before_start = asyncio.run(sdk_report())
+            assert before_start["evidence_kind"] == "none" and not before_start["active_report"]
+            assert before_start["expires_at"] == heartbeat.json()["expires_at"]
+
+            async def sdk_start(reference="process-example-1"):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    return await AppExecution(HttpTransport(session)).report_start(
+                        SnowflakeID(20).to_short_code(),
+                        SnowflakeID(221).to_short_code(),
+                        request_uid=receipts[0]["request_uid"],
+                        lease_uid=permit["lease_uid"],
+                        runtime_token=runtime_token,
+                        execution_reference=reference,
+                    )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                starts = list(pool.map(lambda _: asyncio.run(sdk_start()), range(2)))
+            assert sorted(row["changed"] for row in starts) == [False, True]
+            assert len({row["start_uid"] for row in starts}) == 1
+            assert all(row["evidence_kind"] == "app_attestation" for row in starts)
+            with pytest.raises(NativeApiError) as changed_start:
+                asyncio.run(sdk_start("different-process"))
+            assert changed_start.value.status_code == 409
+            report = asyncio.run(sdk_report())
+            assert report["active_report"] and report["start_report"]["execution_reference"] == "process-example-1"
+            assert report["expires_at"] == before_start["expires_at"]
             with Session(engine) as db:
                 lease = db.query(AppExecutionLease).one()
                 assert lease.runtime_token_hash == sha256(runtime_token.encode()).hexdigest()
                 assert runtime_token not in json.dumps(lease.history)
+                assert db.query(AppExecutionStart).count() == 1
+                assert db.get(Card, 221).project_column_id == 211
             with Session(engine) as db:
                 db.execute(
                     update(AppConnectionCredential)
@@ -1985,6 +2021,10 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             assert client.post(recovery_path, json={"runtime_token": runtime_token}).json()["state"] == "stop_requested"
             stopped = client.post(check_path, json={"runtime_token": runtime_token, "stopped": True}).json()
             assert stopped["state"] == "stopped" and not stopped["permit_execution"]
+            stopped_report = asyncio.run(sdk_report())
+            assert not stopped_report["active_report"] and stopped_report["start_report"] == report["start_report"]
+            with pytest.raises(NativeApiError):
+                asyncio.run(sdk_start())
 
             with Session(engine) as db:
                 db.execute(

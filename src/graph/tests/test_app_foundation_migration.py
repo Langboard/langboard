@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["d2f3a4b5c6d7"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["e3f4a5b6c7d8"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -725,7 +725,8 @@ def test_app_event_claim_migration_roundtrip():
         admin.dispose()
 
 
-def test_app_runtime_lease_migration_roundtrip():
+@pytest.mark.parametrize("receipt", ["lease", "start"])
+def test_app_runtime_lease_migration_roundtrip(receipt):
     url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
     if not url:
         pytest.skip("Requires disposable PostgreSQL")
@@ -734,30 +735,36 @@ def test_app_runtime_lease_migration_roundtrip():
     with admin.begin() as db:
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261012210000-d2f3a4b5c6d7.py"
+    path = (
+        Path(__file__).parents[2]
+        / "api/langboard/migrations/versions"
+        / ("20261012210000-d2f3a4b5c6d7.py" if receipt == "lease" else "20261012220000-e3f4a5b6c7d8.py")
+    )
     spec = importlib.util.spec_from_file_location("app_lease_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
-    assert migration.down_revision == "c1f2a3b4d5e6"
+    assert migration.down_revision == ("c1f2a3b4d5e6" if receipt == "lease" else "d2f3a4b5c6d7")
     try:
         with engine.begin() as db:
             with Operations.context(MigrationContext.configure(db)):
                 migration.upgrade()
-            db.execute(
-                text(
-                    "INSERT INTO app_execution_lease(id,request_id,acknowledgment_id,runtime_token_hash,expires_at) VALUES(1,2,3,'hash',now())"
-                )
+            insert = (
+                "INSERT INTO app_execution_lease(id,request_id,acknowledgment_id,runtime_token_hash,expires_at) VALUES(:id,2,3,'hash',now())"
+                if receipt == "lease"
+                else "INSERT INTO app_execution_start(id,lease_id,request_id,acknowledgment_id,generation,runtime_reference,execution_reference) VALUES(:id,2,3,4,1,'runtime','process')"
             )
-            assert db.execute(text("SELECT state,history FROM app_execution_lease")).one() == ("authorized", [])
+            db.execute(text(insert), {"id": 1})
+            if receipt == "lease":
+                assert db.execute(text("SELECT state,history FROM app_execution_lease")).one() == ("authorized", [])
+            else:
+                assert db.execute(
+                    text("SELECT generation,runtime_reference,execution_reference FROM app_execution_start")
+                ).one() == (1, "runtime", "process")
         with pytest.raises(IntegrityError), engine.begin() as db:
-            db.execute(
-                text(
-                    "INSERT INTO app_execution_lease(id,request_id,acknowledgment_id,runtime_token_hash,expires_at) VALUES(2,2,3,'hash',now())"
-                )
-            )
+            db.execute(text(insert), {"id": 2})
         with engine.begin() as db, Operations.context(MigrationContext.configure(db)):
             migration.downgrade()
-        assert "app_execution_lease" not in inspect(engine).get_table_names()
+        assert f"app_execution_{receipt}" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()
         with admin.begin() as db:
