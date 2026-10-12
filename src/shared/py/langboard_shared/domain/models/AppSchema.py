@@ -2,6 +2,8 @@
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint
 from sqlalchemy.schema import conv
+from .AppCardInteraction import AppCardInteraction
+from .AppCardInteractionResponse import AppCardInteractionResponse
 from .AppConnection import AppConnection
 from .AppGovernancePolicy import AppGovernancePolicy
 from .AppMcpConsent import AppMcpConsent
@@ -86,4 +88,21 @@ CardExecutionGeneration.__table__.append_constraint(
 )
 CardExecutionIntent.__table__.append_constraint(
     CheckConstraint("execution_generation >= 1", name=conv("ck_card_execution_intent_positive"))
+)
+
+
+AppCardInteraction.__table__.append_constraint(
+    CheckConstraint("revision >= 1", name=conv("ck_app_card_interaction_revision"))
+)
+AppCardInteraction.__table__.append_constraint(
+    CheckConstraint("state IN ('pending','cancelled')", name=conv("ck_app_card_interaction_state"))
+)
+AppCardInteractionResponse.__table__.append_constraint(
+    CheckConstraint("expected_revision >= 1", name=conv("ck_app_card_interaction_response_revision"))
+)
+AppCardInteractionResponse.__table__.append_constraint(
+    CheckConstraint(
+        "execution_generation IS NULL OR execution_generation >= 1",
+        name=conv("ck_app_card_interaction_response_generation"),
+    )
 )

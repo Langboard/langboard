@@ -646,7 +646,21 @@ The prior app integration contains `AppCardInteraction`, immutable
 and native human response controls. These are source material to reconnect, not
 evidence of a working interaction endpoint on this review branch. The SDK request
 and answer validators are available in the pinned 0.2.34 artifact; the host
-interaction routes and storage are not reconstructed yet.
+interaction routes and response acceptance are not reconstructed yet.
+
+The retained request/response models are reconstructed in schema-only revision
+`a9de428cb76f`, after `f8cd317ba65e`. Requests retain authority and workflow
+snapshots, expire explicitly, and are unique by connection/card/app request key.
+Responses are unique by interaction and retain human actor, observed request
+revision, idempotency key, optional execution generation and structured values.
+Neither table has foreign keys that could erase audit receipts when a card or
+account disappears. Database constraints reject nonpositive revisions, invalid
+request states and nonpositive execution generations. This is storage only;
+there is no public approval or runtime permit path through these models yet.
+The disposable PostgreSQL migration suite passed five tests in 2.19 seconds,
+including uniqueness, constraint rejection, retained response after request
+deletion and downgrade. Service/HTTP concurrency and current authority checks
+remain separate required gates.
 
 The earlier `AppCardInteractions` service depends on its previous
 `AppExecutionGrant`, `AppExecutionAcknowledgments`, `AppEventDelivery`, and

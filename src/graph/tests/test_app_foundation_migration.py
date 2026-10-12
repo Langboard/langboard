@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["f8cd317ba65e"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["a9de428cb76f"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -584,6 +584,63 @@ def test_execution_ack_migration_retains_identity_and_unique_request(monkeypatch
             assert db.execute(text("SELECT count(*) FROM app_execution_acknowledgment")).scalar() == 1
             migration.downgrade()
             migration.upgrade()
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_interaction_migration_retains_receipts_and_enforces_response_uniqueness():
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "interaction_receipt_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
+    spec = importlib.util.spec_from_file_location(
+        "interaction_migration", migration_root / "versions/20261012180000-a9de428cb76f.py"
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "f8cd317ba65e"
+    request_sql = (
+        "INSERT INTO app_card_interaction "
+        "(id,project_id,connection_id,card_id,app_key,app_request_key,revision,state,request,authority_snapshot,workflow_snapshot) "
+        "VALUES (:id,10,20,30,'example','approval',:revision,:state,'{}','{}','{}')"
+    )
+    response_sql = (
+        "INSERT INTO app_card_interaction_response "
+        "(id,interaction_id,actor_id,expected_revision,idempotency_key,execution_generation,values) "
+        "VALUES (:id,1,40,:revision,'answer',:generation,'{}')"
+    )
+    try:
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+        for table in ("app_card_interaction", "app_card_interaction_response"):
+            assert inspect(engine).get_foreign_keys(table) == []
+        with engine.begin() as db:
+            db.execute(text(request_sql), {"id": 1, "revision": 1, "state": "pending"})
+            db.execute(text(response_sql), {"id": 2, "revision": 1, "generation": 1})
+        for statement, params in (
+            (request_sql, {"id": 3, "revision": 1, "state": "pending"}),
+            (request_sql, {"id": 4, "revision": 0, "state": "pending"}),
+            (request_sql, {"id": 5, "revision": 1, "state": "approved"}),
+            (response_sql, {"id": 6, "revision": 1, "generation": 1}),
+            (response_sql.replace("VALUES (:id,1,", "VALUES (:id,9,"), {"id": 7, "revision": 0, "generation": 1}),
+            (response_sql.replace("VALUES (:id,1,", "VALUES (:id,9,"), {"id": 8, "revision": 1, "generation": 0}),
+        ):
+            with pytest.raises(IntegrityError), engine.begin() as db:
+                db.execute(text(statement), params)
+        with engine.begin() as db:
+            db.execute(text("DELETE FROM app_card_interaction WHERE id=1"))
+            assert db.execute(text("SELECT count(*) FROM app_card_interaction_response")).scalar() == 1
+        with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+            migration.downgrade()
+        assert not {"app_card_interaction", "app_card_interaction_response"} & set(inspect(engine).get_table_names())
     finally:
         engine.dispose()
         with admin.begin() as db:

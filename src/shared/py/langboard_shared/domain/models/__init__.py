@@ -100,6 +100,8 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 __all__ = [
     "Organization",
     "AppDefinition",
+    "AppCardInteraction",
+    "AppCardInteractionResponse",
     "AppConnection",
     "AppConnectionCredential",
     "AppResourceBinding",
@@ -203,3 +205,5 @@ __all__ = [
 ]
 
 from . import AppSchema as _app_schema  # noqa: F401
+from .AppCardInteraction import AppCardInteraction
+from .AppCardInteractionResponse import AppCardInteractionResponse
