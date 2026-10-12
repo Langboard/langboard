@@ -22,7 +22,7 @@ from ..models import (
 )
 from ..models.ProjectRole import ProjectRoleAction
 from .AppConnectionAuthentication import authenticate_connection_credential
-from .AppExecutionRequestRead import read_app_execution_request
+from .AppExecutionRequestRead import current_execution_configuration, read_app_execution_request
 from .AppGovernance import (
     AppGovernanceConflict,
     AppGovernanceDenied,
@@ -33,7 +33,7 @@ from .AppGovernance import (
 )
 from .CardAppGovernance import _card
 from .CardAppResources import verified_card_app_configuration
-from .CardExecutionIntent import _configuration, _generation
+from .CardExecutionIntent import _generation
 
 
 def _scope(db, token, project_id, card_id, *, for_update):
@@ -329,7 +329,9 @@ def respond_to_app_card_interaction(
             raise AppGovernanceConflict()
         if context:
             intent = _current(db, CardExecutionIntent, SnowflakeID.from_short_code(context["request_uid"]))
-            _, _, execution_snapshot = _configuration(db, owner, project_id, card_id, row.app_key, row.connection_id)
+            if intent is None:
+                raise AppGovernanceConflict()
+            current_execution_configuration(db, intent, project_id, for_update=True)
             generation = _generation(db, card_id)
             if (
                 intent is None
@@ -339,7 +341,6 @@ def respond_to_app_card_interaction(
                 or intent.execution_generation != execution_generation
                 or generation is None
                 or generation.execution_generation != execution_generation
-                or intent.snapshot != execution_snapshot
             ):
                 raise AppGovernanceConflict()
         validated = validate_card_interaction_values(row.request, values)

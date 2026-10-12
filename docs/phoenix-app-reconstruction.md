@@ -939,4 +939,21 @@ Disposable PostgreSQL full suite passed 83 tests in 47.94 seconds, including
 Active migration roundtrip, duplicate lease identity denial, current revision
 fences and no publication on rollback. Final native ordering-helper focused
 regression passed separately. All three offline host locks are consistent.
-SDK037 exact-head remote CI38192655354 is queued; no remote pass is claimed.
+SDK037 exact-head remote CI38192655354 passed for d138622. This confirms the
+SDK contract gate, not deployed host or provider acceptance.
+
+### Active HITL authority continuity
+
+Request receipt reads, heartbeat, human interaction responses and signed event
+authority now reuse one current execution configuration check. It selects the
+immutable Ready intent or the separately retained Active snapshot. Active also
+requires the current authorized, unexpired lease and connection credential.
+The original intent remains unchanged; SDK request reads return the current
+Active authority version and card revision after the explicit transition.
+
+The installed SDK created a question through the native HTTP API after Active;
+a human response and its event authority validation succeeded. Revoking the
+resource then denied request reads, responses and event delivery. Disposable
+PostgreSQL full regression passed 83 tests in 48.80 seconds. Actual provider
+execution, stopped-to-Review handoff, independent Monitor acceptance and canary
+browser/broker acceptance remain outstanding.

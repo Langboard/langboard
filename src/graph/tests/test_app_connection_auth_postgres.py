@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Event, get_ident
 from time import monotonic, sleep
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
+import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
 import langboard.routes.settings.AppExecutionLeaseApi  # noqa: F401
@@ -24,6 +25,7 @@ import langboard.routes.settings.BoardWorkflowSettingsApi  # noqa: F401
 import langboard.routes.settings.CardAppOwnershipApi  # noqa: F401
 import langboard.routes.settings.CardAppResourcesApi  # noqa: F401
 import langboard.routes.settings.CardExecutionIntentApi  # noqa: F401
+import langboard.routes.settings.CardHumanInteractionApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -1595,12 +1597,20 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
     engine, (_, owner, outsider), personal, shared = registered
-    from langboard_shared.domain.models import AppExecutionActive, AppExecutionLease, AppExecutionStart
+    from langboard_shared.domain.models import (
+        AppCardInteraction,
+        AppCardInteractionResponse,
+        AppExecutionActive,
+        AppExecutionLease,
+        AppExecutionStart,
+    )
 
     for model in (
         AppExecutionLease,
         AppExecutionStart,
         AppExecutionActive,
+        AppCardInteraction,
+        AppCardInteractionResponse,
         WorkflowStageDefinition,
         ProjectColumn,
         Card,
@@ -1620,7 +1630,13 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         model.__table__.create(engine)
     with Session(engine) as db:
         declaration = deepcopy(DECLARATION)
-        declaration["capabilities"] += ["cards.create", "resources.read", "execution.run"]
+        declaration["capabilities"] += [
+            "cards.create",
+            "resources.read",
+            "execution.run",
+            "interactions.request",
+            "events.receive",
+        ]
         declaration["card_lifecycle"] = {
             "issue": {"archive": {"mode": "retain", "description": "Retain"}, "restore": "retain_external_state"}
         }
@@ -2085,6 +2101,93 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             assert active_receipt["card_uid"] == SnowflakeID(221).to_short_code()
             assert asyncio.run(sdk_activate(read=True))["handoff_uid"] == active_receipt["handoff_uid"]
             assert client.post(check_path, json={"runtime_token": runtime_token}).json()["permit_execution"] is True
+            assert asyncio.run(sdk_read())["authority"]["authority_version"] != authority["authority_version"]
+            assert client.get(ack_path, headers=app_headers).status_code == 200
+            from langboard_sdk.interactions import AppCardInteractions
+            from langboard_shared.domain.services.AppCardInteractions import respond_to_app_card_interaction
+            from langboard_shared.domain.services.AppEventDestination import validate_event_authority
+
+            request_id = SnowflakeID.from_short_code(receipts[0]["request_uid"])
+            question_body = {
+                "schema_version": 1,
+                "kind": "question",
+                "app_request_key": "active_question",
+                "prompt": {"en": "Continue?", "ko": "진행할까요?"},
+                "questions": [
+                    {
+                        "id": "decision",
+                        "type": "single_choice",
+                        "prompt": {"en": "Decision"},
+                        "choices": [
+                            {"id": "continue", "label": {"en": "Continue"}},
+                            {"id": "stop", "label": {"en": "Stop"}},
+                        ],
+                    }
+                ],
+                "presentation": {"type": "choice_card"},
+                "execution": {"request_uid": receipts[0]["request_uid"], "generation": 1},
+                "expires_at": (SafeDateTime.now() + timedelta(hours=1)).isoformat(),
+            }
+
+            async def sdk_question():
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    return await AppCardInteractions(HttpTransport(session)).create(
+                        SnowflakeID(20).to_short_code(), SnowflakeID(221).to_short_code(), question_body
+                    )
+
+            question = asyncio.run(sdk_question())
+            question_id = SnowflakeID.from_short_code(question["interaction_uid"])
+            answer = respond_to_app_card_interaction(
+                owner,
+                SnowflakeID(20),
+                SnowflakeID(221),
+                question_id,
+                {"decision": {"choice_id": "continue"}},
+                1,
+                "active-human-answer-0001",
+                1,
+            )
+            assert (
+                answer["state"] == "answered"
+                and not answer["execution_resumed"]
+                and not answer["workflow_transitioned"]
+            )
+            with DbSession.atomic() as db:
+                event_row = db.exec(
+                    SqlBuilder.select.table(AppExecutionOutbox).where(
+                        AppExecutionOutbox.request_id == SnowflakeID.from_short_code(answer["response"]["response_uid"])
+                    )
+                ).first()
+                validate_event_authority(db, event_row, personal)
+            with Session(engine) as db:
+                immutable = db.get(CardExecutionIntent, request_id).snapshot
+                assert immutable == snapshot
+                db.execute(update(AppResourceBinding).values(access_state="revoked"))
+                db.commit()
+            with pytest.raises(NativeApiError):
+                asyncio.run(sdk_read())
+            with pytest.raises(AppGovernanceDenied):
+                respond_to_app_card_interaction(
+                    owner,
+                    SnowflakeID(20),
+                    SnowflakeID(221),
+                    question_id,
+                    {"decision": {"choice_id": "continue"}},
+                    1,
+                    "active-human-answer-0001",
+                    1,
+                )
+            with DbSession.atomic() as db, pytest.raises(AppGovernanceDenied):
+                validate_event_authority(db, event_row, personal)
+            with Session(engine) as db:
+                db.execute(update(AppResourceBinding).values(access_state="granted"))
+                # Keep legacy execution event-count checks isolated from this question.
+                db.query(AppExecutionOutbox).filter(AppExecutionOutbox.request_id != request_id).delete()
+                db.query(AppCardInteractionResponse).delete()
+                db.query(AppCardInteraction).delete()
+                db.commit()
             with Session(engine) as db:
                 lease = db.query(AppExecutionLease).one()
                 assert lease.runtime_token_hash == sha256(runtime_token.encode()).hexdigest()

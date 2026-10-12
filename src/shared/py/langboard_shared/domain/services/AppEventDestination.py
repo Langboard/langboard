@@ -158,8 +158,8 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
 def validate_event_authority(db, event, connection):
     """Recheck native immutable request authority before exposing signed bytes."""
     from ..models import AppCardInteraction, AppCardInteractionResponse, CardExecutionIntent
+    from .AppExecutionRequestRead import current_execution_configuration
     from .CardAppResources import verified_card_app_configuration
-    from .CardExecutionIntent import _configuration, _generation
 
     owner = _current(db, User, connection.owner_id, for_update=False)
     if owner is None:
@@ -224,16 +224,7 @@ def validate_event_authority(db, event, connection):
         or intent.card_id != card_id
     ):
         raise AppGovernanceDenied()
-    actor = _current(db, User, intent.actor_id)
-    _, _, snapshot = _configuration(db, actor, event.project_id, card_id, event.app_key, connection.id)
-    intent = _current(db, CardExecutionIntent, request_id)
-    generation = _generation(db, card_id)
-    if (
-        generation is None
-        or generation.execution_generation != intent.execution_generation
-        or snapshot != intent.snapshot
-    ):
-        raise AppGovernanceConflict()
+    _, _, snapshot = current_execution_configuration(db, intent, event.project_id, for_update=True)
     if event.event_type == APP_EXECUTION_EVENT:
         expected = dict(
             schema_version=1,

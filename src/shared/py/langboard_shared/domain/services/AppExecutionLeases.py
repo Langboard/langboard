@@ -10,15 +10,12 @@ from ..models import (
     AppConnection,
     AppConnectionCredential,
     AppExecutionAcknowledgment,
-    AppExecutionActive,
     AppExecutionLease,
     CardExecutionIntent,
-    User,
 )
 from .AppConnectionAuthentication import _identity_hash, authenticate_connection_credential
-from .AppExecutionRequestRead import read_app_execution_request
-from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
-from .CardExecutionIntent import _configuration, _generation
+from .AppExecutionRequestRead import current_execution_configuration, read_app_execution_request
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 
 
 LEASE_SECONDS = 120
@@ -95,30 +92,11 @@ def authorize_app_runtime(token, project_id, card_id, request_id, acknowledgment
 
 def _allowed(db, row, intent, project_id):
     try:
-        actor = _current(db, User, intent.actor_id)
-        if actor is None:
-            return False
-        actor = _actor(db, actor)
-        active = db.exec(
-            SqlBuilder.select.table(AppExecutionActive).where(AppExecutionActive.lease_id == row.id)
-        ).first()
-        card, connection, snapshot = _configuration(
-            db,
-            actor,
-            project_id,
-            intent.card_id,
-            intent.app_key,
-            intent.connection_id,
-            workflow_stage="active" if active else "ready",
-        )
-        generation = _generation(db, card.id)
+        _, connection, _ = current_execution_configuration(db, intent, project_id, for_update=True)
         credential = _current(db, AppConnectionCredential, row.credential_id)
         now = SafeDateTime.now()
         return bool(
-            generation
-            and generation.execution_generation == intent.execution_generation
-            and snapshot == (active.snapshot if active else intent.snapshot)
-            and credential
+            credential
             and credential.connection_id == connection.id
             and credential.revoked_at is None
             and credential.expires_at > now
