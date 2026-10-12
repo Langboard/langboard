@@ -17,6 +17,7 @@ on:
       - "src/ui/**"
       - ".github/workflows/check-socket-phoenix.yaml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: *phoenix_paths
   workflow_dispatch:
 

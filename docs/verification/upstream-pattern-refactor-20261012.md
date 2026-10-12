@@ -446,3 +446,15 @@ passed against the reviewed 0.2.37 wheel and both lockfiles. This is local
 workflow parity, not a hosted-CI conclusion. The latest hosted checks remain
 queued. Copilot review failed with quota HTTP 402; this is not a source failure
 or an independent review approval.
+
+## Phoenix CI readiness and cutover contracts
+
+The Phoenix workflow now explicitly handles `ready_for_review`, matching its
+existing draft guard. Without this event a draft-to-ready transition did not
+schedule the Phoenix gate. Synchronization continues to schedule the same gate;
+no additional build job or runner configuration was introduced.
+
+`phoenix-cutover-gate-current.txt` reports 112 passed and 4 skipped across owner
+preflight, cutover, retained cutover evidence, OTEL soak validation, and editor
+owner routing. The four skipped cases require unavailable PowerShell; Bash
+cases ran. This proves these local contract checks, not live runtime cutover.
