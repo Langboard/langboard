@@ -45,6 +45,10 @@ jobs:
   native-contracts:
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     services:
       postgres:
@@ -63,11 +67,21 @@ jobs:
     env:
       PROJECT_NAME: langboard
       PROJECT_SHORT_NAME: lb
-      LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/langboard_test
-      LANGBOARD_OUTBOX_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/langboard_test
       PYTHONPATH: src/api/tests/apps
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils
       - uses: actions/checkout@v4
+      - name: Configure service database
+        env:
+          POSTGRES_HOST: ${{ job.container.network && 'postgres' || '127.0.0.1' }}
+        run: |
+          printf 'LANGBOARD_FILE_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@%s:5432/langboard_test\n' "$POSTGRES_HOST" >> "$GITHUB_ENV"
+          printf 'LANGBOARD_OUTBOX_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@%s:5432/langboard_test\n' "$POSTGRES_HOST" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
@@ -77,6 +91,16 @@ jobs:
           python scripts/sdk/verify_python_artifact.py
           python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py
       - run: uv sync --frozen
+      - name: Verify PostgreSQL service connection
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["LANGBOARD_FILE_TEST_DATABASE_URL"], connect_args={"connect_timeout": 10})
+          with engine.connect() as db:
+              assert db.execute(text("SELECT 1")).scalar_one() == 1
+          engine.dispose()
+          PY
       - name: Verify immutable executor request contract
         run: uv run --no-sync python -m unittest discover -s scripts/image_build -v
       - name: Independent signal, Inbox, owned card and human-response contracts
@@ -90,6 +114,7 @@ jobs:
           src/api/tests/apps/test_external_provider_signal_contracts.py
           src/api/tests/apps/test_app_card_interactions.py
           src/api/tests/apps/test_app_card_creation.py
+          src/api/tests/card_visibility/test_creation_visibility.py
           src/api/tests/apps/test_app_card_archive_migration.py
           src/api/tests/apps/test_app_card_archive_delivery.py
           src/api/tests/apps/test_card_app_ownership.py

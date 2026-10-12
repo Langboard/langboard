@@ -30,7 +30,11 @@ jobs:
   request:
     if: vars.CI_RUNNER != '' && startsWith(github.ref, 'refs/heads/deploy/')
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    timeout-minutes: 3
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 5
     env:
       IMAGE_BUILD_REPOSITORY: ${{ vars.IMAGE_BUILD_REPOSITORY }}
       IMAGE_BUILD_WORKFLOW: ${{ vars.IMAGE_BUILD_WORKFLOW }}
@@ -41,6 +45,12 @@ jobs:
       SOURCE_REVISION: ${{ github.sha }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils python3
       - name: Request the approved immutable image
         env:
           IMAGE_BUILD_REQUEST_TOKEN: ${{ secrets.IMAGE_BUILD_REQUEST_TOKEN }}
