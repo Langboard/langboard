@@ -4,15 +4,34 @@ import re
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
 from ..models import AppResourceBinding, CardAppResourceSelection, CardAppResourceSelectionAudit, Project
+from ..models.ProjectRole import ProjectRoleAction
 from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 from .AppResourceSelection import _selection_context
 from .CardAppGovernance import _card, _ownership
 
 
-def _context(db, actor, project_id, card_id, app_key, connection_id, *, for_update=True, withdrawal=True):
+def _context(
+    db,
+    actor,
+    project_id,
+    card_id,
+    app_key,
+    connection_id,
+    *,
+    for_update=True,
+    withdrawal=True,
+    board_action=ProjectRoleAction.Update,
+):
     definition, binding, connection = _selection_context(
-        db, actor, project_id, app_key, connection_id, for_update=for_update, withdrawal=withdrawal
+        db,
+        actor,
+        project_id,
+        app_key,
+        connection_id,
+        for_update=for_update,
+        withdrawal=withdrawal,
+        board_action=board_action,
     )
     project = _current(db, Project, project_id, for_update=False)
     if project is None or project.deleted_at:
@@ -165,7 +184,15 @@ def verified_card_app_configuration(
     db, actor, project_id, card_id, app_key, connection_id, *, capability, for_update=True
 ):
     definition, binding, connection, card, owner = _context(
-        db, actor, project_id, card_id, app_key, connection_id, for_update=for_update, withdrawal=False
+        db,
+        actor,
+        project_id,
+        card_id,
+        app_key,
+        connection_id,
+        for_update=for_update,
+        withdrawal=False,
+        board_action=ProjectRoleAction.Read if capability == "cards.read" else ProjectRoleAction.Update,
     )
     selection = _row(db, card.id, app_key, for_update=for_update)
     identity = _identity_hash(db, connection, definition=definition)

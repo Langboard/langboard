@@ -3,6 +3,7 @@
 from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
 from ..models import AppDefinition, BoardAppBinding
+from ..models.ProjectRole import ProjectRoleAction
 from .AppGovernance import (
     AppGovernanceConflict,
     AppGovernanceDenied,
@@ -13,13 +14,15 @@ from .AppGovernance import (
 )
 
 
-def _context(db, actor, project_id, app_key, *, lock_binding=True, for_update=True):
+def _context(
+    db, actor, project_id, app_key, *, lock_binding=True, for_update=True, board_action=ProjectRoleAction.Update
+):
     actor = _actor(db, actor, for_update=for_update)
     definition_statement = SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key)
     definition = db.exec(definition_statement.with_for_update() if for_update else definition_statement).first()
     if definition is None:
         raise AppGovernanceDenied()
-    project = _authorized_board(db, actor, project_id, for_update=for_update)
+    project = _authorized_board(db, actor, project_id, for_update=for_update, action=board_action)
     statement = SqlBuilder.select.table(BoardAppBinding).where(
         BoardAppBinding.project_id == project.id, BoardAppBinding.app_key == app_key
     )

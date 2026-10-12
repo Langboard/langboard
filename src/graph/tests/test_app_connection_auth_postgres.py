@@ -931,8 +931,8 @@ def test_app_resource_http_only_verified_current_identity_and_sdk_shape(register
 
 
 @pytest.mark.parametrize("operation", ["board", "mcp", "credential"])
-@pytest.mark.parametrize("organization", [True])
-@pytest.mark.parametrize("existing_policy", [True])
+@pytest.mark.parametrize("organization", [False, True])
+@pytest.mark.parametrize("existing_policy", [False, True])
 def test_policy_disable_serializes_with_consent_writes_including_absent_rows(
     registered, organization, existing_policy, operation
 ):
@@ -2291,6 +2291,28 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             content_read = asyncio.run(sdk_card())
             assert content_read["card_revision"] == review_authority["card_revision"]
             assert content_read["binding_revision"] == review_authority["binding_revision"]
+            from langboard_shared.domain.models import Project
+
+            with Session(engine) as db:
+                # Same personal connection owner, now an explicitly read-only board member.
+                db.execute(update(Project).where(Project.id == 20).values(owner_id=outsider.id))
+                db.add(ProjectAssignedUser(id=901, project_id=20, user_id=owner.id))
+                db.add(ProjectRole(id=902, project_id=20, user_id=owner.id, actions=["read"]))
+                db.commit()
+            assert asyncio.run(sdk_card())["card_revision"] == content_read["card_revision"]
+            assert client.get(path, headers=headers).status_code == 403
+            with Session(engine) as db:
+                db.execute(update(ProjectRole).values(actions=[]))
+                db.commit()
+            with pytest.raises(NativeApiError) as revoked_read:
+                asyncio.run(sdk_card())
+            assert revoked_read.value.status_code == 403
+            with Session(engine) as db:
+                db.execute(update(Project).where(Project.id == 20).values(owner_id=owner.id))
+                db.query(ProjectRole).filter(ProjectRole.id == 902).delete()
+                db.query(ProjectAssignedUser).filter(ProjectAssignedUser.id == 901).delete()
+                db.commit()
+
             assert content_read["source"] == {"app_key": app_key, "connection_uid": personal.get_uid()}
             assert (
                 content_read["resources"][0]["access_revision"]

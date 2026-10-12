@@ -1065,3 +1065,29 @@ module skips the extra branch and does not count as consumer acceptance. Run
 `pytest src/graph/tests/test_app_connection_auth_postgres.py::test_human_execution_intent_cas_idempotency_and_current_resource_fences`.
 Both the ordinary and installed-consumer branches passed in 4.69 seconds against
 disposable PostgreSQL. The provider-specific helper remains consumer-owned.
+
+### Read-only board role for current app content
+
+The current app/card/resource scope now passes the requested board action through
+its existing consent/configuration checks. `cards.read` uses the native `read`
+role; other capabilities retain the existing `update` default. A read-only
+member owning the personal connection can read the current app-owned card, but
+cannot read execution-request authority or change configuration. Removing `read`
+immediately denies content. The focused installed-SDK PostgreSQL test passed
+in 3.63 seconds (one optional consumer branch skipped without a configured
+module). App consent, connection ownership and selected-resource checks remain
+independent of the human board role.
+
+Retained union source has `CardVisibilityPolicy` plus the primary membership
+resolver and internal access modes. The Phoenix base lacks the associated
+schema/configuration/SCIM employee policy. These dependencies must be integrated
+together; this role fix does not replace or claim the union visibility gate.
+
+The regression-count audit found that the consumer hook preparation had
+accidentally narrowed two pre-existing policy test axes to `[True]`. Both
+`organization` and `existing_policy` axes are restored to `[False, True]`.
+The reduced 75-test result is not the complete prior regression scope; the
+restored suite result is recorded after rerun.
+
+Restored full PostgreSQL regression passed 84 tests in 49.00 seconds; the
+optional unconfigured consumer branch skipped once. Ruff and diff checks passed.

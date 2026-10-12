@@ -3,13 +3,26 @@
 from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
 from ..models import AppConnection, AppResourceBinding, BoardAppBinding, User
+from ..models.ProjectRole import ProjectRoleAction
 from .AppBoardConsent import _context
 from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, current_policy, lock_policy_mutation
 
 
-def _selection_context(db, actor, project_id, app_key, connection_id, *, withdrawal=False, for_update=True):
-    definition, project, binding = _context(db, actor, project_id, app_key, lock_binding=False, for_update=for_update)
+def _selection_context(
+    db,
+    actor,
+    project_id,
+    app_key,
+    connection_id,
+    *,
+    withdrawal=False,
+    for_update=True,
+    board_action=ProjectRoleAction.Update,
+):
+    definition, project, binding = _context(
+        db, actor, project_id, app_key, lock_binding=False, for_update=for_update, board_action=board_action
+    )
     connection = _current(db, AppConnection, connection_id, for_update=for_update)
     if binding is None or connection is None or connection.app_key != app_key:
         raise AppGovernanceDenied()
