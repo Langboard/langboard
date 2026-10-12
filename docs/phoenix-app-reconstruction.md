@@ -1055,3 +1055,13 @@ against native full-content pages and before/after execution authority reads.
 It reconstructed the full Korean Markdown and matched the native authority.
 Final combined content/Review/recovery PostgreSQL run passed in 3.17 seconds
 with two pytest configuration warnings after plugin autoload was disabled.
+
+The shared native execution fixture now has an optional independent consumer
+hook instead of maintaining a copied native test. Set
+`LANGBOARD_EXECUTION_CONSUMER_TEST_MODULE` to an importable installed test module
+exporting `APP_KEY`, `read_requested_card` and `exercise_review`; provide that
+consumer's package and dependencies in the test environment. No configured
+module skips the extra branch and does not count as consumer acceptance. Run
+`pytest src/graph/tests/test_app_connection_auth_postgres.py::test_human_execution_intent_cas_idempotency_and_current_resource_fences`.
+Both the ordinary and installed-consumer branches passed in 4.69 seconds against
+disposable PostgreSQL. The provider-specific helper remains consumer-owned.

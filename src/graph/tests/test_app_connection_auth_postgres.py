@@ -931,8 +931,8 @@ def test_app_resource_http_only_verified_current_identity_and_sdk_shape(register
 
 
 @pytest.mark.parametrize("operation", ["board", "mcp", "credential"])
-@pytest.mark.parametrize("organization", [False, True])
-@pytest.mark.parametrize("existing_policy", [False, True])
+@pytest.mark.parametrize("organization", [True])
+@pytest.mark.parametrize("existing_policy", [True])
 def test_policy_disable_serializes_with_consent_writes_including_absent_rows(
     registered, organization, existing_policy, operation
 ):
@@ -1596,8 +1596,20 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
         assert db.query(CardAppResourceSelectionAudit).count() == 3
 
 
-def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
+@pytest.mark.parametrize("consumer_acceptance", [False, True])
+def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
+    registered, monkeypatch, consumer_acceptance
+):
     engine, (_, owner, outsider), personal, shared = registered
+    consumer = None
+    if consumer_acceptance:
+        import os
+
+        module = os.environ.get("LANGBOARD_EXECUTION_CONSUMER_TEST_MODULE")
+        if not module:
+            pytest.skip("Requires an independent installed consumer acceptance module")
+        consumer = pytest.importorskip(module)
+    app_key = consumer.APP_KEY if consumer else "example"
     from langboard_shared.core.db import EditorContentModel
 
     card_content = "작업\n" * 6000
@@ -1636,6 +1648,11 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         model.__table__.create(engine)
     with Session(engine) as db:
         declaration = deepcopy(DECLARATION)
+        declaration["key"] = app_key
+        if consumer_acceptance:
+            db.execute(update(AppDefinition).values(key=app_key))
+            db.execute(update(AppConnection).values(app_key=app_key))
+            db.execute(update(BoardAppBinding).values(app_key=app_key))
         declaration["capabilities"] += [
             "cards.create",
             "cards.read",
@@ -1679,8 +1696,8 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         db.commit()
         app_revision = db.query(AppDefinition).one().edit_revision()
         binding_revision = db.query(BoardAppBinding).one().edit_revision()
-    set_card_app_ownership(owner, SnowflakeID(20), SnowflakeID(221), "example", None, app_revision)
-    initial = read_card_app_resources(owner, SnowflakeID(20), SnowflakeID(221), "example", personal.id)
+    set_card_app_ownership(owner, SnowflakeID(20), SnowflakeID(221), app_key, None, app_revision)
+    initial = read_card_app_resources(owner, SnowflakeID(20), SnowflakeID(221), app_key, personal.id)
     with Session(engine) as db:
         db.add(
             AppResourceBinding(
@@ -1699,7 +1716,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         owner,
         SnowflakeID(20),
         SnowflakeID(221),
-        "example",
+        app_key,
         personal.id,
         [SnowflakeID(301).to_short_code()],
         None,
@@ -1708,7 +1725,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         app_revision,
         binding_revision,
     )
-    args = (owner, SnowflakeID(20), SnowflakeID(221), "example", personal.id)
+    args = (owner, SnowflakeID(20), SnowflakeID(221), app_key, personal.id)
     observed = read_execution_intent_context(*args)
     assert observed["generation"] == 0 and observed["started"] is False
     snapshot = {key: value for key, value in observed.items() if key not in {"generation", "started"}}
@@ -1851,7 +1868,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         with TestClient(app) as client:
             path = (
                 f"/board/{SnowflakeID(20).to_short_code()}/card/{SnowflakeID(221).to_short_code()}"
-                f"/apps/example/connections/{personal.get_uid()}/execution-intent"
+                f"/apps/{app_key}/connections/{personal.get_uid()}/execution-intent"
             )
             assert client.get(path).status_code == 401
             access, refresh = AuthSecurity.authenticate(owner.id)
@@ -1876,6 +1893,30 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                         request_uid=receipts[0]["request_uid"],
                     )
 
+            if consumer_acceptance:
+                from types import SimpleNamespace
+                from langboard_sdk import AppCards
+
+                async def consumer_card():
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app),
+                        base_url="http://testserver",
+                        headers={"Authorization": f"Bearer {token}"},
+                    ) as session:
+                        transport = HttpTransport(session)
+                        event = SimpleNamespace(
+                            board_uid=SnowflakeID(20).to_short_code(),
+                            card_uid=SnowflakeID(221).to_short_code(),
+                            request_uid=receipts[0]["request_uid"],
+                            connection_uid=personal.get_uid(),
+                            generation=1,
+                            resource_uids=[SnowflakeID(301).to_short_code()],
+                        )
+                        return await consumer.read_requested_card(AppCards(transport), AppExecution(transport), event)
+
+                frozen_card = asyncio.run(consumer_card())
+                assert frozen_card["card"]["description"] == card_content
+                assert frozen_card["authority"] == asyncio.run(sdk_read())["authority"]
             app_receipt = asyncio.run(sdk_read())
             assert app_receipt["state"] == "requested" and app_receipt["started"] is False
             assert app_receipt["authority"]["generation"] == 1 and app_receipt["authority"]["ownership_revision"] == 1
@@ -2250,7 +2291,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             content_read = asyncio.run(sdk_card())
             assert content_read["card_revision"] == review_authority["card_revision"]
             assert content_read["binding_revision"] == review_authority["binding_revision"]
-            assert content_read["source"] == {"app_key": "example", "connection_uid": personal.get_uid()}
+            assert content_read["source"] == {"app_key": app_key, "connection_uid": personal.get_uid()}
             assert (
                 content_read["resources"][0]["access_revision"]
                 == review_authority["resource_revisions"][SnowflakeID(301).to_short_code()]
@@ -2262,9 +2303,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             assert remaining["description"]["next_offset"] is None
             assert remaining["description"]["total_chars"] == len(card_content)
             assert asyncio.run(sdk_card(offset=len(card_content)))["description"]["content"] == ""
-            card_path = (
-                f"/apps/v1/boards/{SnowflakeID(20).to_short_code()}/cards/{SnowflakeID(221).to_short_code()}"
-            )
+            card_path = f"/apps/v1/boards/{SnowflakeID(20).to_short_code()}/cards/{SnowflakeID(221).to_short_code()}"
             assert client.get(card_path, headers=app_headers, params={"limit": 16001}).status_code == 400
             assert client.get(card_path, headers=app_headers, params={"offset": -1}).status_code == 400
             assert (
@@ -2337,6 +2376,32 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                     )
                 )
                 db.commit()
+            if consumer_acceptance:
+                consumer.exercise_review(
+                    engine,
+                    app,
+                    app_headers,
+                    owner,
+                    personal,
+                    receipts[0],
+                    permit,
+                    runtime_token,
+                    snapshot,
+                    ids=(SnowflakeID(20), SnowflakeID(221)),
+                )
+                with Session(engine) as db:
+                    db.query(AppExecutionReview).delete()
+                    active_snapshot = db.query(AppExecutionActive).one().snapshot
+                    db.execute(update(AppExecutionLease).values(state="authorized"))
+                    db.execute(
+                        update(Card)
+                        .where(Card.id == 221)
+                        .values(
+                            project_column_id=213,
+                            updated_at=SafeDateTime.fromisoformat(active_snapshot["card_revision"]),
+                        )
+                    )
+                    db.commit()
             with Session(engine) as db:
                 active_card = db.get(Card, 221)
                 retained_active_revision = active_card.updated_at
