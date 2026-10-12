@@ -1389,17 +1389,26 @@ class CardService(BaseDomainService):
             return title
 
     def default_creation_visibility(self, project: Project, actor: TUserOrBot) -> CardVisibility:
-        """Only an active owner's current single-person board defaults to private."""
-        if not isinstance(actor, User) or project.owner_id != actor.id:
+        """Personal owners use private; verified external board members use shared."""
+        if not isinstance(actor, User):
             return CardVisibility.Internal
-        with DbSession.use(readonly=False) as db:
-            other = db.exec(
-                SqlBuilder.select.table(User).join(ProjectAssignedUser, ProjectAssignedUser.user_id == User.id)
-                .where(ProjectAssignedUser.project_id == project.id)
-                .where(User.id != actor.id).where(User.deleted_at.is_(None)).where(User.activated_at.is_not(None))
-                .limit(1)
-            ).first()
-        return CardVisibility.Internal if other else CardVisibility.Private
+        resolved = self.resolve_visibility_context(project, actor)
+        if resolved is None or not resolved[1].project_member:
+            return CardVisibility.Internal
+        project, context = resolved
+        if project.owner_id == actor.id:
+            with DbSession.use(readonly=False) as db:
+                other = db.exec(
+                    SqlBuilder.select.table(User).join(ProjectAssignedUser, ProjectAssignedUser.user_id == User.id)
+                    .where(ProjectAssignedUser.project_id == project.id)
+                    .where(User.id != actor.id).where(User.deleted_at.is_(None)).where(User.activated_at.is_not(None))
+                    .limit(1)
+                ).first()
+            if other is None:
+                return CardVisibility.Private
+        if Env.CARD_INTERNAL_ACCESS_MODE in {"scim", "oidc_issuers"} and context.internal_member is False:
+            return CardVisibility.Shared
+        return CardVisibility.Internal
 
     def create(
         self,
