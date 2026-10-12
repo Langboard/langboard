@@ -154,7 +154,8 @@ def test_rich_patch_owner_transport_failure_is_not_acknowledged(monkeypatch: Mon
 def test_rich_patch_http_route_requires_authentication_before_publishing(monkeypatch: MonkeyPatch) -> None:
     user = User.model_construct()
 
-    def authenticate(scope):
+    def authenticate(scope, *, allow_oidc=False):
+        assert allow_oidc is False
         if any(name == b"authorization" for name, _value in scope["headers"]):
             scope["auth"] = user
             return user

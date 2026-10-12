@@ -828,10 +828,15 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
 
 
 def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import contextmanager
+    from langboard_shared.domain.models import User
+
     module = importlib.import_module("langboard_shared.domain.services.factory.CardService")
     project = SimpleNamespace(id=1)
-    card = SimpleNamespace(project_id=1, project_column_id=10, order=1, archived_at=None)
-    column = SimpleNamespace(id=10, project_id=1, is_archive=False)
+    card = SimpleNamespace(
+        id=2, project_id=1, project_column_id=10, order=1, archived_at=None, deleted_at=None, is_linked_resource=False
+    )
+    column = SimpleNamespace(id=10, project_id=1, is_archive=False, deleted_at=None)
     repository = SimpleNamespace(card=MagicMock())
     published = MagicMock()
     moved = MagicMock()
@@ -842,8 +847,21 @@ def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.Monk
     monkeypatch.setattr(module.CardActivityTask, "card_moved", moved)
     monkeypatch.setattr(module.CardBotTask, "card_moved", moved)
 
-    service = CardService(lambda _: None, lambda _: None, repository)
-    assert service.change_order(object(), project, card, 0, column) is True
+    callbacks = []
+    execution = SimpleNamespace(db=MagicMock(), watch_card_and_dependents=MagicMock())
+    execution.db.exec.return_value.first.return_value = card
+    execution.db.after_commit.side_effect = callbacks.append
+
+    @contextmanager
+    def readiness_uow():
+        yield execution
+        published.assert_not_called()
+        for callback in callbacks:
+            callback()
+
+    monkeypatch.setattr(module, "execution_readiness_uow", readiness_uow)
+    service = CardService(lambda _: MagicMock(), lambda _: None, repository)
+    assert service.change_order(User.model_construct(), project, card, 0, column) is True
 
     assert card.order == 0
     assert card.archived_at is None

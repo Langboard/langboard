@@ -458,3 +458,21 @@ no additional build job or runner configuration was introduced.
 preflight, cutover, retained cutover evidence, OTEL soak validation, and editor
 owner routing. The four skipped cases require unavailable PowerShell; Bash
 cases ran. This proves these local contract checks, not live runtime cutover.
+
+## Authorized runner access and Phoenix container gate
+
+The user authorized the four integration-branch validation workflow refs.
+Runner-group readback confirmed the original 15 entries retained, exactly four
+added, and workflow restriction still enabled. Private settings receipts remain
+outside tracked source. Device authentication completed successfully.
+
+Phoenix run 38258496843 reached the runner but failed during job setup because
+that runner requires a job container. The workflow now uses the same standard
+Ubuntu 24.04 job container as the existing contract workflows, installs runtime
+prerequisites, and reuses setup-uv instead of assuming pipx is preinstalled.
+
+The API cross-runtime subset initially exposed two obsolete upstream fixtures:
+an untyped actor and an authentication stub lacking the current allow_oidc
+argument. Fixtures now preserve the user guard and after-commit reorder
+publication boundary. `phoenix-api-contract-current-final3.txt`: 191 passed,
+zero skipped. This does not prove the whole cross-runtime workflow or deployment.
