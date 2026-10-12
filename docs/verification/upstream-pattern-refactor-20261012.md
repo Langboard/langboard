@@ -437,3 +437,12 @@ is not yet recorded as successful. PR #688 is ready for review; its three
 self-hosted checks remain queued. Runner permission inspection returned 403 for
 this API token and the browser requires GitHub sign-in. The narrow new
 workflow/ref access request is pending. No canary merge or deployment occurred.
+
+Final workflow-equivalent receipt: `current-hosted-contract-parity-final.txt`
+reports **296 passed, 26 skipped, zero failures** across all 25 paths declared by
+Check App Contracts, with both disposable PostgreSQL test URLs configured.
+Skipped branches are not passing evidence. The SDK artifact verifier also
+passed against the reviewed 0.2.37 wheel and both lockfiles. This is local
+workflow parity, not a hosted-CI conclusion. The latest hosted checks remain
+queued. Copilot review failed with quota HTTP 402; this is not a source failure
+or an independent review approval.
