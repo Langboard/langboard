@@ -385,3 +385,21 @@ The current upstream main was fetched again and remains included in the merge
 candidate. The deployed canary branch has newer customer-repair/CI commits than
 the original union; those must also be retained before promotion. The source
 merge can be recorded for review, but no runtime promotion is proved here.
+
+## Recorded integration and current canary repair
+
+The upstream integration is recorded as merge commit `b50dd2667`, preserving
+both original union and Phoenix reconstruction parents. The latest deploy
+branch (`9f5a9838e`) is being merged into that candidate to retain customer
+creation and portable CI repairs. The only two merge conflicts were SDK lock
+entries: both now match the retained 0.2.37 wheel's actual SHA-256.
+`latest-canary-repair-regression.txt`: 11 passed for external/default visibility
+and immutable image-request contracts.
+
+Phoenix checks reuse the generic `CI_RUNNER` repository variable when set and
+keep the public Ubuntu default otherwise. Push checks are restricted to main
+and deploy branches; draft pull requests do not run the expensive check.
+Production image building stays in the immutable image-request/central executor
+workflow rather than duplicating a release-image build in the validation job.
+No private runner identifier or executor endpoint is added to source. A draft
+review is preparation, not CI or deployment acceptance.

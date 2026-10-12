@@ -2,6 +2,7 @@ name: Check Phoenix Socket
 
 on:
   push:
+    branches: [main, "deploy/**"]
     paths: &phoenix_paths
       - ".env.example"
       - "Makefile"
@@ -29,7 +30,8 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 60
     defaults:
       run:
@@ -81,11 +83,6 @@ jobs:
         run: yarn install --frozen-lockfile --ignore-scripts
       - name: Run the cross-runtime migration gate
         run: make test_socket_phoenix
-        working-directory: .
-      - name: Build the Phoenix release image
-        run: |
-          cp .env.example .env
-          make build_socket_phoenix_image
         working-directory: .
       - name: Distributed editor recovery
         run: elixir --sname editor_cluster_probe -S mix run test/integration/editor_cluster_probe.exs
