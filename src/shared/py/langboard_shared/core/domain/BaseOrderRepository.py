@@ -120,7 +120,9 @@ class BaseOrderRepository(Generic[_TModel, _TParentModel], BaseRepository[_TMode
                 values[model_class.column(parent_foreign_key_name)] = new_parent_id
             target_update = SqlBuilder.update.table(model_class).where(model_class.column("id") == model_id)
             if preserve_shifted_updated_at:
-                target_update = target_update.values({model_class.column("updated_at"): model_class.column("updated_at")})
+                target_update = target_update.values(
+                    {model_class.column("updated_at"): model_class.column("updated_at")}
+                )
             db.exec(target_update.values(values))
 
     def get_next_order(

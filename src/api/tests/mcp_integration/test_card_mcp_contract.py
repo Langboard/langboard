@@ -143,11 +143,17 @@ def test_plugin_compatibility_tools_preserve_native_contracts(monkeypatch: pytes
     card = object()
     monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: (object(), card))
     service = SimpleNamespace(
-        card=SimpleNamespace(get_details=lambda *args, **kwargs: {"description": "![img](image.png)"}, resolve_readable_card=lambda *args: (object(), card, object())),
+        card=SimpleNamespace(
+            get_details=lambda *args, **kwargs: {"description": "![img](image.png)"},
+            resolve_readable_card=lambda *args: (object(), card, object()),
+        ),
         card_attachment=SimpleNamespace(get_api_list_by_card=lambda value: [{"uid": "attachment", "url": "image.png"}]),
     )
     assert "description" in CardMcp.get_card("board", "card", None, service)
-    assert CardMcp.get_card_attachments("board", "card", service, user_or_bot=object())["attachments"][0]["uid"] == "attachment"
+    assert (
+        CardMcp.get_card_attachments("board", "card", service, user_or_bot=object())["attachments"][0]["uid"]
+        == "attachment"
+    )
 
 
 def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -197,7 +203,7 @@ def test_public_metadata_mutations_use_native_owner_and_bounded_response(monkeyp
                 calls.append(("save", (target, key, value, old_key))) or SimpleNamespace(value=value)
             ),
             delete_card=lambda actor, project, target, keys: (calls.append(("delete", (target, keys))) or True),
-        )
+        ),
     )
 
     saved = CardMcp.save_public_card_metadata("project", "card", " note ", "x" * 4001, None, service)
@@ -740,7 +746,10 @@ def test_native_move_rejects_column_from_another_project(
     monkeypatch.setattr(module, "execution_readiness_uow", readiness_uow)
     from langboard_shared.domain.models import User
 
-    assert CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column) is None
+    assert (
+        CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
+        is None
+    )
     assert len(statements) == 1
     assert statements[0]._for_update_arg is not None
     assert "card.project_id" in str(statements[0])

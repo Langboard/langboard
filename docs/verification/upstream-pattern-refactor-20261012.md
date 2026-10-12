@@ -491,3 +491,10 @@ current middleware contract. `phoenix-ai-contract-current-final.txt` reports
 231 passed with zero skips across Ollama commands/recovery, internal graph
 requests, application startup, attachment upload, native run recovery, file
 client, board chat and editor socket run tests. Production auth remains unchanged.
+
+Phoenix Makefile static gate audit: all 109 Ruff check paths pass after replacing
+two SQL boolean comparisons in notification fanout queries with SQLAlchemy
+`is_(True)`. Notification delivery/command regression: 74 passed. All 34 Ruff
+format gate paths pass after formatting four integration files with the existing
+formatter. AST comparisons confirm those four files retain identical behavior.
+The notification query change is separate and covered by the regression receipt.

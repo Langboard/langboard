@@ -197,13 +197,13 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         return notification
 
     def get_pending_web_fanout(self, older_than: SafeDateTime, limit: int) -> list[UserNotification]:
-        query = SqlBuilder.select.table(UserNotification).where((UserNotification.column('web_fanout_pending') == True) & (UserNotification.column('updated_at') <= older_than)).order_by(UserNotification.column('updated_at'), UserNotification.column('id')).limit(limit)
+        query = SqlBuilder.select.table(UserNotification).where((UserNotification.column('web_fanout_pending').is_(True)) & (UserNotification.column('updated_at') <= older_than)).order_by(UserNotification.column('updated_at'), UserNotification.column('id')).limit(limit)
         with DbSession.use(readonly=False) as db:
             return db.exec(query).all()
 
     def defer_web_fanout(self, notification: UserNotification) -> None:
         with DbSession.use(readonly=False) as db:
-            db.exec(SqlBuilder.update.table(UserNotification).values({UserNotification.column('updated_at'): SafeDateTime.now()}).where((UserNotification.column('id') == notification.id) & (UserNotification.column('web_fanout_pending') == True)))
+            db.exec(SqlBuilder.update.table(UserNotification).values({UserNotification.column('updated_at'): SafeDateTime.now()}).where((UserNotification.column('id') == notification.id) & (UserNotification.column('web_fanout_pending').is_(True))))
 
     def complete_web_fanout(self, notification: UserNotification) -> None:
         with DbSession.use(readonly=False) as db:
