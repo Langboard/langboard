@@ -70,7 +70,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
@@ -78,6 +78,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Verify Python standard library database runtime
+        run: python -c "import sqlite3; assert sqlite3.connect(':memory:').execute('SELECT 1').fetchone() == (1,)"
       - run: uv sync --frozen
       - name: Verify PostgreSQL service connection
         env:
