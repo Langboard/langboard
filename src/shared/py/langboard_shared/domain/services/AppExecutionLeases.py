@@ -65,13 +65,6 @@ def authorize_app_runtime(token, project_id, card_id, request_id, acknowledgment
         lock_policy_mutation(db)
         request = _request(db, token, project_id, card_id, request_id)
         principal = authenticate_connection_credential(token)
-        db.exec(
-            SqlBuilder.select.table(AppConnectionCredential)
-            .where(AppConnectionCredential.id == principal.credential_id)
-            .with_for_update()
-        ).first()
-        # Serialize revocation with creation and recheck after acquiring its lock.
-        principal = authenticate_connection_credential(token)
         ack = db.exec(
             SqlBuilder.select.table(AppExecutionAcknowledgment).where(
                 AppExecutionAcknowledgment.id == acknowledgment_id,
@@ -138,7 +131,7 @@ def _check_app_runtime(lease_id, runtime_token, *, stopped=False, renew=False):
                 credential = db.exec(
                     SqlBuilder.select.table(AppConnectionCredential)
                     .where(AppConnectionCredential.id == initial.credential_id)
-                    .with_for_update()
+                    .with_for_update(read=True)
                 ).first()
                 connection = db.exec(
                     SqlBuilder.select.table(AppConnection).where(AppConnection.id == request.connection_id)

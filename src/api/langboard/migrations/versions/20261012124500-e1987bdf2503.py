@@ -16,7 +16,8 @@ def upgrade():
         "board_app_binding", sa.Column("resource_selection_revision", sa.Integer(), nullable=False, server_default="0")
     )
     op.add_column("app_resource_binding", sa.Column("identity_hash", sa.String(), nullable=False, server_default=""))
-    op.alter_column("app_resource_binding", "identity_hash", server_default=None)
+    with op.batch_alter_table("app_resource_binding") as batch:
+        batch.alter_column("identity_hash", server_default=None)
     op.create_table(
         "card_execution_intent",
         sa.Column("id", sa.BigInteger(), primary_key=True),

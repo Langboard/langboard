@@ -2269,7 +2269,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             if consumer_acceptance:
                 from langboard_shared.core.security import KeyVault
                 from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination
-                from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+                from langboard_shared.tasks.webhooks import AppEventDeliveryTask, WebhookTask
                 from langboard_shared.tasks.webhooks.utils import WebhookUrlPolicy
 
                 async def deliver_to_consumer():
@@ -2295,7 +2295,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                                 else None,
                             )
                             delivery.setattr(
-                                AppEventDeliveryTask,
+                                WebhookTask,
                                 "AsyncClient",
                                 lambda **kwargs: AsyncClient(
                                     transport=ASGITransport(app=receiver),
@@ -2303,22 +2303,17 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                                     **kwargs,
                                 ),
                             )
-                            await AppEventDeliveryTask.deliver_app_event(answer_event_id)
-                            await AppEventDeliveryTask.deliver_app_event(answer_event_id)
+                            await AppEventDeliveryTask.deliver_app_event(answer_event_id, 1)
+                            await AppEventDeliveryTask.deliver_app_event(answer_event_id, 1)
                         with Session(engine) as db:
                             delivered = db.get(AppExecutionOutbox, answer_event_id)
-                            assert delivered.state == "delivered" and delivered.attempt == 1, (
+                            assert delivered.state == "delivered" and delivered.attempt_count == 1, (
                                 delivered.last_error,
                                 receiver_responses,
                             )
                             assert delivered.claim_token is None
-                            assert [item["kind"] for item in delivered.delivery_receipts] == [
-                                "claimed",
-                                "destination",
-                                "outcome",
-                            ]
-                            assert delivered.delivery_receipts[-1]["outcome"] == "delivered"
-                            assert "consumer-acceptance-signing-secret" not in json.dumps(delivered.delivery_receipts)
+                            assert [item["outcome"] for item in delivered.delivery_history] == ["claimed", "delivered"]
+                            assert "consumer-acceptance-signing-secret" not in json.dumps(delivered.delivery_history)
 
                 asyncio.run(deliver_to_consumer())
             with Session(engine) as db:

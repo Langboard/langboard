@@ -63,7 +63,7 @@ async def test_sdk_shared_connection_keeps_board_resources_and_revocation_indepe
         other_resource = AppResourceBinding(
             board_binding_id=other_binding.id, connection_id=connection.id,
             resource_type="issue", external_resource_id=rows[0].external_resource_id,
-            access_state="granted", health="healthy",
+            is_selected=True, access_state="granted", health="healthy",
         )
         db.insert(other_resource)
     app = FastAPI()

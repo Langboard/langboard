@@ -101,7 +101,7 @@ def receive_external_signal(service, token, project_uid, body, headers):
             .where(
                 AppConnectionCredential.id == principal.credential_id,
             )
-            .with_for_update()
+            .with_for_update(read=True)
         ).first()
         authenticate_connection_credential(token)
         require_connection_access(db, owner, project, connection, unattended=True)

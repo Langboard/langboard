@@ -177,7 +177,7 @@ def authenticate_connection_credential(token: str) -> AuthenticatedAppConnection
             .where(
                 AppConnectionCredential.token_hash == sha256(token.encode()).hexdigest(),
             )
-            .with_for_update()
+            .with_for_update(read=True)
         ).first()
         if row is None or row.revoked_at:
             raise AppGovernanceDenied()

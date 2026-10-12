@@ -403,3 +403,37 @@ Production image building stays in the immutable image-request/central executor
 workflow rather than duplicating a release-image build in the validation job.
 No private runner identifier or executor endpoint is added to source. A draft
 review is preparation, not CI or deployment acceptance.
+
+## Concurrent authentication and installed consumer acceptance
+
+Broader archive and signal concurrency checks exposed lock inversion after
+adding an exclusive credential lock. Authentication now takes `FOR SHARE`,
+which permits concurrent authenticated reads while blocking credential
+revocation/update. Runtime-only credential checks use the same shared lock;
+start/authorization no longer repeat credential acquisition and authentication.
+Lease, card and event mutation locks remain exclusive. This avoids credential
+lock upgrades after project/event locks without weakening the revocation fence.
+
+- `shared-credential-lock-final.txt`: six passed, one unconfigured consumer
+  branch skipped; includes actual PostgreSQL concurrent archive reports and
+  credential revocation wait/denial in the full ordinary execution flow.
+- `shared-lock-lifecycle-final.txt`: 81 passed after removing duplicate locks.
+- `independent-consumer-final.txt`: both ordinary and independently built
+  consumer wheel branches passed (two tests, no skips). The external receiver
+  and Review consumer run their own implementation; only DNS/network transport
+  and the signing secret are disposable fixture values. This establishes local
+  SDK/HTTP/PostgreSQL consumer acceptance, not deployed provider execution.
+- `current-binding-migration-second.txt`: 25 passed. The binding fixture now
+  applies the actual forward migration, including native intent/Active audit
+  tables. Identity-hash default removal uses Alembic batch alteration so the
+  existing SQLite migration coverage remains supported. Actual populated
+  PostgreSQL migration replay is included.
+- `hosted-contract-final-paths.txt`: 20 passed for SDK resources and registered
+  connection context after explicitly selecting fixture resources.
+
+The workflow-equivalent 25-path suite reached 252 passed/26 skipped before the
+old binding migration fixture failed. A complete final run is in progress and
+is not yet recorded as successful. PR #688 is ready for review; its three
+self-hosted checks remain queued. Runner permission inspection returned 403 for
+this API token and the browser requires GitHub sign-in. The narrow new
+workflow/ref access request is pending. No canary merge or deployment occurred.

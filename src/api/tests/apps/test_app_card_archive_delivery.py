@@ -28,9 +28,9 @@ from test_app_card_creation import call, creation  # noqa: F401
 def setup_archive(creation, monkeypatch, enabled=True):
     board, _, connection, binding, resource, definition, _ = creation
     queues = []
-    from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+    from langboard_shared.domain.services import AppEventDelivery
 
-    monkeypatch.setattr(AppEventDeliveryTask, "app_event_delivery_task", lambda *args: queues.append(args))
+    monkeypatch.setattr(AppEventDelivery, "enqueue_event", queues.append)
     monkeypatch.setattr(KeyVault, "get_key", staticmethod(lambda _: "test-signing-secret"))
     monkeypatch.setattr(CardService, "notify_order_changed", lambda *args: None)
     with DbSession.atomic() as db:
@@ -81,7 +81,7 @@ def test_archive_signed_delivery_does_not_resume_or_apply_external_change(creati
         event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
         assert row.receipt["state"] == "pending" and row.receipt["external_action"] == "resolve_issue"
         assert row.receipt["external_state"] is None
-        assert queues == [(event.get_uid(), 1)]
+        assert queues == [event.id]
         archived = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
         archive = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == archived.project_column_id)).first()
     service = DomainService()

@@ -3,7 +3,7 @@
 from hmac import compare_digest
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
-from ..models import AppConnectionCredential, AppExecutionLease, AppExecutionStart
+from ..models import AppExecutionLease, AppExecutionStart
 from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppEventDelivery import _expired
 from .AppExecutionAcknowledgments import _request
@@ -21,12 +21,6 @@ def report_app_execution_start(token, project_id, card_id, request_id, lease_id,
         # Same app/project/card -> lease lock order as authorization/check. A
         # replay rechecks authority; an old receipt cannot reauthorize execution.
         request = _request(db, token, project_id, card_id, request_id)
-        principal = authenticate_connection_credential(token)
-        db.exec(
-            SqlBuilder.select.table(AppConnectionCredential)
-            .where(AppConnectionCredential.id == principal.credential_id)
-            .with_for_update()
-        ).first()
         principal = authenticate_connection_credential(token)
         lease = db.exec(
             SqlBuilder.select.table(AppExecutionLease)

@@ -271,7 +271,15 @@ def evaluate_accepted_execution_grant(db, request):
             request.connection_id, request.project_id, request.card_id, request.generation
         )
     lease = _current(db, AppExecutionLease, handoff.lease_id)
-    credential = _current(db, AppConnectionCredential, lease.credential_id) if lease else None
+    credential = (
+        db.exec(
+            SqlBuilder.select.table(AppConnectionCredential)
+            .where(AppConnectionCredential.id == lease.credential_id)
+            .with_for_update(read=True)
+        ).first()
+        if lease
+        else None
+    )
     connection = _current(db, AppConnection, request.connection_id)
     now = SafeDateTime.now()
     if (
