@@ -159,6 +159,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                             activityRailItems
                                 ? activityRailItems
                                       .filter((item) => !item.hidden)
+                                      .sort((left, right) => Number(left.placement === "bottom") - Number(right.placement === "bottom"))
                                       .map((item) => ({
                                           name: item.label,
                                           onClick: item.onClick,

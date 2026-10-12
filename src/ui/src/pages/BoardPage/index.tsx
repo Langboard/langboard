@@ -698,7 +698,8 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         label: String(nav.name),
                         onClick: nav.onClick!,
                         active: nav.active,
-                        hidden: nav.hidden || index === 1 || index === 2,
+                        hidden: nav.hidden || index === 0 || index === 1 || index === 2,
+                        placement: index === 4 ? ("bottom" as const) : undefined,
                         badge: index === 5 ? pendingGraphApprovalBadge : undefined,
                     })),
                 ]}

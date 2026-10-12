@@ -42,6 +42,7 @@ function Page({ name }: { name: string }) {
                 headerNavs={[]}
                 headerTitle={name}
                 activityRailItems={[
+                    { icon: "settings", label: "Settings", placement: "bottom", onClick: () => {} },
                     { icon: "panel-left", label: "Explorer", active: isMobile ? contextOpen : true, onClick: () => setContextOpen((open) => !open) },
                 ]}
                 workbenchContext={<SidebarContent />}

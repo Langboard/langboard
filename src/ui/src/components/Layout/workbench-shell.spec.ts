@@ -505,3 +505,20 @@ for (const width of [1440, 390]) {
         await expect(timeline.locator("time")).toHaveText(["Second review"]);
     });
 }
+
+test("page navigation stays at the bottom while Explorer remains keyboard reachable", async ({ page }) => {
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const explorer = rail.getByRole("button", { name: "Explorer", exact: true });
+    const settings = rail.getByRole("button", { name: "Settings", exact: true });
+    await expect(explorer).toBeVisible();
+    await expect(settings).toBeVisible();
+    const railBox = (await rail.boundingBox())!;
+    const settingsBox = (await settings.boundingBox())!;
+    const explorerBox = (await explorer.boundingBox())!;
+    expect(settingsBox.y).toBeGreaterThan(explorerBox.y + explorerBox.height);
+    expect(railBox.y + railBox.height - settingsBox.y - settingsBox.height).toBeLessThan(12);
+    await explorer.focus();
+    await page.keyboard.press("Tab");
+    await expect(settings).toBeFocused();
+});
