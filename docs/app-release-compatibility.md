@@ -1,8 +1,60 @@
 # App platform compatibility and release gates
 
-Verified source snapshot: 2026-10-11. Package availability, source tests and a
+Current review update: 2026-10-12. The 2026-10-11 tables below are historical
+snapshots. Package availability, source tests and a
 deployed release are separate evidence. No production compatibility is claimed
 from this table. Update it when an artifact, declaration or migration changes.
+
+## Current review candidate
+
+| Component | Current source or artifact | Evidence and limitation |
+| --- | --- | --- |
+| Host review PR #681 | `f02278225890d4075b2756f73a6c912fb769b857` before the archive-model review correction | Explicit human new-run API and native/panel controls; local SQLite/PostgreSQL execution controls: 8 passed, physical browser fixture: 5 passed. Not deployed acceptance |
+| Python SDK | `0.2.33`, wheel SHA-256 `b021a7a849b3a712851069eac887dca3c937f669eea6095edf1ba1c5d4f3bd12` | Host vendor provenance; standalone SDK source tests: 92 passed |
+| Panel SDK | `0.2.6`, tarball SHA-256 `d4d30fa7322dd9a4f3817a8fb15b111d6ab4b348ff53829e671bbac8229aa652` | Host vendor provenance; standalone panel tests: 22 passed |
+| Independent app consumers | GitHub `5f4a48c`, GlitchTip `6fbfae2`, Dokploy `5bf47fe`; panel `0.2.3`, server `0.1.3` | Their existing versions are retained. A newer host SDK does not prove deployed cross-version acceptance |
+| Official static packages | Public `v0.1.1` ZIPs for all three apps | Anonymous downloads returned HTTP 200 on 2026-10-12 with matching recorded SHA-256. Recorded install API tests: 6 passed across SQLite/PostgreSQL, including installed panel and both theme icons; no server execution code in the ZIPs |
+| SDK review CI | Push `15bc8fbcc6b3c050158e8003bfaa889ba3d91188`, run `38154305746` | Uses the reviewed branch rather than a synthetic PR merge ref. Runner assignment was still queued when inspected; no remote pass claimed |
+
+The historical migration-head and full-suite entries below must not be read as
+the installed canary revision or a rerun of every current contract. Exact live
+database, image and authenticated provider/browser evidence remain release gates.
+
+### Archive outcome concurrency review
+
+The shared `_current` helper already acquired `FOR UPDATE` by default, so the
+reported unlocked archive-read race was not present in the reviewed source.
+The outcome read/report path now explicitly uses the delivery path's outbox ->
+archive lock order, then refreshes the locked archive receipt with
+`populate_existing`. This avoids inversion with a delivery transaction that
+already owns the event and ensures revision comparison uses the committed
+receipt after waiting. Two real PostgreSQL transactions exercise different
+reports at the same expected revision, including an outbox-first delivery lock.
+Exactly one report commits; the other conflicts, the persisted report remains
+unchanged, and replaying the accepted report is idempotent. This is local
+database evidence, not provider or deployed acceptance.
+
+### Shared editor ref review
+
+`EditorWrapper` always creates its internal ref before choosing the optional
+caller ref. Adding or removing a caller ref therefore preserves React hook
+order and the current editor. The provider prop type distributes `Omit` over
+its discriminated union, preserving required form fields without an `any` cast
+or a file-wide lint exemption. Physical browser tests at 1280 and 390 pixels
+type a draft and repeatedly switch between internal and caller refs, checking
+the text remains and no page error occurs. The UI TypeScript project and the
+changed-file ESLint checks pass. This does not prove collaborative Yjs server
+updates preserve unsaved drafts; that separate review remains open.
+
+### App model review boundary
+
+Native app models declare compound uniqueness through existing `unique_groups`
+field metadata. `domain/models/AppSchema.py` owns the named database checks and
+query indexes and attaches them after model registration. The existing Alembic
+migrations retain their original names and definitions; this refactor does not
+change the deployed schema. Execution request/outbox, interaction request,
+resource identity and signal occurrence constraints retain their original column
+order. Package version changes are unnecessary for this internal model cleanup.
 
 ## Reviewed host and SDK combination
 
@@ -147,3 +199,82 @@ Python SDK 0.2.29 (`e83c19b`) applies the same native signal receipt contract as
 server SDK 0.1.2. Standalone Python regression tests: 87 passed. Malformed HTTP
 success receipts raise MutationOutcomeUnknown without retrying. The host root
 and shared Python projects pin the same reviewed wheel and digest.
+
+### Collaborative editor snapshot protection
+
+The shared editor restores the authoritative Markdown snapshot once per document
+and edit session. Later server snapshots do not reset its live Yjs document.
+Explicit recovery and cancellation callbacks retain the existing remote-editor
+guard. A local Hocuspocus server and the production Plate/Yjs editor reproduce
+the delayed-snapshot defect before the fix on 1280px and 390px viewports, then
+verify unsaved typing survives and explicit reset still works after the fix.
+Run `node_modules/.bin/playwright test -c playwright.collaborative-draft.config.ts`
+from `src/ui`, with the UI and socket workspace dependencies installed. The
+transport-only fixture replaces authentication; production authentication,
+multiple-user collaboration and deployed acceptance remain separate gates.
+### Official release failure handling
+
+Official installation validates the bounded GitHub release response before
+downloading an asset: valid JSON object, an asset list of objects, stable release
+identity, positive integer asset ID/size, and a SHA256 digest string are required.
+Malformed responses are reported as bad requests through the existing registry
+error boundary and do not create an app definition. The package suite passes
+30 cases, and the authenticated package HTTP suite passes four SQLite/PostgreSQL
+cases, including malformed-response rejection and existing install/update/disable
+behavior. These local checks do not replace deployed installation acceptance.
+
+The native contract workflow includes package validation and authenticated
+installation regressions. Its runner must support GitHub service containers
+for the declared disposable PostgreSQL service, or the operator must supply an
+approved equivalent database lifecycle contract before changing the workflow.
+Runner labels alone do not provide Docker daemon/container-hook support. No
+production database or shared application database is an acceptable substitute.
+
+Card-bound model filters in the outline, description, attachment, checklist and
+comment views depend on the current card model, following the model-hook
+dependency convention. The outline browser fixture switches between cards with
+different attachments on 1440px and 390px viewports and confirms the section is
+added and removed with the current card. This exercises local model navigation,
+not authenticated deployed navigation or same-UID model replacement.
+
+Workflow mapping API and authenticated HTTP tests are included in the native
+contract workflow. Their local SQLite/PostgreSQL selection passes 30 cases with
+one SQLite row-lock case skipped; the PostgreSQL concurrent stage edit and
+same-revision disable cases pass. Missing-stage creation, inactive-stage denial,
+stale expected-stage conflict and membership/role revocation are exercised through
+authenticated HTTP on both databases. Eight browser fixture cases cover missing
+stage assignment/creation, discard, read-only denial and explicit replacement
+confirmation on desktop/mobile. These remain local evidence; deployed workflow
+mapping acceptance is still required.
+
+## Localization regression gate
+
+The native UI literal audit identified ten new candidates in the current union.
+SCIM issuer, group ID, external group ID, and GitHub app connection identity now
+use English, Korean, Japanese, and Chinese locale keys. Connection identifiers
+remain interpolation values rather than translated user data.
+
+The six remaining candidates are invariant product names (Langboard, GlitchTip,
+Dokploy) and literal URI examples (`https://`, `secret://ref/`). Their exact file,
+kind, text, and occurrence count are recorded in the existing baseline; the
+scanner is not weakened and additional occurrences still fail the gate.
+
+Local verification: no new UI literal candidates, four scanner tests passed,
+29 namespaces and 2538 values per translated locale passed complete parity and
+placeholder checks, changed-file ESLint and UI TypeScript passed. This is
+source-level evidence and does not establish deployed localization acceptance
+or finish the full UI string migration card.
+
+## Card column history model transition
+
+The timeline effect now depends on the card model, matching the model hook
+contract. It clears the previous snapshot when its card/column subscription is
+replaced; outstanding requests remain aborted and aborted responses cannot
+write history. The existing committed activity listener and API env cast remain.
+
+A browser fixture uses real ProjectCard models, BoardCardProvider and
+CardColumnHistory, with the history HTTP response held during a card switch.
+Before the fix both 1440px and 390px cases displayed the previous card history.
+After the fix both pass, including ordered return transitions and keyboard-focus
+actor details. This uses controlled HTTP responses, not deployed activity
+persistence or actual multi-user socket delivery.

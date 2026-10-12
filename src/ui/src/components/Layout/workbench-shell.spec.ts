@@ -1,4 +1,21 @@
+import type { Route } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+for (const width of [1440, 390]) {
+    test(`outline follows the current card attachment models at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/src/components/Layout/outline-model.fixture.html");
+        const attachmentSection = page.getByRole("button", { name: "Attached files 1", exact: true });
+        await expect(page.getByText("first", { exact: true })).toBeVisible();
+        await expect(attachmentSection).toHaveCount(0);
+        await page.getByRole("button", { name: "Switch card" }).click();
+        await expect(page.getByText("second", { exact: true })).toBeVisible();
+        await expect(attachmentSection).toBeVisible();
+        await page.getByRole("button", { name: "Switch card" }).click();
+        await expect(page.getByText("first", { exact: true })).toBeVisible();
+        await expect(attachmentSection).toHaveCount(0);
+    });
+}
 
 test("route changes retain the physical shell and preserve page context in its sidebar", async ({ page }) => {
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
@@ -459,3 +476,32 @@ test.describe("mobile context label preview", () => {
         await expect(panel).toBeVisible();
     });
 });
+
+for (const width of [1440, 390]) {
+    test(`column history hides the previous card while the next request is pending at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let pending: Route | undefined;
+        const record = (name: string) => ({
+            uid: name,
+            activity_type: "card_moved",
+            created_at: "2026-10-01T12:00:00Z",
+            column: { name },
+            recorder: { type: "user", firstname: "History", lastname: "Worker" },
+        });
+        await page.route("**/column-history", async (route) => {
+            if (route.request().url().includes("history-second")) pending = route;
+            else await route.fulfill({ json: { records: [record("First backlog"), record("First active"), record("First returned")] } });
+        });
+        await page.goto("/src/components/Layout/column-history.fixture.html");
+        const timeline = page.getByRole("navigation", { name: "Activity", exact: true });
+        await expect(timeline.locator("time")).toHaveText(["First backlog", "First active", "First returned"]);
+        await expect(timeline.locator("time").first()).toHaveAttribute("aria-label", /History Worker/);
+        await timeline.locator("time").first().focus();
+        await expect(page.getByRole("tooltip")).toContainText("History Worker");
+        await page.getByRole("button", { name: "Switch history card" }).click();
+        await expect.poll(() => !!pending).toBe(true);
+        await expect(page.getByText("First returned", { exact: true })).toHaveCount(0);
+        await pending!.fulfill({ json: { records: [record("Second review")] } });
+        await expect(timeline.locator("time")).toHaveText(["Second review"]);
+    });
+}

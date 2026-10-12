@@ -9,6 +9,25 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppCardArchive, BoardAppBinding
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
+from sqlalchemy.exc import IntegrityError
+
+
+def test_archive_revision_remains_unique_after_model_refactor(board):
+    AppCardArchive.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+
+    def receipt(revision):
+        return AppCardArchive(card_id=11, project_id=22, actor_id=33, app_key="example",
+                              card_revision=revision, receipt={"state": "retained"})
+
+    with DbSession.atomic() as db:
+        db.insert(receipt(1))
+    with pytest.raises(IntegrityError):
+        with DbSession.atomic() as db:
+            db.insert(receipt(1))
+    with DbSession.atomic() as db:
+        db.insert(receipt(2))
+        rows = db.exec(SqlBuilder.select.table(AppCardArchive)).all()
+        assert sorted(row.card_revision for row in rows) == [1, 2]
 
 
 def test_archive_history_survives_downgrade(board, monkeypatch):

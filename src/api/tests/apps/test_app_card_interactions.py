@@ -341,7 +341,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         with pytest.raises(AppCardInteractionConflict):
             respond_to_app_card_interaction(*cancelled_args, 2, "response-1", {"action": {"choice_id": "review"}})
         from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-        from langboard.routes.board import CardAppInteractionsApi  # noqa: F401
+        from langboard.routes.board import AppPanelDataApi, CardAppInteractionsApi  # noqa: F401
         from langboard_shared.core.security import AuthSecurity
         from langboard_shared.Env import Env
 
@@ -375,6 +375,65 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
                 human_client.post(human_path, json={**form, "actor_uid": "A" * 11}, headers=human_headers).status_code
                 == 400
             )
+            # A live panel reads only its own requests, never another app's retained history.
+            from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
+            assert list_card_interactions(args[0], board[1], board[2].id, card.id, app_key="unrelated-app")["items"] == []
+            previous_declaration = dict(definition.declaration)
+            previous_grants = list(binding.granted_capabilities)
+            with DbSession.atomic() as db:
+                definition.declaration = {**definition.declaration,
+                    "capabilities": [*definition.declaration["capabilities"], "panels.render"],
+                    "panel": {"url": "https://panel.example.invalid/panel", "name": "Requests", "icon": "message-square"}}
+                binding.granted_capabilities = [*binding.granted_capabilities, "panels.render"]
+                db.update(definition)
+                db.update(binding)
+            panel_path = f"/board/{board[2].get_uid()}/apps/{connection.app_key}/panel/interactions"
+            panel_form = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision(),
+                          "card_uid": card.get_uid(), "limit": 1}
+            assert human_client.post(panel_path, json=panel_form, headers=headers).status_code == 401
+            panel_page = human_client.post(panel_path, json=panel_form, headers=human_headers)
+            assert panel_page.status_code == 200, panel_page.text
+            assert panel_page.headers["cache-control"] == "no-store"
+            assert len(panel_page.json()["items"]) == 1 and panel_page.json()["next_cursor"]
+            assert panel_page.json()["items"][0]["source"]["app_key"] == connection.app_key
+            for extra in [{"actor_uid": "A" * 11}, {"limit": True}, {"limit": 26}, {"cursor":"bad"}]:
+                assert human_client.post(panel_path, json={**panel_form, **extra}, headers=human_headers).status_code == 400
+            assert human_client.post(panel_path, json={**panel_form,"app_revision":"0" * 64}, headers=human_headers).status_code == 409
+            assert human_client.post(panel_path, json={**panel_form,"card_uid":"A" * 11}, headers=human_headers).status_code == 404
+            from langboard_shared.domain.services.AppCardInteractions import create_app_card_interaction
+            panel_token = issue_connection_credential(board[1], connection.id)["token"]
+            panel_request = create_app_card_interaction(panel_token, board[2].id, card.id,
+                {**mixed,"app_request_key":"panel-human-answer","outcomes":{}})
+            panel_answer_path = panel_path.rsplit("/",1)[0] + f"/cards/{card.get_uid()}/interactions/{panel_request['interaction_uid']}/responses"
+            panel_answer_form = {**form,"app_revision":definition.edit_revision(),"binding_revision":binding.edit_revision()}
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=headers).status_code == 401
+            assert human_client.post(panel_answer_path,json={**panel_answer_form,"actor_uid":"A"*11},headers=human_headers).status_code == 400
+            assert human_client.post(panel_answer_path,json={**panel_answer_form,"binding_revision":"0"*64},headers=human_headers).status_code == 409
+            with DbSession.atomic() as db:
+                isolated = db.exec(SqlBuilder.select.table(AppCardInteraction).where(
+                    AppCardInteraction.app_request_key == "panel-human-answer")).first()
+                isolated.app_key = "other-app"
+                db.update(isolated)
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers).status_code == 404
+            with DbSession.atomic() as db:
+                isolated.app_key = connection.app_key
+                db.update(isolated)
+            native_panel_answer = human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers)
+            assert native_panel_answer.status_code == 200, native_panel_answer.text
+            assert native_panel_answer.json()["state"] == "answered" and native_panel_answer.json()["execution_resumed"] is False
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers).json()["changed"] is False
+            selected_page = human_client.post(panel_path,json={**panel_form,"interaction_uid":panel_request["interaction_uid"]},headers=human_headers)
+            assert selected_page.json()["items"][0]["response"]["values"] == answer
+            with DbSession.atomic() as db:
+                binding.granted_capabilities = [value for value in binding.granted_capabilities if value != "panels.render"]
+                db.update(binding)
+            assert human_client.post(panel_path, json=panel_form, headers=human_headers).status_code == 404
+            assert human_client.post(panel_answer_path,json=panel_answer_form,headers=human_headers).status_code == 404
+            with DbSession.atomic() as db:
+                definition.declaration = previous_declaration
+                binding.granted_capabilities = previous_grants
+                db.update(definition)
+                db.update(binding)
             concurrent = DbEngine.get_main_engine().dialect.name == "postgresql"
             if concurrent:
                 from concurrent.futures import ThreadPoolExecutor
@@ -597,7 +656,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             from langboard_shared.domain.services.AppInteractionTransitions import apply_interaction_transition
             from sqlalchemy import text
 
-            ProjectExecutionBinding.__table__.create(DbEngine.get_main_engine())
+            ProjectExecutionBinding.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
             with DbEngine.get_main_engine().begin() as sql:
                 sql.execute(text("CREATE SEQUENCE content_change_seq START 100"))
             moves = []
@@ -754,7 +813,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
 
         retained = list_card_interactions(args[0], board[1], board[2].id, card.id)
-        assert len(retained["items"]) == 5
+        assert len(retained["items"]) == 6
         retained_answer = next(
             row for row in retained["items"] if row["interaction_uid"] == mixed_receipt["interaction_uid"]
         )
@@ -774,7 +833,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         with DbSession.atomic() as db:
             role.actions = previous_actions
             db.update(role)
-        assert len(list_card_interactions(args[0], board[1], board[2].id, card.id)["items"]) == 5
+        assert len(list_card_interactions(args[0], board[1], board[2].id, card.id)["items"]) == 6
         with pytest.raises(AppGovernanceDenied):
             list_card_interactions(args[0], board[1], 11, card.id)
         with DbSession.atomic() as db:
@@ -794,7 +853,8 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             list_card_interactions(args[0], board[1], board[2].id, card.id)
     with DbSession.atomic() as db:
         rows = db.exec(SqlBuilder.select.table(AppCardInteraction)).all()
-        assert len(rows) == 5 and {row.app_request_key for row in rows} == {
+        assert len(rows) == 6 and {row.app_request_key for row in rows} == {
+            "panel-human-answer",
             "deployment-choice",
             "cancel-choice",
             "choice-or-text",
@@ -805,7 +865,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         from langboard_shared.domain.models import AppCardInteractionResponse
 
         answers = db.exec(SqlBuilder.select.table(AppCardInteractionResponse)).all()
-        assert len(answers) == 2
+        assert len(answers) == 3
         assert next(row for row in answers if row.values == answer).actor_id == board[1].id
     with DbEngine.get_main_engine().begin() as db:
         original = response_migration.op

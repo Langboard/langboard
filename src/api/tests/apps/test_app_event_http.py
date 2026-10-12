@@ -96,6 +96,56 @@ async def test_dns_and_post_dns_revocation_prevent_http(board, monkeypatch, chan
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("gate", ["policy", "definition", "consent", "resource"])
+@pytest.mark.parametrize("timing", ["pending", "after_dns"])
+async def test_policy_and_scope_revocation_block_http_and_preserve_request(board, monkeypatch, gate, timing):
+    from langboard_shared.domain.models import AppDefinition, AppExecutionRequest, AppResourceBinding, BoardAppBinding
+    from langboard_shared.domain.services.AppGovernance import get_policy, save_policy
+
+    _, _, event = delivery_scope(board, monkeypatch)
+    with DbSession.use(readonly=False) as db:
+        request = db.exec(SqlBuilder.select.table(AppExecutionRequest)).first()
+        original_authority = request.authority
+
+    def revoke():
+        if gate == "policy":
+            policy = get_policy(board[1])
+            save_policy(board[1], "disabled", policy["revision"])
+            return
+        with DbSession.atomic() as db:
+            if gate == "definition":
+                row = db.exec(SqlBuilder.select.table(AppDefinition)).first()
+                row.is_enabled = False
+            elif gate == "consent":
+                row = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
+                row.granted_capabilities = [grant for grant in row.granted_capabilities if grant != "execution.run"]
+            else:
+                row = db.exec(SqlBuilder.select.table(AppResourceBinding).where(AppResourceBinding.is_selected == True)).first()  # noqa: E712
+                row.access_state = "revoked"
+            db.update(row)
+
+    async def resolve(url):
+        assert timing == "after_dns"
+        revoke()
+        return ResolvedWebhookTarget("https://203.0.113.1/events", "app.example", "app.example")
+
+    if timing == "pending":
+        revoke()
+    monkeypatch.setattr(worker, "ensure_public_webhook_url", resolve)
+    monkeypatch.setattr(webhook, "AsyncClient", lambda **_: pytest.fail("Revoked event must not reach HTTP"))
+    assert await worker.deliver_app_event(event.id, 1) is None
+    with DbSession.use(readonly=False) as db:
+        row = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+        assert row.state == "blocked" and row.claim_token is None
+        assert row.attempt_count == (1 if timing == "after_dns" else 0)
+        if timing == "after_dns":
+            assert row.delivery_history[-1]["outcome"] == "blocked_before_send"
+        retained = db.exec(SqlBuilder.select.table(AppExecutionRequest)).all()
+        assert len(retained) == 1 and retained[0].authority == original_authority
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
 async def test_response_after_lease_expiry_cannot_mark_delivered(board, monkeypatch):
     from datetime import timedelta

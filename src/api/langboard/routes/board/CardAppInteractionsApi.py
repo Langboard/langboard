@@ -1,5 +1,6 @@
 """Human response acceptance, independent of delivery and runtime continuation."""
 
+from datetime import datetime
 from fastapi import Query, Request
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
@@ -123,6 +124,113 @@ def respond_to_interaction(
     except AppGovernanceDenied:
         raise ApiException.Forbidden_403() from None
     except AppCardInteractionConflict:
+        raise ApiException.Conflict_409() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+
+
+class HumanRuntimeStopBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    generation: int = Field(strict=True, ge=1)
+
+
+@AppRouter.api.post("/board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/stop", tags=["Board.Card"])
+@AuthFilter.add("user")
+def stop_app_runtime(
+    request: Request, project_uid: str, card_uid: str, request_uid: str,
+    body: HumanRuntimeStopBody, user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.domain.services.AppExecutionControl import request_human_runtime_stop
+    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
+
+    try:
+        result = request_human_runtime_stop(
+            service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            SnowflakeID.from_short_code(request_uid), body.generation,
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except AppExecutionRequestConflict:
+        raise ApiException.Conflict_409() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+
+
+@AppRouter.api.get("/board/{project_uid}/card/{card_uid}/apps/executions", tags=["Board.Card"])
+@AuthFilter.add("user")
+def list_app_runtimes(
+    request: Request, project_uid: str, card_uid: str,
+    cursor: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes
+
+    try:
+        result = list_human_card_runtimes(
+            service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            before=SnowflakeID.from_short_code(cursor) if cursor else None,
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+
+
+@AppRouter.api.post("/board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/resume", tags=["Board.Card"])
+@AuthFilter.add("user")
+def resume_app_runtime(
+    request: Request, project_uid: str, card_uid: str, request_uid: str,
+    body: HumanRuntimeStopBody, user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.domain.services.AppExecutionControl import request_human_runtime_resume
+    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
+
+    try:
+        result = request_human_runtime_resume(
+            service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            SnowflakeID.from_short_code(request_uid), body.generation,
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except AppExecutionRequestConflict:
+        raise ApiException.Conflict_409() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+
+
+class HumanRuntimeNewRunBody(HumanRuntimeStopBody):
+    expected_generation: int = Field(strict=True, ge=1)
+    expected_revision: datetime
+
+
+@AppRouter.api.post("/board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/new", tags=["Board.Card"])
+@AuthFilter.add("user")
+def new_app_runtime(
+    request: Request, project_uid: str, card_uid: str, request_uid: str,
+    body: HumanRuntimeNewRunBody, user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.domain.services.AppExecutionControl import request_human_runtime_resume
+    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
+    try:
+        result = request_human_runtime_resume(
+            service, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            SnowflakeID.from_short_code(request_uid), body.generation,
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            new_run=True, expected_generation=body.expected_generation, expected_revision=body.expected_revision,
+        )
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied:
+        raise ApiException.Forbidden_403() from None
+    except AppExecutionRequestConflict:
         raise ApiException.Conflict_409() from None
     except ValueError:
         raise ApiException.BadRequest_400() from None

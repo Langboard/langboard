@@ -186,10 +186,10 @@ const InternalBotValue = memo(() => {
                     <div className="flex flex-wrap gap-4">
                         {(
                             [
-                                ["ko", "한국어"],
-                                ["en", "English"],
-                                ["ja", "日本語"],
-                                ["zh", "中文"],
+                                ["ko", "ko-KR"],
+                                ["en", "en-US"],
+                                ["ja", "ja-JP"],
+                                ["zh", "zh-CN"],
                             ] as const
                         ).map(([language, name]) => (
                             <label key={language} className="flex items-center gap-2 text-sm">
@@ -201,7 +201,7 @@ const InternalBotValue = memo(() => {
                                     disabled={!documentSettings || !canUpdateInternalBot || isEditing || isValidating}
                                     onCheckedChange={(checked) => setKeywordLanguage(language, checked === true)}
                                 />
-                                {name}
+                                {t(`locales.${name}`)}
                             </label>
                         ))}
                     </div>

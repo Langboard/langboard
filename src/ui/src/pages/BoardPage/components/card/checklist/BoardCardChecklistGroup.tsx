@@ -30,7 +30,7 @@ function BoardCardChecklistGroup(): React.JSX.Element {
     const [t] = useTranslation();
     const { projectUID, card, socket, viewportRef } = useBoardCard();
     const [isOpened, setIsOpened] = useState(false);
-    const flatChecklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid);
+    const flatChecklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const checkitemsMap = useMemo<Record<string, ProjectCheckitem.TModel>>(() => {
         const map: Record<string, ProjectCheckitem.TModel> = {};
         flatChecklists.forEach((checklist) => {

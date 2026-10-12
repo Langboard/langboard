@@ -193,7 +193,7 @@ def _validate_workflow_snapshot(db, row, values):
     return plan
 
 
-def list_card_interactions(service, actor, project_id, card_id, *, limit=25, before=None, channel=None):
+def list_card_interactions(service, actor, project_id, card_id, *, limit=25, before=None, channel=None, app_key=None, interaction_id=None):
     """Read retained requests using native card ACLs; never require an app credential.
 
     Disconnecting an app prevents new execution, but does not erase card history.
@@ -224,6 +224,10 @@ def list_card_interactions(service, actor, project_id, card_id, *, limit=25, bef
         query = SqlBuilder.select.table(AppCardInteraction).where(
             AppCardInteraction.project_id == project_id, AppCardInteraction.card_id == card_id
         )
+        if app_key is not None:
+            query = query.where(AppCardInteraction.app_key == app_key)
+        if interaction_id is not None:
+            query = query.where(AppCardInteraction.id == interaction_id)
         if before is not None:
             query = query.where(AppCardInteraction.id < before)
         rows = db.exec(query.order_by(AppCardInteraction.id.desc()).limit(limit + 1)).all()

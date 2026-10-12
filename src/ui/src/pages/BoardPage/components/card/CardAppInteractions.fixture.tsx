@@ -68,9 +68,42 @@ if (params.has("move")) {
     item.response = { actor_uid: "00000000005", response_uid: "00000000006", values: { action: { choice_id: "review" } } };
     item.workflow_plan = { state: "planned", workflow_stage: "review" };
 }
+let runtimeState = params.has("stopped") ? "stopped" : "authorized";
+let resumeRequest: string | null = null;
 api.defaults.adapter = async (config) => {
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ method: config.method, data });
+    if (config.url?.includes("/apps/executions")) {
+        if (config.method === "post") {
+            if (config.url?.endsWith("/resume")) resumeRequest = "00000000009";
+            else runtimeState = "stop_requested";
+            if (lost) {
+                lost = false;
+                throw new Error("Stop response lost after commit");
+            }
+        }
+        return {
+            config,
+            data: {
+                next_cursor: params.has("runtimepages") && !config.params?.cursor ? "00000000003" : null,
+                items: params.has("runtime")
+                    ? [
+                          {
+                              request_uid: "00000000003",
+                              app_key: "example-agent",
+                              generation: config.params?.cursor ? 6 : 7,
+                              state: runtimeState,
+                              current_generation: params.has("stopped") ? 8 : 7,
+                              resume_request_uid: resumeRequest,
+                          },
+                      ]
+                    : [],
+            },
+            status: 200,
+            statusText: "OK",
+            headers: {},
+        };
+    }
     if (config.method === "post" && config.url?.endsWith("/transition")) {
         item.workflow_receipt = { state: "moved" };
         if (lost) {

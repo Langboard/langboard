@@ -304,5 +304,24 @@
   "No app archive history": "履歴はありません。",
   "Archive outcome": "アーカイブ結果",
   "Event delivery": "イベント配信",
-  "Provider reported state": "アプリが報告した外部状態"
+  "Provider reported state": "アプリが報告した外部状態",
+  "appRuntimes": {
+    "title": "アプリ実行",
+    "help": "1ページ10件の要求。実行許可はプロセス稼働の証拠ではありません。停止要求後は外部ランタイムの終了報告を待ちます。",
+    "stop": "停止を要求",
+    "unresolved": "結果未確認。次の要求前に更新してください。",
+    "empty": "実行要求はありません。",
+    "generation": "実行世代 {{count}}",
+    "states": {
+      "authorized": "実行許可発行済み",
+      "awaiting_permit": "実行許可待ち",
+      "stop_requested": "停止要求済み — ランタイム終了待ち",
+      "stopped": "ランタイム停止報告済み"
+    },
+    "resume": "再開を要求",
+    "resumeRequested": "再開要求済み — 新しいランタイム待ち",
+    "new": "新しい実行を要求",
+    "newHelp": "現在の権限で新しい実行を要求します。停止済みの実行と履歴は保持されます。ランタイムはまだ開始されません。",
+    "newRequested": "新しい実行を要求済み — 新しいランタイムを待機中"
+  }
 }

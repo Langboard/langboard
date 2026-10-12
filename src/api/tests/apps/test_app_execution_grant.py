@@ -42,7 +42,8 @@ def grant_scope(board):
             for foreign_key in table.foreign_keys:
                 include(foreign_key.column.table)
 
-        for model in models:
+        from langboard_shared.domain.models import CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding
+        for model in (*models, CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding):
             include(model.__table__)
         models[0].metadata.create_all(engine, tables=list(tables), checkfirst=True)
     else:
@@ -70,6 +71,19 @@ def grant_scope(board):
         db.update(board[6][0])
         db.insert(CardAppOwnership(card_id=card.id, app_key=connection.app_key))
     token = issue_connection_credential(board[1], connection.id)["token"]
+    # Grant checks include durable stop fences even before the first request.
+    import importlib
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    for name in ("20261011031000-c59f460783db", "20261011050000-ba4e915238c0", "20261011060000-dc60b3745ae2"):
+        module = importlib.import_module(f"langboard.migrations.versions.{name}")
+        original = module.op
+        try:
+            with engine.begin() as db:
+                module.op = Operations(MigrationContext.configure(db))
+                module.upgrade()
+        finally:
+            module.op = original
     return connection, definition, binding, resources, card, token
 
 

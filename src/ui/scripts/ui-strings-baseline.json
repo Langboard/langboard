@@ -52,5 +52,41 @@
     "line": 247,
     "kind": "attribute:placeholder",
     "text": "fr"
+  },
+  {
+    "file": "src/pages/BoardPage/components/card/CardSignalEvidence.tsx",
+    "line": 240,
+    "kind": "jsx-text",
+    "text": "GlitchTip ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/card/CardSignalEvidence.tsx",
+    "line": 271,
+    "kind": "jsx-text",
+    "text": "Dokploy ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/settings/BoardSettingsMetadataConnection.tsx",
+    "line": 721,
+    "kind": "attribute:placeholder",
+    "text": "https://"
+  },
+  {
+    "file": "src/pages/BoardPage/components/settings/BoardSettingsMetadataConnection.tsx",
+    "line": 731,
+    "kind": "attribute:placeholder",
+    "text": "secret://ref/"
+  },
+  {
+    "file": "src/pages/BoardPage/components/settings/BoardSettingsMetadataConnection.tsx",
+    "line": 801,
+    "kind": "attribute:placeholder",
+    "text": "secret://ref/"
+  },
+  {
+    "file": "src/pages/SettingsPage/AppPackagesPage.tsx",
+    "line": 208,
+    "kind": "jsx-text",
+    "text": "Langboard"
   }
 ]

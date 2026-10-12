@@ -457,3 +457,222 @@ Only test setup selects the alternate app identity; host and shared SDK producti
 code has no example-monitor branch. Owner/resource/declaration fixture setup is
 not end-user installation, real provider IO or deployed canary evidence. Those
 remain separate vertical acceptance gates.
+
+## Isolated panel request history
+
+Panel SDK 0.2.4 adds `interactions.list`. The host routes this operation to
+`POST /board/{project_uid}/apps/{app_key}/panel/interactions` with the installed
+app and binding revisions. Only `card_uid`, optional `cursor`, and optional `limit`
+come from the panel. Limits are strict integers from 1 to 25, default 10.
+
+The authenticated human must still be able to read the card. Current panel consent
+and `interactions.request` must be granted; the SQL query includes the current app
+key before applying its page limit. Foreign app requests cannot enter the page.
+Stale revisions conflict; revoked panel consent and inaccessible cards are denied.
+Responses use `no-store`. The SDK's existing 16 KiB JSON limit remains in effect;
+oversized request pages fail instead of bypassing transport bounds.
+
+Native JWT HTTP regression exercises two app profiles on SQLite and PostgreSQL,
+including paging, invalid fields, app filtering, stale revisions and revocation.
+An isolated browser frame exercises the SDK-to-host route and pinned revisions.
+These are source/local acceptance proofs, not deployed canary acceptance. This
+read does not submit a human response, transition workflow, stop execution or
+authorize resume; those panel control operations remain unfinished.
+
+## Host-owned response form for isolated panels
+
+Panel SDK 0.2.5 adds `interactions.open` with `{card_uid, interaction_uid}`. The
+operation returns `{state: "opened", interaction_uid}` immediately. This means
+only that the host opened its human form, not that an answer was accepted. No app
+provided values, actor, revision or approval are accepted in this operation.
+
+The host rereads the exact interaction via `interactions.list` with the optional
+`interaction_uid` filter and current pinned app/binding revisions. It renders the
+existing native question form in a lazy host dialog. Queries are scoped to the
+current human/board/app/request and discarded on unmount. Only one dialog is open.
+The authenticated human chooses or enters values and presses Submit.
+
+The form posts to `/board/{project}/apps/{app}/panel/cards/{card}/interactions/{id}/responses`.
+Current consent, app ownership, card ACL, request revision, expiry, responder
+authority, idempotency and execution generation are checked through the native
+service. A removed grant denies even a repeated accepted response. Foreign app
+requests cannot be submitted through this route. Submission does not move a card
+or resume a runtime. A lost POST response triggers readback, never an automatic
+second write. Closing/revoking/hiding the panel removes the host dialog; external
+changes already committed are not represented as cancelled or reverted.
+
+Two app profiles on SQLite and PostgreSQL pass authenticated HTTP response,
+readback, duplicate, identity injection, foreign ownership, stale revision and
+revocation checks. A 390px isolated-frame browser regression rejects app-injected
+answers, submits only after a human click, and reads back a committed answer after
+a 500 response. Eleven existing native card interaction browser tests also pass.
+These remain local source proofs; deployed canary and external runtime acceptance,
+stop and explicit resume are still unfinished.
+
+## Human stop request
+
+`POST /board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/stop`
+accepts only `{generation}` under authenticated native user authority. The host
+rechecks the current user, readable card, board membership and `card_update`
+permission, then matches the retained execution request to that board/card and
+its generation. App credentials and caller-provided identities are not accepted.
+
+An authorized lease becomes `stop_requested`, `permit_execution: false`, with
+one actor-attributed history entry. Repeated requests retain the same receipt;
+`stopped` never becomes authorized again. App disconnection does not prevent a
+human who still has card authority from requesting termination. A missing lease
+or mismatched generation returns conflict instead of creating a runtime.
+
+This revokes authorization immediately. The existing external runtime heartbeat
+observes the stop request and must terminate its process. Only its subsequent
+stop report changes the lease to `stopped`; the human request does not claim that
+termination already happened. No automatic resume, generation change or workflow
+transition is performed. The UI control, explicit resume and deployed external
+termination acceptance remain unfinished.
+
+The native card also provides a lazy **App execution** section. Its authenticated
+GET `/board/{project_uid}/card/{card_uid}/apps/executions` returns at most ten
+request identities per page and retained permit states after current native
+read authority checks. It never exposes runtime tokens or credential hashes and
+uses one request query plus one batched lease query. These are authorization
+states, not independent process health or proof of execution.
+
+The section performs no background polling. Human stop controls require current
+UI update permission (the API rechecks it), and are unavailable while sending or
+while a prior result is unresolved. A lost stop response never triggers a second
+POST: the user explicitly refreshes before another action. Stop requested and
+runtime-reported stopped have distinct translated labels in English, Korean,
+Japanese and Chinese. Queries include the user and card and are discarded on
+unmount. Local browser acceptance covers 390px/1440px lost-response readback and
+read-only denial alongside eleven existing request/transition regressions.
+Explicit resume and deployed external process termination acceptance are still
+unfinished.
+
+### Stopped generation fence
+
+Current owner-app execution authority now checks retained runtime leases for the
+same card and execution generation. `stop_requested` and `stopped` deny that
+generation at the shared authority boundary, including replayed request/outbox
+paths. Restoring connection consent or issuing another credential cannot reopen
+it. This is a generation fence, not a deletion of historical receipts.
+
+A newer readiness generation is evaluated independently under current authority;
+it never changes the old stopped lease. The producer still owns generation
+advancement on an actual readiness false-to-true transition. No resume endpoint
+increments it merely because a user answered a question. Local regressions cover
+shared authority, duplicate requests, lease heartbeat/recovery and start reports;
+explicit resume and deployed execution acceptance remain pending.
+
+
+Runtime history supports a validated request-ID cursor and previous/next controls.
+The server fetches eleven request identities to determine whether another page
+exists, but loads leases only for the ten displayed requests. All pages retain
+current card/user authority checks. Older authorized runtimes remain reachable
+for explicit stop requests instead of disappearing behind a latest-ten cutoff.
+Uncertain writes block navigation until readback succeeds. SQLite/PostgreSQL
+checks cover 13 requests split into 10+3 with no duplicates or foreign cards;
+browser acceptance exercises next/previous alongside stop and request regressions.
+
+## Explicit resume into a newer Ready generation
+
+`POST /board/{project_uid}/card/{card_uid}/apps/executions/{request_uid}/resume`
+accepts only `{generation}` identifying the retained stopped request. It requires
+current native human update authority, a runtime-reported `stopped` lease, and a
+strictly newer producer-issued readiness generation. Current owner-app consent,
+connection ownership, selected resources, built-in Ready mapping, dependencies
+and approval gates are re-evaluated. The endpoint never increments the readiness
+counter, moves the card or reauthorizes the old lease.
+
+The shared request acceptance function persists one new execution request and
+its existing signed-delivery outbox in the same transaction. Actor-attributed
+resume provenance is appended to the old stopped lease. Repeating that resume
+returns the same new request; revoked current authority still denies replay.
+A newer generation already accepted independently conflicts rather than falsely
+attributing it to this action. A different subsequent generation also conflicts
+with that retained resume action. The receipt says `resume_requested`,
+`started: false`, `execution_resumed: false`: external delivery, a new permit and
+actual process start are later, distinct evidence.
+
+The card shows Request resume only for a stopped request with a newer Ready
+generation and no retained resume receipt. A lost response requires explicit
+readback; no second POST is automatic. A recorded resume is displayed as awaiting
+a new runtime. Questions never resume execution automatically. This supports a
+fresh authorized execution generation, not in-process continuation of an old
+runtime/checkpoint. Providers own any compatible checkpoint restoration.
+Local HTTP tests cover same-generation denial, Ready mapping loss, new request
+and outbox, idempotent replay, revoked authority and the unchanged stopped lease.
+Browser coverage includes lost-response resume readback. Deployed external
+runtime and end-to-end readiness producer acceptance remain unfinished.
+
+## Execution request delivery after acceptance
+
+Initial app execution requests and explicit human resume requests share the same
+acceptance path. When the app declares `events.receive`, the board grants it, and
+the connection has a currently approved event destination, acceptance snapshots
+the destination UID and revision in the outbox transaction. The existing delivery
+task is scheduled only after that transaction commits. Duplicate acceptance and
+transaction rollback do not schedule another delivery.
+
+If the broker is unavailable after commit, the pending event retains its frozen
+destination for the existing recovery worker. Delivery still rechecks current
+authority and the destination revision before sending signed bytes. Acceptance
+without a valid approved destination does not infer a network target or retarget
+the event later. A request receipt remains `started=false`; neither persistence
+nor queue submission proves that an external runtime started.
+
+The local SQLite/PostgreSQL resume integration check now follows one retained
+stopped generation through human resume, the committed destination snapshot,
+exact-byte signature verification, app reception acknowledgment, a new runtime
+permit, and app start attestation. Replay retains one event and the old lease
+remains stopped. Readiness generation advancement and queue submission are
+controlled test inputs; this does not prove a deployed producer, broker, provider
+process or checkpoint restoration.
+
+## App execution result to native Review
+
+SDK 0.2.31 provides `AppExecution.request_review` over
+`POST /apps/v1/boards/{board}/cards/{card}/execution-requests/{request}/review`.
+The caller supplies the producer generation, current card revision, current
+binding revision and a bounded result reference. App-owned card reads now also
+return `execution_generation`. Keep the original write inputs for an ambiguous
+retry; the SDK does not retry automatically.
+
+This explicit result action requires current owning-app `execution.run` and
+`resources.read` consent,
+organization/connection policy, native card access, unchanged ownership and
+selected-resource revisions, the matching current generation, an app start
+attestation, and a retained stopped lease. The stopped permit supplies termination
+evidence only. Review must be declared in the app's workflow requirements and
+explicitly mapped with stage transitions enabled to an active built-in Review
+stage that does not count as completed. Done, Archive and app-invented stages are
+not targets of this action; human acceptance remains separate.
+
+Native `CardService.change_order` and its readiness UoW perform movement. Movement
+and an immutable request-keyed receipt commit together. Current authority is
+rechecked before returning a duplicate receipt; a changed request fingerprint or
+mapping conflicts. A result reference remains app attestation, not verified PR
+or business acceptance. PostgreSQL HTTP coverage includes native-policy rollback,
+four concurrent requests with one movement, current consent/revision/generation
+denial, retained replay through the built SDK wheel and downgrade refusal with
+history. Actual provider result readback and deployed canary acceptance remain
+pending.
+
+### Request-scoped Review reconciliation
+
+SDK 0.2.32 exposes `AppExecution.read_review` via GET on the same `/apps/v1/boards/{board}/cards/{card}/execution-requests/{request}/review` route. This read checks current owning app, `cards.read`, `resources.read`, selected resources and their frozen authority revisions. It does not require a fresh execution grant or Review transition mapping to inspect a historical receipt. Revocation and ownership/resource changes block access.
+
+A response has `state: recorded` and an immutable `receipt`, or `state: not_recorded` with null receipt. New receipts include the original POST `inputs` (generation, expected card/binding revisions and evidence reference); older receipts may lack these fields. The separate `current` object reports current generation and revisions without rewriting historical inputs. `changed`, `started` and `execution_resumed` remain false. A missing receipt is a point-in-time observation, not permission to resend. After an ambiguous POST, retain the original attempt and explicitly reconcile its scope and every input against readback; never synthesize a new generation or automatically repeat POST.
+
+### Optional external MCP authority boundary
+
+SDK 0.2.33 separates `mcp.read`, `mcp.write` and `mcp.automation` consent from native card/resource/execution capabilities. Updating the tool names or authority classification withdraws the affected MCP scope; description/order-only updates preserve consent. Current trust identity changes still revoke affected connections.
+
+GET `/apps/v1/boards/{board}/cards/{card}/mcp-tools` returns card-bound declarations for the authenticated owning app, with current card/resource consent, native visibility, connection policy and selected resource checks. Qualified names include app and connection identity. This endpoint never contacts remote servers, grants authority or forwards credentials. It reports `execution_supported: false` and `callable: false`. Remote invocation/OAuth and per-user connection consent are still required before enabling tools in native FastMCP.
+
+FastMCP's official Proxy Provider supports remote composition and session isolation. Its incoming Authorization forwarding default must be disabled for app backends; host/user credentials must not be silently forwarded. See https://gofastmcp.com/servers/providers/proxy .
+
+### Connection-owner MCP consent
+
+Board consent is insufficient for external MCP. A connection owner explicitly approves scopes via GET/PUT `/settings/apps/connections/{connection}/mcp-consent` using native user authentication. An app Bearer cannot approve itself. Personal connections remain exclusive to their owner even when another user is an instance administrator; organization-owned connections use current organization management authority. PUT pins consent revision, connection identity revision and current app revision to reject stale approvals. Empty scopes revoke consent, including cleanup after disable.
+
+Approval retains each scope's reviewed tool-name set and identity fingerprint independently from the connection's token. Current declaration, enabled policy, resource/card authority and board consent intersect with owner consent for discovery. Tool-set/scope updates durably withdraw affected grants; reverting to an older set does not resurrect them. Trust changes and full app disable revoke all connection MCP grants. Ordinary descriptions/version changes preserve unaffected grants. The UI, remote OAuth/invocation and FastMCP exposure remain unfinished; catalog tools continue to report callable=false.

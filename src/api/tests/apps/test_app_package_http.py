@@ -1,5 +1,6 @@
 # ruff: noqa: F811
 """Authenticated ZIP install, revision guard and disabled asset readback."""
+import httpx
 import langboard.routes.settings.AppPackageSettingsApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
@@ -12,6 +13,34 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from test_app_package import DECLARATION, bundle
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_official_install_malformed_release_returns_bad_request_without_registration(board, monkeypatch):
+    from langboard.apps.OfficialAppPackages import download_official_package
+    from langboard.routes.settings import AppPackageSettingsApi
+    from langboard_shared.domain.services.AppRegistry import list_definitions
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    actor = board[1]
+    with DbSession.use(readonly=False) as db:
+        actor.is_admin = True
+        db.update(actor)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        for payload in (b"not JSON", b"null", b'{"tag_name":"v1.0.0","assets":null}',
+            b'{"tag_name":"v1.0.0","assets":[{"name":"langboard-app-github.zip","state":"uploaded"}]}'):
+            def download(key, tag):
+                with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, content=payload))) as upstream:
+                    return download_official_package(key, tag, client=upstream)
+            monkeypatch.setattr(AppPackageSettingsApi, "download_official_package", download)
+            response = client.post("/settings/apps/packages/official/github-panel/install", json={},
+                headers={"Authorization": f"Bearer {access}"})
+            assert response.status_code == 400, response.text
+            assert list_definitions(actor) == []
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)

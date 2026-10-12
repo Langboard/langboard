@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { Plate } from "platejs/react";
@@ -87,10 +86,11 @@ interface IPlateEditorProps extends IBasePlateEditorProps {
 }
 
 export type TPlateEditorProps = IPlateViewerProps | IPlateEditorProps;
+type WithoutChildren<T> = T extends unknown ? Omit<T, "children"> : never;
 
-export function PlateEditor(props: TPlateEditorProps & Omit<TEditorDataProviderProps, "children">) {
+export function PlateEditor(props: TPlateEditorProps & WithoutChildren<TEditorDataProviderProps>) {
     return (
-        <EditorDataProvider {...(props as any)}>
+        <EditorDataProvider {...props}>
             <EditorWrapper {...props} />
         </EditorDataProvider>
     );
@@ -117,9 +117,8 @@ function EditorWrapper({
     onCollaborativeValueResetReady,
     ...props
 }: TPlateEditorProps) {
-    if (!editorRef) {
-        editorRef = useRef<TEditor>(null);
-    }
+    const internalEditorRef = useRef<TEditor>(null);
+    const activeEditorRef = editorRef ?? internalEditorRef;
 
     const [t] = useTranslation();
     const internalEditorComponentRef = useRef<HTMLDivElement>(null);
@@ -233,7 +232,7 @@ function EditorWrapper({
         [onEditorChange, readOnly, serializeOnChange, setValue]
     );
 
-    editorRef.current = editor;
+    activeEditorRef.current = editor;
 
     const updateCollaborativeValue = useCallback(
         (nextContent: string) => {
@@ -277,13 +276,14 @@ function EditorWrapper({
             return;
         }
 
-        const restoreKey = `${documentID}\u0000${authoritativeCollaborativeValue}`;
-        if (restoredCollaborativeValueRef.current === restoreKey) {
+        // Later server snapshots must not replace the live Yjs document or unsaved edits.
+        // Explicit recovery remains available through onCollaborativeValueResetReady.
+        if (restoredCollaborativeValueRef.current === documentID) {
             return;
         }
 
         resetCollaborativeValue(authoritativeCollaborativeValue);
-        restoredCollaborativeValueRef.current = restoreKey;
+        restoredCollaborativeValueRef.current = documentID;
     }, [authoritativeCollaborativeValue, documentID, isCollaborativeReady, readOnly, resetCollaborativeValue]);
 
     useEffect(() => {

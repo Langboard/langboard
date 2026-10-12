@@ -304,5 +304,24 @@
   "No app archive history": "暂无应用归档历史。",
   "Archive outcome": "归档结果",
   "Event delivery": "事件投递",
-  "Provider reported state": "应用报告的外部状态"
+  "Provider reported state": "应用报告的外部状态",
+  "appRuntimes": {
+    "title": "应用执行",
+    "help": "每页10个请求。执行许可不代表进程正在运行。请求停止后等待外部运行时报告终止。",
+    "stop": "请求停止",
+    "unresolved": "结果未确认。再次请求前请刷新。",
+    "empty": "没有执行请求。",
+    "generation": "执行代次 {{count}}",
+    "states": {
+      "authorized": "已发放执行许可",
+      "awaiting_permit": "等待执行许可",
+      "stop_requested": "已请求停止 — 等待运行时终止",
+      "stopped": "运行时已报告停止"
+    },
+    "resume": "请求恢复",
+    "resumeRequested": "已请求恢复 — 等待新运行时",
+    "new": "请求新执行",
+    "newHelp": "使用当前权限请求新的执行。保留之前已停止的执行及其历史记录。此操作不会启动运行时。",
+    "newRequested": "已请求新执行 — 等待新运行时"
+  }
 }

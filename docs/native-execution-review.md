@@ -24,3 +24,35 @@ checks, and completion remain separate outstanding Work Actions requirements.
 
 `get_card_execution_receipts` reads the native report history under the current stored
 `read` role. Both tools are available through native MCP without the GPT plugin.
+
+## Explicit human runtime choices
+
+The native card runtime list and the host-owned dialog opened by panel SDK
+`runtimes.open({card_uid})` share human card authorization. Opening the dialog
+never submits a stop, resume, or new-run request. The app iframe cannot invoke
+these mutations directly or supply a user identity.
+
+- `POST /board/{board}/card/{card}/apps/executions/{request}/new`
+- `POST /board/{board}/apps/{app}/panel/cards/{card}/runtimes/{request}/new`
+
+Both require the retained request's `generation`, the observed
+`expected_generation`, and `expected_revision` (the exact card timestamp returned
+by the list). The panel route also requires current `app_revision` and
+`binding_revision` and restricts requests to that app. Stop/resume do not accept
+new-run fence fields. A stale fence or conflicting previous choice is rejected.
+
+A new run requires a runtime-reported stopped lease and current producer Ready
+eligibility. It reuses `ExecutionReadinessUow` to issue the next generation and
+outbox event, then checks current app ownership, connection/resource authority,
+consent, workflow, prerequisites, and approval gates in the same transaction.
+Failure rolls back the generation and both outboxes. A repeated matching choice
+returns its retained request; a resume/new-run cross-selection cannot create a
+second request. The stopped lease, its history, and prior execution evidence
+remain retained. A request receipt is not runtime-start evidence.
+
+The existing readiness producer is PostgreSQL-specific and requires an explicit
+enabled execution binding and webhook. The list advertises `new_run_available`
+only for that producer's current Ready generation; SQLite does not advertise the
+choice and rejects direct new-run submissions. There is no independent UI or
+SQLite generation counter. Read the current state after a mutation; an uncertain
+response must be reconciled before another explicit submission.

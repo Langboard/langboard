@@ -1306,3 +1306,22 @@ consent invalidation contract. Disabling an app blocks its current hosted panel 
 Local parser, authenticated HTTP and store browser tests establish source behavior. Actual
 GitHub release downloads, native board activation, provider traffic and canary UI acceptance
 remain separate delivery checks.
+
+
+### Reviewing connection MCP consent
+
+The authenticated human connection manager reads `GET /settings/apps/connections/{connection_uid}/mcp-consent`. The response includes the current `available_tools` grouped by authority scope and the retained `granted_tools`, alongside the consent, app, and trust identity revisions. The native connection UI displays the actual declared tool names before explicit scope selection. It does not grant permissions automatically and does not grant when the host cannot describe the tool set.
+
+A registry update withdraws affected scope grants permanently; the newly available tool set and retained grants remain distinct. Restoring a previous declaration does not reinstate consent. Remote MCP execution remains unsupported by this consent/catalog contract.
+
+
+Native user MCP exposes `get_card_app_mcp_tools(project_uid, card_uid, connection_uid)` for connection-owner discovery. It uses the same catalog projection and board/card/resource/consent checks as the app REST catalog, plus current native MCP visibility and tool-group authorization. It neither issues nor forwards an app credential. Human discovery is distinguished from unattended app execution; it does not transfer a personal connection to organization automation. Results remain non-callable until a separate remote execution contract is implemented.
+
+
+### Human runtime control from app panels
+
+Panel runtime APIs reuse the native human stop/resume services and restrict requests to the panel app key. `POST /board/{project_uid}/apps/{app_key}/panel/runtimes` accepts `card_uid`, optional `cursor`, and current `app_revision`/`binding_revision`. It returns bounded retained runtime identities without tokens.
+
+Authenticated human controls use `POST /board/{project_uid}/apps/{app_key}/panel/cards/{card_uid}/runtimes/{request_uid}/{stop|resume}` with current app/binding revisions and the observed request `generation`. Native card update authority remains required. Stop requests revoke the permit, but do not prove process termination. Resume accepts only a newer producer-issued ready generation and preserves the stopped lease. Apps must not perform automatic human controls.
+
+Panel SDK 0.2.6 exposes `runtimes.open` with `card_uid` only. The host presents retained app-scoped runtimes and human confirmation before stop or resume. SDK direct stop/resume/new operations are rejected. Opening the dialog is not approval. After panel disablement, native card controls remain available to an authorized human for retained-runtime cleanup. Independent new-run choice and its producer-generation contract remain pending.

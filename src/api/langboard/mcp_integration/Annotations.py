@@ -27,6 +27,7 @@ READ_ONLY_TOOLS = frozenset(
         "get_project_identity",
         "get_connection_context",
         "get_card_app_resources",
+        "get_card_app_mcp_tools",
         "list_project_cards",
         "search_project_cards",
         "get_card_bundle",

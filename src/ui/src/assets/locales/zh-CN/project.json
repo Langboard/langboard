@@ -406,7 +406,16 @@
     "App section connections": "连接",
     "App section permissions": "权限",
     "App section workflow": "工作流",
-    "App section panel": "面板"
+    "App section panel": "面板",
+    "Connection MCP consent": "连接 MCP 授权",
+    "Connection MCP consent help": "只有连接所有者或组织管理员可以批准。看板权限需单独授予，不会自动授权。",
+    "Connection MCP execution unavailable": "暂不支持工具执行。保存的授权仅控制工具目录显示。",
+    "Connection MCP read": "查询外部服务",
+    "Connection MCP write": "修改外部服务",
+    "Connection MCP automation": "运行外部自动化",
+    "Connection MCP refresh required": "访问被拒、状态已变更或请求失败。请刷新并重新确认。",
+    "Connection MCP no tools": "没有已声明的工具",
+    "GitHub app connection identity": "GitHub 应用 {{appId}} · {{connectionId}}"
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",

@@ -12,6 +12,8 @@ from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
 from .AppExecutionLease import AppExecutionLease
 from .AppExecutionStart import AppExecutionStart
 from .AppExecutionRequest import AppExecutionRequest
+from .AppExecutionReview import AppExecutionReview
+from .AppMcpConsent import AppMcpConsent
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
@@ -118,6 +120,8 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "AppExecutionReview",
+    "AppMcpConsent",
     "CardAppResourceSelection",
     "CardAppResourceSelectionAudit",
     "CardAppOwnership",
@@ -235,3 +239,6 @@ __all__ = [
     "UserProfile",
     "WebhookSetting",
 ]
+
+# Attach app database invariants after all native model tables are registered.
+from . import AppSchema  # noqa: E402, F401

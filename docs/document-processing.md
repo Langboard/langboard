@@ -147,3 +147,52 @@ work. Attachment detail retains its separate transcription and embedding labels.
 Completed or failed embeddings do not keep the card's active progress indicator
 visible. This uses existing metadata subscriptions and translation keys without
 adding polling, scanning attachments or triggering processing.
+
+### Board-scoped transcript results in the command palette
+
+The command palette queries the existing authorized board card-context API after
+300 ms of idle typing, only while open and with 2–1000 query characters. It
+displays matching cards, their workflow column, and the bounded attachment
+filename/snippet projection. A server result replaces the same board's local
+card entry, and selecting it opens the original card. Results from the previous
+query are hidden immediately; superseded requests carry a cancellation signal.
+Closing the palette disables reads. Search does not enqueue processing or call
+an embedding provider, LLM or LangGraph. The existing PostgreSQL search includes
+transcribed text and extracted multilingual keywords without embeddings.
+
+The physical browser fixture exercises a transcript-only match, source display,
+an out-of-order response and navigation, alongside the existing mobile, focus
+and four-language command checks. It is not deployed acceptance. Optional
+vector result composition, precise source-page navigation and live multilingual
+retrieval quality remain separate requirements.
+
+### Page-scoped non-destructive document reads
+
+`read_card_document` accepts an optional positive `page`. It loads only the
+current attachment's generation-fenced structural artifact and uses official
+Docling `export_to_markdown(page_no=page, traverse_pictures=True)` serialization.
+Offsets and the 128–8000 character excerpt limit apply within that page. The
+response includes the source page and generation; subsequent reads must retain
+both the page and `expected_generation`. Without `page`, existing Markdown
+offset behavior is preserved. Missing structure or a missing source page returns
+an unavailable error rather than fabricated provenance or whole-document text.
+Current card/attachment authority, generation and content hash are checked again
+after serialization. No VLM, embedding, conversion or reindex task is started.
+
+The focused SQLite/PostgreSQL run exercised 44 tests, including actual Docling
+multilingual page serialization, page-local continuation, invalid/missing pages,
+and permission, deletion, generation and hash changes during serialization.
+Current primary binding checks for vector reads also passed. This supplies the
+agent's page follow-up read; optional board-wide vector composition and UI
+page-link navigation remain separate incomplete requirements.
+# Current source read regression evidence
+
+Attachment byte reads revalidate card visibility and the attachment on the primary
+database after storage IO. The native service regression makes any replica read
+fail, then commits deletion, file replacement or membership withdrawal while IO
+is in progress. The attachment MCP suite passes 18 cases across SQLite and a
+disposable PostgreSQL database, including unchanged-source success. This does
+not prove deployed provider processing or multilingual transcription quality.
+Keyword language labels reuse the existing locale resources while retaining the
+stored `ko`, `en`, `ja` and `zh` values. Standard-library `re` is imported once;
+optional LangChain/Qdrant integrations retain deferred loading.

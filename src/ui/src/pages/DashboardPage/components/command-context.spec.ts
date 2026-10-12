@@ -51,3 +51,22 @@ for (const language of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
         await expect(page.getByTestId("route")).toHaveText("/board/fixture");
     });
 }
+
+test("board transcript search displays sources, hides stale results and opens the owning card", async ({ page }) => {
+    await page.goto("/src/pages/DashboardPage/components/command-context.fixture.html");
+    await page.getByRole("button", { name: "Open palette", exact: true }).click();
+    const input = page.getByRole("combobox", { name: "Command palette", exact: true });
+    await input.fill("전사검색");
+    await expect(page.getByRole("option", { name: /Found 전사검색/ })).toBeVisible();
+    await expect(page.getByText("Meeting.pdf · 전사검색 日本語 中文 document", { exact: true })).toBeVisible();
+    await input.fill("slow");
+    await expect(page.getByRole("option", { name: /Found 전사검색/ })).toBeHidden();
+    await page.waitForTimeout(350);
+    await input.fill("latest");
+    const latest = page.getByRole("option", { name: /Found latest/ });
+    await expect(latest).toBeVisible();
+    await page.waitForTimeout(1100);
+    await expect(page.getByRole("option", { name: /Found slow/ })).toBeHidden();
+    await latest.click();
+    await expect(page.getByTestId("route")).toHaveText("/board/fixture/latest");
+});

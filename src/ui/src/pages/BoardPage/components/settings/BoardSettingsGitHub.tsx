@@ -78,7 +78,7 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
     const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth | null>(null);
     const [refreshed, setRefreshed] = useState(false);
     const callbackStarted = useRef(false);
-    const text = (name: string) => t(`project.settings.${name}`);
+    const text = (name: string, options?: Record<string, string | number>) => t(`project.settings.${name}`, options);
     const run = async (action: () => Promise<void>) => {
         setPending(true);
         setError(false);
@@ -270,7 +270,7 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
                         )}
                         {connections.map((row) => (
                             <option key={row.connection_uid} value={row.connection_uid}>
-                                GitHub App {row.app_id} · {row.connection_uid}
+                                {text("GitHub app connection identity", { appId: row.app_id, connectionId: row.connection_uid })}
                             </option>
                         ))}
                     </select>

@@ -362,5 +362,8 @@
   "App catalog filter": "앱 카탈로그 필터",
   "Search apps": "앱 검색",
   "App details": "앱 상세",
-  "No apps found": "검색 조건에 맞는 앱이 없습니다"
+  "No apps found": "검색 조건에 맞는 앱이 없습니다",
+  "SCIM issuer": "SCIM 발급자",
+  "Group ID": "그룹 ID",
+  "External group ID": "외부 그룹 ID"
 }

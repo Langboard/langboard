@@ -406,7 +406,16 @@
     "App section connections": "接続",
     "App section permissions": "権限",
     "App section workflow": "ワークフロー",
-    "App section panel": "パネル"
+    "App section panel": "パネル",
+    "Connection MCP consent": "接続 MCP 同意",
+    "Connection MCP consent help": "接続の所有者または組織管理者のみ承認できます。ボード権限は別途必要です。自動承認されません。",
+    "Connection MCP execution unavailable": "ツール実行はまだ利用できません。同意はカタログの表示にのみ適用されます。",
+    "Connection MCP read": "外部サービスの参照",
+    "Connection MCP write": "外部サービスの変更",
+    "Connection MCP automation": "外部自動化の実行",
+    "Connection MCP refresh required": "アクセス拒否、状態変更、またはリクエスト失敗。更新して再確認してください。",
+    "Connection MCP no tools": "宣言されたツールなし",
+    "GitHub app connection identity": "GitHub アプリ {{appId}} · {{connectionId}}"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",
