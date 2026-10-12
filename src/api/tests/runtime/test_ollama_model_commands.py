@@ -139,7 +139,8 @@ def test_ollama_mutation_requires_configured_endpoint(monkeypatch: MonkeyPatch) 
 def test_ollama_http_routes_enforce_auth_and_parse_delete_body(monkeypatch: MonkeyPatch, ollama_url: str) -> None:
     user = User.model_construct(id=SnowflakeID(1), is_admin=True, email="admin@example.com")
 
-    def authenticate(scope: Scope) -> User | int:
+    def authenticate(scope: Scope, *, allow_oidc: bool = False) -> User | int:
+        assert allow_oidc is False
         if Headers(scope=scope).get("authorization") != "Bearer access-token":
             return 401
         scope["auth"] = user

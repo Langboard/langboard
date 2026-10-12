@@ -918,7 +918,8 @@ def test_board_chat_status_http_requires_auth_and_project_read(monkeypatch: Monk
     service.internal_bot_run.get_owned_board_chat_status.return_value = None
     authorized = {"value": False}
 
-    def authenticate(scope: dict[str, Any]) -> User | int:
+    def authenticate(scope: dict[str, Any], *, allow_oidc: bool = False) -> User | int:
+        assert allow_oidc is False
         if not any(name == b"authorization" for name, _ in scope["headers"]):
             return 401
         scope["auth"] = user

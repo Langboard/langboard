@@ -484,3 +484,10 @@ requires CI_RUNNER, skips unconfigured/fork contexts, and has no GitHub-hosted
 fallback. Per-branch concurrency cancels superseded or duplicate runs across
 pull-request and manual dispatch events. The standard Ubuntu image is the job
 container on the configured runner, not a hosted runner selection.
+
+AI cross-runtime contract follow-up: two more HTTP authentication fixtures now
+accept and explicitly reject OIDC fallback for non-MCP routes, matching the
+current middleware contract. `phoenix-ai-contract-current-final.txt` reports
+231 passed with zero skips across Ollama commands/recovery, internal graph
+requests, application startup, attachment upload, native run recovery, file
+client, board chat and editor socket run tests. Production auth remains unchanged.
