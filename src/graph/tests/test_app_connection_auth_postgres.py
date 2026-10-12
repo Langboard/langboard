@@ -2291,6 +2291,137 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             content_read = asyncio.run(sdk_card())
             assert content_read["card_revision"] == review_authority["card_revision"]
             assert content_read["binding_revision"] == review_authority["binding_revision"]
+            # A second fully configured app shares the same human and board;
+            # its credential must still remain isolated from the first app's card.
+            with Session(engine) as db:
+                second_declaration = deepcopy(declaration)
+                second_declaration["key"] = "second-app"
+                second_declaration["mcp"]["identity"] = "second-app"
+                second_definition = AppDefinition(
+                    id=701, key="second-app", declaration=second_declaration, approved_by=1
+                )
+                second_connection = AppConnection(id=730, app_key="second-app", owner_id=owner.id, state="connected")
+                second_binding = BoardAppBinding(
+                    id=780,
+                    project_id=20,
+                    app_key="second-app",
+                    state="enabled",
+                    granted_capabilities=second_declaration["capabilities"],
+                    stage_transitions_enabled=True,
+                    workflow_mapping={
+                        "ready": SnowflakeID(211).to_short_code(),
+                        "active": SnowflakeID(213).to_short_code(),
+                        "review": SnowflakeID(214).to_short_code(),
+                    },
+                )
+                db.add_all([second_definition, second_connection, second_binding])
+                db.flush()
+                db.add(Card(id=223, project_id=20, project_column_id=211, title="Second app content"))
+                db.commit()
+                second_app_revision = second_definition.edit_revision()
+                second_binding_revision = second_binding.edit_revision()
+            set_card_app_ownership(owner, SnowflakeID(20), SnowflakeID(223), "second-app", None, second_app_revision)
+            selected = read_card_app_resources(owner, SnowflakeID(20), SnowflakeID(223), "second-app", SnowflakeID(730))
+            with Session(engine) as db:
+                db.add(
+                    AppResourceBinding(
+                        id=731,
+                        board_binding_id=780,
+                        connection_id=SnowflakeID(730),
+                        resource_type="issue",
+                        external_resource_id="second-issue",
+                        is_selected=True,
+                        access_state="granted",
+                        identity_hash=selected["identity_revision"],
+                    )
+                )
+                db.commit()
+            set_card_app_resources(
+                owner,
+                SnowflakeID(20),
+                SnowflakeID(223),
+                "second-app",
+                SnowflakeID(730),
+                [SnowflakeID(731).to_short_code()],
+                None,
+                1,
+                selected["identity_revision"],
+                second_app_revision,
+                second_binding_revision,
+            )
+            second_token = issue_connection_credential(owner, SnowflakeID(730))["token"]
+            second_headers = {"Authorization": f"Bearer {second_token}"}
+            second_card_path = (
+                f"/apps/v1/boards/{SnowflakeID(20).to_short_code()}/cards/{SnowflakeID(223).to_short_code()}"
+            )
+            owned_second = client.get(second_card_path, headers=second_headers)
+            assert owned_second.status_code == 200 and owned_second.json()["source"]["app_key"] == "second-app"
+            assert client.get(second_card_path, headers=app_headers).status_code == 403
+            first_card_path = second_card_path.replace(
+                SnowflakeID(223).to_short_code(), SnowflakeID(221).to_short_code()
+            )
+            assert client.get(first_card_path, headers=second_headers).status_code == 403
+            second_question_body = deepcopy(question_body)
+            second_question_body.pop("execution")
+            second_question_body["app_request_key"] = "second_question"
+            second_question = client.post(
+                second_card_path + "/interactions", headers=second_headers, json={"request": second_question_body}
+            )
+            assert second_question.status_code == 200
+            second_interaction_path = second_card_path + "/interactions/" + second_question.json()["interaction_uid"]
+            assert client.get(second_interaction_path, headers=second_headers).json()["state"] == "pending"
+            assert client.get(second_interaction_path, headers=app_headers).status_code == 403
+            assert (
+                client.post(
+                    second_interaction_path + "/cancel", headers=app_headers, json={"expected_revision": 1}
+                ).status_code
+                == 403
+            )
+            assert client.get(second_interaction_path, headers=second_headers).json()["state"] == "pending"
+            first_interaction_path = first_card_path + "/interactions/" + question["interaction_uid"]
+            assert client.get(first_interaction_path, headers=second_headers).status_code == 403
+            assert (
+                client.get(
+                    first_card_path + "/interactions",
+                    headers=second_headers,
+                    params={"app_request_key": question_body["app_request_key"]},
+                ).status_code
+                == 403
+            )
+            assert (
+                client.post(
+                    first_card_path + "/interactions", headers=second_headers, json={"request": question_body}
+                ).status_code
+                == 403
+            )
+            assert (
+                client.post(
+                    first_interaction_path + "/cancel", headers=second_headers, json={"expected_revision": 2}
+                ).status_code
+                == 403
+            )
+            assert client.get(app_path, headers=second_headers).status_code == 403
+            assert client.get(review_path, headers=second_headers).status_code == 403
+            assert (
+                client.post(
+                    review_path,
+                    headers=second_headers,
+                    json={
+                        "generation": 1,
+                        "expected_card_revision": review_authority["card_revision"],
+                        "expected_binding_revision": review_authority["binding_revision"],
+                        "evidence_reference": "cross-app-result",
+                    },
+                ).status_code
+                == 403
+            )
+            with Session(engine) as db:
+                assert db.query(AppExecutionReview).count() == 0
+                assert db.get(Card, 223).project_column_id == 211
+                second_question_id = SnowflakeID.from_short_code(second_question.json()["interaction_uid"])
+                db.query(AppExecutionOutbox).filter(AppExecutionOutbox.request_id == second_question_id).delete()
+                db.query(AppCardInteraction).filter(AppCardInteraction.id == second_question_id).delete()
+                db.commit()
             from langboard_shared.domain.models import Project
 
             with Session(engine) as db:

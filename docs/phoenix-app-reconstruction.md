@@ -1091,3 +1091,25 @@ restored suite result is recorded after rerun.
 
 Restored full PostgreSQL regression passed 84 tests in 49.00 seconds; the
 optional unconfigured consumer branch skipped once. Ruff and diff checks passed.
+
+
+### Same-human, same-board app isolation
+
+The installed-SDK native PostgreSQL execution fixture now registers a second
+approved app, connected credential, enabled board binding, owned card and
+selected resource under the same human and board. Each app reads its own card;
+cross-app card reads, interaction reads/recovery/create/cancel, execution-request
+reads and Review reads/writes return 403. The second app can create and read its
+own pending question, and a foreign cancellation leaves it pending. No foreign
+Review receipt or card transition is persisted. Interaction POST uses the actual
+`request` envelope; the first attempt's 400 was malformed test input, not scope
+acceptance. The first app question was removed by earlier fixture cleanup, so
+its UID checks prove rejection at the card scope; the second app question is a
+live row and proves rejection without destroying the owner's request.
+
+Focused ordinary fixture passed in 3.47 seconds (unconfigured consumer branch
+skipped). With the independently installed Symphony consumer, both branches
+passed in 4.91 seconds. Ruff and diff checks passed. These checks use disposable
+PostgreSQL and native HTTP; they do not prove deployed visibility, signed broker
+delivery or a real provider process lifecycle. The broader acceptance remains
+open.
