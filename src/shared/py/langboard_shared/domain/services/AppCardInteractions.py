@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from langboard_sdk.interactions import validate_card_interaction, validate_card_interaction_values
 from sqlalchemy import select
 from ...core.db import DbSession, SqlBuilder
+from ...core.security.CollaborationChannel import CollaborationChannel
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import (
     AppCardInteraction,
@@ -33,7 +34,9 @@ from .AppGovernance import (
 )
 from .CardAppGovernance import _card
 from .CardAppResources import verified_card_app_configuration
+from .CardAudience import resolve_card_audience
 from .CardExecutionIntent import _generation
+from .CardVisibilityPolicy import CardVisibility
 
 
 def _scope(db, token, project_id, card_id, *, for_update):
@@ -298,7 +301,12 @@ def respond_to_app_card_interaction(
             db, owner, project_id, card_id, row.app_key, row.connection_id, capability="interactions.request"
         )
         actor = _actor(db, actor)
-        _authorized_board(db, actor, project_id, action=ProjectRoleAction.CardUpdate)
+        project = _authorized_board(db, actor, project_id, action=ProjectRoleAction.CardUpdate)
+        card = _card(db, project, card_id)
+        if not resolve_card_audience(db, project.id, actor.id, channel=CollaborationChannel.HumanUI).can_read_card(
+            CardVisibility(card.visibility), owner_user_id=card.owner_user_id
+        ):
+            raise AppGovernanceDenied()
         row = _row(db, project_id, card_id, interaction_id, for_update=True)
         if snapshot != row.authority_snapshot:
             raise AppGovernanceConflict()
@@ -410,7 +418,11 @@ def read_human_card_interaction(actor, project_id, card_id, interaction_id):
     with DbSession.atomic() as db:
         actor = _actor(db, actor, for_update=False)
         project = _authorized_board(db, actor, project_id, for_update=False, action=ProjectRoleAction.Read)
-        _card(db, project, card_id, for_update=False)
+        card = _card(db, project, card_id, for_update=False)
+        if not resolve_card_audience(db, project.id, actor.id, channel=CollaborationChannel.HumanUI).can_read_card(
+            CardVisibility(card.visibility), owner_user_id=card.owner_user_id
+        ):
+            raise AppGovernanceDenied()
         return _receipt(db, _row(db, project_id, card_id, interaction_id, for_update=False))
 
 

@@ -317,6 +317,52 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             create_app_card_interaction(token, *ids, {**body, "prompt": {"en": "Changed"}})
         values = {"decision": {"choice_id": "approve"}}
         args = (*ids, uid, values, 1, "response-key-00001")
+        from langboard_shared.domain.models import (
+            EmployeeMembershipPolicy,
+            IdentityProvider,
+            ProjectAssignedUser,
+            UserIdentityLink,
+        )
+        from langboard_shared.domain.services.AppCardInteractions import read_human_card_interaction
+
+        with Session(engine) as db:
+            db.add(ProjectAssignedUser(id=701, project_id=ids[0], user_id=outsider.id))
+            db.add(ProjectRole(id=702, project_id=ids[0], user_id=outsider.id, actions=["read", "card_update"]))
+            db.commit()
+        with monkeypatch.context() as audience:
+            audience.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "oidc_issuers"))
+            audience.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: ["https://identity.example"]))
+            for model in (EmployeeMembershipPolicy, UserIdentityLink):
+                model.__table__.create(engine)
+            with Session(engine) as db:
+                db.add(
+                    UserIdentityLink(
+                        id=703,
+                        user_id=owner.id,
+                        provider=IdentityProvider.Oidc,
+                        external_id="owner",
+                        issuer="https://identity.example",
+                    )
+                )
+                retained_time = db.get(Card, 221).updated_at
+                db.commit()
+            assert read_human_card_interaction(owner, *ids, uid)["state"] == "pending"
+            with pytest.raises(AppGovernanceDenied):
+                read_human_card_interaction(outsider, *ids, uid)
+            with pytest.raises(AppGovernanceDenied):
+                respond_to_app_card_interaction(outsider, *args)
+            with Session(engine) as db:
+                assert db.query(AppCardInteractionResponse).count() == 0
+                db.execute(update(Card).values(visibility="SHARED", updated_at=retained_time))
+                db.commit()
+            assert read_human_card_interaction(outsider, *ids, uid)["state"] == "pending"
+            with Session(engine) as db:
+                db.execute(update(Card).values(visibility="INTERNAL", updated_at=retained_time))
+                db.commit()
+        with Session(engine) as db:
+            db.query(ProjectAssignedUser).filter(ProjectAssignedUser.id == 701).delete()
+            db.query(ProjectRole).filter(ProjectRole.id == 702).delete()
+            db.commit()
         with pytest.raises(AppGovernanceDenied):
             respond_to_app_card_interaction(outsider, *args)
         with TestClient(app) as client:

@@ -12,6 +12,8 @@ from .AppGovernance import (
     current_policy,
     lock_policy_mutation,
 )
+from .CardAudience import resolve_card_audience
+from .CardVisibilityPolicy import CardVisibility
 
 
 def _card(db, project, card_id, *, for_update=True):
@@ -57,6 +59,10 @@ def set_card_app_ownership(actor, project_id, card_id, app_key, expected_revisio
                 raise AppGovernanceConflict()
         project = _authorized_board(db, actor, project_id)
         card = _card(db, project, card_id)
+        if app_key is not None and not resolve_card_audience(db, project.id, actor.id).can_read_card(
+            CardVisibility(card.visibility), owner_user_id=card.owner_user_id
+        ):
+            raise AppGovernanceDenied()
         if app_key is not None:
             binding = db.exec(
                 SqlBuilder.select.table(BoardAppBinding)

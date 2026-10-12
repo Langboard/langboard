@@ -127,3 +127,55 @@ def test_employee_membership_policy_migration_roundtrip(governance):  # noqa: F8
         with Operations.context(MigrationContext.configure(db)):
             migration.downgrade()
     assert "employee_membership_policy" not in inspect(engine).get_table_names()
+
+
+def test_card_visibility_migration_retains_rows_and_private_constraints(governance):  # noqa: F811
+    import importlib.util
+    from pathlib import Path
+    import pytest
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import inspect, text
+    from sqlalchemy.exc import IntegrityError
+
+    engine = governance[0]
+    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261013030000-c7d8e9f0a1b2.py"
+    spec = importlib.util.spec_from_file_location("card_visibility_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "b6c7d8e9f0a1"
+    with engine.begin() as db:
+        db.execute(text("CREATE TABLE card (id BIGINT PRIMARY KEY, project_id BIGINT NOT NULL, title TEXT NOT NULL)"))
+        db.execute(text("INSERT INTO card VALUES (221,20,'Retained')"))
+        with Operations.context(MigrationContext.configure(db)):
+            migration.upgrade()
+        assert db.execute(text("SELECT title,visibility,owner_user_id FROM card WHERE id=221")).one() == (
+            "Retained",
+            "INTERNAL",
+            None,
+        )
+    for values in (
+        "'UNKNOWN',NULL,NULL,NULL",
+        "'PRIVATE',NULL,NULL,NULL",
+        "'PRIVATE',2,3,NULL",
+        "'PRIVATE',2,2,1",
+        "'SHARED',2,2,NULL",
+    ):
+        with pytest.raises(IntegrityError), engine.begin() as db:
+            db.execute(
+                text(
+                    "INSERT INTO card (id,project_id,title,visibility,owner_user_id,created_by_user_id,created_by_bot_id) VALUES (222,20,'Invalid',"
+                    + values
+                    + ")"
+                )
+            )
+    with engine.begin() as db:
+        db.execute(
+            text(
+                "INSERT INTO card (id,project_id,title,visibility,owner_user_id,created_by_user_id) VALUES (222,20,'Private','PRIVATE',2,2)"
+            )
+        )
+        with Operations.context(MigrationContext.configure(db)):
+            migration.downgrade()
+        assert db.execute(text("SELECT title FROM card WHERE id=221")).scalar_one() == "Retained"
+    assert "visibility" not in {column["name"] for column in inspect(engine).get_columns("card")}

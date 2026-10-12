@@ -9,6 +9,8 @@ from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 from .AppResourceSelection import _selection_context
 from .CardAppGovernance import _card, _ownership
+from .CardAudience import resolve_card_audience
+from .CardVisibilityPolicy import CardVisibility
 
 
 def _context(
@@ -37,6 +39,9 @@ def _context(
     if project is None or project.deleted_at:
         raise AppGovernanceDenied()
     card = _card(db, project, card_id, for_update=for_update)
+    audience = resolve_card_audience(db, project.id, actor.id)
+    if not audience.can_read_card(CardVisibility(card.visibility), owner_user_id=card.owner_user_id):
+        raise AppGovernanceDenied()
     owner = _ownership(db, card.id, for_update=for_update)
     return definition, binding, connection, card, owner
 

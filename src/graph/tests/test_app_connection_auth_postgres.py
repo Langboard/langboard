@@ -2373,6 +2373,83 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             content_read = asyncio.run(sdk_card())
             assert content_read["card_revision"] == review_authority["card_revision"]
             assert content_read["binding_revision"] == review_authority["binding_revision"]
+            from langboard_shared.domain.models import (
+                EmployeeMembershipPolicy,
+                IdentityProvider,
+                ScimGroup,
+                ScimGroupMember,
+                UserIdentityLink,
+            )
+
+            with monkeypatch.context() as visibility:
+                visibility.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
+                visibility.setattr(type(Env), "SCIM_ISSUER", property(lambda _: "https://identity.example"))
+                visibility.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
+                for model in (EmployeeMembershipPolicy, UserIdentityLink, ScimGroup, ScimGroupMember):
+                    model.__table__.create(engine)
+                with pytest.raises(NativeApiError) as internal_denied:
+                    asyncio.run(sdk_card())
+                assert internal_denied.value.status_code == 403
+                with Session(engine) as db:
+                    retained_card_time = db.get(Card, 221).updated_at
+                    db.execute(
+                        update(Card).where(Card.id == 221).values(visibility="SHARED", updated_at=retained_card_time)
+                    )
+                    db.commit()
+                assert asyncio.run(sdk_card())["description"]["content"] == card_content[:16000]
+                with Session(engine) as db:
+                    db.execute(
+                        update(Card)
+                        .where(Card.id == 221)
+                        .values(
+                            visibility="PRIVATE",
+                            owner_user_id=owner.id,
+                            created_by_user_id=owner.id,
+                            updated_at=retained_card_time,
+                        )
+                    )
+                    db.commit()
+                with pytest.raises(NativeApiError) as private_denied:
+                    asyncio.run(sdk_card())
+                assert private_denied.value.status_code == 403
+                with pytest.raises(AppGovernanceDenied):
+                    set_card_app_ownership(
+                        owner, SnowflakeID(20), SnowflakeID(221), app_key, 1, app_revision
+                    )
+                with Session(engine) as db:
+                    db.execute(
+                        update(Card)
+                        .where(Card.id == 221)
+                        .values(visibility="INTERNAL", owner_user_id=None, updated_at=retained_card_time)
+                    )
+                    db.add(ScimGroup(id=751, display_name="Employees", external_id="staff"))
+                    db.add(
+                        UserIdentityLink(
+                            id=752,
+                            user_id=owner.id,
+                            provider=IdentityProvider.Scim,
+                            external_id="owner",
+                            issuer="https://identity.example",
+                        )
+                    )
+                    db.add(
+                        EmployeeMembershipPolicy(
+                            id=753,
+                            key="global",
+                            issuer="https://identity.example",
+                            group_uids=[SnowflakeID(751).to_short_code()],
+                        )
+                    )
+                    db.commit()
+                    db.add(ScimGroupMember(id=754, group_id=751, user_id=owner.id))
+                    db.commit()
+                assert asyncio.run(sdk_card())["title"] == "Example"
+                with Session(engine) as db:
+                    db.query(ScimGroupMember).delete()
+                    db.commit()
+                with pytest.raises(NativeApiError) as membership_revoked:
+                    asyncio.run(sdk_card())
+                assert membership_revoked.value.status_code == 403
             # A second fully configured app shares the same human and board;
             # its credential must still remain isolated from the first app's card.
             with Session(engine) as db:

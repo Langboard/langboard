@@ -1,5 +1,5 @@
 from typing import Any
-from sqlalchemy import TEXT
+from sqlalchemy import TEXT, CheckConstraint, Index
 from ...core.db import ApiField, DateTimeField, EditorContentModel, Field, ModelColumnType, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -8,6 +8,21 @@ from .ProjectColumn import ProjectColumn
 
 
 class Card(BaseNotificationScheduleModel, table=True):
+    __table_args__ = (
+        CheckConstraint("visibility IN ('INTERNAL', 'SHARED', 'PRIVATE')", name="card_visibility"),
+        Index("ix_card_project_visibility", "project_id", "visibility"),
+        CheckConstraint(
+            "(visibility = 'PRIVATE' AND owner_user_id IS NOT NULL AND owner_user_id > 0 "
+            "AND created_by_user_id IS NOT NULL AND owner_user_id = created_by_user_id "
+            "AND created_by_bot_id IS NULL) OR (visibility <> 'PRIVATE' AND owner_user_id IS NULL)",
+            name="card_private_owner",
+        ),
+    )
+    created_by_user_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
+    created_by_bot_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
+    visibility: str = Field(default="INTERNAL", nullable=False, sa_column_kwargs={"server_default": "INTERNAL"})
+    owner_user_id: SnowflakeID | None = SnowflakeIDField(foreign_key="user.id", nullable=True)
+
     project_id: SnowflakeID = SnowflakeIDField(
         foreign_key=Project, nullable=False, index=True, api_field=ApiField(name="project_uid")
     )

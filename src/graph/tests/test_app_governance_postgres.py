@@ -42,6 +42,8 @@ from sqlalchemy.orm import Session
 
 @pytest.fixture
 def governance(monkeypatch, tmp_path):
+    # Explicit fixture mode; production still defaults to strict SCIM.
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
 
     monkeypatch.setattr(AppSettingPublisher, "apps_changed", lambda: None)

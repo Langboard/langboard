@@ -1169,3 +1169,41 @@ visibility/private-owner schema, native creation/read/mutation/relationship
 boundaries, app capability integration and union policy settings UI remain to be
 integrated together. The current app routes are unchanged in this slice; this
 module's tests do not prove that those routes reject internal/private cards.
+
+
+### Persisted card visibility and actual app/HITL fences
+
+Migration c7d8e9f0a1b2 adds INTERNAL/SHARED/PRIVATE, creator identifiers and
+private-owner fields to existing cards. Existing rows retain INTERNAL; the
+migration does not infer audience or reconcile shared customers. SQL constraints
+require a private owner to equal the human creator and exclude bot creation;
+nonprivate cards cannot retain a private owner. Upgrade/default/row retention,
+invalid visibility/private combinations and downgrade retention passed on PG.
+
+The common app-card/resource context now applies the native current audience
+before app ownership/resource/consent checks. Assigning an app to an inaccessible
+or private card is also denied; withdrawal remains possible. App content,
+execution and HITL paths using that context cannot treat human ownership as
+private-card access. Native human HITL read/response separately check the actual
+human audience, rather than relying on the app connection owner's audience.
+Existing board roles and app capability/resource fences remain independent.
+
+Actual installed SDK/HTTP/PG verified strict SCIM unknown-policy internal read
+403, SHARED read success, owner-app PRIVATE read/assignment denial, configured
+SCIM membership success and immediate membership-removal denial. Ordinary and
+independent consumer branches passed two tests in 5.33 seconds. Audience/schema
+migration/foundation-chain passed four tests in 3.37 seconds. Full existing
+interaction/connection/governance/migration suite passed 84 tests, one optional
+unconfigured consumer skip, in 50.01 seconds. Subsequently, the human-HITL
+fixture proved that an external board member with read/card_update still cannot
+read/answer INTERNAL, cannot persist an answer, and can read the same SHARED
+request: focused test passed in 2.75 seconds. Ruff/diff passed.
+
+Production defaults remain strict SCIM; existing broad test fixtures explicitly
+select project_members. This does not integrate all legacy native board/card
+creation, mutations, relations, comment whisper fields or settings UI. Those
+union-dependent routes still require coordinated integration and canary proof.
+Do not deploy this base as a complete visibility release. Integration with the
+retained union must reuse its existing card visibility migration/schema instead
+of adding the same columns twice; this branch's migration serves the Phoenix
+base and has not been run on the canary database.
