@@ -136,8 +136,8 @@ the native authenticated policy routes on PostgreSQL. Ruff and diff checks pass.
 
 ## Connection authentication and owner MCP consent
 
-The host consumes the independent langboard-sdk 0.2.34 wheel with SHA256
-fcb41fb22cbc2473fed7d1a26f3352a62c8afb5396e967ef1859eef8dc2be259.
+The host consumes the independent langboard-sdk 0.2.35 wheel with SHA256
+0a73273c520e3789eb2c8aa54dbfed4fc2198d9897e56c03b771e2fb04bc433c.
 The shared, API and Graph locks retain their existing package versions and
 include that exact artifact. API and Graph image contexts copy the artifact
 before dependency installation; private SDK repository access is not required.
@@ -645,7 +645,7 @@ The prior app integration contains `AppCardInteraction`, immutable
 `AppCardInteractionResponse`, choice validation, workflow destination snapshots,
 and native human response controls. These are source material to reconnect, not
 evidence of a working interaction endpoint on this review branch. The SDK request
-and answer validators are available in the pinned 0.2.34 artifact; the host
+and answer validators are available in the pinned 0.2.35 artifact; the host
 interaction request/read/cancel and human response acceptance are reconstructed below;
 reaction adapters, signed delivery and execution continuation remain pending.
 
@@ -732,3 +732,25 @@ The authorized recovery session subsequently reported replacement run
 `38187878432` successful at SDK source `913692621e17db21cd95e09185eaabfa8a18f0fe`.
 The current host interaction source has not run remote CI or deployed acceptance.
 Do not publish deployment details or treat local SDK tests as a successful remote run.
+
+### Native interaction reception recovery
+
+The owning app can POST an acknowledgment for the exact answered event and GET
+the retained acknowledgment without retrying POST. The current connection, card
+resources, owning app snapshot and optional execution generation are checked.
+POST requires the event to be delivering or delivered; pending/foreign events
+are denied. Exact retries return the original receipt; changing the event or
+runtime reference conflicts. GET uses no mutation row locks. Both routes report
+execution_resumed=false and workflow_transitioned=false. They reuse the retained
+AppExecutionAcknowledgment model keyed by immutable response ID, so no new
+schema or authority engine is introduced.
+
+SDK 0.2.35 source is 97c398ce5edc87b8999b4c268dc158b5d61f25aa. Standalone
+Python 94 tests and Node contracts passed locally. Remote CI for this new source
+and native host delivery/Active lifecycle integration remain unverified.
+
+Native PostgreSQL regression: 78 tests passed in 53.34 seconds, including
+interaction HTTP/SDK, connection authentication, governance and foundation
+migrations. A final focused interaction rerun covers rejection of tampered
+answer payloads as well. Delivery state was advanced by the test fixture; this
+does not prove a signed delivery worker, live runtime or deployed canary.

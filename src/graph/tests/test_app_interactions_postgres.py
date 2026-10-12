@@ -22,6 +22,7 @@ from langboard_shared.domain.models import (
     AppCardInteraction,
     AppCardInteractionResponse,
     AppDefinition,
+    AppExecutionAcknowledgment,
     AppExecutionOutbox,
     AppResourceBinding,
     BoardAppBinding,
@@ -80,6 +81,7 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         AppCardInteraction,
         AppCardInteractionResponse,
         AppExecutionOutbox,
+        AppExecutionAcknowledgment,
         ProjectRole,
     ):
         model.__table__.create(engine)
@@ -319,12 +321,111 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             assert outbox.payload["values"] == values
             assert outbox.payload["execution"] is None
 
+            event_uid = outbox.get_uid()
+        ack_path = f"/apps/v1/boards/{ids[0].to_short_code()}/cards/{ids[1].to_short_code()}/interactions/{uid.to_short_code()}/acknowledgments"
+
+        async def sdk_ack(reference="runtime-receipt-1"):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as session:
+                return await AppCardInteractions(HttpTransport(session)).acknowledge(
+                    *(i.to_short_code() for i in ids),
+                    uid.to_short_code(),
+                    event_uid=event_uid,
+                    runtime_reference=reference,
+                )
+
+        with TestClient(app) as client:
+            auth = {"Authorization": f"Bearer {token}"}
+            assert client.get(ack_path).status_code == 401
+            assert client.get(ack_path, headers=auth).json()["state"] == "not_received"
+            pending = client.post(
+                ack_path, headers=auth, json={"event_uid": event_uid, "runtime_reference": "runtime-receipt-1"}
+            )
+            assert pending.status_code == 403
+        with Session(engine) as db:
+            db.execute(update(AppExecutionOutbox).values(state="delivering"))
+            db.commit()
+
+        async def sdk_read_ack():
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as session:
+                return await AppCardInteractions(HttpTransport(session)).read_acknowledgment(
+                    *(i.to_short_code() for i in ids), uid.to_short_code()
+                )
+
+        with Session(engine) as db:
+            saved_payload = db.query(AppExecutionOutbox).one().payload
+            db.execute(
+                update(AppExecutionOutbox).values(
+                    payload={**saved_payload, "values": {"decision": {"choice_id": "reject"}}}
+                )
+            )
+            db.commit()
+        with TestClient(app) as client:
+            assert (
+                client.post(
+                    ack_path,
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"event_uid": event_uid, "runtime_reference": "runtime-receipt-1"},
+                ).status_code
+                == 403
+            )
+        with Session(engine) as db:
+            assert db.query(AppExecutionAcknowledgment).count() == 0
+            db.execute(update(AppExecutionOutbox).values(payload=saved_payload))
+            db.commit()
+        first_ack = asyncio.run(sdk_ack())
+        assert first_ack["changed"] and first_ack["state"] == "received"
+        assert not first_ack["execution_resumed"] and not first_ack["workflow_transitioned"]
+        assert asyncio.run(sdk_ack())["changed"] is False
+        assert asyncio.run(sdk_read_ack())["acknowledgment_uid"] == first_ack["acknowledgment_uid"]
+        with TestClient(app) as client:
+            auth = {"Authorization": f"Bearer {token}"}
+            recovered_ack = client.get(ack_path, headers=auth)
+            assert recovered_ack.status_code == 200
+            assert recovered_ack.json()["acknowledgment_uid"] == first_ack["acknowledgment_uid"]
+            assert recovered_ack.headers["cache-control"] == "no-store"
+            assert (
+                client.post(
+                    ack_path, headers=auth, json={"event_uid": event_uid, "runtime_reference": "different"}
+                ).status_code
+                == 409
+            )
+            assert (
+                client.post(
+                    ack_path,
+                    headers=auth,
+                    json={"event_uid": uid.to_short_code(), "runtime_reference": "runtime-receipt-1"},
+                ).status_code
+                == 403
+            )
+        statements = []
+        event.listen(engine, "before_cursor_execute", record_query)
+        try:
+            with TestClient(app) as client:
+                assert client.get(ack_path, headers={"Authorization": f"Bearer {token}"}).status_code == 200
+        finally:
+            event.remove(engine, "before_cursor_execute", record_query)
+        assert not any("FOR UPDATE" in statement for statement in statements)
+        with Session(engine) as db:
+            assert db.query(AppExecutionAcknowledgment).count() == 1
             db.execute(update(AppResourceBinding).values(access_state="revoked"))
             db.commit()
         with pytest.raises(AppGovernanceDenied):
             respond_to_app_card_interaction(owner, *args)
+        with TestClient(app) as client:
+            assert client.get(ack_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
         with Session(engine) as db:
             db.execute(update(AppResourceBinding).values(access_state="granted"))
+            db.commit()
+        with Session(engine) as db:
+            db.query(AppExecutionAcknowledgment).delete()
             db.commit()
         # Enqueue failure rolls answer and revision back together.
         second = create_app_card_interaction(token, *ids, {**body, "app_request_key": "approval_two"})

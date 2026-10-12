@@ -11,6 +11,7 @@ from ..models import (
     AppCardInteractionResponse,
     AppConnection,
     AppConnectionCredential,
+    AppExecutionAcknowledgment,
     AppExecutionOutbox,
     CardComment,
     CardCommentReaction,
@@ -132,11 +133,11 @@ def _workflow(db, definition, binding, project_id, request):
     return snapshot
 
 
-def _execution(db, token, project_id, card_id, request):
+def _execution(db, token, project_id, card_id, request, *, for_update=True):
     if "execution" in request:
         context = request["execution"]
         receipt = read_app_execution_request(
-            token, project_id, card_id, SnowflakeID.from_short_code(context["request_uid"]), for_update=True
+            token, project_id, card_id, SnowflakeID.from_short_code(context["request_uid"]), for_update=for_update
         )
         if receipt["generation"] != context["generation"]:
             raise AppGovernanceConflict()
@@ -437,3 +438,101 @@ def accept_current_comment_reaction(actor, project_id, card_id, comment_id, reac
             )
         except (AppGovernanceDenied, AppGovernanceConflict):
             return None
+
+
+def _interaction_ack(db, row, answer, *, changed=False):
+    ack = db.exec(
+        SqlBuilder.select.table(AppExecutionAcknowledgment).where(
+            AppExecutionAcknowledgment.request_id == answer.id,
+            AppExecutionAcknowledgment.app_key == row.app_key,
+            AppExecutionAcknowledgment.connection_id == row.connection_id,
+        )
+    ).first()
+    result = {
+        "schema_version": 1,
+        "interaction_uid": row.get_uid(),
+        "response_uid": answer.get_uid(),
+        "state": "received" if ack else "not_received",
+        "changed": changed,
+        "execution_resumed": False,
+        "workflow_transitioned": False,
+    }
+    if ack:
+        result.update(
+            acknowledgment_uid=ack.get_uid(),
+            event_uid=SnowflakeID(ack.event_id).to_short_code(),
+            runtime_reference=ack.runtime_reference,
+        )
+    return result
+
+
+def read_interaction_acknowledgment(token, project_id, card_id, interaction_id):
+    with DbSession.atomic() as db:
+        principal, _, _, _, _, snapshot = _scope(db, token, project_id, card_id, for_update=False)
+        row = _row(db, project_id, card_id, interaction_id, for_update=False)
+        if row.app_key != principal.app_key or row.connection_id != principal.connection_id:
+            raise AppGovernanceDenied()
+        if row.authority_snapshot != snapshot:
+            raise AppGovernanceConflict()
+        _execution(db, token, project_id, card_id, row.request, for_update=False)
+        answer = _answer(db, row)
+        if answer is None:
+            raise AppGovernanceConflict()
+        return _interaction_ack(db, row, answer)
+
+
+def acknowledge_interaction_response(token, project_id, card_id, interaction_id, event_id, runtime_reference):
+    if not isinstance(runtime_reference, str) or not runtime_reference.strip() or len(runtime_reference) > 200:
+        raise ValueError("A runtime reference of 1 to 200 characters is required")
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        principal, _, _, _, _, snapshot = _scope(db, token, project_id, card_id, for_update=True)
+        row = _row(db, project_id, card_id, interaction_id, for_update=True)
+        if row.app_key != principal.app_key or row.connection_id != principal.connection_id:
+            raise AppGovernanceDenied()
+        if row.authority_snapshot != snapshot:
+            raise AppGovernanceConflict()
+        _execution(db, token, project_id, card_id, row.request)
+        answer = _answer(db, row)
+        event = _current(db, AppExecutionOutbox, event_id)
+        if (
+            answer is None
+            or event is None
+            or event.request_id != answer.id
+            or event.project_id != project_id
+            or event.app_key != row.app_key
+            or event.connection_id != row.connection_id
+            or event.event_type != "io.langboard.app.interaction.answered.v1"
+            or event.state not in ("delivering", "delivered")
+            or event.payload.get("state") != "answered"
+            or event.payload.get("event_uid") != event.get_uid()
+            or event.payload.get("interaction_uid") != row.get_uid()
+            or event.payload.get("response_uid") != answer.get_uid()
+            or event.payload.get("card_uid") != SnowflakeID(card_id).to_short_code()
+            or event.payload.get("board_uid") != SnowflakeID(project_id).to_short_code()
+            or event.payload.get("app_key") != row.app_key
+            or event.payload.get("connection_uid") != SnowflakeID(row.connection_id).to_short_code()
+            or event.payload.get("actor_uid") != SnowflakeID(answer.actor_id).to_short_code()
+            or event.payload.get("values") != answer.values
+            or event.payload.get("execution") != row.request.get("execution")
+        ):
+            raise AppGovernanceDenied()
+        ack = db.exec(
+            SqlBuilder.select.table(AppExecutionAcknowledgment).where(
+                AppExecutionAcknowledgment.request_id == answer.id
+            )
+        ).first()
+        changed = ack is None
+        if ack is None:
+            db.insert(
+                AppExecutionAcknowledgment(
+                    request_id=answer.id,
+                    event_id=event.id,
+                    app_key=row.app_key,
+                    connection_id=row.connection_id,
+                    runtime_reference=runtime_reference,
+                )
+            )
+        elif ack.event_id != event.id or ack.runtime_reference != runtime_reference:
+            raise AppGovernanceConflict()
+        return _interaction_ack(db, row, answer, changed=changed)
