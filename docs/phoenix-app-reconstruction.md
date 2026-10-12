@@ -1141,3 +1141,31 @@ warnings reflect the disabled async plugin; these tests use asyncio.run.
 This proves the signed native worker/independent receiver/SQL boundary locally.
 It does not prove Celery queue delivery, deployed public DNS/TLS/network,
 provider process start/stop, visibility integration or canary browser acceptance.
+
+
+### Visibility integration dependency: current audience and persisted policy
+
+The retained union's `CollaborationChannel`, `CardVisibilityPolicy` and
+`EmployeeMembershipPolicy` definitions are brought into this base. A native
+`CardAudience.resolve_card_audience` reads account, current project membership,
+SCIM membership/identity and operator-selected policy in the caller's primary
+transaction. It does not grant board roles, app consent, resource selection or
+execution. Internal modes retain the union semantics: strict SCIM by default,
+explicit current-project-member compatibility, or operator-selected OIDC issuer
+fallback only when no persisted SCIM policy exists. Unknown modes deny; emails,
+display names and administrator status do not identify employees. API-channel
+private-card and whisper decisions remain denied even for the private owner.
+
+Migration b6c7d8e9f0a1 extends the existing single chain and creates the persisted
+employee-membership policy with a unique global key. Disposable PostgreSQL
+verified current group revocation, current project-membership removal, unknown
+policy denial, no OIDC bypass of an existing SCIM policy, explicit external-ID
+SCIM fallback and channel-specific private/whisper decisions. Policy migration
+upgrade/model readback/unique key/downgrade and the existing foundation
+migration-chain regression passed: three tests, 2.70 seconds. Ruff/diff passed.
+
+This is a staged dependency, not deployed visibility enforcement. Card
+visibility/private-owner schema, native creation/read/mutation/relationship
+boundaries, app capability integration and union policy settings UI remain to be
+integrated together. The current app routes are unchanged in this slice; this
+module's tests do not prove that those routes reject internal/private cards.

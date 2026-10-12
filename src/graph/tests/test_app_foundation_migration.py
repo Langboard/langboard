@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["a5b6c7d8e9f0"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["b6c7d8e9f0a1"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
