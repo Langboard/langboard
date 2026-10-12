@@ -528,3 +528,12 @@ columns by the supplied bound. User/Bot identity and forged actor rejection
 assertions remain unchanged. Local management/webhook/query/native adapter/MCP
 and column service suite: 113 passed, no skips. The original CI failure remains
 preserved; PostgreSQL transition CI was not reached in that run.
+
+The pinned BEAM image successfully ran version reporting and Hex/Rebar setup.
+Run 38263205909 then failed at the first nested working-directory script through
+the runner's custom container hook. No Mix diagnostic reached the log and the
+cache key lacked a lockfile hash, so this is still execution-boundary evidence,
+not dependency resolution failure. Align script working directories with the
+existing successful root-based jobs and explicitly enter src/socket for Mix.
+Cache file hashes remain rooted at the checkout. The exact hook root cause and
+actual dependency/test success still require the next run; no gate is removed.

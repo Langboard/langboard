@@ -42,7 +42,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: src/socket
+        working-directory: .
     steps:
       - name: Prepare standard job tools
         working-directory: .
@@ -62,7 +62,7 @@ jobs:
           path: src/socket/deps
           key: phoenix-deps-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
       - name: Install Phoenix dependencies
-        run: mix deps.get --check-locked
+        run: cd src/socket && mix deps.get --check-locked
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -97,9 +97,9 @@ jobs:
         run: make test_socket_phoenix
         working-directory: .
       - name: Distributed editor recovery
-        run: elixir --sname editor_cluster_probe -S mix run test/integration/editor_cluster_probe.exs
+        run: cd src/socket && elixir --sname editor_cluster_probe -S mix run test/integration/editor_cluster_probe.exs
       - name: Strict code analysis
-        run: mix credo --strict
+        run: cd src/socket && mix credo --strict
       - uses: actions/cache/restore@v4
         id: plt
         with:
@@ -107,11 +107,11 @@ jobs:
           key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
           restore-keys: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-
       - name: Build analysis cache
-        run: mix dialyzer --plt
+        run: cd src/socket && mix dialyzer --plt
       - uses: actions/cache/save@v4
         if: steps.plt.outputs.cache-hit != 'true'
         with:
           path: src/socket/_build/plts
           key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
       - name: Type analysis
-        run: mix dialyzer --format github --format dialyxir
+        run: cd src/socket && mix dialyzer --format github --format dialyxir
