@@ -498,3 +498,15 @@ two SQL boolean comparisons in notification fanout queries with SQLAlchemy
 format gate paths pass after formatting four integration files with the existing
 formatter. AST comparisons confirm those four files retain identical behavior.
 The notification query change is separate and covered by the regression receipt.
+
+UI runtime follow-up: socket stream errors (1), board chat store (3), and Ollama
+model tracker (1) all passed using the workflow's Node 22 major and installed
+locked dependencies. Initial Yarn invocation failed before tests because local
+npm configuration required NODE_AUTH_TOKEN; a noncredential placeholder was
+used for offline script execution only, without dependency installation.
+
+The hosted-equivalent App Contracts run remained in its first captured test,
+with a live pytest process, no written JUnit file, and no observed database lock
+wait. No test completion is inferred from intermittent empty database sessions.
+Enable pytest's built-in faulthandler_timeout=60 for the next execution to retain
+thread stacks on a stalled test without adding dependencies or relaxing the gate.
