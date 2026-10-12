@@ -1207,3 +1207,36 @@ Do not deploy this base as a complete visibility release. Integration with the
 retained union must reuse its existing card visibility migration/schema instead
 of adding the same columns twice; this branch's migration serves the Phoenix
 base and has not been run on the canary database.
+
+
+### Retained union integration audit and first conflict resolutions
+
+Read-only `git merge-tree --write-tree` compared retained union 2e9b4b243 with
+Phoenix 55dcc0c40 and reported 128 unresolved paths: 60 shared Python, 19 API,
+5 graph, 20 UI and 24 other paths. The existing union ref/worktree was not
+changed. Actual Alembic ScriptDirectory loading (with the project environment)
+confirms one head per source: union c97659de63f4, Phoenix c7d8e9f0a1b2. A simple
+regex/AST assignment scan initially overcounted heads; those counts are not
+migration evidence because merge tuple/annotated revisions require Alembic.
+
+An isolated local review/canary-phoenix-integration-20261012 worktree starts from
+the retained union and has the actual no-commit merge in progress. Card model
+and CardVisibilityPolicy conflicts are resolved to the canonical union source:
+the model retains linked-resource/source identifiers, private ownership,
+creation metadata, last_change_seq and its existing projections. The policy's
+AST is identical across both branches, so the canonical union source is kept.
+126 unresolved paths remain; no merge commit, remote ref or deployment exists.
+
+EmployeeMembershipPolicy is already created by union migration 2cb748ac8ef8;
+visibility/private ownership are also already present in the union chain.
+Phoenix b6c7d8e9f0a1 and c7d8e9f0a1b2 cannot run their duplicate DDL against that
+schema. Full app/SDK migration overlap and final merge lineage must be resolved
+before any build/deploy, retaining the actual existing table data and revision
+records. No runtime database was touched. Do not copy the Phoenix base over the
+union or resolve the remaining conflicts wholesale to either side.
+
+Contract preservation still requires union last_change_seq card revisions,
+linked/archived card handling, native visibility/whisper paths and the existing
+app store/lifecycle/composition APIs together with the new frozen request,
+current resource authority, lease/start/Active/Review and signed delivery
+contracts. The two resolved source files do not prove integrated acceptance.
