@@ -629,8 +629,7 @@ authentication is repeated after the lock wait. Receipt writes and current
 authority validation share the native atomic transaction. A failed write rolls
 back; the SDK reports MutationOutcomeUnknown and must not infer success or retry
 automatically. The receipt says received and started=false. It is not a runtime
-permit. Signed delivery, durable ACK recovery, lease admission and HITL remain
-unimplemented.
+permit. Signed delivery, runtime lease admission and HITL remain unimplemented.
 
 The native GET on the same acknowledgment collection reports not_received or the
 retained received receipt under current connection, generation and resource
@@ -639,3 +638,51 @@ clients can read before deciding what to do; not_received is only a snapshot and
 does not authorize an automatic retry. SDK 0.2.34 adds read_acknowledgment and an explicit received/not_received union.
 The host pins its independent wheel in all three existing locks. SDK-to-native
 ASGI and PostgreSQL tests verify both receipt states without mutation retries.
+
+## Human interaction reconstruction boundary
+
+The prior app integration contains `AppCardInteraction`, immutable
+`AppCardInteractionResponse`, choice validation, workflow destination snapshots,
+and native human response controls. These are source material to reconnect, not
+evidence of a working interaction endpoint on this review branch. The SDK request
+and answer validators are available in the pinned 0.2.34 artifact; the host
+interaction routes and storage are not reconstructed yet.
+
+The earlier `AppCardInteractions` service depends on its previous
+`AppExecutionGrant`, `AppExecutionAcknowledgments`, `AppEventDelivery`, and
+`AppEventDestination` services. Its `AppCardScope` also assumes provider-era card
+visibility and unattended-connection rules. Copying that service into the native
+foundation would import a second authority engine. Adapt its retained models,
+CAS response acceptance and workflow snapshots to current native connection,
+card ownership, resource identity and policy checks instead.
+
+Reconstruction must preserve the following boundaries:
+
+- Requests require current owning-app consent for `interactions.request` and
+  current selected resources. GET reads must not acquire mutation row locks.
+- Only an authenticated human with current native card access and mutation
+  authority can answer. An app Bearer credential cannot approve its own request.
+- Persist the immutable question, request revision, current ownership/resource
+  context and optional execution request/generation. Accept a response once;
+  an identical idempotency retry reads the same receipt and conflicting values
+  return a conflict. Expired, cancelled or superseded requests cannot be answered.
+- Reaction approval requires a new human reaction on the exact declared comment
+  after request creation. Seen, earlier reactions and unrelated reactions never
+  constitute approval.
+- An `approval` request records `approve` or `reject` explicitly. A question or
+  action answer is not an approval. A runtime permit must verify the same current
+  request, generation and immutable approved response revision; missing, pending,
+  rejected or invalidated evidence denies admission.
+- Choice outcomes target an explicitly enabled mapping to existing builtin
+  workflow stages. Revalidate the saved mapping/column/stage revisions before a
+  native move; answering alone is neither a move nor a runtime resume.
+- Human response acceptance, event enqueue, signed delivery, app ACK and runtime
+  admission are separate receipts. Keep card comments, relationships and
+  checklists compatible with native card behavior.
+
+At source `712fbd4c60024b1c2c8aa49def34961209f652a9`, native Python CI
+`38186486009` and Phoenix CI `38186489750` both completed successfully. These
+checks do not establish the missing interaction flow or deployed canary acceptance.
+SDK CI `38186292284` remains queued before source execution with no assigned runner;
+restore its configured runner assignment without publishing deployment details
+or treating the local SDK tests as a successful remote run.
