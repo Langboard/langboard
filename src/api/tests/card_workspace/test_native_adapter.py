@@ -52,7 +52,7 @@ def test_project_identity_returns_real_guidance_without_inventing_legacy_descrip
     ]
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
-        project_column=SimpleNamespace(get_api_list_by_project=lambda _: columns),
+        project_column=SimpleNamespace(get_api_list_by_project=lambda _, *, limit: columns[:limit]),
     )
     result = NativeCardWorkspaceAdapter(object(), service).get_project_identity("p1")
     assert result and result["columns"]["items"] == [
@@ -890,7 +890,7 @@ def test_project_identity_uses_only_server_authenticated_actor(actor_type) -> No
     project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other")
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
-        project_column=SimpleNamespace(get_api_list_by_project=lambda _: []),
+        project_column=SimpleNamespace(get_api_list_by_project=lambda _, *, limit: []),
     )
     result = NativeCardWorkspaceAdapter(actor, service).get_project_identity("p1")
     assert result["authenticated_actor"] == {
@@ -905,7 +905,7 @@ def test_project_identity_does_not_trust_actor_shaped_content() -> None:
     project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other")
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
-        project_column=SimpleNamespace(get_api_list_by_project=lambda _: []),
+        project_column=SimpleNamespace(get_api_list_by_project=lambda _, *, limit: []),
     )
     result = NativeCardWorkspaceAdapter(actor, service).get_project_identity("p1")
     assert result["authenticated_actor"] is None

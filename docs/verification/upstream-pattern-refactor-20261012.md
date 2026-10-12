@@ -519,3 +519,12 @@ initializes Hex/Rebar through Mix, and retains exact-version dependency/PLT cach
 keys. This removes redundant BEAM installation and introduces no image build or
 private runner configuration. YAML and Dockerfile image equality were verified;
 the next actual CI run must establish execution compatibility.
+
+Workflow Stages CI run 38260506393 passed registry/policy and native app
+management, then failed four card identity tests because three legacy fixture
+callables omitted the current bounded-query `limit` parameter. This matches the
+local failure. Fixtures now accept the explicit keyword and slice returned
+columns by the supplied bound. User/Bot identity and forged actor rejection
+assertions remain unchanged. Local management/webhook/query/native adapter/MCP
+and column service suite: 113 passed, no skips. The original CI failure remains
+preserved; PostgreSQL transition CI was not reached in that run.
