@@ -476,3 +476,11 @@ an untyped actor and an authentication stub lacking the current allow_oidc
 argument. Fixtures now preserve the user guard and after-commit reorder
 publication boundary. `phoenix-api-contract-current-final3.txt`: 191 passed,
 zero skipped. This does not prove the whole cross-runtime workflow or deployment.
+
+The Phoenix runner job record confirmed the configured self-hosted group.
+A duplicate manual dispatch (38259884108) was cancelled after the pull-request
+synchronization automatically scheduled the same commit. Phoenix validation now
+requires CI_RUNNER, skips unconfigured/fork contexts, and has no GitHub-hosted
+fallback. Per-branch concurrency cancels superseded or duplicate runs across
+pull-request and manual dispatch events. The standard Ubuntu image is the job
+container on the configured runner, not a hosted runner selection.

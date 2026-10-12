@@ -24,6 +24,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: phoenix-socket-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 env:
   MIX_ENV: test
   PROJECT_NAME: langboard
@@ -31,8 +35,8 @@ env:
 
 jobs:
   check:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"ubuntu-24.04"') }}
+    if: vars.CI_RUNNER != '' && (github.event_name != 'pull_request' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     timeout-minutes: 60
     defaults:
