@@ -196,6 +196,19 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             notification = result.first()
         return notification
 
+    def get_pending_web_fanout(self, older_than: SafeDateTime, limit: int) -> list[UserNotification]:
+        query = SqlBuilder.select.table(UserNotification).where((UserNotification.column('web_fanout_pending') == True) & (UserNotification.column('updated_at') <= older_than)).order_by(UserNotification.column('updated_at'), UserNotification.column('id')).limit(limit)
+        with DbSession.use(readonly=False) as db:
+            return db.exec(query).all()
+
+    def defer_web_fanout(self, notification: UserNotification) -> None:
+        with DbSession.use(readonly=False) as db:
+            db.exec(SqlBuilder.update.table(UserNotification).values({UserNotification.column('updated_at'): SafeDateTime.now()}).where((UserNotification.column('id') == notification.id) & (UserNotification.column('web_fanout_pending') == True)))
+
+    def complete_web_fanout(self, notification: UserNotification) -> None:
+        with DbSession.use(readonly=False) as db:
+            db.exec(SqlBuilder.update.table(UserNotification).values({UserNotification.column('web_fanout_pending'): False}).where(UserNotification.column('id') == notification.id))
+
     def get_pending_work_events(self, limit: int = 100) -> list[UserNotification]:
         """Read a bounded durable work-event backlog from the primary database."""
 
@@ -227,7 +240,8 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             )
 
     def count_unread(
-        self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"] = "all"
+        self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"] = "all",
+        *, readonly: bool = True,
     ) -> int:
         user_id = InfraHelper.convert_id(user)
         query = SqlBuilder.select.count(UserNotification, UserNotification.column("id")).where(
@@ -244,7 +258,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
                 UserNotification.column("created_at") >= SafeDateTime.now() - relativedelta(months=int(time_range[:-1]))
             )
 
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=readonly) as db:
             result = db.exec(query)
             return result.first() or 0
 
@@ -274,12 +288,12 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
                     card_ids.append(record_id)
         return card_ids
 
-    def read_all_by_user(self, user: TUserParam):
+    def read_all_by_user(self, user: TUserParam, read_at: SafeDateTime | None = None):
         user_id = InfraHelper.convert_id(user)
         with DbSession.use(readonly=False) as db:
             db.exec(
                 SqlBuilder.update.table(UserNotification)
-                .values({UserNotification.column("read_at"): SafeDateTime.now()})
+                .values({UserNotification.column("read_at"): read_at or SafeDateTime.now()})
                 .where(
                     (UserNotification.column("receiver_id") == user_id)
                     & (UserNotification.column("web_visible") == True)  # noqa: E712

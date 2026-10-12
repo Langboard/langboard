@@ -114,8 +114,36 @@ def _enqueue_execution_event(db, event):
     db.update(event)
 
     def enqueue():
-        from ...tasks.webhooks.AppEventDeliveryTask import app_event_delivery_task
+        from .AppEventDelivery import enqueue_event
 
-        app_event_delivery_task(event.get_uid(), destination.revision)
+        enqueue_event(event.id)
 
     db.after_commit(enqueue)
+
+
+def current_execution_request_scope(db, token, project_id, card_id, request_id, *, capability, role_action):
+    from .AppCardScope import require_app_card_scope
+    from .AppConnectionAuthentication import authenticate_connection_credential
+    from .AppExecutionGrant import AppExecutionCredentialDenied
+    from .AppGovernance import _current
+    from ..models import AppDefinition
+
+    try:
+        principal = authenticate_connection_credential(token)
+    except AppGovernanceDenied as exc:
+        raise AppExecutionCredentialDenied() from exc
+    card, owner, selection, binding, resources = require_app_card_scope(
+        db, principal, project_id, card_id, capability=capability, role_action=role_action
+    )
+    request = _current(db, AppExecutionRequest, request_id)
+    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key)).first()
+    if (request is None or request.card_id != card_id or request.project_id != project_id
+        or request.connection_id != principal.connection_id or request.app_key != principal.app_key
+        or set(request.authority.get("resource_uids", [])) != set(selection.resource_uids)
+        or request.authority.get("ownership_revision") != owner.revision
+        or request.authority.get("selection_revision") != selection.revision
+        or request.authority.get("resource_revisions") != {row.get_uid(): row.access_revision for row in resources}
+        or "resources.read" not in definition.declaration.get("capabilities", [])
+        or "resources.read" not in binding.granted_capabilities):
+        raise AppGovernanceDenied()
+    return principal, card, binding, request, definition

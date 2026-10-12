@@ -2,27 +2,9 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Literal
-from langboard_sdk import WorkflowRequirements, WorkflowStage
+from langboard_sdk import WorkflowRequirements
 from ..models import ProjectColumn, WorkflowStageDefinition
-
-
-GITHUB_WORKFLOW_REQUIREMENTS = WorkflowRequirements(
-    (WorkflowStage.ACTIVE, WorkflowStage.REVIEW, WorkflowStage.CLOSED), (WorkflowStage.READY,)
-)
-GLITCHTIP_WORKFLOW_REQUIREMENTS = WorkflowRequirements(
-    (WorkflowStage.ACTIVE, WorkflowStage.REVIEW, WorkflowStage.CLOSED)
-)
-
-# Host-owned presets. Unknown providers cannot grant transitions by supplying a
-# smaller requirements object. Other providers join after their contract exists.
-APP_WORKFLOW_REQUIREMENTS = MappingProxyType(
-    {
-        "github": GITHUB_WORKFLOW_REQUIREMENTS,
-        "glitchtip": GLITCHTIP_WORKFLOW_REQUIREMENTS,
-    }
-)
 
 
 @dataclass(frozen=True)

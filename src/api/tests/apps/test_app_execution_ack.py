@@ -7,7 +7,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from langboard.routes.settings import AppExecutionAuthorityApi  # noqa: F401
+from langboard.routes.settings import AppExecutionAuthorityApi, AppExecutionLeaseApi  # noqa: F401
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
@@ -101,7 +101,7 @@ def test_native_ack_http_requires_app_auth_and_replays_receipt(board, monkeypatc
 
 
 @pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
-@pytest.mark.parametrize("change", ["connection", "stage", "event", "expiry"])
+@pytest.mark.parametrize("change", ["connection", "stage", "event", "expiry", "payload", "event_type"])
 def test_changed_scope_cannot_acknowledge_or_mutate_history(board, monkeypatch, change):
     from datetime import timedelta
     from langboard_shared.core.types import SafeDateTime
@@ -117,6 +117,13 @@ def test_changed_scope_cannot_acknowledge_or_mutate_history(board, monkeypatch, 
         elif change == "stage":
             board[5][0].workflow_stage = "active"
             db.update(board[5][0])
+        elif change in ("payload", "event_type"):
+            row = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+            if change == "payload":
+                row.payload = {**row.payload, "card_uid": "foreign-card"}
+            else:
+                row.event_type = "io.langboard.app.interaction.answered.v1"
+            db.update(row)
         elif change == "expiry":
             row = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
             row.lease_until = SafeDateTime.now() - timedelta(seconds=1)
@@ -179,3 +186,40 @@ def test_postgres_concurrent_ack_persists_one_received_receipt(board, monkeypatc
     assert sum(result["changed"] for result in results) == 1
     with DbSession.atomic() as db:
         assert len(db.exec(SqlBuilder.select.table(AppExecutionAcknowledgment)).all()) == 1
+
+
+def test_execution_routes_have_one_owner():
+    from collections import Counter
+
+    routes = Counter((method, route.path) for route in AppRouter.api.routes
+                     for method in getattr(route, "methods", [])
+                     if route.path.startswith("/apps/v1/") and
+                     ("execution-" in route.path or "runtime-permits" in route.path))
+    assert routes and all(count == 1 for count in routes.values()), routes
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_ack_readback_uses_current_authority_and_preserves_received_history(board, monkeypatch):
+    from langboard_shared.domain.services.AppExecutionAcknowledgments import read_execution_acknowledgment
+
+    connection, card, token, event = scope(board, monkeypatch)
+    with DbSession.atomic() as db:
+        request = db.exec(SqlBuilder.select.table(AppExecutionRequest)).first()
+    assert read_execution_acknowledgment(token, board[2].id, card.id, request.id)["state"] == "not_received"
+    claim_app_event(event.id, 1)
+    ack = acknowledge_app_execution(token, board[2].id, card.id, request.id, event.id, "runtime")
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    path = f"/apps/v1/boards/{board[2].get_uid()}/cards/{card.get_uid()}/execution-requests/{request.get_uid()}/acknowledgments"
+    with TestClient(app) as client:
+        response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+        assert response.json()["acknowledgment_uid"] == ack["acknowledgment_uid"]
+        assert response.json()["started"] is False and response.json()["changed"] is False
+        with DbSession.atomic() as db:
+            connection.state = "disconnected"
+            db.update(connection)
+        assert client.get(path, headers={"Authorization": f"Bearer {token}"}).status_code in (401, 403)
+    with DbSession.atomic() as db:
+        retained = db.exec(SqlBuilder.select.table(AppExecutionAcknowledgment)).all()
+        assert len(retained) == 1 and retained[0].get_uid() == ack["acknowledgment_uid"]

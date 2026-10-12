@@ -1,6 +1,7 @@
 """Native inbound service onboarding; no provider credentials or upstream verification."""
 
-from fastapi import Query
+from typing import Annotated
+from fastapi import Path, Query
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, BaseFormModel, JsonResponse, form_model
 from langboard_shared.core.types import SnowflakeID
@@ -26,18 +27,6 @@ class InboundConnectionForm(BaseFormModel):
     organization_uid: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{11}$")
 
 
-@form_model
-class InboundResourceForm(BaseFormModel):
-    model_config = {"extra": "forbid"}
-    app_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    binding_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
-    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    resource_type: str = Field(min_length=1, max_length=64)
-    external_resource_id: str = Field(min_length=1, max_length=200)
-    selected: bool = Field(default=True, strict=True)
-    expected_access_revision: int | None = Field(default=None, strict=True, ge=0)
-
-
 def _run(operation, *args, **kwargs):
     try:
         return JsonResponse(content=operation(*args, **kwargs), headers={"Cache-Control": "no-store"})
@@ -51,7 +40,11 @@ def _run(operation, *args, **kwargs):
 
 @AppRouter.api.post("/settings/apps/registry/{app_key}/inbound-connections", tags=["AppSettings.Connections"])
 @AuthFilter.add("user")
-def create_connection(app_key: str, form: InboundConnectionForm, user: User = Auth.scope("user")) -> JsonResponse:
+def create_connection(
+    app_key: Annotated[str, Path(pattern=r"^[a-z][a-z0-9_-]{0,31}$")],
+    form: InboundConnectionForm,
+    user: User = Auth.scope("user"),
+) -> JsonResponse:
     return _run(
         create_inbound_connection,
         user,
@@ -70,7 +63,7 @@ class DisconnectInboundForm(BaseFormModel):
 @AppRouter.api.get("/settings/apps/registry/{app_key}/inbound-connections", tags=["AppSettings.Connections"])
 @AuthFilter.add("user")
 def list_connections(
-    app_key: str,
+    app_key: Annotated[str, Path(pattern=r"^[a-z][a-z0-9_-]{0,31}$")],
     user: User = Auth.scope("user"),
     organization_uid: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
     after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
@@ -89,11 +82,25 @@ def list_connections(
 @AppRouter.api.post("/settings/apps/inbound-connections/{connection_uid}/disconnect", tags=["AppSettings.Connections"])
 @AuthFilter.add("user")
 def disconnect_connection(
-    connection_uid: str, form: DisconnectInboundForm, user: User = Auth.scope("user")
+    connection_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    form: DisconnectInboundForm,
+    user: User = Auth.scope("user"),
 ) -> JsonResponse:
     return _run(
         disconnect_inbound_connection, user, SnowflakeID.from_short_code(connection_uid), form.expected_revision
     )
+
+
+@form_model
+class InboundResourceForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    app_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    resource_type: str = Field(min_length=1, max_length=64)
+    external_resource_id: str = Field(min_length=1, max_length=200)
+    selected: bool = Field(default=True, strict=True)
+    expected_access_revision: int | None = Field(default=None, strict=True, ge=0)
 
 
 @AppRouter.api.put(
@@ -101,7 +108,11 @@ def disconnect_connection(
 )
 @AuthFilter.add("user")
 def select_resource(
-    project_uid: str, app_key: str, connection_uid: str, form: InboundResourceForm, user: User = Auth.scope("user")
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    app_key: Annotated[str, Path(pattern=r"^[a-z][a-z0-9_-]{0,31}$")],
+    connection_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    form: InboundResourceForm,
+    user: User = Auth.scope("user"),
 ) -> JsonResponse:
     service = DomainService()
     try:
@@ -129,9 +140,9 @@ def select_resource(
 )
 @AuthFilter.add("user")
 def list_resources(
-    project_uid: str,
-    app_key: str,
-    connection_uid: str,
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    app_key: Annotated[str, Path(pattern=r"^[a-z][a-z0-9_-]{0,31}$")],
+    connection_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
     user: User = Auth.scope("user"),
     after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
     limit: int = Query(default=25, ge=1, le=50),

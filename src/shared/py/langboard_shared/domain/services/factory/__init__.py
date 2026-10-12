@@ -17,10 +17,12 @@ from .EmailService import EmailService
 from .GlobalLabelService import GlobalLabelService
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .IdentityLinkService import IdentityLinkService
+from .InternalBotRunService import InternalBotRunService
 from .InternalBotService import InternalBotService
 from .McpToolGroupService import McpToolGroupService
 from .MetadataService import MetadataService
 from .NotificationService import NotificationService
+from .OllamaModelPullService import OllamaModelPullService
 from .OrchestrationTaskService import OrchestrationTaskService
 from .OrganizationService import OrganizationService
 from .ProjectColumnService import ProjectColumnService
@@ -60,10 +62,12 @@ __all__ = [
     "WorkflowStageService",
     "GraphApprovalRequestService",
     "IdentityLinkService",
+    "InternalBotRunService",
     "InternalBotService",
     "McpToolGroupService",
     "MetadataService",
     "NotificationService",
+    "OllamaModelPullService",
     "OrchestrationTaskService",
     "OrganizationService",
     "SecretReferenceService",

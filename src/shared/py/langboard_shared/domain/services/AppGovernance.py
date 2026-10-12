@@ -3,12 +3,14 @@
 import hashlib
 import json
 import re
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from ...core.db import DbSession, SqlBuilder
-from ...core.types import SafeDateTime
+from ...core.db.DbEngine import DbEngine
+from ...core.types import SafeDateTime, SnowflakeID
 from ...publishers import AppSettingPublisher
-from ..models import AppConnection, AppGovernancePolicy, Organization, Project, ProjectAssignedUser, User
+from ..models import AppConnection, AppGovernancePolicy, Organization, Project, ProjectAssignedUser, ProjectRole, User
+from ..models.ProjectRole import ProjectRoleAction
 
 
 MODES = ("disabled", "approved_only", "personal_allowed")
@@ -16,19 +18,27 @@ MODES = ("disabled", "approved_only", "personal_allowed")
 
 def connection_discovery_scope(actor_id):
     """Scope joined connection discovery before paging; admin grants do not share personal accounts."""
-    active_organization = select(Organization.id).where(
-        Organization.id == AppConnection.organization_id,
-        Organization.is_active == True,  # noqa: E712
-        Organization.suspended_at.is_(None),
-    ).correlate(AppConnection).exists()
+    active_organization = (
+        select(Organization.id)
+        .where(
+            Organization.id == AppConnection.organization_id,
+            Organization.is_active.is_(True),
+            Organization.suspended_at.is_(None),
+        )
+        .correlate(AppConnection)
+        .exists()
+    )
     return or_(
         and_(
             AppConnection.ownership == "personal",
             AppConnection.organization_id.is_(None),
             AppConnection.owner_id == actor_id,
         ),
-        and_(AppConnection.ownership == "organization", AppConnection.organization_id == Project.organization_id,
-             active_organization),
+        and_(
+            AppConnection.ownership == "organization",
+            AppConnection.organization_id == Project.organization_id,
+            active_organization,
+        ),
     )
 
 
@@ -47,11 +57,29 @@ def _current(db, model, identifier, *, for_update=True):
     return db.exec(statement).first()
 
 
-def _actor(db, actor):
-    current = _current(db, User, actor.id)
+def _actor(db, actor, *, for_update=True):
+    current = _current(db, User, actor.id, for_update=for_update)
     if current is None or current.deleted_at or not current.activated_at:
         raise AppGovernanceDenied()
     return current
+
+
+def _authorized_board(db, actor, project_id, *, for_update=True, action=ProjectRoleAction.Update):
+    project = _current(db, Project, project_id, for_update=for_update)
+    if project is None or project.deleted_at:
+        raise AppGovernanceDenied()
+    if not actor.is_admin and actor.id != project.owner_id:
+        member_statement = SqlBuilder.select.table(ProjectAssignedUser).where(
+            ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id
+        )
+        role_statement = SqlBuilder.select.table(ProjectRole).where(
+            ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id
+        )
+        member = db.exec(member_statement.with_for_update() if for_update else member_statement).first()
+        role = db.exec(role_statement.with_for_update() if for_update else role_statement).first()
+        if member is None or role is None or not role.is_granted(action):
+            raise AppGovernanceDenied()
+    return project
 
 
 def _organization(db, organization_id, *, for_update=True):
@@ -116,7 +144,6 @@ def get_policy(actor, organization_id=None):
 
 def list_managed_organizations(actor, *, after_uid=None, limit=25):
     """Discover a bounded page of active policy scopes using current primary authority."""
-    from ...core.types import SnowflakeID
 
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ValueError("Invalid organization page limit")
@@ -130,7 +157,8 @@ def list_managed_organizations(actor, *, after_uid=None, limit=25):
     with DbSession.atomic() as db:
         actor = _actor(db, actor)
         statement = SqlBuilder.select.table(Organization).where(
-            Organization.is_active == True, Organization.suspended_at.is_(None)  # noqa: E712
+            Organization.is_active.is_(True),
+            Organization.suspended_at.is_(None),
         )
         if not actor.is_admin:
             statement = statement.where(Organization.owner_user_id == actor.id)
@@ -144,11 +172,24 @@ def list_managed_organizations(actor, *, after_uid=None, limit=25):
         }
 
 
+def lock_policy_mutation(db, *, exclusive=False):
+    """Serialize policy-sensitive writes, including scopes with no policy row yet.
+
+    PostgreSQL transaction lock is taken before actor/organization/definition
+    locks. Runtime reads do not take it; it is released by commit or rollback.
+    """
+    if DbEngine.get_main_engine().dialect.name != "postgresql":
+        return
+    lock = func.pg_advisory_xact_lock if exclusive else func.pg_advisory_xact_lock_shared
+    db.exec(select(lock(7104389251162)))
+
+
 def save_policy(actor, mode, expected_revision, organization_id=None):
     if mode not in MODES and not (mode is None and organization_id is not None):
         raise ValueError("Invalid app governance mode")
     try:
         with DbSession.atomic() as db:
+            lock_policy_mutation(db, exclusive=True)
             _authorize(db, actor, organization_id)
             policy = current_policy(db, organization_id, for_update=True)
             if expected_revision != policy["revision"]:
@@ -199,13 +240,14 @@ def require_connection_access(db, actor, project, connection, *, unattended=Fals
     connection = _current(db, AppConnection, connection.id)
     if project is None or project.deleted_at or connection is None or connection.state != "connected":
         raise AppGovernanceDenied()
-    member = db.exec(
-        SqlBuilder.select.table(ProjectAssignedUser).where(
-            ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id
-        )
-    ).first()
-    if project.owner_id != actor.id and member is None:
-        raise AppGovernanceDenied()
+    if project.owner_id != actor.id:
+        member = db.exec(
+            SqlBuilder.select.table(ProjectAssignedUser)
+            .where(ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id)
+            .limit(1)
+        ).first()
+        if member is None:
+            raise AppGovernanceDenied()
     personal = connection.ownership == "personal"
     if personal:
         if connection.organization_id is not None or connection.owner_id != actor.id:
@@ -221,8 +263,7 @@ def require_connection_access(db, actor, project, connection, *, unattended=Fals
     elif connection.ownership == "organization":
         if project.organization_id is None or connection.organization_id != project.organization_id:
             raise AppGovernanceDenied()
-        _organization(db, connection.organization_id)
     else:
         raise AppGovernanceDenied()
-    require_app_allowed(db, project, approved=approved, personal=personal_app)
+    require_current_project_policy(db, project, approved=approved, personal=personal_app)
     return connection

@@ -1,5 +1,5 @@
 from typing import Any
-from ....core.db import EditorContentModel
+from ....core.db import DbSession, EditorContentModel
 from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TCommentParam, TProjectParam, TUserOrBot
@@ -249,32 +249,39 @@ class CardCommentService(BaseDomainService):
     ) -> bool | None:
         if reaction not in REACTION_TYPES:
             raise ValueError("Unsupported comment reaction")
-        params = InfraHelper.get_records_with_foreign_by_params(
-            (Project, project), (Card, card), (CardComment, comment)
-        )
-        if not params:
-            return None
-        project, card, comment = params
+        from ..AppCardInteractions import accept_current_comment_reaction, pending_comment_interactions
+        from ..AppGovernance import lock_policy_mutation
 
-        reaction_service = self._get_service(ReactionService)
-        is_reacted = reaction_service.toggle(user_or_bot, CardCommentReaction, comment.id, reaction)
-        if is_reacted and isinstance(user_or_bot, User):
-            from ..AppCardInteractions import accept_current_comment_reaction
-            from ..DomainService import DomainService
+        with DbSession.atomic() as db:
+            params = InfraHelper.get_records_with_foreign_by_params(
+                (Project, project), (Card, card), (CardComment, comment)
+            )
+            if not params:
+                return None
+            project, card, comment = params
+            reaction_service = self._get_service(ReactionService)
+            if isinstance(user_or_bot, User) and pending_comment_interactions(db, project.id, card.id, comment.id):
+                lock_policy_mutation(db)
+            is_reacted = reaction_service.toggle(user_or_bot, CardCommentReaction, comment.id, reaction)
+            if is_reacted:
+                from ..DomainService import DomainService
 
-            accept_current_comment_reaction(DomainService(), user_or_bot, project.id, card.id, comment.id, reaction)
+                accept_current_comment_reaction(DomainService(), user_or_bot, project.id, card.id, comment.id, reaction)
 
-        CardCommentPublisher.reacted(user_or_bot, project, card, comment, reaction, is_reacted)
+            def publish_reaction():
+                CardCommentPublisher.reacted(user_or_bot, project, card, comment, reaction, is_reacted)
 
-        if is_reacted and comment.user_id:
-            notification_service = self._get_service(NotificationService)
-            notification_service.notify_reacted_to_comment(user_or_bot, project, card, comment, reaction)
+                if is_reacted and comment.user_id:
+                    notification_service = self._get_service(NotificationService)
+                    notification_service.notify_reacted_to_comment(user_or_bot, project, card, comment, reaction)
 
-        if is_reacted:
-            CardCommentActivityTask.card_comment_reacted(user_or_bot, project, card, comment, reaction)
-            CardCommentBotTask.card_comment_reacted(user_or_bot, project, card, comment, reaction)
-        else:
-            CardCommentActivityTask.card_comment_unreacted(user_or_bot, project, card, comment, reaction)
-            CardCommentBotTask.card_comment_unreacted(user_or_bot, project, card, comment, reaction)
+                if is_reacted:
+                    CardCommentActivityTask.card_comment_reacted(user_or_bot, project, card, comment, reaction)
+                    CardCommentBotTask.card_comment_reacted(user_or_bot, project, card, comment, reaction)
+                else:
+                    CardCommentActivityTask.card_comment_unreacted(user_or_bot, project, card, comment, reaction)
+                    CardCommentBotTask.card_comment_unreacted(user_or_bot, project, card, comment, reaction)
+
+            db.after_commit(publish_reaction)
 
         return is_reacted

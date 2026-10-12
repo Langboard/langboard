@@ -131,3 +131,26 @@ def test_release_after_disable_and_rollback_preserve_authority(board):
     assert set_card_app_ownership(*args, None, 2)["changed"] is False
     with DbSession.atomic() as db:
         assert len(db.exec(SqlBuilder.select.table(CardAppOwnershipAudit)).all()) == 2
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_current_ownership_read_and_app_revision_fence(board):
+    from langboard_shared.domain.services.CardAppGovernance import read_card_app_ownership
+
+    card = prepare(board)
+    assert read_card_app_ownership(board[1], board[2].id, card.id) == {
+        "app_key": None, "revision": None, "changed": False,
+    }
+    with DbSession.atomic() as db:
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-app")).first()
+    with pytest.raises(CardAppOwnershipConflict):
+        set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None, "0" * 64)
+    set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None, definition.edit_revision())
+    assert read_card_app_ownership(board[1], board[2].id, card.id)["app_key"] == "example-app"
+    with DbSession.atomic() as db:
+        card.visibility = "PRIVATE"
+        card.owner_user_id = 2
+        card.created_by_user_id = 2
+        db.update(card)
+    with pytest.raises(AppGovernanceDenied):
+        read_card_app_ownership(board[1], board[2].id, card.id)

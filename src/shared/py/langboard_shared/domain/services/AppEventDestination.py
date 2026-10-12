@@ -5,9 +5,10 @@ from json import dumps
 from urllib.parse import urlsplit
 from langboard_sdk.governance import declaration_trust_fingerprint
 from ...core.db import DbSession, SqlBuilder
+from ...core.types import SnowflakeID
 from ..models import AppConnection, AppDefinition, AppEventDestination, User, WebhookSetting
 from .AppConnectionAuthentication import _connection
-from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
 
 
 APP_EXECUTION_EVENT = "io.langboard.app.execution.requested.v1"
@@ -68,6 +69,7 @@ def bind_app_event_destination(actor, connection_id, webhook_id, expected_revisi
     if expected_revision is not None and (type(expected_revision) is not int or expected_revision < 1):
         raise ValueError("Invalid destination revision")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         current = _actor(db, actor)
         if not current.is_admin:
             raise AppGovernanceDenied()
@@ -99,7 +101,10 @@ def bind_app_event_destination(actor, connection_id, webhook_id, expected_revisi
                 trust_revision=trust_revision,
             )
             db.insert(row)
-        elif (row.webhook_id, row.target_revision, row.trust_revision) != (webhook_id, target_revision, trust_revision):
+        elif not row.is_enabled or (row.webhook_id, row.target_revision, row.trust_revision) != (
+            webhook_id, target_revision, trust_revision
+        ):
+            row.is_enabled = True
             row.webhook_id = webhook_id
             row.target_revision = target_revision
             row.trust_revision = trust_revision
@@ -118,6 +123,7 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
     if type(expected_destination_revision) is not int or expected_destination_revision < 1:
         raise ValueError("Invalid destination revision")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         event = _current(db, AppExecutionOutbox, event_id)
         if (
             event is None
@@ -144,3 +150,29 @@ def prepare_app_event_signature(event_id, expected_destination_revision, *, time
         body = dumps(event.payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
         body, headers = sign_webhook_bytes(body, event.get_uid(), secret, timestamp=timestamp)
         return {"body": body, "headers": headers, "url": setting.url, "destination_revision": destination.revision}
+
+
+def manage_app_event_destination(actor, connection_id, *, expected_revision=None, disable=False):
+    """Administrator-only status and explicit disable; never return a secret."""
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        current = _actor(db, actor, for_update=disable)
+        if not current.is_admin:
+            raise AppGovernanceDenied()
+        query = SqlBuilder.select.table(AppEventDestination).where(AppEventDestination.connection_id == connection_id)
+        row = db.exec(query.with_for_update() if disable else query).first()
+        if row is None:
+            raise AppGovernanceDenied()
+        if disable:
+            if type(expected_revision) is not int or expected_revision != row.revision:
+                raise AppGovernanceConflict()
+            if row.is_enabled:
+                row.is_enabled = False
+                row.revision += 1
+                db.update(row)
+        return {
+            "destination_uid": row.get_uid(),
+            "revision": row.revision,
+            "enabled": row.is_enabled,
+            "webhook_uid": SnowflakeID(row.webhook_id).to_short_code(),
+        }

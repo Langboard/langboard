@@ -1,6 +1,5 @@
 # ruff: noqa: F811
 """Committed execution acceptance dispatches only approved frozen destinations."""
-import importlib
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -21,16 +20,17 @@ def test_approved_execution_dispatch_commit_duplicate_and_rollback(board, monkey
         binding.granted_capabilities = [*binding.granted_capabilities, "events.receive"]
         db.update(binding)
     bind_app_event_destination(board[1], connection.id, setting.id, None)
-    tasks = importlib.import_module("langboard_shared.tasks.webhooks.AppEventDeliveryTask")
+    from langboard_shared.core.broker import Broker
     enqueues = []
-    def enqueue(*args):
+    def enqueue(name, *, args):
+        assert name == "langboard.app_event_delivery"
         # Callback is after commit: independent connection sees persisted event.
         with DbEngine.get_main_engine().connect() as db:
             assert db.execute(text("SELECT COUNT(*) FROM app_execution_outbox WHERE payload IS NOT NULL")).scalar() >= 2
         enqueues.append(args)
         if broker_failure:
             raise RuntimeError("Test broker unavailable")
-    monkeypatch.setattr(tasks, "app_event_delivery_task", enqueue)
+    monkeypatch.setattr(Broker.celery, "send_task", enqueue)
     from langboard_shared.domain.models import Card
     from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
     with DbSession.use(readonly=False) as db:
@@ -44,7 +44,7 @@ def test_approved_execution_dispatch_commit_duplicate_and_rollback(board, monkey
         event = db.exec(SqlBuilder.select.table(AppExecutionOutbox).order_by(AppExecutionOutbox.id.desc())).first()
         assert event.payload["destination"]["revision"] == 1
         assert event.state == "pending" and event.attempt_count == 0
-    assert enqueues == [(event.get_uid(), 1)]
+    assert enqueues == [[int(event.id)]]
     assert accepted_request(token, board[2].id, card.id, 4)["changed"] is False
     assert len(enqueues) == 1
     with DbEngine.get_main_engine().begin() as db:

@@ -110,6 +110,7 @@ def creation(board, monkeypatch):
             connection_id=connection.id,
             resource_type="project",
             external_resource_id="erp-project",
+            is_selected=True,
             access_state="granted",
         )
         db.insert(resource)

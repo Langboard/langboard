@@ -74,18 +74,6 @@ export const BoardAddCardProvider = ({
         disableNewLine: true,
         editorName,
         customStartEditing: () => {
-            const pointerDownEvent = (e: PointerEvent) => {
-                const target = e.target;
-                if (!target || !(target instanceof HTMLElement) || target.closest(`[${disableChangeModeAttr}]`)) {
-                    return;
-                }
-
-                changeMode("view");
-                window.removeEventListener("pointerdown", pointerDownEvent);
-            };
-
-            window.addEventListener("pointerdown", pointerDownEvent);
-
             toLastPage();
 
             setTimeout(() => {
@@ -145,6 +133,22 @@ export const BoardAddCardProvider = ({
             { replace: true }
         );
     }, [isDefaultCardColumn, canWrite, searchParams, changeMode, setSearchParams]);
+
+    useEffect(() => {
+        if (!isEditing) {
+            return;
+        }
+
+        const pointerDownEvent = (e: PointerEvent) => {
+            const target = e.target;
+            if (target instanceof HTMLElement && !target.closest(`[${disableChangeModeAttr}]`)) {
+                changeMode("view");
+            }
+        };
+
+        window.addEventListener("pointerdown", pointerDownEvent);
+        return () => window.removeEventListener("pointerdown", pointerDownEvent);
+    }, [isEditing, changeMode, disableChangeModeAttr]);
 
     const scrollToBottom = () => {
         const viewport = viewportRef.current;

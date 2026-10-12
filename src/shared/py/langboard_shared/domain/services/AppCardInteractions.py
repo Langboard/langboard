@@ -1,5 +1,6 @@
 """App-owned structured requests, independent of inbox signals and runtime control."""
 
+import re
 from datetime import datetime, timedelta
 from langboard_sdk.interactions import validate_card_interaction, validate_card_interaction_values
 from sqlalchemy import select
@@ -22,7 +23,7 @@ from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppEventDelivery import _expired
 from .AppExecutionAcknowledgments import _request
 from .AppExecutionGrant import AppExecutionCredentialDenied
-from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 from .DomainService import DomainService
 
 
@@ -297,6 +298,7 @@ def create_app_card_interaction(token, project_id, card_id, body):
     request = validate_card_interaction(body)
     expiry = datetime.fromisoformat(request["expires_at"])
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         principal, card = _scope(db, token, project_id, card_id)
         if "execution" in request:
             from ...core.types import SnowflakeID
@@ -362,6 +364,7 @@ def create_app_card_interaction(token, project_id, card_id, body):
 
 def read_app_card_interaction(token, project_id, card_id, interaction_id):
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         principal, _ = _scope(db, token, project_id, card_id)
         row = db.exec(
             SqlBuilder.select.table(AppCardInteraction).where(
@@ -377,11 +380,33 @@ def read_app_card_interaction(token, project_id, card_id, interaction_id):
         return _receipt(row)
 
 
+
+def read_app_card_interaction_by_request_key(token, project_id, card_id, app_request_key):
+    """Recover a lost creation response under the same current owning-app scope."""
+    if not isinstance(app_request_key, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", app_request_key):
+        raise ValueError("Invalid interaction request key")
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        principal, _ = _scope(db, token, project_id, card_id)
+        row = db.exec(SqlBuilder.select.table(AppCardInteraction).where(
+            AppCardInteraction.project_id == project_id,
+            AppCardInteraction.card_id == card_id,
+            AppCardInteraction.connection_id == principal.connection_id,
+            AppCardInteraction.app_key == principal.app_key,
+            AppCardInteraction.app_request_key == app_request_key,
+        )).first()
+        if row is None:
+            return {"state": "missing", "request": None, "response": None, "changed": False,
+                    "execution_resumed": False, "workflow_transitioned": False}
+        return {**_receipt(row), "changed": False}
+
+
 def cancel_app_card_interaction(token, project_id, card_id, interaction_id, expected_revision):
     """Retain the immutable request and fence cancellation against its revision."""
     if type(expected_revision) is not int or expected_revision < 1:
         raise ValueError("A positive interaction revision is required")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         principal, _ = _scope(db, token, project_id, card_id)
         row = db.exec(
             SqlBuilder.select.table(AppCardInteraction)
@@ -432,7 +457,7 @@ def respond_to_app_card_interaction(
     from ...core.types import SnowflakeID
     from ..models import AppExecutionRequest, ProjectAssignedUser
     from .AppConnectionAuthentication import AuthenticatedAppConnection, _connection
-    from .AppExecutionGrant import evaluate_connection_execution_grant
+    from .AppExecutionGrant import evaluate_accepted_execution_grant
 
     if type(expected_revision) is not int or expected_revision < 1:
         raise ValueError("A positive interaction revision is required")
@@ -443,6 +468,7 @@ def respond_to_app_card_interaction(
     if not isinstance(actor, User):
         raise AppGovernanceDenied()
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         # Match app mutations: project/card locks precede user and request locks.
         project = _current(db, Project, project_id)
         card = _current(db, Card, card_id)
@@ -533,9 +559,7 @@ def respond_to_app_card_interaction(
                 or execution.generation != execution_generation
             ):
                 raise AppGovernanceDenied()
-            authority = evaluate_connection_execution_grant(
-                row.connection_id, project_id, card_id, execution_generation
-            )
+            authority = evaluate_accepted_execution_grant(db, execution)
             if authority["authority_version"] != execution.authority.get("authority_version"):
                 raise AppCardInteractionConflict()
         elif execution_generation is not None:
@@ -664,9 +688,9 @@ def _queue_response_event(db, row, answer):
     db.update(event)
 
     def enqueue():
-        from ...tasks.webhooks.AppEventDeliveryTask import app_event_delivery_task
+        from .AppEventDelivery import enqueue_event
 
-        app_event_delivery_task(event.get_uid(), destination.revision)
+        enqueue_event(event.id)
 
     db.after_commit(enqueue)
 
@@ -735,6 +759,7 @@ def acknowledge_app_interaction_response(token, project_id, card_id, interaction
     if not isinstance(runtime_reference, str) or not runtime_reference.strip() or len(runtime_reference) > 200:
         raise ValueError("Runtime reference must contain 1 to 200 characters")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         event = _current(db, AppExecutionOutbox, event_id)
         principal, _ = _scope(db, token, project_id, card_id)
         row = _current(db, AppCardInteraction, interaction_id, for_update=False)
@@ -784,6 +809,65 @@ def acknowledge_app_interaction_response(token, project_id, card_id, interaction
         }
 
 
+
+def read_interaction_acknowledgment(token, project_id, card_id, interaction_id):
+    """Read the retained reception receipt without delivery or runtime side effects."""
+    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
+
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        principal, _ = _scope(db, token, project_id, card_id)
+        row = _current(db, AppCardInteraction, interaction_id, for_update=False)
+        if (row is None or row.project_id != project_id or row.card_id != card_id
+            or row.app_key != principal.app_key or row.connection_id != principal.connection_id):
+            raise AppGovernanceDenied()
+        answer = db.exec(SqlBuilder.select.table(AppCardInteractionResponse).where(
+            AppCardInteractionResponse.interaction_id == row.id,
+        )).first()
+        if answer is None:
+            raise AppCardInteractionConflict()
+        ack = db.exec(SqlBuilder.select.table(AppExecutionAcknowledgment).where(
+            AppExecutionAcknowledgment.request_id == answer.id,
+        )).first()
+        if ack is None:
+            return {"schema_version": 1, "interaction_uid": row.get_uid(), "response_uid": answer.get_uid(),
+                    "state": "not_received", "changed": False, "execution_resumed": False}
+        event = _current(db, AppExecutionOutbox, ack.event_id, for_update=False)
+        from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
+
+        if (event is None or event.event_type != APP_INTERACTION_RESPONSE_EVENT
+            or ack.app_key != row.app_key or ack.connection_id != row.connection_id):
+            raise AppGovernanceDenied()
+        current_row, current_answer = revalidate_response_event(db, event)
+        if current_row.id != row.id or current_answer.id != answer.id:
+            raise AppGovernanceDenied()
+        return {"schema_version": 1, "interaction_uid": row.get_uid(), "response_uid": answer.get_uid(),
+                "event_uid": event.get_uid(), "acknowledgment_uid": ack.get_uid(),
+                "runtime_reference": ack.runtime_reference, "state": "received", "changed": False,
+                "execution_resumed": False}
+
+
+def pending_comment_interactions(db, project_id, card_id, comment_id):
+    """Bound pending lookup by the native card/comment, excluding retained answers."""
+    return db.exec(
+        SqlBuilder.select.table(AppCardInteraction)
+        .where(
+            AppCardInteraction.project_id == project_id,
+            AppCardInteraction.card_id == card_id,
+            AppCardInteraction.state == "pending",
+            AppCardInteraction.expires_at > SafeDateTime.now(),
+            ~select(AppCardInteractionResponse.id)
+            .where(AppCardInteractionResponse.interaction_id == AppCardInteraction.id)
+            .exists(),
+            AppCardInteraction.request["presentation"]["type"].as_string() == "comment_reaction",
+            AppCardInteraction.request["presentation"]["comment_uid"].as_string()
+            == SnowflakeID(comment_id).to_short_code(),
+        )
+        .limit(2)
+    ).all()
+
+
+
 def accept_current_comment_reaction(service, actor, project_id, card_id, comment_id, reaction_type):
     """Resolve only a newly stored human reaction; normal reactions retain their UX."""
     from ..models import CardCommentReaction
@@ -791,23 +875,8 @@ def accept_current_comment_reaction(service, actor, project_id, card_id, comment
     if not isinstance(actor, User):
         return None
     with DbSession.atomic() as db:
-        candidates = db.exec(
-            SqlBuilder.select.table(AppCardInteraction)
-            .where(
-                AppCardInteraction.card_id == card_id,
-                AppCardInteraction.project_id == project_id,
-                AppCardInteraction.state == "pending",
-                AppCardInteraction.expires_at > SafeDateTime.now(),
-                ~select(AppCardInteractionResponse.id)
-                .where(AppCardInteractionResponse.interaction_id == AppCardInteraction.id)
-                .exists(),
-                AppCardInteraction.request["presentation"]["type"].as_string() == "comment_reaction",
-                AppCardInteraction.request["presentation"]["comment_uid"].as_string()
-                == SnowflakeID(comment_id).to_short_code(),
-            )
-            .order_by(AppCardInteraction.id.desc())
-            .limit(2)
-        ).all()
+        lock_policy_mutation(db)
+        candidates = pending_comment_interactions(db, project_id, card_id, comment_id)
         if len(candidates) != 1:
             return None
         reaction = db.exec(

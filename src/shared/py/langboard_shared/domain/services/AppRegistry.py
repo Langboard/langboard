@@ -8,6 +8,7 @@ from ...core.db import DbSession, SqlBuilder
 from ...publishers import AppSettingPublisher
 from ..models import AppConnection, AppDefinition, BoardAppBinding, User
 from .AppManifest import APP_MANIFESTS, AppManifest, AppSignalPolicy
+from .AppGovernance import lock_policy_mutation
 
 
 class AppRegistryConflict(Exception):
@@ -24,10 +25,25 @@ def _admin(db, actor):
         raise AppRegistryDenied()
 
 
-def list_definitions(actor):
+def list_definitions(actor, *, after_key=None, limit=None):
+    """Preserve legacy reads; bounded callers receive a stable key cursor."""
+    if limit is not None and (type(limit) is not int or not 1 <= limit <= 50):
+        raise ValueError("Registry page limit must be 1 to 50")
+    if after_key is not None and limit is None:
+        raise ValueError("A registry cursor requires a page limit")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         _admin(db, actor)
-        return [row.registry_response() for row in db.exec(SqlBuilder.select.table(AppDefinition).order_by(AppDefinition.key)).all()]
+        statement = SqlBuilder.select.table(AppDefinition)
+        if after_key is not None:
+            statement = statement.where(AppDefinition.key > after_key)
+        statement = statement.order_by(AppDefinition.key)
+        rows = db.exec(statement.limit(limit + 1) if limit is not None else statement).all()
+        if limit is None:
+            return [row.registry_response() for row in rows]
+        page = rows[:limit]
+        return {"items": [row.registry_response() for row in page],
+                "next_cursor": page[-1].key if len(rows) > limit else None}
 
 
 def save_definition(actor, declaration, expected_revision=None, *, package=None):
@@ -36,6 +52,7 @@ def save_definition(actor, declaration, expected_revision=None, *, package=None)
     if key in APP_MANIFESTS:
         raise ValueError("Built-in app declarations are host-owned")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         _admin(db, actor)
         # Old approved definitions remain readable. Any new approval/update
         # producing cards must explicitly define their lifecycle, even in v1.
@@ -54,7 +71,8 @@ def save_definition(actor, declaration, expected_revision=None, *, package=None)
                 raise ValueError("An app update needs a newer version")
             _update_bindings(db, key, row.declaration, declaration)
             row.declaration = declaration
-            row.package = package
+            if package is not None:
+                row.package = package
             row.is_enabled = True
             row.generation += 1
             row.approved_by = actor.id
@@ -65,6 +83,7 @@ def save_definition(actor, declaration, expected_revision=None, *, package=None)
 
 def disable_definition(actor, key, expected_revision):
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         _admin(db, actor)
         row = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key).with_for_update()).first()
         if row is None:
@@ -89,21 +108,38 @@ def _update_bindings(db, key, previous, current):
     # Withdraw affected connection scopes durably: returning to an older tool
     # set must not resurrect consent without another explicit owner approval.
     from .AppMcpConnectionConsent import MCP_SCOPES, _scope_tools, revoke_mcp_consents
+
     old_tools, new_tools = _scope_tools(previous), _scope_tools(current)
-    changed_scopes = {scope for scope in old_tools if old_tools[scope] != new_tools[scope]
-                      or (f"mcp.{scope}" in previous.get("capabilities", [])
-                          and f"mcp.{scope}" not in current.get("capabilities", []))}
-    if trust_changed or changed_scopes:
-        if previous.get("mcp") or current.get("mcp"):
-            revoke_mcp_consents(db, key, MCP_SCOPES if trust_changed else changed_scopes)
+    changed_scopes = {
+        scope
+        for scope in old_tools
+        if old_tools[scope] != new_tools[scope]
+        or (
+            f"mcp.{scope}" in previous.get("capabilities", []) and f"mcp.{scope}" not in current.get("capabilities", [])
+        )
+    }
+    # Lock ordering matches owner consent: definition -> connection -> consent.
     if trust_changed:
-        for connection in db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.app_key == key).with_for_update()).all():
+        for connection in db.exec(
+            SqlBuilder.select.table(AppConnection)
+            .where(AppConnection.app_key == key)
+            .order_by(AppConnection.id)
+            .with_for_update()
+        ).all():
             connection.state = "revoked"
             db.update(connection)
-    for binding in db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == key).with_for_update()).all():
+    if (trust_changed or changed_scopes) and (previous.get("mcp") or current.get("mcp")):
+        revoke_mcp_consents(db, key, MCP_SCOPES if trust_changed else changed_scopes)
+    for binding in db.exec(
+        SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == key).with_for_update()
+    ).all():
         decision = update_consent(previous, current, binding.granted_capabilities)
         binding.granted_capabilities = sorted(decision["retained"])
-        if trust_changed or previous.get("card_lifecycle") != current.get("card_lifecycle") or "events.receive" not in binding.granted_capabilities:
+        if (
+            trust_changed
+            or previous.get("card_lifecycle") != current.get("card_lifecycle")
+            or "events.receive" not in binding.granted_capabilities
+        ):
             if binding.archive_sync_types:
                 binding.archive_sync_revision += 1
             binding.archive_sync_types = []

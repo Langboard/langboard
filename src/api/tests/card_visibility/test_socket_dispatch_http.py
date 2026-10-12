@@ -102,3 +102,73 @@ def test_socket_dispatch_checks_current_recipient_and_internal_credential(curren
             db.update(owner)
         assert client.post("/socket/card-dispatch-context", json=body, headers=headers).json() == {
             "allowed_recipient_uids": []}
+
+
+@pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_phoenix_card_authorization_uses_current_user_and_visibility(current_card, monkeypatch):
+    from langboard.routes.auth import SocketAuthApi, SocketAuthorization
+    from langboard.routes.auth.forms import SocketSubscriptionAuthorizationForm
+    from langboard_shared.core.routing import SocketTopic
+    from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
+    from starlette.requests import Request
+    import orjson
+
+    owner, project, card, card_service = current_card
+    with DbSession.atomic() as db:
+        external = User(firstname="External", lastname="Member", email="phoenix@example.invalid",
+                        password="test-only", activated_at=SafeDateTime.now())
+        db.insert(external)
+        member = ProjectAssignedUser(project_id=project.id, user_id=external.id)
+        db.insert(member)
+    service = SimpleNamespace(card=card_service)
+    # Topic authentication has separate regressions. Keep its result fixed to
+    # prove that board subscription alone never admits protected card content.
+    monkeypatch.setattr(SocketAuthApi, "is_subscription_authorized", lambda *args: True)
+    current_user = [external]
+    monkeypatch.setattr(SocketAuthApi, "_authenticate_socket_user", lambda _: current_user[0])
+    form = SocketSubscriptionAuthorizationForm(
+        subscriptions=[{"topic": SocketTopic.Board, "topic_id": project.get_uid()}],
+        card_uids=[card.get_uid()],
+    )
+    request = Request({"type": "http", "headers": []})
+    def result():
+        result = orjson.loads(SocketAuthApi.authorize_socket_subscriptions(request, form, service).body)
+        assert result.pop("card_authorization_applied") is True
+        return result
+    assert result() == {"authorized": []}
+    assert not SocketAuthorization.is_subscription_authorized(service, external, SocketTopic.BoardCard, card.get_uid())
+    assert not SocketAuthorization.is_editor_document_write_authorized(
+        service, external, (SocketTopic.BoardCard, card.get_uid())
+    )
+    current_user[0] = owner
+    assert len(result()["authorized"]) == 1
+    current_user[0] = external
+    with DbSession.atomic() as db:
+        card.visibility = "SHARED"
+        card.owner_user_id = None
+        db.update(card)
+    assert len(result()["authorized"]) == 1
+    with DbSession.atomic() as db:
+        card.visibility = "INTERNAL"
+        db.update(card)
+    assert result() == {"authorized": []}
+    with DbSession.atomic() as db:
+        card.visibility = "SHARED"
+        card.deleted_at = SafeDateTime.now()
+        db.update(card)
+    assert result() == {"authorized": []}
+    form.card_operation = "remove"
+    assert len(result()["authorized"]) == 1
+    with DbSession.atomic() as db:
+        db.delete(member)
+    assert result() == {"authorized": []}
+    assert not can_receive_card_event(service, external, "invalid-code!")
+
+
+@pytest.mark.parametrize("uids", [[], ["a", "b", "c"], [""], ["a" * 129]])
+def test_phoenix_card_authorization_bounds(uids):
+    from langboard.routes.auth.forms import SocketSubscriptionAuthorizationForm
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SocketSubscriptionAuthorizationForm(subscriptions=[], card_uids=uids)

@@ -1,4 +1,5 @@
 from typing import Sequence
+from sqlalchemy import func
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
@@ -52,12 +53,24 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
             users = result.all()
         return users
 
-    def get_by_user_and_project(self, user: TUserParam, project: TProjectParam) -> ProjectAssignedUser | None:
+    def count_by_project(self, project: TProjectParam) -> int:
+        project_id = InfraHelper.convert_id(project)
+        with DbSession.use(readonly=True) as db:
+            count = db.exec(
+                SqlBuilder.select.column(func.count(ProjectAssignedUser.column("id"))).where(
+                    ProjectAssignedUser.column("project_id") == project_id
+                )
+            ).first()
+        return int(count or 0)
+
+    def get_by_user_and_project(
+        self, user: TUserParam, project: TProjectParam, *, consistent: bool = False
+    ) -> ProjectAssignedUser | None:
         user_id = InfraHelper.convert_id(user)
         project_id = InfraHelper.convert_id(project)
 
         assigned_user = None
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=not consistent) as db:
             result = db.exec(
                 SqlBuilder.select.table(ProjectAssignedUser)
                 .where(
@@ -109,12 +122,26 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
     def ensure_assigned(self, project: TProjectParam, user: TUserParam) -> tuple[ProjectAssignedUser, bool]:
         project_id = InfraHelper.convert_id(project)
         user_id = InfraHelper.convert_id(user)
-        assigned_user = self.find_by_user_and_project(user_id, project_id)
-        if assigned_user:
-            return assigned_user, False
-
         assigned_user = ProjectAssignedUser(project_id=project_id, user_id=user_id)
-        self.insert(assigned_user)
+        with DbSession.use(readonly=False) as db:
+            locked_project = db.exec(
+                SqlBuilder.select.table(Project).where(Project.column("id") == project_id).limit(1).with_for_update()
+            ).first()
+            if locked_project is None:
+                raise ValueError("Project not found")
+
+            existing = db.exec(
+                SqlBuilder.select.table(ProjectAssignedUser)
+                .where(
+                    (ProjectAssignedUser.column("project_id") == project_id)
+                    & (ProjectAssignedUser.column("user_id") == user_id)
+                )
+                .limit(1)
+            ).first()
+            if existing is not None:
+                return existing, False
+
+            db.insert(assigned_user)
         return assigned_user, True
 
     def update_starred(self, user: TUserParam, project: TProjectParam, starred: bool) -> None:

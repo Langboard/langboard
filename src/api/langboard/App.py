@@ -11,13 +11,16 @@ from langboard_shared.FastAPIAppConfig import FastAPIAppConfig
 from .Constants import APP_CONFIG_FILE
 from .Loader import ModuleLoader
 from .mcp_integration import McpServer
-from .middlewares import ApiAuthMiddleware, CollaborativeEditMiddleware, RoleMiddleware
+from .middlewares import ApiAuthMiddleware, ChatUploadConcurrencyMiddleware, CollaborativeEditMiddleware, RoleMiddleware
 
 
 class App:
     api: FastAPI
 
     def __init__(self):
+        from langboard_shared.tasks.notifications import ProjectEmailNotificationTask
+
+        ProjectEmailNotificationTask.register()
         self.app_config = FastAPIAppConfig(APP_CONFIG_FILE)
         self.config = self.app_config.load()
         self._init_mcp_server()
@@ -38,17 +41,22 @@ class App:
         return self.api
 
     def _init_api_middlewares(self):
-        origins = [Env.PUBLIC_UI_URL, "http://localhost:6274"]
+        origins = list(dict.fromkeys([Env.PUBLIC_UI_URL, *Env.MCP_ALLOWED_ORIGINS]))
+        local_origin_regex = (
+            r"^http://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$" if Env.ENVIRONMENT == "development" else None
+        )
         # FastAPI 0.141+ keeps included routers behind an internal wrapper.
         # Authorization filters are registered on the original API routes, so
         # middleware must inspect that stable route collection directly.
         self.api.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
         self.api.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
         self.api.add_middleware(CollaborativeEditMiddleware)
+        self.api.add_middleware(ChatUploadConcurrencyMiddleware)
         self.api.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
         self.api.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
+            allow_origin_regex=local_origin_regex,
             allow_credentials=True,
             allow_methods=["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
             allow_headers=[

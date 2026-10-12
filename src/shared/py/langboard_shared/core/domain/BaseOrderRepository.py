@@ -84,6 +84,7 @@ class BaseOrderRepository(Generic[_TModel, _TParentModel], BaseRepository[_TMode
         model_id = InfraHelper.convert_id(model)
         old_parent_id = InfraHelper.convert_id(old_parent_model)
         new_parent_id = InfraHelper.convert_id(new_parent_model) if new_parent_model else None
+        moving = new_parent_id is not None and new_parent_id != old_parent_id
         model_class = self._get_model_cls(model_cls)
         parent_foreign_key_name = self._get_parent_foreign_key_name(parent_model_cls)
 
@@ -95,10 +96,10 @@ class BaseOrderRepository(Generic[_TModel, _TParentModel], BaseRepository[_TMode
                     {model_class.column("updated_at"): model_class.column("updated_at")}
                 )
 
-            if new_parent_id:
+            if moving:
                 db.exec(
                     shared_update_query.values({model_class.column("order"): model_class.column("order") - 1}).where(
-                        (model_class.column("order") >= old_order)
+                        (model_class.column("order") > old_order)
                         & (model_class.column(parent_foreign_key_name) == old_parent_id)
                     )
                 )
@@ -114,10 +115,13 @@ class BaseOrderRepository(Generic[_TModel, _TParentModel], BaseRepository[_TMode
                 update_query = update_query.where(model_class.column(parent_foreign_key_name) == old_parent_id)
                 db.exec(update_query)
 
+            values = {model_class.column("order"): new_order}
+            if moving:
+                values[model_class.column(parent_foreign_key_name)] = new_parent_id
             target_update = SqlBuilder.update.table(model_class).where(model_class.column("id") == model_id)
             if preserve_shifted_updated_at:
                 target_update = target_update.values({model_class.column("updated_at"): model_class.column("updated_at")})
-            db.exec(target_update.values({model_class.column("order"): new_order}))
+            db.exec(target_update.values(values))
 
     def get_next_order(
         self,

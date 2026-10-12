@@ -1,5 +1,6 @@
 """Current app ownership, consent and selected-resource boundary for native cards."""
 
+from sqlalchemy import or_
 from ...core.db import SqlBuilder
 from ..models import (
     AppConnection,
@@ -13,11 +14,14 @@ from ..models import (
     ProjectRole,
     User,
 )
+from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceDenied, _current, require_connection_access
 from .DomainService import DomainService
 
 
-def require_app_card_scope(db, principal, project_id, card_id, *, capability, role_action, allow_archived=False, unattended=True):
+def require_app_card_scope(
+    db, principal, project_id, card_id, *, capability, role_action, allow_archived=False, unattended=True
+):
     project = _current(db, Project, project_id)
     card = _current(db, Card, card_id)
     connection = _current(db, AppConnection, principal.connection_id)
@@ -68,8 +72,8 @@ def require_app_card_scope(db, principal, project_id, card_id, *, capability, ro
         or not definition.is_enabled
         or binding is None
         or binding.state != "enabled"
-        or capability not in definition.declaration.get("capabilities", [])
-        or capability not in binding.granted_capabilities
+        or not {capability, "resources.read"}.issubset(definition.declaration.get("capabilities", []))
+        or not {capability, "resources.read"}.issubset(binding.granted_capabilities)
     ):
         raise AppGovernanceDenied()
     from ...core.types import SnowflakeID
@@ -82,6 +86,10 @@ def require_app_card_scope(db, principal, project_id, card_id, *, capability, ro
             AppResourceBinding.board_binding_id == binding.id,
             AppResourceBinding.is_selected == True,  # noqa: E712
             AppResourceBinding.access_state == "granted",
+            or_(
+                AppResourceBinding.identity_hash == "",
+                AppResourceBinding.identity_hash == _identity_hash(db, connection, definition=definition),
+            ),
             AppResourceBinding.resource_type.in_(definition.declaration.get("resource_types", [])),
         )
         .with_for_update()
@@ -89,4 +97,3 @@ def require_app_card_scope(db, principal, project_id, card_id, *, capability, ro
     if {r.get_uid() for r in resources} != set(selection.resource_uids):
         raise AppGovernanceDenied()
     return card, owner, selection, binding, resources
-

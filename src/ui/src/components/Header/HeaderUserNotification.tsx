@@ -17,17 +17,15 @@ import InfiniteScroller from "@/components/InfiniteScroller";
 import UserAvatar from "@/components/UserAvatar";
 import UserAvatarDefaultList from "@/components/UserAvatarDefaultList";
 import { QUERY_NAMES } from "@/constants";
-import useGetNotificationList from "@/controllers/api/notification/useGetNotificationList";
-import useDeleteAllUserNotificationsHandlers from "@/controllers/socket/notification/useDeleteAllUserNotificationsHandlers";
-import useDeleteUserNotificationHandlers from "@/controllers/socket/notification/useDeleteUserNotificationHandlers";
-import useReadAllUserNotificationsHandlers from "@/controllers/socket/notification/useReadAllUserNotificationsHandlers";
-import useReadUserNotificationHandlers from "@/controllers/socket/notification/useReadUserNotificationHandlers";
+import { getNotificationList } from "@/controllers/api/notification/getNotificationList";
+import useNotificationCommand from "@/controllers/api/notification/useNotificationCommand";
+import useUserNotificationMutatedHandlers from "@/controllers/socket/user/useUserNotificationMutatedHandlers";
 import useUserNotifiedHandlers from "@/controllers/socket/user/useUserNotifiedHandlers";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
 import { AuthUser, User, UserNotification } from "@/core/models";
 import { TUserLikeModel } from "@/core/models/ModelRegistry";
-import { ENotificationType } from "@/core/models/types/notification.type";
+import { ENotificationMutationAction, ENotificationType } from "@/core/models/types/notification.type";
 import { useSocket } from "@/core/providers/SocketProvider";
 import { ROUTES } from "@/core/routing/constants";
 import { getUserSettingsStore, IUserSettings, NOTIFICATIONS_TIME_RANGE_OPTIONS, useUserSettings } from "@/core/stores/UserSettingsStore";
@@ -52,40 +50,71 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
     const [isOpened, setIsOpened] = useState(false);
     const [hasMore, setHasMore] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
-    const { mutateAsync } = useGetNotificationList();
+    const [listVersion, setListVersion] = useState(0);
+    const [notificationRefreshVersion, requestNotificationRefresh] = useReducer((version) => version + 1, 0);
+    const notificationVersionRef = useRef(0);
+    const pendingNotifiedEventRef = useRef(false);
+    const refreshGenerationRef = useRef(0);
     const timeRange = useUserSettings("notifications_time_range");
-    const { send: sendReadAllUserNotifications } = useReadAllUserNotificationsHandlers();
-    const { send: sendDeleteAllUserNotifications } = useDeleteAllUserNotificationsHandlers();
-    const notifiedHandlers = useMemo(
-        () =>
+    const { mutateAsync: mutateNotification, isPending: isMutatingNotification } = useNotificationCommand();
+    const notificationHandlers = useMemo(
+        () => [
             useUserNotifiedHandlers({
                 currentUser,
                 callback: () => {
-                    setUnreadCount((prev) => prev + 1);
-                    if (isOpened) {
-                        return;
-                    }
-
-                    Toast.Add.info(t("notification.You have a new notification."));
+                    notificationVersionRef.current += 1;
+                    pendingNotifiedEventRef.current = true;
+                    requestNotificationRefresh();
                 },
             }),
-        [currentUser, isOpened]
+            useUserNotificationMutatedHandlers({
+                currentUser,
+                callback: (mutation) => {
+                    notificationVersionRef.current += 1;
+                    setUnreadCount(mutation.unread_count);
+                    if (mutation.action === ENotificationMutationAction.DeleteAll) {
+                        setHasMore(false);
+                    }
+                    forceUpdate();
+                },
+            }),
+        ],
+        [currentUser]
     );
-    useSwitchSocketHandlers({ socket, handlers: notifiedHandlers });
-    const readAllNotifications = useCallback(() => {
-        sendReadAllUserNotifications({});
-        setUnreadCount(0);
+    useSwitchSocketHandlers({ socket, handlers: notificationHandlers });
+    const readAllNotifications = async () => {
+        let mutation;
+        try {
+            mutation = await mutateNotification({ action: "read_all" });
+        } catch {
+            return;
+        }
+        if (!mutation) {
+            return;
+        }
+        notificationVersionRef.current += 1;
+        setUnreadCount(mutation.unread_count);
+        const readAt = mutation.read_at ? new Date(mutation.read_at) : new Date();
         for (let i = 0; i < unreadNotifications.length; ++i) {
             const notification = unreadNotifications[i];
-            notification.read_at = new Date();
+            notification.read_at = readAt;
         }
-    }, [unreadNotifications]);
-    const deleteAllNotifications = useCallback(() => {
-        sendDeleteAllUserNotifications({});
+    };
+    const deleteAllNotifications = async () => {
+        let mutation;
+        try {
+            mutation = await mutateNotification({ action: "delete_all" });
+        } catch {
+            return;
+        }
+        if (!mutation) {
+            return;
+        }
+        notificationVersionRef.current += 1;
         UserNotification.Model.deleteModels(() => true);
         setHasMore(false);
-        setUnreadCount(0);
-    }, []);
+        setUnreadCount(mutation.unread_count);
+    };
     const closeNotifications = useCallback(() => setIsOpened(false), []);
     const navigate = usePageNavigateRef();
     const { closeThenNavigate, onCloseAutoFocus } = useNotificationNavigation(closeNotifications, navigate);
@@ -95,32 +124,106 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
 
     useEffect(() => {
         UserNotification.Model.deleteModels(() => true);
-        mutateAsync({
-            time_range: timeRange || "3d",
-            page: 1,
-            limit: NOTIFICATION_PAGE_SIZE,
-            unread_only: isOnlyUnread,
-        }).then((res) => {
-            setHasMore(!!res.has_more);
-            setUnreadCount(res.unread_count || 0);
-            forceUpdate();
-        });
-    }, [timeRange, isOnlyUnread, mutateAsync]);
+        setHasMore(false);
+        forceUpdate();
+    }, [currentUser, timeRange]);
+
+    useEffect(() => {
+        let active = true;
+        let inFlight = false;
+        let pending = false;
+        let retryCount = 0;
+        let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+        const refresh = (interceptToast = true) => {
+            if (retryTimer) {
+                clearTimeout(retryTimer);
+                retryTimer = undefined;
+            }
+            if (inFlight) {
+                pending = true;
+                return;
+            }
+
+            inFlight = true;
+            const notificationVersion = notificationVersionRef.current;
+            const refreshGeneration = ++refreshGenerationRef.current;
+            getNotificationList({ time_range: timeRange || "3d", page: 1, limit: NOTIFICATION_PAGE_SIZE, unread_only: isOnlyUnread }, interceptToast)
+                .then((res) => {
+                    if (!active) {
+                        return;
+                    }
+                    if (notificationVersion !== notificationVersionRef.current) {
+                        pending = true;
+                        return;
+                    }
+
+                    if (pendingNotifiedEventRef.current) {
+                        if (!isOpened && res.notifications?.some((notification) => !UserNotification.Model.getModel(notification.uid))) {
+                            Toast.Add.info(t("notification.You have a new notification."));
+                        }
+                        pendingNotifiedEventRef.current = false;
+                    }
+                    UserNotification.Model.deleteModels(() => true);
+                    UserNotification.Model.fromArray(res.notifications || [], true);
+                    setHasMore(!!res.has_more);
+                    setUnreadCount(res.unread_count || 0);
+                    setListVersion(refreshGeneration);
+                    forceUpdate();
+                    retryCount = 0;
+                })
+                .catch(() => {
+                    if (active && pendingNotifiedEventRef.current && retryCount < 12) {
+                        retryCount += 1;
+                        retryTimer = setTimeout(() => refresh(interceptToast), 5000);
+                    }
+                })
+                .finally(() => {
+                    inFlight = false;
+                    if (active && pending) {
+                        pending = false;
+                        refresh(interceptToast);
+                    }
+                });
+        };
+
+        const eventKey = `user-notification-refresh-${currentUser.uid}`;
+        const onOpen = () => refresh();
+        socket.on({ event: "open", eventKey, callback: onOpen });
+        const refreshTimer = window.setTimeout(() => refresh(notificationRefreshVersion > 0), notificationRefreshVersion ? 100 : 0);
+
+        return () => {
+            active = false;
+            refreshGenerationRef.current += 1;
+            window.clearTimeout(refreshTimer);
+            if (retryTimer) {
+                clearTimeout(retryTimer);
+            }
+            socket.off({ event: "open", eventKey, callback: onOpen });
+        };
+    }, [socket, currentUser, timeRange, isOnlyUnread, notificationRefreshVersion, isOpened]);
 
     const loadMoreNotifications = useCallback(
         async (page: number) => {
-            const res = await mutateAsync({
+            const refreshGeneration = refreshGenerationRef.current;
+            const notificationVersion = notificationVersionRef.current;
+            const res = await getNotificationList({
                 time_range: timeRange || "3d",
                 page,
                 limit: NOTIFICATION_PAGE_SIZE,
                 unread_only: isOnlyUnread,
             });
+            if (refreshGeneration !== refreshGenerationRef.current || notificationVersion !== notificationVersionRef.current) {
+                return false;
+            }
+
+            UserNotification.Model.fromArray(res.notifications || [], true);
             setHasMore(!!res.has_more);
             setUnreadCount(res.unread_count || 0);
             forceUpdate();
             return true;
         },
-        [timeRange, isOnlyUnread, mutateAsync]
+        [timeRange, isOnlyUnread]
     );
 
     return (
@@ -188,6 +291,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                                 title={t("notification.Read all notifications")}
                                 titleAlign="end"
                                 titleSide="bottom"
+                                disabled={isMutatingNotification}
                                 onClick={readAllNotifications}
                             >
                                 <IconComponent icon="check-check" size="4" />
@@ -199,6 +303,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                             title={t("notification.Delete all notifications")}
                             titleAlign="end"
                             titleSide="bottom"
+                            disabled={isMutatingNotification}
                             onClick={deleteAllNotifications}
                         >
                             <IconComponent icon="trash-2" size="4" />
@@ -206,10 +311,14 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                     </Flex>
                 </Flex>
                 <HeaderUserNotificationList
+                    key={`${timeRange}-${listVersion}`}
                     hasMore={hasMore}
                     isOnlyUnread={isOnlyUnread}
                     loadMore={loadMoreNotifications}
                     onNavigate={closeThenNavigate}
+                    onMutation={() => {
+                        notificationVersionRef.current += 1;
+                    }}
                     setUnreadCount={setUnreadCount}
                     timeRange={timeRange || "3d"}
                     updater={[updated, forceUpdate]}
@@ -224,6 +333,7 @@ interface IHeaderUserNotificationListProps {
     isOnlyUnread: bool;
     loadMore: (page: number) => Promise<bool>;
     onNavigate: (route: string) => void;
+    onMutation: () => void;
     setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
     timeRange: IUserSettings["notifications_time_range"];
     updater: [number, React.DispatchWithoutAction];
@@ -234,6 +344,7 @@ function HeaderUserNotificationList({
     isOnlyUnread,
     loadMore,
     onNavigate,
+    onMutation,
     setUnreadCount,
     timeRange,
     updater,
@@ -281,6 +392,7 @@ function HeaderUserNotificationList({
                         key={notification.uid}
                         notification={notification}
                         onNavigate={onNavigate}
+                        onMutation={onMutation}
                         setUnreadCount={setUnreadCount}
                         updater={updater}
                     />
@@ -293,32 +405,48 @@ function HeaderUserNotificationList({
 interface IHeaderUserNotificationItemProps {
     notification: UserNotification.TModel;
     onNavigate: (route: string) => void;
+    onMutation: () => void;
     setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
     updater: [number, React.DispatchWithoutAction];
 }
 
-const HeaderUserNotificationItem = memo(({ notification, onNavigate, setUnreadCount, updater }: IHeaderUserNotificationItemProps) => {
+const HeaderUserNotificationItem = memo(({ notification, onNavigate, onMutation, setUnreadCount, updater }: IHeaderUserNotificationItemProps) => {
     const [_, forceUpdate] = updater;
     const [t, i18n] = useTranslation();
-    const { send: sendReadUserNotification } = useReadUserNotificationHandlers();
-    const { send: sendDeleteUserNotification } = useDeleteUserNotificationHandlers();
+    const { mutateAsync: mutateNotification, isPending: isMutatingNotification } = useNotificationCommand();
     const readAt = notification.useField("read_at");
-    const readNotification = (shouldUpdate: bool) => {
-        const wasUnread = !notification.read_at;
-        sendReadUserNotification({ uid: notification.uid });
-        notification.read_at = new Date();
-        if (wasUnread) {
-            setUnreadCount((prev) => Math.max(prev - 1, 0));
+    const readNotification = async (shouldUpdate: bool) => {
+        if (notification.read_at) {
+            return;
         }
+        let mutation;
+        try {
+            mutation = await mutateNotification({ action: "read", uid: notification.uid });
+        } catch {
+            return;
+        }
+        if (!mutation) {
+            return;
+        }
+        onMutation();
+        notification.read_at = mutation.read_at ? new Date(mutation.read_at) : new Date();
+        setUnreadCount(mutation.unread_count);
         if (shouldUpdate) {
             forceUpdate();
         }
     };
-    const deleteNotification = () => {
-        if (!notification.read_at) {
-            setUnreadCount((prev) => Math.max(prev - 1, 0));
+    const deleteNotification = async () => {
+        let mutation;
+        try {
+            mutation = await mutateNotification({ action: "delete", uid: notification.uid });
+        } catch {
+            return;
         }
-        sendDeleteUserNotification({ uid: notification.uid });
+        if (!mutation) {
+            return;
+        }
+        onMutation();
+        setUnreadCount(mutation.unread_count);
         UserNotification.Model.deleteModel(notification.uid);
     };
 
@@ -341,9 +469,13 @@ const HeaderUserNotificationItem = memo(({ notification, onNavigate, setUnreadCo
         );
     };
 
-    const movePage = () => {
-        readNotification(false);
-        onNavigate(getRoute(notification));
+    const movePage = async () => {
+        if (isMutatingNotification) {
+            return;
+        }
+        const route = getRoute(notification);
+        await readNotification(false);
+        onNavigate(route);
     };
     const messageVars = getNotificationMessageVars(notification);
     const ruleTranslationKey = getNotificationScheduleRuleTranslationKey(notification, messageVars);
@@ -385,6 +517,7 @@ const HeaderUserNotificationItem = memo(({ notification, onNavigate, setUnreadCo
                                 title={t("notification.Read notification")}
                                 titleAlign="end"
                                 titleSide="bottom"
+                                disabled={isMutatingNotification}
                                 className="size-7"
                                 onClick={() => readNotification(true)}
                             >
@@ -397,6 +530,7 @@ const HeaderUserNotificationItem = memo(({ notification, onNavigate, setUnreadCo
                             title={t("notification.Delete notification")}
                             titleAlign="end"
                             titleSide="bottom"
+                            disabled={isMutatingNotification}
                             className="size-7"
                             onClick={deleteNotification}
                         >

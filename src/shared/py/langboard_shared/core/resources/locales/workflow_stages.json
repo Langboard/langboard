@@ -1,0 +1,188 @@
+[
+  {
+    "key": "backlog",
+    "name": "Backlog",
+    "description": "Untriaged or uncommitted work.",
+    "color": "#94A3B8",
+    "order": 0,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": false,
+    "active_queue_policy": "conditional",
+    "overdue_policy": "normal",
+    "entry_effects": [],
+    "translations": {
+      "en": {
+        "name": "Backlog",
+        "description": "Untriaged or uncommitted work."
+      },
+      "ko": {
+        "name": "백로그",
+        "description": "분류하거나 착수 약속하지 않은 업무."
+      },
+      "ja": {
+        "name": "バックログ",
+        "description": "未分類または未着手の業務。"
+      },
+      "zh": {
+        "name": "待办",
+        "description": "尚未分类或承诺开始的工作。"
+      }
+    }
+  },
+  {
+    "key": "ready",
+    "name": "Ready",
+    "description": "Owned and prepared work waiting to start.",
+    "color": "#84CC16",
+    "order": 1,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": false,
+    "active_queue_policy": "conditional",
+    "overdue_policy": "normal",
+    "entry_effects": [],
+    "translations": {
+      "en": {
+        "name": "Ready",
+        "description": "Owned and prepared work waiting to start."
+      },
+      "ko": {
+        "name": "준비",
+        "description": "담당자가 정해지고 시작 준비를 마친 업무."
+      },
+      "ja": {
+        "name": "準備完了",
+        "description": "担当者が決まり、開始準備が整った業務。"
+      },
+      "zh": {
+        "name": "就绪",
+        "description": "已有负责人且准备好开始的工作。"
+      }
+    }
+  },
+  {
+    "key": "active",
+    "name": "Active",
+    "description": "Work currently being executed.",
+    "color": "#3B82F6",
+    "order": 2,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": false,
+    "active_queue_policy": "include",
+    "overdue_policy": "normal",
+    "entry_effects": [],
+    "translations": {
+      "en": {
+        "name": "Active",
+        "description": "Work currently being executed."
+      },
+      "ko": {
+        "name": "진행 중",
+        "description": "현재 실제로 수행 중인 업무."
+      },
+      "ja": {
+        "name": "進行中",
+        "description": "現在実行中の業務。"
+      },
+      "zh": {
+        "name": "进行中",
+        "description": "当前正在执行的工作。"
+      }
+    }
+  },
+  {
+    "key": "review",
+    "name": "Review",
+    "description": "Work awaiting review or acceptance.",
+    "color": "#A855F7",
+    "order": 3,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": false,
+    "active_queue_policy": "conditional",
+    "overdue_policy": "normal",
+    "entry_effects": [],
+    "translations": {
+      "en": {
+        "name": "Review",
+        "description": "Work awaiting review or acceptance."
+      },
+      "ko": {
+        "name": "검토",
+        "description": "검토 또는 인수를 기다리는 업무."
+      },
+      "ja": {
+        "name": "レビュー",
+        "description": "レビューまたは受入確認を待つ業務。"
+      },
+      "zh": {
+        "name": "审核",
+        "description": "等待审核或验收的工作。"
+      }
+    }
+  },
+  {
+    "key": "closed",
+    "name": "Closed",
+    "description": "Operationally completed work; verification remains a separate state.",
+    "color": "#64748B",
+    "order": 4,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": true,
+    "active_queue_policy": "exclude",
+    "overdue_policy": "suppress",
+    "entry_effects": [],
+    "translations": {
+      "en": {
+        "name": "Closed",
+        "description": "Operationally completed work; verification remains a separate state."
+      },
+      "ko": {
+        "name": "완료",
+        "description": "운영상 완료된 업무. 검증 상태는 별도로 유지한다."
+      },
+      "ja": {
+        "name": "完了",
+        "description": "運用上完了した業務。検証状態は別に保持します。"
+      },
+      "zh": {
+        "name": "已完成",
+        "description": "运营上已完成的工作；验证状态单独保留。"
+      }
+    }
+  },
+  {
+    "key": "reference",
+    "name": "Reference",
+    "description": "Reference material excluded from the active work queue.",
+    "color": "#14B8A6",
+    "order": 5,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": false,
+    "active_queue_policy": "exclude",
+    "overdue_policy": "normal",
+    "entry_effects": [],
+    "translations": {
+      "en": {
+        "name": "Reference",
+        "description": "Reference material excluded from the active work queue."
+      },
+      "ko": {
+        "name": "참고자료",
+        "description": "실행 업무 큐에서 제외하는 참고자료."
+      },
+      "ja": {
+        "name": "参考資料",
+        "description": "実行業務キューから除外する参考資料。"
+      },
+      "zh": {
+        "name": "参考资料",
+        "description": "不列入活动工作队列的参考资料。"
+      }
+    }
+  }
+]

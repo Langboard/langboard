@@ -6,7 +6,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite --force",
-    "typecheck": "node scripts/prepare-responsive-variants.mjs && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "typecheck": "node prepare-responsive-types.mjs && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test:markdown-numbers": "node --experimental-strip-types --test src/components/Editor/plugins/markdown/list-number.test.ts",
     "test:markdown-number-ui": "playwright test -c playwright.list-number.config.ts",
     "test:card-delete": "node --experimental-strip-types --test src/pages/BoardPage/components/card/action/BoardCardActionDelete.test.ts src/core/helpers/setupApiErrorHandler.test.ts",
@@ -43,7 +43,10 @@
     "test:workbench-shell": "playwright test -c playwright.workbench.config.ts",
     "test:locale-resources": "node --experimental-strip-types scripts/verify-locale-resources.mjs",
     "test:i18n-initialization": "node --test scripts/i18n-initialization.test.mjs",
-    "test:plate-upgrade": "node --experimental-strip-types --test src/components/Editor/plate-upgrade.test.ts src/components/Editor/plugins/markdown/list-number.test.ts"
+    "test:plate-upgrade": "node --experimental-strip-types --test src/components/Editor/plate-upgrade.test.ts src/components/Editor/plugins/markdown/list-number.test.ts",
+    "test:board-chat-store": "node --experimental-strip-types src/core/stores/BoardChatStore.test.ts",
+    "test:socket-runtime": "esbuild src/core/providers/socket/streamErrorCallbacks.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/socket-runtime.mjs && node --test test-results/socket-runtime.mjs",
+    "test:ollama-model-store": "esbuild src/core/stores/OllamaModelStore.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/ollama-model-store.mjs && node --test test-results/ollama-model-store.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.130",
@@ -184,7 +187,8 @@
     "yarn": "^1.22.22",
     "zod": "^4.3.6",
     "zustand": "^5.0.11",
-    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.6.tgz"
+    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.6.tgz",
+    "@slate-yjs/core": "^1.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

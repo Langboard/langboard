@@ -68,7 +68,7 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
                 }
                 return;
         }
-    }, [state]);
+    }, [state, currentUser]);
 
     useEffect(() => {
         if (currentUser) {

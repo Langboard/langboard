@@ -13,5 +13,12 @@
 **/.ruff_cache
 **/*.tsbuildinfo
 **/.DS_Store
-
 **/.env*
+**/.env
+**/*.env
+**/.vault-credentials
+**/*.db*
+**/*.log
+local
+uploads
+docker/volumes

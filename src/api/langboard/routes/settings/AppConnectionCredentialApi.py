@@ -1,6 +1,7 @@
 """Explicit owner-managed inbound app credentials. Responses are never cached."""
 
-from fastapi import Query
+from typing import Annotated
+from fastapi import Path, Query
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, BaseFormModel, JsonResponse, form_model
 from langboard_shared.core.types import SnowflakeID
@@ -17,6 +18,7 @@ from pydantic import Field
 
 @form_model
 class IssueCredentialForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
     expires_in_seconds: int = Field(default=3600, strict=True, ge=60, le=86400)
 
 
@@ -29,7 +31,11 @@ def _run(operation, *args, **kwargs):
 
 @AppRouter.api.post("/settings/apps/connections/{connection_uid}/credentials", tags=["AppSettings.Credentials"])
 @AuthFilter.add("user")
-def issue_credential(connection_uid: str, form: IssueCredentialForm, user: User = Auth.scope("user")) -> JsonResponse:
+def issue_credential(
+    connection_uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")],
+    form: IssueCredentialForm,
+    user: User = Auth.scope("user"),
+) -> JsonResponse:
     return _run(
         issue_connection_credential,
         user,
@@ -41,7 +47,7 @@ def issue_credential(connection_uid: str, form: IssueCredentialForm, user: User 
 @AppRouter.api.get("/settings/apps/connections/{connection_uid}/credentials", tags=["AppSettings.Credentials"])
 @AuthFilter.add("user")
 def list_credentials(
-    connection_uid: str,
+    connection_uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")],
     user: User = Auth.scope("user"),
     after: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9]{11}$"),
     limit: int = Query(default=25, ge=1, le=50),
@@ -59,7 +65,11 @@ def list_credentials(
     "/settings/apps/connections/{connection_uid}/credentials/{credential_uid}/revoke", tags=["AppSettings.Credentials"]
 )
 @AuthFilter.add("user")
-def revoke_credential(connection_uid: str, credential_uid: str, user: User = Auth.scope("user")) -> JsonResponse:
+def revoke_credential(
+    connection_uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")],
+    credential_uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")],
+    user: User = Auth.scope("user"),
+) -> JsonResponse:
     return _run(
         revoke_connection_credential,
         user,

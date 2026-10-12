@@ -25,6 +25,7 @@ import { SkeletonBoardSettingsPage } from "@/pages/BoardPage/SkeletonBoardSettin
 import { TBoardViewType, useBoardController } from "@/core/providers/BoardController";
 import useBoardAssignedUsersUpdatedHandlers from "@/controllers/socket/board/useBoardAssignedUsersUpdatedHandlers";
 import useProjectDeletedHandlers from "@/controllers/socket/shared/useProjectDeletedHandlers";
+import useProjectAccessRevokedHandlers from "@/controllers/socket/shared/useProjectAccessRevokedHandlers";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
 import useBoardAssignedInternalBotChangedHandlers from "@/controllers/socket/board/useBoardAssignedInternalBotChangedHandlers";
@@ -114,6 +115,7 @@ const BoardProxy = memo((): React.JSX.Element => {
 
     const { data, isFetching, error, refetch } = useGetProject({ uid: projectUID }, { placeholderData: keepPreviousData });
     const { send: sendBoardBotStatusMap } = useBoardBotStatusMapHandlers({ projectUID });
+    const hasCurrentProject = !!data && data.project.uid === projectUID;
 
     useEffect(() => {
         if (!error) {
@@ -139,13 +141,19 @@ const BoardProxy = memo((): React.JSX.Element => {
     }, [error]);
 
     useEffect(() => {
-        if (!data || isFetching) {
+        if (!data || !hasCurrentProject) {
             setPageAliasRef.current();
             return;
         }
 
         if (pageRoute !== "card") {
             setPageAliasRef.current(data.project.title);
+        }
+    }, [data, hasCurrentProject, pageRoute]);
+
+    useEffect(() => {
+        if (!hasCurrentProject) {
+            return;
         }
 
         socket.subscribe(ESocketTopic.Board, [projectUID], () => {
@@ -157,7 +165,7 @@ const BoardProxy = memo((): React.JSX.Element => {
             socket.unsubscribe(ESocketTopic.Board, [projectUID]);
             socket.unsubscribe(ESocketTopic.BoardSettings, [projectUID]);
         };
-    }, [data, isFetching, pageRoute, projectUID]);
+    }, [hasCurrentProject, projectUID]);
 
     if (!data) {
         return error ? <BoardLoadError isFetching={isFetching} retry={() => void refetch()} /> : <SkeletonBoard />;
@@ -343,6 +351,17 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             }),
         [project]
     );
+    const projectAccessRevokedHandlers = useMemo(
+        () =>
+            useProjectAccessRevokedHandlers({
+                topic: ESocketTopic.Board,
+                projectUID: project.uid,
+                callback: () => {
+                    navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
+                },
+            }),
+        [project]
+    );
     const boardAssignedInternalBotChangedHandlers = useMemo(
         () =>
             useBoardAssignedInternalBotChangedHandlers({
@@ -460,6 +479,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             isBoardChatAvailableHandlers,
             boardAssignedUsersUpdatedHandlers,
             projectDeletedHandlers,
+            projectAccessRevokedHandlers,
             boardAssignedInternalBotChangedHandlers,
             internalBotUpdatedHandlers,
             appRegistryChangedHandlers,
@@ -479,6 +499,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             isBoardChatAvailableHandlers,
             boardAssignedUsersUpdatedHandlers,
             projectDeletedHandlers,
+            projectAccessRevokedHandlers,
             boardAssignedInternalBotChangedHandlers,
             internalBotUpdatedHandlers,
             appRegistryChangedHandlers,

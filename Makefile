@@ -1,7 +1,13 @@
-.PHONY: help init format lint start_docker stop_docker rebuild_docker update_docker deploy_ui clean_docker_build_cache
+.PHONY: deploy_ui help init format lint start_docker stop_docker rebuild_docker update_docker clean_docker_images clean_docker_build_cache bootstrap_socket_phoenix_group require_socket_phoenix_group check_socket_phoenix_editor_restore validate_socket_phoenix_cutover_evidence check_socket_phoenix_cutover check_socket_phoenix_otel record_socket_phoenix_otel_soak prepare_socket_phoenix_otel prepare_socket_phoenix_owner test_broadcast_kafka test_socket_phoenix_kafka test_socket_phoenix_dlq_recovery test_socket_phoenix_cluster test_socket_phoenix_browser_cluster test_socket_phoenix_ollama_browser test_socket_phoenix_ollama_worker_loss_browser test_socket_phoenix_browser_attachment test_socket_phoenix_browser_attachment_process_loss test_socket_phoenix_browser_reconnect_stability test_socket_phoenix_editor_ai_browser test_socket_phoenix_editor_ai_approve_browser test_socket_phoenix_editor_ai_reject_browser test_socket_phoenix_editor_ai_copilot_browser test_socket_phoenix_editor_ai_revocation_browser test_socket_phoenix_editor_ai_cancel_browser test_socket_phoenix_editor_ai_socket_reconnect_browser test_socket_phoenix_editor_ai_worker_loss_browser test_socket_phoenix_editor_ai_node_loss_browser test_socket_phoenix_editor_sync_reconnect_browser test_socket_phoenix_editor_cluster test_socket_phoenix_editor_documents
+
+.PHONY: start_dev_docker test_socket_phoenix_concurrent_browser test_socket_phoenix_editor_concurrent_browser
 
 # Function to get compose args from script
-get_compose_args = $(shell WITH_DOCS=$(WITH_DOCS) WITH_UI_WATCHER=$(WITH_UI_WATCHER) WITH_OLLAMA_CPU=$(WITH_OLLAMA_CPU) WITH_OLLAMA_GPU=$(WITH_OLLAMA_GPU) WITH_DB_BACKUP=$(WITH_DB_BACKUP) bash scripts/utils/get-compose-args.sh)
+ifeq ($(ComSpec),)
+get_compose_args = $(shell WITH_DOCS=$(WITH_DOCS) WITH_UI_WATCHER=$(WITH_UI_WATCHER) WITH_OLLAMA_CPU=$(WITH_OLLAMA_CPU) WITH_OLLAMA_GPU=$(WITH_OLLAMA_GPU) WITH_OTEL=$(WITH_OTEL) WITH_DB_BACKUP=$(WITH_DB_BACKUP) bash scripts/utils/get-compose-args.sh)
+else
+get_compose_args = $(shell powershell -NoProfile -ExecutionPolicy Bypass -File scripts/utils/get-compose-args.ps1 -WithDocs $(WITH_DOCS) -WithUiWatcher $(WITH_UI_WATCHER) -WithOllamaCpu $(WITH_OLLAMA_CPU) -WithOllamaGpu $(WITH_OLLAMA_GPU) -WithOtel $(WITH_OTEL) -WithDbBackup $(WITH_DB_BACKUP))
+endif
 
 UI_DIR := src/ui
 PY_CORE_DIR := src/shared/py
@@ -20,8 +26,21 @@ WITH_DOCS ?= false
 WITH_UI_WATCHER ?= false
 WITH_OLLAMA_CPU ?= false
 WITH_OLLAMA_GPU ?= false
+WITH_OTEL ?= false
 WITH_DB_BACKUP ?= true
 DOCKER_BUILD_CACHE_MAX ?= 40GB
+PHOENIX_CUTOVER_EDITOR_MANIFEST ?=
+PHOENIX_CUTOVER_EDITOR_SOURCE_DIR ?=
+PHOENIX_CUTOVER_EDITOR_RESTORE_DIR ?=
+PHOENIX_CUTOVER_OTEL_SOAK_REPORT ?=
+PHOENIX_OTEL_SOAK_THRESHOLDS ?=
+PHOENIX_OTEL_SOAK_LOAD_PROFILE ?=
+PHOENIX_OTEL_SOAK_REPORT ?=
+PHOENIX_OTEL_SOAK_DURATION_SECONDS ?= 90000
+PHOENIX_OTEL_SOAK_WARMUP_SECONDS ?= 3600
+PHOENIX_OTEL_SOAK_SAMPLE_INTERVAL_SECONDS ?= 10
+SOCKET_PHOENIX_OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.161.0
+SOCKET_PHOENIX_OTEL_COLLECTOR_DIGEST ?= sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
 
 # Get compose args from script
 COMPOSE_ARGS := $(call get_compose_args)
@@ -29,6 +48,7 @@ COMPOSE_ARGS := $(call get_compose_args)
 
 check_tools:
 	@command -v yarn >/dev/null 2>&1 || { echo >&2 "$(RED)Yarn is not installed. Aborting.$(NC)"; exit 1; }
+	@command -v mix >/dev/null 2>&1 || { echo >&2 "$(RED)Elixir Mix is not installed. Aborting.$(NC)"; exit 1; }
 	@command -v docker >/dev/null 2>&1 || { echo >&2 "$(RED)Docker is not installed. Aborting.$(NC)"; exit 1; }
 	@command -v docker compose >/dev/null 2>&1 || { echo >&2 "$(RED)Docker Compose is not installed. Aborting.$(NC)"; exit 1; }
 	@command -v pipx >/dev/null 2>&1 || { echo >&2 "$(RED)pipx is not installed. Aborting.$(NC)"; exit 1; }
@@ -55,7 +75,7 @@ format: ## run code formatters
 	cd $(GRAPH_DIR) && uv run ruff format .
 	cd $(TS_SHARED_DIR) && yarn run format
 	cd $(UI_DIR) && yarn run format
-	cd $(SOCKET_DIR) && yarn run format
+	cd $(SOCKET_DIR) && mix format
 
 lint: ## run linters
 	uv run ruff check .
@@ -63,9 +83,9 @@ lint: ## run linters
 	cd $(GRAPH_DIR) && uv run ruff check .
 	cd $(TS_SHARED_DIR) && yarn run lint
 	cd $(UI_DIR) && yarn run lint
-	cd $(SOCKET_DIR) && yarn run lint
+	cd $(SOCKET_DIR) && mix format --check-formatted
 
-init: check_tools clean_python_cache clean_ts_core_cache clean_ui_cache clean_socket_cache ## initialize the project
+init: check_tools clean_python_cache clean_ts_core_cache clean_ui_cache ## initialize the project
 	make install_py_core
 	make install_api
 	make install_graph
@@ -99,9 +119,7 @@ install_ui: ## install ui dependencies
 	cd $(UI_DIR) && yarn run format
 
 install_socket: ## install socket dependencies
-	@echo 'Installing socket dependencies'
-	cd $(SOCKET_DIR) && yarn install
-	cd $(SOCKET_DIR) && yarn run format
+	cd $(SOCKET_DIR) && mix deps.get
 
 dev_openbao:
 	@if [ -z "$$BAO_EXECUTABLE_PATH" ]; then \
@@ -141,16 +159,623 @@ dev_graph: ## run the Graph in development environment
 
 
 dev_socket: ## run the Socket in development environment
-	cd $(SOCKET_DIR) && nodemon dist/index.js
+	cd $(SOCKET_DIR) && mix phx.server
 
 dev_socket_build: ## build the Socket in development environment
-	cd $(SOCKET_DIR) && yarn run build -w
+	cd $(SOCKET_DIR) && mix compile --warnings-as-errors
+
+dev_socket_phoenix: ## run the Phoenix socket migration runtime on port 5691
+	cd $(SOCKET_DIR) && PORT=5691 mix phx.server
+
+test_socket_phoenix: ## verify the isolated Phoenix migration runtime and shared contract
+	cd $(UI_DIR) && yarn typecheck
+	uv run python src/socket/test/integration/test-phoenix-config.py "$(SHELL)"
+	uv run python -m pytest -q src/socket/test/unit/test_phoenix_owner_preflight.py
+	uv run ruff check src/socket/test/unit/test_phoenix_owner_preflight.py
+	uv run ruff format --check src/socket/test/unit/test_phoenix_owner_preflight.py
+	uv run ruff check src/socket/test/integration/test-phoenix-config.py
+	uv run ruff format --check src/socket/test/integration/test-phoenix-config.py
+	uv run ruff check $(API_DIR)/tests/runtime/test_order_repository.py $(PY_CORE_DIR)/langboard_shared/core/domain/BaseOrderRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/CheckitemRepository.py
+	uv run ruff format --check $(API_DIR)/tests/runtime/test_order_repository.py $(PY_CORE_DIR)/langboard_shared/core/domain/BaseOrderRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/CheckitemRepository.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_order_repository.py
+	uv run ruff check $(API_DIR)/tests/mcp_integration/test_card_mcp_contract.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/CardService.py
+	uv run ruff format --check $(API_DIR)/tests/mcp_integration/test_card_mcp_contract.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/CardService.py
+	uv run pytest -q $(API_DIR)/tests/mcp_integration/test_card_mcp_contract.py
+	uv run python -m pytest -q src/socket/test/unit/test_phoenix_cutover.py
+	uv run ruff check src/socket/test/unit/test_phoenix_cutover.py
+	uv run ruff format --check scripts/bootstrap-phoenix-kafka-group.py scripts/check-phoenix-cutover.py src/socket/test/unit/test_phoenix_cutover.py
+	bash -n src/socket/test/browser/test-phoenix-browser-cluster.sh
+	$(SHELL) -n src/socket/test/integration/delete-consumer-group.sh
+	@if $(SHELL) src/socket/test/integration/delete-consumer-group.sh langboard langboard-socket-node-fanout >/dev/null 2>&1; then echo "Probe cleanup accepted an operational consumer group." >&2; exit 1; fi
+	node --check src/socket/test/browser/test-phoenix-browser-ui.cjs
+	node --check src/socket/test/browser/test-phoenix-editor-ai-ui.cjs
+	node --check src/socket/test/browser/test-phoenix-socket-ui.cjs
+	node --check src/socket/test/browser/test-phoenix-ollama-ui.cjs
+	node --check src/socket/test/integration/test-editor-document-roundtrip.mjs
+	uv run ruff check src/socket/test/browser/phoenix-failover-proxy.py src/socket/test/browser/test-phoenix-browser-fixture.py src/socket/test/browser/test-phoenix-board-chat-inspect.py src/socket/test/browser/test-phoenix-editor-ai-inspect.py src/socket/test/browser/test-phoenix-browser-graph.py src/socket/test/integration/test-phoenix-handshake-load.py
+	uv run ruff format --check src/socket/test/browser/phoenix-failover-proxy.py src/socket/test/browser/test-phoenix-browser-fixture.py src/socket/test/browser/test-phoenix-board-chat-inspect.py src/socket/test/browser/test-phoenix-editor-ai-inspect.py src/socket/test/browser/test-phoenix-browser-graph.py src/socket/test/integration/test-phoenix-handshake-load.py
+	cd $(SOCKET_DIR) && mix format --check-formatted
+	cd $(SOCKET_DIR) && mix compile --warnings-as-errors
+	cd $(SOCKET_DIR) && mix test
+	cd $(SOCKET_DIR) && mix deps.unlock --check-unused
+	cd $(TS_SHARED_DIR) && yarn test
+	cd $(UI_DIR) && yarn prettier --check ../../src/socket/test/browser/test-phoenix-browser-ui.cjs ../../src/socket/test/browser/test-phoenix-editor-ai-ui.cjs ../../src/socket/test/browser/test-phoenix-socket-ui.cjs ../../src/socket/test/browser/test-phoenix-ollama-ui.cjs ../../src/socket/test/integration/test-editor-document-roundtrip.mjs
+	cd $(UI_DIR) && yarn test:board-chat-store
+	cd $(UI_DIR) && yarn test:socket-runtime
+	cd $(UI_DIR) && yarn eslint src/core/providers/socket/runtime.ts src/core/providers/socket/streamErrorCallbacks.ts src/core/providers/socket/streamErrorCallbacks.test.ts src/core/providers/SocketProvider.tsx
+	cd $(UI_DIR) && yarn test:ollama-model-store
+	cd $(UI_DIR) && node --experimental-strip-types src/components/Editor/prepareRichDraftPatch.test.ts
+	cd $(UI_DIR) && yarn eslint src/pages/SettingsPage/OllamaPage.tsx src/pages/SettingsPage/components/ollama/OllamaPullModelButton.tsx src/pages/SettingsPage/components/ollama/OllamaModelTracker.tsx src/controllers/api/settings/ollama/usePullOllamaModel.ts src/controllers/api/settings/ollama/useGetOllamaModelPulls.ts src/controllers/api/settings/ollama/useGetOllamaModelList.ts src/core/constants/OllamaModelPull.ts src/core/stores/OllamaModelStore.ts
+	cd $(UI_DIR) && yarn eslint src/pages/BoardPage/components/chat/ChatInput.tsx src/controllers/socket/board/chat/useBoardChatSentHandlers.ts src/core/providers/BoardChatProvider.tsx src/controllers/api/board/chat/useGetProjectChatRun.ts src/core/constants/BoardChatRun.ts src/core/stores/BoardChatStore.ts src/core/stores/BoardChatStore.test.ts
+	cd $(UI_DIR) && yarn eslint src/components/Editor/plate-editor.tsx src/components/Editor/useChat.tsx src/components/Editor/plugins/copilot-kit.tsx src/controllers/socket/shared/useEditorAIRunStatusHandlers.ts src/core/constants/InternalBotRun.ts src/core/models/GraphApprovalRequestModel.ts
+	uv run ruff check $(API_DIR)/langboard/middlewares/CollaborativeEditMiddleware.py $(API_DIR)/langboard/routes/auth/SocketAuthApi.py $(API_DIR)/langboard/routes/auth/SocketAuthorization.py $(API_DIR)/langboard/routes/auth/forms/Socket.py $(API_DIR)/langboard/routes/auth/forms/__init__.py $(API_DIR)/langboard/routes/editor/EditorSyncApi.py $(API_DIR)/langboard/routes/editor/EditorSyncPayload.py $(API_DIR)/langboard/routes/notification/NotificationApi.py $(API_DIR)/tests/runtime/test_board_chat_availability.py $(API_DIR)/tests/runtime/test_broadcast_envelope.py $(API_DIR)/tests/runtime/test_broker_registration.py $(API_DIR)/tests/runtime/test_collaborative_edit_middleware.py $(API_DIR)/tests/runtime/test_editor_sync_rich_patch.py $(API_DIR)/tests/runtime/test_notification_commands.py $(API_DIR)/tests/runtime/test_realtime_contract.py $(API_DIR)/tests/runtime/test_socket_auth.py $(PY_CORE_DIR)/langboard_shared/Env.py $(PY_CORE_DIR)/langboard_shared/core/broadcast/DispatcherModel.py $(PY_CORE_DIR)/langboard_shared/core/broadcast/kafka/KafkaDispatcherQueue.py $(PY_CORE_DIR)/langboard_shared/core/broker/Broker.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/GraphApprovalRequestService.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/ProjectService.py scripts/bootstrap-phoenix-kafka-group.py scripts/check-phoenix-cutover.py src/socket/test/integration/create-socket-protocol-credentials.py src/socket/test/integration/test-broadcast-kafka.py src/socket/test/integration/test-phoenix-kafka-ingress.py src/socket/test/integration/test-phoenix-kafka-dlq-recovery.py src/socket/test/integration/test-phoenix-cluster-reconnect.py src/socket/test/integration/test-phoenix-cluster-topics.py src/socket/test/integration/test-socket-protocol.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_broker_registration.py
+	uv run ruff check $(API_DIR)/langboard/commands/EditorSyncNameInventoryCommand.py $(API_DIR)/tests/runtime/test_editor_sync_name_inventory.py scripts/editor_sync_name_inventory.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_editor_sync_name_inventory.py
+	uv run ruff check $(API_DIR)/langboard/commands/ValidatePhoenixCutoverEvidenceCommand.py $(API_DIR)/tests/runtime/test_phoenix_cutover_evidence.py src/socket/test/unit/test_phoenix_otel_soak.py
+	uv run python -m pytest -q $(API_DIR)/tests/runtime/test_phoenix_cutover_evidence.py src/socket/test/unit/test_phoenix_otel_soak.py
+	uv run ruff check scripts/phoenix_otel_metrics.py scripts/check-phoenix-otel.py scripts/phoenix_otel_soak.py
+	uv run ruff format --check scripts/phoenix_otel_metrics.py scripts/check-phoenix-otel.py scripts/phoenix_otel_soak.py src/socket/test/unit/test_phoenix_otel_soak.py
+	uv run ruff check $(API_DIR)/tests/runtime/test_editor_sync_owner_routing.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_editor_sync_owner_routing.py
+	uv run ruff check $(API_DIR)/langboard/ServerRunner.py $(API_DIR)/langboard/commands/ReviewNotificationEmailCommand.py $(API_DIR)/langboard/commands/RunNotificationWebFanoutCommand.py $(API_DIR)/tests/email/test_email_service.py $(API_DIR)/tests/runtime/test_notification_delivery.py $(PY_CORE_DIR)/langboard_shared/domain/models/NotificationEmailDelivery.py $(PY_CORE_DIR)/langboard_shared/domain/models/UserNotification.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/EmailService.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/NotificationService.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/UserNotificationSettingService.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/NotificationEmailDeliveryRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/UserNotificationRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/UserNotificationSettingRepository.py $(PY_CORE_DIR)/langboard_shared/publishers/UserPublisher.py $(PY_CORE_DIR)/langboard_shared/tasks/notifications/NotificationWebFanoutTask.py
+	uv run pytest -q $(API_DIR)/tests/email/test_email_service.py $(API_DIR)/tests/runtime/test_board_chat_availability.py $(API_DIR)/tests/runtime/test_broadcast_envelope.py $(API_DIR)/tests/runtime/test_collaborative_edit_middleware.py $(API_DIR)/tests/runtime/test_editor_sync_rich_patch.py $(API_DIR)/tests/runtime/test_notification_commands.py $(API_DIR)/tests/runtime/test_notification_delivery.py $(API_DIR)/tests/runtime/test_realtime_contract.py $(API_DIR)/tests/runtime/test_socket_auth.py
+	uv run ruff check $(API_DIR)/tests/project_email_notifications $(API_DIR)/langboard/commands/ReviewProjectActivityEmailCommand.py $(PY_CORE_DIR)/langboard_shared/domain/models/ProjectActivity.py $(PY_CORE_DIR)/langboard_shared/domain/models/ProjectWikiActivity.py $(PY_CORE_DIR)/langboard_shared/domain/models/ProjectActivityEmailDelivery.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/ProjectEmailNotificationService.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/ProjectActivityEmailDeliveryRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/ProjectEmailNotificationRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/ProjectAssignedUserRepository.py $(PY_CORE_DIR)/langboard_shared/tasks/notifications/ProjectEmailNotificationTask.py
+	uv run ruff format --check $(API_DIR)/tests/project_email_notifications $(API_DIR)/langboard/commands/ReviewProjectActivityEmailCommand.py $(PY_CORE_DIR)/langboard_shared/domain/models/ProjectActivity.py $(PY_CORE_DIR)/langboard_shared/domain/models/ProjectWikiActivity.py $(PY_CORE_DIR)/langboard_shared/domain/models/ProjectActivityEmailDelivery.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/ProjectEmailNotificationService.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/ProjectActivityEmailDeliveryRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/ProjectEmailNotificationRepository.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/ProjectAssignedUserRepository.py $(PY_CORE_DIR)/langboard_shared/tasks/notifications/ProjectEmailNotificationTask.py
+	uv run pytest -q $(API_DIR)/tests/project_email_notifications
+	uv run ruff check $(API_DIR)/langboard/routes/settings/Form.py $(API_DIR)/langboard/routes/settings/OllamaApi.py $(API_DIR)/tests/runtime/test_ollama_model_commands.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_ollama_model_commands.py
+	uv run ruff check $(API_DIR)/langboard/commands/RunOllamaModelPullRecoveryCommand.py $(API_DIR)/tests/runtime/test_ollama_model_pull.py $(PY_CORE_DIR)/langboard_shared/domain/models/OllamaModelPull.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/OllamaModelPullService.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/OllamaModelPullRepository.py $(PY_CORE_DIR)/langboard_shared/tasks/ollama/OllamaModelPullTask.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_ollama_model_pull.py
+	uv run ruff check $(PY_CORE_DIR)/langboard_shared/core/security/AuthSecurity.py $(PY_CORE_DIR)/langboard_shared/ai/InternalBotGraphRequest.py $(API_DIR)/tests/runtime/test_internal_bot_graph_request.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_internal_bot_graph_request.py
+	uv run ruff check $(PY_CORE_DIR)/langboard_shared/ai/BoardChatAttachment.py $(PY_CORE_DIR)/langboard_shared/ai/LangflowFileClient.py $(PY_CORE_DIR)/langboard_shared/domain/models/InternalBotRun.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/InternalBotRunService.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/InternalBotRunRepository.py $(PY_CORE_DIR)/langboard_shared/tasks/bots/LangflowBoardChatAttachmentCleanupTask.py $(API_DIR)/langboard/App.py $(API_DIR)/langboard/commands/RunInternalBotRunRecoveryCommand.py $(API_DIR)/langboard/middlewares/ChatUploadConcurrencyMiddleware.py $(API_DIR)/langboard/middlewares/__init__.py $(API_DIR)/langboard/routes/board/BoardChatApi.py $(API_DIR)/tests/runtime/test_app.py $(API_DIR)/tests/runtime/test_board_chat_attachment_upload.py $(API_DIR)/tests/runtime/test_internal_bot_run.py $(API_DIR)/tests/runtime/test_langflow_file_client.py $(API_DIR)/tests/runtime/test_socket_board_chat_run.py $(API_DIR)/tests/runtime/test_socket_editor_run.py
+	uv run pytest -q $(API_DIR)/tests/runtime/test_app.py $(API_DIR)/tests/runtime/test_board_chat_attachment_upload.py $(API_DIR)/tests/runtime/test_internal_bot_run.py $(API_DIR)/tests/runtime/test_langflow_file_client.py $(API_DIR)/tests/runtime/test_socket_board_chat_run.py $(API_DIR)/tests/runtime/test_socket_editor_run.py
+
+.PHONY: lint_socket_phoenix
+lint_socket_phoenix: ## run strict Phoenix code and type analysis
+	cd $(SOCKET_DIR) && mix credo --strict
+	cd $(SOCKET_DIR) && mix dialyzer
+
+test_socket_phoenix_editor_cluster: ## verify distributed editor ownership and persistence
+	cd $(SOCKET_DIR) && elixir --sname editor_cluster_probe -S mix run test/integration/editor_cluster_probe.exs
+
+test_socket_phoenix_editor_documents: ## audit existing editor documents and run persistence and Yjs compatibility tests (PHOENIX_EDITOR_SOURCE_DIR required)
+	@test -n "$(PHOENIX_EDITOR_SOURCE_DIR)" && test -d "$(PHOENIX_EDITOR_SOURCE_DIR)" || { echo "PHOENIX_EDITOR_SOURCE_DIR must name an existing document directory." >&2; exit 1; }
+	cd $(SOCKET_DIR) && elixir -S mix run scripts/audit_editor_documents.exs -- "$(abspath $(PHOENIX_EDITOR_SOURCE_DIR))"
+	node src/socket/test/integration/test-editor-document-roundtrip.mjs "$(abspath $(PHOENIX_EDITOR_SOURCE_DIR))"
+	cd $(SOCKET_DIR) && mix test test/langboard_socket/editor/sync_storage_test.exs test/langboard_socket/editor/sync_manifest_test.exs test/langboard_socket/editor/document_test.exs test/langboard_socket/yjs_binary_compatibility_test.exs
+
+test_broadcast_kafka: ## verify inline broadcast delivery without the Redis fallback
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ]; then \
+		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \
+		exit 1; \
+	fi; \
+	docker exec -i "$${project_name}_api" sh -lc 'cd /app && uv run --no-sync python -' < src/socket/test/integration/test-broadcast-kafka.py
+
+bootstrap_socket_phoenix_group: ## initialize a new fanout group before starting Phoenix (GROUP_ID required)
+	@if [ -z "$(GROUP_ID)" ]; then \
+		echo "$(RED)GROUP_ID is required.$(NC)"; \
+		exit 1; \
+	fi
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+		docker exec \
+		--env PHOENIX_FANOUT_GROUP_ID="$(GROUP_ID)" \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< scripts/bootstrap-phoenix-kafka-group.py
+
+require_socket_phoenix_group: ## require retained fanout offsets before Phoenix ownership (GROUP_ID required)
+	@if [ -z "$(GROUP_ID)" ]; then \
+		echo "$(RED)GROUP_ID is required.$(NC)"; \
+		exit 1; \
+	fi
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+		docker exec \
+		--env PHOENIX_FANOUT_GROUP_ID="$(GROUP_ID)" \
+		--env PHOENIX_FANOUT_REQUIRE_EXISTING=1 \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< scripts/bootstrap-phoenix-kafka-group.py
+
+check_socket_phoenix_editor_restore: ## verify Editor restore evidence before the long OTel soak
+	@if [ -z "$(PHOENIX_CUTOVER_EDITOR_MANIFEST)" ] || [ -z "$(PHOENIX_CUTOVER_EDITOR_SOURCE_DIR)" ] || [ -z "$(PHOENIX_CUTOVER_EDITOR_RESTORE_DIR)" ]; then \
+		echo "$(RED)Editor manifest, source directory, and restore directory are required.$(NC)"; \
+		exit 1; \
+	fi
+	uv run python -m langboard.commands.ValidatePhoenixCutoverEvidenceCommand \
+		"$(PHOENIX_CUTOVER_EDITOR_MANIFEST)" --editor-only \
+		--editor-source-dir "$(PHOENIX_CUTOVER_EDITOR_SOURCE_DIR)" \
+		--editor-restore-dir "$(PHOENIX_CUTOVER_EDITOR_RESTORE_DIR)"
+
+validate_socket_phoenix_cutover_evidence: ## verify restore, soak, and deployment image evidence
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ]; then \
+		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \
+		exit 1; \
+	fi; \
+	if [ -z "$(PHOENIX_CUTOVER_EDITOR_MANIFEST)" ] || [ -z "$(PHOENIX_CUTOVER_OTEL_SOAK_REPORT)" ]; then \
+		echo "$(RED)PHOENIX_CUTOVER_EDITOR_MANIFEST and PHOENIX_CUTOVER_OTEL_SOAK_REPORT are required.$(NC)"; \
+		exit 1; \
+	fi; \
+	runtime_image=$$(docker image inspect "$${project_name}-socket-phoenix:dev" --format '{{.Id}}' 2>/dev/null || true); \
+	if [ -z "$$runtime_image" ]; then \
+		echo "$(RED)Build the Phoenix deployment image before running the cutover check.$(NC)"; \
+		exit 1; \
+	fi; \
+	if [ -n "$(PHOENIX_CUTOVER_EDITOR_SOURCE_DIR)" ] || [ -n "$(PHOENIX_CUTOVER_EDITOR_RESTORE_DIR)" ]; then \
+		if [ -z "$(PHOENIX_CUTOVER_EDITOR_SOURCE_DIR)" ] || [ -z "$(PHOENIX_CUTOVER_EDITOR_RESTORE_DIR)" ]; then \
+			echo "$(RED)Both editor source and restore directories are required.$(NC)"; \
+			exit 1; \
+		fi; \
+		set -- --editor-source-dir "$(PHOENIX_CUTOVER_EDITOR_SOURCE_DIR)" --editor-restore-dir "$(PHOENIX_CUTOVER_EDITOR_RESTORE_DIR)"; \
+	else \
+		set --; \
+	fi; \
+	uv run python -m langboard.commands.ValidatePhoenixCutoverEvidenceCommand \
+		"$(PHOENIX_CUTOVER_EDITOR_MANIFEST)" \
+		"$(PHOENIX_CUTOVER_OTEL_SOAK_REPORT)" \
+		"$$runtime_image" "$$@"
+
+check_socket_phoenix_cutover: ## verify notification recovery and required worker tasks
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ]; then \
+		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \
+		exit 1; \
+	fi; \
+	docker exec -i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -u -' \
+		< scripts/check-phoenix-cutover.py
+
+check_socket_phoenix_otel: ## verify local Phoenix metrics and traces reach the OTel Collector
+	uv run python -m scripts.check-phoenix-otel \
+		--metrics-url "http://127.0.0.1:$${SOCKET_PHOENIX_OTEL_METRICS_EXPOSE_PORT:-9464}/metrics" \
+		--collector-metrics-url "http://127.0.0.1:$${SOCKET_PHOENIX_OTEL_INTERNAL_METRICS_EXPOSE_PORT:-8888}/metrics"
+
+.PHONY: check_socket_phoenix_ingress test_socket_phoenix_local
+check_socket_phoenix_ingress: ## verify the host-published Phoenix Socket route
+	@port="$${NGINX_SOCKET_EXPOSE_PORT:-$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)}"; \
+	if [ -z "$$port" ]; then echo "$(RED)NGINX_SOCKET_EXPOSE_PORT is missing.$(NC)"; exit 1; fi; \
+	for attempt in $$(seq 1 20); do \
+		headers=$$(curl --silent --head --max-time 2 "http://127.0.0.1:$$port/health/ready" | tr -d '\r'); \
+		if printf '%s\n' "$$headers" | grep -Eq '^HTTP/[0-9.]+ 204([[:space:]]|$$)' && \
+			printf '%s\n' "$$headers" | grep -Eiq '^x-langboard-socket-runtime: phoenix$$' && \
+			printf '%s\n' "$$headers" | grep -Eiq '^x-langboard-socket-version: [^[:space:]]+'; then \
+			echo "Phoenix Socket ingress is reachable on port $$port."; exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "$(RED)Phoenix Socket host ingress did not return a ready Phoenix response on port $$port.$(NC)"; exit 1
+
+test_socket_phoenix_local: check_socket_phoenix_ingress test_socket_protocol ## verify the running local Phoenix ingress and WebSocket contract
+
+record_socket_phoenix_otel_soak: ## record an evidence-backed Phoenix OTel soak
+	@if [ -z "$(PHOENIX_OTEL_SOAK_THRESHOLDS)" ] || [ -z "$(PHOENIX_OTEL_SOAK_LOAD_PROFILE)" ] || [ -z "$(PHOENIX_OTEL_SOAK_REPORT)" ]; then \
+		echo "$(RED)PHOENIX_OTEL_SOAK_THRESHOLDS, PHOENIX_OTEL_SOAK_LOAD_PROFILE, and PHOENIX_OTEL_SOAK_REPORT are required.$(NC)"; \
+		exit 1; \
+	fi; \
+	project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	runtime_image=$$(docker inspect --format '{{.Image}}' "$${project_name}_socket_phoenix"); \
+	uv run python -m scripts.phoenix_otel_soak \
+		--metrics-url "http://127.0.0.1:$${SOCKET_PHOENIX_OTEL_METRICS_EXPOSE_PORT:-9464}/metrics" \
+		--collector-metrics-url "http://127.0.0.1:$${SOCKET_PHOENIX_OTEL_INTERNAL_METRICS_EXPOSE_PORT:-8888}/metrics" \
+		--runtime-image "$$runtime_image" \
+		--runtime-container "$${project_name}_socket_phoenix" \
+		--thresholds "$(PHOENIX_OTEL_SOAK_THRESHOLDS)" \
+		--load-profile "$(PHOENIX_OTEL_SOAK_LOAD_PROFILE)" \
+		--output "$(PHOENIX_OTEL_SOAK_REPORT)" \
+		--duration-seconds "$(PHOENIX_OTEL_SOAK_DURATION_SECONDS)" \
+		--warmup-seconds "$(PHOENIX_OTEL_SOAK_WARMUP_SECONDS)" \
+		--sample-interval-seconds "$(PHOENIX_OTEL_SOAK_SAMPLE_INTERVAL_SECONDS)"
+
+prepare_socket_phoenix_otel: ## pull, verify, and tag the pinned OTel Collector image
+	@if [ "$(WITH_OTEL)" != "true" ]; then exit 0; fi; \
+	image="$(SOCKET_PHOENIX_OTEL_COLLECTOR_IMAGE)"; \
+	digest="$(SOCKET_PHOENIX_OTEL_COLLECTOR_DIGEST)"; \
+	docker pull "$$image@$$digest" >/dev/null; \
+	docker image tag "$$image@$$digest" "$$image"; \
+	tagged_id=$$(docker image inspect "$$image" --format '{{.Id}}'); \
+	pinned_id=$$(docker image inspect "$$image@$$digest" --format '{{.Id}}'); \
+	if [ "$$tagged_id" != "$$pinned_id" ]; then \
+		echo "$(RED)OTel Collector tag does not match the pinned digest.$(NC)"; \
+		exit 1; \
+	fi
+
+prepare_socket_phoenix_owner: ## validate Phoenix deployment prerequisites before starting Docker
+	@set -e; \
+	for flag in SOCKET_PHOENIX_BOARD_CHAT_SEND_ENABLED SOCKET_PHOENIX_BOARD_CHAT_RESUME_ENABLED SOCKET_PHOENIX_BOARD_CHAT_RECOVERY_ENABLED SOCKET_PHOENIX_EDITOR_AI_ENABLED SOCKET_PHOENIX_EDITOR_SYNC_ENABLED; do \
+		value=$$(printenv "$$flag" || true); \
+		if [ -z "$$value" ]; then value=$$(sed -n "s/^$$flag=//p" .env | tail -n 1); fi; \
+		if [ -n "$$value" ] && [ "$$value" != "true" ]; then \
+			echo "$(RED)$$flag must be true for complete Phoenix ownership.$(NC)"; \
+			exit 1; \
+		fi; \
+	done; \
+	internal_secret="$${SOCKET_PHOENIX_INTERNAL_SECRET:-$$(sed -n 's/^SOCKET_PHOENIX_INTERNAL_SECRET=//p' .env | tail -n 1)}"; \
+	if [ "$${#internal_secret}" -lt 32 ]; then \
+		echo "$(RED)SOCKET_PHOENIX_INTERNAL_SECRET must contain at least 32 characters before Phoenix ownership.$(NC)"; \
+		exit 1; \
+	fi; \
+	project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ] || ! docker info --format '{{.ServerVersion}}' >/dev/null 2>&1; then \
+		echo "$(RED)PROJECT_NAME and a reachable Docker daemon are required before Phoenix ownership.$(NC)"; \
+		exit 1; \
+	fi; \
+	group_id="$${BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP:-$$(sed -n 's/^BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP=//p' .env | tail -n 1)}"; \
+	if [ -z "$$group_id" ]; then \
+		echo "$(RED)BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP is required before Phoenix ownership.$(NC)"; \
+		exit 1; \
+	fi; \
+	$(MAKE) check_socket_phoenix_cutover || exit $$?; \
+	$(MAKE) require_socket_phoenix_group GROUP_ID="$$group_id" || exit $$?; \
+	$(MAKE) check_socket_phoenix_editor_restore
+
+.PHONY: test_socket_protocol
+test_socket_protocol: ## verify the running Phoenix WebSocket contract
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	credentials=$$(docker exec -i "$${project_name}_api" sh -lc 'cd /app && uv run --no-sync python -' < src/socket/test/integration/create-socket-protocol-credentials.py) || exit $$?; \
+	SOCKET_PROTOCOL_ACCESS_TOKEN=$$(printf '%s\n' "$$credentials" | sed -n '1p') \
+	SOCKET_PROTOCOL_USER_UID=$$(printf '%s\n' "$$credentials" | sed -n '2p') \
+	uv run python src/socket/test/integration/test-socket-protocol.py \
+		--target phoenix=ws://127.0.0.1:$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)
+
+test_socket_phoenix_kafka: build_socket_phoenix_image ## verify Phoenix WebSocket fanout and dead-letter delivery
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ]; then \
+		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \
+		exit 1; \
+	fi; \
+	if [ ! -f docker/envs/.socket.env ]; then \
+		echo "$(RED)docker/envs/.socket.env is missing; run make update_docker_settings first.$(NC)"; \
+		exit 1; \
+	fi; \
+	internal_secret=$$(sed -n 's/^SOCKET_PHOENIX_INTERNAL_SECRET=//p' .env | tail -n 1); \
+	if [ "$${#internal_secret}" -lt 32 ]; then \
+		echo "$(RED)SOCKET_PHOENIX_INTERNAL_SECRET must contain at least 32 characters.$(NC)"; \
+		exit 1; \
+	fi; \
+	container_name="$${project_name}_socket_phoenix_probe"; \
+	network_name="$${project_name}_network"; \
+	probe_id=$$$$; \
+	group_id="$${project_name}-phoenix-probe-$${probe_id}"; \
+	source_topic="socket_publish_probe_$${probe_id}"; \
+	dlq_topic="socket_publish_dead_letter_probe_$${probe_id}"; \
+	secret_key_base=$$(uv run python -c 'import secrets; print(secrets.token_hex(64))'); \
+	docker rm -f "$$container_name" >/dev/null 2>&1 || true; \
+	cleanup() { \
+		cleanup_status=$$?; \
+		docker rm -f "$$container_name" >/dev/null 2>&1 || true; \
+		bash src/socket/test/integration/delete-consumer-group.sh "$$project_name" "$$group_id" || cleanup_status=1; \
+		docker exec --env SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC="$$source_topic" --env PHOENIX_SOCKET_DLQ_TOPIC="$$dlq_topic" -i "$${project_name}_api" \
+			sh -lc 'cd /app && uv run --no-sync python - delete_probe' \
+			< src/socket/test/integration/test-phoenix-cluster-topics.py >/dev/null 2>&1 || true; \
+		trap - EXIT; exit "$$cleanup_status"; \
+	}; \
+	trap cleanup EXIT; \
+	docker exec --env SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC="$$source_topic" --env PHOENIX_SOCKET_DLQ_TOPIC="$$dlq_topic" -i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python - create_probe' \
+		< src/socket/test/integration/test-phoenix-cluster-topics.py || exit 1; \
+	docker exec \
+		--env PHOENIX_FANOUT_GROUP_ID="$$group_id" \
+		--env SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC="$$source_topic" \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< scripts/bootstrap-phoenix-kafka-group.py || exit 1; \
+	docker run --detach \
+		--name "$$container_name" \
+		--network "$$network_name" \
+		--env-file docker/envs/.socket.env \
+		--env SOCKET_PHOENIX_INTERNAL_SECRET="$$internal_secret" \
+		--env SECRET_KEY_BASE="$$secret_key_base" \
+		--env PHX_HOST=localhost \
+		--env SOCKET_PHOENIX_EDITOR_SYNC_ENABLED=false \
+		--env SOCKET_PHOENIX_KAFKA_ENABLED=true \
+		--env SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC="$$source_topic" \
+		--env BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP="$$group_id" \
+		--env BROADCAST_PHOENIX_DEAD_LETTER_TOPIC="$$dlq_topic" \
+		"$${project_name}-socket-phoenix:dev" >/dev/null || exit 1; \
+	status=0; \
+	for attempt in $$(seq 1 30); do \
+		if [ "$$(docker inspect --format '{{.State.Running}}' "$$container_name" 2>/dev/null)" != "true" ]; then \
+			status=1; \
+			break; \
+		fi; \
+		if docker exec "$$container_name" curl --fail --silent http://127.0.0.1:5690/health/ready >/dev/null; then \
+			break; \
+		fi; \
+		if [ "$$attempt" -eq 30 ]; then \
+			status=1; \
+		else \
+			sleep 1; \
+		fi; \
+	done; \
+	if [ "$$status" -eq 0 ]; then \
+		docker exec \
+			--env PHOENIX_SOCKET_URL="ws://$${container_name}:5690" \
+			--env SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC="$$source_topic" \
+			--env PHOENIX_SOCKET_DLQ_TOPIC="$$dlq_topic" \
+			-i "$${project_name}_api" \
+			sh -lc 'cd /app && uv run --no-sync python -' \
+			< src/socket/test/integration/test-phoenix-kafka-ingress.py || status=$$?; \
+	fi; \
+	if [ "$$status" -ne 0 ]; then \
+		docker logs "$$container_name"; \
+	else \
+		docker stop --time 20 "$$container_name" >/dev/null || status=$$?; \
+		container_exit_code=$$(docker inspect --format '{{.State.ExitCode}}' "$$container_name" 2>/dev/null); \
+		if [ "$$container_exit_code" != "0" ]; then \
+			echo "$(RED)Phoenix probe did not stop gracefully (exit $$container_exit_code).$(NC)"; \
+			docker logs "$$container_name"; \
+			status=1; \
+		fi; \
+	fi; \
+	exit "$$status"
+
+test_socket_phoenix_dlq_recovery: build_socket_phoenix_image ## verify a rejected Kafka record survives dead-letter outage and restart
+	@set -eu; \
+	project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ] || [ ! -f docker/envs/.socket.env ]; then \
+		echo "$(RED)Phoenix probe requires PROJECT_NAME and docker/envs/.socket.env.$(NC)"; \
+		exit 1; \
+	fi; \
+	probe_id=$$(uv run python -c 'import secrets; print(secrets.token_hex(5))'); \
+	container_name="$${project_name}_socket_phoenix_dlq_probe_$${probe_id}"; \
+	group_id="$${project_name}-phoenix-dlq-recovery-$${probe_id}"; \
+	source_topic="socket_publish_dlq_recovery_$${probe_id}"; \
+	valid_topic="socket_publish_dead_letter_recovery_$${probe_id}"; \
+	secret_key_base=$$(uv run python -c 'import secrets; print(secrets.token_hex(64))'); \
+	internal_secret=$$(sed -n 's/^SOCKET_PHOENIX_INTERNAL_SECRET=//p' .env | tail -n 1); \
+	if [ "$${#internal_secret}" -lt 32 ]; then \
+		echo "$(RED)SOCKET_PHOENIX_INTERNAL_SECRET must contain at least 32 characters.$(NC)"; \
+		exit 1; \
+	fi; \
+	stage=setup; \
+	cleanup() { \
+		cleanup_status=$$?; \
+		docker rm -f "$$container_name" >/dev/null 2>&1 || true; \
+		bash src/socket/test/integration/delete-consumer-group.sh "$$project_name" "$$group_id" || cleanup_status=1; \
+		docker exec \
+			--env PHOENIX_DLQ_TEST_PHASE=delete_topic \
+			--env PHOENIX_DLQ_TEST_ID="$$probe_id" \
+			--env PHOENIX_DLQ_TEST_SOURCE_TOPIC="$$source_topic" \
+			--env PHOENIX_DLQ_TEST_TOPIC="$$valid_topic" \
+			-i "$${project_name}_api" \
+			sh -lc 'cd /app && uv run --no-sync python -' \
+			< src/socket/test/integration/test-phoenix-kafka-dlq-recovery.py >/dev/null 2>&1 || true; \
+		return "$$cleanup_status"; \
+	}; \
+	report_and_cleanup() { \
+		status=$$?; \
+		if [ "$$status" -ne 0 ]; then echo "$(RED)Phoenix DLQ recovery probe failed during $$stage (exit $$status).$(NC)"; fi; \
+		cleanup || status=1; \
+		trap - EXIT; exit "$$status"; \
+	}; \
+	trap report_and_cleanup EXIT; \
+	stage=create-source-topic; \
+	docker exec \
+		--env PHOENIX_DLQ_TEST_PHASE=create_topic \
+		--env PHOENIX_DLQ_TEST_ID="$$probe_id" \
+		--env PHOENIX_DLQ_TEST_SOURCE_TOPIC="$$source_topic" \
+		--env PHOENIX_DLQ_TEST_TOPIC="$$valid_topic" \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< src/socket/test/integration/test-phoenix-kafka-dlq-recovery.py; \
+	start_probe() { \
+		docker run --detach \
+			--name "$$container_name" \
+			--network "$${project_name}_network" \
+			--env-file docker/envs/.socket.env \
+			--env SECRET_KEY_BASE="$$secret_key_base" \
+			--env SOCKET_PHOENIX_INTERNAL_SECRET="$$internal_secret" \
+			--env PHX_HOST=localhost \
+			--env SOCKET_PHOENIX_EDITOR_SYNC_ENABLED=false \
+			--env SOCKET_PHOENIX_KAFKA_ENABLED=true \
+			--env SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC="$$source_topic" \
+			--env BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP="$$group_id" \
+			--env BROADCAST_PHOENIX_DEAD_LETTER_TOPIC="$$1" \
+			"$${project_name}-socket-phoenix:dev" >/dev/null; \
+	}; \
+	wait_ready() { \
+		for attempt in $$(seq 1 90); do \
+			if docker exec "$$container_name" curl --fail --silent http://127.0.0.1:5690/health/ready >/dev/null 2>&1; then \
+				return 0; \
+			fi; \
+			sleep 1; \
+		done; \
+		docker exec "$$container_name" sh -lc 'curl --silent --header "x-socket-internal-secret: $$SOCKET_PHOENIX_INTERNAL_SECRET" http://127.0.0.1:5690/internal/metrics | grep -E "^langboard_socket_(kafka_lag|cluster_members)"' || true; \
+		docker logs "$$container_name"; \
+		return 1; \
+	}; \
+	stage=produce-backlog; \
+	record=$$(docker exec \
+		--env PHOENIX_DLQ_TEST_PHASE=produce \
+		--env PHOENIX_DLQ_TEST_ID="$$probe_id" \
+		--env PHOENIX_DLQ_TEST_SOURCE_TOPIC="$$source_topic" \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< src/socket/test/integration/test-phoenix-kafka-dlq-recovery.py); \
+	partition=$${record%%:*}; \
+	offset=$${record#*:}; \
+	stage=start-blocked-probe; \
+	start_probe "invalid/dead_letter_$${probe_id}"; \
+	stage=wait-for-liveness; \
+	for attempt in $$(seq 1 30); do \
+		if docker exec "$$container_name" curl --fail --silent http://127.0.0.1:5690/health/live >/dev/null 2>&1; then break; fi; \
+		if [ "$$attempt" -eq 30 ]; then docker logs "$$container_name"; exit 1; fi; \
+		sleep 1; \
+	done; \
+	stage=observe-dead-letter-failure; \
+	failed=0; \
+	for attempt in $$(seq 1 30); do \
+		if docker logs "$$container_name" 2>&1 | grep -q 'could not persist a rejected record'; then \
+			failed=1; \
+			break; \
+		fi; \
+		sleep 1; \
+	done; \
+	if [ "$$failed" -ne 1 ]; then \
+		docker logs "$$container_name"; \
+		echo "$(RED)Dead-letter failure was not observed.$(NC)"; \
+		exit 1; \
+	fi; \
+	stage=verify-readiness-blocked; \
+	ready_status=$$(docker exec "$$container_name" sh -lc 'curl --silent --output /dev/null --write-out "%{http_code}" http://127.0.0.1:5690/health/ready'); \
+	if [ "$$ready_status" != "503" ]; then \
+		docker logs "$$container_name"; \
+		echo "$(RED)Phoenix admitted traffic before its Kafka backlog was durably handled (HTTP $$ready_status).$(NC)"; \
+		exit 1; \
+	fi; \
+	stage=stop-blocked-probe; \
+	docker rm -f "$$container_name" >/dev/null; \
+	stage=verify-source-uncommitted; \
+	docker exec \
+		--env PHOENIX_DLQ_TEST_PHASE=assert_uncommitted \
+		--env PHOENIX_DLQ_TEST_ID="$$probe_id" \
+		--env PHOENIX_DLQ_TEST_SOURCE_TOPIC="$$source_topic" \
+		--env PHOENIX_DLQ_TEST_GROUP="$$group_id" \
+		--env PHOENIX_DLQ_TEST_PARTITION="$$partition" \
+		--env PHOENIX_DLQ_TEST_OFFSET="$$offset" \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< src/socket/test/integration/test-phoenix-kafka-dlq-recovery.py; \
+	stage=start-recovery-probe; \
+	start_probe "$$valid_topic"; \
+	stage=wait-for-recovery-readiness; \
+	wait_ready; \
+	stage=verify-dead-letter-recovery; \
+	docker exec \
+		--env PHOENIX_DLQ_TEST_PHASE=assert_delivered \
+		--env PHOENIX_DLQ_TEST_ID="$$probe_id" \
+		--env PHOENIX_DLQ_TEST_SOURCE_TOPIC="$$source_topic" \
+		--env PHOENIX_DLQ_TEST_PARTITION="$$partition" \
+		--env PHOENIX_DLQ_TEST_OFFSET="$$offset" \
+		--env PHOENIX_DLQ_TEST_TOPIC="$$valid_topic" \
+		-i "$${project_name}_api" \
+		sh -lc 'cd /app && uv run --no-sync python -' \
+		< src/socket/test/integration/test-phoenix-kafka-dlq-recovery.py; \
+	stage=complete
+
+test_socket_phoenix_cluster: build_socket_phoenix_image ## verify Kafka fanout across two clustered Phoenix nodes
+	@$(SHELL) src/socket/test/integration/test-phoenix-cluster.sh
+
+test_socket_phoenix_browser_cluster: build_socket_phoenix_image ## verify browser reconnect and subscription restoration across Phoenix nodes
+	@$(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_concurrent_browser: build_socket_phoenix_image ## verify two-user concurrent Board actions and live dashboard updates
+	@PHOENIX_BROWSER_FAILOVER_STAGE=concurrent-ui $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_ollama_browser: build_socket_phoenix_image ## verify Ollama model commands and Phoenix realtime updates in the browser
+	@PHOENIX_BROWSER_PROBE=ollama $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_ollama_worker_loss_browser: build_socket_phoenix_image ## verify interrupted Ollama pull recovery in the browser
+	@PHOENIX_BROWSER_PROBE=ollama-worker-loss $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_browser_cancel: build_socket_phoenix_image ## verify Board chat cancellation through the browser and durable run state
+	@PHOENIX_BROWSER_FAILOVER_STAGE=cancel $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_browser_cancel_partial: build_socket_phoenix_image ## verify visible partial Langflow output survives cancellation and reload
+	@PHOENIX_BROWSER_PROBE=board-chat-attachment PHOENIX_BROWSER_FAILOVER_STAGE=cancel $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+.PHONY: test_socket_phoenix_browser_cancel test_socket_phoenix_browser_cancel_partial
+
+test_socket_phoenix_browser_attachment: build_socket_phoenix_image ## verify browser attachment upload, Langflow execution, and cleanup through Phoenix
+	@PHOENIX_BROWSER_PROBE=board-chat-attachment $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_browser_attachment_process_loss: build_socket_phoenix_image ## verify durable attachment cleanup after Phoenix process loss
+	@PHOENIX_BROWSER_PROBE=board-chat-attachment PHOENIX_BROWSER_FAILOVER_STAGE=resume $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_browser_reconnect_stability: build_socket_phoenix_image ## verify repeated browser reconnect, reload, and subscription restoration
+	@PHOENIX_BROWSER_FAILOVER_STAGE=repeated PHOENIX_BROWSER_RECONNECT_ROUNDS=6 $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_browser: test_socket_phoenix_editor_ai_approve_browser test_socket_phoenix_editor_ai_reject_browser test_socket_phoenix_editor_ai_copilot_browser test_socket_phoenix_editor_ai_revocation_browser test_socket_phoenix_editor_ai_cancel_browser test_socket_phoenix_editor_ai_socket_reconnect_browser test_socket_phoenix_editor_ai_worker_loss_browser test_socket_phoenix_editor_ai_node_loss_browser test_socket_phoenix_editor_sync_reconnect_browser ## verify Editor AI and HITL through real browsers
+
+test_socket_phoenix_editor_ai_approve_browser: build_socket_phoenix_image ## verify Editor AI approval and rich patch persistence
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=approve $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_reject_browser: build_socket_phoenix_image ## verify Editor AI rejection without a tool side effect
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=reject $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_copilot_browser: build_socket_phoenix_image ## verify Editor copilot suggestion acceptance and persistence
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=copilot $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_revocation_browser: build_socket_phoenix_image ## verify in-flight Editor AI authorization revocation
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=revocation $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_cancel_browser: build_socket_phoenix_image ## verify Editor AI cancellation ownership and persistence
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=cancel $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_socket_reconnect_browser: build_socket_phoenix_image ## verify in-flight Editor AI recovery after a browser socket reconnect
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=approve PHOENIX_BROWSER_FAILOVER_STAGE=socket-reconnect $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_worker_loss_browser: build_socket_phoenix_image ## verify accepted Editor AI work across worker loss
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=approve PHOENIX_BROWSER_FAILOVER_STAGE=worker $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_ai_node_loss_browser: build_socket_phoenix_image ## verify accepted Editor AI work across Phoenix node loss
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=approve PHOENIX_BROWSER_FAILOVER_STAGE=resume $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_sync_reconnect_browser: build_socket_phoenix_image ## verify repeated Editor synchronization across Phoenix node changes
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=sync PHOENIX_BROWSER_FAILOVER_STAGE=repeated PHOENIX_BROWSER_RECONNECT_ROUNDS=6 $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+test_socket_phoenix_editor_concurrent_browser: build_socket_phoenix_image ## verify concurrent browser Editor writes and persistence
+	@PHOENIX_BROWSER_PROBE=editor-ai PHOENIX_EDITOR_AI_SCENARIO=sync PHOENIX_BROWSER_FAILOVER_STAGE=connected $(SHELL) src/socket/test/browser/test-phoenix-browser-cluster.sh
+
+build_socket_phoenix_image: ## build the isolated Phoenix image and clean replaced project images
+	@set -eu; \
+	project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ]; then \
+		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \
+		exit 1; \
+	fi; \
+	image_ref="$$project_name-socket-phoenix:dev"; \
+	previous_image_id=$$(docker image inspect "$$image_ref" --format '{{.Id}}' 2>/dev/null || true); \
+	docker build --file $(SOCKET_DIR)/Dockerfile \
+		--build-arg PROJECT_NAME="$$project_name" \
+		--tag "$$image_ref" src; \
+	new_image_id=$$(docker image inspect "$$image_ref" --format '{{.Id}}'); \
+	if [ -n "$$previous_image_id" ] && [ "$$previous_image_id" != "$$new_image_id" ]; then \
+		owners=$$(docker ps -a --filter "ancestor=$$previous_image_id" --format '{{.ID}} {{.Names}}'); \
+		other_tags=$$(docker image inspect "$$previous_image_id" --format '{{range .RepoTags}}{{println .}}{{end}}'); \
+		if [ -n "$$owners" ] || [ -n "$$other_tags" ]; then \
+			if [ -n "$$owners" ] && [ -z "$$other_tags" ]; then \
+				retained_tag="$$project_name-socket-phoenix:retained-$$(printf '%s' "$$previous_image_id" | cut -c8-19)"; \
+				docker image tag "$$previous_image_id" "$$retained_tag"; \
+			fi; \
+			echo "$(DIM)Preserving replaced Phoenix image $$previous_image_id; referenced by:$(NC)"; \
+			if [ -n "$$owners" ]; then echo "$$owners"; fi; \
+			if [ -n "$$other_tags" ]; then echo "Other tags: $$other_tags"; fi; \
+		else \
+			docker image rm "$$previous_image_id" >/dev/null; \
+			echo "$(GREEN)Removed unreferenced replaced Phoenix image $$previous_image_id.$(NC)"; \
+		fi; \
+	fi
+	$(MAKE) clean_docker_images
 
 update_ts_core:
 	@cd $(UI_DIR) && yarn remove @langboard/core
 	@cd $(UI_DIR) && yarn add @langboard/core@file:../shared/ts
-	@cd $(SOCKET_DIR) && yarn remove @langboard/core
-	@cd $(SOCKET_DIR) && yarn add @langboard/core@file:../shared/ts
+
+start_dev_docker: ## run local Docker with Phoenix as the Socket runtime
+	$(MAKE) init_env
+	@public_ui_url=$$(sed -n 's/^PUBLIC_UI_URL=//p' .env | tail -n 1); \
+	ui_port=$$(sed -n 's/^NGINX_UI_EXPOSE_PORT=//p' .env | tail -n 1); \
+	case "$${public_ui_url%/}" in \
+		"http://127.0.0.1:$$ui_port"|"http://localhost:$$ui_port") ;; \
+		*) echo "Development PUBLIC_UI_URL must match NGINX_UI_EXPOSE_PORT on localhost." >&2; exit 1 ;; \
+	esac
+	@if ! grep -Eq '^SOCKET_PHOENIX_SECRET_KEY_BASE=.{64,}$$' .env; then \
+		printf '\nSOCKET_PHOENIX_SECRET_KEY_BASE=%s\n' "$$(python -c 'import secrets; print(secrets.token_hex(64))')" >> .env; \
+	fi
+	@internal_secret=$$(sed -n 's/^SOCKET_PHOENIX_INTERNAL_SECRET=//p' .env | tail -n 1); \
+	if [ -z "$$internal_secret" ]; then \
+		printf '\nSOCKET_PHOENIX_INTERNAL_SECRET=%s\n' "$$(python -c 'import secrets; print(secrets.token_hex(32))')" >> .env; \
+	elif [ "$${#internal_secret}" -lt 32 ]; then \
+		echo "SOCKET_PHOENIX_INTERNAL_SECRET must contain at least 32 characters." >&2; exit 1; \
+	fi
+	$(MAKE) update_docker_settings
+	docker compose $(COMPOSE_ARGS) build socket-phoenix
+	docker compose $(COMPOSE_ARGS) up -d --remove-orphans
+	$(MAKE) clean_docker_images
 
 deploy_ui: ## rebuild UI assets using the existing image without restarting dependencies
 	# The server already mounts src/ui/dist; no service recreation is needed.
@@ -160,8 +785,12 @@ start_docker: ## run Docker in the production environment
 	make init_env
 	mkdir -p ./docker/volumes
 	make update_docker_settings
-	docker compose $(COMPOSE_ARGS) up -d --build --remove-orphans
-	make clean_docker_build_cache
+	$(MAKE) prepare_socket_phoenix_owner
+	$(MAKE) prepare_socket_phoenix_otel
+	docker compose $(COMPOSE_ARGS) build
+	docker compose $(COMPOSE_ARGS) up -d --remove-orphans
+	make clean_docker_images
+	$(MAKE) check_socket_phoenix_ingress
 
 rebuild_docker: ## run Docker in the production environment (e.g. make rebuild_docker IMAGES=image_name or IMAGES="image_name1 image_name2")
 	if [ "$(IMAGES)" = "" ]; then \
@@ -172,20 +801,39 @@ rebuild_docker: ## run Docker in the production environment (e.g. make rebuild_d
 	make init_env
 	mkdir -p ./docker/volumes
 	make update_docker_settings
-	docker compose $(COMPOSE_ARGS) up -d --build ${IMAGES} --remove-orphans
-	make clean_docker_build_cache
+	$(MAKE) prepare_socket_phoenix_owner
+	$(MAKE) prepare_socket_phoenix_otel
+	docker compose $(COMPOSE_ARGS) build ${IMAGES}
+	docker compose $(COMPOSE_ARGS) up -d --no-deps ${IMAGES} --remove-orphans
+	make clean_docker_images
+	$(MAKE) check_socket_phoenix_ingress
 
-clean_docker_build_cache: ## remove dangling images and cap unused Docker build cache
-	docker image prune --force
+clean_docker_images: ## remove unused images created by this Compose project
+	@project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+	if [ -z "$$project_name" ]; then \
+		echo "$(RED)PROJECT_NAME is missing from .env.$(NC)"; \
+		exit 1; \
+	fi; \
+	docker image prune --force --filter "label=com.docker.compose.project=$$project_name"; \
+	for image_ref in $$(docker image ls "$$project_name-socket-phoenix" --format '{{.Repository}}:{{.Tag}}' | grep ':retained-' || true); do \
+		owners=$$(docker ps -a --filter "ancestor=$$image_ref" --format '{{.ID}}'); \
+		if [ -z "$$owners" ]; then docker image rm "$$image_ref"; fi; \
+	done
+
+clean_docker_build_cache: clean_docker_images ## explicitly cap the shared Docker builder cache
 	docker builder prune --all --force --max-used-space $(DOCKER_BUILD_CACHE_MAX)
 
 update_docker: ## update Docker in the production environment
 	make init_env
 	make update_docker_settings
+	$(MAKE) prepare_socket_phoenix_owner
+	$(MAKE) prepare_socket_phoenix_otel
 	docker compose $(COMPOSE_ARGS) up -d --no-deps --force-recreate --remove-orphans
+	$(MAKE) clean_docker_images
+	$(MAKE) check_socket_phoenix_ingress
 
 stop_docker: ## stop Docker in the production environment
-	docker compose $(COMPOSE_ARGS) down --rmi all --volumes --remove-orphans
+	docker compose $(COMPOSE_ARGS) down --remove-orphans
 
 unit_tests: ## run unit tests
 	uv run pytest $(API_DIR)/tests
@@ -209,7 +857,11 @@ init_env: ## initialize the .env file from .env.example if it does not exist
 	fi
 
 update_docker_settings: ## update Docker settings
+ifneq ($(ComSpec),)
+	powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/utils/update-docker-envs.ps1
+else
 	bash ./scripts/utils/update-docker-envs.sh
+endif
 
 clean_python_cache: ## clean Python cache
 	@echo "Cleaning Python cache..."
@@ -233,7 +885,4 @@ clean_ui_cache: ## clean Yarn cache
 	@printf "$(GREEN)Yarn cache and ui directories cleaned.$(NC)"
 
 clean_socket_cache: ## clean Socket cache
-	@echo "Cleaning socket cache..."
-	cd $(SOCKET_DIR) && yarn cache clean --force
-	rm -rf $(SOCKET_DIR)/node_modules $(SOCKET_DIR)/dist $(SOCKET_DIR)/.rollup.cache
-	@printf "$(GREEN)Socket cache and directories cleaned.$(NC)"
+	cd $(SOCKET_DIR) && mix clean

@@ -600,6 +600,8 @@ def update_card_relationships(
         raise ApiException.Forbidden_403() from exc
     except RelationshipCycle as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    except ValueError as exc:
+        raise ApiException.BadRequest_400() from exc
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 

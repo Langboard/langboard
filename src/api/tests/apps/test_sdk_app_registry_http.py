@@ -458,3 +458,44 @@ async def test_panel_signal_read_retains_native_resource_selection_and_type_scop
         form.update(app_revision=approved["revision"], binding_revision=consent["revision"])
         response = await request("POST", path, json=form)
         assert response.status_code == 200 and response.json()["items"] == []
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_registry_cursor_and_declaration_update_retain_installed_package(board, monkeypatch):
+    from langboard_shared.domain.models import AppDefinition
+    from langboard_shared.domain.services.AppRegistry import save_definition
+
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    actor = board[1]
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+        for key in ("example-a", "example-b", "example-c"):
+            db.insert(AppDefinition(key=key, approved_by=actor.id,
+                                   declaration={**DECLARATION, "key": key}, package={"digest": key}))
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        headers = {"Authorization": f"Bearer {access}"}
+        path = "/settings/apps/registry"
+        first = client.get(path, headers=headers, params={"limit": 2})
+        assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
+        assert [row["declaration"]["key"] for row in first.json()["apps"]] == ["example-a", "example-b"]
+        assert first.json()["next_cursor"] == "example-b"
+        second = client.get(path, headers=headers, params={"limit": 2, "after": "example-b"})
+        assert [row["declaration"]["key"] for row in second.json()["apps"]] == ["example-c"]
+        assert second.json()["next_cursor"] is None
+        assert len(client.get(path, headers=headers).json()["apps"]) == 3
+        assert client.get(path, headers=headers, params={"after": "example-b"}).status_code == 400
+        assert client.get(path, headers=headers, params={"limit": 51}).status_code == 400
+        revision = first.json()["apps"][0]["revision"]
+        save_definition(actor, {**DECLARATION, "key": "example-a", "version": "1.0.1"}, revision)
+        with DbSession.atomic() as db:
+            current = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-a")).first()
+            assert current.package == {"digest": "example-a"}
+            actor.is_admin = False
+            db.update(actor)
+        assert client.get(path, headers=headers, params={"limit": 2}).status_code == 403

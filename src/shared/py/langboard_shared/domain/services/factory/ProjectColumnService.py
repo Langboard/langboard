@@ -15,6 +15,7 @@ from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ...models import Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
 from ...models.ProjectColumn import ProjectColumnWorkflowConflict
 from ..CardVisibilityPolicy import CardVisibilityContext
+from ..WorkflowGuidance import column_workflow_contexts
 from .GraphApprovalRequestService import GraphApprovalRequestService
 
 
@@ -48,9 +49,13 @@ class ProjectColumnService(BaseDomainService):
         column = InfraHelper.get_by_id_like(ProjectColumn, column)
         return column
 
-    def get_api_list_by_project(self, projects: TProjectParam | list[TProjectParam], *, context: CardVisibilityContext | None = None) -> list[dict[str, Any]]:
+    def get_api_list_by_project(
+        self, projects: TProjectParam | list[TProjectParam], limit: int | None = None,
+        *, context: CardVisibilityContext | None = None,
+    ) -> list[dict[str, Any]]:
         scope = {"context": context} if context is not None else {}
-        raw_columns = self.repo.project_column.get_all_by_project(projects, **scope)
+        query_scope = {**scope, **({"limit": limit} if limit is not None else {})}
+        raw_columns = self.repo.project_column.get_all_by_project(projects, **query_scope)
         work_counts = self.repo.project_column.get_work_counts(projects, **scope)
         guidance = self.get_workflow_guidance([column for column, _ in raw_columns])
 
@@ -101,32 +106,14 @@ class ProjectColumnService(BaseDomainService):
         stages = self.repo.workflow_stage.get_by_keys(
             {column.workflow_stage for column in columns if column.workflow_stage}
         )
-        result = {}
-        for column in columns:
-            stage = stages.get(column.workflow_stage)
-            stage_description = stage.description if stage else ""
-            column_description = column.description
-            parts = []
-            if stage_description.strip():
-                parts.append(f"Workflow stage:\n{stage_description}")
-            if column_description.strip():
-                parts.append(f"Column:\n{column_description}")
-            result[column.id] = {
-                "workflow_counts_as_completed": stage.counts_as_completed if stage else None,
-                "workflow_stage_description": stage_description,
-                "column_description": column_description,
-                "workflow_guidance": "\n\n".join(parts),
-                "workflow_stage_status": "active"
-                if stage and stage.is_active
-                else "inactive"
-                if stage
-                else "missing"
-                if column.workflow_stage
-                else "unclassified",
-            }
-        return result
+        return column_workflow_contexts(columns, stages=stages)
 
-    def get_api_bot_scopes_by_project(self, project: TProjectParam | None) -> list[dict[str, Any]]:
+    def get_workflow_context(self, column: ProjectColumn) -> dict[str, Any]:
+        return {"workflow_stage": column.workflow_stage, **self.get_workflow_guidance([column])[column.id]}
+
+    def get_api_bot_scopes_by_project(
+        self, project: TProjectParam | None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         project = InfraHelper.get_by_id_like(Project, project)
         if not project:
             return []
@@ -137,6 +124,7 @@ class ProjectColumnService(BaseDomainService):
                 ProjectColumn,
                 ProjectColumn.column("id") == ProjectColumnBotScope.column("project_column_id"),
             ).where(ProjectColumn.column("project_id") == project.id),
+            **({"limit": limit} if limit is not None else {}),
         )
         return [scope.api_response() for scope in scopes]
 

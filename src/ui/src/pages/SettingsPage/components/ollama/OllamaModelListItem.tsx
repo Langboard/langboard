@@ -7,6 +7,7 @@ import Popover from "@/components/base/Popover";
 import SubmitButton from "@/components/base/SubmitButton";
 import Tooltip from "@/components/base/Tooltip";
 import useGetOllamaModelList from "@/controllers/api/settings/ollama/useGetOllamaModelList";
+import useOllamaModelCommand from "@/controllers/api/settings/ollama/useOllamaModelCommand";
 import useCopyOllamaModelHandlers from "@/controllers/socket/settings/ollama/useCopyOllamaModelHandlers";
 import useDeleteOllamaModelHandlers from "@/controllers/socket/settings/ollama/useDeleteOllamaModelHandlers";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
@@ -79,9 +80,10 @@ function OllamaModelListItemCopyButton({ name }: { name: string }) {
     const [t] = useTranslation();
     const inputRef = useRef<HTMLInputElement>(null);
     const [isOpened, setIsOpened] = useState(false);
-    const { send: sendCopyOllamaModel } = useCopyOllamaModelHandlers({});
+    const { mutateAsync: command } = useOllamaModelCommand();
+    const { mutateAsync: getOllamaModelList } = useGetOllamaModelList();
     const [isValidating, setIsValidating] = useState(false);
-    const save = () => {
+    const save = async () => {
         if (isValidating || !inputRef.current) {
             return;
         }
@@ -95,23 +97,28 @@ function OllamaModelListItemCopyButton({ name }: { name: string }) {
             return;
         }
 
-        sendCopyOllamaModel({
-            model: name,
-            copy_to: value,
-        });
+        try {
+            await command({ action: "copy", model: name, copy_to: value });
+            setIsOpened(false);
+        } catch {
+            return;
+        } finally {
+            setIsValidating(false);
+            void getOllamaModelList({}).catch(() => undefined);
+        }
     };
 
     return (
         <Popover.Root modal open={isOpened} onOpenChange={setIsOpened}>
             <Popover.Trigger asChild>
-                <Button size="icon-sm" variant="outline" title={t("common.Copy")}>
+                <Button size="icon-sm" variant="outline" title={t("common.Copy")} aria-label={t("common.Copy")}>
                     <IconComponent icon="copy" size="4" />
                 </Button>
             </Popover.Trigger>
             <Popover.Content>
                 <Flex direction="col" gap="3">
                     <Floating.LabelInput label={t("settings.Model name")} autoFocus autoComplete="off" disabled={false} ref={inputRef} />
-                    <SubmitButton type="button" isValidating={false} onClick={save}>
+                    <SubmitButton type="button" isValidating={isValidating} onClick={save}>
                         {t("common.Copy")}
                     </SubmitButton>
                 </Flex>
@@ -122,33 +129,32 @@ function OllamaModelListItemCopyButton({ name }: { name: string }) {
 
 function OllamaModelListItemDeleteButton({ name }: { name: string }) {
     const [t] = useTranslation();
-    const inputRef = useRef<HTMLInputElement>(null);
     const [isOpened, setIsOpened] = useState(false);
-    const { send: sendDeleteOllamaModel } = useDeleteOllamaModelHandlers({});
+    const { mutateAsync: command } = useOllamaModelCommand();
+    const { mutateAsync: getOllamaModelList } = useGetOllamaModelList();
     const [isValidating, setIsValidating] = useState(false);
-    const deleteModel = () => {
-        if (isValidating || !inputRef.current) {
+    const deleteModel = async () => {
+        if (isValidating) {
             return;
         }
 
         setIsValidating(true);
 
-        const value = inputRef.current.value.trim();
-        if (!value) {
-            setIsValidating(false);
-            inputRef.current.focus();
+        try {
+            await command({ action: "delete", model: name });
+            setIsOpened(false);
+        } catch {
             return;
+        } finally {
+            setIsValidating(false);
+            void getOllamaModelList({}).catch(() => undefined);
         }
-
-        sendDeleteOllamaModel({
-            model: name,
-        });
     };
 
     return (
         <Popover.Root modal open={isOpened} onOpenChange={setIsOpened}>
             <Popover.Trigger asChild>
-                <Button size="icon-sm" variant="destructive" title={t("common.Delete")}>
+                <Button size="icon-sm" variant="destructive" title={t("common.Delete")} aria-label={t("common.Delete")}>
                     <IconComponent icon="trash" size="4" />
                 </Button>
             </Popover.Trigger>

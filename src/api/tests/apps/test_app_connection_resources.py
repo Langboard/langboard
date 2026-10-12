@@ -8,7 +8,13 @@ from langboard.routes.settings import AppConnectionResourcesApi  # noqa: F401
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
-from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding, ProjectAssignedUser
+from langboard_shared.domain.models import (
+    AppConnection,
+    AppResourceBinding,
+    BoardAppBinding,
+    Organization,
+    ProjectAssignedUser,
+)
 from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
 from langboard_shared.domain.services.AppConnectionResources import list_connection_resources
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
@@ -35,6 +41,7 @@ def scope(board):
                 resource_type="issue",
                 external_resource_id=str(i),
                 access_state="granted",
+                is_selected=True,
             )
             for i in range(3)
         ]
@@ -43,7 +50,7 @@ def scope(board):
     return connection, definition, binding, rows, issue_connection_credential(actor, connection.id)["token"]
 
 
-@pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_native_resource_paging_and_connection_isolation(board):
     connection, _, binding, rows, token = scope(board)
     with DbSession.atomic() as db:
@@ -61,6 +68,7 @@ def test_native_resource_paging_and_connection_isolation(board):
                 resource_type="issue",
                 external_resource_id=str(kwargs),
                 access_state="granted",
+                is_selected=True,
             )
             db.insert(AppResourceBinding(**{**values, **kwargs}))
     app = FastAPI()
@@ -68,6 +76,13 @@ def test_native_resource_paging_and_connection_isolation(board):
     path = f"/apps/v1/boards/{board[2].get_uid()}/resources"
     with TestClient(app) as client:
         assert client.get(path).status_code == 401
+        assert client.get(path, headers={"Authorization": "Bearer "}).status_code == 401
+        assert (
+            client.get(
+                path.replace(board[2].get_uid(), "invalid"), headers={"Authorization": f"Bearer {token}"}
+            ).status_code
+            == 400
+        )
         headers = {"Authorization": f"Bearer {token}", "X-App-Key": "other"}
         first = client.get(path, headers=headers, params={"limit": 2})
         assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
@@ -89,7 +104,7 @@ def test_native_resource_paging_and_connection_isolation(board):
         )
 
 
-@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
 @pytest.mark.parametrize("gate", ["consent", "binding", "declaration", "shared", "organization", "project"])
 def test_current_board_authority_revocation(board, gate):
     _, definition, binding, _, token = scope(board)
@@ -107,7 +122,9 @@ def test_current_board_authority_revocation(board, gate):
         elif gate == "shared":
             db.insert(ProjectAssignedUser(project_id=board[2].id, user_id=2))
         elif gate == "organization":
-            board[2].organization_id = 999
+            foreign = Organization(name="Other organization", slug="other", owner_user_id=board[1].id)
+            db.insert(foreign)
+            board[2].organization_id = foreign.id
             db.update(board[2])
         elif gate == "project":
             from langboard_shared.core.types import SafeDateTime
@@ -118,7 +135,7 @@ def test_current_board_authority_revocation(board, gate):
         list_connection_resources(token, board[2].id)
 
 
-@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
 @pytest.mark.parametrize("gate", [None, "role", "organization", "member", "foreign"])
 def test_organization_connection_preserves_current_board_authority(board, gate):
     from langboard_shared.domain.models import Organization
@@ -145,10 +162,41 @@ def test_organization_connection_preserves_current_board_authority(board, gate):
         elif gate == "member":
             db.delete(board[3])
         elif gate == "foreign":
-            board[2].organization_id = 999
+            foreign = Organization(name="Other organization", slug="other", owner_user_id=board[1].id)
+            db.insert(foreign)
+            board[2].organization_id = foreign.id
             db.update(board[2])
         else:
             organization.is_active = False
             db.update(organization)
     with pytest.raises(AppGovernanceDenied):
         list_connection_resources(token, board[2].id)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_resource_identity_change_does_not_reuse_prior_approval(board):
+    from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
+
+    connection, definition, _, resources, old_token = scope(board)
+    with DbSession.atomic() as db:
+        from langboard_shared.domain.services.AppGovernance import _current
+        from langboard_shared.domain.models import AppConnection
+
+        current = _current(db, AppConnection, connection.id, for_update=False)
+        resources[0].identity_hash = _identity_hash(db, current, definition=definition)
+        resources[1].identity_hash = "foreign-account"
+        db.update(resources[0])
+        db.update(resources[1])
+    assert [item["resource_uid"] for item in list_connection_resources(old_token, board[2].id)["items"]] == [
+        resources[0].get_uid(),
+        resources[2].get_uid(),
+    ]
+    with DbSession.atomic() as db:
+        from datetime import timedelta
+
+        connection.updated_at += timedelta(seconds=1)
+        db.update(connection)
+    new_token = issue_connection_credential(board[1], connection.id)["token"]
+    assert [item["resource_uid"] for item in list_connection_resources(new_token, board[2].id)["items"]] == [
+        resources[2].get_uid()
+    ]

@@ -224,10 +224,36 @@ def signed_request(
 
 
 def sign_webhook_bytes(
-    body: bytes, event_id: str, secret: str | None, *, timestamp: int | None = None, version: str = "1"
+    body: bytes,
+    event_id: str,
+    secret: str | None,
+    *,
+    timestamp: int | None = None,
+    version: str = "1",
 ) -> tuple[bytes, dict[str, str]]:
-    """Sign exact canonical bytes; payload projection belongs to the caller."""
-    delivered_at = str(timestamp if timestamp is not None else int(time()))
+    """Sign exact wire bytes using the native webhook protocol, without projection.
+
+    Event consumers must still deduplicate and verify current authority. Optional
+    unsigned delivery is retained only for existing administrator webhooks; app
+    delivery callers must require a current vault-backed signing secret.
+    """
+    if not isinstance(body, bytes) or len(body) > 1024 * 1024:
+        raise ValueError("Webhook body must be bounded bytes")
+    if (
+        not isinstance(event_id, str)
+        or not event_id
+        or len(event_id) > 100
+        or any(ord(c) < 32 or ord(c) == 127 for c in event_id)
+    ):
+        raise ValueError("Invalid webhook event ID")
+    clock = int(time()) if timestamp is None else timestamp
+    if type(clock) is not int or not 0 <= clock < 10**12:
+        raise ValueError("Invalid webhook timestamp")
+    if version != "1":
+        raise ValueError("Unsupported webhook version")
+    if secret is not None and (not isinstance(secret, str) or not secret or len(secret) > 16384):
+        raise ValueError("Invalid webhook signing secret")
+    delivered_at = str(clock)
     headers = {
         "Content-Type": "application/json",
         "X-Langboard-Webhook-Id": event_id,

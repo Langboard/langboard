@@ -25,11 +25,15 @@ from .GlobalCardRelationshipTypeRepository import GlobalCardRelationshipTypeRepo
 from .GlobalLabelRepository import GlobalLabelRepository
 from .GraphApprovalRequestRepository import GraphApprovalRequestRepository
 from .InternalBotRepository import InternalBotRepository
+from .InternalBotRunRepository import InternalBotRunRepository
 from .McpToolGroupRepository import McpToolGroupRepository
 from .McpToolGroupUsageRepository import McpToolGroupUsageRepository
 from .MetadataRepository import MetadataRepository
+from .NotificationEmailDeliveryRepository import NotificationEmailDeliveryRepository
 from .NotificationScheduleRuleRepository import NotificationScheduleRuleRepository
 from .OrganizationRepository import OrganizationRepository
+from .OllamaModelPullRepository import OllamaModelPullRepository
+from .ProjectActivityEmailDeliveryRepository import ProjectActivityEmailDeliveryRepository
 from .ProjectAssignedInternalBotRepository import ProjectAssignedInternalBotRepository
 from .ProjectAssignedUserRepository import ProjectAssignedUserRepository
 from .ProjectBotDefaultScopeRepository import ProjectBotDefaultScopeRepository
@@ -93,9 +97,12 @@ __all__ = [
     "WorkflowStageRepository",
     "GraphApprovalRequestRepository",
     "InternalBotRepository",
+    "InternalBotRunRepository",
     "McpToolGroupRepository",
     "McpToolGroupUsageRepository",
     "MetadataRepository",
+    "NotificationEmailDeliveryRepository",
+    "OllamaModelPullRepository",
     "NotificationScheduleRuleRepository",
     "OrganizationRepository",
     "ProjectAssignedInternalBotRepository",
@@ -106,6 +113,7 @@ __all__ = [
     "ProjectColumnBotScopeRepository",
     "ProjectColumnRepository",
     "ProjectEmailNotificationRepository",
+    "ProjectActivityEmailDeliveryRepository",
     "ProjectInvitationRepository",
     "ProjectLabelRepository",
     "ProjectRepository",

@@ -1,16 +1,26 @@
 """Explicit inbound service identities and board resource consent for approved apps."""
 
+from sqlalchemy import update
 from ...core.db import DbSession, SqlBuilder
+from ...core.types import SafeDateTime
 from ...publishers import AppSettingPublisher
-from ..models import AppConnection, AppDefinition, AppResourceBinding, BoardAppBinding
+from ..models import (
+    AppConnection,
+    AppConnectionCredential,
+    AppDefinition,
+    AppMcpConsent,
+    AppResourceBinding,
+    BoardAppBinding,
+)
 from ..models.ProjectRole import ProjectRoleAction
-from .AppConnectionAuthentication import _identity_hash, _manage
+from .AppConnectionAuthentication import _identity_hash, _manage, is_native_inbound_connection
 from .AppGovernance import (
     AppGovernanceDenied,
     _actor,
     _authorize,
     _current,
     current_policy,
+    lock_policy_mutation,
     require_connection_access,
 )
 from .AppManifest import APP_MANIFESTS
@@ -36,6 +46,7 @@ def create_inbound_connection(actor, key, app_revision, organization_id=None):
     Personal credentials remain owned by the caller even for instance admins.
     """
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         actor = _actor(db, actor)
         if organization_id is not None:
             _authorize(db, actor, organization_id)
@@ -61,14 +72,34 @@ def create_inbound_connection(actor, key, app_revision, organization_id=None):
 
 def disconnect_inbound_connection(actor, connection_id, expected_revision):
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         connection = _current(db, AppConnection, connection_id)
-        if connection is None or connection.app_key in APP_MANIFESTS:
+        if connection is None or not is_native_inbound_connection(connection):
             raise AppGovernanceDenied()
         _manage(db, actor, connection)
         if _identity_hash(db, connection) != expected_revision:
             raise AppRegistryConflict()
         connection.state = "disconnected"
         db.update(connection)
+        db.exec(
+            update(AppConnectionCredential)
+            .where(
+                AppConnectionCredential.connection_id == connection.id,
+                AppConnectionCredential.revoked_at.is_(None),
+            )
+            .values(revoked_at=SafeDateTime.now())
+        )
+        consent = db.exec(
+            SqlBuilder.select.table(AppMcpConsent)
+            .where(
+                AppMcpConsent.connection_id == connection.id,
+            )
+            .with_for_update()
+        ).first()
+        if consent is not None and consent.scope_tools:
+            consent.scope_tools = {}
+            consent.revision += 1
+            db.update(consent)
         db.after_commit(AppSettingPublisher.apps_changed)
         return {
             "connection_uid": connection.get_uid(),
@@ -84,6 +115,7 @@ def list_inbound_connections(actor, key, *, organization_id=None, after_id=None,
     if key in APP_MANIFESTS:
         raise AppGovernanceDenied()
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         actor = _actor(db, actor)
         statement = SqlBuilder.select.table(AppConnection).where(AppConnection.app_key == key)
         if organization_id is None:
@@ -93,17 +125,23 @@ def list_inbound_connections(actor, key, *, organization_id=None, after_id=None,
             statement = statement.where(
                 AppConnection.ownership == "organization", AppConnection.organization_id == organization_id
             )
+        statement = statement.where(
+            AppConnection.credential_reference.is_(None),
+            AppConnection.instance_url == "",
+            AppConnection.external_account_id == "",
+        )
         if after_id is not None:
             statement = statement.where(AppConnection.id > after_id)
         rows = db.exec(statement.order_by(AppConnection.id).limit(limit + 1)).all()
         page = rows[:limit]
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key)).first()
         return {
             "items": [
                 {
                     "connection_uid": row.get_uid(),
                     "ownership": row.ownership,
                     "state": row.state,
-                    "revision": _identity_hash(db, row),
+                    "revision": _identity_hash(db, row, definition=definition),
                 }
                 for row in page
             ],
@@ -180,6 +218,7 @@ def select_inbound_resource(
     increment its access generation. Removing selection revokes cached authority.
     """
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         board = service._authorized_app_board(
             actor, project_uid, ProjectRoleAction.Update, lock=True, revocation=not selected
         )
@@ -216,6 +255,7 @@ def select_inbound_resource(
             )
             .with_for_update()
         ).first()
+        identity = _identity_hash(db, connection, definition=definition) if selected else ""
         if resource is None:
             if expected_access_revision is not None:
                 raise AppRegistryConflict()
@@ -229,14 +269,20 @@ def select_inbound_resource(
                 access_state="granted",
                 is_selected=True,
                 access_revision=1,
+                identity_hash=identity,
             )
             db.insert(resource)
         else:
             if resource.access_revision != expected_access_revision:
                 raise AppRegistryConflict()
-            if resource.is_selected != selected or resource.access_state != ("granted" if selected else "revoked"):
+            if (
+                resource.is_selected != selected
+                or resource.access_state != ("granted" if selected else "revoked")
+                or resource.identity_hash != identity
+            ):
                 resource.is_selected = selected
                 resource.access_state = "granted" if selected else "revoked"
+                resource.identity_hash = identity
                 resource.access_revision += 1
                 db.update(resource)
         db.after_commit(AppSettingPublisher.apps_changed)

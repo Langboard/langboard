@@ -18,6 +18,7 @@ ENV PATH="/root/.local/bin/:$PATH"
 
 RUN uv --version
 
+COPY ./sdk/vendor /app/src/sdk/vendor
 COPY ./graph /app/src/graph
 COPY ./shared/py /app/src/shared/py
 

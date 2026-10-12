@@ -1860,7 +1860,7 @@ class CardService(BaseDomainService):
         project: TProjectParam | None,
         card: TCardParam | None,
         order: int,
-        new_column: TColumnParam | None | None,
+        new_column: TColumnParam | None,
     ) -> bool | None:
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
@@ -1889,6 +1889,8 @@ class CardService(BaseDomainService):
                             "Only the original card author or an administrator can delete this card"
                         )
                     return self._delete_card(user_or_bot, project, card)
+                if new_column.id == old_column.id:
+                    new_column = None
             execution.watch_card_and_dependents(card.id)
             old_order = card.order
             entering_archive = bool(new_column and new_column.is_archive and not card.archived_at)

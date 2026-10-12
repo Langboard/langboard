@@ -346,10 +346,19 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
     from langboard_shared.domain.models import AppDefinition
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == request.app_key)).first()
-        definition.declaration = {**definition.declaration, "panel": {"url": "https://example.test/panel", "name": "Runtime panel"}}
+        definition.declaration = {**definition.declaration, "panel": {"url": "https://example.test/panel", "name": "Runtime panel", "icon": "runtime"}}
         binding.granted_capabilities = [*capabilities, "panels.render"]
         db.update(definition)
         db.update(binding)
+        # The updated declaration changes connection identity. Explicitly
+        # approve this fixture's selected resource for the current app again.
+        from langboard_shared.domain.models import AppResourceBinding
+        from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
+        resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
+            AppResourceBinding.connection_id == connection.id
+        )).first()
+        resource.identity_hash = _identity_hash(db, connection, definition=definition)
+        db.update(resource)
         revisions = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision()}
     app = FastAPI()
     app.include_router(AppRouter.api)

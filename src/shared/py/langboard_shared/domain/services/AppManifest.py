@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from types import MappingProxyType
 from ..models.ProjectRole import ProjectRoleAction
-from .AppWorkflowPolicy import APP_WORKFLOW_REQUIREMENTS, WorkflowRequirements
+from langboard_sdk import WorkflowRequirements
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ APP_MANIFESTS = MappingProxyType(
             "GitHub",
             ("repository",),
             ("resources.read", "signals.read", "workflow.transition"),
-            APP_WORKFLOW_REQUIREMENTS["github"],
+            WorkflowRequirements(("active", "review", "closed"), ("ready",)),
             signal_policy=AppSignalPolicy(("check.completed",), ("repository",), requires_commit=True),
         ),
         "glitchtip": AppManifest(
@@ -79,7 +79,7 @@ APP_MANIFESTS = MappingProxyType(
             "GlitchTip",
             ("organization", "project"),
             ("resources.read", "signals.read", "workflow.transition"),
-            APP_WORKFLOW_REQUIREMENTS["glitchtip"],
+            WorkflowRequirements(("active", "review", "closed")),
             signal_policy=AppSignalPolicy(
                 ("issue.status_observed",), ("project",), ("signals.read", "resources.read"),
                 requires_empty_commit=True, time_basis="observation", evidence_kind="issue_observation",

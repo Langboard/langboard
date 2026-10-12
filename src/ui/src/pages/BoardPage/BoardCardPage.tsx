@@ -376,7 +376,6 @@ const BoardCardPageComponent = ({
                                 }
                                 if (isCardEditingRef.current) {
                                     event.preventDefault();
-                                    handleCloseRequest();
                                     return;
                                 }
 

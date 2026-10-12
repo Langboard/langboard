@@ -1,62 +1,55 @@
-FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS build
+ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
+ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+
+FROM ${ELIXIR_IMAGE} AS build
+
+ENV MIX_ENV=prod
+WORKDIR /app/socket
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mix local.hex --force && mix local.rebar --force
+
+COPY socket/mix.exs socket/mix.lock ./
+RUN mix deps.get --only prod && mix deps.compile
+
+COPY socket/config ./config
+COPY socket/lib ./lib
+COPY socket/rel ./rel
+COPY shared/realtime /app/shared/realtime
+
+RUN mix compile --warnings-as-errors && mix release
+
+FROM ${RUNTIME_IMAGE} AS runtime
+
+ARG PROJECT_NAME=langboard
+
+LABEL com.docker.compose.project=${PROJECT_NAME}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl libncurses6 libstdc++6 openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system langboard \
+    && useradd --system --gid langboard --home-dir /app langboard
+
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-COPY shared/ts /shared/ts
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd /shared/ts && yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000 && yarn build
+COPY --from=build --chown=langboard:langboard /app/socket/_build/prod/rel/langboard_socket ./
 
-COPY socket /app
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000 && yarn build
-# Reinstall from empty dependency trees: Yarn file dependencies copy their source tree.
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd /shared/ts && rm -rf node_modules && yarn install --frozen-lockfile --production --network-concurrency 4 --network-timeout 120000
-# Compile native production dependencies against the runtime base libc, not downloaded prebuilds.
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn rm -rf node_modules && npm_config_build_from_source=true npm_config_nodedir=/usr/local yarn install --frozen-lockfile --production --network-concurrency 4 --network-timeout 120000
+ENV HOME=/app \
+    LANG=C.UTF-8 \
+    OTEL_SERVICE_NAME=langboard-socket \
+    PHX_SERVER=true \
+    PORT=5690
 
-FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
-    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
-WORKDIR /app
-RUN mkdir -p /app/local && chown -R node:node /app/local
-ENV SOCKET_DATA_DIR=/app/local
-COPY --from=build --chown=node:node /shared/ts /shared/ts
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/dist ./dist
-COPY --from=build --chown=node:node /app/package.json ./package.json
-USER 1000:1000
-# Exercise native SQLite and both database drivers in the final filesystem.
-RUN node --input-type=module <<'JS'
-import assert from "node:assert/strict";
-import { readFileSync, unlinkSync } from "node:fs";
-import sqlite3 from "sqlite3";
-import { DataSource } from "typeorm";
-import pg from "pg";
-assert.equal(typeof pg.Pool, "function");
-const smokePath = `${process.env.SOCKET_DATA_DIR}/.build-smoke.sqlite`;
-const database = new sqlite3.Database(smokePath);
-try {
-    const row = await new Promise((resolve, reject) => database.get("SELECT 1 AS ok", (error, row) => error ? reject(error) : resolve(row)));
-    assert.equal(row.ok, 1);
-} finally {
-    await new Promise((resolve, reject) => database.close(error => error ? reject(error) : resolve()));
-    unlinkSync(smokePath);
-}
-const sqlite = new DataSource({ type: "sqlite", database: ":memory:" });
-await sqlite.initialize();
-try {
-    assert.equal((await sqlite.query("SELECT 1 AS ok"))[0].ok, 1);
-} finally {
-    await sqlite.destroy();
-}
-const postgres = new DataSource({ type: "postgres" });
-assert.equal(postgres.driver.postgres, pg);
-await import("terminal-kit"); // Logger uses createRequire for this external.
-// Import actual static external modules retained by the Socket bundle, without starting it.
-const bundle = readFileSync("dist/index.js", "utf8");
-const imports = bundle.matchAll(/^import\s+(?:[^;]*?\s+from\s+)?["']([^"']+)["']/gm);
-for (const specifier of new Set([...imports].map(match => match[1]))) {
-    if (!specifier.startsWith(".") && !specifier.startsWith("/")) await import(specifier);
-}
-JS
+USER langboard
+
 EXPOSE 5690
-CMD ["node", "dist/index.js"]
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=12 \
+    CMD curl --fail --silent --show-error --max-time 2 http://127.0.0.1:5690/health || exit 1
+
+ENTRYPOINT ["/app/bin/langboard_socket"]
+CMD ["start"]
