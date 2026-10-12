@@ -754,3 +754,20 @@ interaction HTTP/SDK, connection authentication, governance and foundation
 migrations. A final focused interaction rerun covers rejection of tampered
 answer payloads as well. Delivery state was advanced by the test fixture; this
 does not prove a signed delivery worker, live runtime or deployed canary.
+
+### Exact-byte native webhook signing
+
+`WebhookTask.sign_webhook_bytes` implements the existing v1 HMAC protocol over
+the exact timestamp and transmitted bytes. Ordinary `signed_request` delegates
+to it after its existing metadata projection. App answer payloads can therefore
+preserve question/response values and non-ASCII text without using the ordinary
+webhook projection or creating a second signing format. The helper bounds body
+size, rejects invalid header identity/version/timestamps and accepts the
+existing unsigned administrator-webhook mode only when no secret is supplied.
+App delivery must require a vault-backed secret at its destination boundary.
+
+The standalone SDK verifier authenticates the raw app event; altered values,
+added whitespace, wrong secrets and expired timestamps fail. Nine new cases
+and the existing webhook contract regression passed together: 41 tests in
+1.34 seconds. No app destination binding, network delivery worker or lease is
+implemented by this helper. These remain necessary before deployed acceptance.
