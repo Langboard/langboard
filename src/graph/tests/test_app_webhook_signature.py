@@ -3,8 +3,8 @@
 import json
 import pytest
 from langboard_sdk.webhooks import InvalidWebhook, verify_webhook
-from langboard_shared.tasks.webhooks.WebhookTask import sign_webhook_bytes, signed_request
 from langboard_shared.tasks.webhooks.utils import WebhookModel
+from langboard_shared.tasks.webhooks.WebhookTask import sign_webhook_bytes, signed_request
 
 
 def test_native_app_answer_bytes_verified_by_standalone_sdk():
