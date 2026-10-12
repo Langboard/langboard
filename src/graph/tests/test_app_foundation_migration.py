@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["f4a5b6c7d8e9"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["a5b6c7d8e9f0"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -725,7 +725,7 @@ def test_app_event_claim_migration_roundtrip():
         admin.dispose()
 
 
-@pytest.mark.parametrize("receipt", ["lease", "start", "active"])
+@pytest.mark.parametrize("receipt", ["lease", "start", "active", "review"])
 def test_app_runtime_lease_migration_roundtrip(receipt):
     url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
     if not url:
@@ -744,13 +744,21 @@ def test_app_runtime_lease_migration_roundtrip(receipt):
             else "20261012220000-e3f4a5b6c7d8.py"
             if receipt == "start"
             else "20261012230000-f4a5b6c7d8e9.py"
+            if receipt == "active"
+            else "20261013000000-a5b6c7d8e9f0.py"
         )
     )
     spec = importlib.util.spec_from_file_location("app_lease_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     assert migration.down_revision == (
-        "c1f2a3b4d5e6" if receipt == "lease" else "d2f3a4b5c6d7" if receipt == "start" else "e3f4a5b6c7d8"
+        "c1f2a3b4d5e6"
+        if receipt == "lease"
+        else "d2f3a4b5c6d7"
+        if receipt == "start"
+        else "e3f4a5b6c7d8"
+        if receipt == "active"
+        else "f4a5b6c7d8e9"
     )
     try:
         with engine.begin() as db:
@@ -762,6 +770,8 @@ def test_app_runtime_lease_migration_roundtrip(receipt):
                 else "INSERT INTO app_execution_start(id,lease_id,request_id,acknowledgment_id,generation,runtime_reference,execution_reference) VALUES(:id,2,3,4,1,'runtime','process')"
                 if receipt == "start"
                 else "INSERT INTO app_execution_active(id,lease_id,start_id,request_id,project_id,card_id,column_id,generation,snapshot,inputs) VALUES(:id,2,3,4,5,6,7,1,'{}','{}')"
+                if receipt == "active"
+                else "INSERT INTO app_execution_review(id,request_id,snapshot,receipt) VALUES(:id,2,'{}','{}')"
             )
             db.execute(text(insert), {"id": 1})
             if receipt == "lease":

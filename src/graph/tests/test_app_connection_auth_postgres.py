@@ -1602,6 +1602,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         AppCardInteractionResponse,
         AppExecutionActive,
         AppExecutionLease,
+        AppExecutionReview,
         AppExecutionStart,
     )
 
@@ -1609,6 +1610,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         AppExecutionLease,
         AppExecutionStart,
         AppExecutionActive,
+        AppExecutionReview,
         AppCardInteraction,
         AppCardInteractionResponse,
         WorkflowStageDefinition,
@@ -1648,14 +1650,17 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 workflow_mapping={
                     "ready": SnowflakeID(211).to_short_code(),
                     "active": SnowflakeID(213).to_short_code(),
+                    "review": SnowflakeID(214).to_short_code(),
                 },
             )
         )
         db.add(WorkflowStageDefinition(id=201, key="ready", name="Ready", is_builtin=True))
         db.add(WorkflowStageDefinition(id=203, key="active", name="Active", is_builtin=True))
+        db.add(WorkflowStageDefinition(id=204, key="review", name="Review", is_builtin=True))
         db.flush()
         db.add(ProjectColumn(id=211, project_id=20, name="Queue", workflow_stage="ready"))
         db.add(ProjectColumn(id=213, project_id=20, name="Working", workflow_stage="active"))
+        db.add(ProjectColumn(id=214, project_id=20, name="Check", workflow_stage="review"))
         db.flush()
         db.add(Card(id=221, project_id=20, project_column_id=211, title="Example"))
         db.commit()
@@ -2194,6 +2199,91 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 assert runtime_token not in json.dumps(lease.history)
                 assert db.query(AppExecutionStart).count() == 1
                 assert db.get(Card, 221).project_column_id == 213
+            review_path = app_path + "/review"
+            assert client.get(review_path, headers=app_headers).status_code == 403
+            review_authority = asyncio.run(sdk_read())["authority"]
+            assert (
+                client.post(check_path, json={"runtime_token": runtime_token, "stopped": True}).json()["state"]
+                == "stopped"
+            )
+
+            async def sdk_review(read=False, evidence="result-example-1"):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    api = AppExecution(HttpTransport(session))
+                    scope = (SnowflakeID(20).to_short_code(), SnowflakeID(221).to_short_code())
+                    if read:
+                        return await api.read_review(*scope, request_uid=receipts[0]["request_uid"])
+                    return await api.request_review(
+                        *scope,
+                        request_uid=receipts[0]["request_uid"],
+                        generation=1,
+                        expected_card_revision=review_authority["card_revision"],
+                        expected_binding_revision=review_authority["binding_revision"],
+                        evidence_reference=evidence,
+                    )
+
+            assert asyncio.run(sdk_review(read=True))["state"] == "not_recorded"
+            review_before = asyncio.run(sdk_review(read=True))["current"]
+            assert (
+                client.post(
+                    review_path,
+                    headers=app_headers,
+                    json={
+                        "generation": 1,
+                        "expected_card_revision": 0,
+                        "expected_binding_revision": review_authority["binding_revision"],
+                        "evidence_reference": "result-example-1",
+                    },
+                ).status_code
+                == 409
+            )
+
+            def fail_review(db, row):
+                if isinstance(row, AppExecutionReview):
+                    raise RuntimeError("review receipt persistence failed")
+                return original_insert(db, row)
+
+            with monkeypatch.context() as failure:
+                failure.setattr(DbSession, "insert", fail_review)
+                with pytest.raises(RuntimeError):
+                    asyncio.run(sdk_review())
+            assert asyncio.run(sdk_review(read=True))["current"] == review_before
+            assert moves == ["published"]
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                reviews = list(pool.map(lambda _: asyncio.run(sdk_review()), range(2)))
+            assert sorted(row["changed"] for row in reviews) == [False, True]
+            assert moves == ["published", "published"]
+            recorded = asyncio.run(sdk_review(read=True))
+            assert recorded["state"] == "recorded"
+            assert recorded["receipt"]["evidence_kind"] == "app_attestation"
+            assert not recorded["started"] and not recorded["execution_resumed"]
+            with pytest.raises(NativeApiError) as different_review:
+                asyncio.run(sdk_review(evidence="different-result"))
+            assert different_review.value.status_code == 409
+            assert not client.post(check_path, json={"runtime_token": runtime_token}).json()["permit_execution"]
+            with Session(engine) as db:
+                assert db.get(Card, 221).project_column_id == 214
+                assert db.get(CardExecutionIntent, request_id).snapshot == snapshot
+                db.execute(update(AppResourceBinding).values(access_state="revoked"))
+                db.commit()
+            with pytest.raises(NativeApiError):
+                asyncio.run(sdk_review(read=True))
+            with Session(engine) as db:
+                # Restore fixture Active for independent heartbeat edit/exit gates.
+                db.query(AppExecutionReview).delete()
+                active_snapshot = db.query(AppExecutionActive).one().snapshot
+                db.execute(update(AppResourceBinding).values(access_state="granted"))
+                db.execute(update(AppExecutionLease).values(state="authorized"))
+                db.execute(
+                    update(Card)
+                    .where(Card.id == 221)
+                    .values(
+                        project_column_id=213, updated_at=SafeDateTime.fromisoformat(active_snapshot["card_revision"])
+                    )
+                )
+                db.commit()
             with Session(engine) as db:
                 active_card = db.get(Card, 221)
                 retained_active_revision = active_card.updated_at

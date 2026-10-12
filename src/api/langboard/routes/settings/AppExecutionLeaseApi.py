@@ -175,3 +175,62 @@ def read_active_runtime(
         SnowflakeID.from_short_code(body.lease_uid),
         body.runtime_token,
     )
+
+
+class RuntimeReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    generation: int = Field(strict=True, ge=1)
+    expected_card_revision: int = Field(strict=True, ge=0)
+    expected_binding_revision: str = Field(min_length=1, max_length=100)
+    evidence_reference: str = Field(min_length=1, max_length=200)
+
+
+@AppRouter.api.post(
+    "/apps/v1/boards/{project_uid}/cards/{card_uid}/execution-requests/{request_uid}/review", tags=["App.Execution"]
+)
+def request_review(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    card_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    request_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    body: RuntimeReviewBody,
+    authorization: str = Header(default="", max_length=256),
+):
+    from langboard_shared.domain.services.AppExecutionReviews import request_execution_review
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ApiException.Unauthorized_401()
+    return _run(
+        request_execution_review,
+        token,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        SnowflakeID.from_short_code(request_uid),
+        body.generation,
+        body.expected_card_revision,
+        body.expected_binding_revision,
+        body.evidence_reference,
+    )
+
+
+@AppRouter.api.get(
+    "/apps/v1/boards/{project_uid}/cards/{card_uid}/execution-requests/{request_uid}/review", tags=["App.Execution"]
+)
+def read_review(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    card_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    request_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    authorization: str = Header(default="", max_length=256),
+):
+    from langboard_shared.domain.services.AppExecutionReviews import read_execution_review
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ApiException.Unauthorized_401()
+    return _run(
+        read_execution_review,
+        token,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        SnowflakeID.from_short_code(request_uid),
+    )

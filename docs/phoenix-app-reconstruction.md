@@ -957,3 +957,28 @@ resource then denied request reads, responses and event delivery. Disposable
 PostgreSQL full regression passed 83 tests in 48.80 seconds. Actual provider
 execution, stopped-to-Review handoff, independent Monitor acceptance and canary
 browser/broker acceptance remain outstanding.
+
+### Stopped-to-Review handoff
+
+The existing SDK `request_review` and `read_review` contracts now have native
+host routes. A retained start, Active handoff and terminal stopped lease are
+required. Current actor, app, consent, selected resources, execution generation
+and the complete retained Active snapshot still gate the transition. An expired
+or stopped permit is never reused as runtime permission. The explicit built-in
+Review mapping must be active, non-archived and non-completing.
+
+The mutation compares the original observed card/binding revisions and stores
+all four original inputs, including the app's evidence reference. It uses the
+existing native movement path and retains a separate post-Review snapshot.
+Identical concurrent calls converge on one receipt; changed input is rejected.
+A receipt persistence failure rolls back both movement and publication. Neither
+the mutation nor recovery approves the result, marks Done or resumes execution.
+
+Recovery GET returns `recorded` with the retained receipt or `not_recorded` with
+current revisions under current authority. Consumers may retain Active revisions
+before stop, or read `not_recorded.current` after stop before their first attempt.
+An ambiguous mutation must use recovery with frozen inputs, not repeat the POST.
+Current revocation also denies recovery. The installed SDK/HTTP/PostgreSQL focused
+regression passed in 3.13 seconds. Full PostgreSQL regression passed 84 tests
+in 48.31 seconds, including Review migration roundtrip and unique receipt identity.
+Provider termination remains an external attestation acceptance gate.
