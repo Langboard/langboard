@@ -5,15 +5,13 @@ from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
 from ..models import (
     AppExecutionOutbox,
-    AppResourceBinding,
     CardExecutionGeneration,
     CardExecutionIntent,
     ProjectColumn,
     WorkflowStageDefinition,
 )
-from .AppConnectionAuthentication import _identity_hash
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
-from .CardAppResources import _context, _row
+from .CardAppResources import _context, verified_card_app_configuration
 from .CardDependencyState import card_dependency_state
 
 
@@ -23,25 +21,16 @@ def _generation(db, card_id, *, for_update=True):
 
 
 def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, for_update=True):
-    definition, binding, connection, card, owner = _context(
-        db, actor, project_id, card_id, app_key, connection_id, for_update=for_update, withdrawal=False
+    _, binding, card, connection, snapshot = verified_card_app_configuration(
+        db,
+        actor,
+        project_id,
+        card_id,
+        app_key,
+        connection_id,
+        capability="execution.run",
+        for_update=for_update,
     )
-    selection = _row(db, card.id, app_key, for_update=for_update)
-    identity = _identity_hash(db, connection, definition=definition)
-    required = {"resources.read", "execution.run"}
-    if (
-        card.archived_at
-        or owner is None
-        or owner.app_key != app_key
-        or selection is None
-        or selection.connection_id != connection.id
-        or not selection.resource_uids
-        or selection.identity_hash != identity
-        or selection.ownership_revision != owner.revision
-        or not required.issubset(definition.declaration.get("capabilities", []))
-        or not required.issubset(binding.granted_capabilities)
-    ):
-        raise AppGovernanceDenied()
     column = _current(db, ProjectColumn, card.project_column_id, for_update=for_update)
     stage_statement = SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == "ready")
     stage = db.exec(stage_statement.with_for_update() if for_update else stage_statement).first()
@@ -58,35 +47,13 @@ def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, fo
         or binding.workflow_mapping.get("ready") != column.get_uid()
     ):
         raise AppGovernanceDenied()
-    resource_statement = SqlBuilder.select.table(AppResourceBinding).where(
-        AppResourceBinding.id.in_([SnowflakeID.from_short_code(uid) for uid in selection.resource_uids]),
-        AppResourceBinding.board_binding_id == binding.id,
-        AppResourceBinding.connection_id == connection.id,
-        AppResourceBinding.is_selected.is_(True),
-        AppResourceBinding.access_state == "granted",
-        AppResourceBinding.identity_hash == identity,
-        AppResourceBinding.resource_type.in_(definition.declaration.get("resource_types", [])),
-    )
-    resources = db.exec(resource_statement.with_for_update() if for_update else resource_statement).all()
-    if sorted(resource.get_uid() for resource in resources) != sorted(selection.resource_uids):
-        raise AppGovernanceDenied()
     dependencies = card_dependency_state(db, project_id, card_id)
     if dependencies["state"] != "clear":
         raise AppGovernanceDenied()
     return (
         card,
         connection,
-        {
-            "app_revision": definition.edit_revision(),
-            "binding_revision": binding.edit_revision(),
-            "identity_revision": identity,
-            "ownership_revision": owner.revision,
-            "selection_revision": selection.revision,
-            "card_revision": card.updated_at.isoformat(),
-            "stage_revision": stage.edit_revision(),
-            "resource_revisions": {resource.get_uid(): resource.access_revision for resource in resources},
-            "dependency_revision": dependencies["revision"],
-        },
+        {**snapshot, "stage_revision": stage.edit_revision(), "dependency_revision": dependencies["revision"]},
     )
 
 

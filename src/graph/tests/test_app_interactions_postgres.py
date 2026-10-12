@@ -1,0 +1,343 @@
+"""Native SDK request and human response boundary on disposable PostgreSQL."""
+
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from datetime import timedelta
+import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
+import langboard.routes.settings.CardHumanInteractionApi  # noqa: F401
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_sdk.interactions import AppCardInteractions
+from langboard_sdk.rest import HttpTransport
+from langboard_shared.core.caching import Cache
+from langboard_shared.core.db import DbSession
+from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security import AuthSecurity
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
+from langboard_shared.domain.models import (
+    AppCardInteraction,
+    AppCardInteractionResponse,
+    AppDefinition,
+    AppExecutionOutbox,
+    AppResourceBinding,
+    BoardAppBinding,
+    Card,
+    CardAppOwnership,
+    CardAppOwnershipAudit,
+    CardAppResourceSelection,
+    CardAppResourceSelectionAudit,
+    ProjectColumn,
+    ProjectRole,
+    WorkflowStageDefinition,
+)
+from langboard_shared.domain.services.AppCardInteractions import (
+    cancel_app_card_interaction,
+    create_app_card_interaction,
+    read_app_card_interaction,
+    respond_to_app_card_interaction,
+)
+from langboard_shared.domain.services.AppConnectionAuthentication import (
+    issue_connection_credential,
+    revoke_connection_credential,
+)
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
+from langboard_shared.domain.services.CardAppGovernance import set_card_app_ownership
+from langboard_shared.domain.services.CardAppResources import read_card_app_resources, set_card_app_resources
+from langboard_shared.Env import Env
+from langboard_shared.security import Auth
+from sqlalchemy import event, update
+from sqlalchemy.orm import Session
+from test_app_connection_auth_postgres import DECLARATION, connected, registered  # noqa: F401
+from test_app_governance_postgres import governance  # noqa: F401
+
+
+def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, monkeypatch):  # noqa: F811
+    engine, (_, owner, outsider), connection, shared = registered
+    for model in (
+        WorkflowStageDefinition,
+        ProjectColumn,
+        Card,
+        CardAppOwnership,
+        CardAppOwnershipAudit,
+        AppResourceBinding,
+        CardAppResourceSelection,
+        CardAppResourceSelectionAudit,
+        AppCardInteraction,
+        AppCardInteractionResponse,
+        AppExecutionOutbox,
+        ProjectRole,
+    ):
+        model.__table__.create(engine)
+    with Session(engine) as db:
+        declaration = deepcopy(DECLARATION)
+        declaration["capabilities"] += ["cards.create", "resources.read", "interactions.request", "events.receive"]
+        declaration["card_lifecycle"] = {
+            "issue": {"archive": {"mode": "retain", "description": "Retain"}, "restore": "retain_external_state"}
+        }
+        db.execute(update(AppDefinition).values(declaration=declaration))
+        db.execute(update(BoardAppBinding).values(granted_capabilities=declaration["capabilities"]))
+        db.add(WorkflowStageDefinition(id=201, key="ready", name="Ready", is_builtin=True))
+        db.flush()
+        db.add(ProjectColumn(id=211, project_id=20, name="Queue", workflow_stage="ready"))
+        db.flush()
+        db.add(Card(id=221, project_id=20, project_column_id=211, title="Example"))
+        db.commit()
+        app_revision = db.query(AppDefinition).one().edit_revision()
+        binding_revision = db.query(BoardAppBinding).one().edit_revision()
+    ids = (SnowflakeID(20), SnowflakeID(221))
+    set_card_app_ownership(owner, *ids, "example", None, app_revision)
+    initial = read_card_app_resources(owner, *ids, "example", connection.id)
+    with Session(engine) as db:
+        db.add(
+            AppResourceBinding(
+                id=301,
+                board_binding_id=80,
+                connection_id=connection.id,
+                resource_type="issue",
+                external_resource_id="one",
+                is_selected=True,
+                access_state="granted",
+                identity_hash=initial["identity_revision"],
+            )
+        )
+        db.commit()
+    set_card_app_resources(
+        owner,
+        *ids,
+        "example",
+        connection.id,
+        [SnowflakeID(301).to_short_code()],
+        None,
+        1,
+        initial["identity_revision"],
+        app_revision,
+        binding_revision,
+    )
+    credential = issue_connection_credential(owner, connection.id)
+    token = credential["token"]
+    body = {
+        "schema_version": 1,
+        "kind": "approval",
+        "app_request_key": "approval_one",
+        "prompt": {"en": "Approve?"},
+        "questions": [
+            {
+                "id": "decision",
+                "type": "single_choice",
+                "prompt": {"en": "Decision"},
+                "choices": [{"id": "approve", "label": {"en": "Approve"}}, {"id": "reject", "label": {"en": "Reject"}}],
+            }
+        ],
+        "presentation": {"type": "card_action"},
+        "expires_at": (SafeDateTime.now() + timedelta(hours=1)).isoformat(),
+    }
+    Cache.clear()
+    Auth.reset_user(owner)
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-interaction-secret-32bytes"))
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    try:
+
+        async def sdk_create():
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as session:
+                return await AppCardInteractions(HttpTransport(session)).create(*(i.to_short_code() for i in ids), body)
+
+        created = asyncio.run(sdk_create())
+        assert created["revision"] == 1 and created["response"] is None and created["changed"] is True
+        assert asyncio.run(sdk_create())["changed"] is False
+        uid = SnowflakeID.from_short_code(created["interaction_uid"])
+        statements = []
+
+        def record_query(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement.upper())
+
+        event.listen(engine, "before_cursor_execute", record_query)
+        try:
+            assert read_app_card_interaction(token, *ids, uid)["state"] == "pending"
+        finally:
+            event.remove(engine, "before_cursor_execute", record_query)
+        assert not any("FOR UPDATE" in statement for statement in statements)
+
+        with pytest.raises(AppGovernanceConflict):
+            create_app_card_interaction(token, *ids, {**body, "prompt": {"en": "Changed"}})
+        values = {"decision": {"choice_id": "approve"}}
+        args = (*ids, uid, values, 1, "response-key-00001")
+        with pytest.raises(AppGovernanceDenied):
+            respond_to_app_card_interaction(outsider, *args)
+        with TestClient(app) as client:
+            path = f"/board/{ids[0].to_short_code()}/card/{ids[1].to_short_code()}/interactions/{uid.to_short_code()}/responses"
+            response_body = {"values": values, "expected_revision": 1, "idempotency_key": "response-key-00001"}
+            assert (
+                client.post(path, headers={"Authorization": f"Bearer {token}"}, json=response_body).status_code == 401
+            )
+            access, refresh = AuthSecurity.authenticate(owner.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            headers = {"Authorization": f"Bearer {access}"}
+            assert client.post(path, headers=headers, json={**response_body, "actor_id": 1}).status_code in (400, 422)
+            # One durable answer/event under concurrent authorized human requests.
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                receipts = list(pool.map(lambda _: respond_to_app_card_interaction(owner, *args), range(2)))
+            assert sorted(r["changed"] for r in receipts) == [False, True]
+            assert len({r["response"]["response_uid"] for r in receipts}) == 1
+            assert all(
+                r["response"]["decision"] == "approved"
+                and not r["execution_resumed"]
+                and not r["workflow_transitioned"]
+                for r in receipts
+            )
+            recovered = client.post(path, headers=headers, json=response_body)
+            assert recovered.status_code == 200 and recovered.json()["changed"] is False
+            assert recovered.headers["cache-control"] == "no-store"
+            assert (
+                client.post(
+                    path, headers=headers, json={**response_body, "values": {"decision": {"choice_id": "reject"}}}
+                ).status_code
+                == 409
+            )
+            assert (
+                client.get(path.removesuffix("/responses"), headers=headers).json()["response"]["decision"]
+                == "approved"
+            )
+
+        async def sdk_read():
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as session:
+                return await AppCardInteractions(HttpTransport(session)).read(
+                    *(i.to_short_code() for i in ids), uid.to_short_code()
+                )
+
+        readback = asyncio.run(sdk_read())
+        assert readback["response"]["values"] == values
+        assert readback["response"]["response_uid"] == receipts[0]["response"]["response_uid"]
+        with Session(engine) as db:
+            assert db.query(AppCardInteractionResponse).count() == 1
+            outbox = db.query(AppExecutionOutbox).one()
+            assert outbox.event_type == "io.langboard.app.interaction.answered.v1" and outbox.state == "pending"
+            assert outbox.payload["response_uid"] == receipts[0]["response"]["response_uid"]
+            assert outbox.payload["state"] == "answered"
+            assert outbox.payload["actor_uid"] == owner.get_uid()
+            assert outbox.payload["app_key"] == "example"
+            assert outbox.payload["connection_uid"] == connection.get_uid()
+            assert outbox.payload["values"] == values
+            assert outbox.payload["execution"] is None
+
+            db.execute(update(AppResourceBinding).values(access_state="revoked"))
+            db.commit()
+        with pytest.raises(AppGovernanceDenied):
+            respond_to_app_card_interaction(owner, *args)
+        with Session(engine) as db:
+            db.execute(update(AppResourceBinding).values(access_state="granted"))
+            db.commit()
+        # Enqueue failure rolls answer and revision back together.
+        second = create_app_card_interaction(token, *ids, {**body, "app_request_key": "approval_two"})
+        real_insert = DbSession.insert
+
+        def fail_outbox(self, item):
+            if isinstance(item, AppExecutionOutbox):
+                raise RuntimeError("Simulated enqueue failure")
+            return real_insert(self, item)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(DbSession, "insert", fail_outbox)
+            with pytest.raises(RuntimeError):
+                respond_to_app_card_interaction(
+                    owner, *ids, SnowflakeID.from_short_code(second["interaction_uid"]), values, 1, "response-key-00002"
+                )
+        with Session(engine) as db:
+            assert db.query(AppCardInteractionResponse).count() == 1
+            assert db.get(AppCardInteraction, SnowflakeID.from_short_code(second["interaction_uid"])).revision == 1
+        second_uid = SnowflakeID.from_short_code(second["interaction_uid"])
+        cancelled = cancel_app_card_interaction(token, *ids, second_uid, 1)
+        assert cancelled["state"] == "cancelled" and cancelled["revision"] == 2
+        assert cancel_app_card_interaction(token, *ids, second_uid, 1)["changed"] is False
+        with pytest.raises(AppGovernanceConflict):
+            respond_to_app_card_interaction(owner, *ids, second_uid, values, 1, "response-key-00002")
+        third = create_app_card_interaction(token, *ids, {**body, "app_request_key": "approval_three"})
+        third_uid = SnowflakeID.from_short_code(third["interaction_uid"])
+        with Session(engine) as db:
+            db.execute(
+                update(AppCardInteraction)
+                .where(AppCardInteraction.id == third_uid)
+                .values(expires_at=SafeDateTime.now() - timedelta(seconds=1))
+            )
+            db.commit()
+        assert read_app_card_interaction(token, *ids, third_uid)["state"] == "expired"
+        with pytest.raises(AppGovernanceConflict):
+            respond_to_app_card_interaction(owner, *ids, third_uid, values, 1, "response-key-00003")
+        fourth = create_app_card_interaction(token, *ids, {**body, "app_request_key": "approval_four"})
+        with Session(engine) as db:
+            db.execute(update(CardAppOwnership).values(revision=2))
+            db.commit()
+        with pytest.raises(AppGovernanceDenied):
+            respond_to_app_card_interaction(
+                owner, *ids, SnowflakeID.from_short_code(fourth["interaction_uid"]), values, 1, "response-key-00004"
+            )
+        with Session(engine) as db:
+            db.execute(update(CardAppOwnership).values(revision=1))
+            db.commit()
+        question = create_app_card_interaction(
+            token, *ids, {**body, "kind": "question", "app_request_key": "question_one"}
+        )
+        answered_question = respond_to_app_card_interaction(
+            owner, *ids, SnowflakeID.from_short_code(question["interaction_uid"]), values, 1, "question-key-00001"
+        )
+        assert answered_question["response"]["decision"] is None
+        with pytest.raises(ValueError):
+            respond_to_app_card_interaction(owner, *ids, third_uid, values, 1, "response-key-00003", True)
+        with Session(engine) as db:
+            previous_events = db.query(AppExecutionOutbox).count()
+            db.execute(
+                update(BoardAppBinding).values(
+                    granted_capabilities=[c for c in declaration["capabilities"] if c != "events.receive"]
+                )
+            )
+            db.commit()
+        local_only = create_app_card_interaction(token, *ids, {**body, "app_request_key": "local_only"})
+        assert (
+            respond_to_app_card_interaction(
+                owner, *ids, SnowflakeID.from_short_code(local_only["interaction_uid"]), values, 1, "local-answer-00001"
+            )["state"]
+            == "answered"
+        )
+        with Session(engine) as db:
+            assert db.query(AppExecutionOutbox).count() == previous_events
+            db.execute(update(BoardAppBinding).values(granted_capabilities=declaration["capabilities"]))
+            db.commit()
+        with Session(engine) as db:
+            declaration["workflow_requirements"] = {"required": ["ready"], "optional": []}
+            db.execute(update(AppDefinition).values(declaration=declaration))
+            db.execute(
+                update(BoardAppBinding).values(
+                    stage_transitions_enabled=True, workflow_mapping={"ready": SnowflakeID(211).to_short_code()}
+                )
+            )
+            db.commit()
+        mapped = create_app_card_interaction(
+            token,
+            *ids,
+            {**body, "app_request_key": "workflow_one", "outcomes": {"approve": {"workflow_stage": "ready"}}},
+        )
+        with Session(engine) as db:
+            db.execute(update(ProjectColumn).values(updated_at=SafeDateTime.now() + timedelta(seconds=1)))
+            db.commit()
+        with pytest.raises(AppGovernanceConflict):
+            respond_to_app_card_interaction(
+                owner, *ids, SnowflakeID.from_short_code(mapped["interaction_uid"]), values, 1, "workflow-key-00001"
+            )
+        revoke_connection_credential(owner, connection.id, SnowflakeID.from_short_code(credential["credential_uid"]))
+        with pytest.raises(AppGovernanceDenied):
+            create_app_card_interaction(token, *ids, {**body, "app_request_key": "approval_three"})
+    finally:
+        Cache.clear()

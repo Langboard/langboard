@@ -646,7 +646,8 @@ The prior app integration contains `AppCardInteraction`, immutable
 and native human response controls. These are source material to reconnect, not
 evidence of a working interaction endpoint on this review branch. The SDK request
 and answer validators are available in the pinned 0.2.34 artifact; the host
-interaction routes and response acceptance are not reconstructed yet.
+interaction request/read/cancel and human response acceptance are reconstructed below;
+reaction adapters, signed delivery and execution continuation remain pending.
 
 The retained request/response models are reconstructed in schema-only revision
 `a9de428cb76f`, after `f8cd317ba65e`. Requests retain authority and workflow
@@ -655,12 +656,27 @@ Responses are unique by interaction and retain human actor, observed request
 revision, idempotency key, optional execution generation and structured values.
 Neither table has foreign keys that could erase audit receipts when a card or
 account disappears. Database constraints reject nonpositive revisions, invalid
-request states and nonpositive execution generations. This is storage only;
-there is no public approval or runtime permit path through these models yet.
+request states and nonpositive execution generations. These tables do not issue runtime permits; the native human response path is
+described below.
 The disposable PostgreSQL migration suite passed five tests in 2.19 seconds,
 including uniqueness, constraint rejection, retained response after request
-deletion and downgrade. Service/HTTP concurrency and current authority checks
-remain separate required gates.
+deletion and downgrade. The native request/response service and HTTP slice now
+also pass a disposable PostgreSQL + ASGI test in 2.22 seconds: SDK create/read,
+idempotent create, human-only response, concurrent answer CAS, conflicting
+answer rejection, credential rejection, current resource/ownership fences,
+response enqueue rollback, cancellation, expiry, no-lock GET, and workflow
+mapping revision conflict. A normal full app-auth/foundation regression run
+passed 78 tests in 55.84 seconds. `events.receive` is an explicit delivery
+capability: without it, the human receipt is retained but no external event is
+created.
+
+The implemented host routes are intentionally split: app Bearer credentials
+may create/read/cancel a request under current app consent; only an authenticated
+human route may answer. Answering persists `io.langboard.app.interaction.answered.v1`
+with app, connection, actor, values and optional execution context when event
+delivery is granted. The event is a receipt, not a permit or resume. Comment
+reaction presentation is rejected by the direct response endpoint until the
+native reaction-event adapter verifies a new human reaction on the exact comment.
 
 The earlier `AppCardInteractions` service depends on its previous
 `AppExecutionGrant`, `AppExecutionAcknowledgments`, `AppEventDelivery`, and
@@ -697,6 +713,8 @@ Reconstruction must preserve the following boundaries:
 At source `712fbd4c60024b1c2c8aa49def34961209f652a9`, native Python CI
 `38186486009` and Phoenix CI `38186489750` both completed successfully. These
 checks do not establish the missing interaction flow or deployed canary acceptance.
-SDK CI `38186292284` remains queued before source execution with no assigned runner;
-restore its configured runner assignment without publishing deployment details
-or treating the local SDK tests as a successful remote run.
+SDK CI `38186292284` was cancelled by workflow concurrency when the authorized
+runner-recovery session dispatched `38187878432` against the same SDK source.
+The replacement remains queued with no assigned runner at the last observation.
+Runner repository/workflow allowlist repairs do not establish execution success.
+Do not publish deployment details or treat local SDK tests as a successful remote run.

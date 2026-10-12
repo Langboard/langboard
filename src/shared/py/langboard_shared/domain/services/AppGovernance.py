@@ -63,7 +63,7 @@ def _actor(db, actor, *, for_update=True):
     return current
 
 
-def _authorized_board(db, actor, project_id, *, for_update=True):
+def _authorized_board(db, actor, project_id, *, for_update=True, action=ProjectRoleAction.Update):
     project = _current(db, Project, project_id, for_update=for_update)
     if project is None or project.deleted_at:
         raise AppGovernanceDenied()
@@ -76,7 +76,7 @@ def _authorized_board(db, actor, project_id, *, for_update=True):
         )
         member = db.exec(member_statement.with_for_update() if for_update else member_statement).first()
         role = db.exec(role_statement.with_for_update() if for_update else role_statement).first()
-        if member is None or role is None or not role.is_granted(ProjectRoleAction.Update):
+        if member is None or role is None or not role.is_granted(action):
             raise AppGovernanceDenied()
     return project
 

@@ -159,3 +159,54 @@ def set_card_app_resources(
             )
         )
         return _response(row, connection, identity, owner, changed=True)
+
+
+def verified_card_app_configuration(
+    db, actor, project_id, card_id, app_key, connection_id, *, capability, for_update=True
+):
+    definition, binding, connection, card, owner = _context(
+        db, actor, project_id, card_id, app_key, connection_id, for_update=for_update, withdrawal=False
+    )
+    selection = _row(db, card.id, app_key, for_update=for_update)
+    identity = _identity_hash(db, connection, definition=definition)
+    required = {"resources.read", capability}
+    if (
+        card.archived_at
+        or owner is None
+        or owner.app_key != app_key
+        or selection is None
+        or selection.connection_id != connection.id
+        or not selection.resource_uids
+        or selection.identity_hash != identity
+        or selection.ownership_revision != owner.revision
+        or not required.issubset(definition.declaration.get("capabilities", []))
+        or not required.issubset(binding.granted_capabilities)
+    ):
+        raise AppGovernanceDenied()
+    resource_statement = SqlBuilder.select.table(AppResourceBinding).where(
+        AppResourceBinding.id.in_([SnowflakeID.from_short_code(uid) for uid in selection.resource_uids]),
+        AppResourceBinding.board_binding_id == binding.id,
+        AppResourceBinding.connection_id == connection.id,
+        AppResourceBinding.is_selected.is_(True),
+        AppResourceBinding.access_state == "granted",
+        AppResourceBinding.identity_hash == identity,
+        AppResourceBinding.resource_type.in_(definition.declaration.get("resource_types", [])),
+    )
+    resources = db.exec(resource_statement.with_for_update() if for_update else resource_statement).all()
+    if sorted(resource.get_uid() for resource in resources) != sorted(selection.resource_uids):
+        raise AppGovernanceDenied()
+    return (
+        definition,
+        binding,
+        card,
+        connection,
+        {
+            "app_revision": definition.edit_revision(),
+            "binding_revision": binding.edit_revision(),
+            "identity_revision": identity,
+            "ownership_revision": owner.revision,
+            "selection_revision": selection.revision,
+            "card_revision": card.updated_at.isoformat(),
+            "resource_revisions": {resource.get_uid(): resource.access_revision for resource in resources},
+        },
+    )
