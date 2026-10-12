@@ -1029,3 +1029,29 @@ and the built Monitor wheel. It passed the same native HTTP/PostgreSQL test in
 collection failed because host-only boto3 was absent; host dependencies were
 added as test-runtime search paths while the independent SDK036 remained first.
 No SDK methods or authority decisions were replaced.
+
+### Installed consumer Review acceptance
+
+The independently packaged consumer wheel was built and installed with SDK037.
+Wheel SHA256:
+`93981e679526b754677f7b86c68b15ab51161930561655973d010d9208ae0af9`.
+Its actual `deliver_review` and `reconcile_review` called native card-read,
+stop-report, Review mutation and Review recovery routes over ASGI/PostgreSQL.
+The consumer's real SQL runtime store retained original inputs and the native
+receipt. Recovery used a new database Session and did not repeat the mutation.
+The native handoff and consumer result each retained one receipt.
+
+Only external PR facts and process-reap evidence were fixture data; current
+reap checks, durable storage, SDK methods and native authority were unchanged.
+This proves protocol/storage integration, not a live GitHub result, real provider
+termination, broker delivery or deployed operation. The private local harness
+and logs remain in `.verification/consumer-http-postgres.*`; provider-specific
+harness code is not added to the generic host source. An initial pytest plugin
+version conflict was resolved by disabling plugin autoload; no product check
+was bypassed. Union visibility and operational acceptance remain outstanding.
+
+The same harness also called the actual installed consumer `read_requested_card`
+against native full-content pages and before/after execution authority reads.
+It reconstructed the full Korean Markdown and matched the native authority.
+Final combined content/Review/recovery PostgreSQL run passed in 3.17 seconds
+with two pytest configuration warnings after plugin autoload was disabled.
