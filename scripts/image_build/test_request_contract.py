@@ -10,7 +10,7 @@ import yaml
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/request-image-build.yaml'
-CODE = yaml.safe_load(WORKFLOW.read_text())['jobs']['request']['steps'][0]['run'].split("python3 - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+CODE = next(step['run'] for step in yaml.safe_load(WORKFLOW.read_text())['jobs']['request']['steps'] if step.get('name') == 'Request the approved immutable image').split("python3 - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
 SHA = 'a' * 40
 TAG = 'refs/tags/image-executor/' + SHA
 

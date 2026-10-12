@@ -1521,7 +1521,7 @@ name = "langboard-sdk"
 version = "0.2.33"
 source = { path = "src/sdk/vendor/langboard_sdk-0.2.33-py3-none-any.whl" }
 wheels = [
-    { filename = "langboard_sdk-0.2.33-py3-none-any.whl", hash = "sha256:0e2033fdc9f55e107ef97aaa20dae00bd14e73c3a27b7b9fad1a7ce6a87becb2" },
+    { filename = "langboard_sdk-0.2.33-py3-none-any.whl", hash = "sha256:b021a7a849b3a712851069eac887dca3c937f669eea6095edf1ba1c5d4f3bd12" },
 ]
 
 [[package]]

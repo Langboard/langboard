@@ -865,7 +865,8 @@ def test_conditional_description_emits_effects_only_after_save(monkeypatch: pyte
 
     def execute() -> Any:
         return service.update(
-            object(), project, card, {"description": EditorContentModel(content="after")}, expected_description="before"
+            native_module.User.model_construct(id=42), project, card,
+            {"description": EditorContentModel(content="after")}, expected_description="before"
         )
 
     if saved:
@@ -940,6 +941,14 @@ def test_created_card_projects_authenticated_creator_before_publish(
     repository = SimpleNamespace(card=SimpleNamespace(insert=Mock(), get_next_order=lambda *_: 0))
     service = CardService(lambda _: None, lambda _: None, repository)
     service.next_change_seq = Mock(return_value=1)
+    # This unit checks creator projection, not primary membership persistence.
+    # Use an explicit verified context; creation visibility has its own native tests.
+    from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
+
+    service.resolve_visibility_context = Mock(return_value=(project, CardVisibilityContext(
+        channel=CollaborationChannel.Api, active=True, project_member=True,
+        internal_member=True, actor_user_id=42,
+    )))
     dispatched: list[dict[str, Any]] = []
 
     def publish(_actor, _project, _column, _card, model, _users):
