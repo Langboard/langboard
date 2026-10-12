@@ -25,16 +25,20 @@ from langboard_shared.domain.models import (
     AppExecutionOutbox,
     AppResourceBinding,
     BoardAppBinding,
+    Bot,
     Card,
     CardAppOwnership,
     CardAppOwnershipAudit,
     CardAppResourceSelection,
     CardAppResourceSelectionAudit,
+    CardComment,
+    CardCommentReaction,
     ProjectColumn,
     ProjectRole,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.AppCardInteractions import (
+    accept_current_comment_reaction,
     cancel_app_card_interaction,
     create_app_card_interaction,
     read_app_card_interaction,
@@ -47,8 +51,12 @@ from langboard_shared.domain.services.AppConnectionAuthentication import (
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.domain.services.CardAppGovernance import set_card_app_ownership
 from langboard_shared.domain.services.CardAppResources import read_card_app_resources, set_card_app_resources
+from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
+from langboard_shared.publishers import CardCommentPublisher
 from langboard_shared.security import Auth
+from langboard_shared.tasks.activities import CardCommentActivityTask
+from langboard_shared.tasks.bots import CardCommentBotTask
 from sqlalchemy import event, update
 from sqlalchemy.orm import Session
 from test_app_connection_auth_postgres import DECLARATION, connected, registered  # noqa: F401
@@ -61,6 +69,9 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         WorkflowStageDefinition,
         ProjectColumn,
         Card,
+        Bot,
+        CardComment,
+        CardCommentReaction,
         CardAppOwnership,
         CardAppOwnershipAudit,
         AppResourceBinding,
@@ -135,6 +146,81 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         "presentation": {"type": "card_action"},
         "expires_at": (SafeDateTime.now() + timedelta(hours=1)).isoformat(),
     }
+    with Session(engine) as db:
+        db.add(CardComment(id=401, card_id=ids[1], content={"content": "Approve here"}))
+        db.commit()
+    reaction_body = deepcopy(body)
+    reaction_body["app_request_key"] = "native_reaction"
+    reaction_body["presentation"] = {
+        "type": "comment_reaction",
+        "comment_uid": SnowflakeID(401).to_short_code(),
+        "reactions": {"thumbs-up": "approve", "thumbs-down": "reject"},
+    }
+    with Session(engine) as db:
+        db.add(CardCommentReaction(id=402, comment_id=401, user_id=owner.id, reaction_type="thumbs-up"))
+        db.commit()
+    reaction_request = create_app_card_interaction(token, *ids, reaction_body)
+    reaction_id = SnowflakeID.from_short_code(reaction_request["interaction_uid"])
+    assert accept_current_comment_reaction(owner, *ids, SnowflakeID(401), "thumbs-up") is None
+    duplicate = deepcopy(reaction_body)
+    duplicate["app_request_key"] = "ambiguous_reaction"
+    with pytest.raises(AppGovernanceConflict):
+        create_app_card_interaction(token, *ids, duplicate)
+    with pytest.raises(AppGovernanceDenied):
+        respond_to_app_card_interaction(
+            owner, *ids, reaction_id, {"decision": {"choice_id": "approve"}}, 1, "human-direct-key-001"
+        )
+    with Session(engine) as db:
+        db.delete(db.get(CardCommentReaction, 402))
+        db.add(CardCommentReaction(id=403, comment_id=401, user_id=owner.id, reaction_type="eyes"))
+        db.commit()
+    assert accept_current_comment_reaction(owner, *ids, SnowflakeID(401), "eyes") is None
+    assert accept_current_comment_reaction(outsider, *ids, SnowflakeID(401), "thumbs-up") is None
+    bot = Bot(
+        id=500,
+        name="Example bot",
+        bot_uname="example",
+        app_api_token="test",
+        platform="default",
+        platform_running_type="default",
+    )
+    assert accept_current_comment_reaction(bot, *ids, SnowflakeID(401), "thumbs-up") is None
+    # Suppress outbound notifications/tasks only; keep the real reaction repository,
+    # current ACL/configuration checks and PostgreSQL transaction intact.
+    monkeypatch.setattr(CardCommentPublisher, "reacted", lambda *args: None)
+    for task in (CardCommentActivityTask, CardCommentBotTask):
+        monkeypatch.setattr(task, "card_comment_reacted", lambda *args: None)
+        monkeypatch.setattr(task, "card_comment_unreacted", lambda *args: None)
+    service = DomainService()
+    original_insert = DbSession.insert
+
+    def fail_reaction_outbox(db, obj):
+        if isinstance(obj, AppExecutionOutbox):
+            raise RuntimeError("reaction event enqueue failure")
+        return original_insert(db, obj)
+
+    with monkeypatch.context() as failure:
+        failure.setattr(DbSession, "insert", fail_reaction_outbox)
+        with pytest.raises(RuntimeError, match="reaction event enqueue failure"):
+            service.card_comment.toggle_reaction(owner, *ids, SnowflakeID(401), "thumbs-up")
+    with Session(engine) as db:
+        assert db.query(CardCommentReaction).filter_by(comment_id=401, reaction_type="thumbs-up").count() == 0
+        assert db.query(AppCardInteractionResponse).filter_by(interaction_id=reaction_id).count() == 0
+        assert db.get(AppCardInteraction, reaction_id).revision == 1
+    assert service.card_comment.toggle_reaction(owner, *ids, SnowflakeID(401), "thumbs-up") is True
+    accepted = read_app_card_interaction(token, *ids, reaction_id)
+    assert accepted["response"]["decision"] == "approved"
+    assert not accepted["execution_resumed"]
+    assert service.card_comment.toggle_reaction(owner, *ids, SnowflakeID(401), "thumbs-up") is False
+    retained = read_app_card_interaction(token, *ids, reaction_id)
+    assert retained["response"] == accepted["response"]
+    assert accept_current_comment_reaction(owner, *ids, SnowflakeID(401), "thumbs-up") is None
+    with Session(engine) as db:
+        # Preserve earlier event-count assertions in the existing vertical test.
+        db.query(AppExecutionOutbox).delete()
+        db.query(AppCardInteractionResponse).delete()
+        db.query(AppCardInteraction).delete()
+        db.commit()
     Cache.clear()
     Auth.reset_user(owner)
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "fixture-interaction-secret-32bytes"))

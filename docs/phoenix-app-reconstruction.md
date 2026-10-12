@@ -675,8 +675,21 @@ may create/read/cancel a request under current app consent; only an authenticate
 human route may answer. Answering persists `io.langboard.app.interaction.answered.v1`
 with app, connection, actor, values and optional execution context when event
 delivery is granted. The event is a receipt, not a permit or resume. Comment
-reaction presentation is rejected by the direct response endpoint until the
-native reaction-event adapter verifies a new human reaction on the exact comment.
+reaction presentation is rejected by the direct response endpoint. The native
+comment reaction service accepts only a new human reaction on the exact declared
+comment after request creation. It rechecks current card/app authority, request
+revision, expiry, workflow snapshot and optional execution generation. At most
+one pending reaction request may own a comment. Reaction, immutable response
+and outbox insertion share one primary transaction; enqueue failure rolls all
+three back. Unmapped reactions and bot reactions retain ordinary reaction UX.
+Removing a reaction does not erase the immutable response. Ordinary reactions
+without a pending request do not acquire the app policy mutation lock.
+
+Disposable PostgreSQL exercised the real reaction repository/service, old
+reaction rejection, direct endpoint denial, Seen exclusion, bot/outsider
+exclusion, ambiguous request rejection, rollback on enqueue failure and durable
+answer retention after reaction removal. Publishers and asynchronous activity/bot
+dispatch were suppressed in that test; authority and database paths were not.
 
 The earlier `AppCardInteractions` service depends on its previous
 `AppExecutionGrant`, `AppExecutionAcknowledgments`, `AppEventDelivery`, and
@@ -715,6 +728,7 @@ At source `712fbd4c60024b1c2c8aa49def34961209f652a9`, native Python CI
 checks do not establish the missing interaction flow or deployed canary acceptance.
 SDK CI `38186292284` was cancelled by workflow concurrency when the authorized
 runner-recovery session dispatched `38187878432` against the same SDK source.
-The replacement remains queued with no assigned runner at the last observation.
-Runner repository/workflow allowlist repairs do not establish execution success.
+The authorized recovery session subsequently reported replacement run
+`38187878432` successful at SDK source `913692621e17db21cd95e09185eaabfa8a18f0fe`.
+The current host interaction source has not run remote CI or deployed acceptance.
 Do not publish deployment details or treat local SDK tests as a successful remote run.

@@ -3,6 +3,7 @@
 import re
 from datetime import datetime, timedelta
 from langboard_sdk.interactions import validate_card_interaction, validate_card_interaction_values
+from sqlalchemy import select
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import (
@@ -12,6 +13,7 @@ from ..models import (
     AppConnectionCredential,
     AppExecutionOutbox,
     CardComment,
+    CardCommentReaction,
     CardExecutionIntent,
     ProjectColumn,
     User,
@@ -166,6 +168,23 @@ def create_app_card_interaction(token, project_id, card_id, body):
                 raise AppGovernanceConflict()
             return _receipt(db, row)
         now = SafeDateTime.now()
+        if (
+            presentation["type"] == "comment_reaction"
+            and db.exec(
+                SqlBuilder.select.table(AppCardInteraction).where(
+                    AppCardInteraction.card_id == card.id,
+                    AppCardInteraction.state == "pending",
+                    AppCardInteraction.expires_at > now,
+                    ~select(AppCardInteractionResponse.id)
+                    .where(AppCardInteractionResponse.interaction_id == AppCardInteraction.id)
+                    .exists(),
+                    AppCardInteraction.request["presentation"]["type"].as_string() == "comment_reaction",
+                    AppCardInteraction.request["presentation"]["comment_uid"].as_string()
+                    == presentation["comment_uid"],
+                )
+            ).first()
+        ):
+            raise AppGovernanceConflict()
         if not now < expiry <= now + timedelta(days=7):
             raise ValueError("Interaction expiry must be within seven days")
         row = AppCardInteraction(
@@ -218,7 +237,16 @@ def cancel_app_card_interaction(token, project_id, card_id, interaction_id, expe
 
 
 def respond_to_app_card_interaction(
-    actor, project_id, card_id, interaction_id, values, expected_revision, idempotency_key, execution_generation=None
+    actor,
+    project_id,
+    card_id,
+    interaction_id,
+    values,
+    expected_revision,
+    idempotency_key,
+    execution_generation=None,
+    *,
+    _reaction_event_id=None,
 ):
     if not isinstance(actor, User):
         raise AppGovernanceDenied()
@@ -249,6 +277,25 @@ def respond_to_app_card_interaction(
             raise AppGovernanceConflict()
         # Only the native reaction event adapter may accept a reaction request.
         if row.request["presentation"]["type"] == "comment_reaction":
+            reaction = _current(db, CardCommentReaction, _reaction_event_id) if _reaction_event_id else None
+            presentation = row.request["presentation"]
+            comment = _current(db, CardComment, SnowflakeID.from_short_code(presentation["comment_uid"]))
+            choice = presentation["reactions"].get(reaction.reaction_type) if reaction else None
+            if (
+                reaction is None
+                or reaction.user_id != actor.id
+                or reaction.bot_id is not None
+                or comment is None
+                or comment.card_id != card_id
+                or comment.deleted_at
+                or reaction.comment_id != comment.id
+                or reaction.created_at <= row.created_at
+                or choice is None
+                or idempotency_key != f"reaction-{reaction.get_uid()}"
+                or values != {row.request["questions"][0]["id"]: {"choice_id": choice}}
+            ):
+                raise AppGovernanceDenied()
+        elif _reaction_event_id is not None:
             raise AppGovernanceDenied()
         context = row.request.get("execution")
         if execution_generation != (context["generation"] if context else None):
@@ -334,3 +381,59 @@ def read_human_card_interaction(actor, project_id, card_id, interaction_id):
         project = _authorized_board(db, actor, project_id, for_update=False, action=ProjectRoleAction.Read)
         _card(db, project, card_id, for_update=False)
         return _receipt(db, _row(db, project_id, card_id, interaction_id, for_update=False))
+
+
+def pending_comment_interactions(db, project_id, card_id, comment_id):
+    """Bound pending lookup by the native card/comment, excluding retained answers."""
+    return db.exec(
+        SqlBuilder.select.table(AppCardInteraction)
+        .where(
+            AppCardInteraction.project_id == project_id,
+            AppCardInteraction.card_id == card_id,
+            AppCardInteraction.state == "pending",
+            AppCardInteraction.expires_at > SafeDateTime.now(),
+            ~select(AppCardInteractionResponse.id)
+            .where(AppCardInteractionResponse.interaction_id == AppCardInteraction.id)
+            .exists(),
+            AppCardInteraction.request["presentation"]["type"].as_string() == "comment_reaction",
+            AppCardInteraction.request["presentation"]["comment_uid"].as_string()
+            == SnowflakeID(comment_id).to_short_code(),
+        )
+        .limit(2)
+    ).all()
+
+
+def accept_current_comment_reaction(actor, project_id, card_id, comment_id, reaction_type):
+    """Accept a newly stored human reaction without changing ordinary reaction UX."""
+    if not isinstance(actor, User):
+        return None
+    with DbSession.atomic() as db:
+        candidates = pending_comment_interactions(db, project_id, card_id, comment_id)
+        if len(candidates) != 1:
+            return None
+        reaction = db.exec(
+            SqlBuilder.select.table(CardCommentReaction).where(
+                CardCommentReaction.comment_id == comment_id,
+                CardCommentReaction.user_id == actor.id,
+                CardCommentReaction.bot_id.is_(None),
+                CardCommentReaction.reaction_type == reaction_type,
+            )
+        ).first()
+        row = candidates[0]
+        choice = row.request["presentation"]["reactions"].get(reaction_type)
+        if reaction is None or choice is None:
+            return None
+        try:
+            return respond_to_app_card_interaction(
+                actor,
+                project_id,
+                card_id,
+                row.id,
+                {row.request["questions"][0]["id"]: {"choice_id": choice}},
+                row.revision,
+                f"reaction-{reaction.get_uid()}",
+                row.request.get("execution", {}).get("generation"),
+                _reaction_event_id=reaction.id,
+            )
+        except (AppGovernanceDenied, AppGovernanceConflict):
+            return None

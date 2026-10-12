@@ -1,5 +1,5 @@
 from typing import Any
-from ....core.db import EditorContentModel
+from ....core.db import DbSession, EditorContentModel
 from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TCommentParam, TProjectParam, TUserOrBot
@@ -211,15 +211,22 @@ class CardCommentService(BaseDomainService):
         comment: TCommentParam | None,
         reaction: str,
     ) -> bool | None:
-        params = InfraHelper.get_records_with_foreign_by_params(
-            (Project, project), (Card, card), (CardComment, comment)
-        )
-        if not params:
-            return None
-        project, card, comment = params
+        from ..AppCardInteractions import accept_current_comment_reaction, pending_comment_interactions
+        from ..AppGovernance import lock_policy_mutation
 
-        reaction_service = self._get_service(ReactionService)
-        is_reacted = reaction_service.toggle(user_or_bot, CardCommentReaction, comment.id, reaction)
+        with DbSession.atomic() as db:
+            params = InfraHelper.get_records_with_foreign_by_params(
+                (Project, project), (Card, card), (CardComment, comment)
+            )
+            if not params:
+                return None
+            project, card, comment = params
+            reaction_service = self._get_service(ReactionService)
+            if isinstance(user_or_bot, User) and pending_comment_interactions(db, project.id, card.id, comment.id):
+                lock_policy_mutation(db)
+            is_reacted = reaction_service.toggle(user_or_bot, CardCommentReaction, comment.id, reaction)
+            if is_reacted:
+                accept_current_comment_reaction(user_or_bot, project.id, card.id, comment.id, reaction)
 
         CardCommentPublisher.reacted(user_or_bot, project, card, comment, reaction, is_reacted)
 
