@@ -1600,7 +1600,7 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
     registered, monkeypatch, consumer_acceptance
 ):
-    engine, (_, owner, outsider), personal, shared = registered
+    engine, (admin, owner, outsider), personal, shared = registered
     consumer = None
     if consumer_acceptance:
         import os
@@ -1616,10 +1616,12 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
     from langboard_shared.domain.models import (
         AppCardInteraction,
         AppCardInteractionResponse,
+        AppEventDestination,
         AppExecutionActive,
         AppExecutionLease,
         AppExecutionReview,
         AppExecutionStart,
+        WebhookSetting,
     )
 
     for model in (
@@ -1643,6 +1645,8 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
         CardExecutionIntent,
         AppExecutionOutbox,
         AppExecutionAcknowledgment,
+        AppEventDestination,
+        WebhookSetting,
         ProjectRole,
     ):
         model.__table__.create(engine)
@@ -1661,6 +1665,11 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             "interactions.request",
             "events.receive",
         ]
+        declaration["trust"] = {
+            "authentication_origins": [],
+            "mcp_origins": [],
+            "data_origins": ["https://example.test"],
+        }
         declaration["card_lifecycle"] = {
             "issue": {"archive": {"mode": "retain", "description": "Retain"}, "restore": "retain_external_state"}
         }
@@ -2220,6 +2229,76 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                     )
                 ).first()
                 validate_event_authority(db, event_row, personal)
+                answer_event_id = event_row.id
+                answer_event_payload = deepcopy(event_row.payload)
+            if consumer_acceptance:
+                from langboard_shared.core.security import KeyVault
+                from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination
+                from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+                from langboard_shared.tasks.webhooks.utils import WebhookUrlPolicy
+
+                with Session(engine) as db:
+                    db.add(
+                        WebhookSetting(
+                            id=801,
+                            name="Independent receiver",
+                            url="https://example.test/events",
+                            secret_id="consumer-acceptance-secret",
+                            events=[event_row.event_type],
+                        )
+                    )
+                    db.commit()
+                bind_app_event_destination(admin, personal.id, SnowflakeID(801), None)
+
+                async def deliver_to_consumer():
+                    async with consumer.answer_receiver(
+                        engine, app, app_headers, answer_event_payload, "consumer-acceptance-signing-secret"
+                    ) as receiver:
+                        receiver_responses = []
+
+                        async def record_receiver_response(response):
+                            await response.aread()
+                            receiver_responses.append((response.status_code, response.text))
+
+                        with monkeypatch.context() as delivery:
+                            # Fixture DNS and network only; actual policy, signing, worker and receiver run.
+                            delivery.setattr(
+                                WebhookUrlPolicy, "getaddrinfo", lambda *args: [(2, 1, 6, "", ("93.184.216.34", 443))]
+                            )
+                            delivery.setattr(
+                                KeyVault,
+                                "get_key",
+                                lambda reference: "consumer-acceptance-signing-secret"
+                                if reference == "consumer-acceptance-secret"
+                                else None,
+                            )
+                            delivery.setattr(
+                                AppEventDeliveryTask,
+                                "AsyncClient",
+                                lambda **kwargs: AsyncClient(
+                                    transport=ASGITransport(app=receiver),
+                                    event_hooks={"response": [record_receiver_response]},
+                                    **kwargs,
+                                ),
+                            )
+                            await AppEventDeliveryTask.deliver_app_event(answer_event_id)
+                            await AppEventDeliveryTask.deliver_app_event(answer_event_id)
+                        with Session(engine) as db:
+                            delivered = db.get(AppExecutionOutbox, answer_event_id)
+                            assert delivered.state == "delivered" and delivered.attempt == 1, (
+                                delivered.last_error,
+                                receiver_responses,
+                            )
+                            assert delivered.claim_token is None
+                            assert [item["kind"] for item in delivered.delivery_receipts] == [
+                                "claimed",
+                                "destination",
+                                "outcome",
+                            ]
+                            assert delivered.delivery_receipts[-1]["outcome"] == "delivered"
+                            assert "consumer-acceptance-signing-secret" not in json.dumps(delivered.delivery_receipts)
+
+                asyncio.run(deliver_to_consumer())
             with Session(engine) as db:
                 immutable = db.get(CardExecutionIntent, request_id).snapshot
                 assert immutable == snapshot
@@ -2243,6 +2322,9 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             with Session(engine) as db:
                 db.execute(update(AppResourceBinding).values(access_state="granted"))
                 # Keep legacy execution event-count checks isolated from this question.
+                db.query(AppExecutionAcknowledgment).filter(
+                    AppExecutionAcknowledgment.request_id != request_id
+                ).delete()
                 db.query(AppExecutionOutbox).filter(AppExecutionOutbox.request_id != request_id).delete()
                 db.query(AppCardInteractionResponse).delete()
                 db.query(AppCardInteraction).delete()
@@ -2698,7 +2780,10 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
         assert db.query(CardExecutionGeneration).count() == 0
         assert db.query(CardExecutionIntent).count() == 1
         assert db.query(AppExecutionOutbox).count() == 1
-        assert db.query(AppExecutionAcknowledgment).count() == 1
+        assert (
+            db.query(AppExecutionAcknowledgment).filter(AppExecutionAcknowledgment.request_id == request_id).count()
+            == 1
+        )
 
 
 def test_relationship_replacement_atomic_blocks_cycles_and_concurrent_writers(request, monkeypatch):

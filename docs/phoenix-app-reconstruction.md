@@ -1113,3 +1113,31 @@ passed in 4.91 seconds. Ruff and diff checks passed. These checks use disposable
 PostgreSQL and native HTTP; they do not prove deployed visibility, signed broker
 delivery or a real provider process lifecycle. The broader acceptance remains
 open.
+
+
+### Signed native delivery into the independent receiver
+
+The optional consumer module now supplies `answer_receiver(engine, native_app,
+headers, payload, secret)` as an async context manager. It owns the actual
+external receiver and SQL runtime store composition; the native fixture owns
+administrator destination binding, fixture signing-secret lookup and delivery.
+The native `deliver_app_event` runs claim, current authority checks, exact-byte
+signing, the real public URL/DNS policy, HTTP send and durable outcome writes.
+Only DNS resolution and the HTTP network transport are fixtures: DNS gives a
+public address and ASGITransport delivers bytes to the actual independent
+receiver. The receiver verifies the signature, rereads native interaction
+state, persists the answer and reception-only ACK in its SQL store. Native
+readback retains claimed/destination/delivered receipts, attempt=1 and a cleared
+claim; duplicate worker invocation sends nothing. No runtime is resumed.
+
+The first 409 exposed a missing execution-owner field in the consumer fixture,
+which was corrected without relaxing product ownership checks. The resulting
+extra response ACK also exposed an overly broad legacy ACK count; it now checks
+the original execution request, retaining the response ACK. After both earlier
+parallel log writers terminated, a single authoritative run passed both native
+and installed-consumer branches in 5.38 seconds. Two pytest configuration
+warnings reflect the disabled async plugin; these tests use asyncio.run.
+
+This proves the signed native worker/independent receiver/SQL boundary locally.
+It does not prove Celery queue delivery, deployed public DNS/TLS/network,
+provider process start/stop, visibility integration or canary browser acceptance.
