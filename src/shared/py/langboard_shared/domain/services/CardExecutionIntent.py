@@ -20,7 +20,7 @@ def _generation(db, card_id, *, for_update=True):
     return db.exec(statement.with_for_update() if for_update else statement).first()
 
 
-def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, for_update=True):
+def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, for_update=True, workflow_stage="ready"):
     _, binding, card, connection, snapshot = verified_card_app_configuration(
         db,
         actor,
@@ -32,19 +32,19 @@ def _configuration(db, actor, project_id, card_id, app_key, connection_id, *, fo
         for_update=for_update,
     )
     column = _current(db, ProjectColumn, card.project_column_id, for_update=for_update)
-    stage_statement = SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == "ready")
+    stage_statement = SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == workflow_stage)
     stage = db.exec(stage_statement.with_for_update() if for_update else stage_statement).first()
     if (
         column is None
         or column.deleted_at
         or column.is_archive
         or column.project_id != project_id
-        or column.workflow_stage != "ready"
+        or column.workflow_stage != workflow_stage
         or stage is None
         or not stage.is_builtin
         or not stage.is_active
         or not binding.stage_transitions_enabled
-        or binding.workflow_mapping.get("ready") != column.get_uid()
+        or binding.workflow_mapping.get(workflow_stage) != column.get_uid()
     ):
         raise AppGovernanceDenied()
     dependencies = card_dependency_state(db, project_id, card_id)

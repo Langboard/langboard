@@ -905,3 +905,38 @@ including both lease/start migration upgrade, duplicate-identity rejection and
 downgrade. SDK Node 22 remote contract validation revealed a separate panel
 fixture wait/cleanup defect; its test-only fix b41722b82611bda015cdc687abb64d69f6d63de7
 is being validated remotely. This does not change the installed 0.2.36 wheel.
+
+
+### Explicit Active handoff and immutable ambiguity receipt
+
+SDK 0.2.37 adds `activate_runtime` and `read_active_handoff`. The mutation follows
+a retained app start report and requires current live lease/token/credential,
+original observed card/binding revisions, an explicitly mapped built-in Active
+column and clear dependencies. The existing native card ordering/movement path
+is reused; its socket/activity/webhook publication is deferred until commit.
+A failed handoff receipt insert rolls back the card move without publishing it.
+
+The original human execution intent remains immutable. A separate retained
+Active receipt records request/card/lease/generation, original inputs, destination
+and the complete post-transition authority snapshot. Active heartbeat validates
+that snapshot; it does not ignore card edits, resources, ownership, mapping,
+policy, dependencies or generation. Moving outside the mapped column refuses
+continued execution. Same-input replay retains one receipt; different original
+inputs are refused.
+
+Receipt recovery is a read-only POST with the private runtime token in the body,
+not the URL. It does not renew a lease, dispatch a process or repeat the Active
+mutation. Recorded and not-recorded results retain scope identity. The existing
+report_start remains free of workflow side effects. Actual process execution and
+reaped-stop/Review handoff still require independent acceptance.
+
+Standalone SDK Python 96 tests and Node contracts passed. The installed wheel
+PostgreSQL/HTTP focused test passed in 4.48 seconds; full migration/current
+authority regression is pending. SDK036 test-only Node22 fix b41722b remotely
+passed CI38192139500, independently of the new037 runtime artifact.
+
+Disposable PostgreSQL full suite passed 83 tests in 47.94 seconds, including
+Active migration roundtrip, duplicate lease identity denial, current revision
+fences and no publication on rollback. Final native ordering-helper focused
+regression passed separately. All three offline host locks are consistent.
+SDK037 exact-head remote CI38192655354 is queued; no remote pass is claimed.

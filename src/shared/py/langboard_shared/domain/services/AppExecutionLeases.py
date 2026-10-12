@@ -10,6 +10,7 @@ from ..models import (
     AppConnection,
     AppConnectionCredential,
     AppExecutionAcknowledgment,
+    AppExecutionActive,
     AppExecutionLease,
     CardExecutionIntent,
     User,
@@ -98,8 +99,17 @@ def _allowed(db, row, intent, project_id):
         if actor is None:
             return False
         actor = _actor(db, actor)
+        active = db.exec(
+            SqlBuilder.select.table(AppExecutionActive).where(AppExecutionActive.lease_id == row.id)
+        ).first()
         card, connection, snapshot = _configuration(
-            db, actor, project_id, intent.card_id, intent.app_key, intent.connection_id
+            db,
+            actor,
+            project_id,
+            intent.card_id,
+            intent.app_key,
+            intent.connection_id,
+            workflow_stage="active" if active else "ready",
         )
         generation = _generation(db, card.id)
         credential = _current(db, AppConnectionCredential, row.credential_id)
@@ -107,7 +117,7 @@ def _allowed(db, row, intent, project_id):
         return bool(
             generation
             and generation.execution_generation == intent.execution_generation
-            and snapshot == intent.snapshot
+            and snapshot == (active.snapshot if active else intent.snapshot)
             and credential
             and credential.connection_id == connection.id
             and credential.revoked_at is None

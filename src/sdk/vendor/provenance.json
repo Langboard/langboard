@@ -1,8 +1,8 @@
 {
   "package": "langboard-sdk",
-  "version": "0.2.36",
-  "source_candidate": "c344ac1f17d45e8655122e6d9cd229db5154c837",
+  "version": "0.2.37",
+  "source_candidate": "8a8b700fb0ad770925bd78052650c9d3ec8ad325",
   "artifacts": {
-    "langboard_sdk-0.2.36-py3-none-any.whl": "36b87d3b478e0c724f8c65fd33e92888fe9a48aed52cab9e8175465b7f1b0cf0"
+    "langboard_sdk-0.2.37-py3-none-any.whl": "1f5eddeba676330e422231111a5d34d233cfb0eee799f1482e072b8da0952a49"
   }
 }

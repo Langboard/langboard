@@ -1595,11 +1595,12 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
     engine, (_, owner, outsider), personal, shared = registered
-    from langboard_shared.domain.models import AppExecutionLease, AppExecutionStart
+    from langboard_shared.domain.models import AppExecutionActive, AppExecutionLease, AppExecutionStart
 
     for model in (
         AppExecutionLease,
         AppExecutionStart,
+        AppExecutionActive,
         WorkflowStageDefinition,
         ProjectColumn,
         Card,
@@ -1628,12 +1629,17 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             update(BoardAppBinding).values(
                 granted_capabilities=declaration["capabilities"],
                 stage_transitions_enabled=True,
-                workflow_mapping={"ready": SnowflakeID(211).to_short_code()},
+                workflow_mapping={
+                    "ready": SnowflakeID(211).to_short_code(),
+                    "active": SnowflakeID(213).to_short_code(),
+                },
             )
         )
         db.add(WorkflowStageDefinition(id=201, key="ready", name="Ready", is_builtin=True))
+        db.add(WorkflowStageDefinition(id=203, key="active", name="Active", is_builtin=True))
         db.flush()
         db.add(ProjectColumn(id=211, project_id=20, name="Queue", workflow_stage="ready"))
+        db.add(ProjectColumn(id=213, project_id=20, name="Working", workflow_stage="active"))
         db.flush()
         db.add(Card(id=221, project_id=20, project_column_id=211, title="Example"))
         db.commit()
@@ -2001,12 +2007,118 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             report = asyncio.run(sdk_report())
             assert report["active_report"] and report["start_report"]["execution_reference"] == "process-example-1"
             assert report["expires_at"] == before_start["expires_at"]
+            from langboard_shared.publishers import CardPublisher
+            from langboard_shared.tasks.activities import CardActivityTask
+            from langboard_shared.tasks.bots import CardBotTask
+
+            moves = []
+            monkeypatch.setattr(CardPublisher, "order_changed", lambda *args: moves.append("published"))
+            monkeypatch.setattr(CardActivityTask, "card_moved", lambda *args: None)
+            monkeypatch.setattr(CardBotTask, "card_moved", lambda *args: None)
+            monkeypatch.setattr(CardBotTask, "enqueue_card_moved_webhook", lambda *args: None)
+            authority = asyncio.run(sdk_read())["authority"]
+            active_path = app_path + "/active"
+            active_receipt_path = app_path + "/active-receipt"
+            active_body = {
+                "lease_uid": permit["lease_uid"],
+                "runtime_token": runtime_token,
+                "expected_card_revision": authority["card_revision"],
+                "expected_binding_revision": authority["binding_revision"],
+            }
+            assert (
+                client.post(
+                    active_receipt_path,
+                    headers=app_headers,
+                    json={"lease_uid": permit["lease_uid"], "runtime_token": runtime_token},
+                ).json()["state"]
+                == "not_recorded"
+            )
+            assert (
+                client.post(
+                    active_path, headers=app_headers, json={**active_body, "expected_card_revision": 0}
+                ).status_code
+                == 409
+            )
+            original_insert = DbSession.insert
+
+            def fail_active(db, row):
+                if isinstance(row, AppExecutionActive):
+                    raise RuntimeError("active receipt persistence failed")
+                return original_insert(db, row)
+
+            with monkeypatch.context() as failure:
+                failure.setattr(DbSession, "insert", fail_active)
+                assert client.post(active_path, headers=app_headers, json=active_body).status_code == 500
+            with Session(engine) as db:
+                assert db.get(Card, 221).project_column_id == 211
+                assert db.query(AppExecutionActive).count() == 0
+                assert moves == []
+
+            async def sdk_activate(read=False):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    api = AppExecution(HttpTransport(session))
+                    common = {
+                        "request_uid": receipts[0]["request_uid"],
+                        "lease_uid": permit["lease_uid"],
+                        "runtime_token": runtime_token,
+                    }
+                    if read:
+                        return await api.read_active_handoff(
+                            SnowflakeID(20).to_short_code(), SnowflakeID(221).to_short_code(), **common
+                        )
+                    return await api.activate_runtime(
+                        SnowflakeID(20).to_short_code(),
+                        SnowflakeID(221).to_short_code(),
+                        **common,
+                        expected_card_revision=authority["card_revision"],
+                        expected_binding_revision=authority["binding_revision"],
+                    )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                activations = list(pool.map(lambda _: asyncio.run(sdk_activate()), range(2)))
+            assert sorted(row["changed"] for row in activations) == [False, True]
+            active_receipt = activations[0]
+            assert active_receipt["state"] == "active_recorded" and active_receipt["generation"] == 1
+            assert moves == ["published"]
+            assert active_receipt["card_uid"] == SnowflakeID(221).to_short_code()
+            assert asyncio.run(sdk_activate(read=True))["handoff_uid"] == active_receipt["handoff_uid"]
+            assert client.post(check_path, json={"runtime_token": runtime_token}).json()["permit_execution"] is True
             with Session(engine) as db:
                 lease = db.query(AppExecutionLease).one()
                 assert lease.runtime_token_hash == sha256(runtime_token.encode()).hexdigest()
                 assert runtime_token not in json.dumps(lease.history)
                 assert db.query(AppExecutionStart).count() == 1
-                assert db.get(Card, 221).project_column_id == 211
+                assert db.get(Card, 221).project_column_id == 213
+            with Session(engine) as db:
+                active_card = db.get(Card, 221)
+                retained_active_revision = active_card.updated_at
+                db.execute(update(Card).where(Card.id == 221).values(project_column_id=212))
+                db.commit()
+            assert client.post(check_path, json={"runtime_token": runtime_token}).json()["state"] == "stop_requested"
+            with Session(engine) as db:
+                # Restore only the fixture lease/card to independently test card edits.
+                db.execute(update(AppExecutionLease).values(state="authorized"))
+                db.execute(
+                    update(Card)
+                    .where(Card.id == 221)
+                    .values(project_column_id=213, updated_at=retained_active_revision + timedelta(seconds=1))
+                )
+                db.commit()
+            assert client.post(check_path, json={"runtime_token": runtime_token}).json()["state"] == "stop_requested"
+            with Session(engine) as db:
+                db.execute(update(AppExecutionLease).values(state="authorized"))
+                db.commit()
+            with Session(engine) as db:
+                # Restore only fixture workflow state for independent legacy ACK gates.
+                db.query(AppExecutionActive).delete()
+                db.execute(
+                    update(Card)
+                    .where(Card.id == 221)
+                    .values(project_column_id=211, updated_at=SafeDateTime.fromisoformat(snapshot["card_revision"]))
+                )
+                db.commit()
             with Session(engine) as db:
                 db.execute(
                     update(AppConnectionCredential)

@@ -737,10 +737,10 @@ wheels = [
 
 [[package]]
 name = "langboard-sdk"
-version = "0.2.36"
-source = { path = "../../sdk/vendor/langboard_sdk-0.2.36-py3-none-any.whl" }
+version = "0.2.37"
+source = { path = "../../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
 wheels = [
-    { filename = "langboard_sdk-0.2.36-py3-none-any.whl", hash = "sha256:36b87d3b478e0c724f8c65fd33e92888fe9a48aed52cab9e8175465b7f1b0cf0" },
+    { filename = "langboard_sdk-0.2.37-py3-none-any.whl", hash = "sha256:1f5eddeba676330e422231111a5d34d233cfb0eee799f1482e072b8da0952a49" },
 ]
 
 [[package]]
@@ -812,7 +812,7 @@ requires-dist = [
     { name = "inflect", specifier = ">=7.5.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "kafka-python", specifier = ">=2.2.15" },
-    { name = "langboard-sdk", path = "../../sdk/vendor/langboard_sdk-0.2.36-py3-none-any.whl" },
+    { name = "langboard-sdk", path = "../../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" },
     { name = "orjson", specifier = ">=3.11.0" },
     { name = "psutil", specifier = ">=7.1.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.12" },

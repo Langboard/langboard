@@ -1,6 +1,6 @@
 from typing import Any, Literal, Sequence, cast, overload
 from ....ai import BotScheduleHelper, BotScopeHelper
-from ....core.db import EditorContentModel
+from ....core.db import DbSession, EditorContentModel
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.schema import TimeBasedPagination
@@ -395,14 +395,17 @@ class CardService(BaseDomainService):
         self.repo.card.update_row_order(card, old_column, old_order, order, new_column)
         self.repo.card.update(card)
 
-        CardPublisher.order_changed(project, card, old_column, cast(ProjectColumn, new_column))
+        def publish_move():
+            CardPublisher.order_changed(project, card, old_column, cast(ProjectColumn, new_column))
+            if new_column:
+                CardBotTask.enqueue_card_moved_webhook(
+                    user_or_bot, project, card, old_column, cast(ProjectColumn, new_column)
+                )
+                CardActivityTask.card_moved(user_or_bot, project, card, old_column)
+                CardBotTask.card_moved(user_or_bot, project, card, old_column, False)
 
-        if new_column:
-            CardBotTask.enqueue_card_moved_webhook(
-                user_or_bot, project, card, old_column, cast(ProjectColumn, new_column)
-            )
-            CardActivityTask.card_moved(user_or_bot, project, card, old_column)
-            CardBotTask.card_moved(user_or_bot, project, card, old_column, False)
+        with DbSession.use(readonly=False) as db:
+            db.after_commit(publish_move)
 
         return True
 
