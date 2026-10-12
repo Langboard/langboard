@@ -6,6 +6,7 @@ from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .AppDefinition import AppDefinition
+from .AppEventDestination import AppEventDestination
 from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
 from .AppExecutionOutbox import AppExecutionOutbox
 from .AppGovernancePolicy import AppGovernancePolicy
@@ -125,6 +126,7 @@ __all__ = [
     "Card",
     "AppExecutionAcknowledgment",
     "AppExecutionOutbox",
+    "AppEventDestination",
     "CardExecutionGeneration",
     "CardExecutionIntent",
     "CardAppOwnership",

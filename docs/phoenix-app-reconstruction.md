@@ -771,3 +771,25 @@ added whitespace, wrong secrets and expired timestamps fail. Nine new cases
 and the existing webhook contract regression passed together: 41 tests in
 1.34 seconds. No app destination binding, network delivery worker or lease is
 implemented by this helper. These remain necessary before deployed acceptance.
+
+### Administrator-bound app destinations
+
+Native AppEventDestination now binds one existing WebhookSetting to a connection
+under instance administrator authority. Settings endpoints expose safe revision
+receipts, explicit disable and rebind, not signing secrets. A signed destination
+must use HTTPS, the existing URL policy and an approved app data origin. The
+binding freezes webhook URL/secret-reference/event filters and app trust
+fingerprint; edits invalidate the current destination until explicit reapproval.
+
+Signature preparation rechecks current native app/card/resources and immutable
+answer or execution intent before signing exact outbox bytes. The destination
+UID/revision is frozen in the event and cannot silently follow a changed binding.
+Existing configuration lock order precedes interaction/outbox row locks.
+Execution authority remains Ready-only; archive events are denied pending native
+lifecycle evidence. No network sending, retry queue or runtime permit is claimed.
+
+Migration b0f1a2c3d4e5 follows a9de428cb76f and retains connection/webhook identities
+without cascading foreign keys. Disposable PostgreSQL regression passed 79 tests
+in 47.97 seconds, including destination migration roundtrip/duplicate connection
+constraint; focused administrator API/signature tests exercise current refusal
+after disable, URL edits, resource revocation and payload tampering.

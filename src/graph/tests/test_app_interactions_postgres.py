@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
 import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
+import langboard.routes.settings.AppEventDestinationApi  # noqa: F401
 import langboard.routes.settings.CardHumanInteractionApi  # noqa: F401
 import pytest
 from fastapi import FastAPI
@@ -13,15 +14,17 @@ from httpx import ASGITransport, AsyncClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard_sdk.interactions import AppCardInteractions
 from langboard_sdk.rest import HttpTransport
+from langboard_sdk.webhooks import verify_webhook
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.routing import AppRouter
-from langboard_shared.core.security import AuthSecurity
+from langboard_shared.core.security import AuthSecurity, KeyVault
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     AppCardInteraction,
     AppCardInteractionResponse,
     AppDefinition,
+    AppEventDestination,
     AppExecutionAcknowledgment,
     AppExecutionOutbox,
     AppResourceBinding,
@@ -36,6 +39,7 @@ from langboard_shared.domain.models import (
     CardCommentReaction,
     ProjectColumn,
     ProjectRole,
+    WebhookSetting,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.AppCardInteractions import (
@@ -48,6 +52,11 @@ from langboard_shared.domain.services.AppCardInteractions import (
 from langboard_shared.domain.services.AppConnectionAuthentication import (
     issue_connection_credential,
     revoke_connection_credential,
+)
+from langboard_shared.domain.services.AppEventDestination import (
+    bind_app_event_destination,
+    manage_app_event_destination,
+    prepare_app_event_signature,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.domain.services.CardAppGovernance import set_card_app_ownership
@@ -65,7 +74,7 @@ from test_app_governance_postgres import governance  # noqa: F401
 
 
 def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, monkeypatch):  # noqa: F811
-    engine, (_, owner, outsider), connection, shared = registered
+    engine, (admin, owner, outsider), connection, shared = registered
     for model in (
         WorkflowStageDefinition,
         ProjectColumn,
@@ -81,6 +90,8 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
         AppCardInteraction,
         AppCardInteractionResponse,
         AppExecutionOutbox,
+        AppEventDestination,
+        WebhookSetting,
         AppExecutionAcknowledgment,
         ProjectRole,
     ):
@@ -88,6 +99,11 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
     with Session(engine) as db:
         declaration = deepcopy(DECLARATION)
         declaration["capabilities"] += ["cards.create", "resources.read", "interactions.request", "events.receive"]
+        declaration["trust"] = {
+            "authentication_origins": [],
+            "mcp_origins": [],
+            "data_origins": ["https://example.test"],
+        }
         declaration["card_lifecycle"] = {
             "issue": {"archive": {"mode": "retain", "description": "Retain"}, "restore": "retain_external_state"}
         }
@@ -322,6 +338,67 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             assert outbox.payload["execution"] is None
 
             event_uid = outbox.get_uid()
+        with Session(engine) as db:
+            db.add(
+                WebhookSetting(
+                    id=601,
+                    name="Example event receiver",
+                    url="https://example.test/events",
+                    secret_id="fixture-secret-ref",
+                    events=["io.langboard.app.interaction.answered.v1"],
+                )
+            )
+            db.commit()
+        with pytest.raises(AppGovernanceDenied):
+            bind_app_event_destination(owner, connection.id, SnowflakeID(601), None)
+        target = bind_app_event_destination(admin, connection.id, SnowflakeID(601), None)
+        assert target["revision"] == 1
+        assert bind_app_event_destination(admin, connection.id, SnowflakeID(601), 1)["revision"] == 1
+        with pytest.raises(AppGovernanceConflict):
+            bind_app_event_destination(admin, connection.id, SnowflakeID(601), None)
+        monkeypatch.setattr(
+            KeyVault,
+            "get_key",
+            lambda reference: "fixture-signing-secret" if reference == "fixture-secret-ref" else None,
+        )
+        event_id = SnowflakeID.from_short_code(event_uid)
+        destination_path = f"/settings/apps/connections/{connection.get_uid()}/event-destination"
+        with TestClient(app) as client:
+            assert client.get(destination_path, headers={"Authorization": f"Bearer {token}"}).status_code == 401
+            Auth.reset_user(admin)
+            admin_access, admin_refresh = AuthSecurity.authenticate(admin.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, admin_refresh)
+            reply = client.get(destination_path, headers={"Authorization": f"Bearer {admin_access}"})
+            assert reply.status_code == 200 and reply.json()["revision"] == 1
+            assert "secret" not in reply.text
+        disabled = manage_app_event_destination(admin, connection.id, expected_revision=1, disable=True)
+        assert disabled["revision"] == 2 and not disabled["enabled"]
+        with pytest.raises(AppGovernanceDenied):
+            prepare_app_event_signature(event_id, 2)
+        assert bind_app_event_destination(admin, connection.id, SnowflakeID(601), 2)["revision"] == 3
+        with Session(engine) as db:
+            prior_payload = db.query(AppExecutionOutbox).one().payload
+            db.execute(
+                update(AppExecutionOutbox).values(
+                    payload={**prior_payload, "values": {"decision": {"choice_id": "reject"}}}
+                )
+            )
+            db.commit()
+        with pytest.raises(AppGovernanceConflict):
+            prepare_app_event_signature(event_id, 3)
+        with Session(engine) as db:
+            db.execute(update(AppExecutionOutbox).values(payload=prior_payload))
+            db.commit()
+        prepared = prepare_app_event_signature(event_id, 3, timestamp=1700000000)
+        verify_webhook(prepared["body"], prepared["headers"], "fixture-signing-secret", now=1700000000)
+        with Session(engine) as db:
+            db.execute(update(WebhookSetting).values(url="https://example.test/changed"))
+            db.commit()
+        with pytest.raises(AppGovernanceConflict):
+            prepare_app_event_signature(event_id, 3)
+        with Session(engine) as db:
+            db.execute(update(WebhookSetting).values(url="https://example.test/events"))
+            db.commit()
         ack_path = f"/apps/v1/boards/{ids[0].to_short_code()}/cards/{ids[1].to_short_code()}/interactions/{uid.to_short_code()}/acknowledgments"
 
         async def sdk_ack(reference="runtime-receipt-1"):
@@ -419,6 +496,8 @@ def test_native_sdk_interaction_human_cas_outbox_and_current_fences(registered, 
             db.commit()
         with pytest.raises(AppGovernanceDenied):
             respond_to_app_card_interaction(owner, *args)
+        with pytest.raises(AppGovernanceDenied):
+            prepare_app_event_signature(event_id, 3)
         with TestClient(app) as client:
             assert client.get(ack_path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
         with Session(engine) as db:

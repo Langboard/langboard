@@ -41,7 +41,7 @@ def test_app_foundation_postgres_upgrade_constraints_and_downgrade(monkeypatch):
         db.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     migration_root = Path(__file__).parents[2] / "api/langboard/migrations"
-    assert ScriptDirectory(str(migration_root)).get_heads() == ["a9de428cb76f"]
+    assert ScriptDirectory(str(migration_root)).get_heads() == ["b0f1a2c3d4e5"]
     spec = importlib.util.spec_from_file_location(
         "app_foundation_migration", migration_root / "versions/20261012060000-a7c9e31b6204.py"
     )
@@ -641,6 +641,47 @@ def test_interaction_migration_retains_receipts_and_enforces_response_uniqueness
         with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             migration.downgrade()
         assert not {"app_card_interaction", "app_card_interaction_response"} & set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def test_app_event_destination_migration_roundtrip():
+    url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires disposable PostgreSQL")
+    schema = "app_destination_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    path = Path(__file__).parents[2] / "api/langboard/migrations/versions/20261012190000-b0f1a2c3d4e5.py"
+    spec = importlib.util.spec_from_file_location("app_destination_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "a9de428cb76f"
+    try:
+        with engine.begin() as db:
+            with Operations.context(MigrationContext.configure(db)):
+                migration.upgrade()
+            db.execute(
+                text(
+                    "INSERT INTO app_event_destination (id, connection_id, webhook_id, target_revision, trust_revision) VALUES (1,2,3,'target','trust')"
+                )
+            )
+        assert inspect(engine).get_foreign_keys("app_event_destination") == []
+        with pytest.raises(IntegrityError), engine.begin() as db:
+            db.execute(
+                text(
+                    "INSERT INTO app_event_destination (id, connection_id, webhook_id, target_revision, trust_revision) VALUES (4,2,5,'target','trust')"
+                )
+            )
+        with engine.begin() as db:
+            with Operations.context(MigrationContext.configure(db)):
+                migration.downgrade()
+        assert "app_event_destination" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()
         with admin.begin() as db:
