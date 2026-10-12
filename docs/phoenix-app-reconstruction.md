@@ -1000,3 +1000,32 @@ existing app configuration requires board update authority and does not contain
 private/whisper/shared card visibility models. This change does not claim that
 cross-union visibility acceptance or read-only board-role support is complete.
 Actual consumer and independent app acceptance remain required.
+
+### Independent Monitor wrapper acceptance
+
+The independently maintained Example Monitor source c9ae74a was built as its
+own 0.1.2 wheel and installed without editing host runtime code or monkeypatching
+its SDK methods. Wheel SHA256:
+`125b13e6108f5a62161baa10175d0cbae6f35e8093cc1468fdd94b42e5b5c060`.
+Its signals-only baseline declaration is unchanged; the disposable fixture
+explicitly declares and grants HITL scopes and assigns an app-owned card.
+
+The actual `Monitor.question/recover_question/current_response/acknowledge_response`
+methods called native ASGI HTTP over real PostgreSQL. Missing recovery, immutable
+request recovery, changed-request refusal, a real human response, receipt-only
+ACK and current resource revocation were exercised. Exactly one interaction and
+one response were retained, with no card move or execution resume. The queue
+transport was suppressed and delivery was marked confirmed by the fixture;
+this is not live broker/provider acceptance. The SDK037 environment passed in
+1.95 seconds. The pinned SDK036 isolated environment result is recorded below.
+
+The optional test skips when the independent package is not installed; a skip
+is not acceptance. Registry installation/lifecycle acceptance and current wrapper
+HITL acceptance are separate proof layers.
+
+The isolated environment installed the Monitor repository's pinned SDK036 wheel
+and the built Monitor wheel. It passed the same native HTTP/PostgreSQL test in
+2.11 seconds; the log confirms SDK0.2.36 loaded from that environment. An initial
+collection failed because host-only boto3 was absent; host dependencies were
+added as test-runtime search paths while the independent SDK036 remained first.
+No SDK methods or authority decisions were replaced.
