@@ -11,6 +11,7 @@ from threading import Event, get_ident
 from time import monotonic, sleep
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
 import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
+import langboard.routes.settings.AppCardReadApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
 import langboard.routes.settings.AppExecutionLeaseApi  # noqa: F401
@@ -1597,6 +1598,9 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(registered, monkeypatch):
     engine, (_, owner, outsider), personal, shared = registered
+    from langboard_shared.core.db import EditorContentModel
+
+    card_content = "작업\n" * 6000
     from langboard_shared.domain.models import (
         AppCardInteraction,
         AppCardInteractionResponse,
@@ -1634,6 +1638,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         declaration = deepcopy(DECLARATION)
         declaration["capabilities"] += [
             "cards.create",
+            "cards.read",
             "resources.read",
             "execution.run",
             "interactions.request",
@@ -1662,7 +1667,15 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
         db.add(ProjectColumn(id=213, project_id=20, name="Working", workflow_stage="active"))
         db.add(ProjectColumn(id=214, project_id=20, name="Check", workflow_stage="review"))
         db.flush()
-        db.add(Card(id=221, project_id=20, project_column_id=211, title="Example"))
+        db.add(
+            Card(
+                id=221,
+                project_id=20,
+                project_column_id=211,
+                title="Example",
+                description=EditorContentModel(content=card_content),
+            )
+        )
         db.commit()
         app_revision = db.query(AppDefinition).one().edit_revision()
         binding_revision = db.query(BoardAppBinding).one().edit_revision()
@@ -2224,6 +2237,44 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                         evidence_reference=evidence,
                     )
 
+            from langboard_sdk import AppCards
+
+            async def sdk_card(offset=0, limit=16000):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    return await AppCards(HttpTransport(session)).read(
+                        SnowflakeID(20).to_short_code(), SnowflakeID(221).to_short_code(), offset=offset, limit=limit
+                    )
+
+            content_read = asyncio.run(sdk_card())
+            assert content_read["card_revision"] == review_authority["card_revision"]
+            assert content_read["binding_revision"] == review_authority["binding_revision"]
+            assert content_read["source"] == {"app_key": "example", "connection_uid": personal.get_uid()}
+            assert (
+                content_read["resources"][0]["access_revision"]
+                == review_authority["resource_revisions"][SnowflakeID(301).to_short_code()]
+            )
+            assert "permit_execution" not in content_read
+            remaining = asyncio.run(sdk_card(offset=16000))
+            assert content_read["description"]["content"] + remaining["description"]["content"] == card_content
+            assert content_read["description"]["next_offset"] == 16000
+            assert remaining["description"]["next_offset"] is None
+            assert remaining["description"]["total_chars"] == len(card_content)
+            assert asyncio.run(sdk_card(offset=len(card_content)))["description"]["content"] == ""
+            card_path = (
+                f"/apps/v1/boards/{SnowflakeID(20).to_short_code()}/cards/{SnowflakeID(221).to_short_code()}"
+            )
+            assert client.get(card_path, headers=app_headers, params={"limit": 16001}).status_code == 400
+            assert client.get(card_path, headers=app_headers, params={"offset": -1}).status_code == 400
+            assert (
+                client.get(
+                    card_path.replace(SnowflakeID(221).to_short_code(), SnowflakeID(222).to_short_code()),
+                    headers=app_headers,
+                ).status_code
+                == 403
+            )
+
             assert asyncio.run(sdk_review(read=True))["state"] == "not_recorded"
             review_before = asyncio.run(sdk_review(read=True))["current"]
             assert (
@@ -2270,6 +2321,8 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 db.commit()
             with pytest.raises(NativeApiError):
                 asyncio.run(sdk_review(read=True))
+            with pytest.raises(NativeApiError):
+                asyncio.run(sdk_card())
             with Session(engine) as db:
                 # Restore fixture Active for independent heartbeat edit/exit gates.
                 db.query(AppExecutionReview).delete()

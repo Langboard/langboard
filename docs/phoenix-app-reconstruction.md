@@ -982,3 +982,21 @@ Current revocation also denies recovery. The installed SDK/HTTP/PostgreSQL focus
 regression passed in 3.13 seconds. Full PostgreSQL regression passed 84 tests
 in 48.31 seconds, including Review migration roundtrip and unique receipt identity.
 Provider termination remains an external attestation acceptance gate.
+
+### Native current app-owned card content
+
+SDK `AppCards.read` now has its native GET route. It authenticates the inbound
+connection and reuses current owning-app/card/resource configuration with
+`cards.read` consent. It returns the existing Markdown in windows of at most
+16,000 characters, total size and next offset, title, source connection,
+execution generation, card/ownership/selection/binding revisions and scoped
+external resource identities/access revisions. Reading neither issues nor
+renews a runtime permit and remains available after a reported stop.
+
+Installed SDK HTTP/PostgreSQL acceptance passed in 3.13 seconds: complete Korean
+content across pages, end-of-content, invalid windows, unowned card refusal,
+post-stop revision consistency and resource revocation refusal. This checkout's
+existing app configuration requires board update authority and does not contain
+private/whisper/shared card visibility models. This change does not claim that
+cross-union visibility acceptance or read-only board-role support is complete.
+Actual consumer and independent app acceptance remain required.
