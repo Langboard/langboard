@@ -510,3 +510,12 @@ with a live pytest process, no written JUnit file, and no observed database lock
 wait. No test completion is inferred from intermittent empty database sessions.
 Enable pytest's built-in faulthandler_timeout=60 for the next execution to retain
 thread stacks on a stalled test without adding dependencies or relaxing the gate.
+
+Phoenix run 38261627844 failed at the custom-container execution boundary of
+setup-beam before native compilation, then was cancelled by a newer PR event.
+It is not a failing Phoenix test receipt. The CI job now directly reuses the
+exact digest-pinned Elixir/OTP build image from the upstream socket Dockerfile,
+initializes Hex/Rebar through Mix, and retains exact-version dependency/PLT cache
+keys. This removes redundant BEAM installation and introduces no image build or
+private runner configuration. YAML and Dockerfile image equality were verified;
+the next actual CI run must establish execution compatibility.

@@ -37,7 +37,7 @@ jobs:
   check:
     if: vars.CI_RUNNER != '' && (github.event_name != 'pull_request' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    container: hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
     timeout-minutes: 60
     defaults:
       run:
@@ -52,15 +52,15 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends build-essential ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        id: beam
-        with:
-          otp-version: "28.5.0.5"
-          elixir-version: "1.19.5"
+      - name: Initialize pinned BEAM tooling
+        run: |
+          elixir --version
+          mix local.hex --force
+          mix local.rebar --force
       - uses: actions/cache@v4
         with:
           path: src/socket/deps
-          key: phoenix-deps-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('src/socket/mix.lock') }}
+          key: phoenix-deps-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
       - name: Install Phoenix dependencies
         run: mix deps.get --check-locked
       - uses: actions/setup-node@v4
@@ -104,14 +104,14 @@ jobs:
         id: plt
         with:
           path: src/socket/_build/plts
-          key: phoenix-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('src/socket/mix.lock') }}
-          restore-keys: phoenix-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+          key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
+          restore-keys: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-
       - name: Build analysis cache
         run: mix dialyzer --plt
       - uses: actions/cache/save@v4
         if: steps.plt.outputs.cache-hit != 'true'
         with:
           path: src/socket/_build/plts
-          key: phoenix-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('src/socket/mix.lock') }}
+          key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
       - name: Type analysis
         run: mix dialyzer --format github --format dialyxir
