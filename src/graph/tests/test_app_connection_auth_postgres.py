@@ -1846,6 +1846,10 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             ack_path = app_path + "/acknowledgments"
             ack_body = {"event_uid": event_uid, "runtime_reference": "runtime-example-1"}
             app_headers = {"Authorization": f"Bearer {token}"}
+            assert client.get(ack_path, headers=app_headers).json()["state"] == "not_received"
+            assert client.get(ack_path).status_code == 401
+            assert client.get(ack_path, headers=headers).status_code == 403
+            assert client.get(ack_path, headers={"Authorization": f"Bearer {other_token}"}).status_code == 403
             assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
             with Session(engine) as db:
                 assert db.query(AppExecutionAcknowledgment).count() == 0
@@ -1884,6 +1888,17 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                         runtime_reference="runtime-example-1",
                     )
 
+            async def sdk_ack_read():
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://testserver", headers=app_headers
+                ) as session:
+                    return await AppExecution(HttpTransport(session)).read_acknowledgment(
+                        SnowflakeID(20).to_short_code(),
+                        SnowflakeID(221).to_short_code(),
+                        request_uid=receipts[0]["request_uid"],
+                    )
+
+            assert asyncio.run(sdk_ack_read())["state"] == "not_received"
             original_insert = DbSession.insert
 
             def fail_ack_insert(db, model):
@@ -1898,11 +1913,18 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
             with Session(engine) as db:
                 assert db.query(AppExecutionAcknowledgment).count() == 0
                 assert db.query(CardExecutionGeneration).one().execution_generation == 1
+            assert client.get(ack_path, headers=app_headers).json()["state"] == "not_received"
             with ThreadPoolExecutor(max_workers=2) as pool:
                 acknowledgments = list(pool.map(lambda _: asyncio.run(sdk_ack()), range(2)))
             assert sorted(row["changed"] for row in acknowledgments) == [False, True]
             assert len({row["acknowledgment_uid"] for row in acknowledgments}) == 1
             assert all(row["state"] == "received" and row["started"] is False for row in acknowledgments)
+            recovered_ack = client.get(ack_path, headers=app_headers)
+            assert recovered_ack.headers["cache-control"] == "no-store"
+            assert recovered_ack.json()["acknowledgment_uid"] == acknowledgments[0]["acknowledgment_uid"]
+            assert recovered_ack.json()["changed"] is False
+            assert recovered_ack.json()["started"] is False
+            assert asyncio.run(sdk_ack_read()) == recovered_ack.json()
             assert client.post(ack_path, headers=app_headers, json=ack_body).headers["cache-control"] == "no-store"
             assert (
                 client.post(
@@ -1918,6 +1940,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(regi
                 )
                 db.commit()
             assert client.post(ack_path, headers=app_headers, json=ack_body).status_code == 403
+            assert client.get(ack_path, headers=app_headers).status_code == 403
             with Session(engine) as db:
                 db.execute(
                     update(AppConnectionCredential)

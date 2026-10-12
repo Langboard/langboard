@@ -136,8 +136,8 @@ the native authenticated policy routes on PostgreSQL. Ruff and diff checks pass.
 
 ## Connection authentication and owner MCP consent
 
-The host consumes the independent langboard-sdk 0.2.33 wheel with SHA256
-b021a7a849b3a712851069eac887dca3c937f669eea6095edf1ba1c5d4f3bd12.
+The host consumes the independent langboard-sdk 0.2.34 wheel with SHA256
+fcb41fb22cbc2473fed7d1a26f3352a62c8afb5396e967ef1859eef8dc2be259.
 The shared, API and Graph locks retain their existing package versions and
 include that exact artifact. API and Graph image contexts copy the artifact
 before dependency installation; private SDK repository access is not required.
@@ -631,3 +631,11 @@ back; the SDK reports MutationOutcomeUnknown and must not infer success or retry
 automatically. The receipt says received and started=false. It is not a runtime
 permit. Signed delivery, durable ACK recovery, lease admission and HITL remain
 unimplemented.
+
+The native GET on the same acknowledgment collection reports not_received or the
+retained received receipt under current connection, generation and resource
+authority. It does not renew or insert a receipt. After an ambiguous POST outcome,
+clients can read before deciding what to do; not_received is only a snapshot and
+does not authorize an automatic retry. SDK 0.2.34 adds read_acknowledgment and an explicit received/not_received union.
+The host pins its independent wheel in all three existing locks. SDK-to-native
+ASGI and PostgreSQL tests verify both receipt states without mutation retries.

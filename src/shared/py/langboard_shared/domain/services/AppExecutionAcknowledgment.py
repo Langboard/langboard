@@ -1,10 +1,46 @@
 """Idempotent delivery acknowledgment with current authority; no execution grant."""
 
 from ...core.db import DbSession, SqlBuilder
+from ...core.types import SnowflakeID
 from ..models import AppConnectionCredential, AppExecutionAcknowledgment, AppExecutionOutbox
 from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppExecutionRequestRead import read_app_execution_request
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
+
+
+def _response(row, *, changed=False):
+    return {
+        "schema_version": 1,
+        "acknowledgment_uid": row.get_uid(),
+        "request_uid": SnowflakeID(row.request_id).to_short_code(),
+        "event_uid": SnowflakeID(row.event_id).to_short_code(),
+        "runtime_reference": row.runtime_reference,
+        "state": "received",
+        "started": False,
+        "changed": changed,
+    }
+
+
+def read_execution_acknowledgment(token, project_id, card_id, request_id):
+    with DbSession.atomic() as db:
+        receipt = read_app_execution_request(token, project_id, card_id, request_id)
+        principal = authenticate_connection_credential(token)
+        row = db.exec(
+            SqlBuilder.select.table(AppExecutionAcknowledgment).where(
+                AppExecutionAcknowledgment.request_id == request_id,
+                AppExecutionAcknowledgment.app_key == principal.app_key,
+                AppExecutionAcknowledgment.connection_id == principal.connection_id,
+            )
+        ).first()
+        if row is None:
+            return {
+                "schema_version": 1,
+                "request_uid": receipt["request_uid"],
+                "state": "not_received",
+                "started": False,
+                "changed": False,
+            }
+        return _response(row)
 
 
 def acknowledge_execution_request(token, project_id, card_id, request_id, event_id, runtime_reference):
@@ -49,13 +85,4 @@ def acknowledge_execution_request(token, project_id, card_id, request_id, event_
             db.insert(row)
         elif row.event_id != event_id or row.runtime_reference != runtime_reference:
             raise AppGovernanceConflict()
-        return {
-            "schema_version": 1,
-            "acknowledgment_uid": row.get_uid(),
-            "request_uid": request_id.to_short_code(),
-            "event_uid": event.get_uid(),
-            "runtime_reference": row.runtime_reference,
-            "state": "received",
-            "started": False,
-            "changed": changed,
-        }
+        return _response(row, changed=changed)

@@ -563,7 +563,7 @@ def test_active_attempt_can_renew_lease_but_stale_or_terminal_attempt_cannot(
     renewed = run_repository.get_by_id(run.id)
     assert renewed is not None
     assert renewed.lease_expires_at is not None
-    assert renewed.lease_expires_at > original_expiry.replace(tzinfo=None)
+    assert renewed.lease_expires_at.replace(tzinfo=timezone.utc).timestamp() > original_expiry.timestamp()
     assert run_repository.mark_expired_uncertain(original_expiry + timedelta(seconds=1), 1) == []
 
     assert run_repository.finish(run.id, claimed.attempt, InternalBotRunStatus.Completed)
@@ -1537,7 +1537,9 @@ def test_editor_pause_persists_one_owned_approval_and_is_idempotent(
         "_GraphApprovalRequestRepository__get_model_classes",
         staticmethod(lambda: [EditorGraphApprovalRequest]),
     )
-    response = GraphApprovalRequestService(lambda service_type: None, lambda name: None, repository).get_api_response(approval)
+    response = GraphApprovalRequestService(lambda service_type: None, lambda name: None, repository).get_api_response(
+        approval
+    )
     assert response["document_name"] == run.request_payload["document_name"]
 
 
