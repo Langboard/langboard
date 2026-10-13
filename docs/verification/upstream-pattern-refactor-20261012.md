@@ -747,3 +747,30 @@ The first local UI typecheck used shared worktree dependencies and failed becaus
 The current request/client/workflow regressions passed all 18 cases. Phoenix cutover and owner preflight tests passed 48 cases; four Windows-shell parameterizations were skipped because PowerShell was unavailable. These checks exercise admission/preflight logic, not the native Elixir runtime or deployed cutover.
 
 Assembly HTTPS configuration PR #3428 completed its regular verify run 38348255273 and documentation build run 38348255261 successfully. Broker PR #4797 has subsequently integrated newer central source; the still-running backend run 38347978810 belongs to its earlier source and cannot prove the new integrated head. Operational API/edge activation, OIDC rejection and authorized submit/readback, native service-job capacity and final-head Langboard validation remain unproven. The consumer endpoint and audience variables remain unset; no main merge or Phoenix deployment occurred.
+
+## Central runtime handoff progress — 2026-10-13
+
+The preceding runtime status is superseded by direct operational evidence. The
+central broker source was merged at `5c0030cedc53a4edb0f1fbc0d7af2b08a2c47aed`.
+Assembly promotion PR #3433 passed its corrected-head CI 38356501638 and merged
+at `ba1155abf63d4cf2f022226985db68bf5b776c81`. The stale ledger-hook test
+expectation caused the previous CI failure; the corrected run retained passing
+groups of 149, 281, 13, 28 and 5 tests. These counts describe central Assembly
+checks, not Langboard acceptance.
+
+Official Runtime Control 38358266142 completed successfully. Independent live
+readback confirmed the API Deployment uses the release image from source
+`5c0030cedc53`, with digest
+`sha256:74fdd819f43b7e5b570f8ad226a0e7916caa6216ed2dcac8619da51acc6c693a`,
+one updated replica and one ready replica. Central ownership also recorded
+missing and malformed bearer requests returning 401 inside the deployed API.
+Private raw CI and live receipts remain outside tracked source.
+
+Broker configuration activation and public machine routing still require their
+own current-head checks and operational acceptance. Authorized GitHub OIDC
+submit, duplicate handling, request readback, durable ledger, cancellation,
+capacity and cache behavior are not established by image readiness or 401s.
+Consumer URL/audience and executor handoff remain inactive until those gates
+pass. Langboard final-head native validation, consistent retained-editor/DB
+snapshot and Yjs/Yex restore, deployed feature acceptance and independent review
+remain required. No Langboard main merge or Phoenix canary cutover is claimed.
