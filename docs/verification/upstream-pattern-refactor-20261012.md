@@ -604,3 +604,21 @@ effect-DB failure 1; success emitted both report references and failures stopped
 later gates. An initial test harness incorrectly shifted the mocked uv command
 and was corrected; it was not a native project test failure. Native full gates,
 execution duration, peak memory and central report recovery remain unproven.
+
+
+## Real PostgreSQL gate refresh
+
+At consumer source `515b6b3ab93806e76fa0785b208c43fe90cb7989`, the focused
+workflow entry-effects and execution-readiness PostgreSQL suites passed:
+12 tests, 16.25 seconds, zero skipped. The locked Python 3.12 environment
+was synchronized before the passing rerun. The initial no-sync invocation
+failed collection because project dependencies were absent; its receipt was
+preserved separately. This is local disposable PostgreSQL evidence, not shared
+BuildKit or deployed canary acceptance.
+
+The readiness fixture still logged an undefined `project` table during registry
+service use. Although assertions passed, this leaves that fixture's publisher
+path incomplete and requires follow-up before treating the run as complete
+service coverage. Intentional rollback exceptions are distinct from this
+unexpected warning. Current upstream main `45171c10973d0c96450f2d9f4603bd3617b41b99`
+is an ancestor of this consumer.
