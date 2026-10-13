@@ -1,7 +1,4 @@
-ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
-ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
-
-FROM ${ELIXIR_IMAGE} AS tooling
+FROM hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd AS tooling
 
 WORKDIR /app/socket
 
@@ -59,7 +56,7 @@ RUN mkdir -p /result/artifacts \
 FROM scratch AS validation-results
 COPY --from=validation /result /result
 
-FROM ${RUNTIME_IMAGE} AS runtime
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
 
 ARG PROJECT_NAME=langboard
 
