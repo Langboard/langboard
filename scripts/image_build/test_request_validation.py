@@ -7,6 +7,7 @@ import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
+import yaml
 
 
 spec = importlib.util.spec_from_file_location("request_validation", Path(__file__).with_name("request_validation.py"))
@@ -112,6 +113,21 @@ class BrokerClientTest(unittest.TestCase):
             self.assertIn("receipt invalid", outcome)
             self.assertEqual(len(calls), 2)
             self.assertEqual(output, "")
+
+    def test_workflow_separates_federated_validation_from_product_credentials(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/request-image-build.yaml"
+        job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
+        steps = {step.get("name"): step for step in job["steps"]}
+        self.assertEqual(job["permissions"]["id-token"], "write")
+        checkout = steps["Checkout validation request client"]
+        self.assertEqual(checkout["if"], "inputs.validation_only == true")
+        self.assertFalse(checkout["with"]["persist-credentials"])
+        request = steps["Request validation through federated identity"]
+        self.assertEqual(request["if"], "inputs.validation_only == true")
+        self.assertEqual(request["run"], "python3 scripts/image_build/request_validation.py")
+        self.assertNotIn("secrets.", json.dumps(request))
+        self.assertEqual(steps["Request the approved immutable image"]["if"], "inputs.validation_only != true")
+        self.assertEqual(job["env"]["SOURCE_REF"], "${{ github.ref }}")
 
     def test_redirect_handler_does_not_forward_bearer(self):
         self.assertIsNone(client.NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid"))

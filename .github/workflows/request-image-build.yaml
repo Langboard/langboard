@@ -39,6 +39,9 @@ concurrency:
 jobs:
   request:
     if: vars.CI_RUNNER != '' && (startsWith(github.ref, 'refs/heads/deploy/') || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
@@ -53,6 +56,7 @@ jobs:
       IMAGE_BUILD_PROFILE: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
       SOURCE_REPOSITORY: ${{ github.repository }}
       SOURCE_REVISION: ${{ github.sha }}
+      SOURCE_REF: ${{ github.ref }}
       VALIDATION_ONLY: ${{ inputs.validation_only && 'true' || 'false' }}
       SOURCE_PR: ${{ inputs.source_pr }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -63,7 +67,19 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils python3
+      - name: Checkout validation request client
+        if: inputs.validation_only == true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Request validation through federated identity
+        if: inputs.validation_only == true
+        env:
+          IMAGE_BUILD_BROKER_URL: ${{ vars.IMAGE_BUILD_BROKER_URL }}
+          IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
+        run: python3 scripts/image_build/request_validation.py
       - name: Request the approved immutable image
+        if: inputs.validation_only != true
         env:
           IMAGE_BUILD_REQUEST_TOKEN: ${{ secrets.IMAGE_BUILD_REQUEST_TOKEN }}
         shell: bash
