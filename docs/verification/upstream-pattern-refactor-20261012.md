@@ -797,4 +797,31 @@ Assembly PR #3438 declares the existing approved release separately from deliver
 code and adds healthy exact-image-gated cleanup of unused build cache older than
 seven days. LXC remains a deployment server, not central build capacity. API and
 worker already use GHCR; Graph, Socket and web still depend on host source. No
-source, container, image or volume has been removed, and cleanup is not yet run.
+source, container, image or volume has been removed. Assembly PR #3438 was merged
+after successful checks; delivery cleanup run 38371200804 succeeded. Its private
+receipt confirms unchanged container mounts and no volume pruning. Build cache
+fell from 37.27 GB to 20.86 GB and available disk space rose from 13 GB to 29 GB.
+
+## External browser acceptance and authorization cookie boundary — 2026-10-13
+
+The scoped external test account signed in through the normal in-app browser,
+opened its existing customer-board test card and saved an additional verification
+paragraph. The details request returned HTTP 200; independent server readback and
+browser re-entry preserved the paragraph and update time 09:15:06Z. No customer
+card body was changed. A private screenshot preserves the rendered result.
+
+An earlier active-work request returned HTTP 401 while the access token still had
+remaining lifetime. The next sign-in restored active-work HTTP 200. Initial board
+loading also emitted Request aborted before Retry recovered. These observations
+do not establish complete session stability or identify a single incident cause.
+
+Source inspection found a distinct reproducible defect: authenticated users
+denied an admin-only endpoint received HTTP 403 together with refresh-cookie
+deletion. ApiAuthMiddleware now denies the request without invalidating the
+authenticated session. The regression uses actual signed access/refresh tokens,
+original Auth.validate and original HTTP route/middleware, isolating user lookup
+and template storage. It failed on the cookie deletion before the change and
+passes afterward; all 11 authorization tests pass. Authentication rejection and
+explicit sign-out behavior are unchanged. The regression joins the central
+integration wrapper. This source fix is not yet deployed and does not claim the
+observed active-work 401 had this exact cause.

@@ -15,7 +15,7 @@ status=0
     && make lint_socket_phoenix \
     && make test_socket_phoenix_editor_cluster \
     && bash scripts/check-app-contracts.sh /result/app-contracts.xml \
-    && PYTHONPATH=. uv run pytest -p no:tach -q --junitxml=/result/workflow-contracts.xml src/api/tests/workflow_stages src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py src/api/tests/webhooks/test_webhook_contract.py src/api/tests/migrations/test_phoenix_canary_union_postgres.py src/shared/py/langboard_shared/core/logger/LogFileHandler_test.py
+    && PYTHONPATH=. uv run pytest -p no:tach -q --junitxml=/result/workflow-contracts.xml src/api/tests/workflow_stages src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py src/api/tests/webhooks/test_webhook_contract.py src/api/tests/migrations/test_phoenix_canary_union_postgres.py src/shared/py/langboard_shared/core/logger/LogFileHandler_test.py src/api/tests/project_templates/test_template_authorization_http.py
 import os
 from sqlalchemy import create_engine, text
 

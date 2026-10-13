@@ -52,9 +52,6 @@ class ApiAuthMiddleware(AuthenticationMiddleware, FilterMiddleware):
                 )
             ):
                 response = JsonResponse(content=ApiErrorCode.AU1001, status_code=status.HTTP_403_FORBIDDEN)
-                response.delete_cookie(
-                    Env.REFRESH_TOKEN_NAME, domain=Env.DOMAIN if Env.DOMAIN else None, httponly=True, secure=is_secure
-                )
                 await response(scope, receive, send)
                 return
 
