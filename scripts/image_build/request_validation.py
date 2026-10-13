@@ -72,7 +72,11 @@ def run(read=False):
         endpoint,
         method="GET" if read else "POST",
         data=None if read else json.dumps(payload).encode(),
-        headers={"Authorization": "Bearer " + assertion, "Content-Type": "application/json"},
+        headers={
+            "Authorization": "Bearer " + assertion,
+            "Content-Type": "application/json",
+            "User-Agent": "Langboard-NativeValidation/1.0",
+        },
     )
     try:
         with opener.open(request, timeout=30) as response:
