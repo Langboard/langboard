@@ -53,7 +53,12 @@ export default function ActivityRail({ items, contextExpanded = false }: { items
                                         >
                                             <IconComponent icon={item.icon} size="5" />
                                             {item.badge ? (
-                                                <span className="absolute right-0 top-0 rounded-full bg-primary px-1 text-[9px] text-primary-foreground">
+                                                <span
+                                                    className={cn(
+                                                        "absolute right-0 top-0 rounded-full bg-primary px-1",
+                                                        "text-[9px] text-primary-foreground"
+                                                    )}
+                                                >
                                                     {item.badge}
                                                 </span>
                                             ) : null}
