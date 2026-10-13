@@ -95,7 +95,7 @@ These are source integration tests, not deployed browser acceptance. Legacy Node
 
 ## Board
 
-Tracked at https://langboard.yamon.io/board/2RRwwB5JNm0/gsU03P80pEe, Doing. Backup checklist item is complete; integrated UI/runtime, app contracts, migration replay, and canary acceptance remain open.
+Tracked in the private project board, in progress. Backup evidence is retained privately; integrated UI/runtime, app contracts, migration replay, and canary acceptance remain open.
 
 ## Execution API consolidation
 
@@ -437,8 +437,8 @@ entries: both now match the retained 0.2.37 wheel's actual SHA-256.
 `latest-canary-repair-regression.txt`: 11 passed for external/default visibility
 and immutable image-request contracts.
 
-Phoenix checks reuse the generic `CI_RUNNER` repository variable when set and
-keep the public Ubuntu default otherwise. Push checks are restricted to main
+Phoenix checks require the generic `CI_RUNNER` repository variable. No hosted
+runner fallback is used when it is missing. Push checks are restricted to main
 and deploy branches; draft pull requests do not run the expensive check.
 Production image building stays in the immutable image-request/central executor
 workflow rather than duplicating a release-image build in the validation job.
