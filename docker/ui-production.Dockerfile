@@ -10,6 +10,7 @@ COPY src/sdk/vendor ./src/sdk/vendor
 COPY src/ui/package.json src/ui/yarn.lock ./src/ui/
 RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/ui && yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
 COPY src/ui ./src/ui
+COPY scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
 WORKDIR /work/src/ui
 ARG PROJECT_NAME=Langboard
 ARG PROJECT_SHORT_NAME=LB
@@ -24,7 +25,13 @@ ARG MAX_FILE_SIZE_MB=50
 ARG NODE_BUILD_HEAP_MB=4096
 RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
 
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3
+FROM build AS validation-ui
+ENV PROFILE=ui
+RUN mkdir -p /result && chown node:node /result
+USER node
+RUN bash /work/scripts/run-profile-validation.sh
+
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3 AS runtime
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /work/src/ui/dist /usr/share/nginx/html
 USER 101:101
