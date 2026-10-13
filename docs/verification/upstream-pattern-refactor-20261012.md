@@ -722,3 +722,8 @@ release profile and generic default review validation profile. A temporary
 source declaration resolved all five names using the central loader; product
 profile values match the current catalog byte-for-value. No active declaration,
 product source approval or executor variable was changed.
+
+
+## Shared validation activation — 2026-10-13
+
+The central selected Argo operation started at 02:41:08Z completed successfully. The validation service account, quota, network policy, Role and RoleBinding exist, and the image pull ExternalSecret reports SecretSynced/Ready=True. The consumer declaration was moved, rather than duplicated, to `.fractalops/image-build.json`. It retains the three existing api/worker/ui production profiles and the socket runtime profile, alongside the review-only default integration profile. This activates the declaration on the review branch only; it does not merge or deploy the canary. The approved central executor is commit/tag `573de05267d3128ce854e7cd72780f6bad4b821f`. Native execution and report acceptance remain required.
