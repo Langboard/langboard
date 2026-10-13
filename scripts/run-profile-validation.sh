@@ -35,8 +35,8 @@ reports='[]'
 if [[ -f "/result/artifacts/${profile}.xml" ]]; then
   reports="[\"artifacts/${profile}.xml\"]"
 fi
-printf '{"schemaVersion":1,"profile":"%s","exitCode":%s,"reports":{"junit":%s,"artifacts":["artifacts/%s-validation.log"]}}\n' \
-  "$profile" "$status" "$reports" "$profile" > /result/result.json
+printf '{"schemaVersion":1,"exitCode":%s,"reports":{"junit":%s,"artifacts":["artifacts/%s-validation.log"]}}\n' \
+  "$status" "$reports" "$profile" > /result/result.json
 # The result stage must complete so the central contract can inspect exitCode.
 # Setup failures above still terminate the stage through `set -e`.
 exit 0
