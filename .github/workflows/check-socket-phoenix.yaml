@@ -57,11 +57,19 @@ jobs:
           elixir --version
           mix local.hex --force
           mix local.rebar --force
+      - name: Identify Phoenix dependency lock
+        id: phoenix_lock
+        run: |
+          echo "sha256=$(sha256sum src/socket/mix.lock | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "python_sha256=$(sha256sum uv.lock pyproject.toml | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: src/socket/deps
-          key: phoenix-deps-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
+          key: phoenix-deps-${{ runner.os }}-28.5.0.5-1.19.5-${{ steps.phoenix_lock.outputs.sha256 }}
       - name: Install Phoenix dependencies
+        env:
+          HEX_HTTP_CONCURRENCY: "4"
+          HEX_HTTP_TIMEOUT: "120"
         run: cd src/socket && mix deps.get --check-locked
       - uses: actions/setup-node@v4
         with:
@@ -74,7 +82,7 @@ jobs:
           path: |
             ~/.cache/uv
             .venv
-          key: phoenix-uv-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          key: phoenix-uv-${{ runner.os }}-${{ steps.phoenix_lock.outputs.python_sha256 }}
           restore-keys: phoenix-uv-${{ runner.os }}-
       - name: Install Python dependencies
         run: |
@@ -105,7 +113,7 @@ jobs:
         id: plt
         with:
           path: src/socket/_build/plts
-          key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
+          key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ steps.phoenix_lock.outputs.sha256 }}
           restore-keys: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-
       - name: Build analysis cache
         run: cd src/socket && mix dialyzer --plt
@@ -113,6 +121,6 @@ jobs:
         if: steps.plt.outputs.cache-hit != 'true'
         with:
           path: src/socket/_build/plts
-          key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
+          key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ steps.phoenix_lock.outputs.sha256 }}
       - name: Type analysis
         run: cd src/socket && mix dialyzer --format github --format dialyxir
