@@ -16,7 +16,7 @@ The central v2 executor remains an implementation dependency. Do not activate a 
 
 `docker/phoenix-validation.Dockerfile` prepares a separate non-root `integration-test` image using the existing pinned Elixir, Node 22, and uv images. Its entry point reuses the complete `test_socket_phoenix`, `lint_socket_phoenix`, and distributed editor Makefile gates, then the app contract suite. The wrapper requires both disposable PostgreSQL test URLs before running and records the command's exit status plus diagnostic log under `/result`. User retained editor data is not copied into this image. The native image build and Job execution remain unverified; static Dockerfile and central selected-stage policy checks passed. A synthetic wrapper check confirmed missing DB configuration exits 1, a failed first gate exits 19 without running later gates, and success exits 0. Those synthetic checks do not constitute project test acceptance.
 
-`shared-validation-profile.candidate.json` is a reviewable consumer declaration candidate, not the active `.fractalops/image-build.json`. It uses a separate integration profile so the production socket image and test image have distinct targets. DB environment values come from central logical references; no instance addresses or credentials are declared. Its 1,800-second integration timeout is the current central maximum, not evidence that the full gate fits that budget. Validate duration, memory peak, report extraction, and native executor support before activation. The current image request workflow only accepts production profiles and would also need a reviewed declaration/dispatch update for the integration profile after central promotion.
+`shared-validation-profile.candidate.json` is a reviewable consumer declaration candidate, not the active `.fractalops/image-build.json`. Its `default` profile selects integration validation, while the separate `socket` profile retains the production socket image target. The shared review authority accepts `default` without a per-repository profile registration; selecting `socket` still requires explicit profile approval. DB environment values come from central logical references; no instance addresses or credentials are declared. Its 1,800-second integration timeout is the current central maximum, not evidence that the full gate fits that budget. Validate duration, memory peak, report extraction, and native executor support before activation. The current image request workflow only accepts production profiles and would also need a reviewed declaration/dispatch update for the integration profile after central promotion.
 
 ### Pre-merge source authority remains a separate gate
 
@@ -577,3 +577,12 @@ not dependency resolution failure. Align script working directories with the
 existing successful root-based jobs and explicitly enter src/socket for Mix.
 Cache file hashes remain rooted at the checkout. The exact hook root cause and
 actual dependency/test success still require the next run; no gate is removed.
+
+
+## Shared review-profile alignment
+
+The inactive candidate selects PostgreSQL integration through the generic
+`default` profile. This avoids adding a Langboard-specific profile allowlist to
+the shared review executor. Production socket selection remains separate.
+The central source policy accepts both candidate profiles; this is static policy
+evidence, not image execution, integration success or permission activation.
