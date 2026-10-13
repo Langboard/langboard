@@ -264,12 +264,7 @@ function ChatInputDisplay() {
     };
 
     return (
-        <Flex
-            direction="col"
-            w="full"
-            position="relative"
-            className="shrink-0 bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
-        >
+        <Flex direction="col" w="full" position="relative" className="shrink-0 bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
             <Flex
                 direction="col"
                 className={cn(
@@ -386,7 +381,7 @@ function ChatInputPermissionLevel({ showLabel }: { showLabel: bool }) {
             <Select.Trigger
                 disabled={isSending}
                 className={cn(
-                    "h-11 min-w-0 gap-2 md:h-8 px-2 py-1 text-xs [&>span]:min-w-0",
+                    "h-11 min-w-0 gap-2 px-2 py-1 text-xs md:h-8 [&>span]:min-w-0",
                     showLabel ? "w-36" : "w-16",
                     isFullAccess && "border-warning-border bg-warning text-warning-foreground focus:ring-warning-border"
                 )}
