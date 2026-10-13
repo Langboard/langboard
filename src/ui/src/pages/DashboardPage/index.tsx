@@ -180,7 +180,12 @@ const DashboardProxy = memo((): React.JSX.Element => {
                     onClick: () => showContext("explorer"),
                     active: contextMode === "explorer" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
                 },
-                { icon: "folder-kanban", label: t("dashboard.Projects"), onClick: headerNavs[0].onClick!, active: pageType === "projects" },
+                {
+                    icon: "folder-kanban",
+                    label: t("dashboard.Projects"),
+                    onClick: headerNavs[0].onClick!,
+                    active: pageType === "projects" && tabName === "all",
+                },
                 { icon: "layout-dashboard", label: t("dashboard.Cards"), onClick: headerNavs[1].onClick!, active: pageType === "cards" },
                 {
                     icon: "list-checks",
@@ -188,9 +193,26 @@ const DashboardProxy = memo((): React.JSX.Element => {
                     onClick: () => showContext("my-work"),
                     active: contextMode === "my-work" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
                 },
-                { icon: "star", label: t("dashboard.Starred"), onClick: () => window.dispatchEvent(new Event(PROJECT_QUICK_SWITCHER_EVENT)) },
+                {
+                    icon: "star",
+                    label: t("dashboard.Starred"),
+                    onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.STARRED, { smooth: true }),
+                    active: pageType === "projects" && tabName === "starred",
+                },
+                {
+                    icon: "history",
+                    label: t("dashboard.Recent work"),
+                    onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.RECENT, { smooth: true }),
+                    active: pageType === "projects" && tabName === "recent",
+                },
                 { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
                 ...sidebarNavs.map((item) => ({ icon: item.icon, label: item.name, onClick: item.onClick! })),
+                {
+                    icon: "settings",
+                    label: t("settings.App settings"),
+                    onClick: () => navigate(ROUTES.SETTINGS.ROUTE, { smooth: true }),
+                    placement: "bottom",
+                },
             ]}
             workbenchContext={
                 contextMode === "my-work" ? (

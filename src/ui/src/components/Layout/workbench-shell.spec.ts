@@ -505,3 +505,16 @@ for (const width of [1440, 390]) {
         await expect(timeline.locator("time")).toHaveText(["Second review"]);
     });
 }
+
+test("rail keeps settings reachable below scrolling workspace actions", async ({ page }) => {
+    await page.setViewportSize({ width: 1071, height: 320 });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const settings = rail.getByRole("button", { name: "App settings", exact: true });
+    await expect(settings).toBeVisible();
+    const railBox = (await rail.boundingBox())!;
+    const settingsBox = (await settings.boundingBox())!;
+    expect(railBox.y + railBox.height - settingsBox.y - settingsBox.height).toBeLessThan(12);
+    await settings.focus();
+    await expect(settings).toBeFocused();
+});

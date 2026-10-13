@@ -10,6 +10,7 @@ export interface IActivityRailItem {
     active?: boolean;
     badge?: React.ReactNode;
     hidden?: boolean;
+    placement?: "bottom";
 }
 
 export default function ActivityRail({ items, contextExpanded = false }: { items: IActivityRailItem[]; contextExpanded?: boolean }) {
@@ -19,39 +20,53 @@ export default function ActivityRail({ items, contextExpanded = false }: { items
             aria-label={t("common.Workspace")}
             data-workbench-context=""
             data-context-expanded={contextExpanded}
-            className="hidden w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r bg-background py-2 md:flex"
+            className="hidden w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-r bg-background py-2 md:flex"
         >
-            {items
-                .filter((item) => !item.hidden)
-                .map((item) => (
-                    <Tooltip.Root key={`${item.label}:${contextExpanded}`} open={contextExpanded ? false : undefined}>
-                        <Tooltip.Trigger asChild>
-                            <button
-                                type="button"
-                                aria-label={item.label}
-                                aria-current={item.active ? "page" : undefined}
-                                onClick={item.onClick}
-                                className={cn(
-                                    "relative flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground",
-                                    "hover:bg-muted hover:text-foreground",
-                                    item.active && "bg-muted text-primary before:absolute before:inset-y-2 before:left-0 before:w-0.5",
-                                    item.active && "before:rounded-full before:bg-primary"
-                                )}
-                            >
-                                <IconComponent icon={item.icon} size="5" />
-                                {item.badge ? (
-                                    <span className="absolute right-0 top-0 rounded-full bg-primary px-1 text-[9px] text-primary-foreground">
-                                        {item.badge}
-                                    </span>
-                                ) : null}
-                            </button>
-                        </Tooltip.Trigger>
-                        {!contextExpanded && (
-                            <Tooltip.Portal>
-                                <Tooltip.Content side="right">{item.label}</Tooltip.Content>
-                            </Tooltip.Portal>
-                        )}
-                    </Tooltip.Root>
+            {([undefined, "bottom"] as const)
+                .filter((placement) => items.some((item) => !item.hidden && item.placement === placement))
+                .map((placement) => (
+                    <div
+                        key={placement ?? "main"}
+                        className={
+                            placement === "bottom"
+                                ? "mt-auto flex shrink-0 flex-col gap-1 border-t pt-2"
+                                : "flex min-h-0 flex-col gap-1 overflow-y-auto"
+                        }
+                    >
+                        {items
+                            .filter((item) => !item.hidden && item.placement === placement)
+                            .map((item) => (
+                                <Tooltip.Root key={`${item.label}:${contextExpanded}`} open={contextExpanded ? false : undefined}>
+                                    <Tooltip.Trigger asChild>
+                                        <button
+                                            type="button"
+                                            aria-label={item.label}
+                                            aria-current={item.active ? "page" : undefined}
+                                            onClick={item.onClick}
+                                            className={cn(
+                                                "relative flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground",
+                                                "hover:bg-muted hover:text-foreground",
+                                                item.active && "bg-muted text-primary before:absolute before:inset-y-2",
+                                                item.active && "before:left-0 before:w-0.5",
+                                                item.active && "before:rounded-full before:bg-primary"
+                                            )}
+                                        >
+                                            <IconComponent icon={item.icon} size="5" />
+                                            {item.badge ? (
+                                                <span className="absolute right-0 top-0 rounded-full bg-primary px-1 text-[9px] text-primary-foreground">
+                                                    {item.badge}
+                                                </span>
+                                            ) : null}
+                                        </button>
+                                    </Tooltip.Trigger>
+                                    {!contextExpanded && (
+                                        <Tooltip.Portal>
+                                            <Tooltip.Content side="right">{item.label}</Tooltip.Content>
+                                        </Tooltip.Portal>
+                                    )}
+                                </Tooltip.Root>
+                            ))}
+                    </div>
                 ))}
         </nav>
     );
