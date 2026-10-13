@@ -14,7 +14,7 @@ status=0
     && make test_socket_phoenix \
     && make lint_socket_phoenix \
     && make test_socket_phoenix_editor_cluster \
-    && PYTHONPATH=src/api/tests/apps uv run pytest -p no:tach -o faulthandler_timeout=60 -q --junitxml=/result/app-contracts.xml src/api/tests/apps src/api/tests/card_visibility/test_creation_visibility.py src/api/tests/webhooks/test_execution_readiness_uow_postgres.py \
+    && bash scripts/check-app-contracts.sh /result/app-contracts.xml \
     && PYTHONPATH=. uv run pytest -p no:tach -q --junitxml=/result/workflow-contracts.xml src/api/tests/workflow_stages src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py src/api/tests/webhooks/test_webhook_contract.py
 import os
 from sqlalchemy import create_engine, text

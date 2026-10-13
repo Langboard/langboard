@@ -685,3 +685,16 @@ removes duplicated inline panel verification while retaining existing assertions
 Both the extracted script and the prior inline command passed on Node 22.22.1;
 Bash syntax, workflow script selection and diff checks passed. These package
 checks do not prove external-app deployed installation or UI acceptance.
+
+
+## App gate command consolidation
+
+The integration wrapper's blanket apps-directory selector collected 2,013 cases,
+whereas the existing required App Contracts CI owns 25 explicit selectors.
+Those authoritative selectors were moved unchanged into
+`scripts/check-app-contracts.sh`, shared by the existing workflow and integration
+wrapper. Selector equality was verified and the shared command collected exactly
+322 cases, matching the recorded 296 passing / 26 SQLite-only skipped run.
+Bash syntax and diff checks passed. The separate workflow/native/MCP suite,
+real PostgreSQL gates and all original deployment/feature acceptance requirements
+remain in scope; this changes command ownership, not the release completion rule.
