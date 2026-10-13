@@ -28,6 +28,7 @@ def run(read=False):
         raise SystemExit("Invalid broker URL")
     audience = required("IMAGE_BUILD_OIDC_AUDIENCE", r"[A-Za-z0-9_.:/-]+")
     request_id = required("REQUEST_ID", r"[0-9]+-[0-9]+-[0-9]+")
+    executor_commit = required("IMAGE_BUILD_COMMIT", r"[0-9a-f]{40}")
     payload = {
         "schemaVersion": 1,
         "sourceRepository": required("SOURCE_REPOSITORY", r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"),
@@ -94,7 +95,7 @@ def run(read=False):
     if (
         receipt["status"] not in {"dispatching", "dispatched", "outcome_unknown", "rejected"}
         or not isinstance(receipt["executorCommit"], str)
-        or not re.fullmatch(r"[0-9a-f]{40}", receipt["executorCommit"])
+        or receipt["executorCommit"] != executor_commit
     ):
         raise SystemExit("Validation receipt invalid; inspect the same request ID before retrying")
     run_id, run_url = receipt["workflowRunId"], receipt["workflowRunUrl"]

@@ -24,6 +24,7 @@ class BrokerClientTest(unittest.TestCase):
     def invoke(self, receipt=None, changes=None, read=False, failure=None):
         env = dict(
             IMAGE_BUILD_BROKER_URL="https://broker.example.invalid",
+            IMAGE_BUILD_COMMIT="b" * 40,
             IMAGE_BUILD_OIDC_AUDIENCE="fractalops-project-validation",
             REQUEST_ID="1-2-1",
             SOURCE_REPOSITORY="example/source",
@@ -128,6 +129,20 @@ class BrokerClientTest(unittest.TestCase):
         self.assertNotIn("secrets.", json.dumps(request))
         self.assertEqual(steps["Request the approved immutable image"]["if"], "inputs.validation_only != true")
         self.assertEqual(job["env"]["SOURCE_REF"], "${{ github.ref }}")
+
+    def test_unapproved_executor_receipt_is_rejected(self):
+        receipt = dict(
+            schemaVersion=1,
+            requestId="1-2-1",
+            status="dispatched",
+            executorCommit="c" * 40,
+            workflowRunId=42,
+            workflowRunUrl="https://github.com/example/executor/actions/runs/42",
+        )
+        outcome, calls, output = self.invoke(receipt=receipt)
+        self.assertIn("receipt invalid", outcome)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(output, "")
 
     def test_redirect_handler_does_not_forward_bearer(self):
         self.assertIsNone(client.NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid"))
