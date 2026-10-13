@@ -774,3 +774,27 @@ Consumer URL/audience and executor handoff remain inactive until those gates
 pass. Langboard final-head native validation, consistent retained-editor/DB
 snapshot and Yjs/Yex restore, deployed feature acceptance and independent review
 remain required. No Langboard main merge or Phoenix canary cutover is claimed.
+
+
+## Deployed log-sink incident and deployment-server boundary — 2026-10-13
+
+The GHCR API runtime executed as UID 1000 while its persisted log tree retained
+280 root-owned entries. Actual file opens raised PermissionError and API/MCP
+requests timed out. The ownership baseline was retained privately; only those
+root-owned log entries were restored to the runtime owner, with modes unchanged.
+A UID 1000 write probe passed. Subsequent API health returned HTTP 200 and native
+MCP card read, comment write and comment readback succeeded. No database mutation
+or service restart was performed. This proves the observed recovery, not complete
+customer feature acceptance or the only possible cause of future timeouts.
+
+The shared LogFileHandler now contains OSError at its sink boundary using the
+standard logging handleError behavior and closes/reset streams even after failed
+writes. A real temporary-file recovery regression passes and is included in the
+central integration wrapper. Deployment still requires writable persistent data;
+this change does not grant permissions or hide log failure diagnostics.
+
+Assembly PR #3438 declares the existing approved release separately from delivery
+code and adds healthy exact-image-gated cleanup of unused build cache older than
+seven days. LXC remains a deployment server, not central build capacity. API and
+worker already use GHCR; Graph, Socket and web still depend on host source. No
+source, container, image or volume has been removed, and cleanup is not yet run.
