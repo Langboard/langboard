@@ -661,3 +661,11 @@ this suite. No test or production import was rewritten to bypass the failure.
 The separately recorded 12 real PostgreSQL tests are not included in this
 SQLite/default selection's claim. These local receipts complement the source
 policy and wrapper checks; shared BuildKit and deployed gates remain required.
+
+
+The three PostgreSQL parameter cases skipped in the workflow/native/MCP refresh
+were selected directly from its JUnit receipt and run with the disposable DB:
+3 passed, 5.45 seconds, zero skips. They cover panel consent/revision, native
+resource/type scope, and registry cursor/package retention. The initial
+159-test selection plus these targeted cases closes that local selection's
+skipped branches; it is not a final-head centralized workflow run.
