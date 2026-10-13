@@ -8,8 +8,8 @@ defmodule LangboardSocketWeb.SocketHandler do
   alias LangboardSocket.RealtimeContract, as: Contract
   alias LangboardSocketWeb.SocketHandler.BoardChat.Command, as: BoardChatCommand
   alias LangboardSocketWeb.SocketHandler.BoardChat.Result, as: BoardChatResult
-  alias LangboardSocketWeb.SocketHandler.CardAudience
   alias LangboardSocketWeb.SocketHandler.BoardQuery
+  alias LangboardSocketWeb.SocketHandler.CardAudience
   alias LangboardSocketWeb.SocketHandler.Editor.Command, as: EditorCommand
   alias LangboardSocketWeb.SocketHandler.Editor.Result, as: EditorResult
   alias LangboardSocketWeb.SocketHandler.NotificationCommand

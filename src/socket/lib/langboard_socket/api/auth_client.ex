@@ -40,40 +40,59 @@ defmodule LangboardSocket.Api.AuthClient do
         do: body,
         else: Map.merge(body, %{card_uids: card_uids, card_operation: operation})
 
-    case request(
-           :post,
-           "/auth/socket/subscriptions",
-           token,
-           Keyword.merge([json: body], options)
-         ) do
-      {:ok, %Req.Response{status: 200, body: %{"authorized" => authorized} = response_body}}
-      when is_list(authorized) and
-             (is_nil(card_uids) or
-                (:erlang.is_map_key("card_authorization_applied", response_body) and
-                   :erlang.map_get("card_authorization_applied", response_body) == true)) ->
-        requested_ids = MapSet.new(topic_ids)
-
-        authorized_ids =
-          for %{"topic" => ^topic, "topic_id" => topic_id} <- authorized,
-              is_binary(topic_id),
-              MapSet.member?(requested_ids, topic_id),
-              uniq: true,
-              do: topic_id
-
-        {:ok, authorized_ids}
-
-      {:ok, %Req.Response{status: 401, body: %{"code" => "AU1004"}}} ->
-        {:error, :expired_token}
-
-      {:ok, %Req.Response{status: 401}} ->
-        {:error, :unauthorized}
-
-      _ ->
-        {:error, :unavailable}
-    end
+    :post
+    |> request(
+      "/auth/socket/subscriptions",
+      token,
+      Keyword.merge([json: body], options)
+    )
+    |> subscription_result(topic, topic_ids, card_uids)
   end
 
   def authorize_subscriptions(_token, _topic, _topic_ids, _options), do: {:error, :unauthorized}
+
+  defp subscription_result(
+         {:ok, %Req.Response{status: 200, body: %{"authorized" => authorized} = body}},
+         topic,
+         topic_ids,
+         card_uids
+       )
+       when is_list(authorized) do
+    if is_nil(card_uids) or body["card_authorization_applied"] == true do
+      {:ok, authorized_subscription_ids(authorized, topic, topic_ids)}
+    else
+      {:error, :unavailable}
+    end
+  end
+
+  defp subscription_result(
+         {:ok, %Req.Response{status: 401, body: %{"code" => "AU1004"}}},
+         _topic,
+         _topic_ids,
+         _card_uids
+       ),
+       do: {:error, :expired_token}
+
+  defp subscription_result(
+         {:ok, %Req.Response{status: 401}},
+         _topic,
+         _topic_ids,
+         _card_uids
+       ),
+       do: {:error, :unauthorized}
+
+  defp subscription_result(_result, _topic, _topic_ids, _card_uids),
+    do: {:error, :unavailable}
+
+  defp authorized_subscription_ids(authorized, topic, topic_ids) do
+    requested_ids = MapSet.new(topic_ids)
+
+    for %{"topic" => ^topic, "topic_id" => topic_id} <- authorized,
+        is_binary(topic_id),
+        MapSet.member?(requested_ids, topic_id),
+        uniq: true,
+        do: topic_id
+  end
 
   def authorize_editor_document(token, document_name, options \\ [])
 
