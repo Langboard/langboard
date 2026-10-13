@@ -6,15 +6,17 @@ status=0
 (
   : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}" \
     && : "${LANGBOARD_OUTBOX_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}" \
+    && : "${LANGBOARD_EFFECT_TEST_DATABASE:?A disposable PostgreSQL fixture is required}" \
     && uv run python - <<'PY' \
     && make test_socket_phoenix \
     && make lint_socket_phoenix \
     && make test_socket_phoenix_editor_cluster \
-    && uv run pytest -p no:tach -q --junitxml=/result/app-contracts.xml src/api/tests/apps
+    && PYTHONPATH=src/api/tests/apps uv run pytest -p no:tach -o faulthandler_timeout=60 -q --junitxml=/result/app-contracts.xml src/api/tests/apps src/api/tests/card_visibility/test_creation_visibility.py src/api/tests/webhooks/test_execution_readiness_uow_postgres.py \
+    && uv run pytest -p no:tach -q --junitxml=/result/workflow-contracts.xml src/api/tests/workflow_stages src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py src/api/tests/webhooks/test_webhook_contract.py
 import os
 from sqlalchemy import create_engine, text
 
-for name in ("LANGBOARD_FILE_TEST_DATABASE_URL", "LANGBOARD_OUTBOX_TEST_DATABASE_URL"):
+for name in ("LANGBOARD_FILE_TEST_DATABASE_URL", "LANGBOARD_OUTBOX_TEST_DATABASE_URL", "LANGBOARD_EFFECT_TEST_DATABASE"):
     engine = create_engine(os.environ[name], connect_args={"connect_timeout": 10})
     try:
         if engine.dialect.name != "postgresql":
@@ -26,10 +28,17 @@ for name in ("LANGBOARD_FILE_TEST_DATABASE_URL", "LANGBOARD_OUTBOX_TEST_DATABASE
 PY
 ) > /result/artifacts/phoenix-integration.log 2>&1 || status=$?
 
-junit='[]'
-if [[ -f /result/app-contracts.xml ]]; then
-  junit='["app-contracts.xml"]'
-fi
-printf '{"schemaVersion":1,"exitCode":%s,"reports":{"junit":%s,"artifacts":["artifacts/phoenix-integration.log"]}}\n' \
-  "$status" "$junit" > /result/result.json
+uv run --no-sync python - "$status" <<'PYRESULT' || exit 1
+import json
+import sys
+from pathlib import Path
+
+root = Path("/result")
+reports = [name for name in ("app-contracts.xml", "workflow-contracts.xml") if (root / name).is_file()]
+(root / "result.json").write_text(json.dumps({
+    "schemaVersion": 1,
+    "exitCode": int(sys.argv[1]),
+    "reports": {"junit": reports, "artifacts": ["artifacts/phoenix-integration.log"]},
+}) + "\n")
+PYRESULT
 exit "$status"

@@ -586,3 +586,21 @@ The inactive candidate selects PostgreSQL integration through the generic
 the shared review executor. Production socket selection remains separate.
 The central source policy accepts both candidate profiles; this is static policy
 evidence, not image execution, integration success or permission activation.
+
+
+## Full integration gate coverage follow-up
+
+Comparing the shared integration wrapper with the existing CI revealed missing
+workflow-stage/card-context regressions and the readiness PostgreSQL test.
+The wrapper now includes those existing suites, requires and verifies the
+`LANGBOARD_EFFECT_TEST_DATABASE` fixture, and exports both app and workflow
+JUnit reports. A Dockerfile-specific ignore file retains colocated `*_test.py`
+files needed by the existing column-service gate while excluding local caches
+and private runtime data. Production Docker ignore rules are unchanged.
+
+Bash syntax and Docker static checks passed without warnings. Synthetic wrapper
+checks retained success, preflight failure 23, first-gate failure 19 and missing
+effect-DB failure 1; success emitted both report references and failures stopped
+later gates. An initial test harness incorrectly shifted the mocked uv command
+and was corrected; it was not a native project test failure. Native full gates,
+execution duration, peak memory and central report recovery remain unproven.

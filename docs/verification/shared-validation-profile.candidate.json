@@ -26,7 +26,8 @@
         "timeoutSeconds": 1800,
         "envRefs": {
           "LANGBOARD_FILE_TEST_DATABASE_URL": "postgres.sqlalchemy-url",
-          "LANGBOARD_OUTBOX_TEST_DATABASE_URL": "postgres.sqlalchemy-url"
+          "LANGBOARD_OUTBOX_TEST_DATABASE_URL": "postgres.sqlalchemy-url",
+          "LANGBOARD_EFFECT_TEST_DATABASE": "postgres.sqlalchemy-url"
         }
       }
     }
