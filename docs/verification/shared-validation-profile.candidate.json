@@ -30,6 +30,24 @@
           "LANGBOARD_EFFECT_TEST_DATABASE": "postgres.sqlalchemy-url"
         }
       }
+    },
+    "api": {
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "network": "default",
+      "platform": "linux/amd64"
+    },
+    "worker": {
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "network": "default",
+      "platform": "linux/amd64"
+    },
+    "ui": {
+      "context": ".",
+      "dockerfile": "docker/ui-production.Dockerfile",
+      "network": "default",
+      "platform": "linux/amd64"
     }
   }
 }

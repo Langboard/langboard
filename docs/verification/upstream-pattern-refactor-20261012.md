@@ -710,3 +710,15 @@ verification remain required. Malformed mode, PR or profile combinations fail
 before network access. Nine tests execute the real embedded request code without
 credentials or writes and passed. No dispatch, executor-variable update or active
 v2 declaration has been performed; operational namespace evidence is pending.
+
+
+## Preserve product profiles when activating source configuration
+
+The central resolver uses its company catalog only when the source declaration
+is absent. Activating the previous two-profile candidate would therefore remove
+resolution of existing `api`, `worker` and `ui` product requests. The inactive
+candidate now retains those three exact catalog profiles alongside the socket
+release profile and generic default review validation profile. A temporary
+source declaration resolved all five names using the central loader; product
+profile values match the current catalog byte-for-value. No active declaration,
+product source approval or executor variable was changed.
