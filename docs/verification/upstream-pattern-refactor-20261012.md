@@ -2,6 +2,16 @@
 
 Status: in progress. Goal remains active; this is not a deployment receipt.
 
+## Retained editor state inspection — 2026-10-13
+
+Read-only inspection of the running legacy socket found 345 retained `.ydoc` files totaling 154,770 bytes under `/local/editor-sync`. The inspected container mount list did not include `/local`. Replacing that container without exporting its retained state would therefore risk losing editor state. The Phoenix Compose service already declares a persistent editor volume; the live source must be migrated into that volume, not inferred to be present there.
+
+A private tar copy was obtained without modifying the running service. All 345 archived files were extracted locally and matched their recorded byte counts and SHA-256 hashes. All 345 also decoded successfully using the UI's installed Yjs package. The archive and file identities remain outside tracked source because they contain user document state.
+
+This live copy is not a consistent cutover snapshot. It does not verify pending in-memory state, a simultaneous database snapshot, document-name mapping, Yex roundtrip, or deployed Phoenix recovery. Those gates remain required before retiring the Node container.
+
+The current CI run `38328834320` belongs to commit `eee97712d90f85d77547981c3a7955a7a3e20f1c`. Its result remains pending. The preceding run `38265455679` passed Python and TypeScript dependency installation, UI typecheck, and 100 Python tests with four skips, then failed compiling `crc32cer` because `cmake` was absent. The CI package list now includes the build tool already required by the upstream socket Dockerfile. No hosted-runner fallback was introduced.
+
 ## Ownership
 
 The integration stays on `review/canary-phoenix-integration-20261012`. Main is not a merge target. The original union is retained at `2e9b4b243044903fe3edfd85bbbed5a52164ebb1`; the unfinished foundation merge remains `55dcc0c40bdb40ee602f4ad793d45caf81396aee`. Pre-edit conflict files and index stages are retained in `.verification/pre-refactor-20261012/`.
