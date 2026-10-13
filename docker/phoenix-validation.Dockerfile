@@ -27,7 +27,7 @@ RUN uv python install 3.12 \
     && mix local.rebar --force
 
 # Preserve the existing cross-runtime gate, rather than rebuilding its test list.
-COPY pyproject.toml uv.lock README.md alembic.ini Makefile ./
+COPY pyproject.toml uv.lock README.md alembic.ini Makefile tach.toml ./
 COPY src ./src
 COPY scripts ./scripts
 COPY docker ./docker
