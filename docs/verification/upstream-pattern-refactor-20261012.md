@@ -631,3 +631,19 @@ edit, and no publication after transaction rollback. The same focused PostgreSQL
 suites passed again: 12 tests, 5.94 seconds, zero skips and no undefined-table
 warning. Ruff passed. This resolves the fixture gap above, while real downstream
 UI publication and deployed acceptance remain separate gates.
+
+
+## Exact App Contracts suite refresh
+
+At source `ff31fae517acf16ec13a200f8b77b7e67478b3c7`, the exact existing
+Check App Contracts workflow test command was executed with locked Python 3.12
+and the disposable PostgreSQL fixture: 296 passed, 26 skipped, 184.31 seconds.
+The 26 skips are SQLite parameter cases: one PostgreSQL row-lock concurrency
+case and 25 native card-creation cases requiring PostgreSQL sequence/readiness
+SQL. Their PostgreSQL parameter cases ran. XML and console receipts remain
+private. The previously observed first-test stall did not recur in this run.
+
+There were 124 warnings including short HMAC fixture key warnings. These are
+retained in the receipt, not suppressed or interpreted as production credentials.
+Local full-command success does not substitute for final-head central validation,
+private editor recovery, native publication or authenticated canary acceptance.
