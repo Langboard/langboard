@@ -74,8 +74,20 @@ USER 10001:10001
 
 FROM with-cron AS validation-api
 ENV PROFILE=api
+USER root
+RUN uv sync --locked --dev --extra document-retrieval
+USER 10001:10001
 RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-api-results
+COPY --from=validation-api /result/ /result/
 
 FROM with-document-processing AS validation-worker
 ENV PROFILE=worker
+USER root
+RUN uv sync --locked --dev --extra document-processing --extra document-retrieval
+USER 10001:10001
 RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-worker-results
+COPY --from=validation-worker /result/ /result/

@@ -36,7 +36,7 @@
       "dockerfile": "Dockerfile",
       "buildTarget": "with-cron",
       "validation": {
-        "target": "validation-api",
+        "target": "validation-api-results",
         "cachePolicy": "fresh"
       },
       "network": "default",
@@ -47,7 +47,7 @@
       "dockerfile": "Dockerfile",
       "buildTarget": "with-document-processing",
       "validation": {
-        "target": "validation-worker",
+        "target": "validation-worker-results",
         "cachePolicy": "fresh"
       },
       "network": "default",
@@ -58,7 +58,7 @@
       "dockerfile": "docker/ui-production.Dockerfile",
       "buildTarget": "runtime",
       "validation": {
-        "target": "validation-ui",
+        "target": "validation-ui-results",
         "cachePolicy": "fresh"
       },
       "network": "default",

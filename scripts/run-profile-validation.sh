@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -u
+set -eu
 
 profile=${PROFILE:?PROFILE is required}
 mkdir -p /result/artifacts
@@ -25,7 +25,11 @@ case "$profile" in
 esac
 
 status=0
-("${command[@]}") >"/result/artifacts/${profile}-validation.log" 2>&1 || status=$?
+if ("${command[@]}") >"/result/artifacts/${profile}-validation.log" 2>&1; then
+  status=0
+else
+  status=$?
+fi
 
 reports='[]'
 if [[ -f "/result/artifacts/${profile}.xml" ]]; then
@@ -33,4 +37,6 @@ if [[ -f "/result/artifacts/${profile}.xml" ]]; then
 fi
 printf '{"schemaVersion":1,"profile":"%s","exitCode":%s,"reports":{"junit":%s,"artifacts":["artifacts/%s-validation.log"]}}\n' \
   "$profile" "$status" "$reports" "$profile" > /result/result.json
-exit "$status"
+# The result stage must complete so the central contract can inspect exitCode.
+# Setup failures above still terminate the stage through `set -e`.
+exit 0
