@@ -97,11 +97,11 @@ jobs:
       - name: Install and build shared TypeScript dependencies
         working-directory: src/shared/ts
         run: |
-          yarn install --frozen-lockfile --ignore-scripts
+          yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
           yarn build
       - name: Install UI dependencies
         working-directory: src/ui
-        run: yarn install --frozen-lockfile --ignore-scripts
+        run: yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
       - name: Run the cross-runtime migration gate
         run: make test_socket_phoenix
         working-directory: .

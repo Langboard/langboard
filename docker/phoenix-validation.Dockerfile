@@ -34,8 +34,8 @@ COPY docker ./docker
 
 RUN uv sync --frozen \
     && cd src/socket && mix deps.get \
-    && cd ../shared/ts && yarn install --frozen-lockfile --ignore-scripts && yarn build \
-    && cd ../../ui && yarn install --frozen-lockfile --ignore-scripts
+    && cd ../shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000 && yarn build \
+    && cd ../../ui && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
 
 RUN groupadd --gid 10001 validation \
     && useradd --uid 10001 --gid 10001 --create-home validation \
