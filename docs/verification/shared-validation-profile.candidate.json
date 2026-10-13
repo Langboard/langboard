@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "profiles": {
+    "socket": {
+      "context": "src",
+      "dockerfile": "socket/Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "runtime",
+      "validation": {
+        "target": "validation-results",
+        "cachePolicy": "fresh"
+      }
+    },
+    "phoenix-integration": {
+      "context": ".",
+      "dockerfile": "docker/phoenix-validation.Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "integration-test",
+      "integration": {
+        "imageTarget": "integration-test",
+        "services": ["postgres"],
+        "timeoutSeconds": 1800,
+        "envRefs": {
+          "LANGBOARD_FILE_TEST_DATABASE_URL": "postgres.sqlalchemy-url",
+          "LANGBOARD_OUTBOX_TEST_DATABASE_URL": "postgres.sqlalchemy-url"
+        }
+      }
+    }
+  }
+}
