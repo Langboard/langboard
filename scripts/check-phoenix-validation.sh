@@ -8,6 +8,9 @@ status=0
     && : "${LANGBOARD_OUTBOX_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}" \
     && : "${LANGBOARD_EFFECT_TEST_DATABASE:?A disposable PostgreSQL fixture is required}" \
     && uv run python - <<'PY' \
+    && uv run python scripts/sdk/verify_python_artifact.py \
+    && uv run python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py \
+    && node scripts/sdk/check_panel_artifact.mjs \
     && make test_socket_phoenix \
     && make lint_socket_phoenix \
     && make test_socket_phoenix_editor_cluster \

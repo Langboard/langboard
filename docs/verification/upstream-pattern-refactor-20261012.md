@@ -669,3 +669,19 @@ were selected directly from its JUnit receipt and run with the disposable DB:
 resource/type scope, and registry cursor/package retention. The initial
 159-test selection plus these targeted cases closes that local selection's
 skipped branches; it is not a final-head centralized workflow run.
+
+
+## Independent package gate consolidation
+
+The Node 22 panel consumer command from Check App Panel SDK passed locally
+against the declared vendor archive: digest, version, public panel/inbox exports
+and PanelStateCache construction. Python artifact validation and its seven
+regression tests passed. The panel command now lives in one shared script used
+by both its existing CI workflow and the shared integration wrapper, with
+script-path CI triggering and a disposable external consumer directory cleaned
+in finally. Python artifact gates also run in the integration wrapper. This
+removes duplicated inline panel verification while retaining existing assertions.
+
+Both the extracted script and the prior inline command passed on Node 22.22.1;
+Bash syntax, workflow script selection and diff checks passed. These package
+checks do not prove external-app deployed installation or UI acceptance.
