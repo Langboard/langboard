@@ -18,6 +18,12 @@ The central v2 executor remains an implementation dependency. Do not activate a 
 
 `shared-validation-profile.candidate.json` is a reviewable consumer declaration candidate, not the active `.fractalops/image-build.json`. It uses a separate integration profile so the production socket image and test image have distinct targets. DB environment values come from central logical references; no instance addresses or credentials are declared. Its 1,800-second integration timeout is the current central maximum, not evidence that the full gate fits that budget. Validate duration, memory peak, report extraction, and native executor support before activation. The current image request workflow only accepts production profiles and would also need a reviewed declaration/dispatch update for the integration profile after central promotion.
 
+### Pre-merge source authority remains a separate gate
+
+Live central approval inspection on 2026-10-13 permits the existing canary deployment branch at `9f5a9838ea6a19fe3b8ce396949b0a65c563e64c`, for the API profile. It does not authorize this integration review head or either new validation profile. The current central source resolver accepts default-branch history or an explicitly approved `deploy/` canary; a review-branch dispatch cannot pass that boundary.
+
+Validation before canary merge therefore requires a reviewed validation-only source-authority path. It must bind an authorized request to the current same-repository PR head and exact SHA, invalidate stale heads, separate fork trust, and prohibit product publication or deployment. Diagnostic test-image publication and private results are distinct from product release. Do not merge the unverified integration merely to make its source acceptable, loosen existing deployment approvals, or represent a local schema check as remote acceptance. This source-authority requirement was sent to the central-contract owner for implementation alongside the shared validation path.
+
 ## Retained editor state inspection — 2026-10-13
 
 Read-only inspection of the running legacy socket found 345 retained `.ydoc` files totaling 154,770 bytes under `/local/editor-sync`. The inspected container mount list did not include `/local`. Replacing that container without exporting its retained state would therefore risk losing editor state. The Phoenix Compose service already declares a persistent editor volume; the live source must be migrated into that volume, not inferred to be present there.
