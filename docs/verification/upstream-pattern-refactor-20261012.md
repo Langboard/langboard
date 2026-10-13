@@ -10,7 +10,15 @@ A private tar copy was obtained without modifying the running service. All 345 a
 
 This live copy is not a consistent cutover snapshot. It does not verify pending in-memory state, a simultaneous database snapshot, document-name mapping, Yex roundtrip, or deployed Phoenix recovery. Those gates remain required before retiring the Node container.
 
-The current CI run `38328834320` belongs to commit `eee97712d90f85d77547981c3a7955a7a3e20f1c`. Its result remains pending. The preceding run `38265455679` passed Python and TypeScript dependency installation, UI typecheck, and 100 Python tests with four skips, then failed compiling `crc32cer` because `cmake` was absent. The CI package list now includes the build tool already required by the upstream socket Dockerfile. No hosted-runner fallback was introduced.
+CI run `38328834320` on `eee97712d90f85d77547981c3a7955a7a3e20f1c` failed fetching Hex package metadata before compilation. The subsequent source commit `e5b750c12ad8d5246c1dd2b5983e4d9b699ac0f9` computes dependency cache identities inside the actual job workspace and configures bounded Hex request concurrency and timeout. These changes have not passed the full gate: run `38329612174` failed during container initialization because its job Pod remained Pending. No test steps executed in that run.
+
+The preceding run `38265455679` passed Python and TypeScript dependency installation, UI typecheck, and 100 Python tests with four skips, then failed compiling `crc32cer` because `cmake` was absent. The CI package list now includes the build tool already required by the upstream socket Dockerfile. No GitHub-hosted runner fallback was introduced.
+
+## Test scheduling gate — 2026-10-13
+
+The company image-build service and the self-hosted validation runner have distinct execution contracts. Live inspection found eight healthy BuildKit workers matching the current private GitOps source; the older local infrastructure checkout must not be used to infer replica drift. The validation runner and its workflow container each request CPU and memory independently. At inspection, the only worker with sufficient reserved-memory headroom had 79m CPU unallocated, below their combined 100m CPU requirement. The other eligible workers rejected placement for insufficient memory.
+
+Increasing BuildKit replicas does not address this validation scheduling failure. No resource limits, other workloads, node taints, or physical infrastructure were changed. No new virtual machine was created. The terminal failed run is retained; repeating the same job without a scheduling-capacity change is not a recovery strategy. Private cluster identities and diagnostic receipts remain outside this repository's tracked source.
 
 ## Ownership
 
