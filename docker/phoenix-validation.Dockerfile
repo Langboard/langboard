@@ -20,7 +20,9 @@ RUN apt-get update \
 COPY --from=uv /uv /uvx /usr/local/bin/
 COPY --from=node /usr/local /usr/local
 
-RUN uv python install 3.12 \
+# The copied Node bin directory contains Yarn links into /opt, outside the copied tree.
+RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && uv python install 3.12 \
     && corepack enable \
     && corepack prepare yarn@1.22.22 --activate \
     && mix local.hex --force \
