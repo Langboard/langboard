@@ -138,8 +138,10 @@ jobs:
                   raise SystemExit("Executor tag does not match approved commit")
           except urllib.error.HTTPError as error:
               raise SystemExit(f"Executor tag verification failed: HTTP {error.code}; no image requested") from None
-          except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
-              raise SystemExit("Executor tag verification unavailable; no image requested") from None
+          except urllib.error.URLError as error:
+              raise SystemExit(f"Executor tag verification unavailable: {type(error.reason).__name__}; no image requested") from None
+          except (TimeoutError, OSError, ValueError, AttributeError) as error:
+              raise SystemExit(f"Executor tag verification unavailable: {type(error).__name__}; no image requested") from None
           payload = {"ref": executor_ref, "inputs": {
               "source_repository": source, "source_ref": sha,
               "source_channel": "review" if validation_only == "true" else "canary",
