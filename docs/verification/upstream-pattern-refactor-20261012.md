@@ -622,3 +622,12 @@ path incomplete and requires follow-up before treating the run as complete
 service coverage. Intentional rollback exceptions are distinct from this
 unexpected warning. Current upstream main `45171c10973d0c96450f2d9f4603bd3617b41b99`
 is an ancestor of this consumer.
+
+
+The readiness fixture follow-up now includes the real project lookup and records
+policy-triggered card projection publications at the external service boundary.
+Assertions cover affected project/card identity, no publication for a display-only
+edit, and no publication after transaction rollback. The same focused PostgreSQL
+suites passed again: 12 tests, 5.94 seconds, zero skips and no undefined-table
+warning. Ruff passed. This resolves the fixture gap above, while real downstream
+UI publication and deployed acceptance remain separate gates.
