@@ -2,6 +2,18 @@
 
 Status: in progress. Goal remains active; this is not a deployment receipt.
 
+## Additional goal scope — shared build and validation contract
+
+On 2026-10-13, the user authorized proceeding with the shared FractalOps build and validation agreement as additional work under this goal. Preserve every existing canary/upstream requirement and the prohibition on merging Langboard main.
+
+FractalOps owns the versioned declaration, central executor, request lifecycle, capacity admission, cancellation, deduplication, and receipts. Assembly owns shared BuildKit/ARC execution capacity and isolated service-job policy. Langboard owns its Dockerfile validation targets, fixtures, and complete regression requirements. Existing v1 image requests must remain compatible. New repositories must participate through declarations without repository-specific executor code.
+
+The agreed execution paths are BuildKit targets for service-independent checks and centrally managed digest-pinned validation images/jobs for PostgreSQL integration checks. Capacity shortage is `waiting_capacity`, not an executed test failure. Results distinguish executed checks from reused cache; failed or missing validation results block image promotion. Private retained editor data must never enter public source, build context, or shared cache.
+
+The socket Dockerfile now prepares an optional `validation-results` export target with `/result/result.json` and a diagnostic log. It covers Phoenix format, warnings-as-errors compilation, native tests, unused dependencies, Credo, Dialyzer, and the distributed editor probe. Export completion alone does not imply success: the executor must validate `exitCode`. The final default `runtime` stage remains the production release image. This target has not yet been executed through the central service and does not replace the Python/UI/PostgreSQL, retained Yjs–Yex, or authenticated canary gates.
+
+The central v2 executor remains an implementation dependency. Do not activate a v2 consumer declaration until its schema, target export, failure handling, and policy support are verified. Acceptance also requires a second language/project and a new repository using the same declaration contract, including intentional failure, cancellation, repeated requests, cache reuse, capacity waiting, report retrieval, and cleanup.
+
 ## Retained editor state inspection — 2026-10-13
 
 Read-only inspection of the running legacy socket found 345 retained `.ydoc` files totaling 154,770 bytes under `/local/editor-sync`. The inspected container mount list did not include `/local`. Replacing that container without exporting its retained state would therefore risk losing editor state. The Phoenix Compose service already declares a persistent editor volume; the live source must be migrated into that volume, not inferred to be present there.
