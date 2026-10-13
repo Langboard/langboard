@@ -40,6 +40,7 @@
     "worker": {
       "context": ".",
       "dockerfile": "Dockerfile",
+      "buildTarget": "with-document-processing",
       "network": "default",
       "platform": "linux/amd64"
     },
