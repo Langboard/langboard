@@ -101,3 +101,18 @@ def test_server_environment_exports_oidc_resource_server_settings() -> None:
 
     assert "OIDC_BEARER_ENABLED=${OIDC_BEARER_ENABLED}" in template
     assert "OIDC_RESOURCE_AUDIENCE=${OIDC_RESOURCE_AUDIENCE}" in template
+
+
+def test_runtime_image_packages_scheduled_worker_entrypoints() -> None:
+    """GHCR deployments must not depend on host checkouts for scheduled workers."""
+
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/" in dockerfile
+    scripts = sorted((ROOT / "scripts").glob("run_*_cron.sh")) + sorted(
+        (ROOT / "scripts").glob("run_*_recovery.sh")
+    )
+    assert (ROOT / "scripts" / "run_app_event_cron.sh") in scripts
+    for script in scripts:
+        subprocess.run(["bash", "-n", str(script)], check=True, capture_output=True, text=True)
+    compose = (ROOT / "docker" / "docker-compose.server.yaml").read_text()
+    assert "../scripts/run_app_event_cron.sh:/app/scripts/run_app_event_cron.sh:x" in compose

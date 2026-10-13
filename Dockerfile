@@ -23,13 +23,13 @@ RUN uv --version
 
 COPY ./src/sdk/vendor ./src/sdk/vendor
 COPY ./src/shared/py ./src/shared/py
-COPY ./src/sdk/vendor ./src/sdk/vendor
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 
 RUN cd /app/src/shared/py && uv venv && uv sync --locked --no-dev
 RUN cd /app && uv venv && uv sync --locked --no-dev --no-install-project
 
 COPY ./src/api ./src/api
+COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/
 
 RUN cd /app && uv sync --locked --no-dev --extra document-retrieval
 

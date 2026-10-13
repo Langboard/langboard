@@ -825,3 +825,15 @@ passes afterward; all 11 authorization tests pass. Authentication rejection and
 explicit sign-out behavior are unchanged. The regression joins the central
 integration wrapper. This source fix is not yet deployed and does not claim the
 observed active-work 401 had this exact cause.
+
+## Scheduled worker entrypoints in immutable images — 2026-10-13
+
+The deployed API logs also reported a missing `/app/scripts/run_app_event_cron.sh`.
+The API Dockerfile copied application source but no runtime cron/recovery wrappers;
+the development Compose list omitted that app-event wrapper as well. Package the
+existing bounded `run_*_cron.sh` and `run_*_recovery.sh` wrappers in the base image,
+and include the app-event mount for development Compose. Remove the duplicate SDK
+vendor COPY instruction. No host checkout or arbitrary script directory is copied
+into the production image. All eight wrappers pass `bash -n` and the image/Compose
+packaging regression passes. A central image build and scheduled worker execution
+remain necessary; this source fix does not establish live outbox delivery.

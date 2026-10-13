@@ -76,6 +76,7 @@ services:
       - ../scripts/run_bot_cron.sh:/app/scripts/run_bot_cron.sh:x
       - ../scripts/run_notification_cron.sh:/app/scripts/run_notification_cron.sh:x
       - ../scripts/run_execution_outbox_cron.sh:/app/scripts/run_execution_outbox_cron.sh:x
+      - ../scripts/run_app_event_cron.sh:/app/scripts/run_app_event_cron.sh:x
       - ../scripts/run_github_health_cron.sh:/app/scripts/run_github_health_cron.sh:x
       - ../scripts/run_notification_recovery.sh:/app/scripts/run_notification_recovery.sh:x
       - ../scripts/run_ollama_pull_recovery.sh:/app/scripts/run_ollama_pull_recovery.sh:x
