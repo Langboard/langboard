@@ -698,3 +698,15 @@ wrapper. Selector equality was verified and the shared command collected exactly
 Bash syntax and diff checks passed. The separate workflow/native/MCP suite,
 real PostgreSQL gates and all original deployment/feature acceptance requirements
 remain in scope; this changes command ownership, not the release completion rule.
+
+
+## Review-only request preparation
+
+The existing immutable image request workflow now supports an explicit manual
+review-branch request with `validation_only: true`, a required current PR number
+and only the generic `default` validation profile. Production canary profiles
+remain separate. The source immutable SHA/run identity and exact executor tag
+verification remain required. Malformed mode, PR or profile combinations fail
+before network access. Nine tests execute the real embedded request code without
+credentials or writes and passed. No dispatch, executor-variable update or active
+v2 declaration has been performed; operational namespace evidence is pending.

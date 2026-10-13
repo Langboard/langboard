@@ -56,6 +56,31 @@ class RequestContract(unittest.TestCase):
         self.assertEqual(payload['inputs']['source_ref'], 'b' * 40)
         self.assertEqual(payload['inputs']['profile'], 'ui')
 
+    def test_review_validation_never_requests_product_publication(self):
+        outcome, calls = self.run_request(changes={
+            'VALIDATION_ONLY': 'true', 'SOURCE_PR': '688', 'IMAGE_BUILD_PROFILE': 'default',
+        })
+        self.assertEqual(outcome, 'accepted')
+        payload = json.loads(calls[-1].args[0].data)['inputs']
+        self.assertEqual(payload['source_channel'], 'review')
+        self.assertIs(payload['validation_only'], True)
+        self.assertEqual(payload['source_pr'], '688')
+        self.assertEqual(payload['profile'], 'default')
+
+    def test_invalid_review_inputs_never_make_network_requests(self):
+        for changes in [
+            {'VALIDATION_ONLY': 'true', 'SOURCE_PR': ''},
+            {'VALIDATION_ONLY': 'true', 'SOURCE_PR': '688', 'IMAGE_BUILD_PROFILE': 'api'},
+            {'VALIDATION_ONLY': 'false', 'SOURCE_PR': '688'},
+            {'VALIDATION_ONLY': 'true', 'SOURCE_PR': '0', 'IMAGE_BUILD_PROFILE': 'default'},
+            {'VALIDATION_ONLY': 'yes'},
+            {'IMAGE_BUILD_PROFILE': 'default'},
+        ]:
+            with self.subTest(changes=changes):
+                outcome, calls = self.run_request(changes=changes)
+                self.assertNotEqual(outcome, 'accepted')
+                self.assertEqual(calls, [])
+
     def test_moved_or_wrong_tag_never_dispatches(self):
         for ref, kind, sha in [(TAG, 'commit', 'c' * 40), (TAG, 'tree', SHA), ('refs/tags/other', 'commit', SHA)]:
             with self.subTest(ref=ref, kind=kind, sha=sha):

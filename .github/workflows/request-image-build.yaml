@@ -17,7 +17,17 @@ on:
         description: Approved image profile
         required: true
         type: choice
-        options: [api, worker, ui, socket]
+        options: [api, worker, ui, socket, default]
+      validation_only:
+        description: Verify an open same-repository PR without product publication
+        required: false
+        default: false
+        type: boolean
+      source_pr:
+        description: Current PR number for validation-only execution
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -28,7 +38,7 @@ concurrency:
 
 jobs:
   request:
-    if: vars.CI_RUNNER != '' && startsWith(github.ref, 'refs/heads/deploy/')
+    if: vars.CI_RUNNER != '' && (startsWith(github.ref, 'refs/heads/deploy/') || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
@@ -43,6 +53,8 @@ jobs:
       IMAGE_BUILD_PROFILE: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
       SOURCE_REPOSITORY: ${{ github.repository }}
       SOURCE_REVISION: ${{ github.sha }}
+      VALIDATION_ONLY: ${{ inputs.validation_only && 'true' || 'false' }}
+      SOURCE_PR: ${{ inputs.source_pr }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Prepare standard job tools
@@ -77,7 +89,16 @@ jobs:
               raise SystemExit("Executor tag and approved commit disagree")
           source = value("SOURCE_REPOSITORY", r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
           sha = value("SOURCE_REVISION", r"[0-9a-f]{40}")
-          profile = value("IMAGE_BUILD_PROFILE", r"api|worker|ui|socket")
+          validation_only = os.environ.get("VALIDATION_ONLY", "false")
+          if validation_only not in {"true", "false"}:
+              raise SystemExit("Invalid validation-only mode")
+          if validation_only == "true":
+              source_pr = value("SOURCE_PR", r"[1-9][0-9]*")
+              profile = value("IMAGE_BUILD_PROFILE", r"default")
+          else:
+              if os.environ.get("SOURCE_PR", ""):
+                  raise SystemExit("A PR number requires validation-only execution")
+              profile = value("IMAGE_BUILD_PROFILE", r"api|worker|ui|socket")
           request_id = value("REQUEST_ID", r"[0-9]+-[0-9]+-[0-9]+")
           token = os.environ.get("IMAGE_BUILD_REQUEST_TOKEN", "")
           if not token:
@@ -119,8 +140,11 @@ jobs:
               raise SystemExit("Executor tag verification unavailable; no image requested") from None
           payload = {"ref": executor_ref, "inputs": {
               "source_repository": source, "source_ref": sha,
-              "source_channel": "canary", "profile": profile, "request_id": request_id,
+              "source_channel": "review" if validation_only == "true" else "canary",
+              "profile": profile, "request_id": request_id,
           }}
+          if validation_only == "true":
+              payload["inputs"].update(validation_only=True, source_pr=source_pr)
           request = urllib.request.Request(
               f"https://api.github.com/repos/{target}/actions/workflows/{workflow}/dispatches",
               data=json.dumps(payload).encode(), method="POST", headers=headers,
@@ -139,5 +163,7 @@ jobs:
               raise SystemExit("Image build dispatch outcome unknown; inspect the request before retrying") from None
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write(f"### Image build requested\n\nSource: `{sha}`\n\nProfile: `{profile}`\n\n"
-                            f"Request: `{request_id}`\n\nBuild, scan, publication and deployment remain pending.\n")
+                            f"Request: `{request_id}`\n\n"
+                            + ("Validation only; product publication and deployment are prohibited.\n"
+                               if validation_only == "true" else "Build, scan, publication and deployment remain pending.\n"))
           PY
