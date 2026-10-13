@@ -126,6 +126,15 @@ class RequestContract(unittest.TestCase):
         self.assertIn('no image requested', outcome)
         self.assertEqual(len(calls), 1)
 
+    def test_tag_http_failure_reports_status_without_sensitive_response(self):
+        for status in [401, 403, 404, 429, 500]:
+            with self.subTest(status=status):
+                error = urllib.error.HTTPError('https://example.invalid', status, 'private response', {}, None)
+                outcome, calls = self.run_request(tag=error)
+                self.assertEqual(outcome, f'Executor tag verification failed: HTTP {status}; no image requested')
+                self.assertNotIn('private response', outcome)
+                self.assertEqual(len(calls), 1)
+
     def test_new_api_receipt_and_unknown_outcome_have_no_retry(self):
         for receipt, accepted in [({'workflow_run_id': 123}, True), ({'workflow_run_id': True}, False), ({}, False)]:
             with self.subTest(receipt=receipt):

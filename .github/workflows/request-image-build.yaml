@@ -136,6 +136,8 @@ jobs:
                   obj = annotation.get("object", {})
               if obj.get("type") != "commit" or obj.get("sha") != executor_commit:
                   raise SystemExit("Executor tag does not match approved commit")
+          except urllib.error.HTTPError as error:
+              raise SystemExit(f"Executor tag verification failed: HTTP {error.code}; no image requested") from None
           except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
               raise SystemExit("Executor tag verification unavailable; no image requested") from None
           payload = {"ref": executor_ref, "inputs": {
