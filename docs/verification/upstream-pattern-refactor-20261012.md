@@ -647,3 +647,17 @@ There were 124 warnings including short HMAC fixture key warnings. These are
 retained in the receipt, not suppressed or interpreted as production credentials.
 Local full-command success does not substitute for final-head central validation,
 private editor recovery, native publication or authenticated canary acceptance.
+
+
+## Workflow/native/MCP gate and consumer import-path fix
+
+The current workflow-stage, native app-management, webhook, card-query, native
+adapter, MCP and column-service regression selection passed locally: 159 tests,
+3 skipped, 12.80 seconds. The initial invocation failed collection because the
+repository-root import path was absent. Existing Workflow Stages CI declares
+`PYTHONPATH=.`; the shared integration wrapper now uses that same setting for
+this suite. No test or production import was rewritten to bypass the failure.
+
+The separately recorded 12 real PostgreSQL tests are not included in this
+SQLite/default selection's claim. These local receipts complement the source
+policy and wrapper checks; shared BuildKit and deployed gates remain required.
