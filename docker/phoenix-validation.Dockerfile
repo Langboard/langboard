@@ -71,4 +71,8 @@ COPY --chown=validation:validation docker ./docker
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --frozen
 
+# Test execution must use the locked environments installed above without egress.
+ENV UV_NO_SYNC=1 \
+    UV_OFFLINE=1
+
 CMD ["/bin/bash", "scripts/check-phoenix-validation.sh"]
