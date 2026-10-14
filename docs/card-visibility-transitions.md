@@ -40,3 +40,9 @@ native-session transitions and external-user list/detail/relationship access.
 The protected canary already provides the visibility policy and audit model. This delivery changes only the card editor, API transition boundary, translations and focused regression coverage. It does not require the pending Phoenix transport migration. Existing upstream migration pull requests remain separate and preserved.
 
 The source-owned build contract defines independent `api` and `ui` profiles using the existing digest-pinned production Dockerfiles. Result-only validation targets report their exact exit codes; API validation covers route authorization, MCP access and visibility transitions. The UI production build includes TypeScript checking. Publication still requires the approved protected canary tip and central release authorization. Review validation cannot publish a product image.
+
+### Dependency and validation boundary
+
+The API Dockerfile installs locked third-party dependencies from package metadata before copying application source. Application edits therefore do not invalidate that dependency layer. UV uses a BuildKit package cache, and the runtime uses one `/app/.venv` rather than duplicating dependencies in a shared-package environment. Existing runtime extras, non-root identity, CJK font installation and scheduled worker entrypoints remain available. API validation adds its development dependencies before source and executes the same focused tests as a non-root user, without installing the unrelated runtime cron daemon.
+
+These are source-layer corrections. Fresh validation remains mandatory. Actual build-duration improvement requires another central run; local dependency resolution is not deployment proof.
