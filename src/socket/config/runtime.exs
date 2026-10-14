@@ -40,7 +40,12 @@ if System.get_env("PHX_SERVER") do
 end
 
 config :langboard_socket, LangboardSocketWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+  http: [
+    port: String.to_integer(System.get_env("PORT", "4000")),
+    # Mitigate GHSA-69m6-wcv4-rwcf until Bandit publishes a patched release.
+    # HTTP/2 can terminate at the reverse proxy; upstream traffic uses HTTP/1.1.
+    http_2_options: [enabled: false]
+  ]
 
 config :langboard_socket,
   api_internal_url: (api_internal_url || "http://localhost:5381") |> String.trim_trailing("/"),
