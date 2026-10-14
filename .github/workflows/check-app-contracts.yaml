@@ -108,11 +108,22 @@ jobs:
         run: uv run --no-sync python -m unittest discover -s scripts/image_build -v
       - name: Independent signal, Inbox, owned card and human-response contracts
         run: bash scripts/check-app-contracts.sh
+      - name: Verify completed contract report
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          cases = list(ET.parse("app-contracts.xml").getroot().iter("testcase"))
+          if not cases or all(case.find("skipped") is not None for case in cases):
+              raise SystemExit("Contract report has no executed tests")
+          if any(case.find("failure") is not None or case.find("error") is not None for case in cases):
+              raise SystemExit("Contract report contains failures or errors")
+          PY
       - name: Preserve contract results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-contracts-${{ github.sha }}
           path: app-contracts.xml
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
