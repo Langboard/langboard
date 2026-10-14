@@ -15,6 +15,7 @@ status=0
     && make test_socket_phoenix \
     && make lint_socket_phoenix \
     && make test_socket_phoenix_editor_cluster \
+    && PYTHONPATH=src/graph:src/api:src/shared/py uv run --project src/graph --no-sync python -m pytest -p no:tach -q --junitxml=/result/graph-contracts.xml src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_service_auth.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_history_authority.py src/graph/tests/test_board_history_authority.py src/graph/tests/test_chat_history_authority.py src/graph/tests/test_postgres_checkpoint_url.py \
     && bash scripts/check-app-contracts.sh /result/app-contracts.xml \
     && PYTHONPATH=. uv run pytest -p no:tach -q --junitxml=/result/workflow-contracts.xml src/api/tests/workflow_stages src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py src/api/tests/webhooks/test_webhook_contract.py src/api/tests/webhooks/test_work_event_contract.py src/api/tests/card_visibility/test_notification_visibility.py src/api/tests/card_visibility/test_socket_dispatch_http.py src/api/tests/migrations/test_phoenix_canary_union_postgres.py src/shared/py/langboard_shared/core/logger/LogFileHandler_test.py src/api/tests/project_templates/test_template_authorization_http.py src/api/tests/project_templates/test_native_atomic_creation.py
 import os
@@ -38,7 +39,7 @@ import sys
 from pathlib import Path
 
 root = Path("/result")
-reports = [name for name in ("app-contracts.xml", "workflow-contracts.xml") if (root / name).is_file()]
+reports = [name for name in ("graph-contracts.xml", "app-contracts.xml", "workflow-contracts.xml") if (root / name).is_file()]
 (root / "result.json").write_text(json.dumps({
     "schemaVersion": 1,
     "exitCode": int(sys.argv[1]),

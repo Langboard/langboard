@@ -63,5 +63,6 @@ COPY --chown=validation:validation Makefile tach.toml ./
 COPY --chown=validation:validation scripts ./scripts
 COPY --chown=validation:validation docker ./docker
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --frozen
 
 CMD ["/bin/bash", "scripts/check-phoenix-validation.sh"]
