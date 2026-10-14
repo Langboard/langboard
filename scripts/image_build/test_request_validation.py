@@ -21,7 +21,7 @@ class Response(io.BytesIO):
 
 
 class BrokerClientTest(unittest.TestCase):
-    def invoke(self, receipt=None, changes=None, read=False, failure=None):
+    def invoke(self, receipt=None, changes=None, read=False, failure=None, product=False):
         env = dict(
             IMAGE_BUILD_BROKER_URL="https://broker.example.invalid",
             IMAGE_BUILD_COMMIT="b" * 40,
@@ -52,7 +52,7 @@ class BrokerClientTest(unittest.TestCase):
             opener = factory.return_value
             opener.open.side_effect = [Response({"value": "private-assertion"}), failure or Response(receipt)]
             try:
-                status = client.run(read=read)
+                status = client.run(read=read, product=product)
                 outcome = str(status)
             except SystemExit as error:
                 outcome = str(error)
@@ -127,20 +127,76 @@ class BrokerClientTest(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             self.assertEqual(output, "")
 
-    def test_workflow_separates_federated_validation_from_product_credentials(self):
+    def test_workflow_reuses_federated_client_without_product_credentials(self):
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/request-image-build.yaml"
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
-        checkout = steps["Checkout validation request client"]
-        self.assertEqual(checkout["if"], "inputs.validation_only == true")
+        checkout = steps["Checkout federated request client"]
+        self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
         request = steps["Request validation through federated identity"]
         self.assertEqual(request["if"], "inputs.validation_only == true")
         self.assertEqual(request["run"], "python3 scripts/image_build/request_validation.py")
         self.assertNotIn("secrets.", json.dumps(request))
-        self.assertEqual(steps["Request the approved immutable image"]["if"], "inputs.validation_only != true")
+        product = steps["Request product through federated identity"]
+        self.assertEqual(product["if"], "inputs.validation_only != true")
+        self.assertEqual(product["run"], "python3 scripts/image_build/request_validation.py --product")
+        self.assertNotIn("secrets.", json.dumps(job))
+        self.assertEqual(job["env"]["SOURCE_CHANNEL"], "canary")
         self.assertEqual(job["env"]["SOURCE_REF"], "${{ github.ref }}")
+
+    def test_product_exact_envelope_omits_pr_and_uses_separate_endpoint(self):
+        changes = {"SOURCE_REF": "refs/heads/deploy/canary", "SOURCE_CHANNEL": "canary", "SOURCE_PR": ""}
+        outcome, calls, output = self.invoke(changes=changes, product=True)
+        self.assertEqual(outcome, "0")
+        payload = json.loads(calls[1].args[0].data)
+        self.assertEqual(
+            set(payload),
+            {"schemaVersion", "sourceRepository", "sourceCommit", "sourceRef", "sourceChannel", "profile", "requestId"},
+        )
+        self.assertEqual(payload["schemaVersion"], 2)
+        self.assertEqual(payload["sourceChannel"], "canary")
+        self.assertTrue(calls[1].args[0].full_url.endswith("/v1/builds/project-images"))
+        self.assertNotIn("private", output)
+
+    def test_product_read_uses_same_id_and_no_write(self):
+        changes = {"SOURCE_REF": "refs/heads/deploy/canary", "SOURCE_CHANNEL": "canary"}
+        outcome, calls, _ = self.invoke(changes=changes, product=True, read=True)
+        self.assertEqual(outcome, "0")
+        request = calls[1].args[0]
+        self.assertEqual(request.get_method(), "GET")
+        self.assertIsNone(request.data)
+        self.assertTrue(request.full_url.endswith("/v1/builds/project-images/1-2-1"))
+
+    def test_product_invalid_channel_or_ref_never_requests_identity(self):
+        for changes in [
+            {"SOURCE_CHANNEL": "review"},
+            {"SOURCE_CHANNEL": "canary", "SOURCE_REF": "refs/tags/latest"},
+            {"SOURCE_CHANNEL": "canary", "SOURCE_REF": "refs/heads/deploy/../main"},
+        ]:
+            outcome, calls, _ = self.invoke(changes=changes, product=True)
+            self.assertNotEqual(outcome, "0")
+            self.assertEqual(calls, [])
+
+    def test_default_product_channel_is_transmitted_without_guessing_branch(self):
+        outcome, calls, _ = self.invoke(
+            changes={"SOURCE_CHANNEL": "default", "SOURCE_REF": "refs/heads/main"}, product=True
+        )
+        self.assertEqual(outcome, "0")
+        self.assertEqual(json.loads(calls[1].args[0].data)["sourceChannel"], "default")
+
+    def test_product_timeout_and_rate_limit_do_not_redispatch(self):
+        changes = {"SOURCE_CHANNEL": "canary", "SOURCE_REF": "refs/heads/deploy/canary"}
+        for failure in [
+            TimeoutError(),
+            urllib.error.HTTPError("https://example.invalid", 429, "private", {}, None),
+            urllib.error.HTTPError("https://example.invalid", 503, "private", {}, None),
+        ]:
+            outcome, calls, output = self.invoke(changes=changes, product=True, failure=failure)
+            self.assertIn("outcome unknown", outcome)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(output, "")
 
     def test_unapproved_executor_receipt_is_rejected(self):
         receipt = dict(

@@ -49,16 +49,15 @@ jobs:
         shell: bash
     timeout-minutes: 5
     env:
-      IMAGE_BUILD_REPOSITORY: ${{ vars.IMAGE_BUILD_REPOSITORY }}
-      IMAGE_BUILD_WORKFLOW: ${{ vars.IMAGE_BUILD_WORKFLOW }}
-      IMAGE_BUILD_REF: ${{ vars.IMAGE_BUILD_REF }}
       IMAGE_BUILD_COMMIT: ${{ vars.IMAGE_BUILD_COMMIT }}
       IMAGE_BUILD_PROFILE: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
       SOURCE_REPOSITORY: ${{ github.repository }}
       SOURCE_REVISION: ${{ github.sha }}
       SOURCE_REF: ${{ github.ref }}
-      VALIDATION_ONLY: ${{ inputs.validation_only && 'true' || 'false' }}
       SOURCE_PR: ${{ inputs.source_pr }}
+      SOURCE_CHANNEL: canary
+      IMAGE_BUILD_BROKER_URL: ${{ vars.IMAGE_BUILD_BROKER_URL }}
+      IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Prepare standard job tools
@@ -67,123 +66,13 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils python3
-      - name: Checkout validation request client
-        if: inputs.validation_only == true
+      - name: Checkout federated request client
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Request validation through federated identity
         if: inputs.validation_only == true
-        env:
-          IMAGE_BUILD_BROKER_URL: ${{ vars.IMAGE_BUILD_BROKER_URL }}
-          IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
         run: python3 scripts/image_build/request_validation.py
-      - name: Request the approved immutable image
+      - name: Request product through federated identity
         if: inputs.validation_only != true
-        env:
-          IMAGE_BUILD_REQUEST_TOKEN: ${{ secrets.IMAGE_BUILD_REQUEST_TOKEN }}
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import re
-          import urllib.error
-          import urllib.request
-
-          def value(name, pattern):
-              result = os.environ.get(name, "")
-              if not re.fullmatch(pattern, result):
-                  raise SystemExit(f"Invalid or missing {name}")
-              return result
-
-          target = value("IMAGE_BUILD_REPOSITORY", r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-          workflow = value("IMAGE_BUILD_WORKFLOW", r"[A-Za-z0-9_.-]+\.ya?ml")
-          executor_ref = value("IMAGE_BUILD_REF", r"refs/tags/image-executor/[0-9a-f]{40}")
-          executor_commit = value("IMAGE_BUILD_COMMIT", r"[0-9a-f]{40}")
-          if executor_ref.rsplit("/", 1)[-1] != executor_commit:
-              raise SystemExit("Executor tag and approved commit disagree")
-          source = value("SOURCE_REPOSITORY", r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-          sha = value("SOURCE_REVISION", r"[0-9a-f]{40}")
-          validation_only = os.environ.get("VALIDATION_ONLY", "false")
-          if validation_only not in {"true", "false"}:
-              raise SystemExit("Invalid validation-only mode")
-          if validation_only == "true":
-              source_pr = value("SOURCE_PR", r"[1-9][0-9]*")
-              profile = value("IMAGE_BUILD_PROFILE", r"default")
-          else:
-              if os.environ.get("SOURCE_PR", ""):
-                  raise SystemExit("A PR number requires validation-only execution")
-              profile = value("IMAGE_BUILD_PROFILE", r"api|worker|ui|socket")
-          request_id = value("REQUEST_ID", r"[0-9]+-[0-9]+-[0-9]+")
-          token = os.environ.get("IMAGE_BUILD_REQUEST_TOKEN", "")
-          if not token:
-              raise SystemExit("Image build request credential unavailable")
-          headers = {
-              "Authorization": "Bearer " + token,
-              "Accept": "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json",
-          }
-          # Dispatch needs a named ref. Verify lightweight or one-level annotated tags.
-          verification = urllib.request.Request(
-              f"https://api.github.com/repos/{target}/git/ref/{executor_ref.removeprefix('refs/')}", headers=headers,
-          )
-          try:
-              with urllib.request.urlopen(verification, timeout=30) as response:
-                  if response.status != 200:
-                      raise SystemExit("Executor tag verification failed")
-                  tag = json.loads(response.read(16385))
-              obj = tag.get("object", {})
-              if tag.get("ref") != executor_ref:
-                  raise SystemExit("Executor tag does not match approved commit")
-              if obj.get("type") == "tag":
-                  tag_sha = obj.get("sha", "")
-                  if not isinstance(tag_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", tag_sha):
-                      raise SystemExit("Executor tag does not match approved commit")
-                  annotation_request = urllib.request.Request(
-                      f"https://api.github.com/repos/{target}/git/tags/{tag_sha}", headers=headers,
-                  )
-                  with urllib.request.urlopen(annotation_request, timeout=30) as response:
-                      if response.status != 200:
-                          raise SystemExit("Executor tag verification failed")
-                      annotation = json.loads(response.read(16385))
-                  if annotation.get("sha") != tag_sha:
-                      raise SystemExit("Executor tag does not match approved commit")
-                  obj = annotation.get("object", {})
-              if obj.get("type") != "commit" or obj.get("sha") != executor_commit:
-                  raise SystemExit("Executor tag does not match approved commit")
-          except urllib.error.HTTPError as error:
-              raise SystemExit(f"Executor tag verification failed: HTTP {error.code}; no image requested") from None
-          except urllib.error.URLError as error:
-              raise SystemExit(f"Executor tag verification unavailable: {type(error.reason).__name__}; no image requested") from None
-          except (TimeoutError, OSError, ValueError, AttributeError) as error:
-              raise SystemExit(f"Executor tag verification unavailable: {type(error).__name__}; no image requested") from None
-          payload = {"ref": executor_ref, "inputs": {
-              "source_repository": source, "source_ref": sha,
-              "source_channel": "review" if validation_only == "true" else "canary",
-              "profile": profile, "request_id": request_id,
-          }}
-          if validation_only == "true":
-              payload["inputs"].update(validation_only=True, source_pr=source_pr)
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/{target}/actions/workflows/{workflow}/dispatches",
-              data=json.dumps(payload).encode(), method="POST", headers=headers,
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  if response.status == 200:
-                      receipt = json.loads(response.read(16385))
-                      if type(receipt.get("workflow_run_id")) is not int or receipt["workflow_run_id"] <= 0:
-                          raise SystemExit("Image build dispatch outcome unknown; inspect the request before retrying")
-                  elif response.status != 204:
-                      raise SystemExit("Image build request was not accepted")
-          except urllib.error.HTTPError as error:
-              raise SystemExit(f"Image build dispatch failed: HTTP {error.code}") from None
-          except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
-              raise SystemExit("Image build dispatch outcome unknown; inspect the request before retrying") from None
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(f"### Image build requested\n\nSource: `{sha}`\n\nProfile: `{profile}`\n\n"
-                            f"Request: `{request_id}`\n\n"
-                            + ("Validation only; product publication and deployment are prohibited.\n"
-                               if validation_only == "true" else "Build, scan, publication and deployment remain pending.\n"))
-          PY
+        run: python3 scripts/image_build/request_validation.py --product
