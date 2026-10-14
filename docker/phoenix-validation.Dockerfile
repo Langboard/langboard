@@ -15,6 +15,8 @@ ENV MIX_ENV=test \
     YARN_CACHE_FOLDER=/home/validation/.cache/yarn \
     COREPACK_HOME=/opt/corepack
 
+ENV PANEL_PACKAGE_MANAGER=yarn
+
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils \

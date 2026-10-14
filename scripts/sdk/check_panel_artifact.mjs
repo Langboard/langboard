@@ -15,6 +15,9 @@ if (
   throw Error("Invalid panel artifact");
 const artifact = resolve("src/ui", declared.slice(5));
 const provenance = JSON.parse(readFileSync("src/sdk/vendor/provenance.json"));
+const packageManager = process.env.PANEL_PACKAGE_MANAGER ?? "npm";
+if (!["npm", "yarn"].includes(packageManager))
+  throw Error("Unsupported panel package manager");
 if (
   createHash("sha256").update(readFileSync(artifact)).digest("hex") !==
   provenance.artifacts[basename(artifact)]
@@ -23,8 +26,10 @@ if (
 const consumer = mkdtempSync(join(tmpdir(), "langboard-panel-consumer-"));
 try {
   execFileSync(
-    "npm",
-    ["install", "--ignore-scripts", "--no-audit", "--no-fund", artifact],
+    packageManager,
+    packageManager === "yarn"
+      ? ["add", "--offline", "--ignore-scripts", "--non-interactive", artifact]
+      : ["install", "--ignore-scripts", "--no-audit", "--no-fund", artifact],
     { cwd: consumer, stdio: "inherit" },
   );
   const installed = JSON.parse(
