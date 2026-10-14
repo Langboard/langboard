@@ -3,8 +3,9 @@ import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import { cn, copyToClipboard } from "@/core/utils/ComponentUtils";
 import { useState } from "react";
-import { Prism, SyntaxHighlighterProps } from "react-syntax-highlighter";
-import { tomorrow } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
+import Prism from "react-syntax-highlighter/dist/esm/prism";
+import tomorrow from "react-syntax-highlighter/dist/esm/styles/prism/tomorrow";
 
 const SyntaxHighlighter = Prism as unknown as React.FC<SyntaxHighlighterProps>;
 

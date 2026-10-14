@@ -323,5 +323,12 @@
     "new": "Request new run",
     "newHelp": "Create a new execution request with current permissions. The previous stopped run and its history remain unchanged. This does not start a runtime.",
     "newRequested": "New run requested — awaiting new runtime"
-  }
+  },
+  "Public": "Public",
+  "Change card visibility": "Change card visibility",
+  "Make public": "Make public",
+  "Make whisper": "Make whisper",
+  "Public visibility confirmation": "All board members, including external participants, will be able to view this card and its contents. Confirm sharing?",
+  "Whisper visibility confirmation": "Only members with internal access will be able to view this card. External participants will lose access.",
+  "Visibility update failed": "Visibility could not be updated. Reload the card and confirm again."
 }

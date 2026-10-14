@@ -1,5 +1,5 @@
 FROM ghcr.io/astral-sh/uv:0.11.28@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv
-FROM python:3.12@sha256:7ad6d21a25a94b2c00e685e82c2fd298de814353d9ee0e3f7f2cd4fca063df60 AS base
+FROM python:3.12@sha256:7ad6d21a25a94b2c00e685e82c2fd298de814353d9ee0e3f7f2cd4fca063df60 AS dependencies
 
 WORKDIR /app
 
@@ -21,16 +21,20 @@ RUN apt-get update \
 
 RUN uv --version
 
-COPY ./src/shared/py ./src/shared/py
+# Only locked metadata/vendor packages affect the external dependency layer.
+COPY ./src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
 COPY ./src/sdk/vendor ./src/sdk/vendor
 COPY pyproject.toml uv.lock README.md alembic.ini ./
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra document-retrieval \
+    --no-install-project --no-install-package langboard-shared
 
-RUN cd /app/src/shared/py && uv venv && uv sync --locked --no-dev
-RUN cd /app && uv venv && uv sync --locked --no-dev --no-install-project
-
+FROM dependencies AS base
+COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
-
-RUN cd /app && uv sync --locked --no-dev --extra document-retrieval
+COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra document-retrieval
 
 # Runtime writes stay in the dedicated application data directory.
 RUN groupadd --gid 10001 langboard \
@@ -68,3 +72,28 @@ RUN apt-get update \
 
 ENV UV_NO_SYNC=1
 USER 10001:10001
+
+# Validation needs Python application dependencies, not the runtime cron daemon.
+FROM dependencies AS validation-dependencies
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --dev --extra document-retrieval \
+    --no-install-project --no-install-package langboard-shared
+
+FROM validation-dependencies AS validation-source
+COPY ./src/shared/py ./src/shared/py
+COPY ./src/api ./src/api
+COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --dev --extra document-retrieval
+RUN groupadd --gid 10001 langboard \
+    && useradd --uid 10001 --gid 10001 --create-home langboard \
+    && mkdir -p /app/local /app/.fastmcp /result \
+    && chown langboard:langboard /app/local /app/.fastmcp /result
+USER 10001:10001
+
+FROM validation-source AS validation-api
+ENV PROFILE=api
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-api-results
+COPY --from=validation-api /result/ /result/
