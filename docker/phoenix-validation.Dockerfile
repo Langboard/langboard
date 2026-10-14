@@ -55,7 +55,7 @@ COPY --chown=validation:validation src/shared/py/pyproject.toml ./src/shared/py/
 COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen --no-install-project --no-install-package langboard-shared
 COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
-RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get
+RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get && mix deps.compile
 COPY --chown=validation:validation src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
 RUN --mount=type=cache,id=langboard-phoenix-yarn,target=/home/validation/.cache/yarn,uid=10001,gid=10001,sharing=locked cd src/shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
 COPY --chown=validation:validation src/shared/ts ./src/shared/ts

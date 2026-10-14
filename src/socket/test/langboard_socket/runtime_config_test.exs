@@ -78,6 +78,7 @@ defmodule LangboardSocket.RuntimeConfigTest do
     assert config[:langboard_socket][:api_internal_url] == "http://api.internal:5381"
     assert config[:langboard_socket][:graph_internal_url] == "http://graph.internal:5020"
     assert config[:langboard_socket][:internal_api_secret] == String.duplicate("b", 32)
+
     assert config[:langboard_socket][LangboardSocketWeb.Endpoint][:http][:http_2_options] ==
              [enabled: false]
   end
