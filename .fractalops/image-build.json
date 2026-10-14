@@ -9,7 +9,10 @@
       "buildTarget": "runtime",
       "validation": {
         "target": "validation-results",
-        "cachePolicy": "fresh"
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation"
+        ]
       }
     },
     "default": {
@@ -37,7 +40,10 @@
       "buildTarget": "with-cron",
       "validation": {
         "target": "validation-api-results",
-        "cachePolicy": "fresh"
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation-api"
+        ]
       },
       "network": "default",
       "platform": "linux/amd64"
@@ -48,7 +54,10 @@
       "buildTarget": "with-document-processing",
       "validation": {
         "target": "validation-worker-results",
-        "cachePolicy": "fresh"
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation-worker"
+        ]
       },
       "network": "default",
       "platform": "linux/amd64"
@@ -59,7 +68,10 @@
       "buildTarget": "runtime",
       "validation": {
         "target": "validation-ui-results",
-        "cachePolicy": "fresh"
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation-ui"
+        ]
       },
       "network": "default",
       "platform": "linux/amd64"

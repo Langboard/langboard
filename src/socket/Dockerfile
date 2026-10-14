@@ -22,7 +22,7 @@ COPY shared/realtime /app/shared/realtime
 
 RUN mix compile --warnings-as-errors && mix release
 
-FROM tooling AS validation
+FROM tooling AS validation-dependencies
 
 ENV MIX_ENV=test \
     HEX_HTTP_CONCURRENCY=4 \
@@ -31,12 +31,16 @@ ENV MIX_ENV=test \
 COPY socket/mix.exs socket/mix.lock ./
 RUN mix deps.get && mix deps.compile
 
+FROM validation-dependencies AS validation-source
+
 COPY socket/config ./config
 COPY socket/lib ./lib
 COPY socket/test ./test
 COPY socket/scripts ./scripts
 COPY socket/.formatter.exs ./
 COPY shared/realtime /app/shared/realtime
+
+FROM validation-source AS validation
 
 # Export diagnostics even on a failed gate. The central executor must inspect
 # result.json before promoting an image; a successful export is not a test pass.

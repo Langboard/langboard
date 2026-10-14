@@ -72,21 +72,25 @@ RUN apt-get update \
 ENV UV_NO_SYNC=1
 USER 10001:10001
 
-FROM with-cron AS validation-api
-ENV PROFILE=api
+FROM with-cron AS validation-api-dependencies
 USER root
 RUN uv sync --locked --dev --extra document-retrieval
 USER 10001:10001
+
+FROM validation-api-dependencies AS validation-api
+ENV PROFILE=api
 RUN bash scripts/run-profile-validation.sh
 
 FROM scratch AS validation-api-results
 COPY --from=validation-api /result/ /result/
 
-FROM with-document-processing AS validation-worker
-ENV PROFILE=worker
+FROM with-document-processing AS validation-worker-dependencies
 USER root
 RUN uv sync --locked --dev --extra document-processing --extra document-retrieval
 USER 10001:10001
+
+FROM validation-worker-dependencies AS validation-worker
+ENV PROFILE=worker
 RUN bash scripts/run-profile-validation.sh
 
 FROM scratch AS validation-worker-results

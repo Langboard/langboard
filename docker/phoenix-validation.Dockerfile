@@ -32,22 +32,32 @@ COPY --from=node /usr/local /usr/local
 RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg \
     && corepack enable
 
-# Preserve the existing cross-runtime gate, rather than rebuilding its test list.
-COPY --chown=validation:validation pyproject.toml uv.lock README.md alembic.ini Makefile tach.toml ./
-COPY --chown=validation:validation src ./src
-COPY --chown=validation:validation scripts ./scripts
-COPY --chown=validation:validation docker ./docker
-
 USER 10001:10001
 ENV HOME=/home/validation
 
 RUN uv python install 3.12
 RUN corepack prepare yarn@1.22.22 --activate
 RUN mix local.hex --force && mix local.rebar --force
-RUN uv sync --frozen
+
+# Install external dependencies from locked metadata before copying application sources.
+COPY --chown=validation:validation pyproject.toml uv.lock README.md alembic.ini ./
+COPY --chown=validation:validation src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
+COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
+RUN uv sync --frozen --no-install-project --no-install-package langboard-shared
+COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
 RUN cd src/socket && mix deps.get
+COPY --chown=validation:validation src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
 RUN cd src/shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+COPY --chown=validation:validation src/shared/ts ./src/shared/ts
 RUN cd src/shared/ts && yarn build
+COPY --chown=validation:validation src/ui/package.json src/ui/yarn.lock ./src/ui/
 RUN cd src/ui && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+
+# Keep internal Python installation and the original cross-runtime gate intact.
+COPY --chown=validation:validation src ./src
+COPY --chown=validation:validation Makefile tach.toml ./
+COPY --chown=validation:validation scripts ./scripts
+COPY --chown=validation:validation docker ./docker
+RUN uv sync --frozen
 
 CMD ["/bin/bash", "scripts/check-phoenix-validation.sh"]
