@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "profiles": {
+    "api": {
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "with-cron",
+      "validation": {
+        "target": "validation-api-results",
+        "cachePolicy": "fresh"
+      }
+    },
+    "ui": {
+      "context": ".",
+      "dockerfile": "docker/ui-production.Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "runtime",
+      "validation": {
+        "target": "validation-ui-results",
+        "cachePolicy": "fresh"
+      }
+    }
+  }
+}

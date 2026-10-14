@@ -34,3 +34,9 @@ existing visibility and private-card policy tests. The UI fixture
 with a deterministic request adapter for desktop/mobile confirmation, failure,
 and permission-state checks. A deployed acceptance check must separately verify
 native-session transitions and external-user list/detail/relationship access.
+
+## Narrow canary delivery
+
+The protected canary already provides the visibility policy and audit model. This delivery changes only the card editor, API transition boundary, translations and focused regression coverage. It does not require the pending Phoenix transport migration. Existing upstream migration pull requests remain separate and preserved.
+
+The source-owned build contract defines independent `api` and `ui` profiles using the existing digest-pinned production Dockerfiles. Result-only validation targets report their exact exit codes; API validation covers route authorization, MCP access and visibility transitions. The UI production build includes TypeScript checking. Publication still requires the approved protected canary tip and central release authorization. Review validation cannot publish a product image.

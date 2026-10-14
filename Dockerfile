@@ -29,6 +29,7 @@ RUN cd /app/src/shared/py && uv venv && uv sync --locked --no-dev
 RUN cd /app && uv venv && uv sync --locked --no-dev --no-install-project
 
 COPY ./src/api ./src/api
+COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
 
 RUN cd /app && uv sync --locked --no-dev --extra document-retrieval
 
@@ -68,3 +69,14 @@ RUN apt-get update \
 
 ENV UV_NO_SYNC=1
 USER 10001:10001
+
+FROM with-cron AS validation-api
+ENV PROFILE=api
+USER root
+RUN mkdir -p /result && chown langboard:langboard /result
+RUN uv sync --locked --dev --extra document-retrieval
+USER 10001:10001
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-api-results
+COPY --from=validation-api /result/ /result/
