@@ -17,7 +17,7 @@ on:
         description: Approved image profile
         required: true
         type: choice
-        options: [api, ui]
+        options: [api, worker, ui, socket, default]
       validation_only:
         description: Verify an open same-repository PR without product publication
         required: false

@@ -91,10 +91,16 @@ class BrokerClientTest(unittest.TestCase):
             self.assertEqual(calls, [])
 
     def test_named_profile_is_transmitted_unchanged(self):
-        outcome, calls, _ = self.invoke(changes={"IMAGE_BUILD_PROFILE": "socket"})
-        self.assertEqual(outcome, "0")
-        payload = json.loads(calls[1].args[0].data)
-        self.assertEqual(payload["profile"], "socket")
+        for profile in ["api", "worker", "ui", "socket", "default"]:
+            for product in [False, True]:
+                with self.subTest(profile=profile, product=product):
+                    changes = {"IMAGE_BUILD_PROFILE": profile}
+                    if product:
+                        changes.update(SOURCE_REF="refs/heads/deploy/canary", SOURCE_CHANNEL="canary")
+                    outcome, calls, _ = self.invoke(changes=changes, product=product)
+                    self.assertEqual(outcome, "0")
+                    payload = json.loads(calls[1].args[0].data)
+                    self.assertEqual(payload["profile"], profile)
 
     def test_malformed_profile_stops_before_identity(self):
         for profile in ["", "Socket", "socket_1", "socket/validation", "a" * 49, "-socket"]:
