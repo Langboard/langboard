@@ -323,5 +323,12 @@
     "new": "请求新执行",
     "newHelp": "使用当前权限请求新的执行。保留之前已停止的执行及其历史记录。此操作不会启动运行时。",
     "newRequested": "已请求新执行 — 等待新运行时"
-  }
+  },
+  "Public": "共享",
+  "Change card visibility": "更改卡片可见范围",
+  "Make public": "设为共享卡片",
+  "Make whisper": "设为内部卡片",
+  "Public visibility confirmation": "包括外部参与者在内的所有看板成员都能查看卡片及其内容。确认共享吗？",
+  "Whisper visibility confirmation": "仅具有内部访问权限的成员可查看卡片。外部参与者将失去访问权限。",
+  "Visibility update failed": "无法更新可见范围。请重新加载卡片后再次确认。"
 }

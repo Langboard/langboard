@@ -187,6 +187,26 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
         ],
         [boardCardMetadataHandlers, linkedResourceHandlers, project.uid, queryClient]
     );
+    useEffect(() => {
+        const changed = {
+            topic: ESocketTopic.Board as const,
+            topicId: project.uid,
+            event: `board:details:changed:${project.uid}`,
+            eventKey: `board-visibility-${project.uid}`,
+            callback: (data: unknown) => {
+                if (!data || typeof data !== "object" || !("card_visibility_changed" in data) || data.card_visibility_changed !== true) return;
+                void queryClient.invalidateQueries({
+                    predicate: ({ queryKey }) =>
+                        typeof queryKey[0] === "string" &&
+                        (queryKey[0] === `get-cards-${project.uid}` || queryKey[0].startsWith(`get-card-details-${project.uid}-`)),
+                });
+            },
+        };
+        socket.on(changed);
+        return () => {
+            socket.off(changed);
+        };
+    }, [socket, project.uid, queryClient]);
     const cardMetadataRecords = MetadataModel.Model.useModels((model) => model.type === "card", [cards, metadataUpdated]);
     const forbiddenMessageIdRef = useRef<string | number | null>(null);
     const cardsMap = useMemo(() => {

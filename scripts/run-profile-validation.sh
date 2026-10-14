@@ -6,9 +6,13 @@ mkdir -p /result/artifacts
 
 case "$profile" in
   api)
+    export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
-      src/api/tests/mcp_integration/test_card_mcp_contract.py)
+      src/api/tests/mcp_integration/test_card_mcp_contract.py \
+      src/api/tests/card_visibility/test_visibility_transition.py \
+      src/api/tests/card_visibility/test_policy.py \
+      src/api/tests/card_visibility/test_private_policy.py)
     ;;
   worker)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \

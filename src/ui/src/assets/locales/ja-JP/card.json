@@ -323,5 +323,12 @@
     "new": "新しい実行を要求",
     "newHelp": "現在の権限で新しい実行を要求します。停止済みの実行と履歴は保持されます。ランタイムはまだ開始されません。",
     "newRequested": "新しい実行を要求済み — 新しいランタイムを待機中"
-  }
+  },
+  "Public": "共有",
+  "Change card visibility": "カードの公開範囲を変更",
+  "Make public": "共有カードに変更",
+  "Make whisper": "内部カードに変更",
+  "Public visibility confirmation": "外部参加者を含む全ボードメンバーがカードと内容を閲覧できます。共有しますか？",
+  "Whisper visibility confirmation": "内部アクセス権を持つメンバーのみ閲覧できます。外部参加者はアクセスできなくなります。",
+  "Visibility update failed": "公開範囲を更新できませんでした。カードを再読み込みして再確認してください。"
 }

@@ -29,14 +29,17 @@ def test_python_and_uv_images_are_digest_pinned_without_remote_installer() -> No
         lines[0],
     )
     assert re.fullmatch(
-        r"FROM python:3\.12@sha256:[0-9a-f]{64} AS base",
+        r"FROM python:3\.12@sha256:[0-9a-f]{64} AS dependencies",
         lines[1],
     )
     assert "astral.sh/uv/install.sh" not in dockerfile
     assert "RUN cron" not in dockerfile
-    sync_commands = [line for line in lines if "uv sync " in line]
+    runtime_base = dockerfile.split("FROM base AS with-aws", 1)[0]
+    sync_commands = [line for line in runtime_base.splitlines() if "uv sync " in line]
     assert sync_commands
     assert all("uv sync --locked --no-dev" in line for line in sync_commands)
+    assert "--no-install-project --no-install-package langboard-shared" in runtime_base
+    assert runtime_base.index("--no-install-project") < runtime_base.index("FROM dependencies AS base")
 
 
 def test_api_runtime_excludes_document_processing_extra() -> None:

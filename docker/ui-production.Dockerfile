@@ -22,13 +22,15 @@ ARG PUBLIC_SENTRY_ENVIRONMENT=""
 ARG PUBLIC_SENTRY_RELEASE=""
 ARG IS_OLLAMA_RUNNING=false
 ARG MAX_FILE_SIZE_MB=50
-ARG NODE_BUILD_HEAP_MB=4096
+ARG NODE_BUILD_HEAP_MB=3072
 RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
 
-FROM build AS validation-ui
-ENV PROFILE=ui
+FROM build AS validation-ui-source
 RUN mkdir -p /result && chown node:node /result
 USER node
+
+FROM validation-ui-source AS validation-ui
+ENV PROFILE=ui
 RUN bash /work/scripts/run-profile-validation.sh
 
 FROM scratch AS validation-ui-results

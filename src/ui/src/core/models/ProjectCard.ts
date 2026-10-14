@@ -37,6 +37,7 @@ export interface Interface extends IBaseModel {
     deadline_at?: Date;
     archived_at?: Date;
     can_delete?: bool;
+    can_change_visibility?: bool;
     creator?: {
         uid: string;
         type: "user" | "bot";
@@ -338,6 +339,12 @@ class ProjectCard extends BaseModel<IStore> {
         return this.getValue("member_uids");
     }
 
+    public get can_change_visibility() {
+        return this.getValue("can_change_visibility") ?? false;
+    }
+    public set visibility(value) {
+        this.update({ visibility: value });
+    }
     public get visibility() {
         return this.getValue("visibility");
     }

@@ -57,3 +57,22 @@ is the reusable `tests/migrations/test_phoenix_canary_union_postgres.py` and pri
 This resolves migration DAG and populated replay, not the overall release. Full
 native operation on that migrated schema, constraint inventory, reconstruction
 acceptance alignment, application lifespan and deployed canary remain pending.
+
+
+## Updated 2026-10-14: validation candidate follows the current canary
+
+The profile-validation candidate now integrates the current canary source while
+retaining the upstream Phoenix runtime and its integration entrypoint. The
+integration preserves the visibility-transition API, UI and tests, the patched
+OS-library version guard, the reduced UI build graph, and the locked dependency
+layers. API validation no longer requires the cron runtime. Document-worker
+validation still includes the real document-processing dependency set and CJK
+fonts. Named profiles remain `socket`, `default`, `api`, `worker`, and `ui`;
+fresh-cache invalidation is restricted to the test execution stages.
+
+Focused request-envelope, image reproducibility, and document-image checks passed:
+30 tests and 26 subtests. Static profile resolution uses each profile's build
+context, and all declared targets and fresh stages exist. This does not establish
+actual Phoenix container execution, PostgreSQL integration acceptance, or live
+canary acceptance. The current narrow API/UI delivery remains separate from the
+larger Phoenix candidate until those full gates pass.
