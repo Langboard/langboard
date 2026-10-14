@@ -89,6 +89,12 @@ Phoenix transport and resume clients retain their tests under `test/`.
 These paths identify coverage ownership; passing source tests does not establish
 container, PostgreSQL, or deployed-user acceptance.
 
+The container integration entrypoint `scripts/check-phoenix-validation.sh`
+requires disposable PostgreSQL URLs for file, outbox, execution-effect, and
+template transaction tests. Template creation exercises native membership,
+labels, roles, and policy commits and rollbacks on the same fixture. A local
+SQLite-only run does not satisfy this PostgreSQL gate.
+
 Use `make test_socket_phoenix_browser_cluster` to exercise authenticated chat,
 reconnect, and recovery against two temporary Phoenix nodes without changing the
 running ingress.
