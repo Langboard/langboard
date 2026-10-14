@@ -10,7 +10,9 @@ ENV MIX_ENV=test \
     HEX_HTTP_CONCURRENCY=4 \
     HEX_HTTP_TIMEOUT=120 \
     UV_HTTP_TIMEOUT=120 \
+    UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/uv/python \
+    YARN_CACHE_FOLDER=/home/validation/.cache/yarn \
     COREPACK_HOME=/opt/corepack
 
 RUN apt-get update \
@@ -35,7 +37,7 @@ RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg \
 USER 10001:10001
 ENV HOME=/home/validation
 
-RUN uv python install 3.12
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv python install 3.12
 RUN corepack prepare yarn@1.22.22 --activate
 RUN mix local.hex --force && mix local.rebar --force
 
@@ -43,21 +45,21 @@ RUN mix local.hex --force && mix local.rebar --force
 COPY --chown=validation:validation pyproject.toml uv.lock README.md alembic.ini ./
 COPY --chown=validation:validation src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
 COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
-RUN uv sync --frozen --no-install-project --no-install-package langboard-shared
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen --no-install-project --no-install-package langboard-shared
 COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
-RUN cd src/socket && mix deps.get
+RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get
 COPY --chown=validation:validation src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
-RUN cd src/shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+RUN --mount=type=cache,id=langboard-phoenix-yarn,target=/home/validation/.cache/yarn,uid=10001,gid=10001,sharing=locked cd src/shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
 COPY --chown=validation:validation src/shared/ts ./src/shared/ts
 RUN cd src/shared/ts && yarn build
 COPY --chown=validation:validation src/ui/package.json src/ui/yarn.lock ./src/ui/
-RUN cd src/ui && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+RUN --mount=type=cache,id=langboard-phoenix-yarn,target=/home/validation/.cache/yarn,uid=10001,gid=10001,sharing=locked cd src/ui && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
 
 # Keep internal Python installation and the original cross-runtime gate intact.
 COPY --chown=validation:validation src ./src
 COPY --chown=validation:validation Makefile tach.toml ./
 COPY --chown=validation:validation scripts ./scripts
 COPY --chown=validation:validation docker ./docker
-RUN uv sync --frozen
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen
 
 CMD ["/bin/bash", "scripts/check-phoenix-validation.sh"]
