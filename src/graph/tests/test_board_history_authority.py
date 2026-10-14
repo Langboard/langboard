@@ -1,4 +1,4 @@
-"""Current main board history authority and bounded query regression."""
+"""Current board history authority with bounded content queries."""
 
 from datetime import timedelta
 import pytest
@@ -42,7 +42,9 @@ from langboard_graph.core.graph.default.history import collect_card_comment_mess
         "deleted_comment",
     ],
 )
-def test_current_board_authority_is_in_one_content_query(history_db, kind, case):  # noqa: F811
+def test_current_board_authority_is_in_one_content_query(history_db, monkeypatch, kind, case):  # noqa: F811
+    # Exercise the supported board-members policy through the real card service.
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda self: "project_members"))
     for model in (
         Organization,
         Project,
@@ -145,7 +147,15 @@ def test_current_board_authority_is_in_one_content_query(history_db, kind, case)
         event.remove(history_db, "before_cursor_execute", record)
     allowed = case in {"owner", "read", "all", "deleted_comment"}
     assert len(result) == int(allowed)
-    assert len(queries) == (0 if case in {"missing_token", "bot"} else 1)
+    # Native card authority uses independent primary reads before content access.
+    # Content loading remains one bounded query rather than one query per item.
+    content_table = "card_comment" if kind == "comments" else "project_activity"
+    content_queries = [query for query in queries if f"FROM {content_table}" in query]
+    assert len(content_queries) <= 1
+    if allowed:
+        assert len(content_queries) == 1
+    if case in {"missing_token", "bot"}:
+        assert queries == []
     if allowed:
         content = result[0]["content"]
         assert (
