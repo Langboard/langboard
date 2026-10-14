@@ -10,6 +10,7 @@ COPY --from=uv /uv /uvx /bin/
 
 RUN apt-get update \
     && apt-get upgrade -y \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-2)" ge '2.60.0+dfsg-1+deb13u1' \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
