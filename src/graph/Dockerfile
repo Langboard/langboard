@@ -76,4 +76,4 @@ with (root / "artifacts/graph-validation.log").open("w") as log:
 PY
 
 FROM scratch AS validation-results
-COPY --from=validation /result/ /
+COPY --from=validation /result/ /result/
