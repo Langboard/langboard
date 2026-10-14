@@ -76,4 +76,7 @@ RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv
 ENV UV_NO_SYNC=1 \
     UV_OFFLINE=1
 
+# Leave headroom for native allocations within the 2Gi validation container.
+ENV NODE_OPTIONS=--max-old-space-size=1536
+
 CMD ["/bin/bash", "scripts/check-phoenix-validation.sh"]
