@@ -35,7 +35,7 @@ def run(read=False):
         "sourceCommit": required("SOURCE_REVISION", r"[0-9a-f]{40}"),
         "sourceRef": required("SOURCE_REF", r"refs/heads/review/[^\s]+"),
         "sourcePr": int(required("SOURCE_PR", r"[1-9][0-9]*")),
-        "profile": required("IMAGE_BUILD_PROFILE", r"default"),
+        "profile": required("IMAGE_BUILD_PROFILE", r"[a-z0-9][a-z0-9-]{0,47}"),
         "requestId": request_id,
     }
     oidc_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")

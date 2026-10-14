@@ -31,14 +31,15 @@ RUN cd /app && uv venv && uv sync --locked --no-dev --no-install-project
 
 COPY ./src/api ./src/api
 COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/
+COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
 
 RUN cd /app && uv sync --locked --no-dev --extra document-retrieval
 
 # Runtime writes stay in the dedicated application data directory.
 RUN groupadd --gid 10001 langboard \
     && useradd --uid 10001 --gid 10001 --create-home langboard \
-    && mkdir -p /app/local /app/.fastmcp \
-    && chown -R langboard:langboard /app/local /app/.fastmcp
+    && mkdir -p /app/local /app/.fastmcp /result \
+    && chown -R langboard:langboard /app/local /app/.fastmcp /result
 
 FROM base AS with-aws
 
@@ -70,3 +71,23 @@ RUN apt-get update \
 
 ENV UV_NO_SYNC=1
 USER 10001:10001
+
+FROM with-cron AS validation-api
+ENV PROFILE=api
+USER root
+RUN uv sync --locked --dev --extra document-retrieval
+USER 10001:10001
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-api-results
+COPY --from=validation-api /result/ /result/
+
+FROM with-document-processing AS validation-worker
+ENV PROFILE=worker
+USER root
+RUN uv sync --locked --dev --extra document-processing --extra document-retrieval
+USER 10001:10001
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-worker-results
+COPY --from=validation-worker /result/ /result/

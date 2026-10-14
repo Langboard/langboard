@@ -41,13 +41,13 @@ COPY --chown=validation:validation docker ./docker
 USER 10001:10001
 ENV HOME=/home/validation
 
-RUN uv python install 3.12 \
-    && corepack prepare yarn@1.22.22 --activate \
-    && mix local.hex --force \
-    && mix local.rebar --force \
-    && uv sync --frozen \
-    && cd src/socket && mix deps.get \
-    && cd ../shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000 && yarn build \
-    && cd ../../ui && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+RUN uv python install 3.12
+RUN corepack prepare yarn@1.22.22 --activate
+RUN mix local.hex --force && mix local.rebar --force
+RUN uv sync --frozen
+RUN cd src/socket && mix deps.get
+RUN cd src/shared/ts && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+RUN cd src/shared/ts && yarn build
+RUN cd src/ui && yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
 
 CMD ["/bin/bash", "scripts/check-phoenix-validation.sh"]

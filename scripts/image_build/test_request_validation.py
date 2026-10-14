@@ -83,13 +83,25 @@ class BrokerClientTest(unittest.TestCase):
         for changes in [
             {"IMAGE_BUILD_BROKER_URL": "http://broker.invalid"},
             {"IMAGE_BUILD_BROKER_URL": "https://user:password@broker.invalid"},
-            {"IMAGE_BUILD_PROFILE": "api"},
             {"SOURCE_PR": "0"},
             {"SOURCE_REF": "refs/heads/main"},
         ]:
             outcome, calls, _ = self.invoke(changes=changes)
             self.assertNotEqual(outcome, "0")
             self.assertEqual(calls, [])
+
+    def test_named_profile_is_transmitted_unchanged(self):
+        outcome, calls, _ = self.invoke(changes={"IMAGE_BUILD_PROFILE": "socket"})
+        self.assertEqual(outcome, "0")
+        payload = json.loads(calls[1].args[0].data)
+        self.assertEqual(payload["profile"], "socket")
+
+    def test_malformed_profile_stops_before_identity(self):
+        for profile in ["", "Socket", "socket_1", "socket/validation", "a" * 49, "-socket"]:
+            with self.subTest(profile=profile):
+                outcome, calls, _ = self.invoke(changes={"IMAGE_BUILD_PROFILE": profile})
+                self.assertNotEqual(outcome, "0")
+                self.assertEqual(calls, [])
 
     def test_ambiguous_dispatch_never_retries(self):
         for failure in [TimeoutError(), urllib.error.HTTPError("https://example.invalid", 503, "private", {}, None)]:
