@@ -186,6 +186,7 @@ services:
     build:
       context: ../src
       dockerfile: graph/Dockerfile
+      target: runtime
     env_file:
       - ./envs/.graph.env
     working_dir: /app/src/graph

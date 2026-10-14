@@ -76,6 +76,20 @@
       },
       "network": "default",
       "platform": "linux/amd64"
+    },
+    "graph": {
+      "context": "src",
+      "dockerfile": "graph/Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "runtime",
+      "validation": {
+        "target": "validation-results",
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation"
+        ]
+      }
     }
   }
 }

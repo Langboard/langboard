@@ -91,7 +91,7 @@ class BrokerClientTest(unittest.TestCase):
             self.assertEqual(calls, [])
 
     def test_named_profile_is_transmitted_unchanged(self):
-        for profile in ["api", "worker", "ui", "socket", "default"]:
+        for profile in ["api", "worker", "ui", "socket", "graph", "default"]:
             for product in [False, True]:
                 with self.subTest(profile=profile, product=product):
                     changes = {"IMAGE_BUILD_PROFILE": profile}
