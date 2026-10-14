@@ -37,6 +37,8 @@ RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg \
 USER 10001:10001
 ENV HOME=/home/validation
 
+# BuildKit creates missing mount parents as root; create them as the build user.
+RUN mkdir -p /home/validation/.cache/uv /home/validation/.cache/yarn /home/validation/.hex/packages
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv python install 3.12
 RUN corepack prepare yarn@1.22.22 --activate
 RUN mix local.hex --force && mix local.rebar --force
