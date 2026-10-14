@@ -16,6 +16,7 @@ ENV MIX_ENV=test \
     COREPACK_HOME=/opt/corepack
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,7 +32,10 @@ COPY --from=uv /uv /uvx /usr/local/bin/
 COPY --from=node /usr/local /usr/local
 
 # The copied Node bin directory contains Yarn links into /opt, outside the copied tree.
+# Validation uses Corepack/Yarn; remove the unused bundled npm dependency tree.
 RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx \
+    && rm -rf /usr/local/lib/node_modules/npm \
     && corepack enable
 
 USER 10001:10001
