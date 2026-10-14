@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from fastapi import Request, status
 from langboard_shared.core.db import EditorContentModel
@@ -40,6 +41,7 @@ from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution
@@ -54,6 +56,7 @@ from .forms import (
     AssignUsersForm,
     CardifySelectionForm,
     ChangeCardDetailsForm,
+    ChangeCardVisibilityForm,
     ChangeChildOrderForm,
     CopySelectionToWikiForm,
     CreateCardForm,
@@ -182,6 +185,10 @@ def get_card_details(
         actions = service.project.get_user_role_actions_by_project(user_or_bot, project)
         api_card["current_auth_role_actions"] = actions
         can_set_scopes = ALL_GRANTED in actions or ProjectRoleAction.Update.value in actions
+    api_card["can_change_visibility"] = channel == CollaborationChannel.HumanUI and isinstance(user_or_bot, User) and replace(
+        context, can_update_card=ALL_GRANTED in api_card.get("current_auth_role_actions", [])
+        or ProjectRoleAction.CardUpdate.value in api_card.get("current_auth_role_actions", []),
+    ).can_change_visibility(CardVisibility(card.visibility), CardVisibility.Shared, confirmed=True)
     api_card["can_delete"] = service.card.can_delete(user_or_bot, card)
     if can_set_scopes and not is_linked_resource:
         bot_scopes = service.card.get_api_bot_scope_list(project, card)
@@ -425,6 +432,34 @@ def change_card_details(
             response[key] = convert_python_data(value)
         return JsonResponse(content=response)
 
+    return JsonResponse(content=result)
+
+
+@AppRouter.schema(form=ChangeCardVisibilityForm, permission=ApiPermission.Edit)
+@AppRouter.api.put(
+    "/board/{project_uid}/card/{card_uid}/visibility", tags=["Board.Card"],
+    description="Change internal/shared visibility with explicit human disclosure confirmation.",
+    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF2003).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
+@AuthFilter.add("user")
+def change_card_visibility(
+    project_uid: str, card_uid: str, request: Request, form: ChangeCardVisibilityForm,
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    require_visible_card(project_uid, card_uid, request, user, service)
+    try:
+        result = service.card.change_visibility(
+            user, project_uid, card_uid, CardVisibility(form.visibility),
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            confirmed=form.confirmed, expected_visibility=form.expected_visibility,
+        )
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
+    except ValueError as exc:
+        raise ApiException.Conflict_409() from exc
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     return JsonResponse(content=result)
 
 

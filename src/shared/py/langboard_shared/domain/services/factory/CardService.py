@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from binascii import Error as Base64Error
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Literal, Sequence, cast, overload
 from sqlalchemy import Text, func, or_, select
@@ -41,6 +42,7 @@ from ...models import (
     CardBotScope,
     CardRelationship,
     CardVerificationRecord,
+    CardVisibilityChange,
     Checkitem,
     Checklist,
     GlobalCardRelationshipType,
@@ -1837,6 +1839,44 @@ class CardService(BaseDomainService):
 
         next_cursor = page[-1].get_uid() if has_more and page else None
         return {"entries": entries, "has_more": has_more, "next_cursor": next_cursor}
+
+    @guard_card_app_mutation
+    def change_visibility(
+        self, user: User, project: TProjectParam, card: TCardParam,
+        target: CardVisibility, *, channel: CollaborationChannel,
+        confirmed: bool, expected_visibility: str,
+    ) -> dict[str, Any] | None:
+        """Lock, revalidate authority, and audit a disclosure transition atomically."""
+        with DbSession.atomic() as db:
+            current = db.exec(SqlBuilder.select.table(Card).where(
+                Card.id == InfraHelper.convert_id(card)
+            ).with_for_update()).first()
+            resolved = self.resolve_readable_card(project, current, user, channel)
+            if resolved is None:
+                return None
+            project, current, context = resolved
+            actor = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+            role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                ProjectRole.user_id == user.id, ProjectRole.project_id == project.id,
+            )).first()
+            roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
+            context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
+            if not context.can_change_visibility(CardVisibility(current.visibility), target, confirmed=confirmed):
+                raise PermissionError("Card visibility transition is not allowed")
+            if current.visibility != expected_visibility:
+                raise ValueError("Card visibility changed; reload before confirming")
+            if current.visibility == target.value:
+                return {"visibility": current.visibility, "updated_at": current.updated_at.isoformat()}
+            db.insert(CardVisibilityChange(
+                card_id=current.id, changed_by_user_id=user.id, channel=channel.value,
+                previous_visibility=current.visibility, next_visibility=target.value,
+            ))
+            current.visibility = target.value
+            db.update(current)
+            # No card identifiers or content in the board-wide invalidation.
+            from ....publishers import ProjectPublisher
+            db.after_commit(lambda: ProjectPublisher.updated(project, {"card_visibility_changed": True}))
+            return {"visibility": current.visibility, "updated_at": current.updated_at.isoformat()}
 
     @guard_card_app_mutation
     def update(
