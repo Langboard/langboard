@@ -48,3 +48,5 @@ The API Dockerfile installs locked third-party dependencies from package metadat
 These are source-layer corrections. Fresh validation remains mandatory. Actual build-duration improvement requires another central run; local dependency resolution is not deployment proof.
 
 The source contract declares `validation.freshStages` for the API/UI test-runner stages only. Dependency preparation and compiled UI assets may be reused; each test runner must execute again. This optional native BuildKit stage filter requires a central executor supporting the declaration. It does not authorize publishing a review image or skipping result gating.
+
+The UI Node heap defaults to 3072MiB to leave room for native build processes within a 4GiB builder. The directive-removal transform returns no result for unchanged modules, and Markdown code blocks import the same full Prism implementation and Tomorrow theme directly from their ESM entries. Full typechecking, minification, language support and asset retention remain enabled. Actual container validation is required before release; local memory measurements do not prove a container fits its limit.

@@ -26,6 +26,8 @@ const removeUseClient = () => {
 
             const newCode = code.replace(/['"]use client['"];\s*/g, "");
 
+            if (newCode === code) return null;
+
             return { code: newCode, map: null };
         },
     };
