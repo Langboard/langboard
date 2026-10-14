@@ -1,4 +1,4 @@
-"""Submit or inspect a validation request using the current Actions identity."""
+"""Submit or inspect validation and product requests using Actions identity."""
 
 import json
 import os
@@ -21,7 +21,8 @@ def required(name, pattern):
     return value
 
 
-def run(read=False):
+def run(read=False, product=False):
+    label = "Product" if product else "Validation"
     base = required("IMAGE_BUILD_BROKER_URL", r"https://[^\s]+")
     parsed = urllib.parse.urlsplit(base)
     if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -33,11 +34,22 @@ def run(read=False):
         "schemaVersion": 1,
         "sourceRepository": required("SOURCE_REPOSITORY", r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"),
         "sourceCommit": required("SOURCE_REVISION", r"[0-9a-f]{40}"),
-        "sourceRef": required("SOURCE_REF", r"refs/heads/review/[^\s]+"),
-        "sourcePr": int(required("SOURCE_PR", r"[1-9][0-9]*")),
         "profile": required("IMAGE_BUILD_PROFILE", r"[a-z0-9][a-z0-9-]{0,47}"),
         "requestId": request_id,
     }
+    if product:
+        payload.update(
+            schemaVersion=2,
+            sourceRef=required("SOURCE_REF", r"refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*"),
+            sourceChannel=required("SOURCE_CHANNEL", r"default|canary"),
+        )
+        if ".." in payload["sourceRef"]:
+            raise SystemExit("Invalid source ref")
+    else:
+        payload.update(
+            sourceRef=required("SOURCE_REF", r"refs/heads/review/[^\s]+"),
+            sourcePr=int(required("SOURCE_PR", r"[1-9][0-9]*")),
+        )
     oidc_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
     oidc_endpoint = urllib.parse.urlsplit(oidc_url)
     if (
@@ -64,8 +76,8 @@ def run(read=False):
         if not isinstance(assertion, str) or not assertion or len(assertion) > 16384:
             raise SystemExit("Actions identity response invalid")
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
-        raise SystemExit("Actions identity unavailable; no validation requested") from None
-    endpoint = base.rstrip("/") + "/v1/builds/project-validations"
+        raise SystemExit("Actions identity unavailable; no build requested") from None
+    endpoint = base.rstrip("/") + ("/v1/builds/project-images" if product else "/v1/builds/project-validations")
     if read:
         endpoint += "/" + request_id
     request = urllib.request.Request(
@@ -75,18 +87,18 @@ def run(read=False):
         headers={
             "Authorization": "Bearer " + assertion,
             "Content-Type": "application/json",
-            "User-Agent": "Langboard-NativeValidation/1.0",
+            "User-Agent": "Langboard-NativeBuild/1.0",
         },
     )
     try:
         with opener.open(request, timeout=30) as response:
             receipt = json.loads(response.read(16385))
     except urllib.error.HTTPError as error:
-        if error.code >= 500:
-            raise SystemExit("Validation outcome unknown; inspect the same request ID before retrying") from None
-        raise SystemExit(f"Validation broker rejected request: HTTP {error.code}") from None
+        if error.code == 429 or error.code >= 500:
+            raise SystemExit(f"{label} outcome unknown; inspect the same request ID before retrying") from None
+        raise SystemExit(f"{label} broker rejected request: HTTP {error.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        raise SystemExit("Validation outcome unknown; inspect the same request ID before retrying") from None
+        raise SystemExit(f"{label} outcome unknown; inspect the same request ID before retrying") from None
     keys = {"schemaVersion", "requestId", "status", "executorCommit", "workflowRunId", "workflowRunUrl"}
     if (
         not isinstance(receipt, dict)
@@ -95,13 +107,13 @@ def run(read=False):
         or receipt["schemaVersion"] != 1
         or receipt["requestId"] != request_id
     ):
-        raise SystemExit("Validation receipt invalid; inspect the same request ID before retrying")
+        raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
     if (
         receipt["status"] not in {"dispatching", "dispatched", "outcome_unknown", "rejected"}
         or not isinstance(receipt["executorCommit"], str)
         or receipt["executorCommit"] != executor_commit
     ):
-        raise SystemExit("Validation receipt invalid; inspect the same request ID before retrying")
+        raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
     run_id, run_url = receipt["workflowRunId"], receipt["workflowRunUrl"]
     if (run_id is None) != (run_url is None) or (
         run_id is not None
@@ -114,12 +126,13 @@ def run(read=False):
             )
         )
     ):
-        raise SystemExit("Validation receipt invalid; inspect the same request ID before retrying")
+        raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
     print(json.dumps(receipt))
     return 0 if receipt["status"] in {"dispatching", "dispatched"} else 1
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] not in ([], ["--read"]):
-        raise SystemExit("Usage: request_validation.py [--read]")
-    raise SystemExit(run(read=sys.argv[1:] == ["--read"]))
+    flags = sys.argv[1:]
+    if flags not in ([], ["--read"], ["--product"], ["--product", "--read"]):
+        raise SystemExit("Usage: request_validation.py [--product] [--read]")
+    raise SystemExit(run(read="--read" in flags, product="--product" in flags))

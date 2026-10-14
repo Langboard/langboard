@@ -11,6 +11,7 @@ status=0
     && uv run python - <<'PY' \
     && uv run python scripts/sdk/verify_python_artifact.py \
     && uv run python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py \
+    && uv run --no-sync python -m unittest discover -s scripts/image_build -v \
     && node scripts/sdk/check_panel_artifact.mjs \
     && make test_socket_phoenix \
     && make lint_socket_phoenix \
