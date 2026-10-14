@@ -79,8 +79,7 @@ RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
     uv sync --locked --dev --extra document-retrieval \
     --no-install-project --no-install-package langboard-shared
 
-FROM validation-dependencies AS validation-api
-ENV PROFILE=api
+FROM validation-dependencies AS validation-source
 COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
 COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
@@ -91,6 +90,9 @@ RUN groupadd --gid 10001 langboard \
     && mkdir -p /app/local /app/.fastmcp /result \
     && chown langboard:langboard /app/local /app/.fastmcp /result
 USER 10001:10001
+
+FROM validation-source AS validation-api
+ENV PROFILE=api
 RUN bash scripts/run-profile-validation.sh
 
 FROM scratch AS validation-api-results

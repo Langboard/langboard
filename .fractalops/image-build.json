@@ -9,7 +9,10 @@
       "buildTarget": "with-cron",
       "validation": {
         "target": "validation-api-results",
-        "cachePolicy": "fresh"
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation-api"
+        ]
       }
     },
     "ui": {
@@ -20,7 +23,10 @@
       "buildTarget": "runtime",
       "validation": {
         "target": "validation-ui-results",
-        "cachePolicy": "fresh"
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation-ui"
+        ]
       }
     }
   }
