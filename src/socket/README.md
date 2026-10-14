@@ -78,6 +78,17 @@ rows in bulk or assume a reachable SMTP port proves delivery.
 
 ## Commands
 
+Socket tests live under `test/` and exercise the Phoenix implementation. The
+former Node/Yarn packaging and extracted TypeScript handler tests have been
+removed with their runtime. Notification email authorization is tested at the
+Python API boundary (`src/api/tests/card_visibility/test_notification_dispatch_http.py`),
+and durable board-chat resume ownership is tested in
+`src/api/tests/runtime/test_internal_bot_run.py` and
+`src/api/tests/runtime/test_socket_board_chat_run.py`.
+Phoenix transport and resume clients retain their tests under `test/`.
+These paths identify coverage ownership; passing source tests does not establish
+container, PostgreSQL, or deployed-user acceptance.
+
 Use `make test_socket_phoenix_browser_cluster` to exercise authenticated chat,
 reconnect, and recovery against two temporary Phoenix nodes without changing the
 running ingress.
