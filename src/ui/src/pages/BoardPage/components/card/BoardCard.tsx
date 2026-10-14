@@ -391,6 +391,7 @@ function BoardTaskCardResult({
     const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const description = card.useField("description");
     const visibility = card.useField("visibility");
+    const canChangeVisibility = card.useField("can_change_visibility");
     const visibilityMembers = card.useForeignFieldArray("project_members");
     const deadlineAt = card.useField("deadline_at");
     const isCheckCard = card.useField("is_check_card") ?? false;
@@ -516,7 +517,7 @@ function BoardTaskCardResult({
                                     <BoardCardTitle key={`board-card-title-${card.uid}`} className={isExpanded ? "mr-28 sm:mr-52" : "mr-28"} />
                                 </Flex>
                                 <Flex gap="3" wrap items="center" className="min-w-0">
-                                    <CardTypeBadges card={card} />
+                                    <CardTypeBadges card={card} showVisibility={!(canEditCard && canChangeVisibility)} />
                                     <BoardCardVisibility />
                                     {isExpanded ? (
                                         <Box textSize="sm" className="text-muted">
