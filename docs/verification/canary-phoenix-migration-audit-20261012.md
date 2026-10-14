@@ -76,3 +76,28 @@ context, and all declared targets and fresh stages exist. This does not establis
 actual Phoenix container execution, PostgreSQL integration acceptance, or live
 canary acceptance. The current narrow API/UI delivery remains separate from the
 larger Phoenix candidate until those full gates pass.
+
+## Updated 2026-10-14: deployed realtime runtime is still Node
+
+A read-only inspection of the canary deployment found `langboard_socket`
+running the `langboard-socket` image. `docker top` reported two Node processes,
+including `node /app/dist/`; the container command was
+`["pm2-runtime", "ecosystem.config.cjs"]`. This is direct evidence that the
+legacy Node realtime runtime has not been retired in the deployed canary.
+No container was stopped, rebuilt or replaced during this inspection.
+
+The inspected candidate was `91efb8ffc9d357c93b46f58efefd6c88be1bb05a`.
+Its `socket` image profile produces the Elixir release from
+`src/socket/Dockerfile`, with `/app/bin/langboard_socket start` as its entrypoint
+and port 5690. The upstream Compose service is `socket-phoenix`, with readiness
+at `/health/ready`, API/Kafka/Redis/graph dependencies, and retained editor-sync
+storage. The directory name `socket` does not identify a Node implementation;
+WebSocket transport also remains part of the Phoenix implementation.
+
+An API/UI-only release cannot demonstrate this runtime migration. Acceptance
+requires exact-source Phoenix validation and a signed socket image, a release
+declaration covering the runtime and compatible API/UI routing, and live
+authorization, notification, editor-sync and board-chat checks. Removal of the
+old Node service follows successful cutover verification; its currently healthy
+status is not Phoenix acceptance. The original canary database and retained
+application history must remain intact throughout the cutover.
