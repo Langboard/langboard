@@ -117,7 +117,7 @@ def test_mysql_notification_reference_query_compiles(monkeypatch):
 def test_outbound_creation_checks_current_visibility_before_any_side_effect(current_card, monkeypatch, visibility, allowed):
     from types import SimpleNamespace
     from unittest.mock import Mock
-    from langboard_shared.core.publisher import NotificationPublisher
+    from langboard_shared.publishers.UserPublisher import UserPublisher
     from langboard_shared.domain.services.factory.NotificationService import NotificationService
 
     user, project, card, card_service = current_card
@@ -126,21 +126,22 @@ def test_outbound_creation_checks_current_visibility_before_any_side_effect(curr
         card.owner_user_id = user.id if visibility == "PRIVATE" else None
         db.update(card)
     insert = Mock()
+    complete = Mock()
     setting = SimpleNamespace(has_unsubscription=lambda *_args: False)
     service = NotificationService(lambda cls: card_service if cls.__name__ == "CardService" else setting,
-        lambda _: None, SimpleNamespace(user_notification=SimpleNamespace(insert=insert)))
+        lambda _: None, SimpleNamespace(user_notification=SimpleNamespace(insert=insert, complete_web_fanout=complete)))
     convert = Mock(return_value={})
     publish = Mock()
     schedule = Mock()
     monkeypatch.setattr(service, "convert_to_api_response", convert)
-    monkeypatch.setattr(NotificationPublisher, "put_dispather", publish)
+    monkeypatch.setattr(UserPublisher, "put_dispather", publish)
     from importlib import import_module
     monkeypatch.setattr(import_module("langboard_shared.domain.services.factory.NotificationService"), "publish_pending_work_events", schedule)
     formats = {"body": "sensitive"}
     result = service._NotificationService__notify(user, user, NotificationType.MentionedInCard,
         [], [project, card], email_formats=formats, allow_self=True)
     assert result is allowed
-    assert insert.call_count == convert.call_count == publish.call_count == schedule.call_count == int(allowed)
+    assert insert.call_count == convert.call_count == publish.call_count == complete.call_count == schedule.call_count == int(allowed)
     assert ("recipient" in formats) is allowed
 
 
