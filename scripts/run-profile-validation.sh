@@ -10,10 +10,13 @@ case "$profile" in
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
+      src/api/tests/runtime/test_socket_auth.py \
+      src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/mcp_integration/test_card_mcp_contract.py \
       src/api/tests/card_visibility/test_visibility_transition.py \
       src/api/tests/card_visibility/test_policy.py \
-      src/api/tests/card_visibility/test_private_policy.py)
+      src/api/tests/card_visibility/test_private_policy.py \
+      src/api/tests/card_visibility/test_socket_subscription_batch.py)
     ;;
   worker)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \
@@ -21,7 +24,7 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(yarn test:asset-retention)
+    command=(bash -c 'yarn test:socket-runtime && yarn test:asset-retention')
     ;;
   *)
     echo "Unsupported validation profile: $profile" >&2
