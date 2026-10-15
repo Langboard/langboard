@@ -109,7 +109,8 @@ RUN mkdir -p /result && chown langboard:langboard /result
 USER 10001:10001
 
 FROM validation-worker-dependencies AS validation-worker
-ENV PROFILE=worker
+ENV PROFILE=worker \
+    VERIFY_DOCUMENT_FONTS=1
 RUN bash scripts/run-profile-validation.sh
 
 FROM scratch AS validation-worker-results
