@@ -27,6 +27,18 @@
   "Tell graph what to do instead": "代わりに実行する内容をグラフに指示...",
   "Submitted instruction": "送信された指示",
   "Resuming...": "再開中...",
+  "Run outcome unknown": "操作は完了している可能性がありますが、結果を確認できませんでした。別の操作を開始する前に、対象のデータを確認してください。",
+  "runStatuses": {
+    "accepted": "待機中",
+    "streaming": "実行中",
+    "awaiting_approval": "承認待ち",
+    "resuming": "再開中...",
+    "completed": "完了",
+    "failed": "失敗",
+    "cancelled": "キャンセル済み",
+    "uncertain": "結果未確認"
+  },
+  "Approval could not be resumed": "承認後に実行を再開できませんでした。再試行する前に、実行状況を確認してください。",
   "Resolved by": "{{user}} が解決",
   "approvalStatuses": {
     "approved": "承認済み",
