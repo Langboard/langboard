@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 from ....ai import BotScheduleHelper, BotScopeHelper
-from ....core.db import DbSession
+from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.schema import TimeBasedPagination
@@ -194,9 +194,7 @@ class ProjectService(BaseDomainService):
     def __convert_project_list(
         self,
         user: User,
-        raw_projects: list[
-            tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]
-        ],
+        raw_projects: list[tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]],
         board_change: dict[int, int] | None = None,
     ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
         projects = []
@@ -225,7 +223,9 @@ class ProjectService(BaseDomainService):
             api_project["related_activity_at"] = related_activity_at
             api_project["current_auth_role_actions"] = roles_dict[project.id] if not user.is_admin else [ALL_GRANTED]
             if board_change is not None:
-                api_project["board_has_unread_change"] = board_change.get(project.id, 0) > (assigned_user.board_seen_seq or 0)
+                api_project["board_has_unread_change"] = board_change.get(project.id, 0) > (
+                    assigned_user.board_seen_seq or 0
+                )
             projects.append(api_project)
 
         return projects, project_ids
@@ -259,7 +259,8 @@ class ProjectService(BaseDomainService):
             all_members.append(member)
 
         member_classification = self._get_service(ScimProvisioningService).classify_members(
-            [InfraHelper.convert_id(member["uid"]) for member in all_members])
+            [InfraHelper.convert_id(member["uid"]) for member in all_members]
+        )
         for member in all_members:
             member["membership_classification"] = member_classification.get(member["uid"], "unknown")
         response["all_members"] = all_members
@@ -283,6 +284,26 @@ class ProjectService(BaseDomainService):
 
         assignee = self.repo.project_assigned_user.find_by_user_and_project(user, project)
         return bool(assignee), assignee
+
+    def get_assigned_project_uids(self, user: User, project_uids: Sequence[str]) -> set[str]:
+        """Resolve a bounded subscription batch in one current membership query."""
+        if len(project_uids) > 200:
+            raise ValueError("At most 200 projects may be checked")
+        project_ids = []
+        for uid in set(project_uids):
+            try:
+                project_ids.append(InfraHelper.convert_id(uid))
+            except (TypeError, ValueError):
+                continue
+        if not project_ids:
+            return set()
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(
+                SqlBuilder.select.column(Project.id)
+                .join(ProjectAssignedUser, ProjectAssignedUser.project_id == Project.id)
+                .where(ProjectAssignedUser.user_id == user.id, Project.id.in_(project_ids))
+            ).all()
+        return {project_id.to_short_code() for project_id in rows}
 
     def are_users_related(self, user: User, target_user: User, project: TProjectParam | None = None) -> bool:
         return bool(self.repo.project.are_users_related(user, target_user, project))

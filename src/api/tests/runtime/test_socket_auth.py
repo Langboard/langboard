@@ -254,9 +254,9 @@ def test_socket_subscription_authorization_returns_only_allowed_items(monkeypatc
         lambda service, current_user, topic, topic_id: topic_id == "allowed",
     )
 
-    response = authorize_socket_subscriptions(
-        create_request("Bearer access-token"), form, create_authorization_service()
-    )
+    service = create_authorization_service()
+    service.project.get_assigned_project_uids.return_value = {"allowed"}
+    response = authorize_socket_subscriptions(create_request("Bearer access-token"), form, service)
 
     assert orjson.loads(response.body) == {"authorized": [{"topic": SocketTopic.Board.value, "topic_id": "allowed"}]}
 
@@ -1129,10 +1129,16 @@ def test_app_settings_accepts_all_granted_setting_role_categories() -> None:
     service = create_authorization_service()
     service.user.get_setting_role.return_value = SettingRole.model_construct(actions=["*"])
 
-    for topic_id in (SettingSocketTopicID.User.value, SettingSocketTopicID.Bot.value, SettingSocketTopicID.Webhook.value):
+    for topic_id in (
+        SettingSocketTopicID.User.value,
+        SettingSocketTopicID.Bot.value,
+        SettingSocketTopicID.Webhook.value,
+    ):
         assert _is_subscription_authorized(service, admin, SocketTopic.AppSettings, topic_id)
 
-    assert not _is_subscription_authorized(service, create_user(), SocketTopic.AppSettings, SettingSocketTopicID.Bot.value)
+    assert not _is_subscription_authorized(
+        service, create_user(), SocketTopic.AppSettings, SettingSocketTopicID.Bot.value
+    )
 
 
 def test_fixed_scope_topics_reject_forged_topic_ids() -> None:
