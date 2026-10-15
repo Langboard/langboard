@@ -17,6 +17,11 @@ import BoardSettingsInboundConnections from "./BoardSettingsInboundConnections";
 import BoardSettingsAppConsent from "./BoardSettingsAppConsent";
 import BoardSettingsAppArchiveSync from "./BoardSettingsAppArchiveSync";
 const AppPackagesPage = lazy(() => import("@/pages/SettingsPage/AppPackagesPage"));
+const connectionForms = new Map<string, typeof BoardSettingsGitHub>([
+    ["github", BoardSettingsGitHub],
+    ["glitchtip", BoardSettingsGlitchTip],
+    ["dokploy", BoardSettingsDokploy],
+]);
 
 export default function BoardSettingsApps() {
     const [t, i18n] = useTranslation();
@@ -308,6 +313,7 @@ export default function BoardSettingsApps() {
                             .filter((app) => !managedKey || managedKey === app.key)
                             .map((app) => {
                                 const { key, name, binding, workflow_requirements, resources } = app;
+                                const ConnectionForm = connectionForms.get(key);
                                 const panelEnabled = binding?.granted_capabilities.includes("panels.render");
                                 const state = app.is_available === false ? "disabled" : (binding?.state ?? "unconfigured");
                                 const workflowLabel = workflow_requirements ? "Configure workflow" : "App workflow contract pending";
@@ -359,19 +365,9 @@ export default function BoardSettingsApps() {
                                                         </Button>
                                                     ))}
                                                 </nav>
-                                                {key === "github" && (
+                                                {ConnectionForm && (
                                                     <div hidden={section !== "connections"}>
-                                                        <BoardSettingsGitHub onStatusChange={() => void refreshStore()} />
-                                                    </div>
-                                                )}
-                                                {key === "glitchtip" && (
-                                                    <div hidden={section !== "connections"}>
-                                                        <BoardSettingsGlitchTip onStatusChange={() => void refreshStore()} />
-                                                    </div>
-                                                )}
-                                                {key === "dokploy" && (
-                                                    <div hidden={section !== "connections"}>
-                                                        <BoardSettingsDokploy onStatusChange={() => void refreshStore()} />
+                                                        <ConnectionForm onStatusChange={() => void refreshStore()} />
                                                     </div>
                                                 )}
                                                 <span className="self-start rounded-md bg-muted px-2 py-1 text-xs">
@@ -428,7 +424,7 @@ export default function BoardSettingsApps() {
                                                         {t("project.settings.Manage inbound connections")}
                                                     </Button>
                                                 )}
-                                                {section === "connections" && !app.panel && !app.inbound_connection_management && (
+                                                {section === "connections" && !ConnectionForm && !app.panel && !app.inbound_connection_management && (
                                                     <p className="text-xs text-muted-foreground">
                                                         {t("project.settings.App connection setup pending")}
                                                     </p>

@@ -29,3 +29,17 @@ inspection do not establish deployed UI acceptance. After the next verified UI
 release, repeat one native upload and verify the list updates before reload,
 then verify persistence after reload. Preserve external create-only authority
 and app-workflow acceptance as separate gates.
+
+## App settings feedback discovered during native acceptance
+
+The deployed connection page also rendered the built-in provider setup form
+alongside a message claiming connection setup was unavailable. The message was
+controlled by panel/inbound metadata, not the actual setup form. It was not
+proof of a server policy denial.
+
+A single module-level map now selects each existing built-in connection form
+and controls that fallback message. This removes three repeated render branches,
+retains each form across section changes, and leaves unknown providers with the
+existing generic fallback. It changes no connection, consent or policy. Native
+post-deployment verification is still required; rendering an available form does
+not establish a connected provider or completed signal/HITL/receipt acceptance.
