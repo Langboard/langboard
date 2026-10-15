@@ -6,7 +6,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite --force",
-    "typecheck": "node scripts/prepare-responsive-variants.mjs && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "typecheck": "node prepare-responsive-types.mjs && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test:markdown-numbers": "node --experimental-strip-types --test src/components/Editor/plugins/markdown/list-number.test.ts",
     "test:markdown-number-ui": "playwright test -c playwright.list-number.config.ts",
     "test:card-delete": "node --experimental-strip-types --test src/pages/BoardPage/components/card/action/BoardCardActionDelete.test.ts src/core/helpers/setupApiErrorHandler.test.ts",
@@ -43,7 +43,10 @@
     "test:workbench-shell": "playwright test -c playwright.workbench.config.ts",
     "test:locale-resources": "node --experimental-strip-types scripts/verify-locale-resources.mjs",
     "test:i18n-initialization": "node --test scripts/i18n-initialization.test.mjs",
-    "test:plate-upgrade": "node --experimental-strip-types --test src/components/Editor/plate-upgrade.test.ts src/components/Editor/plugins/markdown/list-number.test.ts"
+    "test:plate-upgrade": "node --experimental-strip-types --test src/components/Editor/plate-upgrade.test.ts src/components/Editor/plugins/markdown/list-number.test.ts",
+    "test:board-chat-store": "node --experimental-strip-types src/core/stores/BoardChatStore.test.ts",
+    "test:socket-runtime": "esbuild src/core/providers/socket/streamErrorCallbacks.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/socket-runtime.mjs && node --test test-results/socket-runtime.mjs",
+    "test:ollama-model-store": "esbuild src/core/stores/OllamaModelStore.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/ollama-model-store.mjs && node --test test-results/ollama-model-store.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.130",
@@ -119,7 +122,7 @@
     "@xyflow/react": "^12.11.5",
     "add": "^2.0.6",
     "ai": "7.0.127",
-    "axios": "^1.13.6",
+    "axios": "^1.20.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -132,7 +135,7 @@
     "i18next-browser-languagedetector": "^8.2.1",
     "immer": "^10.2.0",
     "input-otp": "^1.4.2",
-    "lodash": "^4.17.23",
+    "lodash": "^4.18.0",
     "lottie-react": "^2.4.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.577.0",
@@ -158,7 +161,7 @@
     "react-native-mime-types": "^2.5.0",
     "react-player": "^3.4.0",
     "react-resizable-panels": "^4.7.1",
-    "react-router": "^7.13.1",
+    "react-router": "^7.18.0",
     "react-syntax-highlighter": "^16.1.1",
     "react-tweet": "^3.3.0",
     "rehype-mathjax": "^7.1.0",
@@ -184,7 +187,8 @@
     "yarn": "^1.22.22",
     "zod": "^4.3.6",
     "zustand": "^5.0.11",
-    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.6.tgz"
+    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.6.tgz",
+    "@slate-yjs/core": "^1.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -213,7 +217,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "parse-imports-exports": "^0.2.4",
-    "postcss": "^8.5.8",
+    "postcss": "^8.5.18",
     "postcss-replace": "^2.0.1",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.6.14",
@@ -221,8 +225,13 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.1",
+    "vite": "^7.3.5",
     "vite-plugin-svgr": "^4.5.0",
     "vite-tsconfig-paths": "^6.1.1"
+  },
+  "resolutions": {
+    "lodash": "4.18.1",
+    "lodash-es": "4.18.1",
+    "postcss": "8.5.30"
   }
 }

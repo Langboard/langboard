@@ -158,9 +158,9 @@ def _queue_archive_event(db, row, selection):
     db.update(row)
 
     def enqueue():
-        from ...tasks.webhooks.AppEventDeliveryTask import app_event_delivery_task
+        from .AppEventDelivery import enqueue_event
 
-        app_event_delivery_task(event.get_uid(), destination.revision)
+        enqueue_event(event.id)
 
     db.after_commit(enqueue)
 

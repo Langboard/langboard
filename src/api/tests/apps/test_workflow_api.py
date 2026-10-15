@@ -248,7 +248,8 @@ def test_disable_is_scoped_revision_checked_and_preserves_other_bindings(board, 
         connection = AppConnection(app_key="github", owner_id=board[1].id, state="connected")
         db.insert(connection)
         resource = AppResourceBinding(board_binding_id=binding.id, connection_id=connection.id,
-            resource_type="repository", external_resource_id="kept", access_state="granted", health="healthy")
+            resource_type="repository", external_resource_id="kept", is_selected=True,
+            access_state="granted", health="healthy")
         db.insert(resource)
     original_mapping = dict(binding.workflow_mapping)
     revision = binding.edit_revision()

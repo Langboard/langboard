@@ -183,7 +183,7 @@ def test_migration_creates_hash_storage_and_preserves_history(board):
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
 def test_organization_owner_and_current_policy_gate_credentials(board):
     actor = board[1]
-    Organization.__table__.create(DbEngine.get_main_engine())
+    Organization.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     connection, _ = setup(actor)
     with DbSession.atomic() as db:
         organization = Organization(name="Example organization", slug="example", owner_user_id=actor.id)
@@ -233,3 +233,37 @@ def test_credential_history_is_owner_scoped_paged_and_revocable_after_disable(bo
     assert len(auth.list_connection_credentials(actor, connection.id)["items"]) == 3
     auth.revoke_connection_credential(actor, connection.id, SnowflakeID.from_short_code(issued[0]["credential_uid"]))
     assert auth.list_connection_credentials(actor, connection.id)["items"][0]["revoked_at"]
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_inbound_disconnect_withdraws_tokens_and_consent_preserves_history(board):
+    from langboard_shared.domain.models import AppMcpConsent
+    from langboard_shared.domain.services.AppConnectionManagement import disconnect_inbound_connection, list_inbound_connections
+    from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
+
+    connection, _ = setup(board[1])
+    AppMcpConsent.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    issued = auth.issue_connection_credential(board[1], connection.id)
+    with DbSession.atomic() as db:
+        consent = AppMcpConsent(connection_id=connection.id, scope_tools={"read": ["issues.list"]}, identity_hash="test")
+        db.insert(consent)
+        provider = AppConnection(app_key=connection.app_key, owner_id=board[1].id, state="connected",
+                                 instance_url="https://provider.example.invalid", external_account_id="account")
+        db.insert(provider)
+    page = list_inbound_connections(board[1], connection.app_key)
+    assert [row["connection_uid"] for row in page["items"]] == [connection.get_uid()]
+    with pytest.raises(AppGovernanceDenied):
+        disconnect_inbound_connection(board[1], provider.id, "0" * 64)
+    with pytest.raises(AppRegistryConflict):
+        disconnect_inbound_connection(board[1], connection.id, "0" * 64)
+    identity = list_inbound_connections(board[1], connection.app_key)["items"][0]["revision"]
+    receipt = disconnect_inbound_connection(board[1], connection.id, identity)
+    assert receipt["state"] == "disconnected"
+    with pytest.raises(AppGovernanceDenied):
+        auth.authenticate_connection_credential(issued["token"])
+    with DbSession.atomic() as db:
+        retained = db.exec(SqlBuilder.select.table(AppConnectionCredential)).first()
+        assert retained.revoked_at is not None
+        retained_consent = db.exec(SqlBuilder.select.table(AppMcpConsent)).first()
+        assert retained_consent.scope_tools == {} and retained_consent.revision == 2
+        assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == provider.id)).first().state == "connected"

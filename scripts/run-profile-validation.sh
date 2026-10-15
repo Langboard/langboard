@@ -14,6 +14,11 @@ case "$profile" in
       src/api/tests/card_visibility/test_policy.py \
       src/api/tests/card_visibility/test_private_policy.py)
     ;;
+  worker)
+    command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \
+      src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py \
+      src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
+    ;;
   ui)
     command=(yarn test:asset-retention)
     ;;

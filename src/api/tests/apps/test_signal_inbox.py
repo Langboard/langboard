@@ -688,6 +688,7 @@ def test_dokploy_deployment_identity_is_resource_scoped_and_visible_links_consum
             resource_type=original.resource_type,
             external_resource_id="second-resource",
             access_state="granted",
+            is_selected=True,
         )
         db.insert(sibling)
         db.insert(

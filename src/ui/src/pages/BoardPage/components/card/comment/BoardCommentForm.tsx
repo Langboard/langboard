@@ -52,7 +52,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     const { isCommentPanelOpen, setIsCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
     const [t] = useTranslation();
     const isPanelLayout = commentLayoutMode === "panel";
-    const isVisible = isCommentPanelOpen && (variant === "mobile" ? !isPanelLayout : isPanelLayout);
+    const isVisible = isCommentPanelOpen;
     const projectMembers = card.useForeignFieldArray("project_members");
     const visibility = card.useField("visibility");
     const bots = BotModel.Model.useModels(() => true);
@@ -63,6 +63,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         valueRef.current = value;
     }, []);
     const drawerRef = useRef<HTMLDivElement>(null);
+    const closeDrawerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const editorName = `${card.uid}-comment-form`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
     const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -95,6 +96,17 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         setValue({ content: readDraftFromStorage() });
         getEditorStore().setCurrentEditor(editorName);
     }, [editorName, readDraftFromStorage, setValue]);
+    const openMobileDrawer = useCallback(() => {
+        if (closeDrawerTimeoutRef.current) {
+            clearTimeout(closeDrawerTimeoutRef.current);
+            closeDrawerTimeoutRef.current = null;
+        }
+        if (drawerRef.current) {
+            drawerRef.current.style.display = "";
+        }
+        setIsMobileDrawerOpen(true);
+        openEditor();
+    }, [openEditor]);
     const clearEditor = useCallback(() => {
         setValue({ content: "" });
         setPendingReplyMention(null);
@@ -125,15 +137,29 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     );
 
     const closeMobileDrawer = useCallback(() => {
+        if (closeDrawerTimeoutRef.current) {
+            clearTimeout(closeDrawerTimeoutRef.current);
+        }
         setIsMobileDrawerOpen(false);
         drawerRef.current?.setAttribute("data-state", "closed");
-        setTimeout(() => {
+        closeDrawerTimeoutRef.current = setTimeout(() => {
+            closeDrawerTimeoutRef.current = null;
             if (drawerRef.current) {
                 drawerRef.current.style.display = "none";
             }
-            getEditorStore().setCurrentEditor(null);
+            if (getEditorStore().currentEditor === editorName) {
+                getEditorStore().setCurrentEditor(null);
+            }
         }, 450);
-    }, []);
+    }, [editorName]);
+    useEffect(
+        () => () => {
+            if (closeDrawerTimeoutRef.current) {
+                clearTimeout(closeDrawerTimeoutRef.current);
+            }
+        },
+        []
+    );
     const cancelMobileEditor = useCallback(() => {
         clearEditor();
         closeMobileDrawer();
@@ -145,6 +171,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 return;
             }
 
+            isClickedRef.current = false;
             const upEvent = type === "mouse" ? "mouseup" : "touchend";
 
             const checkIsClick = () => {
@@ -156,14 +183,16 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
             setTimeout(() => {
                 if (isClickedRef.current) {
-                    getEditorStore().setCurrentEditor(null);
+                    if (getEditorStore().currentEditor === editorName) {
+                        getEditorStore().setCurrentEditor(null);
+                    }
                     return;
                 }
 
                 window.removeEventListener(upEvent, checkIsClick);
             }, 250);
         },
-        [isValidating]
+        [editorName, isValidating]
     );
 
     useEffect(() => {
@@ -180,7 +209,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             if (variant === "panel") {
                 setIsPanelEditorOpen(true);
             } else {
-                setIsMobileDrawerOpen(true);
+                openMobileDrawer();
             }
 
             let username;
@@ -197,7 +226,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             }
 
             setPendingReplyMention({ uid: target.uid, username });
-            if (!isCurrentEditor) {
+            if (variant === "panel" && !isCurrentEditor) {
                 openEditor();
             }
         };
@@ -209,7 +238,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 replyRef.current = () => {};
             }
         };
-    }, [isCurrentEditor, isReplyOwner, isValidating, openEditor, setIsCommentPanelOpen, variant]);
+    }, [isCurrentEditor, isReplyOwner, isValidating, openEditor, openMobileDrawer, setIsCommentPanelOpen, variant]);
 
     useEffect(() => {
         if (!isReplyOwner) {
@@ -270,8 +299,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             return;
         }
 
-        setIsMobileDrawerOpen(true);
-        openEditor();
+        openMobileDrawer();
     };
 
     const saveComment = () => {
@@ -336,7 +364,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     }
 
     if (variant === "panel") {
-        const isPanelComposerVisible = isPanelEditorOpen || isCurrentEditor;
+        const isPanelComposerVisible = isPanelLayout && (isPanelEditorOpen || isCurrentEditor);
 
         return (
             <Form.Root className="w-full">
@@ -425,15 +453,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                     role="button"
                     tabIndex={0}
                     className="cursor-text rounded-lg border bg-background shadow-sm"
-                    onClick={() => {
-                        setIsMobileDrawerOpen(true);
-                        openEditor();
-                    }}
+                    onClick={openMobileDrawer}
                     onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            setIsMobileDrawerOpen(true);
-                            openEditor();
+                            openMobileDrawer();
                         }
                     }}
                 >

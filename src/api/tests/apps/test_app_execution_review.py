@@ -34,7 +34,7 @@ def test_app_review_native_http_current_fences_rollback_and_replay(board, monkey
     connection, card, token, request, lease_id, runtime = start_scope(board, monkeypatch)
     engine = DbEngine.get_main_engine()
     EmployeeMembershipPolicy.__table__.create(engine)
-    ProjectExecutionBinding.__table__.create(engine)
+    ProjectExecutionBinding.__table__.create(engine, checkfirst=True)
     module = importlib.import_module("langboard.migrations.versions.20261011221000-b86548cd52e3")
     original = module.op
     try:

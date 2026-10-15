@@ -70,6 +70,25 @@ const useRowOrderChangedHandlers = ({ callback, type, params, topicId }: IUseRow
 
                 const model = targetModel.getModel(data.uid);
                 if (model) {
+                    if (data.move_type === "in_column" && model.order !== data.order) {
+                        const siblings =
+                            type === "ProjectCard"
+                                ? ProjectCard.Model.getModels((card) => card.project_column_uid === params?.uid)
+                                : ProjectCheckitem.Model.getModels((checkitem) => checkitem.checklist_uid === params?.uid);
+
+                        siblings.forEach((sibling) => {
+                            if (sibling.uid === data.uid) {
+                                return;
+                            }
+
+                            if (model.order < data.order && sibling.order > model.order && sibling.order <= data.order) {
+                                sibling.order -= 1;
+                            } else if (model.order > data.order && sibling.order >= data.order && sibling.order < model.order) {
+                                sibling.order += 1;
+                            }
+                        });
+                    }
+
                     model.order = data.order;
                     if (data.updated_at && isModel(model, "ProjectCard")) {
                         model.updated_at = data.updated_at;

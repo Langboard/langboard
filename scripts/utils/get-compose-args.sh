@@ -7,9 +7,16 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
 
+# Keep an explicitly supplied trace sink ahead of an empty .env default.
+trace_endpoint_from_environment="${SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT:-}"
+
 # Load .env file if it exists
 if [ -f .env ]; then
     source .env
+fi
+
+if [ -n "${trace_endpoint_from_environment}" ]; then
+    SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT="${trace_endpoint_from_environment}"
 fi
 
 # Validate external postgres URLs if they are set
@@ -47,6 +54,7 @@ UI_WATCHER_COMPOSE_ARGS="-f ${COMPOSE_PREFIX}.ui-watcher.yaml"
 OLLAMA_SHARED_COMPOSE_ARGS="-f ${COMPOSE_PREFIX}.ollama.shared.yaml"
 OLLAMA_CPU_COMPOSE_ARGS="-f ${COMPOSE_PREFIX}.ollama.cpu.yaml ${OLLAMA_SHARED_COMPOSE_ARGS}"
 OLLAMA_GPU_COMPOSE_ARGS="-f ${COMPOSE_PREFIX}.ollama.gpu.yaml ${OLLAMA_SHARED_COMPOSE_ARGS}"
+OTEL_COMPOSE_ARGS="-f ${COMPOSE_PREFIX}.otel.yaml --profile socket-phoenix --profile socket-phoenix-otel"
 
 # Append optional compose args based on environment variables
 if [ "${WITH_DOCS}" = "true" ]; then
@@ -63,6 +71,14 @@ fi
 
 if [ "${WITH_OLLAMA_GPU}" = "true" ]; then
     COMPOSE_ARGS+=" ${OLLAMA_GPU_COMPOSE_ARGS}"
+fi
+
+if [ "${WITH_OTEL}" = "true" ]; then
+    COMPOSE_ARGS+=" ${OTEL_COMPOSE_ARGS}"
+fi
+
+if [ "${WITH_OTEL}" = "true" ] && [ -n "${SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT:-}" ]; then
+    COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.phoenix-otel-traces.yaml"
 fi
 
 # Check if vault is needed based on KEY_PROVIDER_TYPE in .env file

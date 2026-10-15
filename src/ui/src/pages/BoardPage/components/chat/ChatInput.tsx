@@ -59,6 +59,7 @@ function ChatInputDisplay() {
         lockedScope,
         agentPermissionLevel,
         chatTaskIdRef,
+        setChatTaskId,
     } = useBoardChat();
     const { chatAttachmentRef, chatInputRef, height, file, setFile, setHeight } = useChatInput();
     const [t] = useTranslation();
@@ -106,7 +107,8 @@ function ChatInputDisplay() {
 
         setIsSending(true);
 
-        let filePath: string | undefined = undefined;
+        const taskId = Utils.String.Token.uuid();
+        let fileToken: string | undefined = undefined;
         const attachment = file ?? chatAttachmentRef.current?.files?.[0];
         if (attachment) {
             setIsUploading(true);
@@ -116,6 +118,7 @@ function ChatInputDisplay() {
             try {
                 result = await uploadProjectChatAttachmentMutateAsync({
                     project_uid: projectUID,
+                    task_id: taskId,
                     attachment,
                     abortController: abortControllerRef.current,
                 });
@@ -129,12 +132,20 @@ function ChatInputDisplay() {
             }
 
             setIsUploading(false);
-            filePath = result.file_path;
+            fileToken = result.file_token;
+
+            if (!fileToken) {
+                Toast.Add.error(
+                    t("errors.Failed to upload attachment. File size may be too large (Max size is {size}MB).", { size: MAX_FILE_SIZE_MB })
+                );
+                setIsSending(false);
+                return;
+            }
         }
 
         const chatMessage = chatInputRef.current.value.trim();
 
-        if (!chatMessage.length && !filePath) {
+        if (!chatMessage.length && !fileToken) {
             setIsSending(false);
             return;
         }
@@ -149,28 +160,30 @@ function ChatInputDisplay() {
 
         let tried = 0;
         let triedTimeout: NodeJS.Timeout | undefined;
+        setChatTaskId(taskId);
         const trySendChat = () => {
             if (tried >= 5) {
                 Toast.Add.error(t("errors.Server has been temporarily disabled. Please try again later."));
                 setIsSending(false);
+                setChatTaskId(null);
                 return true;
             }
 
             ++tried;
 
-            chatTaskIdRef.current = Utils.String.Token.uuid();
-
             const [scopeTable, scopeUID] = lockedScope || selectedScope || [undefined, undefined];
 
-            return sendChat({
-                message: chatMessage,
-                file_path: filePath,
-                task_id: chatTaskIdRef.current,
-                session_uid: currentSessionUID,
-                scope_table: scopeTable,
-                scope_uid: scopeUID,
-                api_permission_level: agentPermissionLevel,
-            }).isConnected;
+            return (
+                sendChat({
+                    message: chatMessage,
+                    file_token: fileToken,
+                    task_id: taskId,
+                    session_uid: currentSessionUID,
+                    scope_table: scopeTable,
+                    scope_uid: scopeUID,
+                    api_permission_level: agentPermissionLevel,
+                })?.isConnected ?? false
+            );
         };
 
         const trySendChatWrapper = () => {
@@ -200,6 +213,7 @@ function ChatInputDisplay() {
         agentPermissionLevel,
         file,
         setSelectedScope,
+        setChatTaskId,
     ]);
 
     useEffect(() => {
@@ -250,12 +264,7 @@ function ChatInputDisplay() {
     };
 
     return (
-        <Flex
-            direction="col"
-            w="full"
-            position="relative"
-            className="shrink-0 bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
-        >
+        <Flex direction="col" w="full" position="relative" className="shrink-0 bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
             <Flex
                 direction="col"
                 className={cn(
@@ -372,7 +381,7 @@ function ChatInputPermissionLevel({ showLabel }: { showLabel: bool }) {
             <Select.Trigger
                 disabled={isSending}
                 className={cn(
-                    "h-11 min-w-0 gap-2 md:h-8 px-2 py-1 text-xs [&>span]:min-w-0",
+                    "h-11 min-w-0 gap-2 px-2 py-1 text-xs md:h-8 [&>span]:min-w-0",
                     showLabel ? "w-36" : "w-16",
                     isFullAccess && "border-warning-border bg-warning text-warning-foreground focus:ring-warning-border"
                 )}

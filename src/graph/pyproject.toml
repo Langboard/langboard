@@ -29,6 +29,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.3.4,<9",
+    "pytest-asyncio>=0.25.3,<0.26",
     "ruff>=0.9.7,<0.10",
 ]
 
@@ -38,6 +40,7 @@ link-mode = "copy"
 
 
 [tool.uv.sources]
+langboard-sdk = { path = "../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
 langboard-shared = { path = "../shared/py", editable = true }
 langboard-graph = { workspace = true }
 

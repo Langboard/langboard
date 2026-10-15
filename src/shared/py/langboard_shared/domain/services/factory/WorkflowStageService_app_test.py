@@ -22,7 +22,9 @@ from ...models import (
     User,
     WorkflowStageDefinition,
 )
-from ..AppWorkflowPolicy import GITHUB_WORKFLOW_REQUIREMENTS
+from langboard_sdk import WorkflowRequirements
+
+REQUIREMENTS = WorkflowRequirements(("active", "review", "closed"), ("ready",))
 from .WorkflowStageService import WorkflowStageService
 
 
@@ -114,7 +116,7 @@ def board(monkeypatch, request):
 
 def preview(board, explicit=None):
     service, user, project, *_ = board
-    return service.preview_app_mapping(user, project, GITHUB_WORKFLOW_REQUIREMENTS, explicit or {})
+    return service.preview_app_mapping(user, project, REQUIREMENTS, explicit or {})
 
 
 def test_primary_current_keys_ignore_display_names_and_foreign_columns(board):
@@ -147,7 +149,7 @@ def test_cached_caller_cannot_survive_current_revocation(board, revocation):
             else:
                 row.deleted_at = SafeDateTime.now()
             db.update(row)
-    assert board[0].preview_app_mapping(stale_user, project, GITHUB_WORKFLOW_REQUIREMENTS, {}) is None
+    assert board[0].preview_app_mapping(stale_user, project, REQUIREMENTS, {}) is None
 
 
 @pytest.mark.parametrize("change", ["archive", "deleted", "stage", "registry"])
@@ -192,8 +194,8 @@ def test_stale_project_owner_and_unknown_actor_do_not_grant_access(board):
     with DbSession.use(readonly=False) as db:
         db.delete(member)
     stale_project = project.model_copy(update={"owner_id": user.id})
-    assert service.preview_app_mapping(user, stale_project, GITHUB_WORKFLOW_REQUIREMENTS, {}) is None
-    assert service.preview_app_mapping(None, project, GITHUB_WORKFLOW_REQUIREMENTS, {}) is None
+    assert service.preview_app_mapping(user, stale_project, REQUIREMENTS, {}) is None
+    assert service.preview_app_mapping(None, project, REQUIREMENTS, {}) is None
 
 
 @pytest.fixture

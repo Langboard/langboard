@@ -169,3 +169,40 @@ def test_invalid_bounds_and_audit_failure_are_atomic(board, monkeypatch):
         set_card_app_resources(*args, [uid], None)
     with DbSession.atomic() as db:
         assert not db.exec(SqlBuilder.select.table(CardAppResourceSelection)).all()
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_resource_settings_route_uses_canonical_service_and_current_fences(board):
+    from langboard.routes.settings.CardAppResourcesApi import CardAppResourcesForm, read_resources, save_resources
+    from fastapi import HTTPException
+    from json import loads
+
+    connection, definition, binding, rows, card = prepare(board)
+    route = dict(project_uid=board[2].get_uid(), card_uid=card.get_uid(),
+                 app_key=connection.app_key, connection_uid=connection.get_uid(), user=board[1])
+    snapshot = loads(read_resources(**route).body)
+    body = dict(resource_uids=[rows[0].get_uid()], expected_revision=None,
+                expected_identity_revision=snapshot['identity_revision'],
+                expected_app_revision=snapshot['app_revision'],
+                expected_binding_revision=snapshot['binding_revision'])
+    with pytest.raises(HTTPException) as denied:
+        read_resources(**{**route, 'app_key': 'wrong-app'})
+    assert denied.value.status_code == 403
+    for key in ('expected_identity_revision', 'expected_app_revision', 'expected_binding_revision'):
+        with pytest.raises(HTTPException) as conflict:
+            save_resources(**route, form=CardAppResourcesForm(**{**body, key: '0' * 64}))
+        assert conflict.value.status_code == 409
+    with pytest.raises(HTTPException) as conflict:
+        save_resources(**route, form=CardAppResourcesForm(**{**body, 'expected_ownership_revision': 1}))
+    assert conflict.value.status_code == 409
+    with DbSession.atomic() as db:
+        assert not db.exec(SqlBuilder.select.table(CardAppResourceSelection)).all()
+        assert not db.exec(SqlBuilder.select.table(CardAppResourceSelectionAudit)).all()
+    receipt = loads(save_resources(**route, form=CardAppResourcesForm(**body)).body)
+    assert receipt == {'revision': 1, 'changed': True, 'resource_uids': [rows[0].get_uid()]}
+    assert loads(read_resources(**route).body)['revision'] == 1
+    with DbSession.atomic() as db:
+        binding.granted_capabilities = []
+        db.update(binding)
+    unlink = dict(resource_uids=[], expected_revision=1)
+    assert loads(save_resources(**route, form=CardAppResourcesForm(**unlink)).body)['revision'] == 2

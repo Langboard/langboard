@@ -184,6 +184,9 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
             .group_by(ProjectColumn.column("id"), ProjectColumn.column("order"))
         )
 
+        if limit is not None:
+            query = query.limit(limit)
+
         raw_columns = []
         with DbSession.use(readonly=context is None) as db:
             result = db.exec(query)

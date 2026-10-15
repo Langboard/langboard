@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from langboard_shared.core.db.DbConfigHelper import DbConfigHelper
 from langboard_shared.Env import Env
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg import AsyncConnection
@@ -16,7 +17,15 @@ _CHECKPOINT_SETUP_LOCK_ID = 473918502
 
 
 def _is_postgres_database_url(database_url: str) -> bool:
-    return database_url.startswith(("postgresql://", "postgres://"))
+    return DbConfigHelper.get_driver_type(database_url) == "postgresql"
+
+
+def graph_postgres_url() -> str:
+    """Use the same PostgreSQL dialect recognition as the ORM, without its driver suffix."""
+    url = Env.MAIN_DATABASE_URL
+    if not _is_postgres_database_url(url):
+        raise RuntimeError("Graph checkpoint storage requires a PostgreSQL MAIN_DATABASE_URL.")
+    return "postgresql://" + url.split("://", maxsplit=1)[1]
 
 
 async def _setup_checkpointer_once(saver: AsyncPostgresSaver) -> None:
@@ -28,7 +37,7 @@ async def _setup_checkpointer_once(saver: AsyncPostgresSaver) -> None:
         if _checkpoint_setup_done:
             return
 
-        async with await AsyncConnection.connect(Env.MAIN_DATABASE_URL, autocommit=True) as connection:
+        async with await AsyncConnection.connect(graph_postgres_url(), autocommit=True) as connection:
             async with connection.cursor() as cursor:
                 await cursor.execute("SELECT pg_advisory_lock(%s)", (_CHECKPOINT_SETUP_LOCK_ID,))
                 try:
@@ -81,7 +90,7 @@ async def _get_checkpoint_pool() -> AsyncConnectionPool[AsyncConnection[DictRow]
     async with _checkpoint_setup_lock:
         if _checkpoint_pool is None:
             pool: AsyncConnectionPool[AsyncConnection[DictRow]] = AsyncConnectionPool(
-                Env.MAIN_DATABASE_URL,
+                graph_postgres_url(),
                 min_size=1,
                 max_size=10,
                 open=False,
@@ -105,7 +114,7 @@ async def _get_thread_lock_pool() -> AsyncConnectionPool[AsyncConnection[TupleRo
     async with _checkpoint_setup_lock:
         if _thread_lock_pool is None:
             pool: AsyncConnectionPool[AsyncConnection[TupleRow]] = AsyncConnectionPool(
-                Env.MAIN_DATABASE_URL,
+                graph_postgres_url(),
                 min_size=0,
                 max_size=2,
                 open=False,

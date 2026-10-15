@@ -53,16 +53,16 @@ async def project_assigned_users_updated(
 async def project_email_notification_policy_updated(
     user: User,
     project: Project,
-    added_external_emails: list[str],
-    removed_external_emails: list[str],
+    added_external_recipient_count: int,
+    removed_external_recipient_count: int,
 ):
-    """Record exact edge recipient changes in the native project activity lineage."""
+    """Record external recipient changes without exposing email addresses."""
 
     helper = ActivityTaskHelper(ProjectActivity)
     activity_history = {
         **helper.create_project_default_history(project),
-        "added_external_emails": added_external_emails,
-        "removed_external_emails": removed_external_emails,
+        "added_external_recipient_count": added_external_recipient_count,
+        "removed_external_recipient_count": removed_external_recipient_count,
     }
     activity = helper.record(
         user,

@@ -116,7 +116,12 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
         return "checkitem"
 
     def get_all_by_checklist(
-        self, checklist: TChecklistParam, limit: int | None = None, *, open_only: bool = False, include_user: bool = True
+        self,
+        checklist: TChecklistParam,
+        limit: int | None = None,
+        *,
+        open_only: bool = False,
+        include_user: bool = True,
     ) -> list[tuple[Checkitem, Card | None, User | None]]:
         """Return checklist items, optionally enforcing a database row limit."""
 
@@ -200,6 +205,7 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
                 .outerjoin(Card, Card.column("id") == Checkitem.column("cardified_id"))
                 .outerjoin(User, User.column("id") == Checkitem.column("user_id"))
                 .where(Checklist.column("card_id") == card_id)
+                .order_by(Checkitem.column("order").asc(), Checkitem.column("id").asc())
             )
             records = result.all()
         return list(records)

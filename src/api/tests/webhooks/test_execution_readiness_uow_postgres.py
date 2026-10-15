@@ -62,6 +62,20 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 "CREATE TABLE card_assigned_user (card_id bigint, user_id bigint)",
             ):
                 connection.execute(text(statement))
+            # Registry policy edits publish affected card projections after commit.
+            # Keep the real project lookup in this minimal readiness fixture.
+            connection.execute(
+                text(
+                    "CREATE TABLE project (id bigint PRIMARY KEY, created_at timestamptz, updated_at timestamptz, "
+                    "deleted_at timestamptz, owner_id bigint, organization_id bigint, title text, description text, "
+                    "ai_description text, project_type text, archive_visible_days integer, dock_revision integer)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO project VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
+                )
+            )
             from langboard_shared.domain.models import WorkflowStageDefinition
 
             WorkflowStageDefinition.__table__.create(connection)
@@ -69,7 +83,9 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 WorkflowStageDefinition.__table__.insert(),
                 [
                     WorkflowStageDefinition(id=1, key="closed", name="Closed", counts_as_completed=True).model_dump(),
-                    WorkflowStageDefinition(id=2, key="released", name="Released", counts_as_completed=True).model_dump(),
+                    WorkflowStageDefinition(
+                        id=2, key="released", name="Released", counts_as_completed=True
+                    ).model_dump(),
                 ],
             )
             with Operations.context(MigrationContext.configure(connection)):
@@ -188,8 +204,12 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
         from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
         from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
 
+        published_work_states = []
+        card_service = SimpleNamespace(
+            publish_work_states=lambda project, card_ids: published_work_states.append((project.id, card_ids))
+        )
         service = WorkflowStageService(
-            lambda _: None,
+            lambda _: card_service,
             lambda _: None,
             SimpleNamespace(workflow_stage=WorkflowStageRepository(lambda _: None, lambda _: None)),
         )
@@ -219,8 +239,13 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
         service.save(fields, saved.get_uid())
         assert (current_execution(102).is_ready, current_execution(102).generation) == (True, 3)
         assert len(enqueued) == 5
+        assert published_work_states
+        assert all(project_id == 7 for project_id, _ in published_work_states)
+        assert any(102 in card_ids for _, card_ids in published_work_states)
+        committed_publications = len(published_work_states)
         fields["description"] = "Display edit only"
         service.save(fields, saved.get_uid())
+        assert len(published_work_states) == committed_publications
         assert current_execution(102).generation == 3
         assert len(enqueued) == 5
         # A later failure rolls back the policy and suppresses post-commit enqueue.
@@ -240,6 +265,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 is True
             )
         assert len(enqueued) == 5
+        assert len(published_work_states) == committed_publications
     finally:
         engine.dispose()
         with admin.begin() as connection:
@@ -441,8 +467,11 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         assert current_execution(100).generation == 3
         assert len(enqueued) == before_dispatch + 1
         with engine.connect() as connection:
-            assert dict(connection.execute(text("SELECT execution_generation,state FROM execution_outbox WHERE card_id=100")).all()) == {
-                1: "superseded", 2: "delivered", 3: "pending"}
+            assert dict(
+                connection.execute(
+                    text("SELECT execution_generation,state FROM execution_outbox WHERE card_id=100")
+                ).all()
+            ) == {1: "superseded", 2: "delivered", 3: "pending"}
     finally:
         engine.dispose()
         with admin.begin() as connection:

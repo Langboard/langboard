@@ -5,7 +5,7 @@ from ...core.types import SnowflakeID
 from .AppCardScope import require_app_card_scope
 from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppExecutionGrant import AppExecutionCredentialDenied
-from .AppGovernance import AppGovernanceDenied
+from .AppGovernance import AppGovernanceDenied, lock_policy_mutation
 from .ExecutionGeneration import execution_generations
 
 
@@ -13,6 +13,7 @@ def read_app_card(token, project_id, card_id, *, offset=0, limit=16000):
     if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:
         raise ValueError("Invalid card content window")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         try:
             principal = authenticate_connection_credential(token)
         except AppGovernanceDenied as exc:

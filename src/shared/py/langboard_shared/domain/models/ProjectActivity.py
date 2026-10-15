@@ -1,8 +1,8 @@
 from enum import Enum
 from typing import Any
 from sqlalchemy import Index
-from ...core.db import ApiField, EnumLikeType, Field, SnowflakeIDField
-from ...core.types import SnowflakeID
+from ...core.db import ApiField, DateTimeField, EnumLikeType, Field, SnowflakeIDField
+from ...core.types import SafeDateTime, SnowflakeID
 from .bases import BaseActivityModel
 from .Card import Card
 from .Project import Project
@@ -77,14 +77,16 @@ class ProjectActivity(BaseActivityModel, table=True):
     )
 
     project_id: SnowflakeID = SnowflakeIDField(foreign_key=Project, index=True)
+    email_fanout_pending: bool | None = Field(default=True, nullable=True, index=True)
+    email_fanout_retry_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
     project_column_id: SnowflakeID | None = SnowflakeIDField(foreign_key=ProjectColumn, nullable=True)
     card_id: SnowflakeID | None = SnowflakeIDField(foreign_key=Card, nullable=True)
     activity_type: ProjectActivityType = Field(
         nullable=False, sa_type=EnumLikeType(ProjectActivityType), api_field=ApiField()
     )
 
-    def api_response(self) -> dict[str, Any]:
-        response = super().api_response()
+    def api_response(self, **kwargs) -> dict[str, Any]:
+        response = super().api_response(**kwargs)
         response["filterable_map"] = {
             Project.__tablename__: self.project_id.to_short_code(),
         }

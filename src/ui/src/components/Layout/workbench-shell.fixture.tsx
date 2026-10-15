@@ -43,6 +43,7 @@ function Page({ name }: { name: string }) {
                 headerTitle={name}
                 activityRailItems={[
                     { icon: "panel-left", label: "Explorer", active: isMobile ? contextOpen : true, onClick: () => setContextOpen((open) => !open) },
+                    { icon: "settings", label: "App settings", onClick: () => {}, placement: "bottom" },
                 ]}
                 workbenchContext={<SidebarContent />}
                 workbenchContextHidden={isMobile}

@@ -287,20 +287,23 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                     "name": str(column["name"]),
                     "description": str(column.get("description") or ""),
                     "workflow_stage": column.get("workflow_stage"),
+                    "order": int(column["order"]),
                     **{
                         key: column[key]
                         for key in (
+                            "description",
+                            "translations",
+                            "workflow_stage",
+                            "workflow_stage_status",
                             "workflow_stage_description",
                             "column_description",
                             "workflow_guidance",
-                            "workflow_stage_status",
                         )
                         if key in column
                     },
-                    "order": int(column["order"]),
                 }
                 for column in self._bounded_source(
-                    self._service.project_column.get_api_list_by_project(project),
+                    self._service.project_column.get_api_list_by_project(project, limit=_SOURCE_QUERY_LIMIT),
                     "project columns",
                 )
                 if not column.get("is_archive")
@@ -445,7 +448,10 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             if related_uid in related_uids:
                 raise ValueError(f"Duplicate related card: {related_uid}")
             related_uids.add(related_uid)
-        for existing in self._service.card_relationship.get_api_list_by_card(card):
+        for existing in self._bounded_source(
+            self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT),
+            "relationships",
+        ):
             parent_uid = existing.get("parent_card_uid")
             child_uid = existing.get("child_card_uid")
             opposite_uid = child_uid if parent_uid == card_uid else parent_uid

@@ -16,6 +16,8 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
+from test_card_signal_projection import scoped  # noqa: F401
+from test_github_signal import installation, lifecycle, secrets, signal_storage  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -399,3 +401,101 @@ async def test_update_keeps_only_same_trust_grants_and_revokes_changed_connectio
             assert current.state == "needs_attention" and current.granted_capabilities == []
             assert not current.stage_transitions_enabled
             assert db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == connection_id)).first().state == "revoked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+async def test_panel_signal_read_retains_native_resource_selection_and_type_scope(scoped, monkeypatch):
+    from langboard_shared.core.db import BaseDbModel
+    from langboard_shared.domain.models import CardAppSignalBinding
+    from test_github_signal import send
+
+    state = scoped[0]
+    BaseDbModel.metadata.create_all(DbEngine.get_main_engine())
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    actor, project = state[1][1], state[1][2]
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+        link = db.exec(SqlBuilder.select.table(CardAppSignalBinding)).first()
+        link.is_enabled = False
+        db.update(link)
+    signal = send(state)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    with TestClient(app) as session:
+        session.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        async def request(method, path, **kwargs):
+            return session.request(method, path, headers={"Authorization": f"Bearer {access}"}, **kwargs)
+        transport = HttpTransport(SimpleNamespace(request=request))
+        registry, manager = AppRegistry(transport), AppManager(transport, project.get_uid())
+        declaration = {**DECLARATION, "key": "scoped-reader", "capabilities": ["panels.render", "signals.read"],
+                       "resource_types": ["repository"], "workflow_requirements": None,
+                       "signal_sources": ["github"]}
+        declaration.pop("card_lifecycle")
+        approved = await registry.approve(declaration)
+        consent = (await manager.set_panel_consent("scoped-reader", approved["revision"], enabled=True, read_signals=True))["binding"]
+        path = f"/board/{project.get_uid()}/apps/scoped-reader/panel/signals"
+        form = {"app_revision": approved["revision"], "binding_revision": consent["revision"], "provider": "github"}
+        response = await request("POST", path, json=form)
+        assert response.status_code == 200, response.text
+        assert [item["signal_uid"] for item in response.json()["items"]] == [signal["signal_uid"]]
+        with DbSession.atomic() as db:
+            state[4].is_selected = False
+            db.update(state[4])
+        response = await request("POST", path, json=form)
+        assert response.status_code == 200 and response.json()["items"] == []
+        with DbSession.atomic() as db:
+            state[4].is_selected = True
+            db.update(state[4])
+        approved = await registry.approve({**declaration, "version": "1.0.1", "resource_types": ["issue"]},
+                                          expected_revision=approved["revision"])
+        current = next(item for item in (await manager.catalog())["apps"] if item["key"] == "scoped-reader")
+        consent = (await manager.set_panel_consent("scoped-reader", approved["revision"], enabled=True, read_signals=True,
+            binding_uid=current["binding"]["uid"], expected_revision=current["binding"]["revision"]))["binding"]
+        form.update(app_revision=approved["revision"], binding_revision=consent["revision"])
+        response = await request("POST", path, json=form)
+        assert response.status_code == 200 and response.json()["items"] == []
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_registry_cursor_and_declaration_update_retain_installed_package(board, monkeypatch):
+    from langboard_shared.domain.models import AppDefinition
+    from langboard_shared.domain.services.AppRegistry import save_definition
+
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    actor = board[1]
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+        for key in ("example-a", "example-b", "example-c"):
+            db.insert(AppDefinition(key=key, approved_by=actor.id,
+                                   declaration={**DECLARATION, "key": key}, package={"digest": key}))
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        headers = {"Authorization": f"Bearer {access}"}
+        path = "/settings/apps/registry"
+        first = client.get(path, headers=headers, params={"limit": 2})
+        assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
+        assert [row["declaration"]["key"] for row in first.json()["apps"]] == ["example-a", "example-b"]
+        assert first.json()["next_cursor"] == "example-b"
+        second = client.get(path, headers=headers, params={"limit": 2, "after": "example-b"})
+        assert [row["declaration"]["key"] for row in second.json()["apps"]] == ["example-c"]
+        assert second.json()["next_cursor"] is None
+        assert len(client.get(path, headers=headers).json()["apps"]) == 3
+        assert client.get(path, headers=headers, params={"after": "example-b"}).status_code == 400
+        assert client.get(path, headers=headers, params={"limit": 51}).status_code == 400
+        revision = first.json()["apps"][0]["revision"]
+        save_definition(actor, {**DECLARATION, "key": "example-a", "version": "1.0.1"}, revision)
+        with DbSession.atomic() as db:
+            current = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "example-a")).first()
+            assert current.package == {"digest": "example-a"}
+            actor.is_admin = False
+            db.update(actor)
+        assert client.get(path, headers=headers, params={"limit": 2}).status_code == 403

@@ -1,11 +1,43 @@
 {
   "schemaVersion": 2,
   "profiles": {
+    "socket": {
+      "context": "src",
+      "dockerfile": "socket/Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "runtime",
+      "validation": {
+        "target": "validation-results",
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation"
+        ]
+      }
+    },
+    "default": {
+      "context": ".",
+      "dockerfile": "docker/phoenix-validation.Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "integration-test",
+      "integration": {
+        "imageTarget": "integration-test",
+        "services": [
+          "postgres"
+        ],
+        "timeoutSeconds": 1800,
+        "envRefs": {
+          "LANGBOARD_FILE_TEST_DATABASE_URL": "postgres.sqlalchemy-url",
+          "LANGBOARD_OUTBOX_TEST_DATABASE_URL": "postgres.sqlalchemy-url",
+          "LANGBOARD_EFFECT_TEST_DATABASE": "postgres.sqlalchemy-url",
+          "LANGBOARD_TEMPLATE_TEST_DATABASE_URL": "postgres.sqlalchemy-url"
+        }
+      }
+    },
     "api": {
       "context": ".",
       "dockerfile": "Dockerfile",
-      "platform": "linux/amd64",
-      "network": "default",
       "buildTarget": "with-cron",
       "validation": {
         "target": "validation-api-results",
@@ -13,19 +45,49 @@
         "freshStages": [
           "validation-api"
         ]
-      }
+      },
+      "network": "default",
+      "platform": "linux/amd64"
+    },
+    "worker": {
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "buildTarget": "with-document-processing",
+      "validation": {
+        "target": "validation-worker-results",
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation-worker"
+        ]
+      },
+      "network": "default",
+      "platform": "linux/amd64"
     },
     "ui": {
       "context": ".",
       "dockerfile": "docker/ui-production.Dockerfile",
-      "platform": "linux/amd64",
-      "network": "default",
       "buildTarget": "runtime",
       "validation": {
         "target": "validation-ui-results",
         "cachePolicy": "fresh",
         "freshStages": [
           "validation-ui"
+        ]
+      },
+      "network": "default",
+      "platform": "linux/amd64"
+    },
+    "graph": {
+      "context": "src",
+      "dockerfile": "graph/Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "runtime",
+      "validation": {
+        "target": "validation-results",
+        "cachePolicy": "fresh",
+        "freshStages": [
+          "validation"
         ]
       }
     }

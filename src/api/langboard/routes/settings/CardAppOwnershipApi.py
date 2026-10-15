@@ -1,0 +1,64 @@
+"""Explicit human assignment; app Bearer credentials cannot claim native cards."""
+
+from typing import Annotated
+from fastapi import Path
+from langboard_shared.core.filter import AuthFilter
+from langboard_shared.core.routing import ApiException, AppRouter, BaseFormModel, JsonResponse, form_model
+from langboard_shared.core.types import SnowflakeID
+from langboard_shared.domain.models import User
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
+from langboard_shared.domain.services.CardAppGovernance import (
+    CardAppOwnershipConflict, read_card_app_ownership, set_card_app_ownership,
+)
+from langboard_shared.security import Auth
+from pydantic import Field
+
+
+@form_model
+class CardAppOwnershipForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    app_key: str | None = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    expected_revision: int | None = Field(strict=True, ge=1)
+    expected_app_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+def _run(operation, *args):
+    try:
+        return JsonResponse(content=operation(*args), headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied as exc:
+        raise ApiException.Forbidden_403() from exc
+    except (AppGovernanceConflict, CardAppOwnershipConflict) as exc:
+        raise ApiException.Conflict_409() from exc
+    except ValueError as exc:
+        raise ApiException.BadRequest_400() from exc
+
+
+@AppRouter.api.get("/board/{project_uid}/card/{card_uid}/app-ownership", tags=["AppSettings.CardOwnership"])
+@AuthFilter.add("user")
+def read_ownership(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    card_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    user: User = Auth.scope("user"),
+):
+    return _run(
+        read_card_app_ownership, user, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid)
+    )
+
+
+@AppRouter.api.put("/board/{project_uid}/card/{card_uid}/app-ownership", tags=["AppSettings.CardOwnership"])
+@AuthFilter.add("user")
+def save_ownership(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    card_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    form: CardAppOwnershipForm,
+    user: User = Auth.scope("user"),
+):
+    return _run(
+        set_card_app_ownership,
+        user,
+        SnowflakeID.from_short_code(project_uid),
+        SnowflakeID.from_short_code(card_uid),
+        form.app_key,
+        form.expected_revision,
+        form.expected_app_revision,
+    )

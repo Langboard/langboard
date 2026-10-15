@@ -4,6 +4,14 @@ from . import factory
 
 class Repository(Factory):
     @property
+    def internal_bot_run(self):
+        return self._create_or_get_product(factory.InternalBotRunRepository)
+
+    @property
+    def ollama_model_pull(self):
+        return self._create_or_get_product(factory.OllamaModelPullRepository)
+
+    @property
     def user(self):
         return self._create_or_get_product(factory.UserRepository)
 
@@ -34,6 +42,10 @@ class Repository(Factory):
     @property
     def project_email_notification(self):
         return self._create_or_get_product(factory.ProjectEmailNotificationRepository)
+
+    @property
+    def project_activity_email_delivery(self):
+        return self._create_or_get_product(factory.ProjectActivityEmailDeliveryRepository)
 
     @property
     def card(self):
@@ -130,6 +142,10 @@ class Repository(Factory):
     @property
     def user_notification(self):
         return self._create_or_get_product(factory.UserNotificationRepository)
+
+    @property
+    def notification_email_delivery(self):
+        return self._create_or_get_product(factory.NotificationEmailDeliveryRepository)
 
     @property
     def project_invitation(self):

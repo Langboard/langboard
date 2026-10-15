@@ -1,5 +1,10 @@
 **/.venv
 **/*_test.py
+# Worker profile executes these two contract tests inside the root Dockerfile.
+# Keep the broad test-source exclusion while explicitly retaining only the
+# files required by that validation target.
+!src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py
+!src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py
 .ruff_cache
 **/__pycache__
 .canary-ui-*
@@ -13,5 +18,12 @@
 **/.ruff_cache
 **/*.tsbuildinfo
 **/.DS_Store
-
 **/.env*
+**/.env
+**/*.env
+**/.vault-credentials
+**/*.db*
+**/*.log
+local
+uploads
+docker/volumes

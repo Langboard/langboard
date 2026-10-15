@@ -9,6 +9,7 @@ from langboard_shared.domain.constants.TaskMetadata import BYPASS_APPROVAL_ACTIO
 from langboard_shared.Env import Env
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
+from .privacy import redact_graph_credentials
 
 
 _GRAPH_COMPONENT = "Graph"
@@ -40,9 +41,9 @@ def create_langboard_context_prompt(tweaks: dict[str, Any]) -> str:
 
     current_runner_data = variables.get("current_runner_data")
     if current_runner_data:
-        lines.append(f"- current_runner_data: {json_dumps(current_runner_data, ensure_ascii=False, sort_keys=True)}")
+        lines.append(f"- current_runner_data: {json_dumps(redact_graph_credentials(current_runner_data), ensure_ascii=False, sort_keys=True)}")
     if rest_data:
-        lines.append(f"- rest_data: {json_dumps(rest_data, ensure_ascii=False, sort_keys=True)}")
+        lines.append(f"- rest_data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False, sort_keys=True)}")
 
     return "\n".join(lines)
 
@@ -61,7 +62,7 @@ def create_langboard_event_input(input_value: str, tweaks: dict[str, Any]) -> st
         [
             f"Handle the Langboard event: {event}.",
             "Use the runtime context and available tools to decide the next action.",
-            f"Event data: {json_dumps(rest_data, ensure_ascii=False)}" if rest_data else "Event data: {}",
+            f"Event data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False)}" if rest_data else "Event data: {}",
         ]
     )
 
@@ -449,7 +450,7 @@ def _get_python_type(schema_type: str | None) -> type:
         "boolean": bool,
         "array": list,
         "object": dict,
-    }.get(schema_type or "", Any)
+    }.get(schema_type or "", object)
 
 
 async def _call_api_tool(
@@ -461,11 +462,18 @@ async def _call_api_tool(
     field_sources: dict[str, tuple[Literal["path", "query", "form"], str]],
     kwargs: dict[str, Any],
 ) -> str:
+    app_api_token = variables.get("app_api_token")
+    if isinstance(app_api_token, str) and app_api_token.strip():
+        headers = {**headers, AuthSecurity.API_TOKEN_HEADER: app_api_token}
+
     query, form = _split_tool_args(kwargs, field_sources)
     _normalize_editor_content_form(schema, form)
     _apply_runtime_path_params(schema, variables, query)
 
     if str(schema.get("path", "")).startswith("/api/comfort/"):
+        form_schema = schema.get("form")
+        shared_params = list(form_schema.get("properties", {})) if isinstance(form_schema, dict) else []
+        _apply_runtime_path_params({"path_params": shared_params}, variables, form)
         request_url = f"{base_url}/api/comfort/{api_name}"
         request_body = {"query": query or None, "form": form or None}
     else:

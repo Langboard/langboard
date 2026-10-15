@@ -1,6 +1,7 @@
 import { ESocketTopic } from "@langboard/core/enums";
 import { getSocketMap, getTopicWithId } from "@/core/stores/socket/state";
 import type {
+    ISocketEvent,
     TDefaultEvents,
     TSocketAddEventProps,
     TSocketRemoveEventProps,
@@ -197,6 +198,16 @@ const addSubscribedTopicId = (topic: ESocketTopic, topicId: string) => {
     pushUniqueValue(socketMap.subscribedTopics[topic], topicId);
 };
 
+export const addRestorableTopicId = (topic: ESocketTopic, topicId: string) => {
+    const socketMap = getSocketMap();
+
+    if (!socketMap.restorableTopics[topic]) {
+        socketMap.restorableTopics[topic] = [];
+    }
+
+    pushUniqueValue(socketMap.restorableTopics[topic], topicId);
+};
+
 const removeSubscribedTopicId = (topic: ESocketTopic, topicId: string) => {
     const socketMap = getSocketMap();
     const subscribedTopicIds = socketMap.subscribedTopics[topic];
@@ -209,6 +220,23 @@ const removeSubscribedTopicId = (topic: ESocketTopic, topicId: string) => {
 
     if (!subscribedTopicIds.length) {
         delete socketMap.subscribedTopics[topic];
+    }
+};
+
+export const removeRestorableTopicIds = (topic: ESocketTopic, topicIds: string[]) => {
+    const socketMap = getSocketMap();
+    const restorableTopicIds = socketMap.restorableTopics[topic];
+
+    if (!restorableTopicIds) {
+        return;
+    }
+
+    for (let i = 0; i < topicIds.length; ++i) {
+        removeValue(restorableTopicIds, topicIds[i]);
+    }
+
+    if (!restorableTopicIds.length) {
+        delete socketMap.restorableTopics[topic];
     }
 };
 
@@ -267,8 +295,9 @@ const notifyTopicNotifiers = (topic: ESocketTopic, topicId: string, isSubscribed
     }
 };
 
-export const addEvent = (props: TSocketAddEventProps<unknown>) => {
-    const { event, eventKey, callback } = props;
+export const addEvent = <TResponse>(props: TSocketAddEventProps<TResponse>) => {
+    const { event, eventKey } = props;
+    const callback = props.callback as ISocketEvent<unknown>;
 
     if (isDefaultEvent(event)) {
         const callbacks = getDefaultEventCallbacks(event, eventKey, true)!;
@@ -286,8 +315,9 @@ export const addEvent = (props: TSocketAddEventProps<unknown>) => {
     pushUniqueValue(events[eventKey], callback);
 };
 
-export const removeEvent = (props: TSocketRemoveEventProps) => {
-    const { event, eventKey, callback } = props;
+export const removeEvent = <TResponse>(props: TSocketRemoveEventProps<TResponse>) => {
+    const { event, eventKey } = props;
+    const callback = props.callback as ISocketEvent<unknown>;
 
     if (isDefaultEvent(event)) {
         const callbacks = getDefaultEventCallbacks(event, eventKey, false);
@@ -374,16 +404,10 @@ export const subscribedCallback = (topic: ESocketTopic, topicIds: string[]) => {
 };
 
 export const unsubscribedCallback = (topic: ESocketTopic, topicIds: string[]) => {
-    const socketMap = getSocketMap();
-
     for (let i = 0; i < topicIds.length; ++i) {
         const topicId = topicIds[i];
 
         removeSubscribedTopicId(topic, topicId);
-
-        if (socketMap.subscriptions[topic]) {
-            delete socketMap.subscriptions[topic][topicId];
-        }
 
         clearQueuedCallbacks("subscribedCallbackQueue", topic, topicId);
 
@@ -392,10 +416,6 @@ export const unsubscribedCallback = (topic: ESocketTopic, topicIds: string[]) =>
         clearQueuedCallbacks("unsubscribedCallbackQueue", topic, topicId);
 
         notifyTopicNotifiers(topic, topicId, false);
-
-        if (isEmptyRecord(socketMap.subscriptions[topic])) {
-            delete socketMap.subscriptions[topic];
-        }
     }
 };
 

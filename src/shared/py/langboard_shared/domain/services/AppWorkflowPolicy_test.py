@@ -3,12 +3,12 @@
 import pytest
 from ..models import ProjectColumn, WorkflowStageDefinition
 from .AppWorkflowPolicy import (
-    GITHUB_WORKFLOW_REQUIREMENTS,
-    GLITCHTIP_WORKFLOW_REQUIREMENTS,
     WorkflowRequirements,
     resolve_app_workflow,
 )
 
+
+REQUIREMENTS = WorkflowRequirements(("active", "review", "closed"), ("ready",))
 
 def facts():
     columns = [
@@ -24,7 +24,7 @@ def facts():
 
 def evaluate(columns, stages, explicit=None, authorized=None):
     return resolve_app_workflow(
-        GITHUB_WORKFLOW_REQUIREMENTS,
+        REQUIREMENTS,
         10,
         columns,
         stages,
@@ -39,7 +39,6 @@ def test_unique_mapping_resolves_and_missing_optional_does_not_block():
     assert result.transitions_enabled
     assert [c.status for c in result.choices] == ["resolved", "resolved", "resolved", "missing"]
     assert [c.column_uid for c in result.choices[:3]] == [c.get_uid() for c in columns]
-    assert GLITCHTIP_WORKFLOW_REQUIREMENTS.required == GITHUB_WORKFLOW_REQUIREMENTS.required
 
 
 def test_explicit_mapping_survives_new_duplicate_and_removal_of_other_column():

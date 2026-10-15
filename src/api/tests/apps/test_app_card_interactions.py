@@ -8,7 +8,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from langboard.routes.settings import AppCardInteractionApi  # noqa: F401
+from langboard.routes.settings import CardHumanInteractionApi, AppCardInteractionApi  # noqa: F401
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
@@ -21,10 +21,13 @@ from test_app_execution_ack import scope
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 @pytest.mark.parametrize("app_profile", ["baseline", "example-monitor"])
 def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypatch, app_profile):
-    from langboard_shared.tasks.webhooks import AppEventDeliveryTask
+    from langboard_shared.core.broker import Broker
 
     enqueues = []
-    monkeypatch.setattr(AppEventDeliveryTask, "app_event_delivery_task", lambda *args: enqueues.append(args))
+    def enqueue(name, *, args):
+        assert name == "langboard.app_event_delivery"
+        enqueues.append(args)
+    monkeypatch.setattr(Broker.celery, "send_task", enqueue)
     if app_profile == "example-monitor":
         from packaged_monitor import load_monitor
         Monitor = load_monitor(monkeypatch, "example-monitor-hitl-provenance.json")
@@ -136,6 +139,11 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         receipt = first.json()
         assert receipt["state"] == "pending" and receipt["execution_resumed"] is False
         assert receipt["changed"] is True and receipt["revision"] == 1
+        recovered = client.get(path, params={"app_request_key": body["app_request_key"]}, headers=headers)
+        assert recovered.status_code == 200 and recovered.json()["interaction_uid"] == receipt["interaction_uid"]
+        assert recovered.json()["changed"] is False
+        assert client.get(path, params={"app_request_key": "missing"}, headers=headers).json()["state"] == "missing"
+        assert client.get(path, params={"app_request_key": "deployment-choice"}).status_code == 401
         with DbSession.atomic() as db:
             frozen = (
                 db.exec(
@@ -249,6 +257,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             binding.granted_capabilities = [c for c in binding.granted_capabilities if c != "interactions.request"]
             db.update(binding)
         assert client.get(read_path, headers=headers).status_code == 403
+        assert client.get(path, params={"app_request_key": "deployment-choice"}, headers=headers).status_code == 403
         assert client.post(path, json={"request": body}, headers=headers).status_code == 403
         with DbSession.atomic() as db:
             binding.granted_capabilities = original_grants
@@ -359,6 +368,17 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             access, refresh = AuthSecurity.authenticate(board[1].id)
             human_client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             human_headers = {"Authorization": f"Bearer {access}"}
+            legacy_read = f"/board/{board[2].get_uid()}/card/{card.get_uid()}/interactions/{mixed_receipt['interaction_uid']}"
+            assert human_client.get(legacy_read).status_code == 401
+            assert human_client.get(legacy_read, headers=headers).status_code == 401
+            retained = human_client.get(legacy_read, headers=human_headers)
+            assert retained.status_code == 200, retained.text
+            assert retained.json()["interaction_uid"] == mixed_receipt["interaction_uid"]
+            assert retained.headers["cache-control"] == "no-store"
+            assert human_client.get(legacy_read.replace(mixed_receipt["interaction_uid"], "A" * 11), headers=human_headers).status_code == 403
+            assert human_client.post(legacy_read + "/responses", json=form, headers=headers).status_code == 401
+            assert human_client.post(legacy_read + "/responses", json={**form, "actor_uid": "A" * 11}, headers=human_headers).status_code == 400
+            assert human_client.post(legacy_read + "/responses", json={**form, "expected_revision": 99}, headers=human_headers).status_code == 409
             page = human_client.get(list_path, params={"limit": 1}, headers=human_headers)
             assert page.status_code == 200, page.text
             assert page.headers["cache-control"] == "no-store"
@@ -450,6 +470,9 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             assert accepted_response.headers["cache-control"] == "no-store"
             assert human_client.post(human_path, json=form, headers=human_headers).json()["changed"] is False
             listed = human_client.get(list_path, headers=human_headers).json()["items"]
+            legacy_replay = human_client.post(legacy_read + "/responses", json=form, headers=human_headers)
+            assert legacy_replay.status_code == 200, legacy_replay.text
+            assert legacy_replay.json()["changed"] is False and legacy_replay.json()["execution_resumed"] is False
             listed_answer = next(row for row in listed if row["interaction_uid"] == mixed_receipt["interaction_uid"])
             assert listed_answer["response"]["values"] == answer
             assert listed_answer["state"] == "answered" and listed_answer["delivery_state"] == "pending"
@@ -475,7 +498,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             revalidate_app_event_claim,
         )
 
-        assert enqueues == [(accepted["event_uid"], 2)]
+        assert len(enqueues) == 1 and int(enqueues[0][0]) == int(SnowflakeID.from_short_code(accepted["event_uid"]))
         event_id = SnowflakeID.from_short_code(accepted["event_uid"])
         assert accepted["delivery_state"] == "pending" and accepted["reception_state"] == "not_received"
         with pytest.raises(AppGovernanceDenied):
@@ -507,10 +530,17 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             finish_app_event(event_id, claim["claim_token"], delivered=True)
         claim = retry_claim
         ack_path = path + "/" + mixed_receipt["interaction_uid"] + "/acknowledgments"
+        absent_ack = client.get(ack_path, headers=headers)
+        assert absent_ack.status_code == 200 and absent_ack.json()["state"] == "not_received"
+        assert absent_ack.json()["changed"] is False and absent_ack.json()["execution_resumed"] is False
         ack = client.post(
             ack_path, json={"event_uid": accepted["event_uid"], "runtime_reference": "runtime-1"}, headers=headers
         )
         assert ack.status_code == 200, ack.text
+        reception = client.get(ack_path, headers=headers)
+        assert reception.status_code == 200, reception.text
+        assert reception.json()["acknowledgment_uid"] == ack.json()["acknowledgment_uid"]
+        assert reception.json()["changed"] is False and reception.json()["execution_resumed"] is False
         assert ack.json()["state"] == "received" and ack.json()["execution_resumed"] is False
         sdk_ack = asyncio.run(
             sdk.acknowledge(

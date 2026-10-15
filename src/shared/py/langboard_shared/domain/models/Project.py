@@ -12,7 +12,7 @@ class Project(BaseNotificationScheduleModel, table=True):
         foreign_key=User, nullable=False, index=True, api_field=ApiField(name="owner_uid")
     )
     organization_id: SnowflakeID | None = SnowflakeIDField(
-        foreign_key=Organization, nullable=True, index=True, api_field=ApiField(name="organization_uid")
+        foreign_key=Organization.expr("id"), nullable=True, index=True, api_field=ApiField(name="organization_uid")
     )
     title: str = Field(nullable=False, api_field=ApiField())
     description: str | None = Field(default=None, sa_type=TEXT, api_field=ApiField())

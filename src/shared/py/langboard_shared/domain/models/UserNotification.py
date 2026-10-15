@@ -28,6 +28,7 @@ class UserNotification(BaseDbModel, table=True):
     record_list: list[tuple[str, SnowflakeID]] = Field(default=[], sa_type=JSON)
     read_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
     web_visible: bool = Field(default=True)
+    web_fanout_pending: bool | None = Field(default=None, nullable=True, index=True)
     work_event_dispatched_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 
     def notification_data(self) -> dict[str, Any]:

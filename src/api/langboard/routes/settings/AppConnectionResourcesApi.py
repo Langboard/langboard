@@ -1,6 +1,7 @@
 """Credential-scoped external resources. No user identity supplied by callers."""
 
-from fastapi import Header, Query
+from typing import Annotated
+from fastapi import Header, Path, Query
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.services.AppConnectionResources import (
@@ -12,13 +13,13 @@ from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 
 @AppRouter.api.get("/apps/v1/boards/{project_uid}/resources", tags=["App.Resources"])
 def app_resources(
-    project_uid: str,
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
     authorization: str = Header(default="", max_length=256),
     after: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9]{11}$"),
     limit: int = Query(default=25, ge=1, le=50),
 ) -> JsonResponse:
     scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer":
+    if scheme.lower() != "bearer" or not token:
         raise ApiException.Unauthorized_401()
     try:
         result = list_connection_resources(
@@ -31,4 +32,6 @@ def app_resources(
         raise ApiException.Unauthorized_401() from exc
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403() from exc
+    except ValueError as exc:
+        raise ApiException.BadRequest_400() from exc
     return JsonResponse(content=result, headers={"Cache-Control": "no-store"})

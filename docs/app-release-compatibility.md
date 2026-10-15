@@ -278,3 +278,82 @@ Before the fix both 1440px and 390px cases displayed the previous card history.
 After the fix both pass, including ordered return transitions and keyboard-focus
 actor details. This uses controlled HTTP responses, not deployed activity
 persistence or actual multi-user socket delivery.
+
+## Current retained-history migration gate
+
+A fresh disposable PostgreSQL database upgrades through the complete Alembic
+chain to the single current head `c97659de63f4`, including the merge revision
+`b86548cd52e3`. The former `d3c6fd51a7e9` table entry is historical.
+
+The two latest native migrations are exercised on both SQLite and PostgreSQL:
+empty upgrade/downgrade/re-upgrade, unique connection/request ownership, and
+downgrade refusal with retained identity and JSON consent/Review receipt. Four
+local cases pass and are included in the native contract CI selection.
+
+These checks use disposable databases. They do not establish upgrade safety
+for a production backup or approve an application/image rollback; a database
+containing retained history deliberately refuses that schema downgrade.
+
+## Panel signal resource read gate
+
+Authenticated external-panel HTTP tests now use a stored native GitHub signal
+in both SQLite and PostgreSQL. An independently registered panel with explicit
+signal consent reads the selected repository signal; removing selection yields
+an empty result, and changing the app's approved resource types to `issue`
+continues to exclude that repository after renewed consent. No registry, native
+read or authorization service is replaced. The existing provider-source and
+trust-change cases remain: the registry HTTP file passes eight cases locally.
+
+The real panel SDK/browser test passes at 390px, including 403/404/409 signal
+read denials removing the iframe, resource-read cancellation, and host-owned
+human response. The dock test runner now starts the installed Vite binary with
+the established fixture config, avoiding a Yarn registry-token dependency when
+no installation is performed. Local test JWT key-length warnings remain. These
+checks are not deployed provider acceptance or hosted CI success.
+
+## Published package theme assets
+
+The app-store browser suite accepts `LANGBOARD_OFFICIAL_PACKAGE_ROOT`, a
+directory with `github`, `glitchtip`, and `dokploy` subdirectories containing
+`manifest.json`, `panel/icon-light.svg`, and `panel/icon-dark.svg` extracted
+from the official release ZIPs after checking the catalog SHA-256. Without
+these external artifacts the six published-asset cases explicitly skip.
+
+Run from `src/ui`:
+
+```sh
+LANGBOARD_OFFICIAL_PACKAGE_ROOT=/path/to/verified-assets node_modules/.bin/playwright test --config playwright.app-packages.config.ts
+```
+
+On 2026-10-12 anonymous v0.1.1 downloads matched the three catalog hashes.
+All three real package icons decoded in the actual store detail UI at 1440px
+and 390px through light → dark → light transitions, with no horizontal
+overflow. Six cases passed in 9.5 seconds; screenshots were visually checked.
+The API receipt and asset serving are controlled test responses. This proves
+published SVG/theme compatibility, not a live install or board activation.
+
+## Shared preferred-language write state
+
+The account settings and avatar menu both use `UserPreferenceLanguageSwitcher`.
+Previously each instance disabled only itself during a save, leaving the other
+instance able to submit a competing language change. A controlled pending PUT
+reproduced the unlocked avatar control at 1280px and 390px (two failed cases).
+The shared React Query mutation state now disables both controls and rejects a
+change handler while the same mutation is pending. No additional state store is
+introduced. After the fix, all ten default-language browser cases passed in
+20.4 seconds, including failure rollback, reload persistence, four language
+choices, and keyboard interaction. API persistence is mocked in these browser
+cases; they do not prove the current deployment's database write.
+
+## Timer projection database coverage
+
+The existing 1,000-item timer batch regression now runs against both SQLite
+and disposable PostgreSQL with real parent card/checklist/checkitem rows and
+foreign keys. Checklist, card, and active-work projections each use three
+real timer SELECTs and zero per-item timer point reads. Missing timers,
+Started/Stopped records, and equal-timestamp greater-ID ordering remain
+consistent with the single-event repository read. Six cases passed in 5.25
+seconds. Source row discovery is controlled in this test; native timer SQL
+and projection methods are exercised. This is not a new runtime latency
+measurement or deployed REST/MCP acceptance. The card-workspace CI selection
+now includes these cases and the PostgreSQL fixture environment variable.

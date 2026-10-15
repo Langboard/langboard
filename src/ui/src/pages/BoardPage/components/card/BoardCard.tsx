@@ -232,7 +232,7 @@ const BoardCard = memo(
             return () => {
                 socket.unsubscribe(ESocketTopic.BoardCard, [cardUID]);
             };
-        }, [cardData, cardUID, isFetching]);
+        }, [cardData, cardUID]);
 
         return (
             <>
@@ -746,9 +746,9 @@ function BoardCardMobileActions(): React.JSX.Element | null {
 
 function BoardCardMobileComments({ scrollableRef }: { scrollableRef?: React.RefObject<HTMLDivElement | null> }): React.JSX.Element | null {
     const { card } = useBoardCard();
-    const { isCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
+    const { isCommentPanelOpen } = useBoardCardPanel();
 
-    if (!isCommentPanelOpen || commentLayoutMode !== "mobile") {
+    if (!isCommentPanelOpen) {
         return null;
     }
 
@@ -1042,7 +1042,7 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
                 className={cn("z-[110]", !isExpanded && "mx-auto max-w-[100vw] sm:max-w-[90vw] lg:max-w-[1120px]")}
                 contentClassName="bg-background"
                 itemClassName="h-10 px-3"
-                labelClassName="hidden md:inline"
+                labelClassName="sr-only md:not-sr-only md:inline"
                 items={[
                     ...(!canEditCard
                         ? []

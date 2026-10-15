@@ -98,3 +98,20 @@ RUN bash scripts/run-profile-validation.sh
 
 FROM scratch AS validation-api-results
 COPY --from=validation-api /result/ /result/
+
+# Document validation includes the actual CJK font and remote-VLM dependencies.
+FROM with-document-processing AS validation-worker-dependencies
+USER root
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --dev --extra document-processing --extra document-retrieval
+COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
+RUN mkdir -p /result && chown langboard:langboard /result
+USER 10001:10001
+
+FROM validation-worker-dependencies AS validation-worker
+ENV PROFILE=worker \
+    VERIFY_DOCUMENT_FONTS=1
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-worker-results
+COPY --from=validation-worker /result/ /result/

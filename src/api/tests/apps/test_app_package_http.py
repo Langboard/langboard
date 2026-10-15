@@ -15,6 +15,11 @@ from langboard_shared.Env import Env
 from test_app_package import DECLARATION, bundle
 
 
+@pytest.fixture(autouse=True)
+def isolated_package_auth_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
+
+
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_official_install_malformed_release_returns_bad_request_without_registration(board, monkeypatch):
     from langboard.apps.OfficialAppPackages import download_official_package

@@ -16,9 +16,8 @@ from ..models import (
 from .AppConnectionAuthentication import _identity_hash, authenticate_connection_credential
 from .AppEventDelivery import _expired
 from .AppExecutionAcknowledgments import _request
-from .AppExecutionGrant import evaluate_connection_execution_grant
 from .AppExecutionRequests import AppExecutionRequestConflict
-from .AppGovernance import AppGovernanceDenied
+from .AppGovernance import lock_policy_mutation, AppGovernanceDenied
 
 
 LEASE_SECONDS = 120
@@ -63,14 +62,8 @@ def _result(db, row):
 def authorize_app_runtime(token, project_id, card_id, request_id, acknowledgment_id, runtime_token):
     digest = _hash(runtime_token)
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         request = _request(db, token, project_id, card_id, request_id)
-        principal = authenticate_connection_credential(token)
-        db.exec(
-            SqlBuilder.select.table(AppConnectionCredential)
-            .where(AppConnectionCredential.id == principal.credential_id)
-            .with_for_update()
-        ).first()
-        # Serialize revocation with creation and recheck after acquiring its lock.
         principal = authenticate_connection_credential(token)
         ack = db.exec(
             SqlBuilder.select.table(AppExecutionAcknowledgment).where(
@@ -120,6 +113,7 @@ def _check_app_runtime(lease_id, runtime_token, *, stopped=False, renew=False):
         raise ValueError("Stopped must be a boolean")
     digest = _hash(runtime_token)
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         # Same project/card -> lease lock order as authorize to avoid lock inversion.
         initial = db.exec(SqlBuilder.select.table(AppExecutionLease).where(AppExecutionLease.id == lease_id)).first()
         if initial is None or not compare_digest(initial.runtime_token_hash, digest):
@@ -130,14 +124,14 @@ def _check_app_runtime(lease_id, runtime_token, *, stopped=False, renew=False):
         allowed = False
         if not stopped and initial.state == "authorized" and request is not None:
             try:
-                current = evaluate_connection_execution_grant(
-                    request.connection_id, request.project_id, request.card_id, request.generation
-                )
+                from .AppExecutionGrant import evaluate_runtime_execution_grant
+
+                current = evaluate_runtime_execution_grant(db, request, initial)
                 allowed = current["authority_version"] == request.authority.get("authority_version")
                 credential = db.exec(
                     SqlBuilder.select.table(AppConnectionCredential)
                     .where(AppConnectionCredential.id == initial.credential_id)
-                    .with_for_update()
+                    .with_for_update(read=True)
                 ).first()
                 connection = db.exec(
                     SqlBuilder.select.table(AppConnection).where(AppConnection.id == request.connection_id)

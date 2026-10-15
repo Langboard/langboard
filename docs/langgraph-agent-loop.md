@@ -1,0 +1,306 @@
+# Bounded default-agent model and tool graph
+
+The default agent now delegates its model/tool loop to a compiled LangGraph
+StateGraph. `model` routes to `tools` only when a tool-bound model returns calls;
+`tools` returns to `model`. After three tool-bound rounds the final invocation
+uses the original unbound model and exits. The graph recursion limit is forty, allowing the bounded serial call steps.
+Existing API allowlisting, UID resolution and approval remain in
+`nodes._get_tool_approval_result`, before ToolNode execution. Calls run
+sequentially to preserve approval order and avoid concurrent writes.
+
+Each requested call receives a ToolMessage with its original call ID, including
+unknown names, denied calls and calls beyond the eight-per-round ceiling.
+These rejected calls cause no tool invocation. Runtime errors become tool
+responses. A tool timeout uses the existing AI request timeout and reports an
+unknown result rather than claiming cancellation reversed an external effect.
+A StructuredTool adapter keeps the original Python result as the ToolMessage
+artifact so the existing `tool_results` receipt retains its value and type.
+Messages use LangGraph's message reducer; receipts append across graph steps.
+
+## Local proof
+
+Using the checked-in graph dependency versions (LangGraph 1.2.4,
+langgraph-prebuilt 1.1.0, LangChain 1.3.4, langchain-core 1.4.2), seven tests
+exercise actual StateGraph and ToolNode execution:
+
+- All requested call IDs receive replies, including over-limit calls, while
+  exactly eight allowed calls execute and raw result dictionaries survive.
+- Unknown, denied, failed and timed-out calls return explicit messages.
+- Repeated tool requests stop after three rounds plus one unbound final model.
+- A parent graph's in-memory checkpoint interrupts before side effects and
+  resumes one approved call; rejection produces zero writes.
+- The existing agent UID gate rejects an invalid UID before tool execution.
+- Repeated invocations start with fresh round and receipt state.
+
+The model and external tools are controlled test inputs. No live provider
+invocation or deployment is covered. These tests do not establish PostgreSQL
+checkpoint recovery, multi-write replay safety, total wall-clock budgets or
+monetary cost ceilings. Those remain explicit roadmap acceptance work.
+
+Run with the graph dependencies and pytest/pytest-asyncio installed:
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/graph:src/shared/py python -m pytest -p no:tach -o log_cli=false src/graph/tests/test_agent_loop.py -q
+```
+
+Reference: [LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api).
+
+## Later approval resume boundary
+
+A later approval originally caused the tool node to restart its entire call
+loop, replaying a completed first write (`[1, 1, 2]`). Each allowed call now
+finishes its own graph step, with the pending calls and next index persisted
+in graph state. Over-limit replies batch without executing writes. The same
+reproduction resumes with `[1, 2]` on InMemorySaver and AsyncPostgresSaver after
+rebuilding the parent graph instance. This establishes checkpointed resume
+after a completed step. It does not guarantee exactly-once external writes
+if a process dies between external commit and checkpoint persistence; API
+idempotency receipts and worker restart/concurrent resume remain required.
+
+## Structured credential output boundary
+
+Model runtime-context and event prompts now redact nested credential fields.
+The public graph status route applies the same redaction, while its internal
+status function keeps the original value for existing resume receipt matching.
+The helper reuses audit contract sensitive-key names and adds graph/OAuth/API
+header names, traversing dictionaries, lists and tuples without mutating the
+input. Three tests cover real prompt functions and the status route handler,
+including preserved approval/title fields and internal completed-resume matching.
+
+This is an output boundary, not a checkpoint secrecy guarantee. `tweaks` still
+contains provider/API credentials in persisted graph state, and credentials in
+unstructured strings or provider errors are not handled by key redaction. The
+State/Runtime Context roadmap must still move credentials to non-persisted
+server runtime inputs and resolve fresh credentials on resume. It must also
+verify current actor/project authority rather than trusting saved context.
+
+## PostgreSQL worker restart proof
+
+A dedicated subprocess test performs its controlled external effects in a
+separate PostgreSQL table, invokes the real nested agent graph, and stops at
+the second call's approval interrupt. The parent verifies only the first effect
+exists, force-kills the stopped worker, and starts a new Python process that
+loads the same AsyncPostgresSaver thread and resumes. The resulting table has
+exactly one row for effect 1 and one for effect 2. The parent removes the thread
+and temporary effect table. With the other loop cases, twelve tests passed
+locally in 6.26 seconds against disposable PostgreSQL.
+
+This kill occurs after a completed tool step and persisted approval checkpoint.
+It does not cover the external-commit/checkpoint crash window, concurrent resume,
+event generation fencing or external API idempotency. These acceptance items
+remain incomplete. The test worker uses fixed generated identifiers and
+controlled SQL writes; it does not invoke a production provider or service.
+
+## Concurrent resume proof
+
+Two additional PostgreSQL cases invoke the real `resume_graph` route handler,
+thread advisory lock and AsyncPostgresSaver. The graph provider helpers are
+replaced with a controlled StateGraph that interrupts before a SQL effect;
+this isolates resume concurrency without a production provider or auth flow.
+The first approved request remains inside the lock until `pg_stat_activity`
+confirms the second request is waiting on the PostgreSQL advisory lock.
+After release, identical approval returns the completed response, while a
+conflicting decision returns HTTP 409. Both cases preserve the first decision
+and leave exactly one effect row. The lock/checkpointer pools, thread and table
+are removed after each case. The full agent-loop suite passed fourteen tests
+in 6.75 seconds against disposable PostgreSQL.
+
+This proves the existing handler serializes these same-thread resume requests.
+It does not prove HTTP authentication, actor/project revalidation, generation
+fencing, provider-side idempotency or recovery across an external commit before
+its checkpoint. The broader Durable Execution checklist remains incomplete.
+
+## Approval payload privacy boundary
+
+Approval requests are recursively redacted before entering graph state or an
+interrupt. This covers initial graph approvals and per-tool approvals, while
+preserving titles and permission metadata. A disposable PostgreSQL case checks
+the persisted interrupt path; a second case verifies tool arguments remain
+unchanged for execution while the approval projection is redacted. The suite
+now passes nineteen tests. This does not yet remove credentials from the
+`tweaks` state supplied at graph start; provider/API credential resolution must
+move to server-owned runtime context before the State/Runtime checklist can
+close.
+
+## Context projection isolation
+
+`create_runtime_context_state` now projects from a recursively redacted copy.
+Runner metadata, parent/child relationships and ontology fields no longer
+copy structured credential values into additional state channels or share
+mutable dictionary references with the original invocation. A regression
+preserves actor/project/card identities, relationship directions and titles,
+and verifies source immutability. The PostgreSQL approval case also reads
+`project_context` directly from the saved checkpoint. Twenty tests passed in
+7.00 seconds locally.
+
+The unresolved runtime input path is explicit: bot triggers supply current
+Bot.value and Bot.app_api_token; socket chat supplies current InternalBot.value
+and a user one-time token. `GraphApprovalRequestService.__resume_graph` sends
+only the decision and session ID, so it currently depends on saved tweaks.
+Removing secrets from tweaks must be paired with fresh server credential
+resolution and current authority checks on resume. Redacting tweaks alone
+would break tool/model execution and is not the completed design.
+
+## History privacy and delta regression
+
+History records are redacted immediately after collection and before sorting,
+delta extraction, summary creation or model-prompt formatting. This reuses the
+existing structured credential boundary and leaves source objects unchanged.
+Four regressions exercise full windows and incremental new/edited/deleted
+history, with deterministic summaries enabled and disabled. They preserve
+message identities, timestamps and context-window limits. A PostgreSQL case
+reads persisted history messages, delta and prompt channels to verify the
+redaction while preserving the history title. Twenty-four combined tests pass
+in 7.79 seconds. Source database collection is controlled in these cases;
+this does not establish per-user read authority or free-text secret detection.
+The larger fresh-runtime-credentials migration remains required.
+
+## Current actor and chat-session authority
+
+Chat history collection now fails closed unless the invocation is a user runner
+with a valid signed one-time token (`internal=bot`). It resolves the token
+subject, joins the requested session to its current User row, and reads from
+the primary database only when the user is activated and not deleted. A client
+runner UID cannot override the signed subject. SQLite and disposable
+PostgreSQL tests cover owned and foreign sessions, missing/invalid/expired
+JWTs, wrong internal claims, deactivated/deleted users and an ownership change
+between runs: forty-four tests pass in 15.20 seconds. This closes the history
+read authority case; bot-owned trigger history still needs an explicit
+server-side execution identity contract.
+
+## Chat-history anchor scope
+
+A history-only request previously excluded its anchor message but selected all
+sessions owned by the actor. Collection now resolves the anchor's session from
+primary storage and constrains the existing ownership-checked query to that
+session. Missing anchors and conflicting explicit sessions return no history.
+The lookup is limited to one anchor row and the existing bounded history list;
+no process cache or second authority store is introduced. Four cases run on
+SQLite and PostgreSQL: own anchor only, foreign anchor, missing anchor and an
+explicit session mismatch. All eight failed before the change; the combined
+suite now passes fifty-two cases in 18.90 seconds. This is session scoping proof,
+not completion of the wider fresh-runtime or board/card authority contract.
+
+## Project activity board scope
+
+Project activity history now requires a project UID and applies that board
+predicate before card or column narrowing. Previously a column or card filter
+could return an event from another board, and a missing project could still
+produce activity. SQLite/PostgreSQL fixtures cover board, own/foreign column,
+own/foreign card and missing-board inputs; six negative cases fail before the
+guard, and all twelve cases pass after it. The full suite reaches sixty-four tests in 23.55 seconds.
+The activity fixture uses current primary rows; it does not claim the broader
+card visibility policy is complete.
+
+## Card comment visibility
+
+Card comment history now validates the signed user token and delegates current
+board/card access to `CardService.resolve_readable_card` before fetching
+comments from the primary database. The graph is an API automation channel,
+not an MCP UI channel; `CollaborationChannel.Api` therefore excludes private
+cards even for the owner. Eight cases run against SQLite and PostgreSQL:
+shared/internal cards, private owner/other, wrong board, nonmember, deleted
+user and bot runner. The combined eighty tests pass in 42.41 seconds. These
+fixtures exercise the actual service and repository policies without overriding
+membership resolution. Bots fail closed until a server-verified execution
+identity is integrated; this pending contract is not inferred from raw runner
+metadata. Activity-history visibility and full credential/runtime migration
+still need independent completion evidence.
+
+## Activity visibility before pagination
+
+Project activity history now authenticates the signed user, resolves current
+board membership through `CardService`, and joins card visibility predicates
+before applying the bounded limit. Board-only events are returned only for an
+active member; deleted or private card events are excluded before pagination,
+so a hidden newest event cannot displace a visible older event. Card and column
+filters remain constrained by the board predicate. The fixture adds a private
+newest event followed by a visible event and checks shared/internal/private,
+wrong-board, nonmember, revoked, missing-token and bot-runner paths across
+SQLite and PostgreSQL. Ninety-two tests pass in 42.11 seconds. Bots remain
+fail-closed until a verified execution identity is supplied.
+
+## Shared history actor validation
+
+Chat, card-comment and project-activity collectors now share signed actor
+validation. The helper verifies the user runner, token signature and expiry,
+internal token kind, and the positive Snowflake subject bound before any
+collector queries identity or content. Database membership and card visibility
+checks remain in their existing collectors. Zero, oversized and nonnumeric
+subjects are exercised on SQLite and PostgreSQL. The combined suite passes
+ninety-eight tests in 46.27 seconds. This removes duplicate token parsing; it
+does not complete bot execution identity or the broader runtime credential
+migration.
+
+## Current read grants for board history
+
+Card-comment and project-activity history require a current primary project
+role granting `read` or `*`, in addition to existing active-account, membership
+and card-visibility checks. Project owners and current administrators retain
+the existing role exemption; neither bypasses the visibility collector.
+Membership alone must not supply read authority. Fixtures cover explicit read,
+all actions, a write-only member and revocation of read after a successful
+request using the same signed token. SQLite and PostgreSQL exercise both
+collectors against real role rows. The full 114-test suite passes in 44.04
+seconds. Chat history remains scoped to the signed user's own chat session;
+this change does not establish bot execution identity, runtime credential
+isolation, or end-to-end graph HTTP authorization.
+
+## Deleted comment tombstones
+
+Deleted card comments remain in bounded history as tombstones for delta
+reconciliation, but their body is no longer supplied to the model or persisted
+in the newly collected history state. The message ID and deletion change type
+are retained. The effective update timestamp is the deletion timestamp, so
+a deletion after the last synchronization is delivered even when the original
+edit timestamp is older. SQLite and PostgreSQL fixtures exercise actual deleted
+rows; full/delta and summary configuration checks verify body omission and
+unchanged tombstone identity. The combined suite passes 120 tests in 44.14
+seconds. Original database bodies and already persisted checkpoints are not
+erased by this change; historical checkpoint retention remains a separate
+requirement.
+
+## Graph service HTTP authentication
+
+All `/api/v1/graph/` HTTP endpoints require a short-lived service JWT before
+request parsing, runner creation, checkpoint access or resume/delete effects.
+The token uses the existing instance signing key, exact instance issuer,
+`langboard-graph` audience, `graph_service` token kind and a five-minute maximum
+lifetime. Ordinary user and bot API tokens are not service credentials. The
+shared Python bot and approval clients and the socket run/resume clients now
+issue this transport token. Deploy these callers with Graph together; older
+callers without the header receive 401. The service credential is not a
+per-user grant: caller-side user/project authorization and checkpoint/thread
+ownership remain separate requirements. Health checks remain available.
+
+Actual ASGI route tests cover anonymous, malformed, expired, ordinary-user,
+wrong-kind/audience/issuer, missing-expiry and excessive-lifetime tokens across
+run, webhook, resume, status and deletion endpoints. A valid backend token
+reaches the status route. The full suite passes 166 tests in 45.29 seconds;
+socket TypeScript checking reports no diagnostics. A token generated from the
+actual TypeScript helper is accepted by the Python verifier with a fixture key.
+
+Authentication adds no database or network round trip. A local ASGI benchmark
+(1,000 requests per variant after 50 warmups) measures median 78.46 microseconds
+without authentication and 108.00 with authentication, an added 29.54
+microseconds. This synthetic endpoint measurement is not deployed throughput
+or latency evidence. Service-token reuse beyond a request and no-auth fallback
+are deliberately not introduced.
+
+## Socket chat resume ownership
+
+Board chat resume now requires the message's chat session to belong to the
+current socket user, as well as the existing board/session match. The requested
+thread must equal the approval thread stored in the server-side message; a
+client-supplied compatibility session ID cannot redirect the request. Existing
+chat reuse also checks both board identity and session owner before updating
+permission or inserting messages. Resume adds one bounded ChatSession query;
+the stored thread check is an in-memory comparison, with no extra remote call.
+
+A production-handler harness covers seven resume paths: owner success, foreign
+owner, wrong board, replaced thread, missing interrupt, missing message and
+missing session. The regression fails on the previous source because a denied
+case reaches the graph transport, and all seven pass after the fix. Storage and
+transport are substituted in this harness; it does not prove a deployed socket
+or database integration flow. Socket TypeScript checking passes with no
+diagnostics. Graph HTTP service authentication remains a separate boundary.
