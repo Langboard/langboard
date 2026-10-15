@@ -905,18 +905,23 @@ class CardService(BaseDomainService):
         before_archived_at: SafeDateTime | None = None,
         before_card: TCardParam | None = None,
         input_value: str | None = None,
+        *,
+        user_or_bot: TUserOrBot | None = None,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> tuple[list[dict[str, Any]], int, tuple[str, str] | None] | None:
         """Return an archive-only page kept separate from the board hot path."""
 
-        project = InfraHelper.get_by_id_like(Project, project)
-        if not project:
+        resolved = self.resolve_visibility_context(project, user_or_bot, channel)
+        if resolved is None:
             return None
+        project, context = resolved
         records = self.repo.card.get_archived_page_by_project(
             project,
             limit,
             before_archived_at,
             before_card,
             input_value,
+            context=context,
         )
         has_more = len(records) > limit
         page = records[:limit]
@@ -929,7 +934,7 @@ class CardService(BaseDomainService):
         if has_more and page:
             last_card = page[-1][0]
             next_fields = (last_card.archived_at.isoformat(), last_card.get_uid())
-        return cards, self.repo.card.count_archived_by_project(project, input_value), next_fields
+        return cards, self.repo.card.count_archived_by_project(project, input_value, context=context), next_fields
 
     def get_dashboard_list(
         self,

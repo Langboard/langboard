@@ -111,19 +111,26 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
     card = FakeCard(10, "visible-card")
     observed: dict[str, Any] = {}
 
-    def get_board_list(_project: Any, cutoff: SafeDateTime, *, context: CardVisibilityContext) -> list[tuple[FakeCard, int]]:
+    def get_board_list(
+        _project: Any, cutoff: SafeDateTime, *, context: CardVisibilityContext
+    ) -> list[tuple[FakeCard, int]]:
         observed["cutoff"] = cutoff
         return [(card, 2)]
 
     monkeypatch.setattr(card_service_module.InfraHelper, "get_by_id_like", lambda _model, value: project)
+
     # This test isolates the archive visibility cutoff; common work-state SQL
     # has its own batch contract tests and receives only these visible cards.
-    def project_states(_service: CardService, cards: list[Any]) -> dict[int, dict[str, Any]]:
+    def project_states(_service: CardService, cards: list[Any], *, context: CardVisibilityContext) -> dict[int, dict[str, Any]]:
         assert cards == [card]
         return {card.id: {"lifecycle": "active", "checklist_progress": {"total": 0, "completed": 0}}}
 
     monkeypatch.setattr(CardService, "get_work_states", project_states)
-    monkeypatch.setattr(CardService, "resolve_visibility_context", lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)))
+    monkeypatch.setattr(
+        CardService,
+        "resolve_visibility_context",
+        lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)),
+    )
     before = SafeDateTime.now()
     result = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_list(project)
     after = SafeDateTime.now()
@@ -165,7 +172,10 @@ def test_board_route_passes_one_request_cutoff_to_cards_and_checklists(monkeypat
             get_api_bot_schedule_list_by_project=lambda _project, _columns: [],
         ),
         card=SimpleNamespace(
-            resolve_visibility_context=lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)),
+            resolve_visibility_context=lambda *args: (
+                project,
+                CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True),
+            ),
             get_board_list=lambda _project, _user_or_bot, cutoff, *, channel: (
                 calls.__setitem__("cards", cutoff),
                 [],
@@ -192,11 +202,16 @@ def test_archive_page_uses_archive_order_cursor_and_search_count(monkeypatch: py
     column = SimpleNamespace(name="Archive")
     calls: list[tuple[Any, ...]] = []
     card_repository = SimpleNamespace(
-        get_archived_page_by_project=lambda *args: (calls.append(args), [(card, column), (card, column)])[1],
-        count_archived_by_project=lambda *args: (calls.append(args), 9)[1],
+        get_archived_page_by_project=lambda *args, **kwargs: (calls.append(args), [(card, column), (card, column)])[1],
+        count_archived_by_project=lambda *args, **kwargs: (calls.append(args), 9)[1],
     )
     monkeypatch.setattr(card_service_module.InfraHelper, "get_by_id_like", lambda _model, value: project)
 
+    monkeypatch.setattr(
+        CardService,
+        "resolve_visibility_context",
+        lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)),
+    )
     result = _service(card_repository).get_api_archived_page_by_project(project, 1, input_value="decision")
 
     assert result == (
@@ -408,7 +423,9 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
 
     project = 1
 
-    cards = make_repo(CardRepository).get_board_list(project, cutoff, context=CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True))
+    cards = make_repo(CardRepository).get_board_list(
+        project, cutoff, context=CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)
+    )
     members = make_repo(CardAssignedUserRepository).get_all_by_project(project, cutoff)
     relationships = make_repo(CardRelationshipRepository).get_all_by_project(project, cutoff)
     labels = make_repo(ProjectLabelRepository).get_all_card_labels_by_project(project, cutoff)
@@ -429,10 +446,70 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
     # though avatar queries exclude it. No other card is discovered by this read.
     with engine.begin() as connection:
         connection.execute(
-            Checkitem.__table__.update().where(Checkitem.__table__.c.id == 604).values(status="started", is_checked=False, user_id=1)
+            Checkitem.__table__.update()
+            .where(Checkitem.__table__.c.id == 604)
+            .values(status="started", is_checked=False, user_id=1)
         )
     assert state_repo.get_work_state_counts([cold_id]) == {cold_id: (1, 0, 1, 0)}
     with engine.begin() as connection:
         connection.execute(Checkitem.__table__.update().where(Checkitem.__table__.c.id == 604).values(user_id=None))
     assert state_repo.get_work_state_counts([cold_id]) == {cold_id: (1, 0, 0, 0)}
     assert state_repo.get_work_state_counts([]) == {}
+
+    # Explicit archive pages must enforce visibility before pagination/counts,
+    # independently of the recent archive cutoff used by the active board.
+    with engine.begin() as connection:
+        connection.execute(
+            Card.__table__.update()
+            .where(Card.__table__.c.id == active_id)
+            .values(archived_at=cutoff, deleted_at=cutoff)
+        )
+        connection.execute(
+            Card.__table__.update()
+            .where(Card.__table__.c.id == boundary_id)
+            .values(visibility="PRIVATE", owner_user_id=1, created_by_user_id=1)
+        )
+        connection.execute(Card.__table__.update().where(Card.__table__.c.id == cold_id).values(visibility="SHARED"))
+    repository = make_repo(CardRepository)
+    external = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, False, actor_user_id=2)
+    owner = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=1)
+    assert [card.id for card, _ in repository.get_archived_page_by_project(project, 1, context=external)] == [cold_id]
+    assert repository.count_archived_by_project(project, context=external) == 1
+    assert [card.id for card, _ in repository.get_archived_page_by_project(project, 1, context=owner)] == [
+        boundary_id,
+        cold_id,
+    ]
+    assert repository.count_archived_by_project(project, context=owner) == 2
+    assert repository.count_archived_by_project(project, input_value="Boundary", context=external) == 0
+
+
+def test_archive_route_forwards_actor_and_channel_before_querying() -> None:
+    from langboard.routes.board.BoardApi import get_archived_project_cards
+
+    project = SimpleNamespace(id=1)
+    actor = object()
+    observed = {}
+
+    def page(*args, **kwargs):
+        observed.update(kwargs)
+        return [], 0, None
+
+    service = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=lambda _: project),
+        card=SimpleNamespace(get_api_archived_page_by_project=page),
+    )
+    get_archived_project_cards(
+        "project",
+        request=SimpleNamespace(scope={"collaboration_channel": CollaborationChannel.HumanUI}),
+        user_or_bot=actor,
+        limit=25,
+        cursor=None,
+        input_value=None,
+        service=service,
+    )
+    assert observed == {"user_or_bot": actor, "channel": CollaborationChannel.HumanUI}
+
+
+def test_archive_page_denies_missing_visibility_context_before_repository(monkeypatch) -> None:
+    monkeypatch.setattr(CardService, "resolve_visibility_context", lambda *args: None)
+    assert _service(SimpleNamespace()).get_api_archived_page_by_project(1, 25) is None

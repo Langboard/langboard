@@ -419,5 +419,9 @@
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",
-  "App panel unavailable": "アプリパネルを利用できません。閉じてから再度開いてください。"
+  "App panel unavailable": "アプリパネルを利用できません。閉じてから再度開いてください。",
+  "View all archived cards": "すべてのアーカイブカードを表示",
+  "Archived cards are hidden from the default board after {{days}} days, not deleted.": "アーカイブカードは{{days}}日後に通常のボードから非表示になりますが、削除されません。",
+  "Use View all archived cards to find older cards.": "古いカードは「すべてのアーカイブカードを表示」から確認できます。",
+  "Archived cards ({{count}})": "アーカイブカード：{{count}}件"
 }

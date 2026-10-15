@@ -268,6 +268,8 @@ def get_project_card_context(
 @AuthFilter.add()
 def get_archived_project_cards(
     project_uid: str,
+    request: Request,
+    user_or_bot: User | Bot = Auth.scope("all"),
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=2048),
     input_value: str | None = Query(default=None, min_length=1, max_length=1000),
@@ -284,6 +286,8 @@ def get_archived_project_cards(
             SafeDateTime.fromisoformat(decoded.archived_at) if decoded else None,
             decoded.card_uid if decoded else None,
             input_value,
+            user_or_bot=user_or_bot,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
         )
     except ValueError as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
