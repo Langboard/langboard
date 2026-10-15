@@ -200,6 +200,8 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         before_archived_at: SafeDateTime | None = None,
         before_card: TCardParam | None = None,
         input_value: str | None = None,
+        *,
+        context: CardVisibilityContext,
     ) -> list[tuple[Card, ProjectColumn]]:
         """Return a bounded archived-card keyset page without entering the hot board query."""
 
@@ -213,6 +215,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             )
             .where(Card.column("project_id") == project_id)
             .where(Card.column("archived_at") != None)  # noqa: E711
+            .where(Card.deleted_at.is_(None), card_visibility_scope(context))
         )
         if input_value:
             escaped_input = input_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -229,7 +232,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         with DbSession.use(readonly=True) as db:
             return list(db.exec(query).all())
 
-    def count_archived_by_project(self, project: TProjectParam, input_value: str | None = None) -> int:
+    def count_archived_by_project(
+        self, project: TProjectParam, input_value: str | None = None, *, context: CardVisibilityContext
+    ) -> int:
         """Count archived project cards, optionally applying the archive title search."""
 
         project_id = InfraHelper.convert_id(project)
@@ -237,6 +242,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             SqlBuilder.select.count(Card, Card.column("id"))
             .where(Card.column("project_id") == project_id)
             .where(Card.column("archived_at") != None)  # noqa: E711
+            .where(Card.deleted_at.is_(None), card_visibility_scope(context))
         )
         if input_value:
             escaped_input = input_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

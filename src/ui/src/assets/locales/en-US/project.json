@@ -419,5 +419,9 @@
   },
   "App panel": "App panel",
   "Close App panel": "Close App panel",
-  "App panel unavailable": "App panel unavailable. Close and reopen to try again."
+  "App panel unavailable": "App panel unavailable. Close and reopen to try again.",
+  "View all archived cards": "View all archived cards",
+  "Archived cards are hidden from the default board after {{days}} days, not deleted.": "Archived cards are hidden from the default board after {{days}} days, not deleted.",
+  "Use View all archived cards to find older cards.": "Use View all archived cards to find older cards.",
+  "Archived cards ({{count}})": "Archived cards: {{count}}"
 }

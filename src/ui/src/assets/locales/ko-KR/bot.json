@@ -27,6 +27,18 @@
   "Tell graph what to do instead": "그래프에 대신 수행할 작업을 알려주세요...",
   "Submitted instruction": "제출된 지시",
   "Resuming...": "재개 중...",
+  "Run outcome unknown": "작업이 완료됐을 수 있지만 결과를 확인하지 못했습니다. 다른 작업을 시작하기 전에 관련 데이터를 확인하세요.",
+  "runStatuses": {
+    "accepted": "대기 중",
+    "streaming": "실행 중",
+    "awaiting_approval": "승인 대기 중",
+    "resuming": "재개 중...",
+    "completed": "완료됨",
+    "failed": "실패함",
+    "cancelled": "취소됨",
+    "uncertain": "결과 미확인"
+  },
+  "Approval could not be resumed": "승인 후 실행을 재개하지 못했습니다. 다시 시도하기 전에 실행 상태를 확인하세요.",
   "Resolved by": "{{user}} 님이 해결함",
   "approvalStatuses": {
     "approved": "승인됨",

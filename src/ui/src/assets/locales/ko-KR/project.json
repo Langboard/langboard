@@ -419,5 +419,9 @@
   },
   "App panel": "앱 패널",
   "Close App panel": "앱 패널 닫기",
-  "App panel unavailable": "앱 패널을 사용할 수 없습니다. 닫았다가 다시 열어 주세요."
+  "App panel unavailable": "앱 패널을 사용할 수 없습니다. 닫았다가 다시 열어 주세요.",
+  "View all archived cards": "전체 보관 카드 보기",
+  "Archived cards are hidden from the default board after {{days}} days, not deleted.": "보관 카드는 {{days}}일 후 기본 보드에서 숨겨지며 삭제되지 않습니다.",
+  "Use View all archived cards to find older cards.": "오래된 카드는 전체 보관 카드 보기에서 찾을 수 있습니다.",
+  "Archived cards ({{count}})": "보관 카드: {{count}}개"
 }

@@ -67,6 +67,7 @@ ARG PROJECT_NAME=langboard
 LABEL com.docker.compose.project=${PROJECT_NAME}
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates curl libncurses6 libstdc++6 openssl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system langboard \

@@ -419,5 +419,9 @@
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",
-  "App panel unavailable": "应用面板暂不可用。请关闭后重新打开。"
+  "App panel unavailable": "应用面板暂不可用。请关闭后重新打开。",
+  "View all archived cards": "查看全部归档卡片",
+  "Archived cards are hidden from the default board after {{days}} days, not deleted.": "归档卡片在{{days}}天后从默认看板隐藏，但不会被删除。",
+  "Use View all archived cards to find older cards.": "可通过“查看全部归档卡片”查找较早的卡片。",
+  "Archived cards ({{count}})": "归档卡片：{{count}}张"
 }

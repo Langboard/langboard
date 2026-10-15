@@ -177,6 +177,12 @@ const BoardSettingsBasic = memo(() => {
                         />
                     </Form.Field>
                 </Label>
+                <p className="text-xs text-muted-foreground">
+                    {t("project.Archived cards are hidden from the default board after {{days}} days, not deleted.", {
+                        days: archiveVisibleDays ?? 3,
+                    })}{" "}
+                    {t("project.Use View all archived cards to find older cards.")}
+                </p>
                 {errors.archive_visible_days && <FormErrorMessage error={errors.archive_visible_days} icon="circle-alert" />}
                 {aiDescription && (
                     <Box>
