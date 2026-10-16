@@ -106,6 +106,60 @@ async def test_slow_identity_checks_leave_event_loop_responsive(monkeypatch, bou
     assert messages[0]["status"] == expected
 
 
+@pytest.mark.parametrize("response_status,logging_fails", [(200, False), (403, False), (503, True)])
+async def test_api_key_usage_preserves_stream_status_without_blocking_requests(response_status, logging_fails):
+    from langboard_shared.helpers import MiddlewareHelper
+
+    loop = asyncio.get_running_loop()
+    api_key = object()
+    messages = []
+    logs = []
+    responsiveness = []
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/board/test/cards",
+        "headers": [(b"x-api-key", b"test-only"), (b"x-forwarded-for", b"192.0.2.4")],
+        "api_key": api_key,
+    }
+
+    async def downstream(scope, receive, send):
+        await send({"type": "http.response.start", "status": response_status, "headers": []})
+        await send({"type": "http.response.body", "body": b"first", "more_body": True})
+        await send({"type": "http.response.body", "body": b"last", "more_body": False})
+
+    def log_usage(**kwargs):
+        assert len(messages) == 3, "Usage logging must follow the complete response"
+        logs.append(kwargs)
+        responsive = Event()
+        loop.call_soon_threadsafe(responsive.set)
+        responsiveness.append(responsive.wait(0.5))
+        if logging_fails:
+            raise RuntimeError("Usage storage unavailable")
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        messages.append(message)
+
+    service = SimpleNamespace(api_key=SimpleNamespace(log_usage=log_usage))
+    await MiddlewareHelper.log_api_key_usage(downstream, scope, receive, send, service)
+    assert messages[0]["status"] == response_status
+    assert b"".join(message.get("body", b"") for message in messages) == b"firstlast"
+    assert logs == [
+        {
+            "api_key": api_key,
+            "endpoint": "/board/test/cards",
+            "method": "GET",
+            "ip_address": "192.0.2.4",
+            "status_code": response_status,
+            "is_success": response_status < 400,
+        }
+    ]
+    assert responsiveness == [True], "Usage storage blocked concurrent API requests"
+
+
 @pytest.mark.parametrize("route", ["/board/{project_uid}/cards", "/notifications", "/settings/notification-schedule"])
 async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(caplog, route) -> None:
     api = FastAPI()

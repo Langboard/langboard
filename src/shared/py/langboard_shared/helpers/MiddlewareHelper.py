@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 from fastapi import status
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ..core.security import AuthSecurity
@@ -33,8 +34,8 @@ class MiddlewareHelper:
 
         # Wrap send to capture status code
         async def send_wrapper(message: Message):
-            status_code = message.get("status")
-            status_holder["status"] = status_code
+            if message["type"] == "http.response.start":
+                status_holder["status"] = message["status"]
             await send(message)
 
         await app(scope, receive, send_wrapper)
@@ -50,7 +51,8 @@ class MiddlewareHelper:
             status_code = status_holder["status"]
             is_success = status.HTTP_200_OK <= status_code < status.HTTP_400_BAD_REQUEST
 
-            domain_service.api_key.log_usage(
+            await run_in_threadpool(
+                domain_service.api_key.log_usage,
                 api_key=api_key,
                 endpoint=scope["path"],
                 method=scope["method"],
