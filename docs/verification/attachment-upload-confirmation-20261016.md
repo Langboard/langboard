@@ -43,3 +43,32 @@ retains each form across section changes, and leaves unknown providers with the
 existing generic fallback. It changes no connection, consent or policy. Native
 post-deployment verification is still required; rendering an available form does
 not establish a connected provider or completed signal/HITL/receipt acceptance.
+
+## External permission and persistence checkpoint
+
+API authority `7ada1de632d3a2a2ae661e0c1982af2487e8a380` is deployed.
+A separate non-admin external fixture with board read/create/update permissions
+created a new card and saved a Korean description through normal browser UI.
+Reload and independent retrieval confirmed the persisted card and body. An
+unchanged read/update-only external fixture received HTTP403 on create, and
+subsequent listing confirmed no card was created.
+
+The external browser file chooser selected the synthetic file, but Chrome
+blocked the subsequent upload request with `net::ERR_ACCESS_DENIED`; no server
+attachment was created. A separate normal external-user HTTP upload returned201,
+and a native browser reload displayed that named attachment. These are separate
+proofs: the fallback establishes server upload/persistence and browser retrieval,
+not successful native file upload or immediate post-upload list confirmation.
+
+Realtime acceptance remains open. API-bound authorization/readiness requests
+intermittently exceed the realtime service's existing3-second response budget,
+producing503 responses and reconnects under observed scheduling pressure.
+Neither a credential mismatch nor a client protocol defect is established by
+that observation. Preserve the failed attempt and diagnose the request path
+before claiming stable live updates.
+
+The UI follow-up now includes the deployed API authority without changing its
+API, shared, Graph, socket or Compose files. The two-line generic Graph Compose
+configuration is preserved separately in draft PR#705, so this UI release can
+retain the existing complete Compose identity contract. That separate change
+requires its own Graph product and runtime acceptance.
