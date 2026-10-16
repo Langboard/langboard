@@ -2,6 +2,12 @@
 
 import fcntl
 import importlib
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import time
 from concurrent.futures import Future
 from datetime import datetime, timedelta
 import pytest
@@ -80,3 +86,38 @@ def test_shared_tab_has_one_scheduler_and_bounded_work(tmp_path, monkeypatch):
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         monkeypatch.setattr(module, "sleep", lambda _: pytest.fail("Duplicate scheduler started"))
         module.run(path)
+
+
+def test_scheduler_children_inherit_background_priority_without_changing_api(tmp_path):
+    original_priority = os.getpriority(os.PRIO_PROCESS, 0)
+    output = tmp_path / "priority"
+    job = tmp_path / "job.sh"
+    child = (
+        "import os; from pathlib import Path; "
+        f"Path({str(output)!r}).write_text(str(os.getpriority(os.PRIO_PROCESS, 0)))"
+    )
+    job.write_text(f"{shlex.quote(sys.executable)} -c {shlex.quote(child)}\n")
+    path = tmp_path / "cron.tab"
+    path.write_text(f"@reboot /bin/bash {shlex.quote(str(job))}\n")
+    scheduler = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; "
+            "from langboard_shared.core.utils.CronScheduler import run; run(Path(sys.argv[1]))",
+            str(path),
+        ],
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while not output.exists() and time.monotonic() < deadline:
+            assert scheduler.poll() is None, "Scheduler exited before executing the real cron job"
+            time.sleep(0.02)
+        assert output.exists(), "Scheduled child did not report its process priority"
+        assert int(output.read_text()) == min(19, original_priority + 10)
+        assert os.getpriority(os.PRIO_PROCESS, 0) == original_priority
+    finally:
+        if scheduler.poll() is None:
+            os.killpg(scheduler.pid, signal.SIGTERM)
+        scheduler.wait(timeout=5)
