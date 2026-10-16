@@ -1,5 +1,6 @@
 "use client";
 
+import { applyOptimisticOrder } from "@/core/helpers/dnd/applyOptimisticOrder";
 import { RefObject, useEffect } from "react";
 import { reorder } from "@atlaskit/pragmatic-drag-and-drop/reorder";
 import { reorderWithEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge";
@@ -71,23 +72,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
             const resolvedFinishIndex = finishIndex === "last" ? list.length - 1 : finishIndex;
             const reordered = reorder({ list, startIndex, finishIndex: resolvedFinishIndex });
 
-            reordered.forEach((item, index) => {
-                item.order = index;
-            });
-
-            const undo = () => {
-                const undoRedorered = reorder({
-                    list,
-                    startIndex: resolvedFinishIndex,
-                    finishIndex: startIndex,
-                });
-
-                undoRedorered.forEach((item, index) => {
-                    item.order = index;
-                });
-            };
-
-            return { undo };
+            return applyOptimisticOrder(list, reordered);
         };
 
         const reorderItemsWithEdge = ({
@@ -109,25 +94,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 closestEdgeOfTarget,
             });
 
-            reordered.forEach((item, index) => {
-                item.order = index;
-            });
-
-            const undo = () => {
-                const undoReordered = reorderWithEdge({
-                    axis: "vertical",
-                    list,
-                    startIndex: indexOfTarget,
-                    indexOfTarget: startIndex,
-                    closestEdgeOfTarget: closestEdgeOfTarget === "top" ? "bottom" : "top",
-                });
-
-                undoReordered.forEach((item, index) => {
-                    item.order = index;
-                });
-            };
-
-            return { undo };
+            return applyOptimisticOrder(list, reordered);
         };
 
         const moveRow = ({

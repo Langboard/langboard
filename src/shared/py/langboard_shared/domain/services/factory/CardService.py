@@ -2079,6 +2079,8 @@ class CardService(BaseDomainService):
             old_column = InfraHelper.get_by_id_like(ProjectColumn, card.project_column_id)
             if not old_column or old_column.project_id != project.id:
                 return None
+            # REST forms use an empty parent UID for same-column reorders.
+            new_column = new_column or None
             if new_column:
                 new_column = InfraHelper.get_by_id_like(ProjectColumn, new_column)
                 if not new_column or new_column.project_id != project.id or new_column.deleted_at is not None:
