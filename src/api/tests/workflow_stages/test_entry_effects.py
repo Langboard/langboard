@@ -79,11 +79,12 @@ def flow(monkeypatch, request):
             connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
 
         engine.dispose()
-        with engine.begin() as connection:
-            connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO project VALUES (1)"))
-            connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
-            connection.execute(text('INSERT INTO "user" VALUES (1)'))
+    # Both database backends exercise the real project lock before moving cards.
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO project VALUES (1)"))
+        connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
+        connection.execute(text('INSERT INTO "user" VALUES (1)'))
     for model in (
         WorkflowStageDefinition,
         ProjectColumn,
