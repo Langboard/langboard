@@ -33,7 +33,8 @@ case "$profile" in
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
-      src/api/tests/card_visibility/test_socket_subscription_batch.py)
+      src/api/tests/card_visibility/test_socket_subscription_batch.py \
+      src/api/tests/card_workspace/timers/)
     ;;
   *)
     echo "Unsupported validation profile: $profile" >&2

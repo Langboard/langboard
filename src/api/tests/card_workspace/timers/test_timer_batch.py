@@ -1,4 +1,3 @@
-# ruff: noqa: F811
 """Checkitem projections batch real timer SQL and retain latest-record semantics."""
 
 from datetime import UTC, datetime
@@ -6,24 +5,19 @@ from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+from langboard_shared.domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist
+from langboard_shared.domain.models.Checkitem import CheckitemStatus
+from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
+from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
+    CheckitemTimerRecordRepository,
+)
 from sqlalchemy import event
 from sqlalchemy.orm import Session
-from ....core.db.DbEngine import DbEngine
-from ....domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist
-from ....domain.models.Checkitem import CheckitemStatus
-from ....infrastructure.repositories.factory.CheckitemTimerRecordRepository import CheckitemTimerRecordRepository
-from .CheckitemService import CheckitemService
-from .WorkflowStageService_app_test import board  # noqa: F401
 
 
 @pytest.mark.parametrize("view", ["checklist", "card", "active"])
-def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(board, monkeypatch, view):
-    engine = DbEngine.get_main_engine()
-    for model in (Card, Checklist, Checkitem):
-        model.__table__.create(engine)
-    CheckitemTimerRecord.__table__.create(engine)
-    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
-    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(timer_engine, monkeypatch, view):
+    engine = timer_engine
     card = SimpleNamespace(id=2000, get_uid=lambda: "card", api_response=lambda: {"uid": "card"})
     project = SimpleNamespace(api_response=lambda: {"uid": "project"})
     checklist = SimpleNamespace(id=3000)
@@ -51,11 +45,11 @@ def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(board, mo
             [{k: getattr(row, k) for k in CheckitemTimerRecord.model_fields} for row in rows],
         )
     queries = []
-    event.listen(
-        engine,
-        "before_cursor_execute",
-        lambda conn, cursor, statement, params, context, many: queries.append(statement),
-    )
+
+    def capture_query(conn, cursor, statement, params, context, many):
+        queries.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture_query)
     service = CheckitemService(
         lambda _: None,
         lambda _: None,
@@ -92,4 +86,4 @@ def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(board, mo
         # Existing single-event callers resolve ties identically to the batch.
         assert point_read(1, "last").id == 9000
     finally:
-        engine.dispose()
+        event.remove(engine, "before_cursor_execute", capture_query)
