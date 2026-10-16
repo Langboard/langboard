@@ -7,6 +7,10 @@
 # files required by that validation target.
 !src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py
 !src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py
+# The full Phoenix validation target executes these colocated tests.
+!scripts/sdk/verify_python_artifact_test.py
+!src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
+!src/shared/py/langboard_shared/core/logger/LogFileHandler_test.py
 .ruff_cache
 **/__pycache__
 .canary-ui-*
