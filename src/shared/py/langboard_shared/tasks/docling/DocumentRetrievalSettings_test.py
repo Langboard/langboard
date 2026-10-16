@@ -51,6 +51,12 @@ def test_settings_reject_unsupported_modes_endpoints_and_unbounded_requests():
     assert "fixture-secret" not in repr(configured)
 
 
+@pytest.mark.parametrize("prefix", ["", "../other", "prefix/child", "prefix*", "_hidden", "x" * 64])
+def test_external_collection_prefix_rejects_ambiguous_names(prefix):
+    with pytest.raises(ValidationError, match="collection_prefix"):
+        DocumentRetrievalSettings(store="qdrant", external_url="https://fixture.invalid", collection_prefix=prefix)
+
+
 def test_native_store_prefilters_persists_and_cascades_deleted_vectors(tmp_path: Path):
     path = tmp_path / "retrieval.sqlite"
     embed = FixtureEmbeddings()

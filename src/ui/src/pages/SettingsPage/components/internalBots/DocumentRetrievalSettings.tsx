@@ -111,6 +111,7 @@ export default function DocumentRetrievalSettings({
                         "keep_separator",
                         "store",
                         "external_url",
+                        "collection_prefix",
                         "external_api_key",
                         "search_type",
                     ].includes(field)
@@ -153,6 +154,7 @@ export default function DocumentRetrievalSettings({
                 if (storeType === "sqlite") {
                     delete next.external_url;
                     delete next.external_api_key;
+                    delete next.collection_prefix;
                     next.search_type = "similarity";
                 } else if (!next.external_api_key) delete next.external_api_key;
                 if (storeType === "qdrant" && searchType === "mmr") delete next.score_threshold;
@@ -187,6 +189,17 @@ export default function DocumentRetrievalSettings({
                         <label className="grid gap-1 text-xs">
                             {t("internalBot.retrieval.external_url")}
                             <Input name="external_url" type="url" required defaultValue={String(settings.external_url ?? "")} />
+                        </label>
+                        <label className="grid gap-1 text-xs">
+                            {t("internalBot.retrieval.collection_prefix")}
+                            <Input
+                                name="collection_prefix"
+                                required
+                                maxLength={63}
+                                pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,62}"
+                                defaultValue={String(settings.collection_prefix ?? "langboard_documents")}
+                            />
+                            <span className="text-muted-foreground">{t("internalBot.retrieval.collection_prefix_help")}</span>
                         </label>
                         <label className="grid gap-1 text-xs">
                             {t("internalBot.retrieval.external_api_key")}

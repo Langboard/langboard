@@ -270,6 +270,7 @@ def search_card_document(
         resolve_embedding_snapshot,
         validate_embedding_config,
     )
+    from langboard_shared.tasks.docling.DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX
     from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
     from langboard_shared.tasks.docling.DocumentVectorQuery import search_vector_generation
     from langboard_shared.tasks.docling.DocumentVectorStore import open_document_vector_store
@@ -316,7 +317,11 @@ def search_card_document(
             raise ValueError("Document embedding configuration changed")
         storage = pointer.get("storage") or {}
         if storage.get("type") != settings.store or (
-            settings.store == "qdrant" and storage.get("endpoint") != str(settings.external_url).rstrip("/")
+            settings.store == "qdrant"
+            and (
+                storage.get("endpoint") != str(settings.external_url).rstrip("/")
+                or storage.get("collection_prefix", DEFAULT_COLLECTION_PREFIX) != settings.collection_prefix
+            )
         ):
             raise ValueError("Document vector storage configuration changed")
         embeddings = create_document_embeddings(

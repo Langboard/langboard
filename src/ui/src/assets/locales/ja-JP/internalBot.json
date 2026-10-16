@@ -17,6 +17,8 @@
     "store_sqlite": "SQLite",
     "store_qdrant": "Qdrant",
     "external_url": "ベクトルストアのURL",
+    "collection_prefix": "コレクション接頭辞",
+    "collection_prefix_help": "共有Qdrantではインストールごとに固有の接頭辞を使用してください。変更は今後の索引に適用され、既存ファイルは記録済みコレクションを維持します。サーバー認証情報にもアクセス制限が必要です。",
     "external_api_key": "ベクトルストアのAPIキー",
     "dimensions": "埋め込み次元",
     "splitter.type": "スプリッター",

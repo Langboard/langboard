@@ -17,6 +17,8 @@
     "store_sqlite": "SQLite",
     "store_qdrant": "Qdrant",
     "external_url": "벡터 저장소 주소",
+    "collection_prefix": "컬렉션 접두사",
+    "collection_prefix_help": "공용 Qdrant에서는 설치별 고유 접두사를 사용하세요. 변경은 이후 색인에 적용되며 기존 파일은 기록된 컬렉션을 유지합니다. 서버 자격 증명에도 컬렉션 접근 제한이 필요합니다.",
     "external_api_key": "벡터 저장소 API 키",
     "dimensions": "임베딩 차원",
     "splitter.type": "스플리터",

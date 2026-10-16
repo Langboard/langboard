@@ -48,7 +48,13 @@ def fixture(monkeypatch, tmp_path):
         Mock(
             return_value=(
                 {"base_url": "https://fixture.invalid", "model_name": "model"},
-                SimpleNamespace(store="sqlite", dimensions=3, timeout_seconds=2, splitter=object()),
+                SimpleNamespace(
+                    store="sqlite",
+                    dimensions=3,
+                    timeout_seconds=2,
+                    splitter=object(),
+                    collection_prefix="langboard_documents",
+                ),
             )
         ),
     )
@@ -130,12 +136,44 @@ def test_same_model_reindex_honors_explicit_splitter_changes(monkeypatch, tmp_pa
         provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
     )
     document["embedding"] = {
-        "status": "indexed", "source_generation": "current", "config": previous,
+        "status": "indexed",
+        "source_generation": "current",
+        "config": previous,
         "pointer": {"embedding_fingerprint": fingerprint, "storage": {"type": "sqlite"}},
     }
     task.embed_transcription(service, "attachment", "current")
     assert task.stage_vector_generation.call_count == int(splitter_changed)
     assert service.docling_metadata.publish_document_embedding.call_count == int(splitter_changed)
+
+
+@pytest.mark.parametrize("previous_prefix", [None, "next_documents", "old_documents"])
+def test_same_model_explicit_reindex_honors_collection_change(monkeypatch, tmp_path, previous_prefix):
+    from copy import deepcopy
+    from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    config, settings = task.validate_embedding_config.return_value
+    settings.store = "qdrant"
+    settings.external_url = "https://vectors.invalid"
+    settings.collection_prefix = "next_documents"
+    document["embedding_config"]["retrieval"] = {"splitter": {"type": "recursive"}}
+    fingerprint = embedding_fingerprint(
+        provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
+    )
+    storage = {"type": "qdrant", "endpoint": settings.external_url}
+    if previous_prefix:
+        storage["collection_prefix"] = previous_prefix
+    document["embedding"] = {
+        "status": "indexed",
+        "source_generation": "current",
+        "config": deepcopy(document["embedding_config"]),
+        "pointer": {"embedding_fingerprint": fingerprint, "storage": storage},
+    }
+    task.embed_transcription(service, "attachment", "current")
+    changed = previous_prefix != "next_documents"
+    assert task.stage_vector_generation.call_count == int(changed)
+    if changed:
+        assert task.stage_vector_generation.call_args.kwargs["storage"]["collection_prefix"] == "next_documents"
 
 
 def test_queue_outage_and_metadata_outage_never_downgrade_transcription(monkeypatch):

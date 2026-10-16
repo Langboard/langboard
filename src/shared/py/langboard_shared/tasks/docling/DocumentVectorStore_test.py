@@ -150,3 +150,73 @@ def test_common_factory_external_store_does_not_create_local_directory(monkeypat
         assert store is sentinel
     assert connect.call_args.kwargs["create"] is False
     assert not directory.exists()
+
+
+def test_instance_collections_preserve_independent_search_and_deletion(monkeypatch, tmp_path):
+    directory = str(tmp_path / "shared-server")
+    monkeypatch.setattr("qdrant_client.QdrantClient", lambda **_: QdrantClient(path=directory))
+    first = DocumentRetrievalSettings(
+        store="qdrant", external_url="https://fixture.invalid", dimensions=3, collection_prefix="first_documents"
+    )
+    second = first.model_copy(update={"collection_prefix": "second_documents"})
+    fingerprint = "a" * 64
+    source = dict(board_uid="b", card_uid="c", attachment_uid="a", content_hash="h", embedding_fingerprint=fingerprint)
+    pointers = []
+    for settings, text in ((first, "alpha first"), (second, "alpha second")):
+        with open_qdrant_store(settings, Fixture(), fingerprint, {"https://fixture.invalid"}) as store:
+            pointers.append(
+                stage_vector_generation(
+                    store, source=source, text=text, splitter=DocumentSplitterSettings(), storage={"type": "qdrant"}
+                )
+            )
+            assert [doc.page_content for doc in store.similarity_search("alpha")] == [text]
+    with open_qdrant_store(first, None, fingerprint, {"https://fixture.invalid"}, create=False) as store:
+        delete_vector_generation(store, pointers[0])
+    with open_qdrant_store(second, Fixture(), fingerprint, {"https://fixture.invalid"}, create=False) as store:
+        assert [doc.page_content for doc in store.similarity_search("alpha")] == ["alpha second"]
+
+
+@pytest.mark.parametrize("recorded_prefix", [None, "original_documents"])
+def test_cleanup_uses_recorded_collection_after_configuration_change(monkeypatch, tmp_path, recorded_prefix):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from langboard_shared.domain.models.InternalBot import InternalBotType
+    from langboard_shared.tasks.docling import DocumentEmbeddingTask as task
+
+    directory = str(tmp_path / "cleanup-server")
+    monkeypatch.setattr("qdrant_client.QdrantClient", lambda **_: QdrantClient(path=directory))
+    original = DocumentRetrievalSettings(
+        store="qdrant",
+        external_url="https://fixture.invalid",
+        dimensions=3,
+        **({"collection_prefix": recorded_prefix} if recorded_prefix else {}),
+    )
+    current = original.model_copy(update={"collection_prefix": "new_documents"})
+    fingerprint = "a" * 64
+    source = dict(board_uid="b", card_uid="c", attachment_uid="a", content_hash="h", embedding_fingerprint=fingerprint)
+    storage = {"type": "qdrant", "endpoint": "https://fixture.invalid", "binding_uid": "binding", "dimensions": 3}
+    if recorded_prefix:
+        storage["collection_prefix"] = recorded_prefix
+    with open_qdrant_store(original, Fixture(), fingerprint, {"https://fixture.invalid"}) as store:
+        pointer = stage_vector_generation(
+            store, source=source, text="alpha old", splitter=DocumentSplitterSettings(), storage=storage
+        )
+    with open_qdrant_store(current, Fixture(), fingerprint, {"https://fixture.invalid"}) as store:
+        stage_vector_generation(
+            store, source=source, text="alpha current", splitter=DocumentSplitterSettings(), storage=storage
+        )
+    service = SimpleNamespace(
+        internal_bot=SimpleNamespace(
+            get_by_id_like=lambda _: SimpleNamespace(bot_type=InternalBotType.DocumentEmbedding, value="current")
+        ),
+        close=Mock(),
+    )
+    monkeypatch.setattr(task, "DomainService", lambda: service)
+    monkeypatch.setattr(task, "validate_embedding_config", lambda _: ({}, current))
+    monkeypatch.setattr(task, "Env", SimpleNamespace(get_from_env=lambda *_: "https://fixture.invalid"))
+    task.remove_recorded_embedding(pointer)
+    service.close.assert_called_once()
+    with open_qdrant_store(original, Fixture(), fingerprint, {"https://fixture.invalid"}, create=False) as store:
+        assert store.similarity_search("alpha") == []
+    with open_qdrant_store(current, Fixture(), fingerprint, {"https://fixture.invalid"}, create=False) as store:
+        assert [doc.page_content for doc in store.similarity_search("alpha")] == ["alpha current"]

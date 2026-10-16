@@ -196,3 +196,28 @@ not prove deployed provider processing or multilingual transcription quality.
 Keyword language labels reuse the existing locale resources while retaining the
 stored `ko`, `en`, `ja` and `zh` values. Standard-library `re` is imported once;
 optional LangChain/Qdrant integrations retain deferred loading.
+
+
+## Shared external vector collections
+
+Qdrant retrieval settings include `collection_prefix` (default
+`langboard_documents` for existing installations). Set a unique prefix per
+installation when sharing an endpoint. Names consist of 1–63 ASCII letters,
+digits, underscore or hyphen, beginning with a letter or digit. The official
+LangChain/Qdrant integration uses `<prefix>_<embedding-fingerprint>`; no custom
+vector protocol or database adapter is introduced.
+
+The upload snapshot freezes the prefix. Published source pointers record it;
+MCP retrieval checks the recorded prefix and uses that snapshot. Cleanup uses
+the pointer's original prefix even if current settings changed. Pointers predating
+this field retain `langboard_documents`. Explicit reindexing to a different prefix
+must publish the new source pointer before cleanup of the previous generation.
+Settings changes trigger no background scan, migration or destructive purge.
+
+Prefixes prevent accidental name collisions; they do not authorize access. Use
+Qdrant server credentials restricted to the intended collections, and separate
+security boundaries where stronger tenant isolation is required. Endpoint
+allowlisting, current board/card ACLs and source-generation fences still apply.
+Local integration tests exercise the official Qdrant client's persistent local
+mode, independent searches and deletion across namespaces, and legacy cleanup.
+They do not prove a deployed shared server's authentication/TLS or canary E2E.

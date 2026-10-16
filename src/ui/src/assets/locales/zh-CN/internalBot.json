@@ -17,6 +17,8 @@
     "store_sqlite": "SQLite",
     "store_qdrant": "Qdrant",
     "external_url": "向量存储地址",
+    "collection_prefix": "集合前缀",
+    "collection_prefix_help": "共享Qdrant时，请为每个安装实例使用唯一前缀。修改仅影响后续索引，现有文件保留已记录的集合。服务器凭据也必须限制集合访问。",
     "external_api_key": "向量存储 API 密钥",
     "dimensions": "嵌入维度",
     "splitter.type": "分割器",
