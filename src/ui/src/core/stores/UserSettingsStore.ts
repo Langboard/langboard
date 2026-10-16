@@ -12,6 +12,7 @@ export interface IUserSettings {
     explorer_open_cards_collapsed?: Record<string, boolean>;
     wiki_hint_dismissed?: Record<string, boolean>;
     workbench_context_open?: Record<string, boolean>;
+    workbench_sidebar_collapsed?: Record<string, boolean>;
 }
 
 interface IUserSettingsStore {

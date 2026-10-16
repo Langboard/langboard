@@ -1,4 +1,4 @@
-import { createContext, forwardRef, useContext, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, createContext, forwardRef, useContext, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,8 @@ import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import ScrollArea from "@/components/base/ScrollArea";
 import useScrollToTop from "@/core/hooks/useScrollToTop";
+import useAuthStore from "@/core/stores/AuthStore";
+import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import ActivityRail, { IActivityRailItem } from "@/components/Layout/ActivityRail";
 
 interface IBaseDashboardStyledLayoutProps {
@@ -80,7 +82,26 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
         ref
     ) => {
         const [t] = useTranslation();
-        const [contextCollapsed, setContextCollapsed] = useState(false);
+        const userUID = useAuthStore((state) => state.currentUser?.uid);
+        const sidebarPreferences = useUserSettings("workbench_sidebar_collapsed");
+        const savedCollapsed = userUID ? sidebarPreferences?.[userUID] : undefined;
+        const [responsiveCollapsed, setResponsiveCollapsed] = useState(false);
+        const contextCollapsed = savedCollapsed ?? responsiveCollapsed;
+        const setContextCollapsed = useCallback<NonNullable<IResizableSidebarProps["onCollapsedChange"]>>(
+            (collapsed, reason) => {
+                if (reason === "restore") return;
+                if (reason === "responsive" || !userUID) {
+                    setResponsiveCollapsed(collapsed);
+                    return;
+                }
+                const store = getUserSettingsStore();
+                store.updateSettingsByKey("workbench_sidebar_collapsed", {
+                    ...store.settings.workbench_sidebar_collapsed,
+                    [userUID]: collapsed,
+                });
+            },
+            [userUID]
+        );
         const mobileNavigationTrigger = useRef<HTMLButtonElement>(null);
         const mobileContext = useRef<HTMLElement>(null);
         const closeMobileContext = () => {
@@ -195,7 +216,8 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                                     compactHeight
                                     floatingHidden
                                     showCollapseButton
-                                    autoCollapseAt={1280}
+                                    collapsed={contextCollapsed}
+                                    autoCollapseAt={savedCollapsed === undefined ? 1280 : undefined}
                                     onCollapsedChange={setContextCollapsed}
                                     hidden={!workbenchContext || workbenchContextHidden}
                                 >

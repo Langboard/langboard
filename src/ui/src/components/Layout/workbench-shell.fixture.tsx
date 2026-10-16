@@ -6,8 +6,18 @@ import WorkbenchRouteLayout from "./WorkbenchRouteLayout";
 import DashboardStyledLayout from "./DashboardStyledLayout";
 import { LabelBadge } from "@/components/LabelBadge";
 import DropdownMenu from "@/components/base/DropdownMenu";
+import useAuthStore from "@/core/stores/AuthStore";
+import { AuthUser } from "@/core/models";
 import "@/i18n";
 import "@/assets/styles/main.css";
+
+const selectFixtureUser = (uid: string) => {
+    useAuthStore.setState({
+        state: "loaded",
+        currentUser: AuthUser.Model.fromOne({ uid, created_at: new Date(), updated_at: new Date() }),
+    });
+};
+selectFixtureUser("sidebar-user-a");
 
 const PageContext = createContext("missing context");
 function SidebarContent() {
@@ -55,6 +65,12 @@ function Page({ name }: { name: string }) {
                 <output data-testid="page-mounts">{mountNumber}</output>
                 <p>{location.pathname}</p>
                 <nav className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => selectFixtureUser("sidebar-user-a")}>
+                        Use first user
+                    </button>
+                    <button type="button" onClick={() => selectFixtureUser("sidebar-user-b")}>
+                        Use second user
+                    </button>
                     <Link to="/dashboard/projects/all">Open Dashboard</Link>
                     <Link to="/board/fixture" state={{ commandPaletteFocus: true }}>
                         Open Board

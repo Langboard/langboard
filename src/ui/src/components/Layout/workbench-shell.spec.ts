@@ -518,3 +518,36 @@ test("rail keeps settings reachable below scrolling workspace actions", async ({
     await settings.focus();
     await expect(settings).toBeFocused();
 });
+
+for (const width of [1440, 1100]) {
+    test(`explicit sidebar preference survives navigation and reload at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        const sidebar = page.locator("[data-workbench-sidebar]");
+        if (width <= 1280) await sidebar.getByRole("button", { name: /Expand|펼치기/ }).click();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+        await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+        await page.reload();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+        await sidebar.getByRole("button", { name: /Expand|펼치기/ }).click();
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+        await page.reload();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    });
+}
+
+test("sidebar preference belongs to the current user", async ({ page }) => {
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const sidebar = page.locator("[data-workbench-sidebar]");
+    await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await page.getByRole("button", { name: "Use second user", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await page.getByRole("button", { name: "Use first user", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await page.getByRole("button", { name: "Use second user", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+});
