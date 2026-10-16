@@ -246,3 +246,26 @@ four current-content formatting differences, two normalized wiki history
 matches, and one unresolved exact-comment identity. This bounded classification
 does not replace a consistent backup, restore/rollback exercise, or browser
 acceptance of an actual recovery.
+
+
+## Direct identity replacement cache isolation (2026-10-16)
+
+An authenticated browser observation showed an old account's dashboard before
+identity hydration; that observation alone does not establish unauthorized API
+access. A focused test against the actual AuthStore separately reproduced a
+concrete defect: direct replacement of one authenticated UID by another did not
+clear model state, cached queries, or the previous Phoenix connection.
+
+Cleanup now runs synchronously at the identity store boundary before hydrating
+the replacement user, and on logout or a terminal identity lookup failure. The
+application and identity store share the existing single QueryClient; the
+provider's delayed logout-only cleanup has been removed. Same-user token
+refresh preserves cached data and the connection. Existing session-version
+fences still reject late responses from an earlier login.
+
+Run `cd src/ui && npm run test:auth-session`. The test failed against the prior
+implementation at replacement-identity model cleanup, then passed with the fix.
+It exercises real QueryClient cache retention/clearing and the actual store,
+with model and socket boundaries instrumented. UI TypeScript checking and
+format checks also passed. Full integration and deployed browser account-switch
+acceptance remain required; these local results do not establish either.
