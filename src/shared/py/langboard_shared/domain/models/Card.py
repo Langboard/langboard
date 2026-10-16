@@ -43,9 +43,12 @@ class Card(BaseNotificationScheduleModel, table=True):
     owner_user_id: SnowflakeID | None = SnowflakeIDField(foreign_key="user.id", nullable=True)
     title: str = Field(nullable=False, api_field=ApiField())
     description: EditorContentModel = Field(
-        default=EditorContentModel(), sa_type=ModelColumnType(EditorContentModel), api_field=ApiField()
+        default=EditorContentModel(), sa_type=ModelColumnType(EditorContentModel),
+        api_field=ApiField(by_conditions={"include_body": ("both", True)}),
     )
-    ai_description: str | None = Field(default=None, sa_type=TEXT, api_field=ApiField())
+    ai_description: str | None = Field(
+        default=None, sa_type=TEXT, api_field=ApiField(by_conditions={"include_body": ("both", True)})
+    )
     deadline_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     archived_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
@@ -87,10 +90,7 @@ class Card(BaseNotificationScheduleModel, table=True):
         *, include_body: bool = True,
     ) -> dict[str, Any]:
         return {
-            **{
-                key: value for key, value in self.api_response().items()
-                if include_body or key not in ("description", "ai_description")
-            },
+            **self.api_response(include_body=include_body),
             "visibility": self.visibility,
             "count_comment": count_comment,
             "member_uids": member_uids,
@@ -104,11 +104,10 @@ class Card(BaseNotificationScheduleModel, table=True):
 
     @classmethod
     def api_schema(cls, schema: dict | None = None, *, include_body: bool = True, **kwargs) -> dict[str, Any]:
-        result = super().api_schema(schema, **kwargs)
-        if not include_body:
-            result.pop("description", None)
-            result.pop("ai_description", None)
-        return result
+        return super().api_schema(schema, include_body=include_body, **kwargs)
+
+    def api_response(self, *, include_body: bool = True, **kwargs) -> dict[str, Any]:
+        return super().api_response(include_body=include_body, **kwargs)
 
     def notification_data(self) -> dict[str, Any]:
         return {
