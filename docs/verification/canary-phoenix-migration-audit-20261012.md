@@ -278,3 +278,36 @@ was rerun with the final test and failed at replacement-identity cleanup.
 This wires the regression into the existing validation target without adding a
 workflow or runner permission. The central image target has not run at this
 commit, and required direct GitHub checks remain separate gates.
+
+## Dashboard and board read measurements (2026-10-16)
+
+The performance card remains active. Five successful API probes do not prove
+dashboard usability, board usability, p95/p99, or the requested small/large-board
+acceptance. No archive or performance acceptance is inferred from them.
+
+The API now measures GET `/dashboard/projects` and `/board/*` at the shared ASGI
+boundary, including authorization failures. Each request emits one JSON record
+through the existing structured logging sink: route template, generated request
+ID, existing Sentry trace ID when available, status, time to response headers,
+total duration, bytes successfully sent after compression, and completion flag.
+The response exposes `X-Request-ID` and `Server-Timing` through existing CORS.
+No request body, query string, concrete board/card identifier, incoming header,
+or exception text is recorded. Streaming chunks pass through without buffering.
+MCP streams, WebSockets and writes are excluded. A failure after headers can have
+a success HTTP status with `completed=false`; error-rate aggregation must include
+incomplete responses. These timings include server send/background completion,
+not browser rendering or network connection setup.
+
+Focused checks: `test_app.py` plus `LogFileHandler_test.py`, 15 passed using the
+existing local dependency environment. Coverage includes native FastAPI route
+templates, correlation, CORS, streaming, compression byte accounting, native
+Sentry span identity, 403/503 responses, unhandled failure privacy, unchanged
+non-read transports, existing middleware registration and task discovery. The
+existing API image profile already executes `test_app.py`; no new CI workflow,
+runner permission, package, database table, or background worker was added.
+
+Remaining: deploy this source through the existing canary image path, collect
+representative API and database timings, reduce the measured loading/query
+costs, and run at least ten browser measurements for each board-size cohort.
+This local result does not establish deployed telemetry or an improvement in
+user-perceived latency.

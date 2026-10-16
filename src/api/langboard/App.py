@@ -11,7 +11,13 @@ from langboard_shared.FastAPIAppConfig import FastAPIAppConfig
 from .Constants import APP_CONFIG_FILE
 from .Loader import ModuleLoader
 from .mcp_integration import McpServer
-from .middlewares import ApiAuthMiddleware, ChatUploadConcurrencyMiddleware, CollaborativeEditMiddleware, RoleMiddleware
+from .middlewares import (
+    ApiAuthMiddleware,
+    ChatUploadConcurrencyMiddleware,
+    CollaborativeEditMiddleware,
+    ReadTelemetryMiddleware,
+    RoleMiddleware,
+)
 
 
 class App:
@@ -86,8 +92,9 @@ class App:
                 "Mcp-Session-Id",
                 "Last-Event-ID",
             ],
-            expose_headers=["Mcp-Session-Id"],
+            expose_headers=["Mcp-Session-Id", "X-Request-ID", "Server-Timing"],
         )
+        self.api.add_middleware(ReadTelemetryMiddleware)
 
         middleware_modules = ModuleLoader.load(
             "middlewares", "Middleware", BaseMiddleware, not self.config.is_restarting

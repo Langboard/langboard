@@ -130,6 +130,11 @@ class Logger:
                 },
             },
             "loggers": {
+                f"{Env.PROJECT_NAME}.http.telemetry": {
+                    "handlers": ["mcp_telemetry"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
                 f"{Env.PROJECT_NAME}.mcp.telemetry": {
                     "handlers": ["mcp_telemetry"],
                     "level": "INFO",

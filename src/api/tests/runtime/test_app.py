@@ -1,10 +1,15 @@
+import json
+import logging
 import os
 import re
 import subprocess
 import sys
 from types import SimpleNamespace
+import pytest
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from httpx import ASGITransport, AsyncClient
 from pytest import MonkeyPatch
 from starlette.middleware import Middleware
 
@@ -13,7 +18,12 @@ os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard.App import App  # noqa: E402
 from langboard.Loader import ModuleLoader  # noqa: E402
-from langboard.middlewares import ApiAuthMiddleware, ChatUploadConcurrencyMiddleware, RoleMiddleware  # noqa: E402
+from langboard.middlewares import (  # noqa: E402
+    ApiAuthMiddleware,
+    ChatUploadConcurrencyMiddleware,
+    ReadTelemetryMiddleware,
+    RoleMiddleware,
+)
 from langboard_shared.core.routing import AppRouter  # noqa: E402
 from langboard_shared.FastAPIAppConfig import FastAPIAppConfigModel  # noqa: E402
 
@@ -33,6 +43,137 @@ def _create_test_app() -> App:
 
 def _find_middleware(app: App, middleware_class: object) -> Middleware:
     return next(middleware for middleware in app.api.user_middleware if middleware.cls is middleware_class)
+
+
+async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(caplog) -> None:
+    api = FastAPI()
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://ui.example.test"],
+        expose_headers=["X-Request-ID", "Server-Timing"],
+    )
+    api.add_middleware(ReadTelemetryMiddleware)
+
+    @api.get("/board/{project_uid}/cards")
+    async def cards(project_uid: str):
+        async def chunks():
+            yield b"PRIVATE_BODY"
+            yield b"_END"
+
+        return StreamingResponse(chunks(), headers={"Server-Timing": "db;dur=2"})
+
+    caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.get(
+            "/board/PRIVATE_UID/cards?token=PRIVATE_QUERY",
+            headers={"origin": "https://ui.example.test", "x-request-id": "PRIVATE_HEADER"},
+        )
+    assert response.content == b"PRIVATE_BODY_END"
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://ui.example.test"
+    assert "X-Request-ID" in response.headers["access-control-expose-headers"]
+    assert "db;dur=2" in response.headers["server-timing"]
+    assert "app;dur=" in response.headers["server-timing"]
+    records = [r.message for r in caplog.records if r.name == "langboard.http.telemetry"]
+    assert len(records) == 1
+    record = json.loads(records[0])
+    assert record["request_id"] == response.headers["x-request-id"]
+    assert len(record["request_id"]) == 32
+    assert record["route"] == "/board/{project_uid}/cards"
+    assert record["response_bytes"] == len(response.content)
+    assert record["completed"] is True
+    assert record["duration_ms"] >= record["headers_ms"] >= 0
+    assert "PRIVATE_" not in records[0]
+
+
+@pytest.mark.parametrize("status", [403, 503])
+async def test_read_telemetry_keeps_error_status(status, caplog) -> None:
+    from fastapi.responses import Response
+
+    api = FastAPI()
+    api.add_middleware(ReadTelemetryMiddleware)
+
+    @api.get("/dashboard/projects")
+    async def projects():
+        return Response(status_code=status)
+
+    caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.get("/dashboard/projects")
+    record = json.loads([r.message for r in caplog.records if r.name == "langboard.http.telemetry"][-1])
+    assert response.status_code == record["status"] == status
+    assert record["completed"] is True
+
+
+async def test_read_telemetry_records_unhandled_failure_without_exception_payload(caplog) -> None:
+    api = FastAPI()
+    api.add_middleware(ReadTelemetryMiddleware)
+
+    @api.get("/board/{project_uid}")
+    async def board(project_uid: str):
+        raise RuntimeError("PRIVATE_EXCEPTION")
+
+    caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="PRIVATE_EXCEPTION"):
+            await client.get("/board/PRIVATE_UID")
+    records = [r.message for r in caplog.records if r.name == "langboard.http.telemetry"]
+    assert len(records) == 1
+    record = json.loads(records[0])
+    assert record["status"] == 500
+    assert record["completed"] is False
+    assert record["headers_ms"] is None
+    assert "PRIVATE_" not in records[0]
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        {"type": "websocket", "path": "/board/test"},
+        {"type": "http", "method": "POST", "path": "/board/test/cards"},
+        {"type": "http", "method": "GET", "path": "/mcp/agent"},
+    ],
+)
+async def test_read_telemetry_leaves_unrelated_transports_untouched(scope, caplog) -> None:
+    observed = []
+
+    async def downstream(actual_scope, receive, send):
+        assert actual_scope is scope
+        await send({"type": "sentinel"})
+
+    async def receive():
+        raise AssertionError("Telemetry must not consume request messages")
+
+    async def send(message):
+        observed.append(message)
+
+    caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
+    await ReadTelemetryMiddleware(downstream)(scope, receive, send)
+    assert observed == [{"type": "sentinel"}]
+    assert not [r for r in caplog.records if r.name == "langboard.http.telemetry"]
+
+
+async def test_read_telemetry_counts_compressed_bytes_and_native_trace(caplog) -> None:
+    from fastapi.middleware.gzip import GZipMiddleware
+    from fastapi.responses import Response
+    from sentry_sdk import start_span
+
+    api = FastAPI()
+    api.add_middleware(GZipMiddleware, minimum_size=1)
+    api.add_middleware(ReadTelemetryMiddleware)
+
+    @api.get("/dashboard/projects")
+    async def projects():
+        return Response(b"x" * 1024)
+
+    caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        with start_span(op="test") as span:
+            response = await client.get("/dashboard/projects", headers={"accept-encoding": "gzip"})
+    record = json.loads([r.message for r in caplog.records if r.name == "langboard.http.telemetry"][-1])
+    assert response.content == b"x" * 1024
+    assert record["response_bytes"] == int(response.headers["content-length"]) < 1024
+    assert record["trace_id"] == span.trace_id
 
 
 def test_activity_tasks_import_without_cycle() -> None:
@@ -86,6 +227,10 @@ def test_authorization_middlewares_use_original_api_routes(monkeypatch: MonkeyPa
 
     assert _find_middleware(app, ApiAuthMiddleware).kwargs["routes"] is AppRouter.api.routes
     assert _find_middleware(app, RoleMiddleware).kwargs["routes"] is AppRouter.api.routes
+    telemetry = _find_middleware(app, ReadTelemetryMiddleware)
+    cors = _find_middleware(app, CORSMiddleware)
+    assert app.api.user_middleware.index(telemetry) < app.api.user_middleware.index(cors)
+    assert {"X-Request-ID", "Server-Timing"}.issubset(cors.kwargs["expose_headers"])
 
 
 def test_cors_wraps_chat_upload_concurrency_rejections(monkeypatch: MonkeyPatch) -> None:
@@ -94,7 +239,9 @@ def test_cors_wraps_chat_upload_concurrency_rejections(monkeypatch: MonkeyPatch)
 
     app._init_api_middlewares()
 
-    cors_index = next(index for index, middleware in enumerate(app.api.user_middleware) if middleware.cls is CORSMiddleware)
+    cors_index = next(
+        index for index, middleware in enumerate(app.api.user_middleware) if middleware.cls is CORSMiddleware
+    )
     upload_index = next(
         index
         for index, middleware in enumerate(app.api.user_middleware)
