@@ -22,6 +22,18 @@ desktop/mobile tests cover group navigation, module-targeted panel writes,
 retained signal consent, workflow drafts, credential recovery, read-only authority
 and degraded discovery. These fixture tests do not prove canary deployment.
 
+### Shared UX acceptance
+
+Review app setup as a complete user flow: discover the app, connect an account,
+understand the requested permissions, select resources and map the existing
+workflow stages. Provider-specific fields belong inside the shared management
+sections and reuse host inputs, color controls, icons and feedback. A successful
+installation alone does not prove that connection, permissions or resource
+selection are complete. Check both desktop and mobile navigation, retained
+unsaved inputs and recoverable errors when changing the shared UI. Keep provider
+editors deferred until needed so an increasing app catalog does not mount every
+integration form on the Store overview.
+
 ## Current host API
 
 - `GET /settings/apps/compositions`: current administrator lists explicit groups and exact installed module keys, names, versions and enabled status.
