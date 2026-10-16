@@ -165,3 +165,45 @@ attachment model from the confirmed HTTP response, matching the existing socket
 handler. It adds no polling or parallel store. Exact UI product validation and
 post-deployment immediate-list verification remain pending. The missing live
 update event cause is not established by this bounded reproduction.
+
+## Editor preservation follow-up (2026-10-16)
+
+A read-only runtime audit found separate editor stores: the stopped legacy Node
+container retains 418 documents in its writable layer, while the active Phoenix
+bind mount contains 32 documents. All 376 documents from the October 14 backup
+remain in the stopped source with identical SHA256 checksums. The files are
+preserved; active-store restoration is not yet verified.
+
+The 433 unique file hashes map to names derived from the current database,
+including deleted records. This proves name correspondence, not active-record
+status or a transactionally consistent backup. All 450 source/current copies
+passed Yjs -> deployed Yex -> Yjs checks with equal state vectors and complete
+updates. The active store is readable and writable by the deployed nonroot user.
+
+Seventeen shared filenames have independent CRDT histories. Sixteen contain
+label-selection text and one contains a card description. A mechanically valid
+CRDT union is not an accepted recovery strategy: it can duplicate independently
+seeded content or resurrect stale selections. Preserve current documents and
+both original snapshots; compare retained drafts with current domain values
+before activating old state. The audit-only recovery plan separates 401 missing
+files and 17 conflicts and explicitly does not authorize or claim restoration.
+A matching quiesced database/editor snapshot, resolved-content restore, rollback
+proof, and authenticated browser acceptance remain required. The independent
+read-only copies and checks are private verification artifacts, not product data
+or repository fixtures.
+
+The shared card-description conflict was checked against the current authenticated
+card read. Phoenix text exactly matches the saved domain value; legacy text does
+not. A mechanical merge increases visible text from 162 to 269 characters and
+includes both versions. Keep the current document for this conflict. This result
+does not decide the other missing files or prove that old drafts were all saved.
+
+A subsequent bounded read retrieved the 64 saved card-description, comment, and
+wiki values. Comparing through the current source's actual BaseEditorKit and
+MarkdownKit found 45 of 59 legacy content documents equivalent to the saved
+values. Fourteen differ, including the already-resolved current-store conflict;
+13 missing-from-current legacy content documents still require semantic review.
+Five of six current content documents compare equal. The sixth differs only by
+a zero-width-space empty paragraph in serialized Markdown, not business text.
+These comparisons do not authorize activation, replace a consistent snapshot,
+or decide non-content selection/configuration state. No live data was changed.
