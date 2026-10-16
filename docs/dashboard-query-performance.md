@@ -48,3 +48,26 @@ These are synthetic local query measurements, not dashboard latency, cold-cache
 results, percentile acceptance, or production deployment proof. Costs still grow
 with the number of assigned cards. Actual canary measurements on small and large
 boards remain necessary, as do the broader loading and server-resource changes.
+
+
+## Project detail reads and default bots
+
+Ordinary board/MCP detail serialization no longer repairs default bot assignments.
+It retains member classification, invitations, role actions, and labels, without
+querying the assigned-bot or global-default inventories. New project creation
+still installs its defaults. Bot settings still repair missing defaults.
+
+When a specific bot is actually requested, an existing assignment returns
+immediately. If absent, the existing default-repair routine runs and the requested
+assignment is looked up again. This preserves older projects that predate a new
+default and leaves custom bot choices and prompts intact. If no global default
+exists, the bot remains unavailable. This uses the existing service boundary and
+adds no background reconciler, cache, or service.
+
+The bootstrap regression and board-chat availability tests are part of the API
+validation profile. Focused chat, upload, editor, settings, membership and bootstrap
+coverage passed 120 tests after the change; three new expectations failed on the
+original implementation. This is source proof only. The board HTTP route's
+separate last-view update still writes visit recency/frequency and is not removed
+by this change. Actual canary response timing and bot operation need verification
+after release.

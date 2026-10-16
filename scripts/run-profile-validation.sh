@@ -9,6 +9,8 @@ case "$profile" in
     export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
+      src/api/tests/runtime/test_project_read_bootstrap.py \
+      src/api/tests/runtime/test_board_chat_availability.py \
       src/api/tests/core/test_unprivileged_cron.py \
       src/api/tests/core/test_logger_tracebacks.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
