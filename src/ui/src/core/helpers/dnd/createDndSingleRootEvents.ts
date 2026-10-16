@@ -66,9 +66,9 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
         return { undo };
     };
 
-    const autoScrollEvents: Record<string, CleanupFn> = {};
+    const autoScrollCleanups: Record<string, CleanupFn> = {};
     if (scrollable && settings) {
-        autoScrollEvents.autoScrollForElements = autoScrollForElements({
+        autoScrollCleanups.autoScrollForElements = autoScrollForElements({
             canScroll({ source }) {
                 if (!settings.isOverElementAutoScrollEnabled) {
                     return false;
@@ -80,7 +80,7 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
             element: scrollable,
         });
 
-        autoScrollEvents.unsafeOverflowAutoScrollForElements = unsafeOverflowAutoScrollForElements({
+        autoScrollCleanups.unsafeOverflowAutoScrollForElements = unsafeOverflowAutoScrollForElements({
             element: scrollable,
             getConfiguration: () => ({ maxScrollSpeed: settings.rootScrollSpeed }),
             canScroll({ source }) {
@@ -151,8 +151,8 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
                     undo,
                 });
             },
-            ...autoScrollEvents,
-        })
+        }),
+        ...Object.values(autoScrollCleanups)
     );
 };
 

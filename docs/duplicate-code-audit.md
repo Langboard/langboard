@@ -75,3 +75,20 @@ wrappers and integration/settings flows. Shared error callbacks and measurement
 markers were removed first. The audit inventory is a prioritization aid, not an
 automatic rewrite or deletion rule. Local verification inventories retain the
 exact paths for the next pass.
+
+## Follow-up: single-list auto-scroll cleanup
+
+Reviewing the remaining drag-and-drop candidates exposed a lifecycle defect in
+`createDndSingleRootEvents`. Auto-scroll registration returns cleanup functions;
+the implementation spread them into the monitor configuration as unused fields.
+The returned teardown removed only the monitor, retaining the scroll registries'
+references to each old element. Attachment lists, wiki tabs and board label lists
+share this owner and register it from effects that return its teardown.
+
+The existing `combine` now includes those cleanup functions. No new abstraction,
+dependency, scroll geometry or reorder behavior was introduced. A real-browser
+regression bundles the actual drag-and-drop implementation without mocks and
+checks three mount/teardown cycles. The unchanged source leaves the scrollable
+attribute registered after all three teardowns; the fix removes it each time.
+This is a local browser lifecycle check, not canary publication or evidence that
+this defect caused the separately observed API transport cancellations.
