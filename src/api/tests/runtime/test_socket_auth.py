@@ -671,7 +671,7 @@ def test_editor_document_write_authorization_allows_own_comment_document() -> No
     service.project.get_by_id_like.return_value = project
     service.project.is_assigned.return_value = (True, object())
     service.project.get_user_role_actions_by_project.return_value = [ProjectRoleAction.CardWrite.value]
-    service.card_comment.get_by_id_like.return_value = Mock()
+    service.card_comment.get_by_id_like.return_value = Mock(card_id=card.id, deleted_at=None)
     service.card_comment.can_mutate.return_value = True
     subscription = (SocketTopic.BoardCard, card.get_uid())
     comment_document = f"card:{card.get_uid()}:comment-comment-id"
@@ -687,6 +687,35 @@ def test_editor_document_write_authorization_allows_own_comment_document() -> No
     service.card_comment.get_by_id_like.return_value = None
     service.card_comment.can_mutate.return_value = True
     assert not _is_editor_document_write_authorized(service, user, subscription, comment_document)
+
+
+
+@pytest.mark.parametrize("is_admin", [False, True])
+def test_comment_document_write_is_bound_to_live_comment_and_card(is_admin: bool) -> None:
+    user = create_user(is_admin=is_admin)
+    project = Project.model_construct(id=SnowflakeID(2))
+    card = Card.model_construct(id=SnowflakeID(3), project_id=project.id)
+    service = create_authorization_service()
+    service.card.get_by_id_like.return_value = card
+    service.project.get_by_id_like.return_value = project
+    service.project.is_assigned.return_value = (True, object())
+    service.project.get_user_role_actions_by_project.return_value = [ProjectRoleAction.CardUpdate.value]
+    comment = Mock(card_id=card.id, deleted_at=None)
+    service.card_comment.get_by_id_like.return_value = comment
+    service.card_comment.can_mutate.return_value = True
+    subscription = (SocketTopic.BoardCard, card.get_uid())
+    document = f"card:{card.get_uid()}:comment-comment-id"
+
+    assert _is_editor_document_write_authorized(service, user, subscription, document)
+    comment.card_id = SnowflakeID(999)
+    assert not _is_editor_document_write_authorized(service, user, subscription, document)
+    comment.card_id = card.id
+    comment.deleted_at = SafeDateTime.now()
+    assert not _is_editor_document_write_authorized(service, user, subscription, document)
+    comment.deleted_at = None
+    assert not _is_editor_document_write_authorized(service, user, subscription, "card:other-card:comment-comment-id")
+    service.card_comment.can_mutate.return_value = False
+    assert not _is_editor_document_write_authorized(service, user, subscription, document)
 
 
 def test_editor_document_write_authorization_uses_existing_settings_roles() -> None:

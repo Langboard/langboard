@@ -383,3 +383,19 @@ change, the traceback and exception remain visible and the local value is absent
 The regression plus existing MCP telemetry suite passes 18 tests. The existing
 API image-validation profile includes this regression; no runner permission,
 workflow or dependency is added. Deployed canary acceptance remains pending.
+
+### Comment-author editing parity (2026-10-17)
+
+Preserve PR #707's author-edit fix in the integration branch. Its initial
+comment-document exception checked mutation authority for the named comment
+without binding that comment to the authorized card, and fell back to card edit
+permission for another author's comment. Bind the document entity and live
+comment to the current card, and apply the REST comment mutation decision to
+comment documents, including administrators. Other card sections retain their
+existing `card_update` requirement and readable-card checks run first.
+
+Both new card-binding regressions fail on the original #707 patch. With the
+additional binding, all 86 socket authorization tests and the logger regression
+pass (87 total). The fixture HMAC-key warnings are unchanged. Actual internal
+and external user editor persistence, denial UX and canary publication remain
+pending; this does not authorize changing a member's role or archive the issue.

@@ -7,7 +7,7 @@ from langboard_shared.core.routing import (
     SocketTopic,
 )
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.domain.models import Project, User
+from langboard_shared.domain.models import Card, Project, User
 from langboard_shared.domain.models.ApiKeyRole import ApiKeyRoleAction
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.McpRole import McpRoleAction
@@ -224,13 +224,13 @@ def authorized_editor_document_subscription(
 _CARD_COMMENT_SECTION_PREFIX = "comment-"
 
 
-def is_card_comment_author(service: DomainService, user: User, document_name: str | None) -> bool:
+def is_card_comment_author(service: DomainService, user: User, card: Card, document_name: str | None) -> bool:
     """Return whether the document names a card comment the user may mutate (REST can_mutate parity)."""
 
     if not document_name:
         return False
     parts = document_name.split(":")
-    if len(parts) != 3 or parts[0] != EEditorCollaborationType.Card.value:
+    if len(parts) != 3 or parts[0] != EEditorCollaborationType.Card.value or parts[1] != card.get_uid():
         return False
     section = parts[2]
     if not section.startswith(_CARD_COMMENT_SECTION_PREFIX):
@@ -239,7 +239,12 @@ def is_card_comment_author(service: DomainService, user: User, document_name: st
     if not comment_uid:
         return False
     comment = service.card_comment.get_by_id_like(comment_uid)
-    return bool(comment and service.card_comment.can_mutate(user, comment))
+    return bool(
+        comment
+        and comment.card_id == card.id
+        and comment.deleted_at is None
+        and service.card_comment.can_mutate(user, comment)
+    )
 
 
 def is_editor_document_write_authorized(
@@ -259,9 +264,9 @@ def is_editor_document_write_authorized(
         project = service.project.get_by_id_like(card.project_id)
         if not project:
             return False
+        if document_name and document_name.split(":")[-1].startswith(_CARD_COMMENT_SECTION_PREFIX):
+            return is_card_comment_author(service, user, card, document_name)
         if user.is_admin:
-            return True
-        if is_card_comment_author(service, user, document_name):
             return True
         return bool(
             service.project.is_assigned(user, project)[0]
