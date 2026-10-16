@@ -60,15 +60,15 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         project_id = InfraHelper.convert_id(project)
         card_ids = [InfraHelper.convert_id(uid) for uid in card_uids]
         with DbSession.use(readonly=False) as db:
-            cards = db.exec(
-                SqlBuilder.select.table(Card)
+            card_ids = db.exec(
+                SqlBuilder.select.column(Card.id)
                 .join(Project, Project.column("id") == Card.column("project_id"))
                 .where(Project.column("deleted_at") == None)  # noqa: E711
                 .where(Card.column("project_id") == project_id)
                 .where(Card.column("id").in_(card_ids))
                 .where(card_visibility_scope(context))
             ).all()
-        return [card.get_uid() for card in cards]
+        return [InfraHelper.convert_uid(card_id) for card_id in card_ids]
 
     def update_description_if_current(self, card: Card, expected_content: str) -> bool:
         """Lock and compare the primary row before updating only its description."""

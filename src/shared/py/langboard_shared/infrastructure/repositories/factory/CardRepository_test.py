@@ -7,7 +7,7 @@ os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from datetime import timedelta
 import pytest
-from sqlalchemy import create_engine, inspect, select, update
+from sqlalchemy import create_engine, event, inspect, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import defer
 from ....core.db import DbSession, EditorContentModel
@@ -420,7 +420,20 @@ def test_recent_availability_excludes_missing_deleted_and_foreign_project_cards(
             db.delete(removed)
         repo = CardRepository(lambda _: None, lambda _: None)
         context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=int(owner.id))
-        assert repo.get_existing_uids(project, [valid.get_uid(), removed_uid, foreign.get_uid()], context=context) == [valid.get_uid()]
+        projections = []
+
+        def capture_projection(_connection, _cursor, _statement, _parameters, execution, _many):
+            query = execution.compiled.statement
+            if query.is_select:
+                projections.append([(column.table.name, column.name) for column in query.selected_columns])
+
+        event.listen(engine, "before_cursor_execute", capture_projection)
+        try:
+            assert repo.get_existing_uids(project, [valid.get_uid(), removed_uid, foreign.get_uid()], context=context) == [valid.get_uid()]
+        finally:
+            event.remove(engine, "before_cursor_execute", capture_projection)
+        # Availability needs one bounded ID projection, never editor bodies or other card payloads.
+        assert projections == [[("card", "id")]]
         assert repo.get_existing_uids(project, [], context=context) == []
         with pytest.raises(ValueError):
             repo.get_existing_uids(project, [valid.get_uid()] * 201, context=context)
