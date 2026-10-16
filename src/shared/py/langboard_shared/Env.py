@@ -3,6 +3,7 @@ from importlib.metadata import version
 from os import environ
 from os.path import dirname
 from pathlib import Path
+from re import fullmatch
 from typing import Any, Literal, cast
 from dotenv import load_dotenv
 from .core.utils.decorators import class_instance, thread_safe_singleton
@@ -336,6 +337,13 @@ class Env:
     @property
     def CACHE_URL(self) -> str:
         return self.__get_from_cache("CACHE_URL", "")
+
+    @property
+    def CACHE_KEY_PREFIX(self) -> str:
+        prefix = self.__get_from_cache("CACHE_KEY_PREFIX", "")
+        if prefix and not fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,126}:", prefix):
+            raise ValueError("CACHE_KEY_PREFIX must be a literal namespace ending with ':' (maximum 128 characters)")
+        return prefix
 
     @property
     def BROKER_URL(self) -> str:

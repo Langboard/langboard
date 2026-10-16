@@ -67,7 +67,7 @@ def lock_board_chat_attachment_ticket(token: str) -> Iterator[None]:
 
     with Redis.from_url(Env.CACHE_URL) as redis:
         with redis.lock(
-            f"{_CACHE_PREFIX}{token}:lock",
+            f"{Env.CACHE_KEY_PREFIX}{_CACHE_PREFIX}{token}:lock",
             timeout=2 * Env.AI_REQUEST_TIMEOUT + 60,
             blocking_timeout=Env.AI_REQUEST_TIMEOUT + 60,
         ):
