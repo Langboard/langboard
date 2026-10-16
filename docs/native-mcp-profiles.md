@@ -163,3 +163,14 @@ for a card's own completion checkbox. Read `core.is_check_card` and
 permission. Linked Wiki references and cards without that checkbox are rejected.
 It does not move the card, complete user checklists or grant workflow approval.
 The hidden backing checklist remains absent from ordinary checklist pages.
+
+### Reviewed Work Plan conflicts
+
+`apply_card_work_plan` rejects a stale preview before any plan writes using
+`WorkPlanConflict`. Modern MCP mutation receipts report `not_applied`,
+`revision_conflict: true` and `next_action: read_and_review`. The REST compatibility
+endpoint returns HTTP 409 with `code: REVISION_CONFLICT` and the same outcome;
+clients must preview and review again instead of automatically retrying it.
+An ordinary exception, including one with identical wording after persistence,
+still has an unknown outcome. Repeating an accepted plan with its original
+request ID and revision returns the saved receipt without duplicating changes.

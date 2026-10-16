@@ -68,6 +68,10 @@ class CardBundleSection(StrEnum):
     BotSchedules = "automation.bot_schedules"
 
 
+class WorkPlanConflict(ValueError):
+    """A reviewed work plan was rejected before any writes."""
+
+
 class DescriptionPatchConflict(ValueError):
     """A reviewed description patch was rejected before persistence."""
 

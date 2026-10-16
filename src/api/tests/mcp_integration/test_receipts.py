@@ -4,13 +4,13 @@ from types import SimpleNamespace
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import AuthorizationError, ValidationError
-from langboard.card_workspace.domain import DescriptionPatchConflict
+from langboard.card_workspace.domain import DescriptionPatchConflict, WorkPlanConflict
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 
 
-@pytest.mark.parametrize("mode", ["success", "after_write", "conflict", "authorization"])
+@pytest.mark.parametrize("mode", ["success", "after_write", "conflict", "work_plan_conflict", "authorization"])
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
 async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monkeypatch, mode, profile):
     effects = []
@@ -19,10 +19,11 @@ async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monke
     def command(value: int) -> dict[str, int]:
         if mode == "authorization":
             raise AuthorizationError("Insufficient permissions")
-        if mode == "conflict":
+        if mode in {"conflict", "work_plan_conflict"}:
             try:
-                raise DescriptionPatchConflict("stale revision")
-            except DescriptionPatchConflict as error:
+                error_type = WorkPlanConflict if mode == "work_plan_conflict" else DescriptionPatchConflict
+                raise error_type("stale revision")
+            except (DescriptionPatchConflict, WorkPlanConflict) as error:
                 raise ValidationError("review required") from error
         effects.append(value)
         if mode == "after_write":
@@ -61,10 +62,15 @@ async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monke
                 assert receipt["tool"] == name
                 assert (
                     receipt["outcome"]
-                    == {"success": "applied", "after_write": "unknown", "conflict": "not_applied"}[mode]
+                    == {
+                        "success": "applied",
+                        "after_write": "unknown",
+                        "conflict": "not_applied",
+                        "work_plan_conflict": "not_applied",
+                    }[mode]
                 )
                 assert receipt["retryable"] is False
-                assert receipt["revision_conflict"] is (mode == "conflict")
+                assert receipt["revision_conflict"] is (mode in {"conflict", "work_plan_conflict"})
                 assert "private internal failure" not in str(result.content)
             if mode == "success":
                 assert result.structured_content == (
