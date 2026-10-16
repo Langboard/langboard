@@ -39,6 +39,14 @@
       "context": ".",
       "dockerfile": "Dockerfile",
       "buildTarget": "with-cron",
+      "integration": {
+        "imageTarget": "integration-api",
+        "services": ["postgres"],
+        "timeoutSeconds": 1200,
+        "envRefs": {
+          "LANGBOARD_FILE_TEST_DATABASE_URL": "postgres.sqlalchemy-url"
+        }
+      },
       "validation": {
         "target": "validation-api-results",
         "cachePolicy": "fresh",

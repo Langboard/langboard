@@ -33,3 +33,12 @@ This client requires the deployed product broker contract. A local passing test
 does not establish broker deployment, image publication, scan/signature success,
 or application deployment. Product requests must be admitted for their exact
 source and profile before release.
+
+The API profile also declares an isolated PostgreSQL integration stage. It reuses
+the locked API validation dependencies and runs the Phoenix card authorization
+and subscription batch/revocation tests. The central fixture supplies
+`LANGBOARD_FILE_TEST_DATABASE_URL` through `postgres.sqlalchemy-url`; a missing
+fixture fails before tests instead of accepting skipped PostgreSQL cases.
+The stage preserves the child exit code in both its process status and result
+report. This requires a separate diagnostic image and the central ephemeral
+database, never an application database or a product-image publication.
