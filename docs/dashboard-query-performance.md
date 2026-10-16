@@ -71,3 +71,19 @@ original implementation. This is source proof only. The board HTTP route's
 separate last-view update still writes visit recency/frequency and is not removed
 by this change. Actual canary response timing and bot operation need verification
 after release.
+
+
+## Independent detail metadata requests
+
+Individual metadata requests use a query key containing the resource kind, board
+UID and resource UID. Simultaneous card/wiki/detail views therefore cannot share
+an unrelated in-flight request. Requests for the same resource still deduplicate.
+The query AbortSignal is forwarded to Axios so an abandoned or cancelled query
+cannot continue into a stale model write after an aborted transport.
+
+`useGetMetadata.test.mjs` executes the production hook with the real TanStack
+QueryClient and an isolated transport/model boundary. It covers different cards,
+card versus wiki, different boards, same-resource deduplication, and cancellation
+that leaves another card's request intact. The metadata and existing settings
+loading regressions are included in the UI validation profile. This verifies the
+query lifecycle; it is not a claim of authenticated canary multi-window acceptance.
