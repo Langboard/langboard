@@ -144,6 +144,15 @@ The browser acceptance fixture verifies a real SDK envelope after an uncaught
 error and verifies absence of synthetic secrets added to error text and scope.
 It also verifies no SDK load or ingest request when no DSN is configured. Current-session API network/timeout failures and HTTP 5xx are reported through the same initialized transport; expected cancellations and obsolete-session responses are excluded before reporting. Errors occurring before the optional SDK finishes loading are not buffered.
 
+Handled transport errors retain only allowlisted `transport_code` values
+(`ECONNABORTED`, `ERR_NETWORK`, `ETIMEDOUT`, `ERR_BAD_RESPONSE`) and an integer
+HTTP status from 400 through 599. The final projection validates these tags
+again and drops every other tag. No request path, card identifier, response
+body or arbitrary error code is retained. Official SDK envelope tests cover
+503 diagnostics, invalid metadata and confidential content in error/config/scope.
+These diagnostics do not identify a failed card and do not establish the cause
+of a browser cancellation excluded by the API interceptor.
+
 This ingest configuration is independent of a board's GlitchTip read connection.
 The latter still requires an API token SecretRef, selected resources and explicit
 capability consent. A synthetic local SDK envelope is not proof of deployed
