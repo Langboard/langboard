@@ -1,9 +1,11 @@
+import asyncio
 import json
 import logging
 import os
 import re
 import subprocess
 import sys
+from threading import Event
 from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
@@ -43,6 +45,65 @@ def _create_test_app() -> App:
 
 def _find_middleware(app: App, middleware_class: object) -> Middleware:
     return next(middleware for middleware in app.api.user_middleware if middleware.cls is middleware_class)
+
+
+@pytest.mark.parametrize("boundary", ["authentication", "authorization"])
+@pytest.mark.parametrize("allowed", [True, False])
+async def test_slow_identity_checks_leave_event_loop_responsive(monkeypatch, boundary, allowed) -> None:
+    from langboard_shared.core.filter import AuthFilter
+    from langboard_shared.domain.models import User
+    from langboard_shared.filter import RoleFilter
+    from langboard_shared.helpers import MiddlewareHelper
+    from langboard_shared.security import RoleSecurity
+
+    loop = asyncio.get_running_loop()
+    observed = []
+    actor = User(id=1, firstname="Test", lastname="Actor", email="actor@example.invalid", password="test-only")
+    scope = {"type": "http", "method": "GET", "path": "/board/test", "headers": [], "auth": actor}
+
+    def slow_check():
+        responsive = Event()
+        loop.call_soon_threadsafe(responsive.set)
+        assert responsive.wait(0.5), "Synchronous identity check blocked the API event loop"
+        observed.append(boundary)
+
+    async def downstream(scope, receive, send):
+        assert scope["auth"] is actor
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    if boundary == "authentication":
+
+        def validate(scope, **kwargs):
+            slow_check()
+            return actor if allowed else 401
+
+        monkeypatch.setattr(MiddlewareHelper, "validate_auth", validate)
+        monkeypatch.setattr(AuthFilter, "get_filtered", lambda _: "user")
+        middleware = ApiAuthMiddleware(downstream, [])
+    else:
+
+        def authorize(*args, **kwargs):
+            slow_check()
+            return allowed
+
+        monkeypatch.setattr(RoleSecurity, "is_authorized", authorize)
+        monkeypatch.setattr(RoleFilter, "get_filtered", lambda _: (object, [], None, False))
+        monkeypatch.setitem(RoleMiddleware.__call__.__globals__, "Env", SimpleNamespace(FULL_ADMIN_ACCESS_EMAILS=[]))
+        middleware = RoleMiddleware(downstream, [])
+    monkeypatch.setattr(middleware, "should_filter", lambda _: (True, {"endpoint": object(), "path_params": {}}))
+    messages = []
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        messages.append(message)
+
+    await middleware(scope, receive, send)
+    assert observed == [boundary]
+    expected = 200 if allowed else (401 if boundary == "authentication" else 403)
+    assert messages[0]["status"] == expected
 
 
 async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(caplog) -> None:

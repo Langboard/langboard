@@ -311,3 +311,42 @@ representative API and database timings, reduce the measured loading/query
 costs, and run at least ten browser measurements for each board-size cohort.
 This local result does not establish deployed telemetry or an improvement in
 user-perceived latency.
+
+## Read-query baseline and identity event-loop contention (2026-10-16)
+
+A bounded read-only transaction on the deployed primary observed 120 projects,
+3,208 cards, 46,206 project activities, 2,156 checklists and 6,624 checkitems.
+The activity/checklist foreign-key indexes and project/activity-time indexes
+are present. `pg_stat_statements` is not installed; no extension or database
+configuration was changed. A connection snapshot showed five idle sessions and
+the one measuring session, with no observed lock wait. This snapshot cannot
+exclude earlier contention or application pool waits.
+
+Native SQLAlchemy statements from the current source were compiled and measured
+with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` under a 3-second statement timeout:
+
+- Work/checklist counts across all live projects: 10.794 ms execution, 5.4 ms
+  planning, 983 shared hit blocks, no shared read blocks.
+- Current actor's dashboard project query: 142.507 ms execution, 22.689 ms
+  planning, 2,246 shared hit blocks and 69 shared read blocks. The existing
+  activity-time indexes were used.
+
+These are individual query samples, not API or browser percentiles. They do not
+justify rewriting the count query or claiming that SQL caused the earlier
+multi-second failures. Exact queries/plans are retained in private verification
+receipts; no user data or credentials are added to public documentation.
+
+Source review identified a separate concrete contention defect: API authentication
+and role checks performed synchronous database/credential validation directly
+inside ASGI async middleware. A regression that schedules an event-loop callback
+from each slow check failed in all four prior-source cases (authentication and
+authorization, allow and deny). Both checks now use the existing Starlette
+`run_in_threadpool`, matching the collaborative-edit middleware's pattern.
+Identity scope, denied-response handling, role rules and primary-database
+revocation checks are unchanged.
+
+Focused `test_app.py`, card-create authority and Phoenix authentication checks
+passed: 119 tests. The callback regression now passes while preserving 401/403
+denial and accepted identity propagation. No deployment or representative
+concurrent-browser latency measurement has run at this new source; the size
+of the production performance benefit remains unverified.
