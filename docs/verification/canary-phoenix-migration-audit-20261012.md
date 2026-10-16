@@ -350,3 +350,19 @@ passed: 119 tests. The callback regression now passes while preserving 401/403
 denial and accepted identity propagation. No deployment or representative
 concurrent-browser latency measurement has run at this new source; the size
 of the production performance benefit remains unverified.
+
+### Current column policy during workflow reclassification (2026-10-16)
+
+The unfinished filter preferred a stale card completion projection after a
+column changed workflow classification. It now uses the current column registry
+policy first, retains legacy projection compatibility when no current policy is
+available, and subscribes to completion-policy changes as well as stage changes.
+Completed checklists, archives and reference material remain excluded.
+
+Two new regressions failed before the fix. All eight workload tests now pass,
+including 250 unchanged card projections through closed, active, unclassified
+and reference states and repeated reversals. The UI TypeScript check and
+`git diff --check` pass. The existing UI validation profile runs this regression
+through `test:project-workload`; no workflow or runner permission was added.
+Different-user propagation, real bulk data and deployed canary acceptance remain
+pending. This source result does not complete or archive the Langboard card.
