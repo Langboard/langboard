@@ -51,7 +51,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Initialize pinned BEAM tooling
         run: |
           elixir --version
@@ -60,8 +60,10 @@ jobs:
       - name: Identify Phoenix dependency lock
         id: phoenix_lock
         run: |
-          echo "sha256=$(sha256sum src/socket/mix.lock | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          echo "python_sha256=$(sha256sum uv.lock pyproject.toml | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          phoenix_sha256=$(sha256sum src/socket/mix.lock | cut -d ' ' -f 1)
+          python_sha256=$(sha256sum uv.lock pyproject.toml | sha256sum | cut -d ' ' -f 1)
+          echo "sha256=$phoenix_sha256" >> "$GITHUB_OUTPUT"
+          echo "python_sha256=$python_sha256" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: src/socket/deps

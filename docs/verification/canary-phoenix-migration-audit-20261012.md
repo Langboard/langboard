@@ -1,8 +1,13 @@
 # Canary / Phoenix migration compatibility audit
 
-Status: incomplete. This is an integration finding, not migration replay or a release receipt.
+Status: runtime cutover deployed; complete user acceptance remains pending. The
+dated findings below preserve the original investigation. See the latest
+deployment checkpoint at the end before using an older runtime observation.
 
-The original canary union remains `2e9b4b243044903fe3edfd85bbbed5a52164ebb1`. This worktree has an unfinished merge and is not deployable. The customer repair in PR #686 stays on its existing canary review path; this larger integration is not a prerequisite for that repair.
+The original canary union is retained at `2e9b4b243044903fe3edfd85bbbed5a52164ebb1`.
+At the initial audit, the integration worktree had an unfinished merge and was
+not deployable. The customer repair in PR #686 used a separate canary review
+path; the larger integration was not a prerequisite for that repair.
 
 ## Evidence
 
@@ -101,3 +106,62 @@ authorization, notification, editor-sync and board-chat checks. Removal of the
 old Node service follows successful cutover verification; its currently healthy
 status is not Phoenix acceptance. The original canary database and retained
 application history must remain intact throughout the cutover.
+
+## Updated 2026-10-16: immutable Phoenix runtime and native subscriptions
+
+The earlier observation of an active Node runtime is superseded. The official
+canary application completed successfully with API source
+`0e14576b60f476e0e16b3ace6e5ef184e496cf24`, UI source
+`35aa2fc374a2b7e6250021096f1b4cfe17f0fd23`, Graph source
+`322b7349975f37d0b0be3c857c3eab0739d8a0ca`, and retained Worker/Phoenix source
+`f0e6cfe1dae05ee95281b153c014c8f073fc3d0f`. These are distinct verified
+component sources; they must not be relabeled as one image build.
+
+Actual container readback confirms healthy API, UI, Phoenix, Graph and gateway,
+a running worker, and the retired Node socket container stopped. Runtime source
+and dependency overlays are absent from the new product containers. The database
+remains at `e1987bdf2503`; the final application recorded no live schema change.
+The existing host checkout and retained data were preserved. Langboard main was
+not changed.
+
+Authenticated Chrome rendered the board and cards. Network evidence records
+board, board-settings and user subscription acknowledgements, dashboard batches
+of 64 and 28, card batches of 64/64/64/64/33, and live dashboard change events.
+Early reconnects occurred; subsequent observation received the complete
+acknowledgements and no further close. This is bounded native evidence rather
+than a claim of indefinite connection stability.
+
+The first native chat prompt failed without a model reply. Read-only
+configuration comparison found the shared internal authentication present and
+equal in API/Phoenix, but absent from Graph; Graph returned 401. The official
+configuration application completed successfully in run `38787044616`, forwarding
+the same existing secret to Graph without creating credentials or relaxing
+authentication. The API, Phoenix and Graph then had matching existing service
+configuration and healthy runtime states. This applied a configuration repair,
+not a new Graph product image.
+
+A single post-fix prompt through the normal authenticated Chrome chat panel
+received `CANARY_OK`. Reloading the page and reopening the panel retained both
+the prompt and model response. The first failed execution remains recorded;
+no active lease was present before the post-fix request. This proves native
+text-chat execution and persistence for that session, not tool execution,
+attachment handling, every provider, or indefinite stream stability. The generic
+Compose fix also forwards the same setting; its 49 Graph authentication
+regressions pass locally. The source correction is included with the native
+attachment feedback follow-up; product release verification remains separate.
+Complete user acceptance is still open.
+
+The first API activation exceeded the 240-second readiness deadline before
+eventually becoming healthy. A later official application of the same signed
+release succeeded. The failed execution is retained; the cold-start cause is
+not established by the subscription change.
+
+A later native macOS picker selected a synthetic 68-byte UTF-8 attachment. The
+server returned 201; an independent MCP attachment read and a normal reload
+confirmed persistence while retaining existing attachments. This was a staff
+session, not external-user native upload acceptance. The existing tab did not
+show the new file immediately. The follow-up hydrates the existing UID-based
+attachment model from the confirmed HTTP response, matching the existing socket
+handler. It adds no polling or parallel store. Exact UI product validation and
+post-deployment immediate-list verification remain pending. The missing live
+update event cause is not established by this bounded reproduction.

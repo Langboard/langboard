@@ -837,3 +837,31 @@ vendor COPY instruction. No host checkout or arbitrary script directory is copie
 into the production image. All eight wrappers pass `bash -n` and the image/Compose
 packaging regression passes. A central image build and scheduled worker execution
 remain necessary; this source fix does not establish live outbox delivery.
+
+
+## Current cutover checkpoint — 2026-10-16
+
+Earlier remaining-work statements above describe their dated investigations.
+The deployed canary now uses the upstream Phoenix runtime; the retired Node
+socket container is stopped. Exact component sources, migration preservation,
+subscription evidence and native chat results are recorded in
+[the current migration audit](canary-phoenix-migration-audit-20261012.md).
+The API is `0e14576b60f476e0e16b3ace6e5ef184e496cf24`; the original canary union
+and verified upstream main remain ancestors. Main was not advanced by this work.
+
+The existing card-creation authority follow-up preserves both its original PR
+history and the deployed canary, including all socket authorization regressions.
+Its API-only candidate is `29b0eab24bddd86397961751d4131b54d0846917`.
+A disposable PostgreSQL/API run executed 204 tests with zero failures or skips
+on a composed local head whose API, shared Python and profile-validation script
+are byte-identical to that candidate. This is local candidate evidence; it does
+not establish central validation or deployed external card creation. Creation
+requires CardWrite, while existing-card editing continues to require CardUpdate.
+The negative external fixture is not granted broader rights to make it pass.
+
+Staff native browser attachment upload, independent attachment readback and
+reload persistence now pass. Immediate-list feedback is a separate confirmed
+defect with a minimal source follow-up. Complete acceptance remains pending for
+that release and remaining external-user and app-workflow coverage. No checklist
+completion or healthy container alone establishes preservation of every retained
+feature.
