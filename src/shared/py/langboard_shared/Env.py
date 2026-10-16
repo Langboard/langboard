@@ -18,6 +18,12 @@ for env_path in expected_env_paths:
 expected_env_paths.clear()
 
 
+def _redis_key_prefix(prefix: str, name: str) -> str:
+    if prefix and not fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,126}:", prefix):
+        raise ValueError(f"{name} must be a literal namespace ending with ':' (maximum 128 characters)")
+    return prefix
+
+
 @class_instance()
 @thread_safe_singleton
 class Env:
@@ -340,14 +346,15 @@ class Env:
 
     @property
     def CACHE_KEY_PREFIX(self) -> str:
-        prefix = self.__get_from_cache("CACHE_KEY_PREFIX", "")
-        if prefix and not fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,126}:", prefix):
-            raise ValueError("CACHE_KEY_PREFIX must be a literal namespace ending with ':' (maximum 128 characters)")
-        return prefix
+        return _redis_key_prefix(self.__get_from_cache("CACHE_KEY_PREFIX", ""), "CACHE_KEY_PREFIX")
 
     @property
     def BROKER_URL(self) -> str:
         return self.__get_from_cache("BROKER_URL", self.CACHE_URL)
+
+    @property
+    def BROKER_KEY_PREFIX(self) -> str:
+        return _redis_key_prefix(self.__get_from_cache("BROKER_KEY_PREFIX", ""), "BROKER_KEY_PREFIX")
 
     @property
     def COMMON_SECRET_KEY(self) -> str:

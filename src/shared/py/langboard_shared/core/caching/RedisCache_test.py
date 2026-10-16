@@ -115,12 +115,13 @@ def test_cache_operates_with_namespace_acl_and_without_flushdb_permission(redis_
 
 
 @pytest.mark.parametrize("prefix", ["*:", "[ab]:", "unsafe?", ":", "missing-colon", "x" * 128 + ":"])
-def test_namespace_validation_rejects_globs_and_ambiguous_boundaries(prefix):
+@pytest.mark.parametrize("setting", ["CACHE_KEY_PREFIX", "BROKER_KEY_PREFIX"])
+def test_namespace_validation_rejects_globs_and_ambiguous_boundaries(prefix, setting):
     from langboard_shared.Env import Env
 
-    getter = type(Env).CACHE_KEY_PREFIX.fget
+    getter = getattr(type(Env), setting).fget
     config = SimpleNamespace(_Env__get_from_cache=lambda *_: prefix)
-    with pytest.raises(ValueError, match="CACHE_KEY_PREFIX"):
+    with pytest.raises(ValueError, match=setting):
         getter(config)
 
 

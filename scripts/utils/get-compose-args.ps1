@@ -87,7 +87,18 @@ if ($withDbBackup -eq "true") {
     $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.backup.yaml"
 }
 
-$COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.redis.yaml -f ${COMPOSE_PREFIX}.server.yaml --env-file ./.env"
+$COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.redis.yaml -f ${COMPOSE_PREFIX}.server.yaml"
+
+if ($env:REDIS_EXTERNAL_CACHE_URL -or $env:REDIS_EXTERNAL_BROKER_URL) {
+    foreach ($requiredName in @("REDIS_EXTERNAL_CACHE_URL", "REDIS_EXTERNAL_BROKER_URL", "CACHE_KEY_PREFIX", "BROKER_KEY_PREFIX")) {
+        if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($requiredName))) {
+            [Console]::Error.WriteLine("$requiredName is required for external Redis")
+            exit 1
+        }
+    }
+    $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.redis-external.yaml"
+}
+$COMPOSE_ARGS += " --env-file ./.env"
 
 # Optional compose args
 $VAULT_COMPOSE_ARGS = "-f ${COMPOSE_PREFIX}.vault.yaml"

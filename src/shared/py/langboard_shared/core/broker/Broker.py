@@ -58,6 +58,7 @@ class Broker:
 
         self.celery.conf.update(
             broker_url=self.broker_url,
+            broker_transport_options={"global_keyprefix": Env.BROKER_KEY_PREFIX},
             task_ignore_result=True,
             worker_prefetch_multiplier=1,
             timezone="UTC",
@@ -68,9 +69,7 @@ class Broker:
     def is_in_memory(self) -> bool:
         return Env.CACHE_TYPE == "in-memory"
 
-    def require_registered_tasks(
-        self, required_tasks: Collection[str], timeout: float = 5.0
-    ) -> dict[str, list[str]]:
+    def require_registered_tasks(self, required_tasks: Collection[str], timeout: float = 5.0) -> dict[str, list[str]]:
         registrations = self.celery.control.inspect(timeout=timeout).registered()
         if not isinstance(registrations, dict) or not registrations:
             raise RuntimeError("No Celery workers responded with task registrations")

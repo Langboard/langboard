@@ -45,7 +45,16 @@ if [ "${WITH_DB_BACKUP}" = "true" ]; then
     COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.backup.yaml"
 fi
 
-COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.redis.yaml -f ${COMPOSE_PREFIX}.server.yaml --env-file ./.env"
+COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.redis.yaml -f ${COMPOSE_PREFIX}.server.yaml"
+
+if [ -n "${REDIS_EXTERNAL_CACHE_URL:-}${REDIS_EXTERNAL_BROKER_URL:-}" ]; then
+    : "${REDIS_EXTERNAL_CACHE_URL:?REDIS_EXTERNAL_CACHE_URL is required for external Redis}"
+    : "${REDIS_EXTERNAL_BROKER_URL:?REDIS_EXTERNAL_BROKER_URL is required for external Redis}"
+    : "${CACHE_KEY_PREFIX:?CACHE_KEY_PREFIX is required for external Redis}"
+    : "${BROKER_KEY_PREFIX:?BROKER_KEY_PREFIX is required for external Redis}"
+    COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.redis-external.yaml"
+fi
+COMPOSE_ARGS+=" --env-file ./.env"
 
 # Optional compose args
 VAULT_COMPOSE_ARGS="-f ${COMPOSE_PREFIX}.vault.yaml"
