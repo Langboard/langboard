@@ -956,7 +956,7 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
 
 function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
-    const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
+    const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel, commentLayoutMode } = useBoardCardPanel();
     const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
     const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
@@ -1089,7 +1089,14 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
                         label: t("card.Comments"),
                         icon: "message-square",
                         active: isCommentPanelOpen,
-                        onClick: toggleCommentPanel,
+                        onClick: () => {
+                            toggleCommentPanel();
+                            if (!isCommentPanelOpen && commentLayoutMode === "mobile") {
+                                window.dispatchEvent(
+                                    new CustomEvent(WORKBENCH_OUTLINE_EVENT, { detail: { cardUID: card.uid, section: "comments" } })
+                                );
+                            }
+                        },
                     },
                 ]}
             />
