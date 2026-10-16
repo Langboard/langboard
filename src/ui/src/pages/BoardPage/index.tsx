@@ -179,8 +179,8 @@ const BoardProxy = memo((): React.JSX.Element => {
 interface IBoardProxyDisplayProps {
     project: Project.TModel;
     pageRoute: string;
-    isFetching: bool;
-    isProjectLoading: bool;
+    isFetching: boolean;
+    isProjectLoading: boolean;
 }
 
 function BoardHeaderProjectTitle({ project }: { project: Project.TModel }) {
@@ -762,7 +762,11 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         ) : isBotScopeOpened ? (
                             <BoardBotScopeSidebar project={project} />
                         ) : workbenchContextMode === "explorer" ? (
-                            <ProjectExplorerSidebar currentProject={project} onNavigate={() => setActiveSidePanel(undefined)} />
+                            <ProjectExplorerSidebar
+                                active={isWorkbenchContextVisible}
+                                currentProject={project}
+                                onNavigate={() => setActiveSidePanel(undefined)}
+                            />
                         ) : (
                             <div
                                 data-workbench-command-context={workbenchContextMode}

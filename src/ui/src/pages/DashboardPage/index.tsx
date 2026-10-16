@@ -220,7 +220,10 @@ const DashboardProxy = memo((): React.JSX.Element => {
                         <MyWorkPage compact onNavigate={() => isMobile && setIsMobileExplorerOpen(false)} />
                     </div>
                 ) : (
-                    <ProjectExplorerSidebar onNavigate={() => isMobile && setIsMobileExplorerOpen(false)} />
+                    <ProjectExplorerSidebar
+                        active={isMobile ? isMobileExplorerOpen : isExplorerOpen}
+                        onNavigate={() => isMobile && setIsMobileExplorerOpen(false)}
+                    />
                 )
             }
             workbenchContextHidden={isMobile || !isExplorerOpen}

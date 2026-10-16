@@ -9,9 +9,10 @@ import RecentCardsSection from "./RecentCardsSection";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const count = Number(new URLSearchParams(location.search).get("count") || 14);
+const multiBoard = new URLSearchParams(location.search).has("multi-board");
 getUserSettingsStore().updateSettingsByKey("open_cards", {
     fixture: Array.from({ length: count }, (_, index) => ({
-        projectUID: "fixture",
+        projectUID: multiBoard ? `fixture-${index}` : "fixture",
         cardUID: String(index),
         title: `Card ${index}`,
         pinned: index === 0,
@@ -22,10 +23,12 @@ function Fixture() {
     const cards = recentOpenCards(useOpenCards("fixture"));
     const [expanded, setExpanded] = useState(false);
     const [collapsed, setCollapsed] = useState(false);
+    const [active, setActive] = useState(!new URLSearchParams(window.location.search).has("hidden"));
     const location = useLocation();
     return (
         <div className="h-screen w-full max-w-lg p-2">
             <p data-testid="route">{location.pathname}</p>
+            <button onClick={() => setActive((value) => !value)}>Toggle explorer visibility</button>
             <button onClick={() => focusCard("fixture", { projectUID: "fixture", cardUID: "0", title: "Card 0" })}>Read oldest again</button>
             <nav className="flex h-[65vh] min-h-0 flex-col overflow-hidden" aria-label="Explorer">
                 <div className="shrink-0 p-2">Explorer</div>
@@ -38,6 +41,7 @@ function Fixture() {
                         Wiki
                     </section>
                     <RecentCardsSection
+                        active={active}
                         userUID="fixture"
                         cards={cards}
                         collapsed={collapsed}

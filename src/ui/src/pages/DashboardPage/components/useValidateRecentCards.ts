@@ -4,9 +4,10 @@ import { api } from "@/core/helpers/Api";
 import { removeUnavailableCards } from "./OpenCardsStore";
 import type { IOpenCard } from "./OpenCardsData";
 
-export default function useValidateRecentCards(userUID: string, cards: IOpenCard[]): void {
+export default function useValidateRecentCards(userUID: string, cards: IOpenCard[], active = true): void {
     const identities = JSON.stringify(cards.map((card) => [card.projectUID, card.cardUID]).sort());
     useEffect(() => {
+        if (!active || identities === "[]") return;
         const controller = new AbortController();
         let running = false;
         const validate = async () => {
@@ -55,5 +56,5 @@ export default function useValidateRecentCards(userUID: string, cards: IOpenCard
             window.removeEventListener("focus", validate);
             window.removeEventListener("online", validate);
         };
-    }, [userUID, identities]);
+    }, [userUID, identities, active]);
 }

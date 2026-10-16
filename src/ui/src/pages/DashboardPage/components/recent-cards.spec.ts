@@ -111,3 +111,36 @@ test("online recovery prunes inaccessible cards while preserving pins and close 
     await expect(recent.getByRole("button", { name: "Card 0", exact: true })).toHaveCount(0);
     await expect(recent.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(12);
 });
+
+test("hidden or collapsed explorer performs no history scan and expansion validates older cards on demand", async ({ page }) => {
+    const checked = new Set<string>();
+    let calls = 0;
+    await page.route("**/board/fixture-*/cards/available", async (route) => {
+        const headers = {
+            "Access-Control-Allow-Origin": "http://127.0.0.1:4188",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "content-type, content-encoding, authorization",
+        };
+        if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+        calls++;
+        const uids = route.request().postDataJSON().card_uids as string[];
+        uids.forEach((uid) => checked.add(uid));
+        await route.fulfill({ status: 200, headers, json: { card_uids: uids } });
+    });
+    await page.goto("/src/pages/DashboardPage/components/recent-cards.fixture.html?multi-board&hidden");
+    const recent = page.getByRole("region", { name: "Recent cards", exact: true });
+    await expect(recent.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(10);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    expect(calls).toBe(0);
+    await page.getByRole("button", { name: "Toggle explorer visibility", exact: true }).click();
+    await expect.poll(() => checked.size).toBe(10);
+    expect(checked.has("0")).toBe(false);
+    await recent.getByRole("button", { name: "Show older cards (4)", exact: true }).click();
+    await expect.poll(() => checked.size).toBe(14);
+    await recent.getByRole("button", { name: /^Recent cards/ }).click();
+    const beforeFocus = calls;
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    expect(calls).toBe(beforeFocus);
+});

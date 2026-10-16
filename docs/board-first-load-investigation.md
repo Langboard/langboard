@@ -89,3 +89,35 @@ The observed API origin matched the configured deployment API origin. No
 credential material was read. Instance addresses, board identities and exact
 request IDs are retained in private verification records, not product guidance. Current source auth transport regression passed 16 cases;
 that local result does not resolve this deployed reproduction.
+
+
+## Recent-card history follow-up
+
+A later authenticated canary retry reached the original card GET with HTTP200
+and rendered the detail description, native checklists and persisted summary
+comment. An XHR-send debugger breakpoint was briefly enabled and removed before
+the final observation. This single successful retry under the debugger does not
+establish that the intermittent cancellation is fixed. Later unrelated board
+availability, approval and read-state requests still aborted. A subsequent normal
+close/reopen without an active debugger also returned HTTP200 for its original
+card GET and rendered the comment composer. These two successes narrow the
+problem to intermittent behavior rather than a persistent card ACL rejection.
+
+The browser capture also showed availability requests for multiple other boards.
+Source inspection traced these to recent-card validation in the mounted Explorer,
+even while its context panel was hidden. The section passed its entire history
+to validation while displaying only ten entries. This is confirmed unnecessary
+background work; it is not proven to cause the card GET cancellation.
+
+Explorer now passes its actual desktop/mobile visibility to recent-card
+validation. A hidden panel or collapsed recent-card section attaches no focus or
+online validation listeners and dispatches no history lookup. An open section
+validates the displayed ten cards; expanding older history validates those entries
+on demand. The existing serial batches, explicit permission checks, confirmed
+403/deletion pruning, transient-error retention and cancellation cleanup remain.
+No periodic reconciliation, endpoint or dependency was added.
+
+Chromium regression covers 1280/700/390px layouts, permission loss, offline/online
+recovery and a fourteen-board history: hidden zero requests, ten visible cards,
+older-history expansion and collapsed focus/online inactivity. These local
+results require separate deployed canary acceptance.

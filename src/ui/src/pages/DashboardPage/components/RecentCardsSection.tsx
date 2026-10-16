@@ -22,6 +22,7 @@ export default function RecentCardsSection({
     onToggle,
     onExpand,
     onNavigate,
+    active = true,
 }: {
     userUID: string;
     cards: IOpenCard[];
@@ -30,12 +31,13 @@ export default function RecentCardsSection({
     onToggle: () => void;
     onExpand: () => void;
     onNavigate?: () => void;
+    active?: boolean;
 }) {
-    useValidateRecentCards(userUID, visibleOpenCards);
     const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
     const location = useLocation();
     const displayedCards = showOlderCards ? visibleOpenCards : visibleOpenCards.slice(0, 10);
+    useValidateRecentCards(userUID, displayedCards, active && !openCardsCollapsed);
     const projectUIDs = [...new Set(visibleOpenCards.map((card) => card.projectUID))].sort().join(",");
     useEffect(() => {
         const socket = useSocketOutsideProvider();
