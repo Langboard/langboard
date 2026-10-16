@@ -1,7 +1,7 @@
 from typing import Any, Sequence
 from sqlalchemy import Text, cast, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseOrderRepository
@@ -154,6 +154,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     Card,
                     func.coalesce(comment_counts.c.count_comment, 0).label("count_comment"),  # pyright: ignore[reportArgumentType]
                 )
+                .options(defer(Card.ai_description, raiseload=True))
                 .outerjoin(comment_counts, Card.column("id") == comment_counts.c.card_id)
                 .where(Card.column("project_id") == project_id)
                 .where(Card.deleted_at.is_(None), card_visibility_scope(context))

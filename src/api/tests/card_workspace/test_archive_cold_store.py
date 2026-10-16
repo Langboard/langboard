@@ -424,9 +424,25 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
 
     project = 1
 
+    with engine.begin() as connection:
+        connection.execute(Card.__table__.update().values(ai_description="Large AI document 한국어 " * 4000))
+    statements = []
+
+    def capture_statement(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", capture_statement)
     cards = make_repo(CardRepository).get_board_list(
         project, cutoff, context=CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)
     )
+    sa.event.remove(engine, "before_cursor_execute", capture_statement)
+    assert len(statements) == 1
+    assert "card.ai_description" not in statements[0]
+    for card, _ in cards:
+        assert "ai_description" in sa.inspect(card).unloaded
+        assert "ai_description" not in card.board_api_response(0, [], [], [], include_body=False)
+    with Session(engine) as session:
+        assert session.get(Card, active_id).api_response()["ai_description"] == "Large AI document 한국어 " * 4000
     members = make_repo(CardAssignedUserRepository).get_all_by_project(project, cutoff)
     relationships = make_repo(CardRelationshipRepository).get_all_by_project(project, cutoff)
     labels = make_repo(ProjectLabelRepository).get_all_card_labels_by_project(project, cutoff)
