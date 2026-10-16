@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+from os import geteuid
 from aiosmtplib import SMTP
 from crontab import CronTab
 from kafka import KafkaAdminClient, KafkaConsumer
@@ -131,14 +132,24 @@ def check_email_delivery_owner() -> None:
         raise RuntimeError("Notification email outbox must be enabled")
     if not Env.MAIL_SERVER or not Env.MAIL_FROM:
         raise RuntimeError("Notification email delivery requires MAIL_SERVER and MAIL_FROM")
-    jobs = list(CronTab(user=True).find_comment("notification-web-fanout-recovery"))
+    jobs = list(CronTab(user=False, tabfile=str(Env.CRON_TAB_FILE)).find_comment("notification-web-fanout-recovery"))
+    command = str(jobs[0].command) if len(jobs) == 1 else ""
+    if len(jobs) == 1 and getattr(jobs[0], "user", None) == "/bin/bash":
+        command = f"/bin/bash {command}"
     if (
         len(jobs) != 1
+        or not jobs[0].is_enabled()
         or str(jobs[0].slices) != "* * * * *"
-        or str(jobs[0].command) != ("/bin/bash /app/scripts/run_notification_recovery.sh")
+        or command != "/bin/bash /app/scripts/run_notification_recovery.sh"
     ):
         raise RuntimeError("Notification email outbox recovery cron is not registered")
-    if not any(process.info.get("name") == "cron" for process in process_iter(["name"])):
+    processes = process_iter(["name", "cmdline"])
+    if geteuid() == 0:
+        running = any(process.info.get("name") == "cron" for process in processes)
+    else:
+        scheduler_args = ["-m", "langboard_shared.core.utils.CronScheduler", str(Env.CRON_TAB_FILE)]
+        running = any((process.info.get("cmdline") or [])[1:] == scheduler_args for process in processes)
+    if not running:
         raise RuntimeError("Notification email outbox recovery cron is not running")
     try:
         asyncio.run(check_smtp_connection())
