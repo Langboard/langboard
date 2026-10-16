@@ -138,6 +138,7 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 tool_name,
                 type(exc).__name__,
                 type(cause).__name__,
+                extra={"request_id": request_id, "tool": tool_name, "cause_type": type(cause).__name__},
             )
             return JsonResponse(
                 status_code=500,

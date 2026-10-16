@@ -157,3 +157,20 @@ separate third-party analytics script failed DNS resolution; that script failure
 does not establish an API DNS failure. Preserve gateway/API arrival evidence
 before attributing these cancellations to application authorization or CPU
 pressure. Previously rendered in-memory cards are not fresh-navigation proof.
+
+## Server error payload boundary
+
+An existing error event exposed a tool request body and database breadcrumbs.
+`send_default_pii=False` and disabled local-variable collection did not remove
+those fields. The shared logger now supplies an explicit `before_send` allowlist
+to the installed Sentry SDK. It retains exception types, module/function/line
+coordinates, release/environment and valid trace/span identifiers. It excludes
+requests, users, breadcrumbs, arbitrary scope data, exception text, log arguments,
+source context and local variables.
+
+The tool dispatcher supplies request ID, tool name and cause type as explicit
+diagnostics. Log-only tool errors group by tool and cause instead of their
+redacted message. Existing structured stdout records and mutation receipts remain
+unchanged. An in-memory official SDK transport verifies the final error envelope
+without sending customer content to a telemetry service. This is source evidence;
+the deployed server and browser still require separate acceptance.
