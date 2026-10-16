@@ -64,7 +64,7 @@ function ReactionCounter({ reactions, reactionActorNames, toggleCallback, isActi
                     );
                 })}
                 <Popover.Trigger asChild>
-                    <Button variant="ghost" size="icon-sm" title={t("reaction.React")} className="size-6">
+                    <Button variant="ghost" size="icon-sm" aria-label={t("reaction.React")} title={t("reaction.React")} className="size-6">
                         <IconComponent icon="smile-plus" size="4" />
                     </Button>
                 </Popover.Trigger>
@@ -190,6 +190,7 @@ function ReactionCounterButton({
                 buttonProps={{
                     type: "button",
                     className: "size-full p-3",
+                    "aria-label": t(`reaction.${reaction}`),
                     ...buttonProps,
                 }}
                 dockIconProps={{ className: "bg-accent/70 transition-colors duration-300 hover:text-primary" }}
