@@ -106,7 +106,8 @@ async def test_slow_identity_checks_leave_event_loop_responsive(monkeypatch, bou
     assert messages[0]["status"] == expected
 
 
-async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(caplog) -> None:
+@pytest.mark.parametrize("route", ["/board/{project_uid}/cards", "/notifications", "/settings/notification-schedule"])
+async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(caplog, route) -> None:
     api = FastAPI()
     api.add_middleware(
         CORSMiddleware,
@@ -115,8 +116,8 @@ async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(capl
     )
     api.add_middleware(ReadTelemetryMiddleware)
 
-    @api.get("/board/{project_uid}/cards")
-    async def cards(project_uid: str):
+    @api.get(route)
+    async def cards(project_uid: str = ""):
         async def chunks():
             yield b"PRIVATE_BODY"
             yield b"_END"
@@ -126,7 +127,7 @@ async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(capl
     caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
     async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
         response = await client.get(
-            "/board/PRIVATE_UID/cards?token=PRIVATE_QUERY",
+            route.replace("{project_uid}", "PRIVATE_UID") + "?token=PRIVATE_QUERY",
             headers={"origin": "https://ui.example.test", "x-request-id": "PRIVATE_HEADER"},
         )
     assert response.content == b"PRIVATE_BODY_END"
@@ -140,7 +141,7 @@ async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(capl
     record = json.loads(records[0])
     assert record["request_id"] == response.headers["x-request-id"]
     assert len(record["request_id"]) == 32
-    assert record["route"] == "/board/{project_uid}/cards"
+    assert record["route"] == route
     assert record["response_bytes"] == len(response.content)
     assert record["completed"] is True
     assert record["duration_ms"] >= record["headers_ms"] >= 0
@@ -192,6 +193,8 @@ async def test_read_telemetry_records_unhandled_failure_without_exception_payloa
     [
         {"type": "websocket", "path": "/board/test"},
         {"type": "http", "method": "POST", "path": "/board/test/cards"},
+        {"type": "http", "method": "POST", "path": "/notifications"},
+        {"type": "http", "method": "POST", "path": "/settings/notification-schedule"},
         {"type": "http", "method": "GET", "path": "/mcp/agent"},
     ],
 )
