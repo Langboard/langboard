@@ -4,6 +4,7 @@ import fcntl
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
+from os import nice
 from pathlib import Path
 from sys import argv
 from time import sleep
@@ -61,6 +62,8 @@ def run(path: Path):
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        # Recovery subprocesses inherit background priority; API workers do not.
+        nice(10)
         scheduler = CronScheduler(path)
         with ThreadPoolExecutor(max_workers=4) as pool:
             while True:
