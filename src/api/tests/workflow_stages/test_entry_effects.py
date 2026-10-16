@@ -1,9 +1,12 @@
 """Exercise movement, timer facts, idempotence and atomic failure against a real DB."""
 
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 from importlib import import_module
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
@@ -41,6 +44,7 @@ def flow(monkeypatch, request):
     if "bouncer" in (engine.url.host or "").lower():
         engine.dispose()
         raise ValueError("Workflow schema tests require a direct PostgreSQL connection, not PgBouncer")
+
     def cleanup():
         engine.dispose()
         if schema is not None:
@@ -68,7 +72,15 @@ def flow(monkeypatch, request):
             connection.execute(text("INSERT INTO project VALUES (1)"))
             connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
             connection.execute(text('INSERT INTO "user" VALUES (1)'))
-    for model in (WorkflowStageDefinition, ProjectColumn, Card, CardAppOwnership, Checklist, Checkitem, CheckitemTimerRecord):
+    for model in (
+        WorkflowStageDefinition,
+        ProjectColumn,
+        Card,
+        CardAppOwnership,
+        Checklist,
+        Checkitem,
+        CheckitemTimerRecord,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -135,7 +147,14 @@ def flow(monkeypatch, request):
         service=service,
         bulk=get(CheckitemService),
         project=project,
-        actor=User(id=1, firstname="Test", lastname="Actor", email="actor@example.invalid", password="test-only", activated_at=SafeDateTime.now()),
+        actor=User(
+            id=1,
+            firstname="Test",
+            lastname="Actor",
+            email="actor@example.invalid",
+            password="test-only",
+            activated_at=SafeDateTime.now(),
+        ),
         card=card,
         old=old,
         new=new,
@@ -163,6 +182,58 @@ def snapshot(engine, card_id):
         ).all()
         timers = db.execute(select(CheckitemTimerRecord.__table__.c.id)).all()
         return column, items, len(timers)
+
+
+def test_concurrent_card_reorders_do_not_deadlock(flow):
+    """Hold the first card lock while a second move reaches a real lock wait."""
+    f = flow
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("Concurrent row locks require PostgreSQL")
+    with DbSession.atomic() as db:
+        second = Card(project_id=1, project_column_id=f.old.id, title="Second", order=1)
+        third = Card(project_id=1, project_column_id=f.old.id, title="Third", order=2)
+        db.insert(second)
+        db.insert(third)
+    locked, release = Event(), Event()
+
+    def hold_first_card(connection, cursor, statement, parameters, context, executemany):
+        if "FROM card" in statement and "FOR UPDATE" in statement and f.card.id in parameters.values():
+            locked.set()
+            assert release.wait(15), "First move was not released"
+
+    event.listen(f.engine, "after_cursor_execute", hold_first_card)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(f.service.change_order, f.actor, f.project, f.card, 2, None)
+            assert locked.wait(10), "First move did not lock its card"
+            following = pool.submit(f.service.change_order, f.actor, f.project, second, 0, None)
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    with f.engine.connect() as db:
+                        waiting = db.execute(
+                            text(
+                                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                                "AND wait_event_type='Lock' AND pid<>pg_backend_pid()"
+                            )
+                        ).scalar_one()
+                    if waiting:
+                        break
+                    if following.done():
+                        pytest.fail("Second move did not wait for the first transaction")
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("No PostgreSQL lock waiter observed")
+            finally:
+                release.set()
+            assert first.result(timeout=10) is True
+            assert following.result(timeout=10) is True
+    finally:
+        release.set()
+        event.remove(f.engine, "after_cursor_execute", hold_first_card)
+    with f.engine.connect() as db:
+        rows = db.execute(select(Card.id, Card.order).order_by(Card.order)).all()
+    assert rows == [(second.id, 0), (third.id, 1), (f.card.id, 2)]
 
 
 def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):

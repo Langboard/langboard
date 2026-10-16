@@ -750,9 +750,10 @@ def test_native_move_rejects_column_from_another_project(
         CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
         is None
     )
-    assert len(statements) == 1
-    assert statements[0]._for_update_arg is not None
-    assert "card.project_id" in str(statements[0])
+    assert len(statements) == 2
+    assert all(statement._for_update_arg is not None for statement in statements)
+    assert "project.id" in str(statements[0])
+    assert "card.project_id" in str(statements[1])
 
 
 def test_graph_cycle_rejection_is_validation_error_not_unknown_mutation() -> None:
