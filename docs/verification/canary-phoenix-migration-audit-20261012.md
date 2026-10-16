@@ -207,3 +207,42 @@ Five of six current content documents compare equal. The sixth differs only by
 a zero-width-space empty paragraph in serialized Markdown, not business text.
 These comparisons do not authorize activation, replace a consistent snapshot,
 or decide non-content selection/configuration state. No live data was changed.
+
+Native activity-history comparison resolves six of those 13 retained rich-content
+documents as previously saved versions for the exact entity and field. Five
+matched the initial bounded history; the sixth matched history around its source
+file timestamp. One additional comment body matches history on the same card,
+but the native comment history omits comment identity, so this is insufficient
+to identify that particular comment. Six other documents remain unmatched in
+the bounded history. Seven documents therefore remain unresolved; absence from
+these bounded reads does not prove an unsaved draft or data loss. No old state
+has been activated or written over current editor documents.
+
+The audit uses the existing Markdown serializer's explicit `value` parameter.
+Its classifications agree with editor-state-based serialization, while avoiding
+editor state updates in this offline comparison (255 conversions: 1.59 seconds
+versus 87.44 seconds). This is diagnostic tooling performance, not a measured
+production page-load improvement.
+
+A follow-up read confirms all seven unresolved targets still exist and are not
+soft-deleted. Offline comparison narrows four differences to zero-width-space
+empty paragraphs (two descriptions) or Markdown escapes (two comments). Parsing
+both serialized variants with the actual editor gives identical visible text
+after whitespace and zero-width-space normalization. This does not prove equal
+CRDT identity or formatting, and is not authorization to merge their states.
+Three content differences remain: one comment whose same-card historical match
+lacks exact comment identity, and two wiki documents. Current domain values and
+both source snapshots remain preserved. No live state has been changed.
+
+The two wiki differences also match visible text from their own native saved
+history after the same editor-based normalization. Both have later saved domain
+values; keep those current values rather than activating older snapshots. This
+is a content-level historical match, not byte-level CRDT or formatting equality.
+The remaining comment has three matching same-card historical values, but the
+history schema lacks comment identity. Its exact ownership remains unproven.
+Retain the private source snapshot and current saved comment, without automatic
+restoration. Across the 13 candidates: six exact canonical history matches,
+four current-content formatting differences, two normalized wiki history
+matches, and one unresolved exact-comment identity. This bounded classification
+does not replace a consistent backup, restore/rollback exercise, or browser
+acceptance of an actual recovery.
