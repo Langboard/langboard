@@ -8,7 +8,8 @@ and locally verified. The administrator composition editor is implemented and lo
 The Store shows overview tiles; it does not eagerly mount every provider's
 connection editor. Explicit compositions have one tile and a module overview.
 Each module's management view has separate Connections, Permissions, Workflow
-and Panel sections. Editors and provider reads mount only in the selected section.
+and Panel sections. Provider connection editors are loaded on demand when an app is managed, rather than with the Store overview. Once mounted, connection editors remain mounted across section changes to preserve local drafts.
+Each section explains its purpose and authority boundary in English, Korean, Japanese and Chinese. Empty or whitespace-only app descriptions fall back to the provider summary, then to a generic setup description for third-party apps.
 Commands continue to address the exact module key and its approved revisions.
 Panel activation does not enable signal publication or create app-owned cards.
 

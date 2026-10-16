@@ -460,3 +460,16 @@ test("module write failure requires fresh snapshot before another mutation", asy
     await expect(confirm).toBeEnabled();
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
 });
+
+
+test("empty app descriptions provide setup guidance for third-party apps", async ({ page }) => {
+    await page.goto(`${path}?store&external&panel&blankdescription`);
+    const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
+    await expect(app.getByText("Connect a service, choose its resources and configure optional features for this board.", { exact: true })).toBeVisible();
+    await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GlitchTip", exact: true }) }).getByText("Projects, issues and resolution workflows.", { exact: true }).waitFor();
+    await app.getByRole("button", { name: "Manage App", exact: true }).click();
+    await expect(app.getByText("Connect your service account and select only the resources this board needs. Connection and permission approval are separate.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Panel", exact: true }).click();
+    await expect(app.getByText("Choose whether this app appears in the side rail. Panel visibility does not grant service permissions.", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+});
