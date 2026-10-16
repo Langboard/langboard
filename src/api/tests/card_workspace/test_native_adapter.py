@@ -101,7 +101,7 @@ def _service(people: list[dict[str, Any]] | None = None) -> tuple[Any, list[tupl
         project_column=SimpleNamespace(get_by_id_like=lambda uid: column, get_workflow_guidance=lambda _: {2: {}}),
         card=SimpleNamespace(
             get_by_id_like=lambda uid: card,
-            resolve_readable_card=lambda project_arg, card_arg, *args: (project_arg, card_arg, object()),
+            resolve_readable_card=lambda *args: (project, service.card.get_by_id_like("c1"), object()),
             get_work_states=lambda cards, **kwargs: {item.id: {"version": 1} for item in cards},
             can_delete=lambda actor, target: False,
             is_check_card=lambda target: False,
@@ -1050,3 +1050,15 @@ def test_native_unreadable_source_and_comment_page_do_not_load_sections():
     with pytest.raises(ValueError, match="Card not found"):
         adapter.get_comment_page("c1", 5, None, None)
     service.card_comment.get_api_page_by_card.assert_not_called()
+
+
+def test_bundle_resolves_current_visibility_without_redundant_replica_reads():
+    service, _ = _service()
+    actor = object()
+    current = service.card.resolve_readable_card("p1", "c1", actor)
+    service.card.resolve_readable_card = Mock(return_value=current)
+    service.project.get_by_id_like = Mock(side_effect=AssertionError("redundant project read"))
+    service.card.get_by_id_like = Mock(side_effect=AssertionError("redundant card read"))
+    source = NativeCardWorkspaceAdapter(actor, service).get_card_bundle_source("p1", "c1", frozenset())
+    assert source is not None
+    service.card.resolve_readable_card.assert_called_once_with("p1", "c1", actor, native_module.CollaborationChannel.Mcp)

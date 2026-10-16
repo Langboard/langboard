@@ -121,3 +121,20 @@ Chromium regression covers 1280/700/390px layouts, permission loss, offline/onli
 recovery and a fourteen-board history: hidden zero requests, ten visible cards,
 older-history expansion and collapsed focus/online inactivity. These local
 results require separate deployed canary acceptance.
+
+## MCP bundle read consolidation
+
+The native bundle adapter previously loaded the project and card through repository
+lookups before calling `CardService.resolve_readable_card`. That shared visibility
+owner already reloads current primary rows and validates deletion, ancestry,
+membership and channel visibility. Pass the requested IDs directly to it, removing
+two redundant preliminary reads and avoiding dependence on an older replica row.
+All optional bundle sections still load only after the owner authorizes the card.
+This reduces source-level query work; it does not establish a deployed latency gain
+or fix the browser cancellation above.
+
+An additional authenticated canary capture observed the original cards XHR cancel
+with `net::ERR_ABORTED` after 154ms while unrelated availability calls returned
+200. No CORS error or HTTP 500 was present in that failure event. The cause remains
+unproven; neither a 15-second timeout nor successful MCP writes explains this
+specific cancellation. Preserve it as a separate browser acceptance failure.

@@ -76,11 +76,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         card_uid: str,
         requested_sections: frozenset[str],
     ) -> CardBundleSource | None:
-        try:
-            project, card = self._ensure_project_card(project_uid, card_uid)
-        except ValueError:
-            return None
-        resolved = self._service.card.resolve_readable_card(project, card, self._actor, self._channel)
+        # The visibility owner reads current primary rows and validates ancestry;
+        # preliminary repository reads add latency and may use stale replicas.
+        resolved = self._service.card.resolve_readable_card(project_uid, card_uid, self._actor, self._channel)
         if resolved is None:
             return None
         project, card, visibility_context = resolved
