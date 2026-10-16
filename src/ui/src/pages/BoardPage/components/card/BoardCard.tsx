@@ -519,6 +519,11 @@ function BoardTaskCardResult({
                                 <Flex gap="3" wrap items="center" className="min-w-0">
                                     <CardTypeBadges card={card} showVisibility={!(canEditCard && canChangeVisibility)} />
                                     <BoardCardVisibility />
+                                    {!canEditCard && (
+                                        <Box textSize="xs" className="text-muted-foreground">
+                                            {t("card.Card editing restricted by board role")}
+                                        </Box>
+                                    )}
                                     {isExpanded ? (
                                         <Box textSize="sm" className="text-muted">
                                             <BoardCardColumnName key={`board-card-column-name-${card.uid}`} />

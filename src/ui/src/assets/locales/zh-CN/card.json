@@ -1,4 +1,5 @@
 {
+  "Card editing restricted by board role": "您当前的看板角色不允许编辑卡片标题或正文。",
   "Could not load card": "无法加载卡片",
   "Could not refresh card": "无法刷新卡片。正在显示上次加载的内容。",
   "Show title": "显示标题",

@@ -263,7 +263,7 @@ provider's delayed logout-only cleanup has been removed. Same-user token
 refresh preserves cached data and the connection. Existing session-version
 fences still reject late responses from an earlier login.
 
-Run `cd src/ui && npm run test:auth-session`. The test failed against the prior
+Run `cd src/ui && node --test src/core/stores/AuthStore.session.test.mjs`. The test failed against the prior
 implementation at replacement-identity model cleanup, then passed with the fix.
 It exercises real QueryClient cache retention/clearing and the actual store,
 with model and socket boundaries instrumented. UI TypeScript checking and
@@ -271,7 +271,7 @@ format checks also passed. Full integration and deployed browser account-switch
 acceptance remain required; these local results do not establish either.
 
 
-The existing UI image validation profile now invokes `test:auth-session` before
+The existing UI image validation profile now invokes the native AuthStore Node test before
 its existing socket runtime and asset-retention checks. All six local checks
 passed (identity 1, socket 3, retained assets 2); the prior identity-store source
 was rerun with the final test and failed at replacement-identity cleanup.
@@ -363,7 +363,7 @@ Two new regressions failed before the fix. All eight workload tests now pass,
 including 250 unchanged card projections through closed, active, unclassified
 and reference states and repeated reversals. The UI TypeScript check and
 `git diff --check` pass. The existing UI validation profile runs this regression
-through `test:project-workload`; no workflow or runner permission was added.
+through the native ProjectWorkload Node test; no workflow or runner permission was added.
 Different-user propagation, real bulk data and deployed canary acceptance remain
 pending. This source result does not complete or archive the Langboard card.
 
@@ -399,3 +399,19 @@ additional binding, all 86 socket authorization tests and the logger regression
 pass (87 total). The fixture HMAC-key warnings are unchanged. Actual internal
 and external user editor persistence, denial UX and canary publication remain
 pending; this does not authorize changing a member's role or archive the issue.
+
+
+### Read-only card explanation and validation dependencies (2026-10-17)
+
+Card details now explain that the current board role cannot edit the card title
+or description when `canEditCard` is false. Use the existing compact text widget
+and four locale files; comment authorship remains a separate permission. This
+adds no request, timer, provider or dependency. UI type checking passes; deployed
+internal/external acceptance remains pending.
+
+Run the workload and auth-session Node checks directly in the existing UI image
+validation profile instead of adding package scripts. The UI package manifest is
+now byte-identical to the canary base: no SDK dependency or artifact was changed.
+The same 14 workload/auth/socket/asset-retention tests pass. This removes an
+unrelated panel SDK workflow path trigger without dropping validation or changing
+runner policy. It does not turn the skipped PR checks into passed checks.
