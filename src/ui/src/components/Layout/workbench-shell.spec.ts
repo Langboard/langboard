@@ -488,7 +488,7 @@ for (const width of [1440, 390]) {
             column: { name },
             recorder: { type: "user", firstname: "History", lastname: "Worker" },
         });
-        await page.route("**/column-history", async (route) => {
+        await page.route(/\/column-history(?:\?|$)/, async (route) => {
             if (route.request().url().includes("history-second")) pending = route;
             else await route.fulfill({ json: { records: [record("First backlog"), record("First active"), record("First returned")] } });
         });
@@ -550,4 +550,36 @@ test("sidebar preference belongs to the current user", async ({ page }) => {
     await expect(sidebar).toHaveAttribute("data-collapsed", "true");
     await page.getByRole("button", { name: "Use second user", exact: true }).click();
     await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+});
+
+test("column history replaces bounded pages and returns to latest without accumulating DOM", async ({ page }) => {
+    const cursors: (string | null)[] = [];
+    await page.route(/\/column-history(?:\?|$)/, async (route) => {
+        const before = new URL(route.request().url()).searchParams.get("before_activity_uid");
+        cursors.push(before);
+        const start = before ? 0 : 20;
+        await route.fulfill({
+            json: {
+                records: Array.from({ length: 20 }, (_, index) => ({
+                    uid: `event-${start + index}`,
+                    activity_type: "card_moved",
+                    created_at: "2026-10-01T12:00:00Z",
+                    column: { name: `Stage ${start + index}` },
+                })),
+                next_cursor: before ? null : "event-20",
+            },
+        });
+    });
+    await page.goto("/src/components/Layout/column-history.fixture.html");
+    const timeline = page.getByRole("navigation", { name: "Activity", exact: true });
+    await expect(timeline.locator("time")).toHaveCount(20);
+    await expect(timeline.locator("time").first()).toHaveText("Stage 20");
+    await timeline.getByRole("button", { name: "Older history", exact: true }).click();
+    await expect(timeline.locator("time").first()).toHaveText("Stage 0");
+    await expect(timeline.locator("time")).toHaveCount(20);
+    await expect(timeline.getByRole("button", { name: "Older history", exact: true })).toHaveCount(0);
+    await timeline.getByRole("button", { name: "Latest history", exact: true }).click();
+    await expect(timeline.locator("time").first()).toHaveText("Stage 20");
+    await expect(timeline.locator("time")).toHaveCount(20);
+    expect(cursors).toEqual([null, "event-20", null]);
 });

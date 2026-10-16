@@ -1,4 +1,6 @@
 {
+  "Latest history": "Latest history",
+  "Older history": "Older history",
   "Card editing restricted by board role": "Your board role does not allow editing the card title or description.",
   "Could not load card": "Could not load card",
   "Could not refresh card": "Could not refresh card. Showing the last loaded content.",
