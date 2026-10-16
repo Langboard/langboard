@@ -16,12 +16,13 @@ def test_receipt_is_private_and_server_owned():
     private, public = record("internal.work_plan.receipt"), record("note")
     repo = Mock()
     repo.get_list.return_value = [private, public]
-    repo.get_by_foreign_ids.return_value = [private, public]
+    repo.get_by_project_cards.return_value = [(1, private.key, private.value), (1, public.key, public.value)]
     repo.get_by_key.return_value = private
-    service = MetadataService(None, None, SimpleNamespace(metadata=repo))
+    card_service = SimpleNamespace(resolve_visibility_context=lambda *args: (object(), object()))
+    service = MetadataService(None, lambda _: card_service, SimpleNamespace(metadata=repo))
     assert service.get_all_as_api(CardMetadata, card, as_dict=True) == {"note": "value"}
     assert service.get_all_as_api(CardMetadata, card) == [{"key": "note", "value": "value"}]
-    assert service.get_all_by_foreign_models_as_api(CardMetadata, "card_id", [card]) == {
+    assert service.get_project_cards_as_api(object(), object()) == {
         card.get_uid(): {"note": "value"}
     }
     assert service.get_by_key_as_api(CardMetadata, card, private.key) is None

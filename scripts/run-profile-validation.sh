@@ -18,6 +18,9 @@ case "$profile" in
       src/api/tests/card_visibility/test_visibility_transition.py \
       src/api/tests/card_visibility/test_policy.py \
       src/api/tests/card_visibility/test_private_policy.py \
+      src/api/tests/card_visibility/test_metadata_visibility.py \
+      src/api/tests/card_visibility/test_metadata_projection.py \
+      src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py)
     ;;
   worker)
@@ -34,6 +37,7 @@ case "$profile" in
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py \
+      src/api/tests/card_visibility/test_metadata_projection.py \
       src/api/tests/card_workspace/timers/)
     ;;
   *)

@@ -1,7 +1,12 @@
 from typing import Any, Callable, TypeVar
+from sqlalchemy import or_
 from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
+from ....core.types.ParamTypes import TProjectParam
+from ....domain.models import Card, CardMetadata, Project, ProjectColumn
 from ....domain.models.bases import BaseMetadataModel
+from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....helpers import InfraHelper
 
 
 _TMetadata = TypeVar("_TMetadata", bound=BaseMetadataModel)
@@ -11,6 +16,27 @@ class MetadataRepository(BaseRepository):
     @staticmethod
     def name() -> str:
         return "metadata"
+
+    def get_by_project_cards(self, project: TProjectParam, *, context: CardVisibilityContext):
+        """Read visible metadata on the primary without hydrating card or column bodies."""
+        project_id = InfraHelper.convert_id(project)
+        query = (
+            SqlBuilder.select.columns(Card.id, CardMetadata.key, CardMetadata.value)
+            .select_from(Card)
+            .join(CardMetadata, CardMetadata.card_id == Card.id)
+            .join(ProjectColumn, ProjectColumn.id == Card.project_column_id)
+            .join(Project, Project.id == Card.project_id)
+            .where(
+                Card.project_id == project_id,
+                ProjectColumn.project_id == project_id,
+                ProjectColumn.deleted_at.is_(None),
+                Project.deleted_at.is_(None),
+                card_visibility_scope(context),
+                or_(Card.source_type.is_(None), Card.source_uid.is_(None)),
+            )
+        )
+        with DbSession.use(readonly=False) as db:
+            return db.exec(query).all()
 
     def get_list(
         self, model_cls: type[_TMetadata], foreign_model: BaseDbModel, limit: int | None = None
