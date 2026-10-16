@@ -133,7 +133,9 @@ async function mockBoardApi(page: Page, options: IMockOptions = {}): Promise<voi
         }
         await fulfillWithCors(route, projectPayload);
     });
-    await page.route("**/activity/project/fixture-project/card/*/column-history", (route) => fulfillWithCors(route, { history: [], total_count: 0 }));
+    await page.route("**/activity/project/fixture-project/card/*/column-history", (route) =>
+        fulfillWithCors(route, { records: [], next_cursor: null })
+    );
     await page.route("**/auth/**", (route) => fulfillWithCors(route, { access_token: "fixture-token", user: FIXTURE_USER, bots: [] }));
 }
 
@@ -626,4 +628,38 @@ test("an authorized detail omitted from the board projection can return to the F
     await expect(page.locator("[data-card-viewer]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Restore Card other-0", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
+});
+
+test("compact board refresh does not clear a hydrated card description", async ({ page }) => {
+    await mockBoardApi(page);
+    const body = "Full detail survives compact board refresh.";
+    await page.route("**/board/fixture-project/card/fixture-card", (route) =>
+        fulfillWithCors(route, {
+            card: { ...FIXTURE_CARD, description: { content: body }, has_description: true },
+            attachments: [],
+            checklists: [],
+            global_relationships: [],
+            project_columns: [],
+            project_labels: [],
+            bot_scopes: [],
+        })
+    );
+    let summaryReads = 0;
+    await page.route("**/board/fixture-project/cards", (route) => {
+        if (route.request().method() !== "OPTIONS") summaryReads++;
+        const { description: _description, ...summary } = FIXTURE_CARD;
+        return fulfillWithCors(route, {
+            cards: [{ ...summary, has_description: true }],
+            columns: [],
+            checklists: [],
+            global_relationships: [],
+            column_bot_scopes: [],
+            column_bot_schedules: [],
+        });
+    });
+    await page.goto(`${FIXTURE}?compactSummary=1`);
+    await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Refresh compact summary", exact: true }).press("Enter");
+    await expect.poll(() => summaryReads).toBe(1);
+    await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
 });

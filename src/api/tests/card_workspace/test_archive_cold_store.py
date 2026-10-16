@@ -66,7 +66,8 @@ class FakeCard:
     def api_response(self) -> dict[str, Any]:
         return {"uid": self._uid, "archived_at": self.archived_at}
 
-    def board_api_response(self, **values: Any) -> dict[str, Any]:
+    def board_api_response(self, *, include_body: bool = True, **values: Any) -> dict[str, Any]:
+        assert include_body is False
         return {"uid": self._uid, **values}
 
 

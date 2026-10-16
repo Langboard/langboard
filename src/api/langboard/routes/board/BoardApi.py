@@ -304,7 +304,7 @@ def get_archived_project_cards(
 @AppRouter.api.get(
     "/board/{project_uid}/cards",
     tags=["Board"],
-    description="Get project cards.",
+    description="Get project card summaries. Fetch card details for description and AI description.",
     responses=(
         OpenApiSchema()
         .suc(
@@ -313,6 +313,7 @@ def get_archived_project_cards(
                     (
                         Card,
                         {
+                            "include_body": False,
                             "schema": {
                                 "project_column_name": "string",
                                 "count_comment": "integer",

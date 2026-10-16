@@ -722,6 +722,7 @@ class CardService(BaseDomainService):
                 creator=self._card_creator_projection(card, creators.get(card.id)),
                 completed=completed_by_card.get(card.id, False),
                 is_check_card=is_check_card,
+                include_body=False,
             )
             progress = work_states[card.id]["checklist_progress"]
             api_card["checklist_total_count"] = progress["total"]

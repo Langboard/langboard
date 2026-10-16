@@ -84,9 +84,13 @@ class Card(BaseNotificationScheduleModel, table=True):
         creator: dict[str, Any] | None = None,
         completed: bool = False,
         is_check_card: bool = False,
+        *, include_body: bool = True,
     ) -> dict[str, Any]:
         return {
-            **self.api_response(),
+            **{
+                key: value for key, value in self.api_response().items()
+                if include_body or key not in ("description", "ai_description")
+            },
             "visibility": self.visibility,
             "count_comment": count_comment,
             "member_uids": member_uids,
@@ -97,6 +101,14 @@ class Card(BaseNotificationScheduleModel, table=True):
             "completed": completed,
             "is_check_card": is_check_card,
         }
+
+    @classmethod
+    def api_schema(cls, schema: dict | None = None, *, include_body: bool = True, **kwargs) -> dict[str, Any]:
+        result = super().api_schema(schema, **kwargs)
+        if not include_body:
+            result.pop("description", None)
+            result.pop("ai_description", None)
+        return result
 
     def notification_data(self) -> dict[str, Any]:
         return {
