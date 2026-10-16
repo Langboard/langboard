@@ -10,6 +10,7 @@ case "$profile" in
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
       src/api/tests/core/test_unprivileged_cron.py \
+      src/api/tests/core/test_logger_tracebacks.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
       src/api/tests/runtime/test_socket_auth.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \

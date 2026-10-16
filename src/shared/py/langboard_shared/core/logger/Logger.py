@@ -106,7 +106,7 @@ class Logger:
                     "omit_repeated_times": False,
                     "markup": True,
                     "rich_tracebacks": True,
-                    "tracebacks_show_locals": True,
+                    "tracebacks_show_locals": False,
                 },
                 "access": {
                     "formatter": "access",
@@ -115,7 +115,7 @@ class Logger:
                     "omit_repeated_times": False,
                     "markup": True,
                     "rich_tracebacks": True,
-                    "tracebacks_show_locals": True,
+                    "tracebacks_show_locals": False,
                 },
                 "file": {
                     "class": "langboard_shared.core.logger.LogFileHandler.LogFileHandler",
@@ -158,7 +158,7 @@ class Logger:
                 omit_repeated_times=False,
                 markup=True,
                 rich_tracebacks=True,
-                tracebacks_show_locals=True,
+                tracebacks_show_locals=False,
             ),
             LogFileHandler(level=self.file_level, log_dir=Env.LOGGING_DIR, is_terminal=Env.IS_EXECUTABLE),
         ]

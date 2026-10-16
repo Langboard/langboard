@@ -366,3 +366,20 @@ and reference states and repeated reversals. The UI TypeScript check and
 through `test:project-workload`; no workflow or runner permission was added.
 Different-user propagation, real bulk data and deployed canary acceptance remain
 pending. This source result does not complete or archive the Langboard card.
+
+### Bounded exception rendering (2026-10-16)
+
+Rich exception handlers printed frame-local object graphs on both console paths
+and the executable terminal-file path. Disable local-variable rendering in all
+four handlers while retaining the exception message, source context, traceback,
+levels, sinks and Sentry configuration. This reduces exception rendering/output
+amplification and avoids implicitly serializing credentials or request objects.
+It does not establish an improvement to normal board-request latency.
+
+A regression renders a synthetic exception through the direct console handler,
+both configured Uvicorn handlers and the terminal-file handler. The original
+console and file settings each failed the local-value exclusion check. With the
+change, the traceback and exception remain visible and the local value is absent.
+The regression plus existing MCP telemetry suite passes 18 tests. The existing
+API image-validation profile includes this regression; no runner permission,
+workflow or dependency is added. Deployed canary acceptance remains pending.

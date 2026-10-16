@@ -26,7 +26,7 @@ class LogFileHandler(RichHandler):
             markup=is_terminal,
             show_path=False,
             rich_tracebacks=is_terminal,
-            tracebacks_show_locals=is_terminal,
+            tracebacks_show_locals=False,
         )
 
     def emit(self, record: LogRecord):
