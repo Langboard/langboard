@@ -31,7 +31,10 @@ def test_standard_environment_generator_forwards_native_oauth(tmp_path, configur
         "MCP_EMPLOYEE_GROUP_IDS": "fixture-group-1,fixture-group-2",
     }
     (tmp_path / ".env").write_text(
-        "PROJECT_NAME=langboard\n" + "".join(f'{name}="{value}"\n' for name, value in values.items() if configured)
+        "PROJECT_NAME=langboard\nMAX_FILE_SIZE_MB=8\n"
+        "SOCKET_PHOENIX_INTERNAL_SECRET=fixture-internal-secret-at-least-32-characters\n"
+        "MAIL_SERVER=mail.example.invalid\nMAIL_FROM=fixture@example.invalid\nMAIL_PORT=587\n"
+        "BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP=fixture-fanout\n" + "".join(f'{name}="{value}"\n' for name, value in values.items() if configured)
     )
     environment = {
         name: value

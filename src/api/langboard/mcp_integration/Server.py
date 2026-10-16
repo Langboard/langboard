@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from fastmcp import FastMCP
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.transforms.search import RegexSearchTransform
+from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
 from langboard_shared.core.types import Factory
 from langboard_shared.core.utils.decorators import class_instance
 from langboard_shared.domain.models import Bot, User
@@ -151,7 +152,7 @@ class McpServer:
             if not self._validate_auth(auth_value, tool_name):
                 raise AuthorizationError("Authentication required")
 
-            if not self._validate_role(auth_value, handler, **kwargs):
+            if not await call_sync_fn_in_threadpool(self._validate_role, auth_value, handler, **kwargs):
                 raise AuthorizationError("Insufficient permissions")
 
             with ExitStack() as resources:
@@ -160,7 +161,9 @@ class McpServer:
                     if factory:
                         resources.callback(factory.close)
 
-                return await handler(**kwargs) if iscoroutinefunction(handler) else handler(**kwargs)
+                if iscoroutinefunction(handler):
+                    return await handler(**kwargs)
+                return await call_sync_fn_in_threadpool(handler, **kwargs)
 
         # Use the filtered signature so FastMCP only sees the non-excluded parameters
         setattr(wrapper, "__signature__", filtered_sig)

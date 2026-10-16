@@ -9,6 +9,7 @@ from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import MiddlewareHelper
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 
 
@@ -36,7 +37,7 @@ class McpAuthMiddleware(BaseMiddleware):
 
         is_secure = Env.PUBLIC_UI_URL.startswith("https://")
 
-        validation_result = MiddlewareHelper.validate_auth(scope, allow_oidc=True)
+        validation_result = await run_in_threadpool(MiddlewareHelper.validate_auth, scope, allow_oidc=True)
         if isinstance(validation_result, int):
             response = JsonResponse(status_code=validation_result)
             if validation_result != status.HTTP_422_UNPROCESSABLE_CONTENT:
@@ -87,7 +88,7 @@ class McpAuthMiddleware(BaseMiddleware):
         mcp_tool_group_uid: str,
         service: DomainService,
     ) -> None:
-        tool_group = service.mcp_tool_group.get_by_id_like(mcp_tool_group_uid)
+        tool_group = await run_in_threadpool(service.mcp_tool_group.get_by_id_like, mcp_tool_group_uid)
         if not tool_group:
             response = JsonResponse(ApiErrorCode.NF3006, status_code=status.HTTP_404_NOT_FOUND)
             await response(scope, receive, send)
@@ -116,7 +117,7 @@ class McpAuthMiddleware(BaseMiddleware):
                 return
 
         if isinstance(validation_result, User) and not validation_result.is_admin:
-            mcp_role = service.mcp_tool_group.get_role(validation_result)
+            mcp_role = await run_in_threadpool(service.mcp_tool_group.get_role, validation_result)
             if not mcp_role or not mcp_role.is_granted(McpRoleAction.Read):
                 response = JsonResponse(ApiErrorCode.PE1001, status_code=status.HTTP_403_FORBIDDEN)
                 await response(scope, receive, send)

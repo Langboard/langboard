@@ -14,6 +14,7 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
 from ...middlewares.McpAuthMiddleware import _resolve_mcp_tool_group_uid, mcp_auth_context
@@ -59,7 +60,7 @@ async def execute_mcp_tool(tool_name: str, request: Request):
     # Get MCP tool group and validate access
     service = DomainService()
     try:
-        tool_group = service.mcp_tool_group.get_by_id_like(mcp_tool_group_uid)
+        tool_group = await run_in_threadpool(service.mcp_tool_group.get_by_id_like, mcp_tool_group_uid)
         if not tool_group:
             raise ApiException.NotFound_404(ApiErrorCode.NF3006)
 

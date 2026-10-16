@@ -1,3 +1,4 @@
+from threading import get_ident
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
@@ -284,6 +285,14 @@ async def test_request_resets_context_and_closes_service_on_handler_failure(monk
         OAuth, "get_access_token", lambda: SimpleNamespace(claims={"iss": "https://id.example", "sub": "stable-sub"})
     )
     previous = mcp_auth_context.get()
+    loop_thread = get_ident()
+    resolve = OAuth.resolve_principal
+
+    def resolve_in_worker(*args):
+        assert get_ident() != loop_thread, "OAuth user lookup blocks the API event loop"
+        return resolve(*args)
+
+    monkeypatch.setattr(OAuth, "resolve_principal", resolve_in_worker)
 
     async def handler(_):
         assert mcp_auth_context.get()["user_or_bot"] is user
