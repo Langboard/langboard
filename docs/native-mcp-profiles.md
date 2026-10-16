@@ -33,6 +33,28 @@ kept true because attachments and user-authored content may cross trust
 boundaries. Compatibility retains its original annotations. These hints never
 replace authorization, approval or mutation outcome receipts.
 
+## Response cache and revocation policy
+
+The native transports do not install response caching. User/board data, role
+decisions and tool grants are recomputed for each invocation; neither a prior
+successful read nor an idempotent mutation receipt grants permission to replay.
+OAuth persistence stores credentials and protocol state, not authorized domain
+responses. Disabling a user, revoking a grant or changing a board role must be
+checked before entering the domain operation, including a receipt replay.
+
+Keep this boundary while optimizing projections and blocking I/O. Do not add a
+shared response cache to solve latency without measured benefit and an explicit
+actor/board/visibility key plus invalidation on role, membership, grant and
+resource changes. A TTL alone does not satisfy revocation. There is currently no
+response-cache invalidation job or cache-hit performance claim.
+
+Regression coverage lives in `test_work_plan_roles.py`,
+`test_execution_receipts_mcp.py`, `test_providers.py`,
+`test_native_oauth_http.py` and `test_role_checker.py`. These exercise actual
+role changes across sequential FastMCP calls, denied cross-board access, Raw
+grant removal and deactivation, and signed HTTP identity/scope checks. They do
+not replace authenticated canary acceptance of the deployed transport.
+
 Modern command results include `_meta.mutation_receipt`, a typed envelope with
 `request_id`, `tool`, `outcome`, `revision_conflict`, `retryable` and `next_action`.
 Domain payload fields remain unchanged. Normal command completion is
