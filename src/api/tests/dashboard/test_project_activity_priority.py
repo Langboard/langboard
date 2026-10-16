@@ -52,7 +52,8 @@ def test_project_list_orders_by_star_and_recorded_activity(monkeypatch) -> None:
     assert "card_assigned_user.card_id = card.id" in sql
     assert "card.archived_at IS NULL" in sql
     assert "max(project_activity.created_at)" in sql
-    assert "JOIN project_activity ON project_activity.card_id = card.id" in sql
+    assert "WHERE project_activity.card_id = card.id" in sql
+    assert "JOIN project_activity ON" not in sql
     assert "related_activity_at" in sql
     assert "GROUP BY card.project_id" in sql
     assert "LEFT OUTER JOIN" in sql
