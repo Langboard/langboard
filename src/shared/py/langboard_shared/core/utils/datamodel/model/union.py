@@ -1,14 +1,7 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import ClassVar
 from ..imports import IMPORT_TYPE_ALIAS, IMPORT_UNION, Import
-from . import DataModel, DataModelFieldBase
-from .base import UNDEFINED
-
-
-if TYPE_CHECKING:
-    from collections import defaultdict
-    from pathlib import Path
-    from ..reference import Reference
+from . import DataModel
 
 
 class DataTypeUnion(DataModel):
@@ -18,36 +11,3 @@ class DataTypeUnion(DataModel):
         IMPORT_TYPE_ALIAS,
         IMPORT_UNION,
     )
-
-    def __init__(  # noqa: PLR0913
-        self,
-        *,
-        reference: Reference,
-        fields: list[DataModelFieldBase],
-        decorators: list[str] | None = None,
-        base_classes: list[Reference] | None = None,
-        custom_base_class: str | None = None,
-        custom_template_dir: Path | None = None,
-        extra_template_data: defaultdict[str, dict[str, Any]] | None = None,
-        methods: list[str] | None = None,
-        path: Path | None = None,
-        description: str | None = None,
-        default: Any = UNDEFINED,
-        nullable: bool = False,
-        keyword_only: bool = False,
-    ) -> None:
-        super().__init__(
-            reference=reference,
-            fields=fields,
-            decorators=decorators,
-            base_classes=base_classes,
-            custom_base_class=custom_base_class,
-            custom_template_dir=custom_template_dir,
-            extra_template_data=extra_template_data,
-            methods=methods,
-            path=path,
-            description=description,
-            default=default,
-            nullable=nullable,
-            keyword_only=keyword_only,
-        )

@@ -1,13 +1,12 @@
 """GlitchTip metadata connections; raw diagnostics stay on its official MCP."""
 
-import hashlib
-import json
 import re
 from urllib.parse import urlsplit
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, require_connection_access
+from langboard_shared.domain.services.AppResourceAccess import revoke_connection_resources
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import AppSettingPublisher
@@ -40,22 +39,7 @@ def _slug(value):
     return value
 
 
-def _revision(connection):
-    return hashlib.sha256(
-        json.dumps(
-            {
-                "id": int(connection.id),
-                "owner": int(connection.owner_id),
-                "ownership": connection.ownership,
-                "organization_id": int(connection.organization_id) if connection.organization_id is not None else None,
-                "app": connection.app_key,
-                "instance": connection.instance_url,
-                "credential": connection.credential_reference,
-                "state": connection.state,
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+_revision = AppConnection.edit_revision
 
 
 def _metadata(connection):
@@ -398,21 +382,12 @@ def disconnect(service, actor, project_uid, connection_uid, expected_revision):
         connection = _connection(db, actor, connection_uid, lock=True, revocation=True)
         if _revision(connection) != expected_revision:
             raise GlitchTipConflict()
-        if connection.state == "disconnected":
-            return _metadata(connection)
-        connection.state = "disconnected"
-        db.update(connection)
+        if connection.state != "disconnected":
+            connection.state = "disconnected"
+            db.update(connection)
         # Preserve selected resources, cards and workflow configuration. The
         # shared credential may serve another connection and is not revoked here.
-        db.exec(
-            SqlBuilder.update.table(AppResourceBinding)
-            .where(
-                AppResourceBinding.connection_id == connection.id,
-            )
-            .values(
-                access_state="revoked", health="unavailable", access_revision=AppResourceBinding.access_revision + 1
-            )
-        )
+        revoke_connection_resources(db, connection.id)
         db.after_commit(AppSettingPublisher.apps_changed)
         return _metadata(connection)
 

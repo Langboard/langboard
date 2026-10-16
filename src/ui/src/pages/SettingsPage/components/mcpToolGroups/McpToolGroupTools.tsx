@@ -8,7 +8,7 @@ import Tooltip from "@/components/base/Tooltip";
 import MarkdownCodeBlock from "@/components/Markdown/CodeBlock";
 import MultiSelect from "@/components/MultiSelect";
 import useUpdateMcpToolGroup from "@/controllers/api/settings/mcpToolGroups/useUpdateMcpToolGroup";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
@@ -81,19 +81,7 @@ function McpToolGroupToolsEdit() {
 
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t("successes.MCP tool group tools changed successfully.");
             },

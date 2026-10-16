@@ -18,6 +18,7 @@ from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import VerificationEvidence, VerificationSubmission
 from langboard_shared.domain.services.DomainService import DomainService
+from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
@@ -1736,7 +1737,7 @@ def create_card_content_block(
     )
     if block is None:
         raise ValueError("Card not found in project")
-    return {"content_block": _public_content_block(block)}
+    return {"content_block": CardContentBlockService.public_block(block)}
 
 
 @McpTool.add(
@@ -1762,7 +1763,7 @@ def update_card_content_block(
     block = service.card_content_block.update(user_or_bot, project_uid, card_uid, block_uid, expected_revision, payload)
     if block is None:
         raise PermissionError("Block not found in card")
-    return {"content_block": _public_content_block(block)}
+    return {"content_block": CardContentBlockService.public_block(block)}
 
 
 @McpTool.add(description="Delete a card content block by uid.")
@@ -1799,14 +1800,3 @@ def move_card_content_block(
     if not service.card_content_block.move(user_or_bot, project_uid, card_uid, block_uid, after_block_uid, order):
         raise PermissionError("Block not found in card")
     return {"moved": True}
-
-
-def _public_content_block(block: Any) -> dict[str, Any]:
-    return {
-        "block_uid": block.get_uid(),
-        "type": block.block_type,
-        "order": block.order,
-        "revision": block.revision,
-        "payload": block.payload,
-        "updated_at": block.updated_at.isoformat() if block.updated_at else None,
-    }

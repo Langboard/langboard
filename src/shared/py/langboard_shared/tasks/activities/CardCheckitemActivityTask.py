@@ -12,7 +12,7 @@ async def card_checkitem_created(user_or_bot: User | Bot, project: Project, card
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemCreated, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemCreated, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -29,7 +29,7 @@ async def card_checkitem_title_changed(
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemTitleChanged, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemTitleChanged, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -41,7 +41,7 @@ async def card_checkitem_timer_started(user_or_bot: User | Bot, project: Project
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemTimerStarted, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemTimerStarted, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -53,7 +53,7 @@ async def card_checkitem_timer_paused(user_or_bot: User | Bot, project: Project,
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemTimerPaused, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemTimerPaused, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -65,7 +65,7 @@ async def card_checkitem_timer_stopped(user_or_bot: User | Bot, project: Project
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemTimerStopped, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemTimerStopped, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -77,7 +77,7 @@ async def card_checkitem_checked(user_or_bot: User | Bot, project: Project, card
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemChecked, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemChecked, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -89,7 +89,7 @@ async def card_checkitem_unchecked(user_or_bot: User | Bot, project: Project, ca
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemUnchecked, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemUnchecked, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -104,7 +104,7 @@ async def card_checkitem_cardified(user_or_bot: User | Bot, project: Project, ca
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemDeleted, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemDeleted, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -116,7 +116,7 @@ async def card_checkitem_deleted(user_or_bot: User | Bot, project: Project, card
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCheckitemDeleted, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCheckitemDeleted, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -126,14 +126,3 @@ def _get_default_history(helper: ActivityTaskHelper, project: Project, card: Car
         **helper.create_project_default_history(project, card=card),
         "checkitem": ActivityHistoryHelper.create_checklist_or_checkitem_history(checkitem),
     }
-
-
-def _get_activity_params(activity_type: ProjectActivityType, project: Project, card: Card):
-    activity_params = {
-        "activity_type": activity_type,
-        "project_id": project.id,
-        "project_column_id": card.project_column_id,
-        "card_id": card.id,
-    }
-
-    return activity_params

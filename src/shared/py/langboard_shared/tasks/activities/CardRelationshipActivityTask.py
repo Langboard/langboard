@@ -30,17 +30,6 @@ async def card_relationship_updated(
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardRelationshipsUpdated, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardRelationshipsUpdated, project, card),
     )
     record_project_activity(user_or_bot, activity)
-
-
-def _get_activity_params(activity_type: ProjectActivityType, project: Project, card: Card):
-    activity_params = {
-        "activity_type": activity_type,
-        "project_id": project.id,
-        "project_column_id": card.project_column_id,
-        "card_id": card.id,
-    }
-
-    return activity_params

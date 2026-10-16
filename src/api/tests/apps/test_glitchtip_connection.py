@@ -416,3 +416,8 @@ def test_policy_disabled_connection_can_only_remove_authority(setup, state):
         resource = db.exec(SqlBuilder.select.table(AppResourceBinding)).first()
         assert resource.access_state == "revoked" and resource.health == "unavailable"
         assert resource.is_selected is False
+        revoked_revision = resource.access_revision
+    gt.disconnect(*args, result["revision"])
+    with DbSession.use(readonly=False) as db:
+        resource = db.exec(SqlBuilder.select.table(AppResourceBinding)).first()
+        assert resource.access_revision == revoked_revision

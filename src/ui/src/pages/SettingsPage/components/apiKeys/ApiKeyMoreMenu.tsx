@@ -8,7 +8,7 @@ import MultiSelect from "@/components/MultiSelect";
 import { DISABLE_DRAGGING_ATTR } from "@/constants";
 import useDeleteApiKey from "@/controllers/api/settings/apiKeys/useDeleteApiKey";
 import useUpdateApiKey from "@/controllers/api/settings/apiKeys/useUpdateApiKey";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import setupApiErrorHandler, { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -63,19 +63,7 @@ const ApiKeyMoreMenuEditIPWhitelist = memo(({ apiKey }: IApiKeyMoreMenuProps) =>
 
         Toast.Add.promise(promise, {
             loading: t("common.Updating..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t("successes.API key updated successfully.");
             },

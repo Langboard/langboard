@@ -26,17 +26,17 @@ class CardContentBlockService(BaseDomainService):
     def api_blocks_by_card(self, card: TCardParam) -> list[dict[str, Any]]:
         """Public projection of a card's blocks (bounded payloads)."""
 
-        return [self._public_block(block) for block in self.get_blocks_by_card(card)]
+        return [self.public_block(block) for block in self.get_blocks_by_card(card)]
 
     def api_blocks_by_cards(self, card_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
         """Project the authorized batch without querying per card."""
         result: dict[int, list[dict[str, Any]]] = {}
         for block in self.repo.card_content_block.get_all_by_cards(card_ids):
-            result.setdefault(block.card_id, []).append(self._public_block(block))
+            result.setdefault(block.card_id, []).append(self.public_block(block))
         return result
 
     @staticmethod
-    def _public_block(block: CardContentBlock) -> dict[str, Any]:
+    def public_block(block: CardContentBlock) -> dict[str, Any]:
         return {
             "block_uid": block.get_uid(),
             "type": block.block_type,

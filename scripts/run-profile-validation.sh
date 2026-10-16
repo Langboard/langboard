@@ -13,6 +13,9 @@ case "$profile" in
       src/api/tests/runtime/test_board_chat_availability.py \
       src/api/tests/core/test_unprivileged_cron.py \
       src/api/tests/core/test_logger_tracebacks.py \
+      src/api/tests/core/test_ip_whitelist.py \
+      src/api/tests/runtime/test_shared_form_validation.py \
+      src/api/tests/contracts/test_datamodel_generation.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
       src/api/tests/runtime/test_socket_auth.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
@@ -33,7 +36,7 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
+    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
     ;;
   api-postgres)
     export PROJECT_NAME="${PROJECT_NAME:-langboard}"

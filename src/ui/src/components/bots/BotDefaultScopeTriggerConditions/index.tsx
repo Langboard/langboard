@@ -5,7 +5,7 @@ import Label from "@/components/base/Label";
 import Toast from "@/components/base/Toast";
 import { BotDefaultScopeBranchModel } from "@/core/models";
 import useUpdateBotDefaultScopeBranch from "@/controllers/api/settings/bots/useUpdateBotDefaultScopeBranch";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { EHttpStatus } from "@langboard/core/enums";
 import { ROUTES } from "@/core/routing/constants";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -51,20 +51,7 @@ const BotDefaultScopeTriggerConditions = memo(({ branch }: IBotDefaultScopeTrigg
 
             Toast.Add.promise(promise, {
                 loading: t("common.Updating..."),
-                error: (error) => {
-                    const messageRef = { message: "" };
-                    const { handle } = setupApiErrorHandler(
-                        {
-                            [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                                after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                            },
-                        },
-                        messageRef
-                    );
-
-                    handle(error);
-                    return messageRef.message;
-                },
+                error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
                 success: () => t("successes.Bot default trigger conditions updated successfully."),
                 finally: () => {
                     setIsUpdating(false);

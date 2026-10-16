@@ -1,8 +1,6 @@
-from re import match
 from langboard_shared.core.routing import BaseFormModel, form_model
-from langboard_shared.core.routing.Exception import MissingException, ValidationFailureException, ValidationFailureInfo
 from pydantic import field_validator
-from ....Constants import EMAIL_REGEX
+from ...FormValidation import validate_email_address
 
 
 @form_model
@@ -21,22 +19,7 @@ class SignUpForm(BaseFormModel):
     affiliation: str | None = None
     position: str | None = None
 
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        if not value:
-            raise MissingException("body", "email", {"email": value})
-
-        if not bool(match(EMAIL_REGEX, value)):
-            raise ValidationFailureException(
-                ValidationFailureInfo(
-                    loc="body",
-                    field="email",
-                    inputs={"email": value},
-                )
-            )
-
-        return value
+    validate_email = field_validator("email")(validate_email_address)
 
 
 @form_model

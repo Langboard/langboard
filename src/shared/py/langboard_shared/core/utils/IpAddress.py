@@ -64,3 +64,17 @@ def has_allowed_ips(whitelist: list[str] | str | None, ips: list[str] | str | No
                 return True
 
     return False
+
+
+def filter_valid_ip_whitelist(ip_whitelist: list[str]) -> list[str]:
+    valid_ip_whitelist = []
+    if ALLOWED_ALL_IPS in ip_whitelist:
+        valid_ip_whitelist.append(ALLOWED_ALL_IPS)
+    else:
+        for ip in ip_whitelist:
+            if not is_valid_ipv4_address_or_range(ip):
+                continue
+            if ip.endswith("/24"):
+                ip = make_valid_ipv4_range(ip)
+            valid_ip_whitelist.append(ip)
+    return valid_ip_whitelist

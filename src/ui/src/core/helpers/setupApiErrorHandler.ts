@@ -132,4 +132,11 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
     return { handle, handleAsync };
 };
 
+export const createApiErrorMessageHandler = (onForbidden: () => void) => (error: unknown) => {
+    const messageRef = { message: "" };
+    const { handle } = setupApiErrorHandler({ [EHttpStatus.HTTP_403_FORBIDDEN]: { after: onForbidden } }, messageRef);
+    handle(error);
+    return messageRef.message;
+};
+
 export default setupApiErrorHandler;
