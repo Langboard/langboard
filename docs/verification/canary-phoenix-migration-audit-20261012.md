@@ -269,3 +269,12 @@ It exercises real QueryClient cache retention/clearing and the actual store,
 with model and socket boundaries instrumented. UI TypeScript checking and
 format checks also passed. Full integration and deployed browser account-switch
 acceptance remain required; these local results do not establish either.
+
+
+The existing UI image validation profile now invokes `test:auth-session` before
+its existing socket runtime and asset-retention checks. All six local checks
+passed (identity 1, socket 3, retained assets 2); the prior identity-store source
+was rerun with the final test and failed at replacement-identity cleanup.
+This wires the regression into the existing validation target without adding a
+workflow or runner permission. The central image target has not run at this
+commit, and required direct GitHub checks remain separate gates.
