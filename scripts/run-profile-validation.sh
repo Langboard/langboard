@@ -13,6 +13,8 @@ case "$profile" in
       src/shared/py/langboard_shared/core/broker/RedisBroker_test.py \
       src/api/tests/runtime/test_external_redis_compose.py \
       src/api/tests/runtime/test_project_read_bootstrap.py \
+      src/api/tests/card_workspace/test_board_creator_projection.py \
+      src/api/tests/card_workspace/test_card_board_summary.py \
       src/api/tests/runtime/test_board_chat_availability.py \
       src/api/tests/core/test_unprivileged_cron.py \
       src/api/tests/core/test_logger_tracebacks.py \
