@@ -138,3 +138,22 @@ with `net::ERR_ABORTED` after 154ms while unrelated availability calls returned
 200. No CORS error or HTTP 500 was present in that failure event. The cause remains
 unproven; neither a 15-second timeout nor successful MCP writes explains this
 specific cancellation. Preserve it as a separate browser acceptance failure.
+
+## Telemetry visibility and fresh navigation
+
+The configured browser telemetry ingestion project was not present in the
+current observer's accessible project list. The organization selector exposed
+only one accessible organization. A successful envelope HTTP response therefore
+does not establish that this observer can retrieve the corresponding event.
+Check project existence, key-to-project mapping and observer access separately;
+absence from this list does not prove project deletion. Infrastructure ownership
+retains this investigation. Do not create a second project or change credentials
+to work around missing evidence.
+
+A later full navigation reproduced cancellation before card loading: identity
+hydration and the board's primary GET reported `net::ERR_ABORTED` with
+`canceled=true`, without an HTTP error response or a reported CORS block. A
+separate third-party analytics script failed DNS resolution; that script failure
+does not establish an API DNS failure. Preserve gateway/API arrival evidence
+before attributing these cancellations to application authorization or CPU
+pressure. Previously rendered in-memory cards are not fresh-navigation proof.
