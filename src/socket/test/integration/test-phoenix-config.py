@@ -1,6 +1,5 @@
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -22,7 +21,13 @@ def main() -> None:
     assert re.search(r"\$request(?!_)", access_log_format.group(1)) is None
 
     powershell = shutil.which("powershell") or shutil.which("pwsh")
-    for secret in ("", "too-short", "s" * 32):
+    for secret, internal_url, editor_url in (
+        ("", "", ""),
+        ("too-short", "", ""),
+        ("s" * 32, "", ""),
+        ("s" * 32, "https://realtime.example.invalid/internal", "https://editor.example.invalid"),
+        ("s" * 32, "http://realtime.example.invalid:5690", ""),
+    ):
         with tempfile.TemporaryDirectory(prefix="phoenix-config-") as directory:
             fixture = Path(directory)
             scripts = fixture / "scripts" / "utils"
@@ -39,6 +44,9 @@ def main() -> None:
                     "MAX_REQUEST_BODY_SIZE_BYTES=${MAX_REQUEST_BODY_SIZE_BYTES}\n",
                     encoding="utf-8",
                 )
+            shutil.copyfile(
+                root / "docker" / "envs" / "server-common.env.template", output / "server-common.env.template"
+            )
             settings = {
                 "PROJECT_NAME": "fixture",
                 "MAX_FILE_SIZE_MB": "50",
@@ -55,12 +63,12 @@ def main() -> None:
                 "SOCKET_PHOENIX_EDITOR_AI_ENABLED": "true",
                 "SOCKET_PHOENIX_EDITOR_SYNC_ENABLED": "true",
                 "SOCKET_PHOENIX_EDITOR_SYNC_EXPECTED_NODES": "1",
+                "SOCKET_INTERNAL_URL": internal_url,
+                "SOCKET_EDITOR_INTERNAL_URL": editor_url,
             }
             (fixture / ".env").write_text("\n".join(f"{key}={value}" for key, value in settings.items()))
             clean_env = {key: value for key, value in os.environ.items() if key not in settings}
-            commands = [
-                [shell, "-lc", f"cd {shlex.quote(fixture.as_posix())} && bash scripts/utils/update-docker-envs.sh"]
-            ]
+            commands = [[shell, str(scripts / "update-docker-envs.sh")]]
             if powershell:
                 commands.append([powershell, "-NoProfile", "-File", str(scripts / "update-docker-envs.ps1")])
             for command in commands:
@@ -78,6 +86,14 @@ def main() -> None:
                     assert "SOCKET_HOST=fixture_socket_phoenix\n" in rendered
                     assert "SOCKET_PORT=5690\n" in rendered
                     assert "MAX_REQUEST_BODY_SIZE_BYTES=53477376\n" in rendered
+                    for service in ("api", "socket", "graph"):
+                        values = dict(
+                            line.split("=", 1)
+                            for line in (output / f".{service}.env").read_text().splitlines()
+                            if "=" in line
+                        )
+                        assert values["SOCKET_INTERNAL_URL"] == (internal_url or "http://fixture_socket_phoenix:5690")
+                        assert values["SOCKET_EDITOR_INTERNAL_URL"] == (editor_url or "http://fixture_server:8010")
                 if secret:
                     assert secret not in result.stdout + result.stderr
 
