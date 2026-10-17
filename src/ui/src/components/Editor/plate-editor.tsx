@@ -459,10 +459,16 @@ function EditorWrapper({
 
     return (
         <FocusScope trapped={false} loop={false} className="w-full outline-none">
-            <Plate editor={editor} readOnly={readOnly} onValueChange={handleValueChange}>
+            <Plate editor={editor} readOnly={readOnly || isWaitingForCollaborativeReady} onValueChange={handleValueChange}>
                 <div className="relative">
                     <EditorContainer className={containerClassName}>
-                        <Editor variant={variant} className={className} placeholder={placeholder} readOnly={readOnly} ref={setEditorComponentRefs} />
+                        <Editor
+                            variant={variant}
+                            className={className}
+                            placeholder={placeholder}
+                            readOnly={readOnly || isWaitingForCollaborativeReady}
+                            ref={setEditorComponentRefs}
+                        />
                     </EditorContainer>
                     {isWaitingForCollaborativeReady && (
                         <SyncBlocker

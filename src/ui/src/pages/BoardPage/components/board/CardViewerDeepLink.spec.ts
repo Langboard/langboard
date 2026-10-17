@@ -685,7 +685,7 @@ for (const width of [1920, 390]) {
             });
         });
         await page.goto(FIXTURE);
-        const comments = page.locator('[data-card-comment-uid="single-comment"]');
+        const comments = page.locator("[data-card-comment-uid=single-comment]");
         const toggle = page.getByRole("button", { name: "Comments", exact: true });
         await expect(toggle).toBeVisible();
         await expect(comments).toHaveCount(0);
@@ -698,3 +698,29 @@ for (const width of [1920, 390]) {
         await expect(comments).toHaveCount(1);
     });
 }
+
+test("unsynchronized restored description cannot submit a card details patch", async ({ page }) => {
+    await mockBoardApi(page);
+    let writes = 0;
+    await page.route("**/board/fixture-project/card/fixture-card/details", async (route) => {
+        if (route.request().method() !== "OPTIONS") writes++;
+        await fulfillWithCors(route, {});
+    });
+    await page.addInitScript(() => {
+        sessionStorage.setItem(
+            "langboard-card-flip-drafts",
+            JSON.stringify({
+                state: { drafts: { "fixture-user:fixture-project:fixture-card": { description: { content: "Retained unsaved description" } } } },
+                version: 0,
+            })
+        );
+    });
+    await page.goto(FIXTURE);
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    expect(writes).toBe(0);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+});

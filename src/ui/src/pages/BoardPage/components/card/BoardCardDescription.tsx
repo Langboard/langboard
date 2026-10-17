@@ -142,6 +142,10 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
     }, []);
 
     const handleSave = useCallback(() => {
+        if (isEditing && !updateCollaborativeDescriptionRef.current) {
+            throw new Error("Description collaboration is not ready");
+        }
+
         const nextContent = sanitizeEditorContent(editorRef.current?.api.markdown.serialize() ?? description?.content ?? "");
         const originalContent = sanitizeEditorContent(description?.content ?? "");
 
@@ -157,7 +161,7 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                 content: nextContent,
             },
         };
-    }, [description]);
+    }, [description, isEditing]);
 
     const handleCancel = useCallback(() => {
         resetCollaborativeDescriptionRef.current?.(description?.content ?? "");
