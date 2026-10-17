@@ -165,6 +165,7 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
         *,
         context: CardVisibilityContext | None = None,
     ) -> list[tuple[ProjectColumn, int]]:
+        """Read existing columns only; archive creation belongs to explicit write paths."""
         if not isinstance(projects, list):
             projects = [projects]
         project_ids = [InfraHelper.convert_id(project) for project in projects]
@@ -191,18 +192,6 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
         with DbSession.use(readonly=context is None) as db:
             result = db.exec(query)
             raw_columns = result.all()
-
-        has_archive_column = {}
-        for raw_column in raw_columns:
-            column, _ = raw_column
-            if column.is_archive:
-                has_archive_column[column.project_id] = True
-
-        for project_id in project_ids:
-            if project_id in has_archive_column and has_archive_column[project_id]:
-                continue
-            archive_column = self.get_or_create_archive_if_not_exists(project_id)
-            raw_columns.append((archive_column, 0))
 
         return raw_columns
 

@@ -510,3 +510,27 @@ the board columns without a load error. The current canary exposes only the tota
 `app` metric; the new phases still require deployment and request-ID correlation.
 The sanitized local receipt retains timestamps, request IDs, durations and bytes
 under `.verification/canary-board-server-timing-20261018-followup.json`.
+
+## Column reads do not create archive storage
+
+`ProjectColumnRepository.get_all_by_project` now returns existing columns from
+its single bounded read. It no longer repairs archive columns during dashboard,
+board, template-export or other list requests. A limited result omitting an
+existing archive previously triggered one extra lookup per requested project and
+appended rows beyond the requested limit. A missing archive also triggered an
+order lookup and INSERT per project.
+
+The existing explicit write boundaries still create or reuse archive storage:
+project creation, template application, card archiving and column deletion.
+No migration, background scan, new cache or synthetic archive ID is introduced.
+Existing archive rows remain in unlimited results, and their physical card counts
+are unchanged. Older boards missing an archive acquire one when a write needs it.
+
+Six new real SQLite regressions failed on the original implementation. For 25
+boards missing archives, the old list request issued 76 statements including
+INSERTs; the changed read issues one SELECT and no writes. Limited existing-
+archive cases also remain one SELECT and honor the requested limit. Focused
+read-side-effect, physical-count, unfinished-work, column-deletion and current-
+visibility coverage passed 17 tests. These source and query-count results do not
+prove deployed latency improvement; authenticated canary acceptance still needs
+the updated image.
