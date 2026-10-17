@@ -24,6 +24,7 @@ class ReadTelemetryMiddleware(BaseMiddleware):
             or not (
                 path in {"/dashboard/projects", "/notifications", "/settings/notification-schedule"}
                 or path.startswith("/board/")
+                or path.startswith("/metadata/project/")
             )
         ):
             await self.app(scope, receive, send)

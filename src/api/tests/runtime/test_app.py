@@ -160,7 +160,17 @@ async def test_api_key_usage_preserves_stream_status_without_blocking_requests(r
     assert responsiveness == [True], "Usage storage blocked concurrent API requests"
 
 
-@pytest.mark.parametrize("route", ["/board/{project_uid}/cards", "/notifications", "/settings/notification-schedule"])
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/board/{project_uid}/cards",
+        "/notifications",
+        "/settings/notification-schedule",
+        "/metadata/project/{project_uid}/cards",
+        "/metadata/project/{project_uid}/card/{card_uid}",
+        "/metadata/project/{project_uid}/wiki/{wiki_uid}",
+    ],
+)
 async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(caplog, route) -> None:
     api = FastAPI()
     api.add_middleware(
@@ -181,7 +191,10 @@ async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(capl
     caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
     async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
         response = await client.get(
-            route.replace("{project_uid}", "PRIVATE_UID") + "?token=PRIVATE_QUERY",
+            route.replace("{project_uid}", "PRIVATE_UID")
+            .replace("{card_uid}", "PRIVATE_CARD_UID")
+            .replace("{wiki_uid}", "PRIVATE_WIKI_UID")
+            + "?token=PRIVATE_QUERY",
             headers={"origin": "https://ui.example.test", "x-request-id": "PRIVATE_HEADER"},
         )
     assert response.content == b"PRIVATE_BODY_END"
