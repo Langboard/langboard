@@ -271,3 +271,18 @@ seconds respectively; user CPU was 1.604 and 1.355 seconds. These observations
 identify avoidable imports, not production latency savings or proof that this
 one recovery job explains host CPU contention. Compare deployed process CPU
 and authenticated request timings before claiming an operational improvement.
+
+### Identity lookup during a cache outage
+
+The native user and bot lookup paths previously returned `None` when the
+identity database lookup succeeded but the subsequent cache write failed.
+Cache population is now best effort after a successful database lookup.
+A missing user still returns an invalid-token error; a missing bot or a database
+failure still returns no identity. Token verification, cache TTLs and revocation
+paths are unchanged. Regression coverage reproduces both valid-identity
+failures before the fix and verifies missing-identity/database-error denial.
+
+This source defect was independently confirmed in the running API image during
+the Redis adoption investigation. It does not establish the exact cause of an
+individual browser logout or OIDC rejection without correlated request logs.
+The browser session and MCP connection must be verified separately after release.
