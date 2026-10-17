@@ -368,3 +368,45 @@ probe-frequency investigation; they do not prove that every request failure is
 caused by Kafka. Preserve protocol checks, broker topology, volumes and ISR when
 reviewing the five-second steady-state probe interval and startup/detection
 budgets. No operating broker was restarted or changed for these measurements.
+
+## Kafka healthcheck scheduling
+
+The shared Kafka Compose healthcheck retains the official broker API-version
+command, three brokers, their existing data volumes and the healthy dependency
+gates. Each check starts a separate JVM. Its steady-state interval is now 30
+seconds instead of five; timeout remains ten seconds. Four consecutive failures
+replace 24, retaining 120 seconds of inter-check delay before failure detection.
+Including the maximum execution time of each failed check gives a nominal
+160-second budget instead of 360 seconds after a completed healthy check. These
+are scheduling budgets, not wall-clock guarantees under host CPU starvation.
+A recovering broker may take up to the new 30-second interval plus probe duration
+to report healthy; Docker health status alone does not restart a running process.
+
+The existing 20-second initialization grace remains. Native `start_interval: 5s`
+preserves frequent checks during that grace, then the normal interval applies.
+The [Docker healthcheck contract](https://docs.docker.com/reference/dockerfile/#healthcheck)
+requires Engine 25.0+ for this field. The existing Compose 2.24.4+ requirement
+exceeds the field's Compose 2.20.2 minimum. Local Engine 29.8.0/Compose 5.5.1 and
+the separately reported canary Engine 29.3.0/Compose 5.1.0 support it.
+
+Actual full-stack Compose rendering covers bundled and external Redis selections,
+all three inherited probes, startup and failure budgets, existing volume/node
+identities and API/Phoenix health gates. Both new cases failed on the old
+five-second schedule, then passed after the change. The combined external-service
+selection suite passed 25 tests with two PowerShell-unavailable skips. No Kafka
+image was downloaded or started for these configuration tests. Startup, recovery,
+CPU reduction and request latency still need deployed runtime acceptance.
+
+Changing a Compose healthcheck requires container recreation. Before rollout,
+record current volume identity, KRaft cluster identity, partition leaders/replicas/
+ISR, and active Phoenix consumer offsets/lag. Existing topic replication may be
+one even with three brokers; sequential replacement can temporarily interrupt
+those partitions. Do not call this a zero-downtime change. Retain existing volumes,
+cluster ID, topic layout, offsets and application versions. Recreate one broker
+at a time through the existing deployment process, verify recovery before the
+next, and compare offset bounds/progression rather than requiring immutable
+offset numbers on an active board. Never use volume removal, offset reset, topic
+recreation or automatic replication changes to apply this scheduling adjustment.
+After rollout, measure healthcheck and broker CPU separately, host pressure,
+authenticated dashboard/board latency and actual delivery/reconnect behavior.
+Rollback restores the previous Compose schedule with the same data identities.
