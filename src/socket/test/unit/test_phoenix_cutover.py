@@ -25,7 +25,7 @@ def root_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(check_email_delivery_owner.__globals__, "geteuid", lambda: 0)
 
 
-def test_phoenix_owner_requires_email_fanout_and_delivery_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_phoenix_owner_requires_email_and_document_cleanup_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     broker = Mock()
     broker.require_registered_tasks.return_value = {"worker": []}
     monkeypatch.setitem(check_required_celery_tasks.__globals__, "Broker", broker)
@@ -35,6 +35,7 @@ def test_phoenix_owner_requires_email_fanout_and_delivery_tasks(monkeypatch: pyt
     tasks = broker.require_registered_tasks.call_args.args[0]
     assert any(task.endswith(".fanout_project_activity_email") for task in tasks)
     assert any(task.endswith(".deliver_project_activity_email") for task in tasks)
+    assert "langboard.document_vector_cleanup" in tasks
 
 
 def test_phoenix_owner_requires_notification_email_outbox(monkeypatch: pytest.MonkeyPatch) -> None:

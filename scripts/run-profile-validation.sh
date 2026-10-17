@@ -40,6 +40,7 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
       src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \
       src/api/tests/card_workspace/test_document_cleanup_outbox.py \
+      src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
       src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py)
@@ -68,6 +69,7 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
       src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \
       src/api/tests/card_workspace/test_document_cleanup_outbox.py \
+      src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
       src/api/tests/card_workspace/timers/ \
       src/api/tests/card_visibility/test_search_source_scope.py)

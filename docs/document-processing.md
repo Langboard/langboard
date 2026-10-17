@@ -342,3 +342,35 @@ legacy queued cleanup task remains registered for messages accepted by older
 workers. This outbox covers the pointer replacement and attachment-document
 deletion paths above. Failed staging, wholesale board/card purge, and deployed
 broker/worker acceptance require separate verification.
+
+### Opt-in real broker cleanup acceptance
+
+`src/api/tests/card_workspace/test_document_cleanup_broker.py` uses a dedicated
+Redis endpoint, a disposable PostgreSQL schema and a separate native Celery worker
+process. Enable it only with `LANGBOARD_TEST_CLEANUP_BROKER_URL` and
+`LANGBOARD_FILE_TEST_DATABASE_URL` pointing to test services, using a Python runtime
+with the existing document-retrieval extra. Run:
+
+```sh
+pytest -q -s src/api/tests/card_workspace/test_document_cleanup_broker.py
+```
+
+The test confirms a real connection failure leaves the committed request pending,
+checks task registration, recovers through Redis/Celery into PostgreSQL and deletes
+the actual recorded SQLite vector generation while retaining the new one. A
+completed event is replayed through the queue and both task completions are
+observed. SQL, broker dispatch and vector deletion are not mocked. Embeddings are
+deterministic fixtures; the worker explicitly registers the cleanup task rather
+than loading every unrelated application task. This is not full worker bootstrap,
+remote Qdrant or deployed canary acceptance.
+
+The test uses random queue/key prefixes, schema and vector filename. It removes
+only that namespace, schema and file, and shuts down its worker. The operator owns
+the test Redis/PostgreSQL lifecycle. Without the explicit URLs it skips. A local
+run used the official Redis 7.4-alpine image at digest
+`sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499`,
+bound to loopback with 0.5 CPU/96MiB limits. Do not use production endpoints.
+
+The Phoenix deployment preflight now requires
+`langboard.document_vector_cleanup` on every responding worker, alongside existing
+required tasks, so a mixed/stale worker deployment cannot silently pass that gate.
