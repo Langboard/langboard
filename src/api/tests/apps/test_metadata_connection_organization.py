@@ -8,7 +8,6 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import AppConnection, Organization
 from test_dokploy_connection import connect as dokploy_connect  # noqa: F401
 from test_dokploy_connection import setup as dokploy_setup  # noqa: F401
-from test_github_installation import board, secrets  # noqa: F401
 from test_glitchtip_connection import connect as glitchtip_connect  # noqa: F401
 from test_glitchtip_connection import setup as glitchtip_setup  # noqa: F401
 

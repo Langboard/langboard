@@ -10,7 +10,7 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.domain.models import Card, CardAppSignalBinding, Organization
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
 from sqlalchemy import event
-from test_github_signal import board, installation, lifecycle, secrets, send, signal_storage  # noqa: F401
+from test_github_signal import installation, lifecycle, send, signal_storage  # noqa: F401
 
 
 @pytest.fixture

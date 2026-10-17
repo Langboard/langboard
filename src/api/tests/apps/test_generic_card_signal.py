@@ -9,7 +9,7 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppDefinition, AppSignal, BoardAppBinding
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
 from test_card_signal_projection import scoped  # noqa: F401
-from test_github_signal import board, installation, lifecycle, secrets, send, signal_storage  # noqa: F401
+from test_github_signal import installation, lifecycle, send, signal_storage  # noqa: F401
 
 
 @pytest.mark.parametrize("revoke", [None, "resource", "capability", "connection"])

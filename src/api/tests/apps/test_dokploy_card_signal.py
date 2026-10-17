@@ -20,7 +20,6 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
 from test_dokploy_connection import setup  # noqa: F401
 from test_dokploy_signal import selected  # noqa: F401
-from test_github_signal import board, secrets  # noqa: F401
 from test_signal_inbox import deployment_inbox, dokploy_inbox  # noqa: F401
 
 

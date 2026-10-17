@@ -19,7 +19,7 @@ from langboard_shared.domain.models import (
     Organization,
     User,
 )
-from test_github_installation import board, installation, secrets  # noqa: F401
+from test_github_installation import installation  # noqa: F401
 from test_github_lifecycle import lifecycle, signed  # noqa: F401
 
 
