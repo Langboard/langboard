@@ -42,3 +42,21 @@ establish a renderer, permission, or backend root cause.
 
 Runtime acceptance remains incomplete. The source focus correction is unshipped.
 Keep the work card active until the deployed runtime passes the checks above.
+
+### Subsequent canary observation, 08:11 UTC
+
+An authenticated card retry returned HTTP 200 after approximately 1.19 seconds
+and rendered the long QA description. The final rail marker revealed the final
+sentinel. Entering edit mode exposed all 18 sections, tables, links, and the
+sentinel; cancel restored read mode without a save. The deployed content viewport
+still had `tabIndex=-1`, no region role, and no accessible name, confirming that
+the source focus correction was not deployed.
+
+The explicit copy action showed its success toast, but two reads through the
+browser automation clipboard returned an empty string. This is an unresolved
+observation, not proof that the stored Markdown was copied or that the application
+clipboard implementation is defective. No content was pasted or saved. A saved
+edit/reload, native partial selection, mobile, and screen-reader acceptance remain
+outstanding. The board was still in its load-error state when the card rendered;
+comments, seen state, and column history requests were canceled after about
+1.06 seconds. No shared root cause has been established.
