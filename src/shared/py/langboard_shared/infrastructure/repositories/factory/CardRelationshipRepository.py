@@ -58,20 +58,27 @@ class CardRelationshipRepository(BaseRepository[CardRelationship]):
         return relationships
 
     def get_all_by_project(
-        self, project: TProjectParam, archive_visible_since: SafeDateTime | None = None
+        self,
+        project: TProjectParam,
+        archive_visible_since: SafeDateTime | None = None,
+        *,
+        context: CardVisibilityContext | None = None,
     ) -> list[tuple[CardRelationship, GlobalCardRelationshipType]]:
         project_id = InfraHelper.convert_id(project)
 
         visible_card_ids = None
-        if archive_visible_since is not None:
+        if archive_visible_since is not None or context is not None:
             visible_card_ids = (
                 SqlBuilder.select.column(Card.id)
                 .where(Card.column("project_id") == project_id)
-                .where(
+            )
+            if archive_visible_since is not None:
+                visible_card_ids = visible_card_ids.where(
                     (Card.column("archived_at") == None)  # noqa: E711
                     | (Card.column("archived_at") >= archive_visible_since)
                 )
-            )
+            if context is not None:
+                visible_card_ids = visible_card_ids.where(Card.deleted_at.is_(None), card_visibility_scope(context))
 
         relationships = []
         with DbSession.use(readonly=True) as db:

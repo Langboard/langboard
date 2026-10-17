@@ -64,7 +64,7 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
     repository = SimpleNamespace(
         card=card_repository,
         card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args, context: []),
-        card_relationship=SimpleNamespace(get_all_by_project=lambda *args: []),
+        card_relationship=SimpleNamespace(get_all_by_project=Mock(return_value=[])),
         project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *args, context: []),
         checklist=ChecklistRepository(None, None),
     )
@@ -113,6 +113,7 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
     visible = next(card for card in payload["cards"] if card["title"] == "Visible")
     assert visible["completed"] is True
     cards.get_active_workers.assert_called_once_with(project, context=context)
+    repository.card_relationship.get_all_by_project.assert_called_once_with(project, cutoff, context=context)
     legacy = JsonResponse(
         content=service.checklist.get_api_list_only_by_project(project, archive_visible_since=cutoff, context=context)
     )

@@ -582,3 +582,23 @@ and an isolated PostgreSQL schema, without skips. It checks internal/external
 visibility, own/other private cards, deleted/archive exclusion, exact latest
 timer anchors, and the existing two-query bound. This establishes source and DB
 behavior, not a new canary release or a measured operating latency reduction.
+
+## Scope relationship enrichment before hydration
+
+The board snapshot passes its current visibility context to the existing
+relationship query. Both endpoint IDs must belong to the same requested board,
+match the archive cutoff and satisfy the existing SQL visibility policy before
+relationship objects are loaded. The final in-memory endpoint and private-card
+link checks remain in place. Callers without a context retain their legacy scope.
+
+In the real SQLite enrichment fixture, the legacy query loads eight relationships;
+the scoped query loads four for an external actor and six for an internal actor.
+Both directions, own/other private cards, recent/cold archives and foreign boards
+are covered. The initial fixture incorrectly expected ten legacy rows; native
+query handling already excludes deleted endpoints, and the expectation was fixed.
+This change is an intermediate-work reduction, not evidence of prior response
+disclosure. Related enrichment, API context forwarding, archive, seen-cursor and
+progress tests pass 14 cases; five PostgreSQL-only cases were skipped without a
+configured test database. The new relationship scope case runs on SQLite.
+No extra query, policy implementation or authority cache is added. Authenticated
+canary acceptance and the operating latency effect remain unverified.

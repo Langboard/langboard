@@ -10,6 +10,8 @@ from langboard_shared.domain.models import (
     Card,
     CardAssignedProjectLabel,
     CardAssignedUser,
+    CardRelationship,
+    GlobalCardRelationshipType,
     Project,
     ProjectAssignedUser,
     ProjectLabel,
@@ -17,6 +19,7 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.infrastructure.repositories.factory.CardAssignedUserRepository import CardAssignedUserRepository
+from langboard_shared.infrastructure.repositories.factory.CardRelationshipRepository import CardRelationshipRepository
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.ProjectLabelRepository import ProjectLabelRepository
 from sqlalchemy import create_engine
@@ -25,7 +28,18 @@ from sqlalchemy import create_engine
 @pytest.mark.parametrize("internal", [False, True])
 def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypatch, internal):
     engine = create_engine("sqlite://")
-    for model in (User, Bot, Project, ProjectAssignedUser, Card, ProjectLabel, CardAssignedUser, CardAssignedProjectLabel):
+    for model in (
+        User,
+        Bot,
+        Project,
+        ProjectAssignedUser,
+        Card,
+        ProjectLabel,
+        CardAssignedUser,
+        CardAssignedProjectLabel,
+        GlobalCardRelationshipType,
+        CardRelationship,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -65,6 +79,19 @@ def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypa
                 cards[title] = card
                 db.insert(CardAssignedUser(card_id=card.id, user_id=user.id, project_assigned_id=member.id))
                 db.insert(CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id))
+            relation_type = GlobalCardRelationshipType(parent_name="Contains", child_name="Part of")
+            db.insert(relation_type)
+            for title, card in cards.items():
+                if title == "Shared":
+                    continue
+                for parent, child in ((cards["Shared"], card), (card, cards["Shared"])):
+                    db.insert(
+                        CardRelationship(
+                            relationship_type_id=relation_type.id,
+                            card_id_parent=parent.id,
+                            card_id_child=child.id,
+                        )
+                    )
         context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, internal, actor_user_id=int(user.id))
         expected = {cards[title].id for title in ("Shared", "Own private", "Recent archive")}
         if internal:
@@ -86,5 +113,13 @@ def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypa
         creators = CardRepository(None, None).get_board_creators(project, cutoff, context=context)
         assert set(creators) == expected
         assert all(creator.id == user.id for creator in creators.values())
+        relation_repo = CardRelationshipRepository(None, None)
+        unscoped = relation_repo.get_all_by_project(project, cutoff)
+        assert len(unscoped) == 8
+        relationships = relation_repo.get_all_by_project(project, cutoff, context=context)
+        assert len(relationships) == 2 * (len(expected) - 1)
+        assert all(edge.card_id_parent in expected and edge.card_id_child in expected for edge, _ in relationships)
+        without_cutoff = relation_repo.get_all_by_project(project, context=context)
+        assert len(without_cutoff) == len(relationships) + 2
     finally:
         engine.dispose()

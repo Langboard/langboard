@@ -40,7 +40,7 @@ def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, mo
     repository = SimpleNamespace(
         card=SimpleNamespace(get_board_list=lambda *a, **kw: [(card, 0)], get_board_creators=lambda *a, **kw: {}),
         card_assigned_user=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
-        card_relationship=SimpleNamespace(get_all_by_project=lambda *a: []),
+        card_relationship=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
         project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *a, **kw: []),
         checklist=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
         project_assigned_user=membership,

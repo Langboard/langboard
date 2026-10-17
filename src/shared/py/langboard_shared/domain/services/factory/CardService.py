@@ -674,7 +674,7 @@ class CardService(BaseDomainService):
                 members[card_assigned_user.card_id] = []
             members[card_assigned_user.card_id].append(member.get_uid())
 
-        raw_relationships = self.repo.card_relationship.get_all_by_project(project, archive_visible_since)
+        raw_relationships = self.repo.card_relationship.get_all_by_project(project, archive_visible_since, context=context)
         relationships: dict[int, list[dict[str, Any]]] = {}
         for relationship, relation_type in raw_relationships:
             parent = visible_cards.get(relationship.card_id_parent)
