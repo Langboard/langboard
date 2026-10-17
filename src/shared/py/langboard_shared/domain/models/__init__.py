@@ -123,6 +123,7 @@ from .UserProfile import UserProfile
 from .UserAppPreference import UserAppPreference
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
+from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WorkflowStageDefinition import WorkflowStageDefinition
 from .CardExecutionGeneration import CardExecutionGeneration
 from .CardExecutionGeneration import CardExecutionIntent
@@ -134,6 +135,9 @@ from .AppExecutionActive import AppExecutionActive
 
 
 __all__ = [
+    'WhisperThread',
+    'WhisperMessage',
+    'WhisperParticipant',
     'AppExecutionReview',
     'AppMcpConsent',
     'CardAppResourceSelection',
