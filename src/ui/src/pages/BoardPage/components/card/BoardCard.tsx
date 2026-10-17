@@ -389,6 +389,7 @@ function BoardTaskCardResult({
     const [t] = useTranslation();
     const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
+    const title = card.useField("title");
     const description = card.useField("description");
     const visibility = card.useField("visibility");
     const canChangeVisibility = card.useField("can_change_visibility");
@@ -593,6 +594,9 @@ function BoardTaskCardResult({
                                     <Box
                                         ref={contentViewportRef}
                                         data-card-content-viewport=""
+                                        role="region"
+                                        aria-label={title}
+                                        tabIndex={0}
                                         className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                                     >
                                         <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
