@@ -1,0 +1,14 @@
+# Opt-in external runtime. Do not enable the bundled-phoenix profile in this mode.
+# Preserve editor recovery volumes for rollback; no migration or deletion occurs.
+services:
+  socket-phoenix:
+    profiles: [bundled-phoenix]
+  server:
+    ports: !override
+      - "${NGINX_UI_EXPOSE_PORT}:8000"
+      - "${NGINX_API_EXPOSE_PORT}:8020"
+      - "${DOCS_EXPOSE_PORT}:8030"
+    depends_on:
+      socket-phoenix: !reset null
+    volumes:
+      - ./server/socket-disabled.conf.template:/etc/nginx/templates/socket.conf.template:ro

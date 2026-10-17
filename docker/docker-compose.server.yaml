@@ -12,6 +12,7 @@ services:
       - ./envs/.nginx.env
     volumes:
       - ./server/conf.template:/etc/nginx/templates/default.conf.template
+      - ./server/socket.conf.template:/etc/nginx/templates/socket.conf.template:ro
       - ./server/nginx.conf:/etc/nginx/nginx.conf
       - ../src/ui/dist:/usr/share/nginx/html
     command: [nginx-debug, "-g", "daemon off;"]

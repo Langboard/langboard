@@ -338,8 +338,13 @@ check_socket_phoenix_otel: ## verify local Phoenix metrics and traces reach the 
 		--collector-metrics-url "http://127.0.0.1:$${SOCKET_PHOENIX_OTEL_INTERNAL_METRICS_EXPOSE_PORT:-8888}/metrics"
 
 .PHONY: check_socket_phoenix_ingress test_socket_phoenix_local
-check_socket_phoenix_ingress: ## verify the host-published Phoenix Socket route
-	@port="$${NGINX_SOCKET_EXPOSE_PORT:-$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)}"; \
+check_socket_phoenix_ingress: ## verify the selected Phoenix route (not authenticated acceptance)
+	@if [ -n "$(filter %.phoenix-external.yaml,$(COMPOSE_ARGS))" ]; then \
+		project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+		docker exec -i "$${project_name}_api" sh -lc 'cd /app && uv run --no-sync python -u -' < scripts/check-external-phoenix-ingress.py; \
+		exit $$?; \
+	fi; \
+	port="$${NGINX_SOCKET_EXPOSE_PORT:-$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)}"; \
 	if [ -z "$$port" ]; then echo "$(RED)NGINX_SOCKET_EXPOSE_PORT is missing.$(NC)"; exit 1; fi; \
 	for attempt in $$(seq 1 20); do \
 		headers=$$(curl --silent --head --max-time 2 "http://127.0.0.1:$$port/health/ready" | tr -d '\r'); \
@@ -373,8 +378,8 @@ record_socket_phoenix_otel_soak: ## record an evidence-backed Phoenix OTel soak
 		--warmup-seconds "$(PHOENIX_OTEL_SOAK_WARMUP_SECONDS)" \
 		--sample-interval-seconds "$(PHOENIX_OTEL_SOAK_SAMPLE_INTERVAL_SECONDS)"
 
-prepare_socket_phoenix_otel: ## pull, verify, and tag the pinned OTel Collector image
-	@if [ "$(WITH_OTEL)" != "true" ]; then exit 0; fi; \
+prepare_socket_phoenix_otel: ## pull, verify, and tag the bundled OTel Collector image
+	@if [ -n "$(filter %.phoenix-external.yaml,$(COMPOSE_ARGS))" ] || [ "$(WITH_OTEL)" != "true" ]; then exit 0; fi; \
 	image="$(SOCKET_PHOENIX_OTEL_COLLECTOR_IMAGE)"; \
 	digest="$(SOCKET_PHOENIX_OTEL_COLLECTOR_DIGEST)"; \
 	docker pull "$$image@$$digest" >/dev/null; \

@@ -12,6 +12,8 @@ case "$profile" in
       src/shared/py/langboard_shared/core/caching/RedisCache_test.py \
       src/shared/py/langboard_shared/core/broker/RedisBroker_test.py \
       src/api/tests/runtime/test_external_redis_compose.py \
+      src/api/tests/runtime/test_external_phoenix_compose.py \
+      src/api/tests/runtime/test_external_phoenix_ingress.py \
       src/api/tests/runtime/test_project_read_bootstrap.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_card_board_summary.py \

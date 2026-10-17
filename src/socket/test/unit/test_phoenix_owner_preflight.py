@@ -59,7 +59,8 @@ def test_phoenix_is_the_only_socket_service() -> None:
     services = compose["services"]
     assert "socket" not in services
     assert services["server"]["depends_on"]["socket-phoenix"]["condition"] == "service_healthy"
-    nginx = (ROOT / "docker" / "server" / "conf.template").read_text(encoding="utf-8")
+    nginx = (ROOT / "docker" / "server" / "socket.conf.template").read_text(encoding="utf-8")
+    assert "socket_server" not in (ROOT / "docker" / "server" / "conf.template").read_text(encoding="utf-8")
     assert nginx.count("proxy_pass http://socket_server;") == 2
     assert "SOCKET_JSON_CANARY" not in nginx
 
