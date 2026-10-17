@@ -34,31 +34,32 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
         }
 
         isFetchingRef.current = true;
+        try {
+            const res = await api.get(url, {
+                params: {
+                    assignee_uid: (form as any).assignee_uid,
+                    refer_time: lastCurrentDateRef.current,
+                    limit: limitRef.current,
+                },
+                env: {
+                    interceptToast: options?.interceptToast,
+                } as never,
+            });
 
-        const res = await api.get(url, {
-            params: {
-                assignee_uid: (form as any).assignee_uid,
-                refer_time: lastCurrentDateRef.current,
-                limit: limitRef.current,
-            },
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
-        });
+            if (res.data.records) {
+                prepareData?.(res.data.records, res.data);
+            }
 
-        if (res.data.records) {
-            prepareData?.(res.data.records, res.data);
+            model.fromArray(res.data.records, true);
+
+            if (res.data.count_new_records) {
+                setCountNewRecords(res.data.count_new_records);
+            }
+
+            return {};
+        } finally {
+            isFetchingRef.current = false;
         }
-
-        model.fromArray(res.data.records, true);
-
-        if (res.data.count_new_records) {
-            setCountNewRecords(res.data.count_new_records);
-        }
-
-        isFetchingRef.current = false;
-
-        return {};
     }, [countNewRecords, setCountNewRecords]);
 
     const refresh = useCallback(async () => {
@@ -67,13 +68,19 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
         }
 
         const curLimit = limitRef.current;
+        const previousDate = lastCurrentDateRef.current;
         limitRef.current = countNewRecords;
         lastCurrentDateRef.current = new Date();
 
-        await getPaginatedList();
-
-        limitRef.current = curLimit;
-        setCountNewRecords(0);
+        try {
+            await getPaginatedList();
+            setCountNewRecords(0);
+        } catch (error) {
+            lastCurrentDateRef.current = previousDate;
+            throw error;
+        } finally {
+            limitRef.current = curLimit;
+        }
     }, [getPaginatedList, countNewRecords, setCountNewRecords]);
 
     const checkOutdated = useCallback(

@@ -92,3 +92,28 @@ checks three mount/teardown cycles. The unchanged source leaves the scrollable
 attribute registered after all three teardowns; the fix removes it each time.
 This is a local browser lifecycle check, not canary publication or evidence that
 this defect caused the separately observed API transport cancellations.
+
+## Follow-up: list request and pagination recovery
+
+Review of the remaining list candidates exposed shared lifecycle failures across
+six request hooks. A rejected request retained the single-flight lock; four hooks
+also advanced their page cursor before success. Shared refresh failures retained
+a temporary request limit and reference date. Async timer callbacks in four list
+views and the infinite provider left their outer promises pending on rejection.
+
+The existing hooks now release their locks in `finally`, commit page cursors only
+after successful processing, and restore refresh parameters on failure. Providers
+and the infinite observer release their own gates without consuming a failed page.
+Unused pagination delays of 0.5–2.5 seconds and refresh delays of two seconds were
+removed. Scheduled initial loads are cancelled during effect cleanup. Existing
+API/mutation error reporting remains the owner of user-facing request failures;
+no new request framework or dependency was introduced.
+
+Run `node --test scripts/list-loading-lifecycle.test.cjs` from `src/ui`.
+The regression executes production hooks/providers with controlled React state
+and HTTP boundaries: the unchanged source failed all 12 cases, while the updated
+source passes all 12. Both application and tooling TypeScript checks pass through
+`npm run typecheck`. These checks cover failure/retry cursors, single-flight
+release, refresh rollback and provider/observer gates. They do not exercise React
+DOM rendering, initial-effect timing or deployed canary behavior. The separate
+measured server-side board latency and transport cancellation remain unresolved.
