@@ -84,12 +84,16 @@ FROM validation-dependencies AS validation-source
 COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
 COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
+COPY conftest.py Makefile .env.example ./
+COPY ./scripts/utils ./scripts/utils
+COPY ./scripts/check-external-phoenix-ingress.py ./scripts/check-external-phoenix-ingress.py
+COPY ./docker/*.yaml ./docker/
 RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
     uv sync --locked --dev --extra document-retrieval
 RUN groupadd --gid 10001 langboard \
     && useradd --uid 10001 --gid 10001 --create-home langboard \
-    && mkdir -p /app/local /app/.fastmcp /result \
-    && chown langboard:langboard /app/local /app/.fastmcp /result
+    && mkdir -p /app/local /app/.fastmcp /app/.pytest_cache /result \
+    && chown langboard:langboard /app/local /app/.fastmcp /app/.pytest_cache /result
 USER 10001:10001
 
 FROM validation-source AS validation-api
@@ -113,7 +117,8 @@ USER root
 RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
     uv sync --locked --dev --extra document-processing --extra document-retrieval
 COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
-RUN mkdir -p /result && chown langboard:langboard /result
+COPY conftest.py ./
+RUN mkdir -p /app/.pytest_cache /result && chown langboard:langboard /app/.pytest_cache /result
 USER 10001:10001
 
 FROM validation-worker-dependencies AS validation-worker
