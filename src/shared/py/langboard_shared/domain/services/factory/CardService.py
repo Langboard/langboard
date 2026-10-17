@@ -622,17 +622,18 @@ class CardService(BaseDomainService):
             api_card["description_content_source"] = "blocks"
         return api_card
 
-    def get_board_list(
+    def get_board_snapshot(
         self,
         project: TProjectParam | None,
         user_or_bot: TUserOrBot | None = None,
         archive_visible_since: SafeDateTime | None = None,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[Checklist]]:
+        """Return board cards and their already-read user checklist rows together."""
         resolved = self.resolve_visibility_context(project, user_or_bot, channel)
         if resolved is None:
-            return []
+            return [], []
 
         project, context = resolved
         if archive_visible_since is None:
@@ -741,7 +742,7 @@ class CardService(BaseDomainService):
                 }
             cards.append(api_card)
 
-        return cards
+        return cards, [checklist for checklist in raw_checklists if not checklist.is_system]
 
     def get_active_workers(self, project: Project, card: Card | None = None) -> dict[int, list[dict[str, Any]]]:
         """Project one avatar per timer owner without changing card assignment."""

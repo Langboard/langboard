@@ -382,13 +382,11 @@ def get_project_cards(
     columns = service.project_column.get_api_list_by_project(project, context=context)
     archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
     timings.append(perf_counter())
-    cards = service.card.get_board_list(project, user_or_bot, archive_visible_since, channel=channel)
-    timings.append(perf_counter())
-    checklists = service.checklist.get_api_list_only_by_project(
-        project,
-        archive_visible_since=archive_visible_since,
-        context=context,
+    cards, raw_checklists = service.card.get_board_snapshot(
+        project, user_or_bot, archive_visible_since, channel=channel
     )
+    timings.append(perf_counter())
+    checklists = [checklist.api_response() for checklist in raw_checklists]
     timings.append(perf_counter())
     column_bot_scopes = service.project_column.get_api_bot_scopes_by_project(project)
     column_bot_schedules = service.project_column.get_api_bot_schedule_list_by_project(project, columns)

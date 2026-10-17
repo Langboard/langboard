@@ -133,7 +133,7 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
         lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)),
     )
     before = SafeDateTime.now()
-    result = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_list(project)
+    result, _ = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_snapshot(project)
     after = SafeDateTime.now()
 
     assert before.timestamp() - 7 * 86400 <= observed["cutoff"].timestamp() <= after.timestamp() - 7 * 86400
@@ -177,17 +177,12 @@ def test_board_route_passes_one_request_cutoff_to_cards_and_checklists(monkeypat
                 project,
                 CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True),
             ),
-            get_board_list=lambda _project, _user_or_bot, cutoff, *, channel: (
-                calls.__setitem__("cards", cutoff),
-                [],
+            get_board_snapshot=lambda _project, _user_or_bot, cutoff, *, channel: (
+                calls.__setitem__("snapshot", cutoff),
+                ([], []),
             )[1],
         ),
-        checklist=SimpleNamespace(
-            get_api_list_only_by_project=lambda _project, *, archive_visible_since, context: (
-                calls.__setitem__("checklists", archive_visible_since),
-                [],
-            )[1],
-        ),
+        checklist=None,
     )
 
     clock = iter((0.0, 0.1, 0.3, 0.6, 1.0, 1.5))
@@ -195,7 +190,7 @@ def test_board_route_passes_one_request_cutoff_to_cards_and_checklists(monkeypat
     response = get_project_cards("PRIVATE_PROJECT", request=SimpleNamespace(scope={}), service=service)
 
     expected = now - timedelta(days=7)
-    assert calls == {"cards": expected, "checklists": expected}
+    assert calls == {"snapshot": expected}
     assert response.status_code == 200
     assert response.headers["server-timing"] == (
         "board_context;dur=100.000, board_cards;dur=200.000, board_checklists;dur=300.000, "

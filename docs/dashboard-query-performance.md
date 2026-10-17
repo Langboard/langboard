@@ -258,3 +258,36 @@ no production data or credentials were used. This represents a configuration-hea
 local fixture, not a general speedup guarantee or complete board HTTP latency.
 Current canary performance and authenticated UI acceptance remain unverified for
 this change.
+
+
+## Reuse checklist rows in the board snapshot
+
+The board route used to query all authorized hot-window checklists while building
+card completion state, then query the same user checklist rows again for its
+response. The internal CardService entry point is now `get_board_snapshot` and
+returns the assembled cards together with user checklist models from that same
+read. The route serializes those rows in its existing `board_checklists` timing
+stage. The HTTP response fields and five Server-Timing stage names are unchanged.
+The standalone ChecklistService method remains for other callers. No alternate
+cache, callback, response flag or compatibility wrapper is added.
+
+The original all-checklist repository query still applies the same project,
+current resolved visibility, soft-delete and archive-cutoff filters. Hidden system
+checklists still determine card completion, but never enter the returned checklist
+list. The initial route authorization and the service's existing authorization
+resolution both remain; this change does not cache or bypass either check.
+
+SQLite and disposable PostgreSQL route regressions show two checklist SELECTs on
+the original source and one after the change. They compare the serialized user
+checklists with the existing standalone reader and verify shared cards, the
+caller's own private card, the archive cutoff boundary, internal/other-private
+exclusion, foreign boards, deleted cards/lists and hidden completion state. The
+focused snapshot, archive, cursor and shared progress suite passed 16 tests in
+6.43 seconds. Initial fixture failures (missing bot table/private-owner constraint
+and comparison before JSON normalization) were corrected with failed receipts
+retained. Both API validation profiles include the snapshot regression; the
+PostgreSQL profile also explicitly includes author display-field coverage.
+
+This removes one redundant database read and model hydration per board snapshot.
+It does not establish a transactionally consistent snapshot across every response
+section, nor does it prove deployed latency or canary acceptance.

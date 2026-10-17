@@ -61,7 +61,7 @@ def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, mo
     engine = DbEngine.get_main_engine()
     event.listen(engine, "after_cursor_execute", capture)
     try:
-        snapshot = service.get_board_list(project, user)
+        snapshot, _ = service.get_board_snapshot(project, user)
     finally:
         event.remove(engine, "after_cursor_execute", capture)
     assert affected == [int(current_seq < 50)]

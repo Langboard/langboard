@@ -85,9 +85,10 @@ def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
     queries = []
     event.listen(engine, "before_cursor_execute", lambda conn, cursor, statement, *args: queries.append(statement))
     try:
-        result = service.get_board_list(project)
+        result, user_checklists = service.get_board_snapshot(project)
         aggregates = [query for query in queries if "count(checkitem.id)" in query]
         assert len(aggregates) == 1, aggregates
+        assert all(not checklist.is_system for checklist in user_checklists)
         assert len(result) == 100
         assert result[0]["relationships"] == [{"edge": (1, 4)}]
         assert result[1]["relationships"] == result[2]["relationships"] == [{"edge": (2, 3)}]
