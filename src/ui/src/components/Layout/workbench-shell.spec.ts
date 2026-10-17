@@ -1,3 +1,5 @@
+import { hasPanelAccess } from "../../core/apps/PanelAccess";
+import type { CatalogApp } from "../../controllers/api/board/useBoardAppCatalog";
 import type { Route } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
@@ -664,4 +666,125 @@ test("legacy store redirects into user discovery and honors disabled policy", as
     await page.goto("/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/settings/app-store"));
     await expect(page.getByText("Apps are disabled by the current policy.", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Manage installation" })).toHaveCount(0);
+});
+
+test("personal app pins persist, reorder, stay user scoped and grant no permissions", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const requests: string[] = [];
+    await page.route("**/apps/catalog*", (route) => {
+        requests.push(route.request().method());
+        const key = new URL(route.request().url()).searchParams.get("key") ?? "alpha";
+        return route.fulfill({
+            json: {
+                items: [{ key, name: key === "alpha" ? "Alpha" : "Beta", description: "Approved app", version: "1.0.0", is_installed: true }],
+                official: [],
+                effective_mode: "approved_only",
+                can_manage_installation: false,
+                next_cursor: null,
+            },
+        });
+    });
+    const fixture = "/src/pages/AppsPage/AppStore.fixture.html?initial=";
+    await page.goto(fixture + encodeURIComponent("/apps/alpha"));
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    const shortcuts = page.getByRole("region", { name: "Your shortcuts", exact: true });
+    await expect(shortcuts.getByRole("link", { name: "Alpha", exact: true })).toBeVisible();
+    expect(requests).toEqual(["GET"]);
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+            )
+        )
+        .toEqual(["alpha"]);
+    await page.goto(fixture + encodeURIComponent("/apps/beta"));
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    await page.getByRole("button", { name: "Move Beta earlier", exact: true }).click();
+    await expect(shortcuts.getByRole("link")).toHaveText(["Beta", "Alpha"]);
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+            )
+        )
+        .toEqual(["beta", "alpha"]);
+    await page.reload();
+    await expect(shortcuts.getByRole("link")).toHaveText(["Beta", "Alpha"]);
+    await expect(page.getByRole("button", { name: "Unpin from rail", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Remove Alpha shortcut", exact: true }).click();
+    await expect(shortcuts.getByRole("link")).toHaveText(["Beta"]);
+    await page.goto(fixture + encodeURIComponent("/apps/beta") + "&actor=other-user");
+    await expect(shortcuts).toHaveCount(0);
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    await expect
+        .poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps ?? {}).sort()))
+        .toEqual(["fixture-user", "other-user"]);
+    expect(requests.every((method) => method === "GET")).toBe(true);
+});
+
+test("panel shortcuts require current policy, declaration and board consent", () => {
+    const app: CatalogApp = {
+        key: "example",
+        name: "Example",
+        version: "1.0.0",
+        app_revision: null,
+        is_available: true,
+        panel: { url: "https://example.invalid/panel", name: "Example" },
+        capabilities: ["panels.render"],
+        workflow_requirements: null,
+        resources: { selected_count: 0, access_counts: {}, health_counts: {}, connection_counts: {} },
+        binding: {
+            uid: "binding",
+            revision: "revision",
+            state: "enabled",
+            granted_capabilities: ["panels.render"],
+            stage_transitions_enabled: false,
+        },
+    };
+    expect(hasPanelAccess(app)).toBe(true);
+    for (const denied of [
+        { ...app, is_available: false },
+        { ...app, is_available: undefined },
+        { ...app, panel: null },
+        { ...app, capabilities: [] },
+        { ...app, binding: null },
+        { ...app, binding: { ...app.binding!, state: "disabled" } },
+        { ...app, binding: { ...app.binding!, granted_capabilities: [] } },
+    ])
+        expect(hasPanelAccess(denied)).toBe(false);
+});
+
+test("stored shortcuts are bounded, normalized and never initialize panels", async ({ page }) => {
+    await page.addInitScript(() =>
+        localStorage.setItem(
+            "user-settings-store",
+            JSON.stringify({
+                pinned_apps: {
+                    "fixture-user": [
+                        null,
+                        { key: "../invalid", name: "Invalid" },
+                        ...Array.from({ length: 35 }, (_, i) => ({ key: `app-${i}`, name: "Same name", ignored: "https://private.invalid" })),
+                    ],
+                },
+            })
+        )
+    );
+    let reads = 0;
+    await page.route("**/apps/catalog*", (route) => {
+        reads++;
+        return route.fulfill({
+            json: {
+                items: [{ key: "alpha", name: "Alpha", description: "App", is_installed: true }],
+                official: [],
+                effective_mode: "approved_only",
+                can_manage_installation: false,
+                next_cursor: null,
+            },
+        });
+    });
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/apps/alpha"));
+    await expect(page.getByRole("region", { name: "Your shortcuts", exact: true }).getByRole("listitem")).toHaveCount(32);
+    await expect(page.getByRole("button", { name: "Pin to rail", exact: true })).toBeDisabled();
+    await expect(page.locator("iframe")).toHaveCount(0);
+    expect(reads).toBe(1);
 });

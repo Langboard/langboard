@@ -17,5 +17,13 @@
   "Board": "Board",
   "Official app": "Official app",
   "Manual app": "Manual app",
-  "Registered app": "Registered app"
+  "Registered app": "Registered app",
+  "Your shortcuts": "Your shortcuts",
+  "Shortcut storage": "Saved for this account in this browser. Shortcuts do not grant app or board permissions.",
+  "Earlier shortcut": "Move {{name}} earlier",
+  "Later shortcut": "Move {{name}} later",
+  "Remove shortcut": "Remove {{name}} shortcut",
+  "Unpin from rail": "Unpin from rail",
+  "Pin to rail": "Pin to rail",
+  "Shortcut limit": "Up to {{count}} shortcuts can be pinned."
 }

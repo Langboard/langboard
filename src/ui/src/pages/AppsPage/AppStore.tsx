@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowDown, ChevronRight, Pin, X } from "lucide-react";
 import AppPackageIcon, { type PackageInstallation } from "@/components/AppPackageIcon";
 import Button from "@/components/base/Button";
 import Loading from "@/components/base/Loading";
@@ -9,6 +9,8 @@ import { DashboardStyledLayout } from "@/components/Layout";
 import { api } from "@/core/helpers/Api";
 import { ROUTES } from "@/core/routing/constants";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
+import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
+import { MAX_PINNED_APPS } from "@/core/stores/UserSettingsStore";
 
 interface CatalogApp {
     key: string;
@@ -35,6 +37,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
     const [search] = useSearchParams();
     const navigate = usePageNavigateRef();
     const projectUID = search.get("project_uid") ?? undefined;
+    const pinnedApps = usePinnedAppRail({ userUID, projectUID });
     const after = appKey ? undefined : (search.get("after") ?? undefined);
     const valid = (!appKey || /^[a-z][a-z0-9_-]{0,31}$/.test(appKey)) && (!projectUID || /^[A-Za-z0-9]{11}$/.test(projectUID));
     const query = useQuery({
@@ -51,6 +54,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
     for (const app of catalog?.official ?? []) apps.set(app.key, app);
     for (const app of catalog?.items ?? []) apps.set(app.key, { ...apps.get(app.key), ...app });
     const selected = appKey ? apps.get(appKey) : undefined;
+    const isPinned = pinnedApps.pins.some((pin) => pin.key === selected?.key);
     const listURL = `${ROUTES.APPS.ROUTE}${suffix}`;
     const nextSearch = new URLSearchParams({ ...(projectUID ? { project_uid: projectUID } : {}), after: catalog?.next_cursor ?? "" });
     const icon = (app: CatalogApp) => (
@@ -85,6 +89,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                           },
                       ]
                     : []),
+                ...pinnedApps.items,
                 { icon: "plus", label: t("settings.App store"), mobile: "add", active: true, onClick: () => navigate(listURL) },
                 { icon: "settings", label: t("settings.App settings"), placement: "bottom", onClick: () => navigate(ROUTES.SETTINGS.ROUTE) },
             ]}
@@ -98,6 +103,53 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         </Button>
                     )}
                 </div>
+                {!!pinnedApps.pins.length && (
+                    <section aria-label={t("appStore.Your shortcuts")} className="rounded-xl border bg-card p-4">
+                        <h2 className="mb-3 font-semibold">{t("appStore.Your shortcuts")}</h2>
+                        <p className="mb-3 text-sm text-muted-foreground">{t("appStore.Shortcut storage")}</p>
+                        <ol className="space-y-2">
+                            {pinnedApps.pins.map((pin, index) => (
+                                <li key={pin.key} className="flex min-w-0 items-center gap-1">
+                                    <Link
+                                        className="min-w-0 flex-1 truncate rounded p-2 text-sm hover:bg-accent"
+                                        to={`${ROUTES.APPS.DETAIL(pin.key)}${suffix}`}
+                                    >
+                                        {pin.name}
+                                    </Link>
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="min-h-11 min-w-11"
+                                        disabled={index === 0}
+                                        aria-label={t("appStore.Earlier shortcut", { name: pin.name })}
+                                        onClick={() => pinnedApps.move(pin.key, -1)}
+                                    >
+                                        <ArrowUp className="size-4" />
+                                    </Button>
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="min-h-11 min-w-11"
+                                        disabled={index === pinnedApps.pins.length - 1}
+                                        aria-label={t("appStore.Later shortcut", { name: pin.name })}
+                                        onClick={() => pinnedApps.move(pin.key, 1)}
+                                    >
+                                        <ArrowDown className="size-4" />
+                                    </Button>
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="min-h-11 min-w-11"
+                                        aria-label={t("appStore.Remove shortcut", { name: pin.name })}
+                                        onClick={() => pinnedApps.toggle(pin)}
+                                    >
+                                        <X className="size-4" />
+                                    </Button>
+                                </li>
+                            ))}
+                        </ol>
+                    </section>
+                )}
                 {!valid || query.isError ? (
                     <div role="alert" className="rounded-xl border p-4">
                         <p>{t("appStore.Catalog unavailable")}</p>
@@ -149,6 +201,23 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                             </li>
                                         ))}
                                     </ul>
+                                </div>
+                            )}
+                            {selected.is_installed && (
+                                <div className="space-y-2">
+                                    <Button
+                                        variant="outline"
+                                        className="min-h-11"
+                                        aria-pressed={isPinned}
+                                        disabled={!isPinned && pinnedApps.pins.length >= MAX_PINNED_APPS}
+                                        onClick={() => pinnedApps.toggle(selected)}
+                                    >
+                                        <Pin className="mr-2 size-4" />
+                                        {t(isPinned ? "appStore.Unpin from rail" : "appStore.Pin to rail")}
+                                    </Button>
+                                    {!isPinned && pinnedApps.pins.length >= MAX_PINNED_APPS && (
+                                        <p className="text-sm text-muted-foreground">{t("appStore.Shortcut limit", { count: MAX_PINNED_APPS })}</p>
+                                    )}
                                 </div>
                             )}
                             <p className="text-sm text-muted-foreground">{t("appStore.Separate consent")}</p>

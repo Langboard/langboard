@@ -97,3 +97,39 @@ responses and the real store component/routes in a local fixture; the separate
 HTTP suite checks the server policy boundary. Neither proves deployment or
 canary acceptance. Personal pinning, offline/revocation UX, app-specific launch,
 and authenticated canary performance/E2E remain pending.
+
+## Personal shortcuts
+
+`usePinnedApps` extends the existing UserSettingsStore with a per-user ordered
+`pinned_apps` list. Each entry stores only an app key and display name, never a
+connection, token, URL, board permission, or consent. Reads normalize malformed
+entries, deduplicate keys, trim names, and bound the list to 32 shortcuts. The
+store detail exposes pin/unpin; the shared shortcut list exposes accessible
+move-earlier/later and remove controls. This is browser-local persistence using
+the existing store. Server synchronization and cross-device persistence have
+not been implemented or claimed.
+
+`usePinnedAppRail` supplies the same shortcuts to dashboard, board, store, and
+settings rails without another catalog request or app initialization. Mobile
+keeps its bounded visible row and overflow; desktop keeps its scrollable rail.
+Stable app identifiers prevent React key collisions when app display names match.
+Unavailable pins remain removable and lead to scoped discovery/configuration.
+
+On a board, an enabled binding alone is insufficient to launch a panel. The
+current catalog must positively allow the app, the declaration must still request
+`panels.render`, and the enabled binding must grant it. Missing policy metadata,
+disabled/revoked bindings, removed capabilities, and missing panels fail closed.
+A successful shortcut launch uses the existing AppPanel permission read and
+runtime. Otherwise the shortcut opens the app detail with board context; it does
+not install, enable, create a connection, or submit consent. Historical cards,
+connections, and work are not deleted by pin changes.
+
+Source checks: all 41 Workbench cases passed in 33.0 seconds; TypeScript, scoped
+ESLint, and diff checks passed. Added coverage exercises local persistence,
+reorder, unpin, account isolation, normalized/bounded input, no API write on pin,
+no panel initialization, and positive/negative launch policy combinations.
+The store browser tests intercept catalog responses; the launch predicate test
+is not a deployed AppPanel handshake. Server preference synchronization, real
+board launch/consent acceptance, and authenticated canary performance/E2E remain
+open. The native checklist item for the complete persistence/launch flow stays
+unchecked until its remaining acceptance is demonstrated.

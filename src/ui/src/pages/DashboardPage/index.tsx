@@ -1,3 +1,4 @@
+import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { memo, useCallback, useMemo, useReducer, useState } from "react";
 import { IHeaderNavItem } from "@/components/Header/types";
 import { DashboardStyledLayout } from "@/components/Layout";
@@ -54,6 +55,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
         };
     }, [toggleExplorer, showContext]);
     const navigate = usePageNavigateRef();
+    const pinnedApps = usePinnedAppRail({ userUID: currentUser?.uid });
     const [pageType, tabName] = location.pathname.split("/").slice(2);
     const { data, isFetching } = useGetAllStarredProjects();
     const scrollAreaUpdater = useReducer((x) => x + 1, 0);
@@ -208,6 +210,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
                     active: pageType === "projects" && tabName === "recent",
                 },
                 { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
+                ...pinnedApps.items,
                 { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
                 ...sidebarNavs.map((item) => ({ icon: item.icon, label: item.name, onClick: item.onClick! })),
                 {

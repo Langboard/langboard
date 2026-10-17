@@ -17,5 +17,13 @@
   "Board": "看板",
   "Official app": "官方应用",
   "Manual app": "手动安装的应用",
-  "Registered app": "已注册应用"
+  "Registered app": "已注册应用",
+  "Your shortcuts": "我的快捷方式",
+  "Shortcut storage": "按账户保存在此浏览器中。快捷方式不会授予应用或看板权限。",
+  "Earlier shortcut": "将{{name}}前移",
+  "Later shortcut": "将{{name}}后移",
+  "Remove shortcut": "移除{{name}}快捷方式",
+  "Unpin from rail": "从侧栏取消固定",
+  "Pin to rail": "固定到侧栏",
+  "Shortcut limit": "最多可固定{{count}}个快捷方式。"
 }

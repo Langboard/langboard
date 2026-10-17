@@ -6,6 +6,7 @@ import { useRef } from "react";
 import { cn } from "@/core/utils/ComponentUtils";
 
 export interface IActivityRailItem {
+    id?: string;
     icon: string;
     label: string;
     onClick: () => void;
@@ -42,7 +43,7 @@ export default function ActivityRail({
     };
     const mobileButton = (item: IActivityRailItem) => (
         <button
-            key={item.label}
+            key={item.id ?? item.label}
             type="button"
             aria-label={item.label}
             aria-current={item.active ? "page" : undefined}
@@ -106,7 +107,7 @@ export default function ActivityRail({
                         >
                             {overflow.map((item) => (
                                 <DropdownMenu.Item
-                                    key={item.label}
+                                    key={item.id ?? item.label}
                                     aria-current={item.active ? "page" : undefined}
                                     className="min-h-11"
                                     onSelect={() => {
@@ -138,7 +139,7 @@ export default function ActivityRail({
                         {items
                             .filter((item) => !item.hidden && item.placement === placement)
                             .map((item) => (
-                                <Tooltip.Root key={`${item.label}:${contextExpanded}`} open={contextExpanded ? false : undefined}>
+                                <Tooltip.Root key={`${item.id ?? item.label}:${contextExpanded}`} open={contextExpanded ? false : undefined}>
                                     <Tooltip.Trigger asChild>
                                         <button
                                             type="button"
