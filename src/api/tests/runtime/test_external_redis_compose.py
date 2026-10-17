@@ -19,8 +19,19 @@ EXTERNAL = {
 
 
 def selected_args(tmp_path, values):
-    text = (ROOT / ".env.example").read_text()
-    (tmp_path / ".env").write_text(text + "\nWITH_DB_BACKUP=false\n" + "\n".join(f"{k}={v}" for k, v in values.items()))
+    # Render configuration only; no credentials or deployment environment files.
+    defaults = {
+        "PROJECT_NAME": "langboard",
+        "NGINX_UI_EXPOSE_PORT": "1000",
+        "NGINX_SOCKET_EXPOSE_PORT": "1001",
+        "NGINX_API_EXPOSE_PORT": "1002",
+        "DOCS_EXPOSE_PORT": "1003",
+        "MASTER_POSTGRES_PORT": "5432",
+        "REPLICA_POSTGRES_PORT": "5433",
+        "REDIS_PORT": "6379",
+        "WITH_DB_BACKUP": "false",
+    }
+    (tmp_path / ".env").write_text("\n".join(f"{k}={v}" for k, v in {**defaults, **values}.items()))
     return subprocess.run(
         [shutil.which("bash"), str(ROOT / "scripts/utils/get-compose-args.sh")],
         cwd=tmp_path,

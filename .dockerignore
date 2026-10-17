@@ -32,8 +32,6 @@
 **/.env*
 **/.env
 **/*.env
-# Disposable configuration tests consume only the tracked, non-secret example.
-!.env.example
 **/.vault-credentials
 **/*.db*
 **/*.log
