@@ -297,3 +297,39 @@ outages, incorrect audience, incorrect signature and provider failure. The
 pre-change module fails both outage scenarios; the corrected implementation
 passes them together with the existing identity/self-link tests (14 tests).
 This does not make a Keycloak gateway timeout recoverable inside Langboard.
+
+### Reproduce the authentication outage regressions
+
+Run from the repository root in a Python 3.12 or 3.13 environment containing the
+locked project and development dependencies (`uv sync --locked --group dev`,
+then activate `.venv`). The focused tests use in-process fixtures and synthetic
+identities/keys; no production database, Redis instance, IdP credentials or
+network access is required.
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
+  src/api/tests/runtime/test_auth_cache_outage.py \
+  src/api/tests/runtime/test_socket_auth.py \
+  src/api/tests/identity/test_oidc_cache_outage.py \
+  src/api/tests/identity/test_oidc_identity.py \
+  src/api/tests/identity/test_oidc_self_link.py -q
+```
+
+Expected: 106 tests pass with no skips. Existing short synthetic HMAC fixtures
+may emit key-length warnings; they are not deployment failures. A missing
+`pytest` module means the development environment has not been installed or
+activated, not that a regression test failed.
+
+The six native identity cases require a successful database identity to survive
+cache read/write failure, while a missing identity or database error remains
+denied. The two signed OIDC cases require metadata fetched from the configured
+provider to remain usable during cache read/write failure. Incorrect audience,
+incorrect signature and provider failure must still raise an error. The
+unchanged socket and self-link suites protect the surrounding authorization
+boundaries. Against the pre-fix implementations, both valid native identity
+cases and both signed OIDC outage cases fail; the other denial cases pass.
+
+These tests establish source behavior only. Separately verify the deployed
+image revision, CI execution rather than skipped jobs, existing-session card
+entry, a fresh federated SSO round trip, and live MCP read/write behavior.
+A recovered cookie session does not prove that a new SSO flow succeeded.
