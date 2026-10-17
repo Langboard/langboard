@@ -187,6 +187,8 @@ services:
       target: runtime
     env_file:
       - ./envs/.graph.env
+    environment:
+      SOCKET_PHOENIX_INTERNAL_SECRET: ${SOCKET_PHOENIX_INTERNAL_SECRET:-}
     working_dir: /app/src/graph
     command: uv run --no-sync graph run --workers ${GRAPH_WORKERS_COUNT:-1}
     stop_grace_period: 16m
