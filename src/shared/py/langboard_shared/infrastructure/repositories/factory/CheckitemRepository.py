@@ -6,6 +6,7 @@ from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TChecklistParam, TProjectParam, TUserParam
 from ....domain.models import Card, Checkitem, Checklist, Project, User
 from ....domain.models.Checkitem import CheckitemStatus
+from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
 from ....helpers import InfraHelper
 from .CheckitemTimerRecordRepository import CheckitemTimerRecordRepository
 
@@ -55,15 +56,20 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
             }
 
     def get_active_workers_by_project(
-        self, project: TProjectParam, card: TCardParam | None = None
+        self,
+        project: TProjectParam,
+        card: TCardParam | None = None,
+        *,
+        context: CardVisibilityContext | None = None,
     ) -> list[tuple[Checkitem, Checklist, SafeDateTime | None]]:
-        """Fetch active timer owners and latest timer anchors in two bounded queries."""
+        """Fetch live-card timer owners and latest anchors in two bounded queries."""
         project_id = InfraHelper.convert_id(project)
         query = (
             SqlBuilder.select.tables(Checkitem, Checklist)
             .join(Checklist, Checkitem.column("checklist_id") == Checklist.column("id"))
             .join(Card, Checklist.column("card_id") == Card.column("id"))
             .where(Card.column("project_id") == project_id)
+            .where(Card.column("deleted_at").is_(None))
             .where(Card.column("archived_at") == None)  # noqa: E711
             .where(Checklist.column("is_system") == False)  # noqa: E712
             .where(Checklist.column("deleted_at") == None)  # noqa: E711
@@ -73,6 +79,8 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
             .where(Checkitem.column("status").in_([CheckitemStatus.Started, CheckitemStatus.Paused]))
             .order_by(Checklist.column("card_id"), Checkitem.column("user_id"), Checkitem.column("order"))
         )
+        if context is not None:
+            query = query.where(card_visibility_scope(context))
         if card is not None:
             query = query.where(Card.column("id") == InfraHelper.convert_id(card))
         with DbSession.use(readonly=True) as db:

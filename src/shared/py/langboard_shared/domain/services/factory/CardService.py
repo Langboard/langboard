@@ -715,7 +715,7 @@ class CardService(BaseDomainService):
             checklist.card_id: checklist.is_checked for checklist in raw_checklists if checklist.is_system
         }
         user_checklist_card_ids = {checklist.card_id for checklist in raw_checklists if not checklist.is_system}
-        active_workers_by_card = self.get_active_workers(project)
+        active_workers_by_card = self.get_active_workers(project, context=context)
         work_states = self.get_work_states([card for card, _ in raw_cards], context=context)
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
@@ -771,11 +771,13 @@ class CardService(BaseDomainService):
 
         return cards, [checklist for checklist in raw_checklists if not checklist.is_system]
 
-    def get_active_workers(self, project: Project, card: Card | None = None) -> dict[int, list[dict[str, Any]]]:
+    def get_active_workers(
+        self, project: Project, card: Card | None = None, *, context: CardVisibilityContext | None = None
+    ) -> dict[int, list[dict[str, Any]]]:
         """Project one avatar per timer owner without changing card assignment."""
         grouped: dict[int, dict[str, dict[str, Any]]] = {}
         now = SafeDateTime.now()
-        for checkitem, checklist, started_at in self.repo.checkitem.get_active_workers_by_project(project, card):
+        for checkitem, checklist, started_at in self.repo.checkitem.get_active_workers_by_project(project, card, context=context):
             if checkitem.user_id is None:
                 continue
             user_uid = checkitem.user_id.to_short_code()

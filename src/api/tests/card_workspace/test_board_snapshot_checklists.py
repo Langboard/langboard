@@ -112,6 +112,7 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
     }
     visible = next(card for card in payload["cards"] if card["title"] == "Visible")
     assert visible["completed"] is True
+    cards.get_active_workers.assert_called_once_with(project, context=context)
     legacy = JsonResponse(
         content=service.checklist.get_api_list_only_by_project(project, archive_visible_since=cutoff, context=context)
     )

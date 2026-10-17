@@ -5,8 +5,9 @@ from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from langboard_shared.domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist
+from langboard_shared.domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist, User
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
 from langboard_shared.infrastructure.repositories.factory.CheckitemRepository import CheckitemRepository
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
@@ -192,3 +193,57 @@ def test_arc_batch_keeps_endpoints_without_loading_history_or_other_items(timer_
     finally:
         event.remove(engine, "before_cursor_execute", capture_query)
         event.remove(CheckitemTimerRecord, "load", capture_record)
+
+
+@pytest.mark.parametrize("internal", [False, True])
+def test_active_workers_scope_before_loading_timers(timer_engine, internal):
+    timestamp = datetime(2026, 10, 6, tzinfo=UTC)
+    with Session(timer_engine) as db:
+        db.add(User(id=3, firstname="Other", lastname="Owner", email="other@example.invalid", password="test-only"))
+        db.commit()
+        for index, fields in enumerate([
+            {"visibility": "SHARED"},
+            {"visibility": "INTERNAL"},
+            {"visibility": "PRIVATE", "owner_user_id": 2, "created_by_user_id": 2},
+            {"visibility": "PRIVATE", "owner_user_id": 3, "created_by_user_id": 3},
+            {"visibility": "SHARED", "deleted_at": timestamp},
+            {"visibility": "SHARED", "archived_at": timestamp},
+        ]):
+            db.add(Card(id=2000 + index, project_id=10, project_column_id=40, title=f"Card {index}", **fields))
+            db.commit()
+            db.add(Checklist(id=3000 + index, card_id=2000 + index, title="Work"))
+            db.commit()
+            db.add(Checkitem(id=4000 + index, checklist_id=3000 + index, title="Work", user_id=2,
+                             status=CheckitemStatus.Started))
+            db.commit()
+            db.add(CheckitemTimerRecord(id=5000 + index, checkitem_id=4000 + index,
+                                       status=CheckitemStatus.Started, created_at=timestamp))
+            db.commit()
+
+    def make_repo(repository):
+        return repository(make_repo, lambda _: None)
+
+    workers = make_repo(CheckitemRepository)
+    # Deleted and archived parents must never surface even for legacy callers.
+    assert {checklist.card_id for _, checklist, _ in workers.get_active_workers_by_project(10)} == {2000, 2001, 2002, 2003}
+    context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, internal, actor_user_id=2)
+    hydrated, statements = [], []
+
+    def on_load(record, _context):
+        hydrated.append(record.checkitem_id)
+
+    def on_query(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    event.listen(CheckitemTimerRecord, "load", on_load)
+    event.listen(timer_engine, "before_cursor_execute", on_query)
+    try:
+        result = workers.get_active_workers_by_project(10, context=context)
+        expected = {2000, 2002} | ({2001} if internal else set())
+        assert {checklist.card_id for _, checklist, _ in result} == expected
+        assert set(hydrated) == {card_id + 2000 for card_id in expected}
+        assert len(statements) == 2
+        assert all(anchor.replace(tzinfo=UTC) == timestamp for _, _, anchor in result)
+    finally:
+        event.remove(CheckitemTimerRecord, "load", on_load)
+        event.remove(timer_engine, "before_cursor_execute", on_query)

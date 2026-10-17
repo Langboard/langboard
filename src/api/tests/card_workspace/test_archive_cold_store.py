@@ -99,7 +99,7 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
             )[1]
         ),
         checkitem=SimpleNamespace(
-            get_active_workers_by_project=lambda _project, _card=None: [],
+            get_active_workers_by_project=lambda _project, _card=None, **kwargs: [],
         ),
     )
     return CardService(lambda _service: None, lambda _name: None, repository)

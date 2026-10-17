@@ -567,3 +567,18 @@ lightweight projection now excludes hidden-card authors in SQL before loading
 User/Bot display fields. The standalone callers without a context retain their
 existing scope; deleted, foreign and cold-archive filters are unchanged. This
 removes intermediate work, without claiming a measured canary latency gain.
+
+## Scope active-worker timer reads
+
+The active-worker batch now accepts the board snapshot's current visibility
+context before loading checkitems and their timer anchors. Hidden cards no
+longer contribute intermediary timer histories. Deleted parent cards are
+excluded for all callers; archived cards remain excluded. Other standalone
+callers retain their visibility behavior when no context is supplied.
+
+A real database regression reproduced deleted-parent workers before the fix
+(two failing SQLite cases). The corrected suite passed 32 tests across SQLite
+and an isolated PostgreSQL schema, without skips. It checks internal/external
+visibility, own/other private cards, deleted/archive exclusion, exact latest
+timer anchors, and the existing two-query bound. This establishes source and DB
+behavior, not a new canary release or a measured operating latency reduction.
