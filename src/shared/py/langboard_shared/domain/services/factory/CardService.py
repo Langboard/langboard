@@ -222,16 +222,24 @@ class CardService(BaseDomainService):
             return None
         # Read the primary: cached auth and replica membership may outlive revocation.
         project_id = InfraHelper.convert_id(project)
-        with DbSession.use(readonly=False) as db:
-            project = db.exec(SqlBuilder.select.table(Project).where(Project.column("id") == project_id)).first()
-            current_user = db.exec(SqlBuilder.select.table(User).where(User.column("id") == user.id)).first()
-        if project is None or project.deleted_at is not None:
-            return None
-        if current_user is None or current_user.deleted_at is not None or not current_user.activated_at:
-            return None
-        member = project.owner_id == current_user.id or bool(
-            self.repo.project_assigned_user.get_all_by_project(project, [current_user], limit=1, consistent=True)
+        assigned = (
+            select(ProjectAssignedUser.id)
+            .where(ProjectAssignedUser.project_id == Project.id, ProjectAssignedUser.user_id == user.id)
+            .exists()
         )
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(
+                select(Project, User, assigned)
+                .select_from(Project)
+                .join(User, User.id == user.id)
+                .where(Project.id == project_id)
+            ).first()
+        if current is None:
+            return None
+        project, current_user, assigned_member = current
+        if project.deleted_at is not None or current_user.deleted_at is not None or not current_user.activated_at:
+            return None
+        member = project.owner_id == current_user.id or bool(assigned_member)
         internal = self._resolve_internal_access(current_user) if member else False
         context = CardVisibilityContext(
             channel=channel,

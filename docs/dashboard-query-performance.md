@@ -461,3 +461,21 @@ recreation or automatic replication changes to apply this scheduling adjustment.
 After rollout, measure healthcheck and broker CPU separately, host pressure,
 authenticated dashboard/board latency and actual delivery/reconnect behavior.
 Rollback restores the previous Compose schedule with the same data identities.
+
+## Current visibility resolution, 2026-10-18
+
+Each visibility resolution now reads the current project, user and membership
+existence in one primary statement using the existing SQLAlchemy boundary. The
+owner path previously used two statements; assigned and unassigned non-owners
+used three. Internal-access classification still uses its existing policy.
+
+The board route and snapshot retain their separate current-access checks. An
+attempt to reuse the earlier context failed the existing regression that revokes
+access before the snapshot read; that change was discarded. No request-spanning
+auth cache or caller-supplied visibility context was introduced.
+
+Real SQLite/PostgreSQL query-count regressions cover owners, assigned members
+and outsiders. Existing account-revocation and second-check denial tests remain
+part of focused acceptance. The API and API-PostgreSQL validation profiles include
+the policy/query-count module. Source query reduction is not proof of a canary
+HTTP latency improvement; that requires the new image and runtime measurements.

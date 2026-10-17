@@ -41,6 +41,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_private_policy.py \
       src/api/tests/card_visibility/test_metadata_visibility.py \
       src/api/tests/card_visibility/test_metadata_projection.py \
+      src/api/tests/card_visibility/test_internal_access_mode.py \
       src/api/tests/dashboard/test_project_activity_priority.py \
       src/api/tests/dashboard/test_board_seen_cursor.py \
       src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
@@ -76,6 +77,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py \
       src/api/tests/card_visibility/test_metadata_projection.py \
+      src/api/tests/card_visibility/test_internal_access_mode.py \
       src/api/tests/dashboard/test_project_activity_priority.py \
       src/api/tests/dashboard/test_board_seen_cursor.py \
       src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
