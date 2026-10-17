@@ -110,3 +110,51 @@ API benchmark nor evidence of a deployed latency improvement. The excluded
 The focused archive/visibility regressions verify active and exact-boundary
 comment counts, cold-card exclusion, deferred AI content, and current-actor
 visibility. Actual canary acceptance remains required after release.
+
+## Skip signal policy work for unlinked card batches
+
+The work-state projection previously read and parsed the entire approved app
+registry and built provider-specific authority joins even when the requested cards
+had no enabled signal bindings. It now first probes the indexed binding `card_id`
+with the caller's card IDs, `is_enabled=true`, and `LIMIT 1` on the primary database.
+An empty result returns no evidence without reading the registry or joining app,
+connection, user, resource and policy tables. There is no cache or schema change.
+
+A positive probe grants no authority. The original provider/resource predicates,
+current connection/organization/credential checks and signal matching still run.
+Revocation is never inferred from a cached prior result. Batches with signal links
+pay one additional small query (five total in the existing 1-card and 31-card
+fixture); unlinked batches use one query instead of two. A concurrently added
+binding may first appear on the next request, as with other changes after a read.
+
+A disposable local PostgreSQL fixture with 300 cards and no signal links measured
+30 warm trials before and after: median 5.890 ms to 1.579 ms, with first calls
+20.818 ms and 2.330 ms respectively. SQLite fixture medians were 2.860 ms and
+0.333 ms. These are standalone projection measurements with a small registry,
+not production HTTP latency, p95, or an explanation of the observed 5–6-second
+board request. Raw measurements and the disposable fixture are retained under
+`.verification/signal-unbound-benchmark-pg-{before,after}.log` and
+`.verification/test_signal_unbound_benchmark.py` in the working tree.
+
+The regression verifies absent, disabled and unrelated-card links skip registry
+reads and authority joins. Existing linked-card tests retain current revocation,
+batch query bounds, occurrence ordering, conflict and provider mapping coverage.
+Authenticated canary phase measurements still require release.
+
+The expanded run also exposed two stale fixtures on the unchanged implementation:
+resource discovery omitted the now-required explicit selection, and the generic
+adapter test patched a removed module global. The fixtures now select their test
+resources and register a validated SDK declaration in SQL. Product default-deny
+behavior is unchanged; the independent adapter no longer relies on a fake global
+registry. The board signal projection suite runs in the existing API and disposable
+PostgreSQL validation profiles.
+
+The final combined SQLite/PostgreSQL run passed 170 tests in 99.50 seconds across
+card projection, generic declaration, independent provider HTTP contracts,
+GlitchTip and Dokploy evidence. Fifteen existing short JWT fixture-key warnings
+remain recorded; no production key was changed. The original 26 fixture failures,
+unchanged-source reproduction, and final passing run remain in
+`.verification/signal-unbound-regression.log`,
+`.verification/signal-existing-fixture-before.log` and
+`.verification/signal-unbound-regression-final.log` respectively. These tests do
+not establish deployment or whole-board HTTP performance acceptance.

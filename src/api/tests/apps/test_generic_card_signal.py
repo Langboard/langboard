@@ -1,13 +1,12 @@
 # ruff: noqa: F811
 """An independently declared adapter shares native card scope and revocation gates."""
 
-import importlib
 import pytest
 from langboard.apps.CardSignal import authorized_signal_scope
 from langboard.apps.GitHubManifest import GitHubManifestUnavailable
+from langboard_sdk.definition import validate_app_definition
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.domain.models import AppSignal, BoardAppBinding
-from langboard_shared.domain.services.AppManifest import AppManifest, AppSignalPolicy
+from langboard_shared.domain.models import AppDefinition, AppSignal, BoardAppBinding
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
 from test_card_signal_projection import scoped  # noqa: F401
 from test_github_signal import board, installation, lifecycle, secrets, send, signal_storage  # noqa: F401
@@ -15,23 +14,24 @@ from test_github_signal import board, installation, lifecycle, secrets, send, si
 
 @pytest.mark.parametrize("revoke", [None, "resource", "capability", "connection"])
 @pytest.mark.parametrize("outcome, expected", [("recovered", "resolved"), ("alert", "failed"), ("other", "unknown")])
-def test_independent_adapter_scope_and_revocation(scoped, monkeypatch, revoke, outcome, expected):
+def test_independent_adapter_scope_and_revocation(scoped, revoke, outcome, expected):
     state, card, card_binding, _ = scoped
     send(state)
-    adapter = AppManifest(
-        "independent-monitor", "Independent Monitor", ("service",), ("signals.read",),
-        signal_policy=AppSignalPolicy(
-            ("incident.observed",), ("service",), time_basis="observation",
-            outcome_states=(("recovered", "resolved"), ("alert", "failed")),
-        ),
-    )
-    manifests = importlib.import_module("langboard_shared.domain.services.AppManifest")
-    card_scope = importlib.import_module("langboard.apps.CardSignal")
-    registry = {**manifests.APP_MANIFESTS, adapter.key: adapter}
-    monkeypatch.setattr(manifests, "APP_MANIFESTS", registry)
-    monkeypatch.setattr(card_scope, "APP_MANIFESTS", registry)
+    declaration = validate_app_definition({
+        "schema_version": 2, "key": "independent-monitor", "name": "Independent Monitor",
+        "version": "0.1.0", "description": "Independent observation fixture",
+        "capabilities": ["signals.read"], "resource_types": ["service"],
+        "trust": {"authentication_origins": [], "mcp_origins": [], "data_origins": []},
+        "signal_policy": {
+            "version": 1, "event_types": ["incident.observed"], "resource_types": ["service"],
+            "commit_mode": "empty", "time_basis": "observation",
+            "outcome_states": {"recovered": "resolved", "alert": "failed"},
+        },
+    })
+    app_key = declaration["key"]
     with DbSession.atomic() as db:
-        state[2].app_key = adapter.key
+        db.insert(AppDefinition(key=app_key, declaration=declaration, approved_by=state[1][1].id))
+        state[2].app_key = app_key
         state[4].resource_type = "service"
         if revoke == "connection":
             state[2].state = "disconnected"
@@ -40,12 +40,12 @@ def test_independent_adapter_scope_and_revocation(scoped, monkeypatch, revoke, o
         for row in (state[2], state[4]):
             db.update(row)
         binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == state[4].board_binding_id)).first()
-        binding.app_key = adapter.key
+        binding.app_key = app_key
         if revoke == "capability":
             binding.granted_capabilities = []
         db.update(binding)
         signal = db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.resource_id == state[4].id)).first()
-        signal.provider = adapter.key
+        signal.provider = app_key
         signal.event_type = "incident.observed"
         signal.commit_sha = ""
         signal.outcome = outcome

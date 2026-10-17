@@ -50,6 +50,43 @@ def evidence(scoped):
     return card_signal_projections([card])[card.id][0]
 
 
+@pytest.mark.parametrize("binding_state", ["missing", "disabled", "another_card"])
+def test_unbound_cards_skip_registry_and_authority_joins(scoped, monkeypatch, binding_state):
+    import langboard_shared.domain.services.AppRegistry as registry
+
+    state, card, binding, _ = scoped
+    with DbSession.atomic() as db:
+        if binding_state == "missing":
+            db.delete(binding)
+        elif binding_state == "disabled":
+            binding.is_enabled = False
+            db.update(binding)
+        else:
+            another = Card(
+                project_id=card.project_id, project_column_id=card.project_column_id,
+                title="Unbound card", visibility="SHARED", last_change_seq=7,
+            )
+            db.insert(another)
+            card = another
+
+    def unexpected_registry_read():
+        pytest.fail("Unbound cards must not load the global app registry")
+
+    monkeypatch.setattr(registry, "approved_manifests", unexpected_registry_read)
+    statements = []
+
+    def record(*args):
+        statements.append(args[2])
+
+    event.listen(state[7], "before_cursor_execute", record)
+    try:
+        assert card_signal_projections([card]) == {}
+        assert len(statements) == 1
+        assert "JOIN" not in statements[0].upper()
+    finally:
+        event.remove(state[7], "before_cursor_execute", record)
+
+
 def test_occurrence_order_exact_scope_conflict_and_staleness(scoped):
     state, card, _, _ = scoped
     assert evidence(scoped)["state"] == "unavailable"
@@ -260,10 +297,10 @@ def test_batch_has_constant_query_count(scoped):
     event.listen(state[7], "before_cursor_execute", record)
     try:
         assert len(card_signal_projections(cards)) == 31
-        assert len(statements) == 4  # One registry policy read for the entire card batch.
+        assert len(statements) == 5  # One link probe and registry read for the entire batch.
         statements.clear()
         assert len(card_signal_projections(cards[:1])) == 1
-        assert len(statements) == 4
+        assert len(statements) == 5
     finally:
         event.remove(state[7], "before_cursor_execute", record)
 
@@ -496,6 +533,7 @@ def test_card_resource_discovery_is_read_scoped_and_batched(scoped):
                     resource_type="repository",
                     external_resource_id=str(1000 + number),
                     access_state="granted",
+                    is_selected=True,
                     resource_path=[{"type": "repository", "id": str(1000 + number), "name": f"fixture/{number}"}],
                 )
             )
