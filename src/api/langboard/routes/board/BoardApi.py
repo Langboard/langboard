@@ -370,11 +370,8 @@ def get_project_cards(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     timings = [perf_counter()]
-    project = service.project.get_by_id_like(project_uid)
-    if project is None:
-        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
-    resolved = service.card.resolve_visibility_context(project, user_or_bot, channel)
+    resolved = service.card.resolve_visibility_context(project_uid, user_or_bot, channel)
     if resolved is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     project, context = resolved

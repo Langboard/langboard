@@ -4,9 +4,11 @@ import json
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
+import pytest
 from langboard.routes.board.BoardApi import JsonResponse, get_project_cards
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.routing.ApiException import NotFoundException
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, Card, CardComment, Checklist
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
@@ -15,6 +17,16 @@ from langboard_shared.domain.services.factory.ChecklistService import ChecklistS
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.ChecklistRepository import ChecklistRepository
 from sqlalchemy import event
+
+
+def test_board_missing_current_context_stops_before_projection():
+    resolver = Mock(return_value=None)
+    service = SimpleNamespace(card=SimpleNamespace(resolve_visibility_context=resolver))
+    actor = object()
+    with pytest.raises(NotFoundException) as error:
+        get_project_cards("missing-project", SimpleNamespace(scope={}), user_or_bot=actor, service=service)
+    assert error.value.status_code == 404
+    resolver.assert_called_once_with("missing-project", actor, CollaborationChannel.Api)
 
 
 def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeypatch):  # noqa: F811
@@ -65,7 +77,7 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
         }
     )
     service = SimpleNamespace(
-        project=SimpleNamespace(get_by_id_like=lambda _: project),
+        project=SimpleNamespace(get_by_id_like=Mock(side_effect=AssertionError("Redundant project lookup"))),
         card=cards,
         checklist=ChecklistService(None, None, repository),
         app_setting=SimpleNamespace(get_api_global_relationship_list=lambda: []),
@@ -105,6 +117,9 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
     )
     assert payload["checklists"] == json.loads(legacy.body)
     assert len(selects) == 1, "The board response must reuse its already-read checklist rows"
+    assert cards.resolve_visibility_context.call_args_list[0].args[0] == project.get_uid()
+    assert cards.resolve_visibility_context.call_args_list[0].args[2] == context.channel
+    service.project.get_by_id_like.assert_not_called()
 
     # If the second current-access check rejects the request, no old-context
     # checklist read may populate the response independently of its cards.
