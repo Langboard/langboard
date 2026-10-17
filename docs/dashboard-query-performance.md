@@ -227,3 +227,34 @@ unchanged-source reproduction, and final passing run remain in
 `.verification/signal-existing-fixture-before.log` and
 `.verification/signal-unbound-regression-final.log` respectively. These tests do
 not establish deployment or whole-board HTTP performance acceptance.
+
+
+## Card author display fields
+
+The board author query retains the existing User/Bot ORM return contract, author
+precedence, soft-delete filters and recent-archive cutoff. SQLAlchemy `load_only`
+now fetches only IDs, display names, avatars and deletion state, with `raiseload`
+to reject accidental deferred account reads. It no longer fetches account email,
+password fields, bot API credentials or bot configuration for author enrichment.
+The display helper reads the avatar path directly instead of serializing an entire
+account or bot for every card. Missing avatars and deleted-user avatar suppression
+retain their existing behavior. No schema, cache or dependency is added.
+
+Two SQLite/PostgreSQL regressions fail on the previous source because the SQL
+selects private account fields. The updated tests verify exact display payloads,
+one SELECT, no full account serialization and no lazy loads after session close.
+Existing repository scope and shared board-progress tests remain in the focused
+suite. An initial fixture omitted Bot/Card tables; a combined run also exposed an
+unnecessary DomainService import-order dependency in the new test. The fixture now
+creates those tables, and the stateless projection is exercised directly without
+constructing unrelated services. Failed receipts are retained.
+
+On disposable PostgreSQL, 300 cards split between one human and one bot with a
+30,800-byte synthetic configuration produced identical display payloads before
+and after. Thirty alternating warm samples per variant measured median query plus
+author projection duration of 21.661 ms before and 3.515 ms after, with one SELECT
+per run. The original methods were loaded from the preceding committed source;
+no production data or credentials were used. This represents a configuration-heavy
+local fixture, not a general speedup guarantee or complete board HTTP latency.
+Current canary performance and authenticated UI acceptance remain unverified for
+this change.

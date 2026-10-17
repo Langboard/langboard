@@ -794,7 +794,11 @@ class CardService(BaseDomainService):
             "uid": creator.get_uid(),
             "type": User.USER_TYPE if isinstance(creator, User) else Bot.BOT_TYPE,
             "name": creator.get_fullname(),
-            "avatar": creator.api_response().get("avatar"),
+            "avatar": (
+                creator.avatar.path
+                if creator.avatar is not None and (not isinstance(creator, User) or creator.deleted_at is None)
+                else None
+            ),
             "created_at": card.created_at.isoformat(),
         }
 

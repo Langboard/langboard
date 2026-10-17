@@ -1,7 +1,7 @@
 from typing import Any, Sequence
 from sqlalchemy import Text, cast, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseOrderRepository
@@ -179,6 +179,10 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         project_id = InfraHelper.convert_id(project)
         query = (
             SqlBuilder.select.tables(Card.column("id"), User, Bot)
+            .options(
+                load_only(User.id, User.firstname, User.lastname, User.avatar, User.deleted_at, raiseload=True),
+                load_only(Bot.id, Bot.name, Bot.avatar, Bot.deleted_at, raiseload=True),
+            )
             .select_from(Card)
             .outerjoin(User, Card.column("created_by_user_id") == User.column("id"))
             .outerjoin(Bot, Card.column("created_by_bot_id") == Bot.column("id"))
