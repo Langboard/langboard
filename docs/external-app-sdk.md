@@ -960,8 +960,10 @@ the public SDK examples. Set `LANGBOARD_SDK_EXAMPLES_DIR` to the separate SDK
 repository's `examples/python` directory and `LANGBOARD_ACCEPTANCE_DATABASE_URL`
 to an empty disposable loopback PostgreSQL database. The script rejects a
 non-loopback database or an existing schema. Run it with the API environment's
-Python and the pinned SDK wheel on `PYTHONPATH`. It starts a separate Uvicorn
-process, uses native routes/authentication, and seeds only account/board/Backlog.
+Python. It verifies the project-declared SDK wheel against provenance and both
+Python lockfiles, then uses that wheel in the client and server processes. It
+starts a separate Uvicorn process from the current checkout, uses native
+routes/authentication, and seeds only account/board/Backlog.
 No runtime monkeypatch or preinserted app state is used. It verifies registry
 registration, connection/resource onboarding, consent, card creation/replay,
 same-trust version update/readback with retained consent, registry disable/readback
