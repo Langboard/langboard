@@ -927,3 +927,35 @@ test("account shortcuts restore on an isolated device and recover conflicts with
         await other.close();
     }
 });
+
+for (const width of [1440, 390]) {
+    for (const failure of ["abort", "server"] as const) {
+        test(`card creation retains the draft after ${failure} at ${width}px`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 900 });
+            const requests: unknown[] = [];
+            await page.route("**/board/fixture/card", async (route) => {
+                requests.push(route.request().postDataJSON());
+                if (requests.length === 1) {
+                    if (failure === "abort") return route.abort("aborted");
+                    return route.fulfill({ status: 500, json: { message: "Temporary failure" } });
+                }
+                return route.fulfill({ status: 201, json: { card: { uid: "created" } } });
+            });
+            await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+            await page.getByRole("button", { name: "Add a card", exact: true }).click();
+            const title = "고객 요청 초안 — preserve on failure";
+            const input = page.locator("textarea");
+            await input.fill(title);
+            await input.press("Enter");
+            await expect.poll(() => requests.length).toBe(1);
+            await expect(input).toBeVisible();
+            await expect(input).toBeEnabled();
+            await expect(input).toHaveValue(title);
+            await input.press("Enter");
+            await expect.poll(() => requests.length).toBe(2);
+            await expect(input).toHaveCount(0);
+            expect(requests[1]).toEqual(requests[0]);
+            expect(requests[0]).toEqual({ project_column_uid: "ready", title });
+        });
+    }
+}

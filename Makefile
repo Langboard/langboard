@@ -173,7 +173,7 @@ dev_socket_phoenix: ## run the Phoenix socket migration runtime on port 5691
 
 test_socket_phoenix: ## verify the isolated Phoenix migration runtime and shared contract
 	cd $(UI_DIR) && yarn typecheck
-	uv run python src/socket/test/integration/test-phoenix-config.py "$(SHELL)"
+	uv run python src/socket/test/integration/test-phoenix-config.py bash
 	uv run python -m pytest -q src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff check src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff format --check src/socket/test/unit/test_phoenix_owner_preflight.py
