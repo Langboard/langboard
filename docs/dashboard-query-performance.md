@@ -87,3 +87,26 @@ card versus wiki, different boards, same-resource deduplication, and cancellatio
 that leaves another card's request intact. The metadata and existing settings
 loading regressions are included in the UI validation profile. This verifies the
 query lifecycle; it is not a claim of authenticated canary multi-window acceptance.
+
+
+## Board comment aggregation follows the hot archive window
+
+The board-list comment aggregate now uses the same archive cutoff as the card
+projection, in addition to the existing project, deletion and actor-visibility
+conditions. Cold archived cards cannot contribute to this aggregate. Exact-cutoff
+cards remain included; the `(Card, comment_count)` contract and detail/archive
+reads are unchanged. No cache, index, migration or background reconciler is added.
+
+A bounded read-only PostgreSQL observation on 2026-10-17 found 342 non-deleted
+cards (294 within the three-day window), and 2,337 comments (2,296 within that
+window) in one authorized board. The standalone aggregate measured 6.845 ms for
+the original and 2.895/3.071 ms for the narrowed query after warming. The initial
+original-query run took 143.232 ms and is not comparable because cache state
+changed. These diagnostic queries omitted actor predicates to isolate archive
+filtering; production retains those predicates. This is neither an authenticated
+API benchmark nor evidence of a deployed latency improvement. The excluded
+41 comments cannot alone explain second-scale board response times.
+
+The focused archive/visibility regressions verify active and exact-boundary
+comment counts, cold-card exclusion, deferred AI content, and current-actor
+visibility. Actual canary acceptance remains required after release.

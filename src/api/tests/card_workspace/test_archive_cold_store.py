@@ -322,6 +322,13 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
             ],
         )
         connection.execute(
+            CardComment.__table__.insert(),
+            [
+                {"id": 800 + offset, "card_id": card_id, "user_id": 1, "content": EditorContentModel(content="Comment")}
+                for offset, card_id in enumerate((active_id, boundary_id, boundary_id, cold_id))
+            ],
+        )
+        connection.execute(
             ProjectAssignedUser.__table__.insert(),
             {"id": 20, "project_id": 1, "user_id": 1, "starred": False},
         )
@@ -450,6 +457,7 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
     active_workers = make_repo(CheckitemRepository).get_active_workers_by_project(project)
 
     assert {card.id for card, _ in cards} == {active_id, boundary_id}
+    assert {int(card.id): count for card, count in cards} == {active_id: 1, boundary_id: 2}
     assert {assignment.card_id for _, assignment in members} == {active_id, boundary_id}
     assert {relationship.id for relationship, _ in relationships} == {301}
     assert {assignment.card_id for _, assignment in labels} == {active_id, boundary_id}
