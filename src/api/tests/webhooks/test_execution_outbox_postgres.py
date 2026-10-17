@@ -368,6 +368,55 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
         with engine.connect() as connection:
             assert connection.execute(text("SELECT state, attempt_count FROM execution_outbox")).one() == ("delivered", 1)
 
+        # A slow response from an expired claim must not overwrite its replacement.
+        for old_failure in (False, True):
+            for replacement_delivered in (None, False, True):
+                with engine.begin() as connection:
+                    connection.execute(text(
+                        "UPDATE execution_outbox SET state = 'pending', attempt_count = 0, "
+                        "lease_until = NULL, last_error = NULL, processed_at = NULL"
+                    ))
+                entered, release = Event(), Event()
+
+                async def stale_post(model, webhook_uid):
+                    entered.set()
+                    assert release.wait(5), "stale delivery was not released"
+                    if old_failure:
+                        raise RuntimeError("late HTTP failure")
+
+                monkeypatch.setattr(worker, "post_signed_webhook", stale_post)
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    stale = executor.submit(lambda: asyncio_run(worker.drain_one(event_id)))
+                    try:
+                        assert entered.wait(5), "stale delivery did not reach HTTP"
+                        with engine.begin() as connection:
+                            connection.execute(text(
+                                "UPDATE execution_outbox SET lease_until = now() - interval '1 second'"
+                            ))
+                        monkeypatch.setattr(worker, "post_signed_webhook", fake_post)
+                        if replacement_delivered:
+                            assert asyncio_run(worker.drain_one(event_id))
+                        elif replacement_delivered is False:
+                            assert isinstance(worker._claim(event_id), worker.ClaimedDelivery)
+                        with engine.connect() as connection:
+                            replacement = connection.execute(text(
+                                "SELECT state, attempt_count, lease_until, last_error, processed_at "
+                                "FROM execution_outbox"
+                            )).one()
+                        assert replacement[0] == ("delivered" if replacement_delivered else "delivering")
+                        assert replacement[1] == (1 if replacement_delivered is None else 2)
+                    finally:
+                        release.set()
+                    if old_failure:
+                        with pytest.raises(worker.ExecutionDeliveryFailed):
+                            stale.result(timeout=5)
+                    else:
+                        assert stale.result(timeout=5)
+                with engine.connect() as connection:
+                    assert connection.execute(text(
+                        "SELECT state, attempt_count, lease_until, last_error, processed_at FROM execution_outbox"
+                    )).one() == replacement
+
         # Operator recovery re-queues terminal failures with a fresh attempt budget.
         with engine.begin() as connection:
             connection.execute(text("UPDATE execution_outbox SET state = 'failed', last_error = 'delivery_attempts_exhausted'"))

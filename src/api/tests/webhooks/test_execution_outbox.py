@@ -62,6 +62,7 @@ def _claim_harness(monkeypatch: pytest.MonkeyPatch, snapshot: dict, current: Cur
         "io.langboard.work.ready.v1",
         snapshot,
         attempts,
+        occurred_at,
     )
 
     class FakeDb:
@@ -85,7 +86,7 @@ def _claim_harness(monkeypatch: pytest.MonkeyPatch, snapshot: dict, current: Cur
         posted.append((model, webhook_uid))
 
     monkeypatch.setattr(worker, "post_signed_webhook", fake_post)
-    monkeypatch.setattr(worker, "_mark", lambda db, uid, state, error=None: marks.append((state, error)))
+    monkeypatch.setattr(worker, "_mark", lambda db, uid, state, error=None, **kwargs: marks.append((state, error)))
     return event_id, occurred_at, posted, marks
 
 
@@ -188,6 +189,7 @@ async def test_blocked_to_ready_new_generation_supersedes_old_event(monkeypatch:
         "io.langboard.work.ready.v1",
         _frozen_snapshot(occurred_at),
         0,
+        occurred_at,
     )
 
     class FakeDb:

@@ -51,9 +51,15 @@ No fifth task or recovery-cron pass is required to reach this terminal state.
 Already exhausted pending or expired claims are also closed without another POST.
 Manual reconciliation can explicitly reset failed rows to a fresh attempt budget.
 
+HTTP completion updates require the same unexpired `lease_until` captured by the
+claim and a still-`delivering` row. A late success or failure cannot overwrite a
+replacement claimant or its terminal result. Expired claims remain recoverable;
+this fence does not retract HTTP requests already sent to the consumer.
+
 The PostgreSQL lifecycle regression checks the persisted state after each failed
 attempt, then verifies that another drain performs no delivery. Its other checks
 cover success, expired-lease recovery, live-lease exclusion, row locking, concurrent
-hot-path/recovery exclusion, destination drift and manual reconciliation. The
+hot-path/recovery exclusion, late success/failure after expiry with and without a
+replacement claim, destination drift and manual reconciliation. The
 fixture replaces the HTTP sender; it does not prove an external consumer's
 signature verification, durable deduplication or deployed cross-repository E2E.

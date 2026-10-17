@@ -3,7 +3,7 @@
 import argparse
 from asyncio import run as run_async
 from dataclasses import dataclass
-from datetime import timezone
+from datetime import datetime, timezone
 from uuid import UUID
 from sqlalchemy import case, column, func, or_, select, table, text, update
 from ...core.db import DbSession
@@ -53,12 +53,18 @@ class ClaimedDelivery:
     event_id: UUID
     model: WebhookModel
     webhook_uid: str
+    lease_until: datetime
 
 
-def _mark(db: DbSession, event_id: UUID, state: str, error: str | None = None) -> None:
-    db.exec(
-        update(OUTBOX).where(OUTBOX.c.id == event_id).values(state=state, last_error=error, processed_at=func.now())
-    )
+def _mark(
+    db: DbSession, event_id: UUID, state: str, error: str | None = None, *, lease_until: datetime | None = None
+) -> None:
+    query = update(OUTBOX).where(OUTBOX.c.id == event_id)
+    if lease_until is not None:
+        query = query.where(
+            OUTBOX.c.state == "delivering", OUTBOX.c.lease_until == lease_until, OUTBOX.c.lease_until > func.now()
+        )
+    db.exec(query.values(state=state, last_error=error, processed_at=func.now()))
 
 
 def _event_data(project_id: int, card_id: int, generation: int, current: CurrentExecution) -> dict:
@@ -95,6 +101,7 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
                 OUTBOX.c.event_type,
                 OUTBOX.c.payload_json,
                 OUTBOX.c.attempt_count,
+                func.now() + text(f"interval '{DELIVERY_LEASE_SECONDS} seconds'"),
             )
             .where(
                 or_(
@@ -111,7 +118,7 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
         row = db.exec(query).first()
         if row is None:
             return None
-        event_id, project_id, card_id, generation, occurred_at, event_type, snapshot, attempts = row
+        event_id, project_id, card_id, generation, occurred_at, event_type, snapshot, attempts, lease_until = row
         if int(attempts or 0) >= MAX_DELIVERY_ATTEMPTS:
             _mark(db, event_id, "failed", "delivery_attempts_exhausted")
             return _TERMINAL
@@ -153,10 +160,12 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
             .values(
                 state="delivering",
                 attempt_count=int(attempts or 0) + 1,
-                lease_until=func.now() + text(f"interval '{DELIVERY_LEASE_SECONDS} seconds'"),
+                lease_until=lease_until,
             )
         )
-        return ClaimedDelivery(event_id=event_id, model=model, webhook_uid=snapshot["webhook_uid"])
+        return ClaimedDelivery(
+            event_id=event_id, model=model, webhook_uid=snapshot["webhook_uid"], lease_until=lease_until
+        )
 
 
 async def drain_one(event_id: UUID | None = None) -> bool:
@@ -174,7 +183,12 @@ async def drain_one(event_id: UUID | None = None) -> bool:
         with DbSession.atomic() as db:
             db.exec(
                 update(OUTBOX)
-                .where(OUTBOX.c.id == claimed.event_id)
+                .where(
+                    OUTBOX.c.id == claimed.event_id,
+                    OUTBOX.c.state == "delivering",
+                    OUTBOX.c.lease_until == claimed.lease_until,
+                    OUTBOX.c.lease_until > func.now(),
+                )
                 .values(
                     state=case((OUTBOX.c.attempt_count >= MAX_DELIVERY_ATTEMPTS, "failed"), else_="pending"),
                     last_error=case(
@@ -187,7 +201,7 @@ async def drain_one(event_id: UUID | None = None) -> bool:
             )
         raise ExecutionDeliveryFailed(f"Execution delivery failed: event={claimed.event_id}") from error
     with DbSession.atomic() as db:
-        _mark(db, claimed.event_id, "delivered")
+        _mark(db, claimed.event_id, "delivered", lease_until=claimed.lease_until)
     return True
 
 
