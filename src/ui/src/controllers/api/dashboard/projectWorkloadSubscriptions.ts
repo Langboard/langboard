@@ -13,6 +13,8 @@ const clients = new WeakMap<
     {
         projects: Map<string, { references: number; off: () => void }>;
         timer?: ReturnType<typeof setTimeout>;
+        refreshing?: boolean;
+        dirty?: boolean;
         offOpen: () => void;
     }
 >();
@@ -32,15 +34,28 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
     }
     const owned = state;
     const refresh = () => {
-        if (clients.get(client) !== owned || !owned.projects.size || owned.timer) return;
+        if (clients.get(client) !== owned || !owned.projects.size) return;
+        owned.dirty = true;
+        if (owned.timer || owned.refreshing) return;
         // Bounded bursts share one authorized batch read; no per-card fetch or poll.
-        owned.timer = setTimeout(() => {
+        owned.timer = setTimeout(async () => {
             owned.timer = undefined;
-            void client.cancelQueries({ queryKey: ["get-dashboard-projects"] }).then(() => {
-                if (clients.get(client) === owned && owned.projects.size) {
-                    return client.invalidateQueries({ queryKey: ["get-dashboard-projects"] });
+            owned.refreshing = true;
+            owned.dirty = false;
+            const queryKey = ["get-dashboard-projects"];
+            try {
+                // Let a slow snapshot finish, then read changes that arrived after it started.
+                // Cancel/restart on every event can starve an active dashboard indefinitely.
+                if (client.getQueryState(queryKey)?.fetchStatus === "fetching") {
+                    await client.refetchQueries({ queryKey }, { cancelRefetch: false });
                 }
-            });
+                if (clients.get(client) === owned && owned.projects.size) {
+                    await client.invalidateQueries({ queryKey }, { cancelRefetch: false });
+                }
+            } finally {
+                owned.refreshing = false;
+                if (owned.dirty) refresh();
+            }
         }, 250);
     };
     const newUIDs: string[] = [];

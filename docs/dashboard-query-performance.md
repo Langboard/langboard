@@ -329,3 +329,42 @@ and 5.622 -> 3.253 ms with large synthetic descriptions/translations. Results we
 identical and policy SELECTs fell from two to one in both cases. These are local
 projection measurements, not complete board HTTP latency or deployed acceptance.
 Both API validation profiles include the two-database column projection test.
+
+## Activity refresh must not starve slow dashboard reads
+
+Authenticated canary inspection on 2026-10-17 reproduced an initial board load
+failure that recovered on retry, and repeated dashboard load failures. A captured
+dashboard XHR ended with `net::ERR_ABORTED` after 2.462 seconds, while its preflight
+and a concurrent notification read returned 200. This proves cancellation, not an
+authentication failure or a complete attribution of all slow requests. The
+deployed UI revision de3d840 contains the same activity subscription handler that
+unconditionally canceled dashboard queries before each event-driven refresh.
+
+The existing shared subscription lease now allows a running snapshot to finish
+before invalidating it with `cancelRefetch: false`. Events during that refresh
+coalesce into one subsequent refresh. A single running read and the existing
+250 ms burst window bound requests; there is no periodic poll. Merely disabling
+cancellation would reuse a snapshot started before the event and lose freshness,
+so the follow-up is retained. Reconnect still waits for topic acknowledgement,
+and released or replaced owners cannot trigger a follow-up. Authentication and
+permission handling remain owned by the existing query/session lifecycle.
+
+The official [QueryClient cancellation contract](https://github.com/TanStack/query/blob/main/packages/query-core/src/types.ts)
+and installed TanStack Query source were checked. A real QueryClient/QueryObserver
+test fails on the original implementation because activity aborts the running
+request. Initial and cached slow reads, sustained bursts, final fresh data, no
+polling, and owner replacement pass after the change. The expanded workload and
+API error suite passes 17 tests; the UI validation profile includes the lease
+regression. This is source verification, not a deployed fix or a canary latency
+improvement claim. Column-count acceptance remains incomplete because dashboard
+loading prevented the actual comparison.
+
+Separate read-only infrastructure evidence at 07:09:14 UTC shows the two-CPU
+canary LXC using 1.94282 CPU seconds during 1.00028 seconds, with CPU pressure
+`some avg10=94.07`. A separate infrastructure operator sampled Kafka processes for
+18.588 seconds: broker processes used 0.46 CPU seconds, while six observed
+healthcheck JVMs used at least 14.02 CPU seconds. These samples support a concrete
+probe-frequency investigation; they do not prove that every request failure is
+caused by Kafka. Preserve protocol checks, broker topology, volumes and ISR when
+reviewing the five-second steady-state probe interval and startup/detection
+budgets. No operating broker was restarted or changed for these measurements.
