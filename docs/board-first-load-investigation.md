@@ -174,3 +174,35 @@ redacted message. Existing structured stdout records and mutation receipts remai
 unchanged. An in-memory official SDK transport verifies the final error envelope
 without sending customer content to a telemetry service. This is source evidence;
 the deployed server and browser still require separate acceptance.
+
+
+## Correlated server delay and bounded stage timings (2026-10-17)
+
+A later authenticated canary load returned the original card XHR with HTTP 200
+and a matching `Network.loadingFinished`: response headers arrived in 6,386.934 ms,
+including `Server-Timing: app;dur=6202.576`. The matching API telemetry record
+reported 6,205.817 ms overall, 435,206 response-body bytes and `completed=true`.
+The board metadata response separately reported 174.133 ms of application time.
+Raw request/trace correlation is retained privately and supplied to the central
+observability owner. The event buffer was truncated, so this supports those
+matched responses only, not a complete waterfall or percentile result.
+
+The source card route now emits five fixed `Server-Timing` metrics:
+`board_context`, `board_cards`, `board_checklists`, `board_bots`, and
+`board_serialize`. They separate authorized context/column preparation, card
+projection, checklist projection, bot configuration and response serialization.
+They omit resource IDs, actor identity, payloads, connection details and query
+text. Existing middleware app timing, request correlation and CORS exposure remain
+unchanged; no tracing backend, sampling expansion or new dependency is added.
+These metrics are only attached after the existing authorized route succeeds.
+See the [standard header documentation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Server-Timing).
+
+The route regression failed first because the stage header was absent, then
+passed with a deterministic clock while preserving the shared archive cutoff and
+response body. The combined archive, actor-visibility and runtime telemetry suite
+passed 32 cases, including streamed body preservation and safe correlation.
+These source stages are not deployed; the six-second sample cannot yet be
+attributed to an individual stage. Read-only aggregate inspection also found no
+AI-description bytes in this board's 294 hot cards, so deferring that field alone
+cannot explain this sample. Their stored description JSON totaled 1,128,146 bytes;
+that is neither wire size nor proof of the latency cause.

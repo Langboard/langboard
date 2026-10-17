@@ -1,4 +1,5 @@
 from datetime import timedelta
+from time import perf_counter
 from fastapi import Query, Request
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
@@ -368,6 +369,7 @@ def get_project_cards(
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
+    timings = [perf_counter()]
     project = service.project.get_by_id_like(project_uid)
     if project is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
@@ -379,20 +381,24 @@ def get_project_cards(
     global_relationships = service.app_setting.get_api_global_relationship_list()
     columns = service.project_column.get_api_list_by_project(project, context=context)
     archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
+    timings.append(perf_counter())
     cards = service.card.get_board_list(project, user_or_bot, archive_visible_since, channel=channel)
+    timings.append(perf_counter())
     checklists = service.checklist.get_api_list_only_by_project(
         project,
         archive_visible_since=archive_visible_since,
         context=context,
     )
+    timings.append(perf_counter())
     column_bot_scopes = service.project_column.get_api_bot_scopes_by_project(project)
     column_bot_schedules = service.project_column.get_api_bot_schedule_list_by_project(project, columns)
 
+    timings.append(perf_counter())
     column_names_by_uid = {col["uid"]: col["name"] for col in columns}
     for card in cards:
         card["project_column_name"] = column_names_by_uid.get(card["project_column_uid"], "")
 
-    return JsonResponse(
+    response = JsonResponse(
         content={
             "cards": cards,
             "checklists": checklists,
@@ -402,6 +408,18 @@ def get_project_cards(
             "column_bot_schedules": column_bot_schedules,
         }
     )
+
+    timings.append(perf_counter())
+    # Fixed names and durations only: never include board, actor or payload data.
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={(end - start) * 1000:.3f}"
+        for name, start, end in zip(
+            ("board_context", "board_cards", "board_checklists", "board_bots", "board_serialize"),
+            timings,
+            timings[1:],
+        )
+    )
+    return response
 
 
 @AppRouter.schema(permission=ApiPermission.Read)

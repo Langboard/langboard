@@ -190,10 +190,19 @@ def test_board_route_passes_one_request_cutoff_to_cards_and_checklists(monkeypat
         ),
     )
 
-    get_project_cards("project", request=SimpleNamespace(scope={}), service=service)
+    clock = iter((0.0, 0.1, 0.3, 0.6, 1.0, 1.5))
+    monkeypatch.setattr(import_module("langboard.routes.board.BoardApi"), "perf_counter", lambda: next(clock), raising=False)
+    response = get_project_cards("PRIVATE_PROJECT", request=SimpleNamespace(scope={}), service=service)
 
     expected = now - timedelta(days=7)
     assert calls == {"cards": expected, "checklists": expected}
+    assert response.status_code == 200
+    assert response.headers["server-timing"] == (
+        "board_context;dur=100.000, board_cards;dur=200.000, board_checklists;dur=300.000, "
+        "board_bots;dur=400.000, board_serialize;dur=500.000"
+    )
+    assert b'"cards":[]' in response.body
+    assert "PRIVATE_PROJECT" not in response.headers["server-timing"]
 
 
 def test_archive_page_uses_archive_order_cursor_and_search_count(monkeypatch: pytest.MonkeyPatch) -> None:
