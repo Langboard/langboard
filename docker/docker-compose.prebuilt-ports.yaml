@@ -1,0 +1,6 @@
+# Optional existing ingress/tunnel origin. Do not add a second public TLS proxy.
+services:
+  ui:
+    ports: ["${LANGBOARD_UI_BIND:?Set the verified existing UI bind address and port}:8080"]
+  api:
+    ports: ["${LANGBOARD_API_BIND:?Set the verified existing API bind address and port}:5381"]
