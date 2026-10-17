@@ -291,3 +291,41 @@ PostgreSQL profile also explicitly includes author display-field coverage.
 This removes one redundant database read and model hydration per board snapshot.
 It does not establish a transactionally consistent snapshot across every response
 section, nor does it prove deployed latency or canary acceptance.
+
+
+## Join workflow policies with their referenced columns
+
+Work-state projection previously read full ProjectColumn rows, then loaded full
+WorkflowStageDefinition rows in another query. It now uses one native SQLAlchemy
+outer join and load_only/raiseload for the column's ID, project, stage and archive
+flag and the policy's key, completion, queue and overdue values. This avoids a
+second round trip and reading descriptions, translations, names and entry-effect
+configuration merely to calculate state. Other workflow registry and guidance
+readers retain their full models and existing descriptions.
+
+The join retains deleted-column exclusion and does not exclude an inactive
+registry definition that is already bound. Missing columns or policies remain
+unknown; a foreign project's column supplies neither semantics nor archive state.
+Archived cards/columns, completion/overdue suppression, verification, dependency,
+app signal and timer projections retain their existing interpretation. No cache,
+schema change, dependency or new repository facade is added.
+
+Two SQLite/PostgreSQL regressions fail on the preceding source with two policy
+queries. The replacement executes one narrow query and preserves active, review,
+closed, inactive-bound, unknown, unclassified, missing, deleted, foreign and archive
+cases. Existing registry-edit tests verify immediate reinterpretation without
+entry-effect execution. Workflow, native MCP guidance, shared progress, snapshot
+and registered app signal coverage passed 50 tests in 13.13 seconds. Two existing
+PostgreSQL row-lock tests skipped because their separate effect-test database was
+not selected; nine existing short test-key warnings remain. The expanded run
+also exposed a stale guidance fixture returning UID strings where native models
+were required; its resolver now returns those models and its unused preliminary
+lookup patch was removed. An initial new fixture reused unsaved IDs and untracked
+updates; unique IDs and reloaded rows corrected it. Failed receipts are retained.
+
+Disposable PostgreSQL, 300 cards/3 columns, 30 alternating warm samples per variant:
+query plus work-state projection median was 4.660 -> 3.425 ms with small metadata,
+and 5.622 -> 3.253 ms with large synthetic descriptions/translations. Results were
+identical and policy SELECTs fell from two to one in both cases. These are local
+projection measurements, not complete board HTTP latency or deployed acceptance.
+Both API validation profiles include the two-database column projection test.

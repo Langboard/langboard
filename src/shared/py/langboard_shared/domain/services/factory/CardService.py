@@ -8,6 +8,7 @@ from typing import Any, Literal, Sequence, cast, overload
 from sqlalchemy import Text, func, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -53,6 +54,7 @@ from ...models import (
     ProjectRole,
     ProjectWiki,
     User,
+    WorkflowStageDefinition,
 )
 from ...models.Checkitem import CheckitemStatus
 from ...models.ProjectRole import ProjectRoleAction
@@ -409,15 +411,25 @@ class CardService(BaseDomainService):
             return {}
         column_ids = {card.project_column_id for card in cards}
         with DbSession.use(readonly=True) as db:
-            columns = {
-                column.id: column
-                for column in db.exec(
-                    SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.column("id").in_(column_ids))
+            column_policies = {
+                column.id: (column, policy)
+                for column, policy in db.exec(
+                    SqlBuilder.select.tables(ProjectColumn, WorkflowStageDefinition)
+                    .outerjoin(WorkflowStageDefinition, ProjectColumn.workflow_stage == WorkflowStageDefinition.key)
+                    .options(
+                        load_only(
+                            ProjectColumn.id, ProjectColumn.project_id, ProjectColumn.workflow_stage,
+                            ProjectColumn.is_archive, raiseload=True,
+                        ),
+                        load_only(
+                            WorkflowStageDefinition.id, WorkflowStageDefinition.key,
+                            WorkflowStageDefinition.counts_as_completed, WorkflowStageDefinition.active_queue_policy,
+                            WorkflowStageDefinition.overdue_policy, raiseload=True,
+                        ),
+                    )
+                    .where(ProjectColumn.column("id").in_(column_ids))
                 ).all()
             }
-        policies = self.repo.workflow_stage.get_by_keys(
-            {column.workflow_stage for column in columns.values() if column.workflow_stage}
-        )
         counts = self.repo.checkitem.get_work_state_counts([card.id for card in cards])
         verification_records = self.repo.card_verification.get_latest_by_card_ids([card.id for card in cards])
         blockers = dependency_blockers([card.id for card in cards], context=context)
@@ -426,9 +438,9 @@ class CardService(BaseDomainService):
         signals = card_signal_projections(cards) if context is not None else {}
         states = {}
         for card in cards:
-            column = columns.get(card.project_column_id)
+            column, policy = column_policies.get(card.project_column_id, (None, None))
             stage = column.workflow_stage if column and column.project_id == card.project_id else None
-            policy = policies.get(stage)
+            policy = policy if stage else None
             total, completed, started, paused = counts.get(card.id, (0, 0, 0, 0))
             record = verification_records.get(card.id)
             states[card.id] = project_work_state(
