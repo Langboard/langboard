@@ -51,7 +51,7 @@ def remove_recorded_embedding(pointer: dict) -> None:
         raise ValueError("Unsupported recorded vector storage")
     service = DomainService()
     try:
-        binding = service.internal_bot.get_by_id_like(storage.get("binding_uid"))
+        binding = service.internal_bot.get_current_by_id_like(storage.get("binding_uid"))
         if not binding or binding.bot_type != InternalBotType.DocumentEmbedding:
             raise ValueError("Recorded vector binding is unavailable")
         _, current = validate_embedding_config(binding.value)

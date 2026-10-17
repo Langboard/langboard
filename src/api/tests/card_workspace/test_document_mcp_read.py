@@ -460,3 +460,61 @@ def test_transcription_publication_rechecks_current_primary_binding(monkeypatch,
     else:
         metadata.mark_document_indexed.assert_not_called()
         metadata.mark_document_failed.assert_called_once()
+
+
+@pytest.mark.parametrize("change", ["unchanged", "deleted", "type", "endpoint"])
+def test_vector_cleanup_uses_current_primary_binding(monkeypatch, binding_store, change):
+    from contextlib import nullcontext
+    from json import dumps
+    from langboard_shared.core.db import DbSession
+    from langboard_shared.domain.models import InternalBot
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.domain.models.InternalBot import InternalBotType
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    from langboard_shared.tasks.docling import DocumentEmbeddingTask as worker
+
+    endpoint = "https://vectors.invalid"
+    config = {
+        "agent_llm": "OpenAI Compatible", "base_url": "https://model.invalid/v1", "model_name": "model",
+        "retrieval": {"store": "qdrant", "external_url": endpoint, "external_api_key": "rotated-fixture-key"},
+    }
+    with DbSession.use(readonly=False) as db:
+        binding = InternalBot(bot_type=InternalBotType.DocumentEmbedding, display_name="Cleanup fixture",
+                              platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+                              value=dumps(config))
+        db.insert(binding)
+    pointer = {"embedding_fingerprint": "a" * 64, "chunk_ids": ["recorded-chunk"],
+               "storage": {"type": "qdrant", "endpoint": endpoint, "binding_uid": binding.get_uid(),
+                           "dimensions": 3, "collection_prefix": "recorded_instance"}}
+    with DbSession.use(readonly=False) as db:
+        if change == "deleted":
+            db.delete(binding)
+        elif change == "type":
+            binding.bot_type = InternalBotType.DocumentVision
+            db.update(binding)
+        elif change == "endpoint":
+            config["retrieval"]["external_url"] = "https://replaced.invalid"
+            binding.value = dumps(config)
+            db.update(binding)
+    service = SimpleNamespace(internal_bot=InternalBotService(lambda _: None, lambda _: None, None), close=Mock())
+    monkeypatch.setattr(worker, "DomainService", lambda: service)
+    monkeypatch.setattr(worker, "Env", SimpleNamespace(get_from_env=lambda *_: endpoint))
+    store = object()
+    connect = Mock(return_value=nullcontext(store))
+    remove = Mock()
+    monkeypatch.setattr(worker, "open_qdrant_store", connect)
+    monkeypatch.setattr(worker, "delete_vector_generation", remove)
+    if change == "unchanged":
+        worker.remove_recorded_embedding(pointer)
+        connect.assert_called_once()
+        settings = connect.call_args.args[0]
+        assert settings.external_api_key.get_secret_value() == "rotated-fixture-key"
+        assert settings.collection_prefix == "recorded_instance" and settings.dimensions == 3
+        assert connect.call_args.kwargs == {"create": False}
+        remove.assert_called_once_with(store, pointer)
+    else:
+        with pytest.raises(ValueError, match="unavailable|endpoint changed"):
+            worker.remove_recorded_embedding(pointer)
+        connect.assert_not_called()
+        remove.assert_not_called()
+    service.close.assert_called_once()

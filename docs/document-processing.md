@@ -299,3 +299,14 @@ with a temporary private CA and the pinned 1.19.1 Python client. This is not
 server-side collection RBAC, browser/API/worker acceptance, gRPC verification or
 a performance benchmark. The opt-in test is separate from the simulated-wire
 CA regression above and does not start services during ordinary unit tests.
+
+### Recorded external vector cleanup authorization
+
+Qdrant cleanup resolves its recorded binding from the primary database before
+connecting. Deleted or repurposed bindings and replaced endpoints reject cleanup
+without contacting either the old or replacement server. Credentials are refreshed
+from that binding; dimensions, collection prefix and source pointer remain those
+of the recorded generation. Cleanup opens existing collections only and does not
+recreate a missing collection or infer a replacement endpoint. This checkpoint
+does not cancel a deletion already sent to Qdrant. Broker delivery failures still
+require a durable cleanup outbox; this connection check does not supply one.

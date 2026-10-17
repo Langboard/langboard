@@ -293,7 +293,7 @@ def test_cleanup_uses_recorded_collection_after_configuration_change(monkeypatch
         )
     service = SimpleNamespace(
         internal_bot=SimpleNamespace(
-            get_by_id_like=lambda _: SimpleNamespace(bot_type=InternalBotType.DocumentEmbedding, value="current")
+            get_current_by_id_like=lambda _: SimpleNamespace(bot_type=InternalBotType.DocumentEmbedding, value="current")
         ),
         close=Mock(),
     )
