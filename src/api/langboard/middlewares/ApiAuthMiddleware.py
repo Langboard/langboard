@@ -5,6 +5,7 @@ from langboard_shared.domain.models import Bot, User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import MiddlewareHelper
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.routing import BaseRoute
 from starlette.types import ASGIApp
@@ -27,8 +28,8 @@ class ApiAuthMiddleware(AuthenticationMiddleware, FilterMiddleware):
         is_secure = Env.PUBLIC_UI_URL.startswith("https://")
 
         if should_filter:
-            validation_result = MiddlewareHelper.validate_auth(
-                scope, allow_oidc=scope.get("path", "").startswith("/mcp/tools")
+            validation_result = await run_in_threadpool(
+                MiddlewareHelper.validate_auth, scope, allow_oidc=scope.get("path", "").startswith("/mcp/tools")
             )
             if isinstance(validation_result, int):
                 response = JsonResponse(status_code=validation_result)

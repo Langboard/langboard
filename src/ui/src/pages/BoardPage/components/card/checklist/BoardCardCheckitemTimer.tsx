@@ -33,34 +33,16 @@ const BoardCardCheckitemTimer = memo(() => {
             start: now,
             end: addDate(now, { seconds: timerSeconds }),
         });
-    }, [updated]);
+    }, [updated, status, accumulatedSeconds, timerStartedAt]);
 
     useEffect(() => {
-        let timerTimeout: NodeJS.Timeout | undefined;
+        if (status !== ProjectCheckitem.ECheckitemStatus.Started || !timerStartedAt) {
+            return;
+        }
 
-        const updateTimer = () => {
-            clearTimeout(timerTimeout);
-            timerTimeout = undefined;
-
-            let nextMs = 1000;
-
-            if (status === ProjectCheckitem.ECheckitemStatus.Started && timerStartedAt) {
-                const startDate = new Date(timerStartedAt);
-                const diff = new Date(new Date().getTime() - startDate.getTime()).getMilliseconds();
-                nextMs = 1000 + startDate.getMilliseconds() - diff;
-                forceUpdate();
-            }
-
-            timerTimeout = setTimeout(updateTimer, nextMs);
-        };
-
-        updateTimer();
-
-        return () => {
-            clearTimeout(timerTimeout);
-            timerTimeout = undefined;
-        };
-    }, [status]);
+        const timerInterval = setInterval(forceUpdate, 1000);
+        return () => clearInterval(timerInterval);
+    }, [status, timerStartedAt]);
 
     return (
         <Popover.Root>

@@ -512,6 +512,7 @@ export const useBoard = () => {
 /** Reevaluate every board filter consumer when column classification changes. */
 function ColumnFilterSubscription({ column, refresh }: { column: ProjectColumn.TModel; refresh: () => void }) {
     column.useField("workflow_stage", refresh);
+    column.useField("workflow_counts_as_completed", refresh);
     column.useField("is_archive", refresh);
     column.useField("name", refresh);
     return null;

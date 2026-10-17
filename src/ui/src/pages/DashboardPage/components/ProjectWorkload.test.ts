@@ -68,7 +68,7 @@ test("custom workflow completion policy hides cards without changing their colum
     assert.equal(matchesWorkload({ ...card, work_state: { ...card.work_state, completed: true } }, custom), false);
     assert.equal(matchesWorkload({ ...card, work_state: { ...card.work_state, completed: null } }, custom), true);
     assert.equal(matchesWorkload(card, custom), true);
-    assert.equal(matchesWorkload(card, column({ workflow_stage: "closed" })), true);
+    assert.equal(matchesWorkload(card, column({ workflow_stage: "closed" })), false);
     assert.equal(matchesWorkload(card, column({ workflow_stage: "reference" })), false);
     assert.equal(matchesWorkload(card, column({ is_archive: true })), false);
 });
@@ -79,4 +79,35 @@ test("aggregate visibility follows registry policy even when built-in keys chang
     assert.equal(workloadTotal([column({ workflow_stage: "reference", workflow_counts_as_completed: false })]), 0);
     assert.equal(workloadTotal([column({ is_archive: true, workflow_counts_as_completed: false })]), 0);
     assert.equal(workloadTotal([column({ workflow_stage: "closed", workflow_counts_as_completed: null })]), 0);
+});
+
+test("current column policy reclassifies stale card projections after workflow changes", () => {
+    const cards = Array.from({ length: 250 }, (_, index) => ({
+        project_column_uid: "open",
+        work_state: { workflow_stage: "closed", completed: true, checklist_progress: { total: index % 2, completed: 0 } },
+    }));
+    const visible = (current: WorkloadColumn) => cards.filter((card) => matchesWorkload(card, current)).length;
+    assert.equal(visible(column({ workflow_stage: "closed", workflow_counts_as_completed: true })), 0);
+    assert.equal(visible(column({ workflow_stage: "active", workflow_counts_as_completed: false })), 250);
+    assert.equal(visible(column({ name: "Topic", workflow_stage: null, workflow_counts_as_completed: null })), 250);
+    assert.equal(visible(column({ workflow_stage: "reference", workflow_counts_as_completed: false })), 0);
+    assert.equal(visible(column({ workflow_stage: "active", workflow_counts_as_completed: false })), 250);
+    assert.equal(visible(column({ workflow_stage: "closed", workflow_counts_as_completed: true })), 0);
+    assert.equal(cards[0].work_state.completed, true); // Reclassification never rewrites card data.
+});
+
+test("current registry policy overrides stale completion while completed checklists stay excluded", () => {
+    const card = {
+        project_column_uid: "open",
+        work_state: { workflow_stage: "custom", completed: true, checklist_progress: { total: 0, completed: 0 } },
+    };
+    assert.equal(matchesWorkload(card, column({ workflow_stage: "custom", workflow_counts_as_completed: false })), true);
+    assert.equal(matchesWorkload(card, column({ workflow_stage: "custom", workflow_counts_as_completed: true })), false);
+    assert.equal(
+        matchesWorkload(
+            { ...card, work_state: { ...card.work_state, checklist_progress: { total: 1, completed: 1 } } },
+            column({ workflow_counts_as_completed: false })
+        ),
+        false
+    );
 });

@@ -9,14 +9,14 @@ import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import AppPackageIcon from "@/components/AppPackageIcon";
 import Button from "@/components/base/Button";
 import Checkbox from "@/components/base/Checkbox";
-import BoardSettingsGitHub from "./BoardSettingsGitHub";
-import BoardSettingsGlitchTip from "./BoardSettingsGlitchTip";
-import BoardSettingsDokploy from "./BoardSettingsDokploy";
 import BoardSettingsAppWorkflow from "./BoardSettingsAppWorkflow";
 import BoardSettingsInboundConnections from "./BoardSettingsInboundConnections";
 import BoardSettingsAppConsent from "./BoardSettingsAppConsent";
 import BoardSettingsAppArchiveSync from "./BoardSettingsAppArchiveSync";
 const AppPackagesPage = lazy(() => import("@/pages/SettingsPage/AppPackagesPage"));
+const BoardSettingsGitHub = lazy(() => import("./BoardSettingsGitHub"));
+const BoardSettingsGlitchTip = lazy(() => import("./BoardSettingsGlitchTip"));
+const BoardSettingsDokploy = lazy(() => import("./BoardSettingsDokploy"));
 const connectionForms = new Map<string, typeof BoardSettingsGitHub>([
     ["github", BoardSettingsGitHub],
     ["glitchtip", BoardSettingsGlitchTip],
@@ -316,6 +316,10 @@ export default function BoardSettingsApps() {
                                 const ConnectionForm = connectionForms.get(key);
                                 const panelEnabled = binding?.granted_capabilities.includes("panels.render");
                                 const state = app.is_available === false ? "disabled" : (binding?.state ?? "unconfigured");
+                                const description =
+                                    app.description?.trim() ||
+                                    t(`project.settings.App ${key} summary`, { defaultValue: "" }) ||
+                                    t("project.settings.App generic summary");
                                 const workflowLabel = workflow_requirements ? "Configure workflow" : "App workflow contract pending";
                                 return (
                                     <article
@@ -331,9 +335,7 @@ export default function BoardSettingsApps() {
                                                 <span className="self-start rounded-md bg-muted px-2 py-1 text-xs">
                                                     {t(`project.settings.App state ${state}`)}
                                                 </span>
-                                                <p className="flex-1 text-sm text-muted-foreground">
-                                                    {app.description ?? t(`project.settings.App ${key} summary`, { defaultValue: "" })}
-                                                </p>
+                                                <p className="flex-1 text-sm text-muted-foreground">{description}</p>
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
@@ -365,9 +367,12 @@ export default function BoardSettingsApps() {
                                                         </Button>
                                                     ))}
                                                 </nav>
+                                                <p className="text-sm text-muted-foreground">{t(`project.settings.App section ${section} help`)}</p>
                                                 {ConnectionForm && (
                                                     <div hidden={section !== "connections"}>
-                                                        <ConnectionForm onStatusChange={() => void refreshStore()} />
+                                                        <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
+                                                            <ConnectionForm onStatusChange={() => void refreshStore()} />
+                                                        </Suspense>
                                                     </div>
                                                 )}
                                                 <span className="self-start rounded-md bg-muted px-2 py-1 text-xs">
@@ -402,9 +407,7 @@ export default function BoardSettingsApps() {
                                                         )}
                                                     </details>
                                                 )}
-                                                <p className="flex-1 text-sm text-muted-foreground">
-                                                    {app.description ?? t(`project.settings.App ${key} summary`, { defaultValue: "" })}
-                                                </p>
+                                                <p className="flex-1 text-sm text-muted-foreground">{description}</p>
                                                 {section === "permissions" && app.inbound_connection_management && (
                                                     <BoardSettingsAppConsent
                                                         key={`${app.key}:${app.app_revision}:${app.binding?.revision}`}

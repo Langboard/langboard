@@ -8,7 +8,8 @@ and locally verified. The administrator composition editor is implemented and lo
 The Store shows overview tiles; it does not eagerly mount every provider's
 connection editor. Explicit compositions have one tile and a module overview.
 Each module's management view has separate Connections, Permissions, Workflow
-and Panel sections. Editors and provider reads mount only in the selected section.
+and Panel sections. Provider connection editors are loaded on demand when an app is managed, rather than with the Store overview. Once mounted, connection editors remain mounted across section changes to preserve local drafts.
+Each section explains its purpose and authority boundary in English, Korean, Japanese and Chinese. Empty or whitespace-only app descriptions fall back to the provider summary, then to a generic setup description for third-party apps.
 Commands continue to address the exact module key and its approved revisions.
 Panel activation does not enable signal publication or create app-owned cards.
 
@@ -20,6 +21,18 @@ English, Korean, Japanese and Chinese management labels are provided. Local
 desktop/mobile tests cover group navigation, module-targeted panel writes,
 retained signal consent, workflow drafts, credential recovery, read-only authority
 and degraded discovery. These fixture tests do not prove canary deployment.
+
+### Shared UX acceptance
+
+Review app setup as a complete user flow: discover the app, connect an account,
+understand the requested permissions, select resources and map the existing
+workflow stages. Provider-specific fields belong inside the shared management
+sections and reuse host inputs, color controls, icons and feedback. A successful
+installation alone does not prove that connection, permissions or resource
+selection are complete. Check both desktop and mobile navigation, retained
+unsaved inputs and recoverable errors when changing the shared UI. Keep provider
+editors deferred until needed so an increasing app catalog does not mount every
+integration form on the Store overview.
 
 ## Current host API
 

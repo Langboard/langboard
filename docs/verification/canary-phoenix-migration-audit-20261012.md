@@ -165,3 +165,253 @@ attachment model from the confirmed HTTP response, matching the existing socket
 handler. It adds no polling or parallel store. Exact UI product validation and
 post-deployment immediate-list verification remain pending. The missing live
 update event cause is not established by this bounded reproduction.
+
+## Editor preservation follow-up (2026-10-16)
+
+A read-only runtime audit found separate editor stores: the stopped legacy Node
+container retains 418 documents in its writable layer, while the active Phoenix
+bind mount contains 32 documents. All 376 documents from the October 14 backup
+remain in the stopped source with identical SHA256 checksums. The files are
+preserved; active-store restoration is not yet verified.
+
+The 433 unique file hashes map to names derived from the current database,
+including deleted records. This proves name correspondence, not active-record
+status or a transactionally consistent backup. All 450 source/current copies
+passed Yjs -> deployed Yex -> Yjs checks with equal state vectors and complete
+updates. The active store is readable and writable by the deployed nonroot user.
+
+Seventeen shared filenames have independent CRDT histories. Sixteen contain
+label-selection text and one contains a card description. A mechanically valid
+CRDT union is not an accepted recovery strategy: it can duplicate independently
+seeded content or resurrect stale selections. Preserve current documents and
+both original snapshots; compare retained drafts with current domain values
+before activating old state. The audit-only recovery plan separates 401 missing
+files and 17 conflicts and explicitly does not authorize or claim restoration.
+A matching quiesced database/editor snapshot, resolved-content restore, rollback
+proof, and authenticated browser acceptance remain required. The independent
+read-only copies and checks are private verification artifacts, not product data
+or repository fixtures.
+
+The shared card-description conflict was checked against the current authenticated
+card read. Phoenix text exactly matches the saved domain value; legacy text does
+not. A mechanical merge increases visible text from 162 to 269 characters and
+includes both versions. Keep the current document for this conflict. This result
+does not decide the other missing files or prove that old drafts were all saved.
+
+A subsequent bounded read retrieved the 64 saved card-description, comment, and
+wiki values. Comparing through the current source's actual BaseEditorKit and
+MarkdownKit found 45 of 59 legacy content documents equivalent to the saved
+values. Fourteen differ, including the already-resolved current-store conflict;
+13 missing-from-current legacy content documents still require semantic review.
+Five of six current content documents compare equal. The sixth differs only by
+a zero-width-space empty paragraph in serialized Markdown, not business text.
+These comparisons do not authorize activation, replace a consistent snapshot,
+or decide non-content selection/configuration state. No live data was changed.
+
+Native activity-history comparison resolves six of those 13 retained rich-content
+documents as previously saved versions for the exact entity and field. Five
+matched the initial bounded history; the sixth matched history around its source
+file timestamp. One additional comment body matches history on the same card,
+but the native comment history omits comment identity, so this is insufficient
+to identify that particular comment. Six other documents remain unmatched in
+the bounded history. Seven documents therefore remain unresolved; absence from
+these bounded reads does not prove an unsaved draft or data loss. No old state
+has been activated or written over current editor documents.
+
+The audit uses the existing Markdown serializer's explicit `value` parameter.
+Its classifications agree with editor-state-based serialization, while avoiding
+editor state updates in this offline comparison (255 conversions: 1.59 seconds
+versus 87.44 seconds). This is diagnostic tooling performance, not a measured
+production page-load improvement.
+
+A follow-up read confirms all seven unresolved targets still exist and are not
+soft-deleted. Offline comparison narrows four differences to zero-width-space
+empty paragraphs (two descriptions) or Markdown escapes (two comments). Parsing
+both serialized variants with the actual editor gives identical visible text
+after whitespace and zero-width-space normalization. This does not prove equal
+CRDT identity or formatting, and is not authorization to merge their states.
+Three content differences remain: one comment whose same-card historical match
+lacks exact comment identity, and two wiki documents. Current domain values and
+both source snapshots remain preserved. No live state has been changed.
+
+The two wiki differences also match visible text from their own native saved
+history after the same editor-based normalization. Both have later saved domain
+values; keep those current values rather than activating older snapshots. This
+is a content-level historical match, not byte-level CRDT or formatting equality.
+The remaining comment has three matching same-card historical values, but the
+history schema lacks comment identity. Its exact ownership remains unproven.
+Retain the private source snapshot and current saved comment, without automatic
+restoration. Across the 13 candidates: six exact canonical history matches,
+four current-content formatting differences, two normalized wiki history
+matches, and one unresolved exact-comment identity. This bounded classification
+does not replace a consistent backup, restore/rollback exercise, or browser
+acceptance of an actual recovery.
+
+
+## Direct identity replacement cache isolation (2026-10-16)
+
+An authenticated browser observation showed an old account's dashboard before
+identity hydration; that observation alone does not establish unauthorized API
+access. A focused test against the actual AuthStore separately reproduced a
+concrete defect: direct replacement of one authenticated UID by another did not
+clear model state, cached queries, or the previous Phoenix connection.
+
+Cleanup now runs synchronously at the identity store boundary before hydrating
+the replacement user, and on logout or a terminal identity lookup failure. The
+application and identity store share the existing single QueryClient; the
+provider's delayed logout-only cleanup has been removed. Same-user token
+refresh preserves cached data and the connection. Existing session-version
+fences still reject late responses from an earlier login.
+
+Run `cd src/ui && node --test src/core/stores/AuthStore.session.test.mjs`. The test failed against the prior
+implementation at replacement-identity model cleanup, then passed with the fix.
+It exercises real QueryClient cache retention/clearing and the actual store,
+with model and socket boundaries instrumented. UI TypeScript checking and
+format checks also passed. Full integration and deployed browser account-switch
+acceptance remain required; these local results do not establish either.
+
+
+The existing UI image validation profile now invokes the native AuthStore Node test before
+its existing socket runtime and asset-retention checks. All six local checks
+passed (identity 1, socket 3, retained assets 2); the prior identity-store source
+was rerun with the final test and failed at replacement-identity cleanup.
+This wires the regression into the existing validation target without adding a
+workflow or runner permission. The central image target has not run at this
+commit, and required direct GitHub checks remain separate gates.
+
+## Dashboard and board read measurements (2026-10-16)
+
+The performance card remains active. Five successful API probes do not prove
+dashboard usability, board usability, p95/p99, or the requested small/large-board
+acceptance. No archive or performance acceptance is inferred from them.
+
+The API now measures GET `/dashboard/projects` and `/board/*` at the shared ASGI
+boundary, including authorization failures. Each request emits one JSON record
+through the existing structured logging sink: route template, generated request
+ID, existing Sentry trace ID when available, status, time to response headers,
+total duration, bytes successfully sent after compression, and completion flag.
+The response exposes `X-Request-ID` and `Server-Timing` through existing CORS.
+No request body, query string, concrete board/card identifier, incoming header,
+or exception text is recorded. Streaming chunks pass through without buffering.
+MCP streams, WebSockets and writes are excluded. A failure after headers can have
+a success HTTP status with `completed=false`; error-rate aggregation must include
+incomplete responses. These timings include server send/background completion,
+not browser rendering or network connection setup.
+
+Focused checks: `test_app.py` plus `LogFileHandler_test.py`, 15 passed using the
+existing local dependency environment. Coverage includes native FastAPI route
+templates, correlation, CORS, streaming, compression byte accounting, native
+Sentry span identity, 403/503 responses, unhandled failure privacy, unchanged
+non-read transports, existing middleware registration and task discovery. The
+existing API image profile already executes `test_app.py`; no new CI workflow,
+runner permission, package, database table, or background worker was added.
+
+Remaining: deploy this source through the existing canary image path, collect
+representative API and database timings, reduce the measured loading/query
+costs, and run at least ten browser measurements for each board-size cohort.
+This local result does not establish deployed telemetry or an improvement in
+user-perceived latency.
+
+## Read-query baseline and identity event-loop contention (2026-10-16)
+
+A bounded read-only transaction on the deployed primary observed 120 projects,
+3,208 cards, 46,206 project activities, 2,156 checklists and 6,624 checkitems.
+The activity/checklist foreign-key indexes and project/activity-time indexes
+are present. `pg_stat_statements` is not installed; no extension or database
+configuration was changed. A connection snapshot showed five idle sessions and
+the one measuring session, with no observed lock wait. This snapshot cannot
+exclude earlier contention or application pool waits.
+
+Native SQLAlchemy statements from the current source were compiled and measured
+with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` under a 3-second statement timeout:
+
+- Work/checklist counts across all live projects: 10.794 ms execution, 5.4 ms
+  planning, 983 shared hit blocks, no shared read blocks.
+- Current actor's dashboard project query: 142.507 ms execution, 22.689 ms
+  planning, 2,246 shared hit blocks and 69 shared read blocks. The existing
+  activity-time indexes were used.
+
+These are individual query samples, not API or browser percentiles. They do not
+justify rewriting the count query or claiming that SQL caused the earlier
+multi-second failures. Exact queries/plans are retained in private verification
+receipts; no user data or credentials are added to public documentation.
+
+Source review identified a separate concrete contention defect: API authentication
+and role checks performed synchronous database/credential validation directly
+inside ASGI async middleware. A regression that schedules an event-loop callback
+from each slow check failed in all four prior-source cases (authentication and
+authorization, allow and deny). Both checks now use the existing Starlette
+`run_in_threadpool`, matching the collaborative-edit middleware's pattern.
+Identity scope, denied-response handling, role rules and primary-database
+revocation checks are unchanged.
+
+Focused `test_app.py`, card-create authority and Phoenix authentication checks
+passed: 119 tests. The callback regression now passes while preserving 401/403
+denial and accepted identity propagation. No deployment or representative
+concurrent-browser latency measurement has run at this new source; the size
+of the production performance benefit remains unverified.
+
+### Current column policy during workflow reclassification (2026-10-16)
+
+The unfinished filter preferred a stale card completion projection after a
+column changed workflow classification. It now uses the current column registry
+policy first, retains legacy projection compatibility when no current policy is
+available, and subscribes to completion-policy changes as well as stage changes.
+Completed checklists, archives and reference material remain excluded.
+
+Two new regressions failed before the fix. All eight workload tests now pass,
+including 250 unchanged card projections through closed, active, unclassified
+and reference states and repeated reversals. The UI TypeScript check and
+`git diff --check` pass. The existing UI validation profile runs this regression
+through the native ProjectWorkload Node test; no workflow or runner permission was added.
+Different-user propagation, real bulk data and deployed canary acceptance remain
+pending. This source result does not complete or archive the Langboard card.
+
+### Bounded exception rendering (2026-10-16)
+
+Rich exception handlers printed frame-local object graphs on both console paths
+and the executable terminal-file path. Disable local-variable rendering in all
+four handlers while retaining the exception message, source context, traceback,
+levels, sinks and Sentry configuration. This reduces exception rendering/output
+amplification and avoids implicitly serializing credentials or request objects.
+It does not establish an improvement to normal board-request latency.
+
+A regression renders a synthetic exception through the direct console handler,
+both configured Uvicorn handlers and the terminal-file handler. The original
+console and file settings each failed the local-value exclusion check. With the
+change, the traceback and exception remain visible and the local value is absent.
+The regression plus existing MCP telemetry suite passes 18 tests. The existing
+API image-validation profile includes this regression; no runner permission,
+workflow or dependency is added. Deployed canary acceptance remains pending.
+
+### Comment-author editing parity (2026-10-17)
+
+Preserve PR #707's author-edit fix in the integration branch. Its initial
+comment-document exception checked mutation authority for the named comment
+without binding that comment to the authorized card, and fell back to card edit
+permission for another author's comment. Bind the document entity and live
+comment to the current card, and apply the REST comment mutation decision to
+comment documents, including administrators. Other card sections retain their
+existing `card_update` requirement and readable-card checks run first.
+
+Both new card-binding regressions fail on the original #707 patch. With the
+additional binding, all 86 socket authorization tests and the logger regression
+pass (87 total). The fixture HMAC-key warnings are unchanged. Actual internal
+and external user editor persistence, denial UX and canary publication remain
+pending; this does not authorize changing a member's role or archive the issue.
+
+
+### Read-only card explanation and validation dependencies (2026-10-17)
+
+Card details now explain that the current board role cannot edit the card title
+or description when `canEditCard` is false. Use the existing compact text widget
+and four locale files; comment authorship remains a separate permission. This
+adds no request, timer, provider or dependency. UI type checking passes; deployed
+internal/external acceptance remains pending.
+
+Run the workload and auth-session Node checks directly in the existing UI image
+validation profile instead of adding package scripts. The UI package manifest is
+now byte-identical to the canary base: no SDK dependency or artifact was changed.
+The same 14 workload/auth/socket/asset-retention tests pass. This removes an
+unrelated panel SDK workflow path trigger without dropping validation or changing
+runner policy. It does not turn the skipped PR checks into passed checks.

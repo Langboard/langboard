@@ -1,25 +1,40 @@
 """Exercise movement, timer facts, idempotence and atomic failure against a real DB."""
 
+import importlib.util
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 from importlib import import_module
+from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 import pytest
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Card,
     CardAppOwnership,
+    CardAssignedProjectLabel,
+    CardAssignedUser,
     Checkitem,
     CheckitemTimerRecord,
     Checklist,
+    GlobalCardRelationshipType,
+    GlobalLabel,
     Project,
+    ProjectAssignedUser,
     ProjectColumn,
+    ProjectExecutionBinding,
+    ProjectLabel,
     User,
+    WebhookSetting,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -41,6 +56,7 @@ def flow(monkeypatch, request):
     if "bouncer" in (engine.url.host or "").lower():
         engine.dispose()
         raise ValueError("Workflow schema tests require a direct PostgreSQL connection, not PgBouncer")
+
     def cleanup():
         engine.dispose()
         if schema is not None:
@@ -63,12 +79,21 @@ def flow(monkeypatch, request):
             connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
 
         engine.dispose()
-        with engine.begin() as connection:
-            connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO project VALUES (1)"))
-            connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
-            connection.execute(text('INSERT INTO "user" VALUES (1)'))
-    for model in (WorkflowStageDefinition, ProjectColumn, Card, CardAppOwnership, Checklist, Checkitem, CheckitemTimerRecord):
+    # Both database backends exercise the real project lock before moving cards.
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO project VALUES (1)"))
+        connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
+        connection.execute(text('INSERT INTO "user" VALUES (1)'))
+    for model in (
+        WorkflowStageDefinition,
+        ProjectColumn,
+        Card,
+        CardAppOwnership,
+        Checklist,
+        Checkitem,
+        CheckitemTimerRecord,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -135,7 +160,14 @@ def flow(monkeypatch, request):
         service=service,
         bulk=get(CheckitemService),
         project=project,
-        actor=User(id=1, firstname="Test", lastname="Actor", email="actor@example.invalid", password="test-only", activated_at=SafeDateTime.now()),
+        actor=User(
+            id=1,
+            firstname="Test",
+            lastname="Actor",
+            email="actor@example.invalid",
+            password="test-only",
+            activated_at=SafeDateTime.now(),
+        ),
         card=card,
         old=old,
         new=new,
@@ -163,6 +195,158 @@ def snapshot(engine, card_id):
         ).all()
         timers = db.execute(select(CheckitemTimerRecord.__table__.c.id)).all()
         return column, items, len(timers)
+
+
+@pytest.mark.parametrize("native_readiness", [False, True])
+def test_concurrent_card_reorders_do_not_deadlock(flow, monkeypatch, native_readiness):
+    """Hold the first card lock while a second move reaches a real lock wait."""
+    f = flow
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("Concurrent row locks require PostgreSQL")
+    enqueued = []
+    if native_readiness:
+        from langboard_shared.tasks.webhooks import ExecutionOutboxTask
+        from langboard_shared.tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
+
+        for model in (
+            WebhookSetting,
+            GlobalCardRelationshipType,
+            ProjectAssignedUser,
+            GlobalLabel,
+            ProjectLabel,
+            CardAssignedUser,
+            CardAssignedProjectLabel,
+        ):
+            model.__table__.create(f.engine)
+        from langboard_shared.domain.models import CardRelationship
+
+        CardRelationship.__table__.create(f.engine)
+        path = Path(__file__).parents[2] / "langboard/migrations/versions/20260924220000-7ad15b1d0b70.py"
+        spec = importlib.util.spec_from_file_location("reorder_execution_migration", path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with f.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE project_execution_binding (id BIGINT PRIMARY KEY, created_at timestamptz, "
+                    "updated_at timestamptz, project_id BIGINT UNIQUE, is_enabled BOOLEAN, column_semantics JSON, "
+                    "prerequisite_relationship_type_uid TEXT, webhook_uid TEXT, events JSON)"
+                )
+            )
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+        with DbSession.atomic() as db:
+            hook = WebhookSetting(
+                name="Test",
+                url="https://example.invalid/events",
+                secret_id="test-only",
+                events=["io.langboard.work.ready.v1"],
+            )
+            relation = GlobalCardRelationshipType(
+                parent_name="Blocks", child_name="Blocked by", machine_semantic="blocks"
+            )
+            db.insert(hook)
+            db.insert(relation)
+            db.insert(
+                ProjectExecutionBinding(
+                    project_id=f.project.id,
+                    is_enabled=True,
+                    column_semantic_ids={str(f.new.id): "ready"},
+                    prerequisite_relationship_type_id=relation.id,
+                    webhook_id=hook.id,
+                    webhook_uid=hook.get_uid(),
+                    events=["io.langboard.work.ready.v1"],
+                )
+            )
+        monkeypatch.setattr(import_module(CardService.__module__), "execution_readiness_uow", execution_readiness_uow)
+
+        def enqueue(event_id):
+            # A separate connection must see the event before external dispatch.
+            with f.engine.connect() as db:
+                assert (
+                    db.execute(
+                        text("SELECT state FROM execution_outbox WHERE id = :event_id"), {"event_id": event_id}
+                    ).scalar_one()
+                    == "pending"
+                )
+            enqueued.append(event_id)
+
+        monkeypatch.setattr(ExecutionOutboxTask, "execution_outbox_task", enqueue)
+    target = f.new if native_readiness else None
+    with DbSession.atomic() as db:
+        second = Card(project_id=1, project_column_id=f.old.id, title="Second", order=1)
+        third = Card(project_id=1, project_column_id=f.old.id, title="Third", order=2)
+        db.insert(second)
+        db.insert(third)
+    locked, release = Event(), Event()
+
+    def hold_first_card(connection, cursor, statement, parameters, context, executemany):
+        if "FROM card" in statement and "FOR UPDATE" in statement and f.card.id in parameters.values():
+            locked.set()
+            assert release.wait(15), "First move was not released"
+
+    event.listen(f.engine, "after_cursor_execute", hold_first_card)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                f.service.change_order, f.actor, f.project, f.card, 0 if native_readiness else 2, target
+            )
+            assert locked.wait(10), "First move did not lock its card"
+            following = pool.submit(f.service.change_order, f.actor, f.project, second, 0, target)
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    with f.engine.connect() as db:
+                        waiting = db.execute(
+                            text(
+                                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                                "AND wait_event_type='Lock' AND pid<>pg_backend_pid()"
+                            )
+                        ).scalar_one()
+                    if waiting:
+                        break
+                    if following.done():
+                        pytest.fail("Second move did not wait for the first transaction")
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("No PostgreSQL lock waiter observed")
+            finally:
+                release.set()
+            assert first.result(timeout=10) is True
+            assert following.result(timeout=10) is True
+    finally:
+        release.set()
+        event.remove(f.engine, "after_cursor_execute", hold_first_card)
+    with f.engine.connect() as db:
+        rows = db.execute(select(Card.id, Card.order).order_by(Card.order)).all()
+    if not native_readiness:
+        assert rows == [(second.id, 0), (third.id, 1), (f.card.id, 2)]
+    else:
+        with f.engine.connect() as db:
+            assert db.execute(
+                select(Card.id, Card.order).where(Card.project_column_id == f.new.id).order_by(Card.order)
+            ).all() == [(second.id, 0), (f.card.id, 1)]
+            assert db.execute(select(Card.id, Card.order).where(Card.project_column_id == f.old.id)).all() == [
+                (third.id, 0)
+            ]
+        assert f.service.change_order(f.actor, f.project, f.card, 0, f.new) is True
+        with f.engine.connect() as db:
+            outbox = db.execute(
+                text("SELECT card_id, execution_generation, state FROM execution_outbox ORDER BY card_id")
+            ).all()
+            counters = db.execute(
+                text("SELECT card_id, execution_generation FROM card_execution_generation ORDER BY card_id")
+            ).all()
+            assert db.execute(
+                select(Card.project_column_id).where(Card.id.in_([f.card.id, second.id]))
+            ).scalars().all() == [f.new.id, f.new.id]
+            assert db.execute(
+                select(Card.id, Card.order).where(Card.project_column_id == f.new.id).order_by(Card.order)
+            ).all() == [(f.card.id, 0), (second.id, 1)]
+        expected = sorted([f.card.id, second.id])
+        assert outbox == [(card_id, 1, "pending") for card_id in expected]
+        assert counters == [(card_id, 1) for card_id in expected]
+        assert len(enqueued) == 2 and len(set(enqueued)) == 2
 
 
 def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):

@@ -104,7 +104,7 @@ api.defaults.adapter = async (config) => {
                         app_revision: key === "example-erp" ? "a".repeat(64) : null,
                         inbound_connection_management: key === "example-erp",
                         name: { github: "GitHub", glitchtip: "GlitchTip", dokploy: "Dokploy" }[key] ?? "Example ERP",
-                        description: "Independent issue tracker",
+                        description: new URLSearchParams(location.search).has("blankdescription") ? "   " : "Independent issue tracker",
                         capabilities: ["panels.render", ...(new URLSearchParams(location.search).has("retainedsignal") ? ["signals.read"] : [])],
                         signal_sources: new URLSearchParams(location.search).has("retainedsignal") ? ["github"] : [],
                         is_available: !(key === "example-erp" && new URLSearchParams(location.search).has("consentdisabled")),

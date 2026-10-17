@@ -96,6 +96,14 @@ FROM validation-source AS validation-api
 ENV PROFILE=api
 RUN bash scripts/run-profile-validation.sh
 
+# Reuse locked API dependencies; the central isolated Job supplies a disposable DB.
+FROM validation-source AS integration-api
+ENV PROFILE=api-postgres \
+    UV_NO_SYNC=1 \
+    UV_OFFLINE=1
+USER 10001:10001
+CMD ["bash", "scripts/run-profile-validation.sh"]
+
 FROM scratch AS validation-api-results
 COPY --from=validation-api /result/ /result/
 

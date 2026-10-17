@@ -1,4 +1,5 @@
 {
+  "Card editing restricted by board role": "현재 보드 역할로는 카드 제목과 본문을 수정할 수 없습니다.",
   "Could not load card": "카드를 불러올 수 없음",
   "Could not refresh card": "카드를 새로고침할 수 없습니다. 마지막으로 불러온 내용을 표시합니다.",
   "Show title": "제목 표시",

@@ -10,21 +10,45 @@ test("real AuthStore fences stale identity success and failure after logout or r
     const directory = await mkdtemp(join(tmpdir(), "auth-session-test-"));
     try {
         const result = await build({
-            entryPoints: [fileURLToPath(new URL("./AuthStore.ts", import.meta.url))],
-            bundle: true, platform: "node", format: "esm", write: false,
-            plugins: [{ name: "identity-boundaries", setup(build) {
-                build.onResolve({ filter: /^@\/core\/(models|stores\/SocketStore)$/ }, (args) => ({ path: args.path, namespace: "test-boundary" }));
-                build.onLoad({ filter: /.*/, namespace: "test-boundary" }, (args) => ({ contents: args.path.endsWith("models")
-                    ? 'export const AuthUser = { Model: { fromOne: (user) => user } }; export const BotModel = { Model: { fromArray: () => {} } };'
-                    : 'export default { getState: () => ({ close() {} }) };' }));
-            } }],
+            stdin: {
+                contents: 'export { getAuthStore } from "./AuthStore"; export { queryClient } from "../helpers/QueryClient";',
+                resolveDir: fileURLToPath(new URL(".", import.meta.url)),
+                loader: "ts",
+            },
+            alias: { "@/core/helpers/QueryClient": fileURLToPath(new URL("../helpers/QueryClient.ts", import.meta.url)) },
+            bundle: true,
+            platform: "node",
+            format: "esm",
+            write: false,
+            plugins: [
+                {
+                    name: "identity-boundaries",
+                    setup(build) {
+                        build.onResolve({ filter: /^@\/core\/(models(?:\/Base)?|stores\/SocketStore)$/ }, (args) => ({
+                            path: args.path,
+                            namespace: "test-boundary",
+                        }));
+                        build.onLoad({ filter: /.*/, namespace: "test-boundary" }, (args) => ({
+                            contents: args.path.endsWith("models/Base")
+                                ? "export const cleanModels = () => { globalThis.__authBoundary.cleans++; };"
+                                : args.path.endsWith("models")
+                                  ? "export const AuthUser = { Model: { fromOne: (user) => { globalThis.__authBoundary.hydrationCleans.push(globalThis.__authBoundary.cleans); return user; } } }; export const BotModel = { Model: { fromArray: () => {} } };"
+                                  : "export default { getState: () => ({ close() { globalThis.__authBoundary.closes++; } }) };",
+                        }));
+                    },
+                },
+            ],
         });
         const modulePath = join(directory, "store.mjs");
         await writeFile(modulePath, result.outputFiles[0].text);
-        const { getAuthStore } = await import(pathToFileURL(modulePath));
+        globalThis.__authBoundary = { cleans: 0, closes: 0, hydrationCleans: [] };
+        const { getAuthStore, queryClient } = await import(pathToFileURL(modulePath));
         const deferred = () => {
             let resolve, reject;
-            const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+            const promise = new Promise((yes, no) => {
+                resolve = yes;
+                reject = no;
+            });
             return { promise, resolve, reject };
         };
         const payload = (uid) => ({ data: { user: { uid }, bots: [] } });
@@ -38,7 +62,12 @@ test("real AuthStore fences stale identity success and failure after logout or r
 
         const failed = deferred();
         let reads = 0;
-        const staleFailure = getAuthStore().updateToken("synthetic-old", { get: () => { reads++; return failed.promise; } });
+        const staleFailure = getAuthStore().updateToken("synthetic-old", {
+            get: () => {
+                reads++;
+                return failed.promise;
+            },
+        });
         getAuthStore().removeToken();
         failed.reject(new Error("old-request-failed"));
         await staleFailure;
@@ -47,9 +76,31 @@ test("real AuthStore fences stale identity success and failure after logout or r
         const replaced = deferred();
         const first = getAuthStore().updateToken("synthetic-old", { get: () => replaced.promise });
         await getAuthStore().updateToken("synthetic-new", { get: async () => payload("new-user") });
+        const cleansBeforeStaleSuccess = globalThis.__authBoundary.cleans;
         replaced.resolve(payload("old-user"));
         await first;
+        assert.equal(globalThis.__authBoundary.cleans, cleansBeforeStaleSuccess, "stale identity cannot clear current state");
         assert.equal(getAuthStore().currentUser.uid, "new-user");
         assert.equal(getAuthStore().getToken(), "synthetic-new");
-    } finally { await rm(directory, { recursive: true, force: true }); }
+        const boundary = globalThis.__authBoundary;
+        const cleans = boundary.cleans;
+        const closes = boundary.closes;
+        queryClient.setQueryData(["boards"], ["private-board"]);
+        await getAuthStore().updateToken("same-user-refresh", { get: async () => payload("new-user") });
+        assert.equal(boundary.cleans, cleans, "same identity keeps models");
+        assert.deepEqual(queryClient.getQueryData(["boards"]), ["private-board"]);
+        assert.equal(boundary.closes, closes, "same identity keeps Phoenix connection");
+        await getAuthStore().updateToken("different-user", { get: async () => payload("external-user") });
+        assert.equal(boundary.cleans, cleans + 1, "replacement identity clears old models");
+        assert.equal(queryClient.getQueryData(["boards"]), undefined, "replacement identity clears previous board cache");
+        assert.equal(boundary.closes, closes + 1, "replacement identity closes old Phoenix connection");
+        assert.equal(boundary.hydrationCleans.at(-1), cleans + 1, "cleanup happens before new user hydration");
+        queryClient.setQueryData(["boards"], ["external-board"]);
+        getAuthStore().removeToken();
+        assert.equal(queryClient.getQueryData(["boards"]), undefined, "logout clears board cache synchronously");
+        assert.equal(boundary.cleans, cleans + 2);
+    } finally {
+        delete globalThis.__authBoundary;
+        await rm(directory, { recursive: true, force: true });
+    }
 });

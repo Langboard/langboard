@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src",
-    testMatch: "CardAppInteractions.spec.ts",
+    testMatch: ["CardAppInteractions.spec.ts", "BoardCardCheckitemTimer.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4256", channel: "chrome", headless: true },

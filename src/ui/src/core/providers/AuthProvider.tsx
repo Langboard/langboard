@@ -2,10 +2,8 @@ import { normalizeLocale } from "@/core/utils/LocalePolicy";
 import { createContext, useContext, useEffect, useRef } from "react";
 import { Routing } from "@langboard/core/constants";
 import { api, refresh } from "@/core/helpers/Api";
-import { useQueryMutation } from "@/core/helpers/QueryMutation";
 import { AuthUser } from "@/core/models";
 import { ROUTES } from "@/core/routing/constants";
-import { cleanModels } from "@/core/models/Base";
 import { useTranslation } from "react-i18next";
 import useAuthStore from "@/core/stores/AuthStore";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -33,10 +31,8 @@ const AuthContext = createContext<IAuthContext>(initialContext);
 
 export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode => {
     const [_, i18n] = useTranslation();
-    const { queryClient } = useQueryMutation();
     const { state, currentUser, pageLoaded, updateToken, removeToken } = useAuthStore();
     const navigate = usePageNavigateRef();
-    const hadAuthenticatedUserRef = useRef(false);
     const preferredLanguageUserRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -69,21 +65,6 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
                 return;
         }
     }, [state, currentUser]);
-
-    useEffect(() => {
-        if (currentUser) {
-            hadAuthenticatedUserRef.current = true;
-            return;
-        }
-
-        if (state !== "loaded" || !hadAuthenticatedUserRef.current) {
-            return;
-        }
-
-        cleanModels();
-        queryClient.clear();
-        hadAuthenticatedUserRef.current = false;
-    }, [currentUser, state, queryClient]);
 
     const updatedUser = () => {
         refresh();

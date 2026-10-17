@@ -102,11 +102,13 @@ def test_edge_projection_exposes_semantic_without_reclassifying_legacy() -> None
         machine_semantic=None,
         affects_readiness=False,
         is_system_default=False,
+        is_active=False,
     )
     result = CardRelationshipService.public_relationship(edge, legacy)
     assert result["relationship_type_uid"] == "legacy"
     assert result["machine_semantic"] is None
     assert result["affects_readiness"] is False
+    assert result["is_active"] is False
 
 
 def test_system_relationship_type_cannot_be_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,8 +120,7 @@ def test_system_relationship_type_cannot_be_deleted(monkeypatch: pytest.MonkeyPa
     delete = Mock()
     service = SimpleNamespace(repo=SimpleNamespace(global_card_relationship_type=SimpleNamespace(delete=delete)))
 
-    with pytest.raises(ValueError, match="cannot be deleted"):
-        AppSettingService.delete_global_relationship(service, "system")
-    with pytest.raises(ValueError, match="cannot be deleted"):
-        AppSettingService.delete_selected_global_relationships(service, ["system"])
+    # Match the upstream service's boolean rejection contract used by the API.
+    assert AppSettingService.delete_global_relationship(service, "system") is False
+    assert AppSettingService.delete_selected_global_relationships(service, ["system"]) is False
     delete.assert_not_called()

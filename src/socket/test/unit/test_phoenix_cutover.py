@@ -20,6 +20,11 @@ check_phoenix_fanout_caught_up = cast(Callable[[], None], _gate["check_phoenix_f
 require_existing_group = cast(FunctionType, _bootstrap["require_existing_group"])
 
 
+@pytest.fixture(autouse=True)
+def root_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(check_email_delivery_owner.__globals__, "geteuid", lambda: 0)
+
+
 def test_phoenix_owner_requires_email_fanout_and_delivery_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     broker = Mock()
     broker.require_registered_tasks.return_value = {"worker": []}
@@ -61,7 +66,13 @@ def test_phoenix_owner_requires_smtp_delivery_configuration(
     [
         ([], [SimpleNamespace(info={"name": "cron"})], "not registered"),
         (
-            [SimpleNamespace(command="/bin/bash /app/scripts/run_notification_recovery.sh", slices="* * * * *")],
+            [
+                SimpleNamespace(
+                    command="/bin/bash /app/scripts/run_notification_recovery.sh",
+                    slices="* * * * *",
+                    is_enabled=lambda: True,
+                )
+            ],
             [],
             "not running",
         ),
@@ -77,6 +88,7 @@ def test_phoenix_owner_requires_notification_recovery_cron(
             NOTIFICATION_EMAIL_OUTBOX_ENABLED=True,
             MAIL_SERVER="smtp.example.test",
             MAIL_FROM="noreply@example.test",
+            CRON_TAB_FILE=Path("/runtime/cron.tab"),
         ),
     )
     cron = Mock()
@@ -94,11 +106,14 @@ def test_phoenix_owner_requires_smtp_handshake(monkeypatch: pytest.MonkeyPatch) 
         MAIL_SERVER="smtp.example.test",
         MAIL_PORT=587,
         MAIL_FROM="noreply@example.test",
+        CRON_TAB_FILE=Path("/runtime/cron.tab"),
     )
     monkeypatch.setitem(check_email_delivery_owner.__globals__, "Env", env)
     cron = Mock()
     cron.find_comment.return_value = [
-        SimpleNamespace(command="/bin/bash /app/scripts/run_notification_recovery.sh", slices="* * * * *")
+        SimpleNamespace(
+            command="/bin/bash /app/scripts/run_notification_recovery.sh", slices="* * * * *", is_enabled=lambda: True
+        )
     ]
     monkeypatch.setitem(check_email_delivery_owner.__globals__, "CronTab", Mock(return_value=cron))
     monkeypatch.setitem(
@@ -115,6 +130,51 @@ def test_phoenix_owner_requires_smtp_handshake(monkeypatch: pytest.MonkeyPatch) 
     connect.side_effect = ConnectionRefusedError()
     with pytest.raises(RuntimeError, match="SMTP connection, TLS, or authentication failed"):
         check_email_delivery_owner()
+
+
+@pytest.mark.parametrize("runtime", ["matching", "other-tab", "missing", "os-cron", "wrong-command", "disabled"])
+def test_phoenix_owner_checks_unprivileged_scheduler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runtime: str
+) -> None:
+    path = tmp_path / "cron.tab"
+    command = "/app/scripts/run_notification_recovery.sh" if runtime != "wrong-command" else "/other.sh"
+    path.write_text(
+        f"{'# ' if runtime == 'disabled' else ''}* * * * * /bin/bash {command} # notification-web-fanout-recovery\n"
+    )
+    env = SimpleNamespace(
+        NOTIFICATION_EMAIL_OUTBOX_ENABLED=True,
+        MAIL_SERVER="smtp.example.test",
+        MAIL_FROM="noreply@example.test",
+        CRON_TAB_FILE=path,
+    )
+    monkeypatch.setitem(check_email_delivery_owner.__globals__, "Env", env)
+    monkeypatch.setitem(check_email_delivery_owner.__globals__, "geteuid", lambda: 10001)
+    arguments = ["python", "-m", "langboard_shared.core.utils.CronScheduler", str(path)]
+    if runtime == "other-tab":
+        arguments[-1] = str(tmp_path / "other.tab")
+    processes = (
+        []
+        if runtime == "missing"
+        else [
+            SimpleNamespace(
+                info={
+                    "name": "cron" if runtime == "os-cron" else "python",
+                    "cmdline": [] if runtime == "os-cron" else arguments,
+                }
+            )
+        ]
+    )
+    monkeypatch.setitem(check_email_delivery_owner.__globals__, "process_iter", Mock(return_value=processes))
+    connect = AsyncMock()
+    monkeypatch.setitem(check_email_delivery_owner.__globals__, "check_smtp_connection", connect)
+
+    if runtime == "matching":
+        check_email_delivery_owner()
+        connect.assert_awaited_once_with()
+    else:
+        with pytest.raises(RuntimeError, match="not registered|not running"):
+            check_email_delivery_owner()
+        connect.assert_not_awaited()
 
 
 def test_phoenix_owner_uses_delivery_smtp_security_settings(monkeypatch: pytest.MonkeyPatch) -> None:

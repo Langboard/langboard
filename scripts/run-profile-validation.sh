@@ -10,6 +10,7 @@ case "$profile" in
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
       src/api/tests/core/test_unprivileged_cron.py \
+      src/api/tests/core/test_logger_tracebacks.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
       src/api/tests/runtime/test_socket_auth.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
@@ -25,7 +26,14 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'yarn test:socket-runtime && yarn test:asset-retention')
+    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts && node --test src/core/stores/AuthStore.session.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
+    ;;
+  api-postgres)
+    export PROJECT_NAME="${PROJECT_NAME:-langboard}"
+    : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
+    command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
+      src/api/tests/card_visibility/test_socket_dispatch_http.py \
+      src/api/tests/card_visibility/test_socket_subscription_batch.py)
     ;;
   *)
     echo "Unsupported validation profile: $profile" >&2
@@ -48,4 +56,8 @@ printf '{"schemaVersion":1,"exitCode":%s,"reports":{"junit":%s,"artifacts":["art
   "$status" "$reports" "$profile" > /result/result.json
 # The result stage must complete so the central contract can inspect exitCode.
 # Setup failures above still terminate the stage through `set -e`.
+if [[ "$profile" == api-postgres ]]; then
+  # Isolated integration uses the actual process exit code as well as the report.
+  exit "$status"
+fi
 exit 0

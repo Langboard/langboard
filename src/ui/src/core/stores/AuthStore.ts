@@ -1,5 +1,7 @@
 import { Routing } from "@langboard/core/constants";
 import { AuthUser, BotModel } from "@/core/models";
+import { cleanModels } from "@/core/models/Base";
+import { queryClient } from "@/core/helpers/QueryClient";
 import useSocketStore from "@/core/stores/SocketStore";
 import { AxiosInstance } from "axios";
 import { create } from "zustand";
@@ -22,6 +24,12 @@ interface IAuthStore {
 
 let accessToken: string | null = null;
 let tokenUpdateVersion = 0;
+
+const clearIdentityState = () => {
+    useSocketStore.getState().close();
+    queryClient.clear();
+    cleanModels();
+};
 
 const useAuthStore = create(
     immer<IAuthStore>((set, get) => {
@@ -77,17 +85,22 @@ const useAuthStore = create(
                 // Logout or another login owns the current identity, even if this request succeeds.
                 if (sessionVersion !== tokenUpdateVersion) return;
                 if (!data) {
+                    clearIdentityState();
                     set({ currentUser: null, state: "loaded" });
                     return;
                 }
 
+                const previousUser = get().currentUser;
+                if (previousUser && previousUser.uid !== data.user.uid) {
+                    clearIdentityState();
+                }
                 const user = AuthUser.Model.fromOne(data.user);
                 BotModel.Model.fromArray(data.bots, true);
 
                 set({ currentUser: user, state: "loaded" });
             },
             removeToken: () => {
-                useSocketStore.getState().close();
+                clearIdentityState();
                 accessToken = null;
                 tokenUpdateVersion += 1;
                 set({ currentUser: null, state: "loaded" });

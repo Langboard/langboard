@@ -2062,6 +2062,11 @@ class CardService(BaseDomainService):
         project, card = params
 
         with execution_readiness_uow() as execution:
+            # Reorders update neighboring cards too. Take the existing board
+            # fence before any card lock to avoid concurrent moves locking
+            # different cards and then waiting for each other's neighbors.
+            if execution.db.exec(select(Project.id).where(Project.id == project.id).with_for_update()).first() is None:
+                return None
             card = execution.db.exec(
                 SqlBuilder.select.table(Card)
                 .where(Card.column("id") == card.id)
