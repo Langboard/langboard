@@ -175,6 +175,26 @@ unchanged. An in-memory official SDK transport verifies the final error envelope
 without sending customer content to a telemetry service. This is source evidence;
 the deployed server and browser still require separate acceptance.
 
+### Optional performance transactions
+
+`SENTRY_TRACES_SAMPLE_RATE` accepts a value from `0` to `1` and defaults to
+`0`. Invalid, non-finite and out-of-range values disable transaction sampling.
+The local rate also applies to incoming sampled traces; an upstream sampling
+decision cannot enable collection on an instance that has not opted in.
+
+The official SDK transaction hook retains correlation identifiers, timestamps
+and a bounded span category (`db`, `http`, `cache`, `middleware`, `queue`,
+`function`, or `other`). The transaction name is constant. Request paths,
+SQL text, span data, users and application payloads are omitted from the final
+envelope. This intentionally limits diagnosis to timing and category; it does
+not provide statement-level query attribution. Existing fixed server timing
+metrics provide request-stage detail independently.
+
+In-memory SDK tests cover disabled collection, incoming sampling decisions and
+the serialized transaction envelope. An operator must explicitly configure a
+rate after deploying the new logger. Source tests do not prove that the running
+release collects transactions or that the telemetry backend received them.
+
 
 ## Correlated server delay and bounded stage timings (2026-10-17)
 

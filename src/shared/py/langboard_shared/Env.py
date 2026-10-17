@@ -312,6 +312,14 @@ class Env:
         return self.__get_from_cache("SENTRY_RELEASE", "") or None
 
     @property
+    def SENTRY_TRACES_SAMPLE_RATE(self) -> float:
+        try:
+            rate = float(self.__get_from_cache("SENTRY_TRACES_SAMPLE_RATE", "0"))
+        except (TypeError, ValueError):
+            return 0.0
+        return rate if 0 <= rate <= 1 else 0.0
+
+    @property
     def BROADCAST_TYPE(self) -> Literal["in-memory", "kafka"]:
         broadcast_type = cast(Any, self.__get_from_cache("BROADCAST_TYPE", "in-memory"))
         _available_broadcast_types = {"in-memory", "kafka"}
