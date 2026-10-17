@@ -5,12 +5,14 @@ from hashlib import sha256
 from io import BytesIO
 from mimetypes import guess_type
 from zipfile import ZipFile
-from fastapi import File, Form, UploadFile
+from fastapi import File, Form, Query, UploadFile
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, BaseFormModel, JsonResponse, form_model
 from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.domain.models import User
+from langboard_shared.domain.services.AppCatalog import list_catalog
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.AppPackage import MAX_PACKAGE_BYTES
 from langboard_shared.domain.services.AppRegistry import _admin, list_definitions
 from langboard_shared.Env import Env
@@ -20,6 +22,26 @@ from starlette.responses import Response
 from ...apps.AppPackageInstallation import install_package, package_for_asset
 from ...apps.OfficialAppPackages import OFFICIAL_APPS, download_official_package
 from .AppRegistrySettingsApi import _run
+
+
+@AppRouter.api.get("/apps/catalog", tags=["Apps"])
+@AuthFilter.add("user")
+def get_catalog(
+    project_uid: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+    after: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$"),
+    limit: int = Query(default=25, ge=1, le=50),
+    user: User = Auth.scope("user"),
+) -> JsonResponse:
+    try:
+        catalog = _run(list_catalog, user, project_uid=project_uid, after_key=after, limit=limit)
+    except AppGovernanceDenied as exc:
+        raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
+    # Static discovery never downloads packages or initializes an app.
+    catalog["official"] = [] if catalog["effective_mode"] == "disabled" else [
+        {"key": item.key, "name": item.name, "description": item.description, "repository": item.repository}
+        for item in OFFICIAL_APPS
+    ]
+    return JsonResponse(content=catalog, headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.api.get("/settings/apps/packages", tags=["AppSettings.AppRegistry"])

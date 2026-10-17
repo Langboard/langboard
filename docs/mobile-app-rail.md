@@ -43,3 +43,32 @@ Type checking and scoped ESLint also passed. Disabling browser scroll anchoring
 and using native instant scrolling alone did not reliably fix the failure; those
 experiments were discarded. Exact browser-internal causality remains unproven.
 These results still do not establish authenticated canary acceptance.
+
+## User catalog boundary
+
+`GET /apps/catalog` is authenticated user discovery, separate from the existing
+administrator-only package registry and installation endpoints. It returns a
+bounded keyset page (`limit` 1–50, default 25; `after` is the previous key) of
+enabled, instance-approved definitions. Only name, description, version,
+capabilities, resource types, and installation presence are projected. Discovery
+does not return raw declarations, panel/trust URLs, storage locators, personal
+connections, or installation revisions. It downloads no release and initializes
+no application. The official catalog is static metadata, not an approval grant.
+
+Without `project_uid`, the instance policy applies. With a board identifier, the
+current primary user, board read authority, active organization, and effective
+instance/organization policy are checked. Disabled policy returns no installed
+or official entries. Responses are `Cache-Control: no-store`; an explicit
+`can_manage_installation` flag reflects current primary administrator status and
+does not grant board consent or runtime scopes. Existing connection and binding
+wizards must still enforce those permissions when the UI launches an app.
+
+Authenticated HTTP coverage passed on SQLite and PostgreSQL alongside the
+existing install/update/revision/disable regression: six cases. Coverage includes
+non-admin discovery, admin installation denial, paging, sanitization, invalid
+limits/cursors, foreign-board denial, organization restriction, role revocation,
+instance disablement, and deactivated users. Initial fixture-construction
+failures were corrected and retained in local verification logs. The development
+JWT fixture emits short-key warnings; these are not runtime deployment evidence.
+The `/apps` and `/apps/:appKey` views, legacy redirect, rail add action, personal
+pinning, and authenticated canary acceptance are still pending.
