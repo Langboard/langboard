@@ -418,13 +418,19 @@ class CardService(BaseDomainService):
                     .outerjoin(WorkflowStageDefinition, ProjectColumn.workflow_stage == WorkflowStageDefinition.key)
                     .options(
                         load_only(
-                            ProjectColumn.id, ProjectColumn.project_id, ProjectColumn.workflow_stage,
-                            ProjectColumn.is_archive, raiseload=True,
+                            ProjectColumn.id,
+                            ProjectColumn.project_id,
+                            ProjectColumn.workflow_stage,
+                            ProjectColumn.is_archive,
+                            raiseload=True,
                         ),
                         load_only(
-                            WorkflowStageDefinition.id, WorkflowStageDefinition.key,
-                            WorkflowStageDefinition.counts_as_completed, WorkflowStageDefinition.active_queue_policy,
-                            WorkflowStageDefinition.overdue_policy, raiseload=True,
+                            WorkflowStageDefinition.id,
+                            WorkflowStageDefinition.key,
+                            WorkflowStageDefinition.counts_as_completed,
+                            WorkflowStageDefinition.active_queue_policy,
+                            WorkflowStageDefinition.overdue_policy,
+                            raiseload=True,
                         ),
                     )
                     .where(ProjectColumn.column("id").in_(column_ids))

@@ -70,7 +70,6 @@ class ProjectActivityType(Enum):
 
 
 class ProjectActivity(BaseActivityModel, table=True):
-
     project_id: SnowflakeID = SnowflakeIDField(foreign_key=Project, index=True)
     email_fanout_pending: bool | None = Field(default=True, nullable=True, index=True)
     email_fanout_retry_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
