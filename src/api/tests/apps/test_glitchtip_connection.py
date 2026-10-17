@@ -10,8 +10,6 @@ from langboard.apps import GlitchTipConnection as gt
 from langboard.apps import MetadataTransport as transport
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from pydantic import SecretStr
 
@@ -416,3 +414,8 @@ def test_policy_disabled_connection_can_only_remove_authority(setup, state):
         resource = db.exec(SqlBuilder.select.table(AppResourceBinding)).first()
         assert resource.access_state == "revoked" and resource.health == "unavailable"
         assert resource.is_selected is False
+        revoked_revision = resource.access_revision
+    gt.disconnect(*args, result["revision"])
+    with DbSession.use(readonly=False) as db:
+        resource = db.exec(SqlBuilder.select.table(AppResourceBinding)).first()
+        assert resource.access_revision == revoked_revision

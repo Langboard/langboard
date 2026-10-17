@@ -14,7 +14,7 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.models import AppSignal
 from langboard_shared.Env import Env
-from test_dokploy_signal import board, secrets, selected, setup  # noqa: F401
+from test_dokploy_signal import selected, setup  # noqa: F401
 
 
 @pytest.mark.asyncio

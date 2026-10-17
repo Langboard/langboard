@@ -29,7 +29,7 @@ function Fixture() {
     const [opened, setOpened] = useState(true);
     const staticEditor = createSlateEditor({
         plugins: [BaseImagePlugin.withComponent(ImageElementStatic)],
-        value: [{ type: "img", url: imageUrl(900, 1800), children: [{ text: "" }] }],
+        value: [{ type: "img", url: imageUrl(900, 1800), caption: [{ text: "Static source caption" }], children: [{ text: "" }] }],
     });
     return (
         <Dialog.Root open={opened} onOpenChange={setOpened}>
@@ -56,6 +56,8 @@ function Fixture() {
                                 {
                                     type: "img",
                                     url: protectedMode ? "/file/encrypted/card_attachment/proof.png" : imageUrl(width, height),
+                                    alt: width === 1800 ? "Wide source diagram" : "",
+                                    caption: [{ text: "Source image caption" }],
                                     children: [{ text: "" }],
                                 },
                             ],

@@ -5,12 +5,14 @@ from langgraph.types import Command
 from ...schema import GraphInterrupt, GraphRunResult
 from ..checkpoint import open_graph_checkpointer
 from .context import create_runtime_context_state
-from .nodes import collect_default_history_context, run_default_agent
+from .nodes import _apply_approved_api_context, collect_default_history_context, run_default_agent
+from .privacy import redact_graph_credentials
+from .runtime import DefaultGraphContext, restore_model_credentials
 from .state import DefaultGraphState
 
 
 def build_default_graph(checkpointer: BaseCheckpointSaver[Any] | None = None):
-    graph = StateGraph(DefaultGraphState)
+    graph = StateGraph(DefaultGraphState, context_schema=DefaultGraphContext)
     graph.add_node("history", collect_default_history_context)
     graph.add_node("agent", run_default_agent)
     graph.add_edge(START, "history")
@@ -25,6 +27,8 @@ async def run_default_graph(
     session_id: str,
     thread_id: str,
     resume: Any | None = None,
+    *,
+    model_source: dict[str, Any] | None = None,
 ) -> GraphRunResult:
     requires_checkpoint = _requires_checkpoint(tweaks, resume)
     async with open_graph_checkpointer(enabled=requires_checkpoint) as checkpointer:
@@ -33,20 +37,26 @@ async def run_default_graph(
 
         graph = build_default_graph(checkpointer)
         graph_input: Command[Any] | DefaultGraphState
+        config = {"configurable": {"thread_id": thread_id}}
         if resume is not None:
-            graph_input = Command(resume=resume)
+            snapshot = await graph.aget_state(config)
+            runtime_tweaks = restore_model_credentials(snapshot.values)
+            _apply_approved_api_context(runtime_tweaks, resume)
+            graph_input = Command(resume=redact_graph_credentials(resume))
         else:
             input_tweaks = tweaks or {}
             state: DefaultGraphState = {
                 "input_value": input_value or "",
-                "tweaks": input_tweaks,
+                "tweaks": redact_graph_credentials(input_tweaks),
+                "model_source": model_source or {},
                 "session_id": session_id,
                 "thread_id": thread_id,
                 **create_runtime_context_state(input_tweaks),
             }
             graph_input = state
+            runtime_tweaks = input_tweaks
 
-        result = await graph.ainvoke(graph_input, config={"configurable": {"thread_id": thread_id}})
+        result = await graph.ainvoke(graph_input, config=config, context={"tweaks": runtime_tweaks})
         graph_result = _create_graph_run_result(result)
         if checkpointer is not None and resume is None and not graph_result.interrupts:
             await checkpointer.adelete_thread(thread_id)

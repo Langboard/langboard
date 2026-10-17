@@ -15,7 +15,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import GitHubHealthJob
 from redis import Redis
 from sqlalchemy import text
-from test_github_lifecycle import board, health_job, installation, lifecycle, receipt_storage, secrets  # noqa: F401
+from test_github_lifecycle import health_job, installation, lifecycle, receipt_storage  # noqa: F401
 
 
 WORKER = """

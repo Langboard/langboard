@@ -13,6 +13,7 @@ import {
 } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import { mergeLinkedResourceProjection } from "@/controllers/api/board/mergeLinkedResourceProjection";
+import type { QueryFunctionContext } from "@tanstack/react-query";
 
 export interface IGetCardsForm {
     project_uid: string;
@@ -29,13 +30,14 @@ interface IGetProjectCardMetadataResponse {
 const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGetCardsResponse>) => {
     const { query } = useQueryMutation();
 
-    const getCards = async (): Promise<IGetCardsResponse> => {
+    const getCards = async ({ signal }: QueryFunctionContext): Promise<IGetCardsResponse> => {
         const existingCardUIDs = new Set(ProjectCard.Model.getModels((model) => model.project_uid === params.project_uid).map((model) => model.uid));
         const existingColumnUIDs = new Set(
             ProjectColumn.Model.getModels((model) => model.project_uid === params.project_uid).map((model) => model.uid)
         );
         const url = Utils.String.format(Routing.API.BOARD.GET_CARDS, { uid: params.project_uid });
         const res = await api.get(url, {
+            signal,
             env: {
                 interceptToast: options?.interceptToast,
             } as never,

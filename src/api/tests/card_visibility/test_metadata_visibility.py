@@ -37,26 +37,23 @@ def test_metadata_and_attachment_reads_stop_before_loading_hidden_data():
     reader.assert_not_called()
 
 
-def test_batch_metadata_loads_only_the_card_service_visible_set():
-    visible = [object()]
+def test_batch_metadata_forwards_current_project_actor_and_channel():
     reader = Mock(return_value={"visible-card": {"key": "value"}})
     project = object()
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
-        card=SimpleNamespace(get_visible_by_project=Mock(return_value=visible)),
-        metadata=SimpleNamespace(get_all_by_foreign_models_as_api=reader),
+        metadata=SimpleNamespace(get_project_cards_as_api=reader),
     )
     actor = object()
     request = SimpleNamespace(scope={"collaboration_channel": CollaborationChannel.HumanUI})
     CardMetadataApi.get_project_cards_metadata("p", request, actor, service)
-    assert reader.call_args.args[2] is visible
-    service.card.get_visible_by_project.assert_called_once_with(project, actor, CollaborationChannel.HumanUI)
+    reader.assert_called_once_with(project, actor, CollaborationChannel.HumanUI)
 
 
 def test_sdk_presentation_write_stops_before_hidden_metadata_or_events():
     saver = Mock(side_effect=AssertionError("hidden write"))
     service = SimpleNamespace(
-        card=SimpleNamespace(resolve_readable_card=Mock(return_value=None)), metadata=SimpleNamespace(save=saver)
+        card=SimpleNamespace(resolve_readable_card=Mock(return_value=None)), metadata=SimpleNamespace(save_card=saver)
     )
     with pytest.raises(ValueError, match="not found"):
         CardMcp.save_public_card_metadata("p", "c", "card.presentation.v1", "{}", object(), service)
@@ -68,7 +65,7 @@ def test_sdk_presentation_write_publishes_existing_metadata_update(monkeypatch):
     card = SimpleNamespace(is_linked_resource=False, get_uid=lambda: "c")
     service = SimpleNamespace(
         card=SimpleNamespace(resolve_readable_card=lambda *args: (object(), card, object())),
-        metadata=SimpleNamespace(save=Mock(return_value=SimpleNamespace(value="value"))),
+        metadata=SimpleNamespace(save_card=Mock(return_value=SimpleNamespace(value="value"))),
     )
     publisher = Mock()
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", publisher)
@@ -100,7 +97,7 @@ def test_all_metadata_mutations_block_hidden_cards_before_write_or_publish(monke
     events = Mock(side_effect=AssertionError("hidden event"))
     resolver = Mock(return_value=None)
     service = SimpleNamespace(
-        card=SimpleNamespace(resolve_readable_card=resolver), metadata=SimpleNamespace(save=writer, delete=writer)
+        card=SimpleNamespace(resolve_readable_card=resolver), metadata=SimpleNamespace(save_card=writer, delete_card=writer)
     )
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", events)
     monkeypatch.setattr(CardMcp.MetadataPublisher, "deleted_metadata", events)
@@ -120,7 +117,7 @@ def test_linked_resource_metadata_is_read_only_before_publishing(monkeypatch, in
     card = SimpleNamespace(is_linked_resource=True)
     service = SimpleNamespace(
         card=SimpleNamespace(resolve_readable_card=lambda *args: (object(), card, object())),
-        metadata=SimpleNamespace(save=writer, delete=writer),
+        metadata=SimpleNamespace(save_card=writer, delete_card=writer),
     )
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", events)
     monkeypatch.setattr(CardMcp.MetadataPublisher, "deleted_metadata", events)
@@ -138,13 +135,13 @@ def test_readable_metadata_mutations_reach_current_card_and_publish(monkeypatch,
     events = Mock()
     service = SimpleNamespace(
         card=SimpleNamespace(resolve_readable_card=lambda *args: (object(), card, object())),
-        metadata=SimpleNamespace(save=save, delete=delete),
+        metadata=SimpleNamespace(save_card=save, delete_card=delete),
     )
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", events)
     monkeypatch.setattr(CardMcp.MetadataPublisher, "deleted_metadata", events)
     mutation_callbacks(object(), service, CollaborationChannel.HumanUI)[index]()
     operation = save if index in (0, 3) else delete
-    assert operation.call_args.args[1] is card
+    assert operation.call_args.args[2] is card
     events.assert_called_once()
 
 
@@ -152,7 +149,7 @@ def test_http_invalid_presentation_is_bad_request_without_event(monkeypatch):
     card = SimpleNamespace(is_linked_resource=False)
     service = SimpleNamespace(
         card=SimpleNamespace(resolve_readable_card=lambda *args: (object(), card, object())),
-        metadata=SimpleNamespace(save=Mock(side_effect=ValueError("invalid metadata"))),
+        metadata=SimpleNamespace(save_card=Mock(side_effect=ValueError("invalid metadata"))),
     )
     events = Mock()
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", events)

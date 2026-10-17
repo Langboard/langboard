@@ -16,7 +16,6 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAppGovernance import CardAppOwnershipConflict
 from langboard_shared.domain.services.CardAppResources import set_card_app_resources
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_connection_resources import scope
 
 
@@ -173,9 +172,9 @@ def test_invalid_bounds_and_audit_failure_are_atomic(board, monkeypatch):
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
 def test_resource_settings_route_uses_canonical_service_and_current_fences(board):
-    from langboard.routes.settings.CardAppResourcesApi import CardAppResourcesForm, read_resources, save_resources
-    from fastapi import HTTPException
     from json import loads
+    from fastapi import HTTPException
+    from langboard.routes.settings.CardAppResourcesApi import CardAppResourcesForm, read_resources, save_resources
 
     connection, definition, binding, rows, card = prepare(board)
     route = dict(project_uid=board[2].get_uid(), card_uid=card.get_uid(),

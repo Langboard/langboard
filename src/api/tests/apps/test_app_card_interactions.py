@@ -8,13 +8,12 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from langboard.routes.settings import CardHumanInteractionApi, AppCardInteractionApi  # noqa: F401
+from langboard.routes.settings import AppCardInteractionApi, CardHumanInteractionApi  # noqa: F401
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import AppCardInteraction, AppDefinition, BoardAppBinding
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_ack import scope
 
 

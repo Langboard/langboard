@@ -22,7 +22,6 @@ from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatform
 from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401, F811
 from langboard_shared.Env import Env
 from langboard_shared.publishers import CardAttachmentPublisher, CardPublisher
 from langboard_shared.tasks.activities import CardAttachmentActivityTask

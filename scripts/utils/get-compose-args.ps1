@@ -87,7 +87,36 @@ if ($withDbBackup -eq "true") {
     $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.backup.yaml"
 }
 
-$COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.redis.yaml -f ${COMPOSE_PREFIX}.server.yaml --env-file ./.env"
+$COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.redis.yaml -f ${COMPOSE_PREFIX}.server.yaml"
+
+if ($env:REDIS_EXTERNAL_CACHE_URL -or $env:REDIS_EXTERNAL_BROKER_URL) {
+    foreach ($requiredName in @("REDIS_EXTERNAL_CACHE_URL", "REDIS_EXTERNAL_BROKER_URL", "CACHE_KEY_PREFIX", "BROKER_KEY_PREFIX")) {
+        if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($requiredName))) {
+            [Console]::Error.WriteLine("$requiredName is required for external Redis")
+            exit 1
+        }
+    }
+    $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.redis-external.yaml"
+}
+# External realtime is an explicit deployment choice, never an endpoint fallback.
+$socketMode = if ([string]::IsNullOrEmpty($env:SOCKET_DEPLOYMENT_MODE)) { "bundled" } else { $env:SOCKET_DEPLOYMENT_MODE.ToLowerInvariant() }
+if ($socketMode -notin @("bundled", "external")) {
+    [Console]::Error.WriteLine("SOCKET_DEPLOYMENT_MODE must be bundled or external")
+    exit 1
+}
+if ($socketMode -eq "external") {
+    foreach ($name in @("SOCKET_URL", "SOCKET_INTERNAL_URL", "SOCKET_EDITOR_INTERNAL_URL")) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        $schemes = if ($name -eq "SOCKET_URL") { "https?|wss?" } else { "https?" }
+        $pattern = "^($schemes)://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:[0-9]+)?(/[^\s?#\\]*)?$"
+        if ([string]::IsNullOrEmpty($value) -or $value -cnotmatch $pattern) {
+            [Console]::Error.WriteLine("$name must be an explicit compatible service URL without credentials, query or fragment")
+            exit 1
+        }
+    }
+    $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.phoenix-external.yaml"
+}
+$COMPOSE_ARGS += " --env-file ./.env"
 
 # Optional compose args
 $VAULT_COMPOSE_ARGS = "-f ${COMPOSE_PREFIX}.vault.yaml"
@@ -115,20 +144,17 @@ if ($env:WITH_OLLAMA_GPU -eq "true") {
     $COMPOSE_ARGS += " ${OLLAMA_GPU_COMPOSE_ARGS}"
 }
 
-if ($env:WITH_OTEL -eq "true") {
+if ($env:WITH_OTEL -eq "true" -and $socketMode -eq "bundled") {
     $COMPOSE_ARGS += " ${OTEL_COMPOSE_ARGS}"
 }
 
-if ($env:WITH_OTEL -eq "true" -and -not [string]::IsNullOrEmpty($env:SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT)) {
+if ($env:WITH_OTEL -eq "true" -and $socketMode -eq "bundled" -and -not [string]::IsNullOrEmpty($env:SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT)) {
     $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.phoenix-otel-traces.yaml"
 }
 
-# Check if vault is needed based on KEY_PROVIDER_TYPE in .env file
-if (Test-Path ".env") {
-    $envContent = Get-Content ".env" | Where-Object { $_ -match '^KEY_PROVIDER_TYPE=openbao-local' }
-    if ($envContent) {
-        $COMPOSE_ARGS += " ${VAULT_COMPOSE_ARGS}"
-    }
+# Match the runtime default and compare the resolved value, not a file prefix.
+if ([string]::IsNullOrEmpty($env:KEY_PROVIDER_TYPE) -or $env:KEY_PROVIDER_TYPE -eq "openbao-local") {
+    $COMPOSE_ARGS += " ${VAULT_COMPOSE_ARGS}"
 }
 
 # Native commands require each Compose argument as a separate array item.

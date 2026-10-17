@@ -101,7 +101,7 @@ def _service(people: list[dict[str, Any]] | None = None) -> tuple[Any, list[tupl
         project_column=SimpleNamespace(get_by_id_like=lambda uid: column, get_workflow_guidance=lambda _: {2: {}}),
         card=SimpleNamespace(
             get_by_id_like=lambda uid: card,
-            resolve_readable_card=lambda project_arg, card_arg, *args: (project_arg, card_arg, object()),
+            resolve_readable_card=lambda *args: (project, service.card.get_by_id_like("c1"), object()),
             get_work_states=lambda cards, **kwargs: {item.id: {"version": 1} for item in cards},
             can_delete=lambda actor, target: False,
             is_check_card=lambda target: False,
@@ -686,6 +686,51 @@ def test_native_description_patch_requires_revision_before_lookup() -> None:
         adapter.patch_card_description("p", "c", CardDescriptionPatch((ExactTextReplacement("old", "new"),)))
 
 
+@pytest.mark.parametrize("change,accepted", [(False, True), (True, True), (True, False)])
+def test_checklist_projection_delegates_only_changed_items_without_per_item_reads(change, accepted) -> None:
+    """A 25-item refresh must not reread every ancestor; native mutations retain veto authority."""
+    from langboard.card_workspace.domain import ChecklistProjectionItem
+
+    project = SimpleNamespace(id=1)
+    card = SimpleNamespace(id=2, project_id=1)
+    actual = [{"uid": f"i{i}", "title": f"Item {i}", "is_checked": False} for i in range(25)]
+    desired = [ChecklistProjectionItem(f"key{i}", f"Item {i}") for i in range(25)]
+    if change:
+        desired[0] = ChecklistProjectionItem("key0", "Renamed")
+    stored = json.dumps({"version": 1, "checklist_uid": "cl1", "items": {f"key{i}": f"i{i}" for i in range(25)}})
+    writes = []
+    rename = Mock(return_value=accepted)
+    unexpected_read = Mock(side_effect=AssertionError("Redundant per-item native lookup"))
+    service = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=lambda _: project),
+        card=SimpleNamespace(get_by_id_like=lambda _: card, resolve_readable_card=lambda *args: (project, card, object())),
+        checklist=SimpleNamespace(
+            get_api_list_by_card=lambda *args, **kwargs: [{"uid": "cl1", "title": "Projected", "checkitems": actual}],
+            get_by_id_like=unexpected_read,
+        ),
+        checkitem=SimpleNamespace(get_by_id_like=unexpected_read, change_title=rename),
+        metadata=SimpleNamespace(
+            get_all_as_api=lambda *args, **kwargs: {"projection.checklist.test": stored},
+            save=lambda *args: writes.append(args) or True,
+        ),
+    )
+    actor = object()
+    adapter = NativeCardWorkspaceAdapter(actor, service)
+    if not accepted:
+        with pytest.raises(ValueError, match="Checkitem not found in card"):
+            adapter.reconcile_card_checklist_projection("p1", "c1", "test", "Projected", desired, None)
+        assert writes == []
+    else:
+        result = adapter.reconcile_card_checklist_projection("p1", "c1", "test", "Projected", desired, None)
+        assert result["changed"] is change
+        assert json.loads(writes[-1][-1])["receipt"] == result["receipt"]
+    unexpected_read.assert_not_called()
+    if change:
+        rename.assert_called_once_with(actor, "p1", "c1", "i0", "Renamed")
+    else:
+        rename.assert_not_called()
+
+
 def test_checklist_projection_deletes_stale_native_item_and_commits_receipt_last() -> None:
     """Removing a projected key must use the still-live native deletion service."""
 
@@ -1050,3 +1095,15 @@ def test_native_unreadable_source_and_comment_page_do_not_load_sections():
     with pytest.raises(ValueError, match="Card not found"):
         adapter.get_comment_page("c1", 5, None, None)
     service.card_comment.get_api_page_by_card.assert_not_called()
+
+
+def test_bundle_resolves_current_visibility_without_redundant_replica_reads():
+    service, _ = _service()
+    actor = object()
+    current = service.card.resolve_readable_card("p1", "c1", actor)
+    service.card.resolve_readable_card = Mock(return_value=current)
+    service.project.get_by_id_like = Mock(side_effect=AssertionError("redundant project read"))
+    service.card.get_by_id_like = Mock(side_effect=AssertionError("redundant card read"))
+    source = NativeCardWorkspaceAdapter(actor, service).get_card_bundle_source("p1", "c1", frozenset())
+    assert source is not None
+    service.card.resolve_readable_card.assert_called_once_with("p1", "c1", actor, native_module.CollaborationChannel.Mcp)

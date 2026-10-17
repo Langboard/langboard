@@ -1,3 +1,5 @@
+import { Routing } from "@langboard/core/constants";
+import { Utils } from "@langboard/core/utils";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -13,7 +15,7 @@ interface Snapshot {
     column_names: Record<string, string>;
     available_columns: { uid: string; name: string; workflow_stage: string | null }[];
     binding: { uid: string; revision: string; workflow_mapping: Record<string, string> } | null;
-    choices: { stage: string; required: boolean; status: string; column_uid: string | null; candidates: string[] }[];
+    choices: { stage: string; required: boolean; stage_active: boolean; status: string; column_uid: string | null; candidates: string[] }[];
 }
 export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { appKey: string; onDirtyChange?: (dirty: boolean) => void }) {
     const [t, i18n] = useTranslation();
@@ -74,7 +76,8 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
         }
     };
     const repair = async (stage: string, create: boolean, confirmed = false) => {
-        if (pending || dirty || !canEditBasicInfo || !data?.binding) return;
+        if (pending || dirty || !canEditBasicInfo || !data?.binding || !data.choices.some((choice) => choice.stage === stage && choice.stage_active))
+            return;
         const columnUID = repairColumns[stage];
         const name = newNames[stage]?.trim();
         if (create ? !name : !columnUID) return;
@@ -87,12 +90,15 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
         setPending(true);
         setError(false);
         try {
-            if (create) await api.post(`/board/${project.uid}/column`, { name, workflow_stage: stage });
+            if (create) await api.post(Utils.String.format(Routing.API.BOARD.COLUMN.CREATE, { uid: project.uid }), { name, workflow_stage: stage });
             else
-                await api.put(`/board/${project.uid}/column/${columnUID}/workflow-stage`, {
-                    workflow_stage: stage,
-                    expected_workflow_stage: currentColumn?.workflow_stage ?? null,
-                });
+                await api.put(
+                    Utils.String.format(Routing.API.BOARD.COLUMN.CHANGE_WORKFLOW_STAGE, { uid: project.uid, project_column_uid: columnUID }),
+                    {
+                        workflow_stage: stage,
+                        expected_workflow_stage: currentColumn?.workflow_stage ?? null,
+                    }
+                );
             setRepairColumns({});
             setNewNames({});
             await refetch();
@@ -120,7 +126,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                 <select
                                     className="min-w-0 rounded-md border border-input bg-background p-2"
                                     value={Object.hasOwn(draft, choice.stage) ? draft[choice.stage] : (choice.column_uid ?? "")}
-                                    disabled={!canEditBasicInfo || pending || !data.binding}
+                                    disabled={!canEditBasicInfo || pending || !data.binding || !choice.stage_active}
                                     onChange={(event) => {
                                         if (!dirty) setDraftRevision(data.binding?.revision ?? null);
                                         setDirty(true);
@@ -144,8 +150,10 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                         </option>
                                     ))}
                                 </select>
-                                <span className="text-xs text-muted-foreground">{t(`project.settings.Mapping ${choice.status}`)}</span>
-                                {choice.status === "missing" && (
+                                <span className="text-xs text-muted-foreground">
+                                    {t(`project.settings.Mapping ${choice.stage_active ? choice.status : "inactive"}`)}
+                                </span>
+                                {choice.stage_active && choice.status === "missing" && (
                                     <div className="flex flex-col gap-2 border-t pt-2">
                                         <select
                                             aria-label={t("project.settings.Existing column for stage")}

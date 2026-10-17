@@ -21,16 +21,15 @@ from langboard_shared.domain.services.AppEventDelivery import claim_app_event, f
 from langboard_shared.domain.services.AppEventDestination import APP_CARD_ARCHIVE_EVENT, bind_app_event_destination
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_card_creation import call, creation  # noqa: F401
 
 
 def setup_archive(creation, monkeypatch, enabled=True):
     board, _, connection, binding, resource, definition, _ = creation
     queues = []
-    from langboard_shared.domain.services import AppEventDelivery
+    from langboard_shared.domain.services import AppCardArchive
 
-    monkeypatch.setattr(AppEventDelivery, "enqueue_event", queues.append)
+    monkeypatch.setattr(AppCardArchive, "enqueue_event", queues.append)
     monkeypatch.setattr(KeyVault, "get_key", staticmethod(lambda _: "test-signing-secret"))
     monkeypatch.setattr(CardService, "notify_order_changed", lambda *args: None)
     with DbSession.atomic() as db:

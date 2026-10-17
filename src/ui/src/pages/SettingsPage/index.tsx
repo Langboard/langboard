@@ -1,3 +1,4 @@
+import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { DashboardStyledLayout } from "@/components/Layout";
 import { IActivityRailItem } from "@/components/Layout/ActivityRail";
 import useGetSettingRoles from "@/controllers/api/settings/useGetSettingRoles";
@@ -141,6 +142,7 @@ function SettingsProxy(): React.JSX.Element {
 function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser: AuthUser.TModel; isOllamaAvailable: bool }): React.JSX.Element {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
+    const pinnedApps = usePinnedAppRail({ userUID: currentUser.uid });
     const pathname = useLocation().pathname.split("/").slice(0, 3).join("/");
     const apiKeyRoleActions = currentUser.useField("api_key_role_actions");
     const settingRoleActions = currentUser.useField("setting_role_actions");
@@ -150,10 +152,10 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     const { hasRoleAction: hasMcpRoleAction } = useRoleActionFilter(mcpRoleActions);
 
     const settingsNavs: Record<string, IActivityRailItem> = {
-        [ROUTES.SETTINGS.APP_STORE]: {
+        [ROUTES.SETTINGS.APP_PACKAGES]: {
             icon: "package",
-            label: t("settings.App store"),
-            onClick: () => navigate(ROUTES.SETTINGS.APP_STORE),
+            label: t("appStore.Manage installation"),
+            onClick: () => navigate(ROUTES.SETTINGS.APP_PACKAGES),
             hidden: !currentUser.is_admin,
         },
         [ROUTES.SETTINGS.APPS]: {
@@ -293,7 +295,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             paths: [
                 ROUTES.SETTINGS.APPS,
                 ROUTES.SETTINGS.APP_GROUPS,
-                ROUTES.SETTINGS.APP_STORE,
+                ROUTES.SETTINGS.APP_PACKAGES,
                 ROUTES.SETTINGS.MCP_TOOL_GROUPS,
                 ROUTES.SETTINGS.API_KEYS,
                 ROUTES.SETTINGS.WEBHOOKS,
@@ -307,7 +309,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
 
     let pageContent;
     switch (pathname) {
-        case ROUTES.SETTINGS.APP_STORE:
+        case ROUTES.SETTINGS.APP_PACKAGES:
             pageContent = <AppPackagesPage currentUser={currentUser} />;
             break;
         case ROUTES.SETTINGS.APP_GROUPS:
@@ -366,12 +368,18 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
         <DashboardStyledLayout
             headerNavs={[]}
             headerTitle={t("board.Settings")}
-            activityRailItems={groups.map((group) => ({
-                icon: group.icon,
-                label: t(`settings.${group.label}`),
-                active: group === activeGroup,
-                onClick: () => navigate(group.paths[0]),
-            }))}
+            activityRailItems={[
+                { icon: "folder-kanban", label: t("dashboard.Projects"), mobile: "primary", onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.ALL) },
+                ...pinnedApps.items,
+                { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
+                ...groups.map((group) => ({
+                    icon: group.icon,
+                    label: t(`settings.${group.label}`),
+                    active: group === activeGroup,
+                    placement: "bottom" as const,
+                    onClick: () => navigate(group.paths[0]),
+                })),
+            ]}
         >
             <AppSettingProvider currentUser={currentUser}>
                 <nav aria-label={t("board.Settings")} className="flex flex-wrap gap-2 border-b p-4">

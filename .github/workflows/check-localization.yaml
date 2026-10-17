@@ -18,7 +18,6 @@ on:
       - src/ui/src/core/stores/AuthStore.ts
       - src/ui/src/components/LanguageSwitcher/**
       - src/ui/src/pages/AccountPage/components/preference/PreferenceLanguage*
-      - src/ui/src/**
       - src/ui/scripts/verify-ui-strings*
       - src/ui/scripts/ui-strings-baseline.json
       - src/ui/scripts/i18n-initialization.test.mjs

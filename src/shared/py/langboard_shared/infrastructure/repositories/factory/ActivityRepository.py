@@ -125,21 +125,32 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
                 ProjectActivity.created_at.desc(), ProjectActivity.id.desc(),
             ).limit(limit + 1)).all())
 
-    def get_card_column_history(self, project: Project, card: Card) -> list[ProjectActivity]:
-        """Read the complete, ordered status path without paging unrelated activity."""
-        query = (
-            SqlBuilder.select.table(ProjectActivity)
-            .where(
-                ProjectActivity.column("project_id") == project.id,
-                ProjectActivity.column("card_id") == card.id,
-                ProjectActivity.column("activity_type").in_(
-                    [ProjectActivityType.CardCreated, ProjectActivityType.CardMoved]
-                ),
+    def get_card_column_history(
+        self, project: Project, card: Card, *, before_activity_uid: str | None = None,
+    ) -> list[ProjectActivity]:
+        """Fetch one bounded page plus a sentinel; cursors stay inside this card."""
+        def scoped_query():
+            return SqlBuilder.select.table(ProjectActivity).where(
+                ProjectActivity.project_id == project.id,
+                ProjectActivity.card_id == card.id,
+                ProjectActivity.activity_type.in_([ProjectActivityType.CardCreated, ProjectActivityType.CardMoved]),
             )
-            .order_by(ProjectActivity.column("created_at"), ProjectActivity.column("id"))
-        )
+
         with DbSession.use(readonly=True) as db:
-            return list(db.exec(query).all())
+            query = scoped_query()
+            if before_activity_uid:
+                cursor = db.exec(scoped_query().where(
+                    ProjectActivity.id == InfraHelper.convert_id(before_activity_uid),
+                )).first()
+                if cursor is None:
+                    return []
+                query = query.where(or_(
+                    ProjectActivity.created_at < cursor.created_at,
+                    and_(ProjectActivity.created_at == cursor.created_at, ProjectActivity.id < cursor.id),
+                ))
+            return list(db.exec(query.order_by(
+                ProjectActivity.created_at.desc(), ProjectActivity.id.desc(),
+            ).limit(21)).all())
 
     def get_shared_user_activities(
         self,

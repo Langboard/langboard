@@ -17,6 +17,8 @@
     "store_sqlite": "SQLite",
     "store_qdrant": "Qdrant",
     "external_url": "Vector store URL",
+    "collection_prefix": "Collection prefix",
+    "collection_prefix_help": "Use a unique prefix per installation on shared Qdrant. Changing it affects future indexing; existing files stay in their recorded collection. Server credentials must also restrict collection access.",
     "external_api_key": "Vector store API key",
     "dimensions": "Embedding dimensions",
     "splitter.type": "Splitter",

@@ -66,7 +66,8 @@ class FakeCard:
     def api_response(self) -> dict[str, Any]:
         return {"uid": self._uid, "archived_at": self.archived_at}
 
-    def board_api_response(self, **values: Any) -> dict[str, Any]:
+    def board_api_response(self, *, include_body: bool = True, **values: Any) -> dict[str, Any]:
+        assert include_body is False
         return {"uid": self._uid, **values}
 
 
@@ -132,7 +133,7 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
         lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)),
     )
     before = SafeDateTime.now()
-    result = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_list(project)
+    result, _ = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_snapshot(project)
     after = SafeDateTime.now()
 
     assert before.timestamp() - 7 * 86400 <= observed["cutoff"].timestamp() <= after.timestamp() - 7 * 86400
@@ -176,23 +177,27 @@ def test_board_route_passes_one_request_cutoff_to_cards_and_checklists(monkeypat
                 project,
                 CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True),
             ),
-            get_board_list=lambda _project, _user_or_bot, cutoff, *, channel: (
-                calls.__setitem__("cards", cutoff),
-                [],
+            get_board_snapshot=lambda _project, _user_or_bot, cutoff, *, channel: (
+                calls.__setitem__("snapshot", cutoff),
+                ([], []),
             )[1],
         ),
-        checklist=SimpleNamespace(
-            get_api_list_only_by_project=lambda _project, *, archive_visible_since, context: (
-                calls.__setitem__("checklists", archive_visible_since),
-                [],
-            )[1],
-        ),
+        checklist=None,
     )
 
-    get_project_cards("project", request=SimpleNamespace(scope={}), service=service)
+    clock = iter((0.0, 0.1, 0.3, 0.6, 1.0, 1.5))
+    monkeypatch.setattr(import_module("langboard.routes.board.BoardApi"), "perf_counter", lambda: next(clock), raising=False)
+    response = get_project_cards("PRIVATE_PROJECT", request=SimpleNamespace(scope={}), service=service)
 
     expected = now - timedelta(days=7)
-    assert calls == {"cards": expected, "checklists": expected}
+    assert calls == {"snapshot": expected}
+    assert response.status_code == 200
+    assert response.headers["server-timing"] == (
+        "board_context;dur=100.000, board_cards;dur=200.000, board_checklists;dur=300.000, "
+        "board_bots;dur=400.000, board_serialize;dur=500.000"
+    )
+    assert b'"cards":[]' in response.body
+    assert "PRIVATE_PROJECT" not in response.headers["server-timing"]
 
 
 def test_archive_page_uses_archive_order_cursor_and_search_count(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -321,6 +326,13 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
             ],
         )
         connection.execute(
+            CardComment.__table__.insert(),
+            [
+                {"id": 800 + offset, "card_id": card_id, "user_id": 1, "content": EditorContentModel(content="Comment")}
+                for offset, card_id in enumerate((active_id, boundary_id, boundary_id, cold_id))
+            ],
+        )
+        connection.execute(
             ProjectAssignedUser.__table__.insert(),
             {"id": 20, "project_id": 1, "user_id": 1, "starred": False},
         )
@@ -419,13 +431,29 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
     monkeypatch.setattr(DbSession, "use", use_database)
 
     def make_repo(repository: Any) -> Any:
-        return repository(lambda _type: None, lambda _name: None)
+        return repository(make_repo, lambda _name: None)
 
     project = 1
 
+    with engine.begin() as connection:
+        connection.execute(Card.__table__.update().values(ai_description="Large AI document 한국어 " * 4000))
+    statements = []
+
+    def capture_statement(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", capture_statement)
     cards = make_repo(CardRepository).get_board_list(
         project, cutoff, context=CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)
     )
+    sa.event.remove(engine, "before_cursor_execute", capture_statement)
+    assert len(statements) == 1
+    assert "card.ai_description" not in statements[0]
+    for card, _ in cards:
+        assert "ai_description" in sa.inspect(card).unloaded
+        assert "ai_description" not in card.board_api_response(0, [], [], [], include_body=False)
+    with Session(engine) as session:
+        assert session.get(Card, active_id).api_response()["ai_description"] == "Large AI document 한국어 " * 4000
     members = make_repo(CardAssignedUserRepository).get_all_by_project(project, cutoff)
     relationships = make_repo(CardRelationshipRepository).get_all_by_project(project, cutoff)
     labels = make_repo(ProjectLabelRepository).get_all_card_labels_by_project(project, cutoff)
@@ -433,6 +461,7 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
     active_workers = make_repo(CheckitemRepository).get_active_workers_by_project(project)
 
     assert {card.id for card, _ in cards} == {active_id, boundary_id}
+    assert {int(card.id): count for card, count in cards} == {active_id: 1, boundary_id: 2}
     assert {assignment.card_id for _, assignment in members} == {active_id, boundary_id}
     assert {relationship.id for relationship, _ in relationships} == {301}
     assert {assignment.card_id for _, assignment in labels} == {active_id, boundary_id}

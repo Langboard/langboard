@@ -18,7 +18,15 @@ import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/Dashb
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
 
-export default function ProjectExplorerSidebar({ currentProject, onNavigate }: { currentProject?: Project.TModel; onNavigate?: () => void }) {
+export default function ProjectExplorerSidebar({
+    currentProject,
+    onNavigate,
+    active = true,
+}: {
+    currentProject?: Project.TModel;
+    onNavigate?: () => void;
+    active?: boolean;
+}) {
     const [t] = useTranslation();
     const { currentUser } = useAuth();
     const userUID = currentUser?.uid;
@@ -123,6 +131,7 @@ export default function ProjectExplorerSidebar({ currentProject, onNavigate }: {
                 )}
                 {!query.trim() && userUID && (
                     <RecentCardsSection
+                        active={active}
                         userUID={userUID}
                         cards={visibleOpenCards}
                         collapsed={openCardsCollapsed}

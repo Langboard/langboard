@@ -1,3 +1,4 @@
+import { createMeasureMarker } from "@/core/utils/CursorOverlay";
 import Textarea, { TextareaProps } from "@/components/base/Textarea";
 import SyncBlocker from "@/components/Collaborative/SyncBlocker";
 import CollaborativeUserLabel from "@/components/Collaborative/UserLabel";
@@ -34,18 +35,6 @@ interface ICursorOverlayPosition {
     caretTop: number;
     highlightRects: IHighlightRect[];
 }
-
-const createMeasureMarker = () => {
-    const marker = document.createElement("span");
-    marker.style.display = "inline-block";
-    marker.style.width = "0";
-    marker.style.padding = "0";
-    marker.style.margin = "0";
-    marker.style.border = "0";
-    marker.style.overflow = "hidden";
-    marker.textContent = "\u200b";
-    return marker;
-};
 
 const getPxValue = (value: string, fallback: number = 0) => {
     const parsed = parseFloat(value);

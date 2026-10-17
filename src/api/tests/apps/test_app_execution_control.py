@@ -13,7 +13,6 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.models import AppExecutionLease, EmployeeMembershipPolicy
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppExecutionLeases import authorize_app_runtime, check_app_runtime
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from test_app_execution_lease import permit_scope
 

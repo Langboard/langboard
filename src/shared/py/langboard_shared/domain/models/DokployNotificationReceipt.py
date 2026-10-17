@@ -1,4 +1,3 @@
-from sqlalchemy import UniqueConstraint
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from .DokployWebhookBinding import DokployWebhookBinding
 
@@ -6,9 +5,6 @@ from .DokployWebhookBinding import DokployWebhookBinding
 class DokployNotificationReceipt(BaseDbModel, table=True):
     """Append-only local channel evidence, without provider deployment identity."""
 
-    __table_args__ = (
-        UniqueConstraint("config_id", "config_revision", "payload_digest", name="uq_dokploy_notification_receipt"),
-    )
     config_id: int = SnowflakeIDField(foreign_key=DokployWebhookBinding, nullable=False)
     config_revision: int = Field(nullable=False)
     payload_digest: str = Field(nullable=False)

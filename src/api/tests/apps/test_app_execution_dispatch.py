@@ -5,7 +5,6 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppExecutionOutbox, BoardAppBinding
 from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from sqlalchemy import text
 from test_app_event_destination import destination_scope
 from test_app_execution_requests import accepted_request

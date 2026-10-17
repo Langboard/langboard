@@ -4,9 +4,9 @@
 
 # Function to get compose args from script
 ifeq ($(ComSpec),)
-get_compose_args = $(shell WITH_DOCS=$(WITH_DOCS) WITH_UI_WATCHER=$(WITH_UI_WATCHER) WITH_OLLAMA_CPU=$(WITH_OLLAMA_CPU) WITH_OLLAMA_GPU=$(WITH_OLLAMA_GPU) WITH_OTEL=$(WITH_OTEL) WITH_DB_BACKUP=$(WITH_DB_BACKUP) bash scripts/utils/get-compose-args.sh)
+get_compose_args = $(shell WITH_DOCS=$(WITH_DOCS) WITH_UI_WATCHER=$(WITH_UI_WATCHER) WITH_OLLAMA_CPU=$(WITH_OLLAMA_CPU) WITH_OLLAMA_GPU=$(WITH_OLLAMA_GPU) WITH_OTEL=$(WITH_OTEL) WITH_DB_BACKUP=$(WITH_DB_BACKUP) bash scripts/utils/get-compose-args.sh || echo __LANGBOARD_COMPOSE_CONFIG_FAILED__)
 else
-get_compose_args = $(shell powershell -NoProfile -ExecutionPolicy Bypass -File scripts/utils/get-compose-args.ps1 -WithDocs $(WITH_DOCS) -WithUiWatcher $(WITH_UI_WATCHER) -WithOllamaCpu $(WITH_OLLAMA_CPU) -WithOllamaGpu $(WITH_OLLAMA_GPU) -WithOtel $(WITH_OTEL) -WithDbBackup $(WITH_DB_BACKUP))
+get_compose_args = $(shell powershell -NoProfile -ExecutionPolicy Bypass -File scripts/utils/get-compose-args.ps1 -WithDocs $(WITH_DOCS) -WithUiWatcher $(WITH_UI_WATCHER) -WithOllamaCpu $(WITH_OLLAMA_CPU) -WithOllamaGpu $(WITH_OLLAMA_GPU) -WithOtel $(WITH_OTEL) -WithDbBackup $(WITH_DB_BACKUP) || echo __LANGBOARD_COMPOSE_CONFIG_FAILED__)
 endif
 
 UI_DIR := src/ui
@@ -44,6 +44,10 @@ SOCKET_PHOENIX_OTEL_COLLECTOR_DIGEST ?= sha256:fd328de2552466ad78385e1b1289c3f24
 
 # Get compose args from script
 COMPOSE_ARGS := $(call get_compose_args)
+# GNU Make 3.81 has no .SHELLSTATUS; preserve selector failures explicitly.
+ifneq ($(filter __LANGBOARD_COMPOSE_CONFIG_FAILED__,$(COMPOSE_ARGS)),)
+$(error Docker Compose configuration selection failed; fix the setting reported above)
+endif
 
 
 check_tools:
@@ -169,7 +173,7 @@ dev_socket_phoenix: ## run the Phoenix socket migration runtime on port 5691
 
 test_socket_phoenix: ## verify the isolated Phoenix migration runtime and shared contract
 	cd $(UI_DIR) && yarn typecheck
-	uv run python src/socket/test/integration/test-phoenix-config.py "$(SHELL)"
+	uv run python src/socket/test/integration/test-phoenix-config.py bash
 	uv run python -m pytest -q src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff check src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff format --check src/socket/test/unit/test_phoenix_owner_preflight.py
@@ -334,8 +338,13 @@ check_socket_phoenix_otel: ## verify local Phoenix metrics and traces reach the 
 		--collector-metrics-url "http://127.0.0.1:$${SOCKET_PHOENIX_OTEL_INTERNAL_METRICS_EXPOSE_PORT:-8888}/metrics"
 
 .PHONY: check_socket_phoenix_ingress test_socket_phoenix_local
-check_socket_phoenix_ingress: ## verify the host-published Phoenix Socket route
-	@port="$${NGINX_SOCKET_EXPOSE_PORT:-$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)}"; \
+check_socket_phoenix_ingress: ## verify the selected Phoenix route (not authenticated acceptance)
+	@if [ -n "$(filter %.phoenix-external.yaml,$(COMPOSE_ARGS))" ]; then \
+		project_name=$$(sed -n 's/^PROJECT_NAME=//p' .env | tail -n 1); \
+		docker exec -i "$${project_name}_api" sh -lc 'cd /app && uv run --no-sync python -u -' < scripts/check-external-phoenix-ingress.py; \
+		exit $$?; \
+	fi; \
+	port="$${NGINX_SOCKET_EXPOSE_PORT:-$$(sed -n 's/^NGINX_SOCKET_EXPOSE_PORT=//p' .env | tail -n 1)}"; \
 	if [ -z "$$port" ]; then echo "$(RED)NGINX_SOCKET_EXPOSE_PORT is missing.$(NC)"; exit 1; fi; \
 	for attempt in $$(seq 1 20); do \
 		headers=$$(curl --silent --head --max-time 2 "http://127.0.0.1:$$port/health/ready" | tr -d '\r'); \
@@ -369,8 +378,8 @@ record_socket_phoenix_otel_soak: ## record an evidence-backed Phoenix OTel soak
 		--warmup-seconds "$(PHOENIX_OTEL_SOAK_WARMUP_SECONDS)" \
 		--sample-interval-seconds "$(PHOENIX_OTEL_SOAK_SAMPLE_INTERVAL_SECONDS)"
 
-prepare_socket_phoenix_otel: ## pull, verify, and tag the pinned OTel Collector image
-	@if [ "$(WITH_OTEL)" != "true" ]; then exit 0; fi; \
+prepare_socket_phoenix_otel: ## pull, verify, and tag the bundled OTel Collector image
+	@if [ -n "$(filter %.phoenix-external.yaml,$(COMPOSE_ARGS))" ] || [ "$(WITH_OTEL)" != "true" ]; then exit 0; fi; \
 	image="$(SOCKET_PHOENIX_OTEL_COLLECTOR_IMAGE)"; \
 	digest="$(SOCKET_PHOENIX_OTEL_COLLECTOR_DIGEST)"; \
 	docker pull "$$image@$$digest" >/dev/null; \

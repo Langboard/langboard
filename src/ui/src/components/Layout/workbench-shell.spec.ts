@@ -1,5 +1,21 @@
-import type { Route } from "@playwright/test";
+import { hasPanelAccess } from "../../core/apps/PanelAccess";
+import type { CatalogApp } from "../../controllers/api/board/useBoardAppCatalog";
+import type { Page, Route } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+test.beforeEach(async ({ page }) => {
+    const accounts = new Map<string, { revision: number; pinned_apps: { key: string; name: string }[] }>();
+    await page.route("**/account/app-preferences", (route) => {
+        const actor = new URL(page.url()).searchParams.get("actor") ?? "fixture-user";
+        const current = accounts.get(actor) ?? { revision: 0, pinned_apps: [] };
+        if (route.request().method() === "PUT") {
+            const input = route.request().postDataJSON();
+            if (input.expected_revision !== current.revision) return route.fulfill({ status: 409, json: {} });
+            accounts.set(actor, { revision: current.revision + 1, pinned_apps: input.pinned_apps });
+        }
+        return route.fulfill({ json: accounts.get(actor) ?? current });
+    });
+});
 
 for (const width of [1440, 390]) {
     test(`outline follows the current card attachment models at ${width}px`, async ({ page }) => {
@@ -41,10 +57,10 @@ test("route changes retain the physical shell and preserve page context in its s
     await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 });
 
-test("mobile drawer actions are keyboard reachable and open context content", async ({ page }) => {
+test("mobile rail actions are keyboard reachable and open context content", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).click();
+
     const explorer = page.getByRole("button", { name: "Explorer", exact: true });
     await explorer.focus();
     await explorer.press("Enter");
@@ -64,9 +80,8 @@ test("initial shell registration mounts the page once", async ({ page }) => {
 test("mobile mode selection enters the panel, and explicit dismissal restores navigation focus", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    const trigger = page.getByRole("button", { name: "Toggle navigation menu", exact: true });
+    const trigger = page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true });
     await trigger.press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
     await expect(panel).toBeFocused();
     await panel.press("Tab");
@@ -76,23 +91,22 @@ test("mobile mode selection enters the panel, and explicit dismissal restores na
     await expect(panel).toHaveCount(0);
     await expect(trigger).toBeFocused();
     await trigger.press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     await expect(panel).toBeFocused();
     await panel.press("Tab");
     await close.press("Enter");
     await expect(panel).toHaveCount(0);
     await expect(trigger).toBeFocused();
-    // Cancelling the navigation drawer keeps normal trigger restoration.
-    await trigger.press("Enter");
-    await page.getByRole("dialog").press("Escape");
-    await expect(trigger).toBeFocused();
+    // Cancelling overflow keeps normal trigger restoration.
+    const more = page.getByRole("button", { name: "More", exact: true });
+    await more.press("Enter");
+    await page.getByRole("menu").press("Escape");
+    await expect(more).toBeFocused();
 });
 
 test("a nested mobile menu owns Escape before the context panel", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
+    await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
     await expect(panel).toBeFocused();
     await panel.getByRole("button", { name: "Nested menu", exact: true }).press("Enter");
@@ -113,9 +127,8 @@ test("project navigation focuses the existing palette trigger after the new conf
 test("Escape from page-owned portaled controls dismisses the physical mobile panel", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    const trigger = page.getByRole("button", { name: "Toggle navigation menu", exact: true });
+    const trigger = page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true });
     await trigger.press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
     await expect(panel).toBeFocused();
@@ -461,8 +474,8 @@ test.describe("mobile context label preview", () => {
     test("touch preview paints above the context panel and outside tap dismisses only the label", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-        await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).click();
-        await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).click();
+
+        await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true }).click();
         const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
         await expect(panel).toBeFocused();
         await panel.getByRole("button", { name: "🧩 Contract", exact: true }).tap();
@@ -488,7 +501,7 @@ for (const width of [1440, 390]) {
             column: { name },
             recorder: { type: "user", firstname: "History", lastname: "Worker" },
         });
-        await page.route("**/column-history", async (route) => {
+        await page.route(/\/column-history(?:\?|$)/, async (route) => {
             if (route.request().url().includes("history-second")) pending = route;
             else await route.fulfill({ json: { records: [record("First backlog"), record("First active"), record("First returned")] } });
         });
@@ -504,6 +517,47 @@ for (const width of [1440, 390]) {
         await pending!.fulfill({ json: { records: [record("Second review")] } });
         await expect(timeline.locator("time")).toHaveText(["Second review"]);
     });
+
+    test(`column history follows the selected app language without refetching at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let requests = 0;
+        const createdAt = "2026-10-01T12:00:00Z";
+        await page.route(/\/column-history(?:\?|$)/, async (route) => {
+            requests += 1;
+            await route.fulfill({
+                json: {
+                    records: [
+                        {
+                            uid: "localized-event",
+                            activity_type: "card_moved",
+                            created_at: createdAt,
+                            column: { name: "Review queue" },
+                            recorder: { type: "user", firstname: "History", lastname: "Worker" },
+                        },
+                    ],
+                },
+            });
+        });
+        await page.goto("/src/components/Layout/column-history.fixture.html");
+        const entry = page.locator("nav time");
+        await expect(entry).toHaveText("Review queue");
+        for (const language of ["ko-KR", "en-US", "ja-JP", "zh-CN"]) {
+            const exact = await page.evaluate(
+                async ({ language, createdAt }) => {
+                    const modulePath = "/src/i18n.ts";
+                    const { default: i18n } = await import(modulePath);
+                    await i18n.changeLanguage(language);
+                    return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(createdAt));
+                },
+                { language, createdAt }
+            );
+            await expect(entry).toHaveAttribute("aria-label", `Review queue · ${exact} · History Worker`);
+            await entry.focus();
+            await expect(page.getByRole("tooltip")).toContainText(exact);
+            await entry.press("Escape");
+        }
+        expect(requests).toBe(1);
+    });
 }
 
 test("rail keeps settings reachable below scrolling workspace actions", async ({ page }) => {
@@ -518,3 +572,390 @@ test("rail keeps settings reachable below scrolling workspace actions", async ({
     await settings.focus();
     await expect(settings).toBeFocused();
 });
+
+for (const width of [1440, 1100]) {
+    test(`explicit sidebar preference survives navigation and reload at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        const sidebar = page.locator("[data-workbench-sidebar]");
+        if (width <= 1280) await sidebar.getByRole("button", { name: /Expand|펼치기/ }).click();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+        await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+        await page.reload();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+        await sidebar.getByRole("button", { name: /Expand|펼치기/ }).click();
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+        await page.reload();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    });
+}
+
+test("sidebar preference belongs to the current user", async ({ page }) => {
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const sidebar = page.locator("[data-workbench-sidebar]");
+    await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await page.getByRole("button", { name: "Use second user", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await page.getByRole("button", { name: "Use first user", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await page.getByRole("button", { name: "Use second user", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+});
+
+test("column history replaces bounded pages and returns to latest without accumulating DOM", async ({ page }) => {
+    const cursors: (string | null)[] = [];
+    await page.route(/\/column-history(?:\?|$)/, async (route) => {
+        const before = new URL(route.request().url()).searchParams.get("before_activity_uid");
+        cursors.push(before);
+        const start = before ? 0 : 20;
+        await route.fulfill({
+            json: {
+                records: Array.from({ length: 20 }, (_, index) => ({
+                    uid: `event-${start + index}`,
+                    activity_type: "card_moved",
+                    created_at: "2026-10-01T12:00:00Z",
+                    column: { name: `Stage ${start + index}` },
+                })),
+                next_cursor: before ? null : "event-20",
+            },
+        });
+    });
+    await page.goto("/src/components/Layout/column-history.fixture.html");
+    const timeline = page.getByRole("navigation", { name: "Activity", exact: true });
+    await expect(timeline.locator("time")).toHaveCount(20);
+    await expect(timeline.locator("time").first()).toHaveText("Stage 20");
+    await timeline.getByRole("button", { name: "Older history", exact: true }).click();
+    await expect(timeline.locator("time").first()).toHaveText("Stage 0");
+    await expect(timeline.locator("time")).toHaveCount(20);
+    await expect(timeline.getByRole("button", { name: "Older history", exact: true })).toHaveCount(0);
+    await timeline.getByRole("button", { name: "Latest history", exact: true }).click();
+    await expect(timeline.locator("time").first()).toHaveText("Stage 20");
+    await expect(timeline.locator("time")).toHaveCount(20);
+    expect(cursors).toEqual([null, "event-20", null]);
+});
+
+for (const width of [360, 390, 412]) {
+    test(`mobile rail reserves body space and overflow restores focus at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+        await expect(page.getByRole("button", { name: "Toggle navigation menu", exact: true })).toHaveCount(0);
+        const bounds = await rail.boundingBox();
+        expect(bounds!.y + bounds!.height).toBe(844);
+        expect(bounds!.height).toBe(57);
+        const body = await page.locator("main").boundingBox();
+        expect(body!.y + body!.height).toBeLessThanOrEqual(bounds!.y);
+        const dock = await page.getByRole("button", { name: "Work dock", exact: true }).boundingBox();
+        expect(dock!.y + dock!.height).toBeLessThan(bounds!.y);
+        for (const button of await rail.getByRole("button").all()) {
+            const hit = await button.boundingBox();
+            expect(hit!.width).toBeGreaterThanOrEqual(44);
+            expect(hit!.height).toBeGreaterThanOrEqual(44);
+        }
+        const more = rail.getByRole("button", { name: "More", exact: true });
+        await more.click();
+        await expect(page.getByRole("menuitem", { name: "App settings", exact: true })).toBeVisible();
+        await expect(page.getByRole("menuitem", { name: "Hidden action", exact: true })).toHaveCount(0);
+        await page.getByRole("menuitem", { name: "App settings", exact: true }).press("Escape");
+        await expect(more).toBeFocused();
+        await more.click();
+        await page.getByRole("menuitem", { name: "Relations", exact: true }).click();
+        const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
+        await expect(panel).toBeFocused();
+        await panel.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(more).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+}
+
+for (const width of [390, 1440]) {
+    test(`user app discovery stays separate from installation at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        const requests: string[] = [];
+        await page.route("**/apps/catalog*", async (route) => {
+            requests.push(route.request().url());
+            expect(route.request().method()).toBe("GET");
+            const url = new URL(route.request().url());
+            expect(url.searchParams.get("project_uid")).toBe("2RRwwB5JNm0");
+            await route.fulfill({
+                json: {
+                    items: [
+                        {
+                            key: "github-panel",
+                            name: "GitHub",
+                            description: "Approved integration",
+                            version: "1.2.0",
+                            is_installed: true,
+                            capabilities: ["panels.render"],
+                        },
+                    ],
+                    official: [{ key: "github-panel", name: "GitHub", description: "Official integration" }],
+                    effective_mode: "approved_only",
+                    can_manage_installation: false,
+                    next_cursor: null,
+                },
+            });
+        });
+        await page.goto("/src/pages/AppsPage/AppStore.fixture.html");
+        await expect(page.getByRole("link", { name: /GitHub/ })).toHaveCount(1);
+        await expect(page.getByRole("link", { name: "Manage installation" })).toHaveCount(0);
+        await page.getByRole("link", { name: /GitHub/ }).click();
+        await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
+        await expect(page.getByText("panels.render", { exact: true })).toBeVisible();
+        expect(requests.some((url) => new URL(url).searchParams.get("key") === "github-panel")).toBe(true);
+        await expect(page.getByRole("link", { name: "Configure on this board" })).toHaveAttribute("href", "/board/2RRwwB5JNm0/settings/apps");
+        await page.getByRole("link", { name: "All apps", exact: true }).click();
+        await expect(page.getByRole("link", { name: /GitHub/ })).toHaveCount(1);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("legacy store redirects into user discovery and honors disabled policy", async ({ page }) => {
+    await page.route("**/apps/catalog*", (route) =>
+        route.fulfill({ json: { items: [], official: [], effective_mode: "disabled", can_manage_installation: false, next_cursor: null } })
+    );
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/settings/app-store"));
+    await expect(page.getByText("Apps are disabled by the current policy.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Manage installation" })).toHaveCount(0);
+});
+
+test("personal app pins persist, reorder, stay user scoped and grant no permissions", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const requests: string[] = [];
+    await page.route("**/apps/catalog*", (route) => {
+        requests.push(route.request().method());
+        const key = new URL(route.request().url()).searchParams.get("key") ?? "alpha";
+        return route.fulfill({
+            json: {
+                items: [{ key, name: key === "alpha" ? "Alpha" : "Beta", description: "Approved app", version: "1.0.0", is_installed: true }],
+                official: [],
+                effective_mode: "approved_only",
+                can_manage_installation: false,
+                next_cursor: null,
+            },
+        });
+    });
+    const fixture = "/src/pages/AppsPage/AppStore.fixture.html?initial=";
+    await page.goto(fixture + encodeURIComponent("/apps/alpha"));
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    const shortcuts = page.getByRole("region", { name: "Your shortcuts", exact: true });
+    await expect(shortcuts.getByRole("link", { name: "Alpha", exact: true })).toBeVisible();
+    expect(requests).toEqual(["GET"]);
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+            )
+        )
+        .toEqual(["alpha"]);
+    await page.goto(fixture + encodeURIComponent("/apps/beta"));
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    await page.getByRole("button", { name: "Move Beta earlier", exact: true }).click();
+    await expect(shortcuts.getByRole("link")).toHaveText(["Beta", "Alpha"]);
+    await expect
+        .poll(() =>
+            page.evaluate(() =>
+                JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+            )
+        )
+        .toEqual(["beta", "alpha"]);
+    await page.reload();
+    await expect(shortcuts.getByRole("link")).toHaveText(["Beta", "Alpha"]);
+    await expect(page.getByRole("button", { name: "Unpin from rail", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Remove Alpha shortcut", exact: true }).click();
+    await expect(shortcuts.getByRole("link")).toHaveText(["Beta"]);
+    await page.goto(fixture + encodeURIComponent("/apps/beta") + "&actor=other-user");
+    await expect(shortcuts).toHaveCount(0);
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    await expect
+        .poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps ?? {}).sort()))
+        .toEqual(["fixture-user", "other-user"]);
+    expect(requests.every((method) => method === "GET")).toBe(true);
+});
+
+test("panel shortcuts require current policy, declaration and board consent", () => {
+    const app: CatalogApp = {
+        key: "example",
+        name: "Example",
+        version: "1.0.0",
+        app_revision: null,
+        is_available: true,
+        panel: { url: "https://example.invalid/panel", name: "Example" },
+        capabilities: ["panels.render"],
+        workflow_requirements: null,
+        resources: { selected_count: 0, access_counts: {}, health_counts: {}, connection_counts: {} },
+        binding: {
+            uid: "binding",
+            revision: "revision",
+            state: "enabled",
+            granted_capabilities: ["panels.render"],
+            stage_transitions_enabled: false,
+        },
+    };
+    expect(hasPanelAccess(app)).toBe(true);
+    for (const denied of [
+        { ...app, is_available: false },
+        { ...app, is_available: undefined },
+        { ...app, panel: null },
+        { ...app, capabilities: [] },
+        { ...app, binding: null },
+        { ...app, binding: { ...app.binding!, state: "disabled" } },
+        { ...app, binding: { ...app.binding!, granted_capabilities: [] } },
+    ])
+        expect(hasPanelAccess(denied)).toBe(false);
+});
+
+test("stored shortcuts are bounded, normalized and never initialize panels", async ({ page }) => {
+    await page.addInitScript(() =>
+        localStorage.setItem(
+            "user-settings-store",
+            JSON.stringify({
+                pinned_apps: {
+                    "fixture-user": [
+                        null,
+                        { key: "../invalid", name: "Invalid" },
+                        ...Array.from({ length: 35 }, (_, i) => ({ key: `app-${i}`, name: "Same name", ignored: "https://private.invalid" })),
+                    ],
+                },
+            })
+        )
+    );
+    let reads = 0;
+    await page.route("**/apps/catalog*", (route) => {
+        reads++;
+        return route.fulfill({
+            json: {
+                items: [{ key: "alpha", name: "Alpha", description: "App", is_installed: true }],
+                official: [],
+                effective_mode: "approved_only",
+                can_manage_installation: false,
+                next_cursor: null,
+            },
+        });
+    });
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/apps/alpha"));
+    await expect(page.getByRole("region", { name: "Your shortcuts", exact: true }).getByRole("listitem")).toHaveCount(32);
+    await expect(page.getByRole("button", { name: "Pin to rail", exact: true })).toBeDisabled();
+    await expect(page.locator("iframe")).toHaveCount(0);
+    expect(reads).toBe(1);
+    const unicodeName = await page.evaluate(async () => {
+        const path = "/src/core/stores/UserSettingsStore.ts";
+        const { normalizePinnedApps } = await import(path);
+        return normalizePinnedApps([{ key: "unicode", name: "🧩".repeat(81) }])[0].name;
+    });
+    expect(unicodeName).toBe("🧩".repeat(80));
+});
+
+test("account shortcuts restore on an isolated device and recover conflicts without replaying writes", async ({ page, browser }) => {
+    let current = { revision: 2, pinned_apps: [{ key: "beta", name: "Beta" }] };
+    let offline = false;
+    let uncertain = false;
+    let writes = 0;
+    const fixture = "/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/apps/alpha");
+    const connect = async (device: Page) => {
+        await device.route("**/account/app-preferences", (route) => {
+            if (route.request().method() === "GET") {
+                return offline ? route.abort("internetdisconnected") : route.fulfill({ json: current });
+            }
+            writes++;
+            const input = route.request().postDataJSON();
+            if (input.expected_revision !== current.revision) return route.fulfill({ status: 409, json: {} });
+            current = { revision: current.revision + 1, pinned_apps: input.pinned_apps };
+            if (uncertain) {
+                uncertain = false;
+                return route.abort("internetdisconnected");
+            }
+            return route.fulfill({ json: current });
+        });
+        await device.route("**/apps/catalog*", (route) =>
+            route.fulfill({
+                json: {
+                    items: [{ key: "alpha", name: "Alpha", description: "Approved", is_installed: true }],
+                    official: [],
+                    next_cursor: null,
+                    effective_mode: "approved_only",
+                    can_manage_installation: false,
+                },
+            })
+        );
+    };
+    await connect(page);
+    await page.goto(fixture);
+    const shortcuts = (device: Page) => device.getByRole("region", { name: "Your shortcuts", exact: true }).getByRole("link");
+    await expect(shortcuts(page)).toHaveText(["Beta"]);
+    expect(writes).toBe(0);
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    await expect(shortcuts(page)).toHaveText(["Beta", "Alpha"]);
+    const other = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+        const device = await other.newPage();
+        await connect(device);
+        await device.goto("http://127.0.0.1:4183" + fixture);
+        await expect(shortcuts(device)).toHaveText(["Beta", "Alpha"]);
+        expect(writes).toBe(1);
+        current = { revision: 4, pinned_apps: [{ key: "beta", name: "Beta" }] };
+        await page.getByRole("button", { name: "Remove Alpha shortcut", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("Shortcut sync is unavailable");
+        await expect(shortcuts(page)).toHaveText(["Beta"]);
+        expect(writes).toBe(2);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Pin to rail", exact: true })).toBeEnabled();
+        expect(writes).toBe(2);
+        // The server saves, but the response is lost: read back without replay.
+        uncertain = true;
+        await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(shortcuts(page)).toHaveText(["Beta", "Alpha"]);
+        expect(writes).toBe(3);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Unpin from rail", exact: true })).toBeEnabled();
+        expect(writes).toBe(3);
+        offline = true;
+        await device.reload();
+        await expect(device.getByRole("alert")).toContainText("Shortcut sync is unavailable");
+        await expect(device.getByRole("button", { name: "Unpin from rail", exact: true })).toBeDisabled();
+        offline = false;
+        await device.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(device.getByRole("button", { name: "Unpin from rail", exact: true })).toBeEnabled();
+        expect(writes).toBe(3);
+        await expect(device.locator("iframe")).toHaveCount(0);
+    } finally {
+        await other.close();
+    }
+});
+
+for (const width of [1440, 390]) {
+    for (const failure of ["abort", "server"] as const) {
+        test(`card creation retains the draft after ${failure} at ${width}px`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 900 });
+            const requests: unknown[] = [];
+            await page.route("**/board/fixture/card", async (route) => {
+                requests.push(route.request().postDataJSON());
+                if (requests.length === 1) {
+                    if (failure === "abort") return route.abort("aborted");
+                    return route.fulfill({ status: 500, json: { message: "Temporary failure" } });
+                }
+                return route.fulfill({ status: 201, json: { card: { uid: "created" } } });
+            });
+            await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+            await page.getByRole("button", { name: "Add a card", exact: true }).click();
+            const title = "고객 요청 초안 — preserve on failure";
+            const input = page.locator("textarea");
+            await input.fill(title);
+            await input.press("Enter");
+            await expect.poll(() => requests.length).toBe(1);
+            await expect(input).toBeVisible();
+            await expect(input).toBeEnabled();
+            await expect(input).toHaveValue(title);
+            await input.press("Enter");
+            await expect.poll(() => requests.length).toBe(2);
+            await expect(input).toHaveCount(0);
+            expect(requests[1]).toEqual(requests[0]);
+            expect(requests[0]).toEqual({ project_column_uid: "ready", title });
+        });
+    }
+}

@@ -1,3 +1,5 @@
+import hashlib
+import json
 from typing import Any
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
@@ -16,6 +18,23 @@ class AppConnection(BaseDbModel, table=True):
     external_account_id: str = Field(default="", nullable=False)
     credential_reference: str | None = Field(default=None, nullable=True)
     state: str = Field(default="pending", nullable=False)
+
+    def edit_revision(self) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                {
+                    "id": int(self.id),
+                    "owner": int(self.owner_id),
+                    "ownership": self.ownership,
+                    "organization_id": int(self.organization_id) if self.organization_id is not None else None,
+                    "app": self.app_key,
+                    "instance": self.instance_url,
+                    "credential": self.credential_reference,
+                    "state": self.state,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
 
     def notification_data(self) -> dict[str, Any]:
         return {}

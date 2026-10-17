@@ -1,5 +1,5 @@
 from typing import Any, ClassVar
-from sqlalchemy import TEXT, CheckConstraint, Index
+from sqlalchemy import TEXT
 from ...core.db import ApiField, DateTimeField, EditorContentModel, Field, ModelColumnType, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -9,21 +9,6 @@ from .ProjectColumn import ProjectColumn
 
 class Card(BaseNotificationScheduleModel, table=True):
     LINKED_RESOURCE_PROJECT_WIKI: ClassVar[str] = "project_wiki"
-    __table_args__ = (
-        CheckConstraint(
-            "(source_type IS NULL) = (source_uid IS NULL)",
-            name="linked_source_complete",
-        ),
-        Index("ix_card_project_archive_page", "project_id", "archived_at", "id"),
-        CheckConstraint("visibility IN ('INTERNAL', 'SHARED', 'PRIVATE')", name="card_visibility"),
-        Index("ix_card_project_visibility", "project_id", "visibility"),
-        CheckConstraint(
-            "(visibility = 'PRIVATE' AND owner_user_id IS NOT NULL AND owner_user_id > 0 "
-            "AND created_by_user_id IS NOT NULL AND owner_user_id = created_by_user_id "
-            "AND created_by_bot_id IS NULL) OR (visibility <> 'PRIVATE' AND owner_user_id IS NULL)",
-            name="card_private_owner",
-        ),
-    )
 
     created_by_user_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
     created_by_bot_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
@@ -43,9 +28,12 @@ class Card(BaseNotificationScheduleModel, table=True):
     owner_user_id: SnowflakeID | None = SnowflakeIDField(foreign_key="user.id", nullable=True)
     title: str = Field(nullable=False, api_field=ApiField())
     description: EditorContentModel = Field(
-        default=EditorContentModel(), sa_type=ModelColumnType(EditorContentModel), api_field=ApiField()
+        default=EditorContentModel(), sa_type=ModelColumnType(EditorContentModel),
+        api_field=ApiField(by_conditions={"include_body": ("both", True)}),
     )
-    ai_description: str | None = Field(default=None, sa_type=TEXT, api_field=ApiField())
+    ai_description: str | None = Field(
+        default=None, sa_type=TEXT, api_field=ApiField(by_conditions={"include_body": ("both", True)})
+    )
     deadline_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     archived_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
@@ -84,9 +72,10 @@ class Card(BaseNotificationScheduleModel, table=True):
         creator: dict[str, Any] | None = None,
         completed: bool = False,
         is_check_card: bool = False,
+        *, include_body: bool = True,
     ) -> dict[str, Any]:
         return {
-            **self.api_response(),
+            **self.api_response(include_body=include_body),
             "visibility": self.visibility,
             "count_comment": count_comment,
             "member_uids": member_uids,
@@ -97,6 +86,13 @@ class Card(BaseNotificationScheduleModel, table=True):
             "completed": completed,
             "is_check_card": is_check_card,
         }
+
+    @classmethod
+    def api_schema(cls, schema: dict | None = None, *, include_body: bool = True, **kwargs) -> dict[str, Any]:
+        return super().api_schema(schema, include_body=include_body, **kwargs)
+
+    def api_response(self, *, include_body: bool = True, **kwargs) -> dict[str, Any]:
+        return super().api_response(include_body=include_body, **kwargs)
 
     def notification_data(self) -> dict[str, Any]:
         return {

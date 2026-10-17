@@ -10,7 +10,6 @@ from langboard_shared.domain.models import AppExecutionOutbox
 from langboard_shared.domain.services.AppEventDelivery import claim_app_event, finish_app_event
 from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_event_destination import destination_scope
 
 

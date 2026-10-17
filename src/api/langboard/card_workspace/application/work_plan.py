@@ -20,6 +20,7 @@ from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_serializer, model_validator
 from sqlalchemy import select
+from ..domain import WorkPlanConflict
 
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
@@ -353,7 +354,7 @@ class WorkPlanService:
                 return {**result, "replayed": True}
             preview, cards, project = self._preview(plan)
             if preview["revision"] != expected_revision:
-                raise ValueError("Work plan changed after review; preview again")
+                raise WorkPlanConflict("Work plan changed after review; preview again")
             service = self.service
             mapped = dict(cards)
             result = {"graph": None, "cardifications": [], "checklists": []}

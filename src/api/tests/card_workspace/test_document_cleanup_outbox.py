@@ -1,0 +1,308 @@
+"""Cleanup request durability, bounded recovery and lease fencing on SQLite/PostgreSQL."""
+
+from datetime import timedelta
+from unittest.mock import Mock
+import pytest
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.models import DocumentVectorCleanup
+from langboard_shared.tasks.docling import DocumentCleanupTask as outbox
+from langboard_shared.tasks.docling import DocumentEmbeddingTask as embedding
+from sqlalchemy import update
+from test_document_mcp_read import binding_store  # noqa: F401
+
+
+@pytest.fixture
+def cleanup_store(binding_store, monkeypatch):  # noqa: F811
+    DocumentVectorCleanup.__table__.create(binding_store)
+    send = Mock(side_effect=RuntimeError("broker unavailable fixture-secret"))
+    monkeypatch.setattr(outbox.Broker.celery, "send_task", send)
+    return send
+
+
+def pointer():
+    return {
+        "embedding_fingerprint": "a" * 64,
+        "generation": "old",
+        "chunk_ids": ["old-1"],
+        "storage": {
+            "type": "qdrant",
+            "endpoint": "https://fixture.invalid",
+            "binding_uid": "binding",
+            "dimensions": 3,
+            "collection_prefix": "recorded_documents",
+        },
+    }
+
+
+def pending():
+    with DbSession.use(readonly=False) as db:
+        return db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()
+
+
+def record():
+    with DbSession.atomic() as db:
+        outbox.record_cleanup(db, pointer())
+    return pending()[0]
+
+
+def test_commit_survives_broker_failure_and_rollback_never_dispatches(cleanup_store):
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic() as db:
+            outbox.record_cleanup(db, pointer())
+            cleanup_store.assert_not_called()
+            raise RuntimeError("rollback")
+    assert pending() == []
+    cleanup_store.assert_not_called()
+    event = record()
+    assert event.pointer == pointer() and event.attempt_count == 0
+    cleanup_store.assert_called_once_with(outbox.TASK_NAME, args=[int(event.id)])
+    cleanup_store.side_effect = None
+    assert outbox.recover_cleanup() == 1
+    assert cleanup_store.call_count == 2
+    assert outbox.process_cleanup(0) is False
+
+
+def test_failure_backoff_keeps_pointer_and_sanitizes_error(cleanup_store, monkeypatch):
+    event = record()
+    remove = Mock(side_effect=RuntimeError("fixture-secret private document"))
+    monkeypatch.setattr(embedding, "remove_recorded_embedding", remove)
+    before = SafeDateTime.now()
+    assert outbox.process_cleanup(int(event.id)) is False
+    retry = pending()[0]
+    assert retry.pointer == pointer() and retry.attempt_count == 1 and retry.claim_token is None
+    assert retry.last_error == "cleanup_failed_check_original_connection"
+    assert retry.due_at.replace(tzinfo=before.tzinfo) > before
+    assert outbox.process_cleanup(int(event.id)) is False
+    assert outbox.recover_cleanup() == 0
+    remove.assert_called_once()
+    with DbSession.atomic() as db:
+        db.exec(
+            update(DocumentVectorCleanup)
+            .where(DocumentVectorCleanup.id == event.id)
+            .values(due_at=before - timedelta(seconds=1))
+        )
+    remove.side_effect = None
+    assert outbox.process_cleanup(int(event.id)) is True
+    assert pending() == []
+    assert outbox.process_cleanup(int(event.id)) is False
+    assert remove.call_count == 2
+
+
+def test_lease_fences_duplicate_delivery_and_recovers_worker_loss(cleanup_store, monkeypatch):
+    event = record()
+    now = SafeDateTime.now()
+    with DbSession.atomic() as db:
+        db.exec(
+            update(DocumentVectorCleanup)
+            .where(DocumentVectorCleanup.id == event.id)
+            .values(claim_token="lost-worker", due_at=now + timedelta(seconds=120))
+        )
+    remove = Mock()
+    monkeypatch.setattr(embedding, "remove_recorded_embedding", remove)
+    assert outbox.process_cleanup(int(event.id)) is False
+    remove.assert_not_called()
+    assert outbox.recover_cleanup() == 0
+    with DbSession.atomic() as db:
+        db.exec(
+            update(DocumentVectorCleanup)
+            .where(DocumentVectorCleanup.id == event.id)
+            .values(due_at=now - timedelta(seconds=1))
+        )
+    assert outbox.process_cleanup(int(event.id)) is True
+    remove.assert_called_once_with(pointer())
+    assert pending() == []
+
+
+def test_expired_worker_cannot_acknowledge_new_claim(cleanup_store, monkeypatch):
+    event = record()
+
+    def supersede(_pointer):
+        with DbSession.atomic() as db:
+            db.exec(
+                update(DocumentVectorCleanup)
+                .where(DocumentVectorCleanup.id == event.id)
+                .values(claim_token="replacement-worker")
+            )
+
+    monkeypatch.setattr(embedding, "remove_recorded_embedding", supersede)
+    assert outbox.process_cleanup(int(event.id)) is False
+    assert pending()[0].claim_token == "replacement-worker"
+
+
+def test_recovery_is_bounded_and_pointer_never_contains_credentials(cleanup_store):
+    supplied = {**pointer(), "api_key": "fixture-secret"}
+    supplied["storage"] = {**supplied["storage"], "external_api_key": "fixture-vector-secret"}
+    with DbSession.atomic() as db:
+        for _ in range(3):
+            outbox.record_cleanup(db, supplied)
+    cleanup_store.side_effect = None
+    cleanup_store.reset_mock()
+    assert outbox.recover_cleanup(limit=2) == 2
+    assert cleanup_store.call_count == 2
+    assert all(event.pointer == pointer() for event in pending())
+    for value in (0, 101, True):
+        with pytest.raises(ValueError, match="limit"):
+            outbox.recover_cleanup(limit=value)
+
+
+@pytest.fixture
+def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.core.storage import FileModel
+    from langboard_shared.domain.models import (
+        Card,
+        CardAttachment,
+        CardDocumentArtifact,
+        CardMetadata,
+        Organization,
+        Project,
+        ProjectColumn,
+        User,
+    )
+    from langboard_shared.domain.services import DomainService
+
+    for model in (User, Organization, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata):
+        model.__table__.create(binding_store)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: binding_store)
+    with DbSession.atomic() as db:
+        owner = User(firstname="Fixture", lastname="Owner", email="cleanup@example.invalid", password="fixture-only")
+        db.insert(owner)
+        project = Project(owner_id=owner.id, title="Cleanup source")
+        db.insert(project)
+        column = ProjectColumn(project_id=project.id, name="Todo")
+        db.insert(column)
+        card = Card(project_id=project.id, project_column_id=column.id, title="Cleanup")
+        db.insert(card)
+        attachment = CardAttachment(
+            user_id=owner.id,
+            card_id=card.id,
+            filename="source.pdf",
+            file=FileModel(
+                storage_type="test",
+                storage_name="test",
+                original_filename="source.pdf",
+                filename="source.pdf",
+                path="/fixture",
+            ),
+        )
+        db.insert(attachment)
+    service = DomainService()
+    doc = {
+        "attachment_uid": attachment.get_uid(),
+        "filename": "source.pdf",
+        "generation": "current",
+        "status": "indexed",
+        "content_hash": "hash",
+        "content": {"markdown": "retained text"},
+        "embedding": {"status": "indexed", "pointer": pointer()},
+    }
+    service.docling_metadata.save_documents(CardMetadata, card, [doc])
+    try:
+        yield service.docling_metadata, card, attachment, doc
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("operation", ["replace", "delete"])
+def test_source_change_and_cleanup_request_commit_or_rollback_together(document_source, cleanup_store, operation):
+    from langboard_shared.domain.models import CardMetadata
+
+    service, card, attachment, document = document_source
+    new = {"status": "indexed", "pointer": {**pointer(), "chunk_ids": ["new-1"], "generation": "new"}}
+
+    def change():
+        if operation == "replace":
+            assert service.publish_document_embedding(
+                card, attachment.get_uid(), "current", "hash", new, expected_embedding=document["embedding"]
+            )
+        else:
+            assert service.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            change()
+            assert len(pending()) == 1
+            cleanup_store.assert_not_called()
+            raise RuntimeError("rollback")
+    assert pending() == []
+    assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) == document
+    change()
+    assert len(pending()) == 1 and pending()[0].pointer == pointer()
+    cleanup_store.assert_called_once()
+    if operation == "replace":
+        assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())["embedding"] == new
+        assert not service.publish_document_embedding(
+            card, attachment.get_uid(), "current", "hash", new, expected_embedding=document["embedding"]
+        )
+        assert len(pending()) == 1
+    else:
+        assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) is None
+        service.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+        assert len(pending()) == 1
+
+
+def test_cleanup_migration_refuses_populated_downgrade(binding_store):  # noqa: F811
+    import importlib.util
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import delete, insert, select
+
+    path = Path(__file__).parents[2] / "langboard/migrations/versions/20261017070000-a31f9e7b402c.py"
+    spec = importlib.util.spec_from_file_location("cleanup_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with binding_store.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            event = DocumentVectorCleanup(id=123, pointer=pointer())
+            connection.execute(
+                insert(DocumentVectorCleanup.__table__).values(
+                    **{column.name: getattr(event, column.name) for column in DocumentVectorCleanup.__table__.columns}
+                )
+            )
+            with pytest.raises(RuntimeError, match="Cannot discard pending"):
+                migration.downgrade()
+            assert connection.execute(select(DocumentVectorCleanup.id)).scalar() == 123
+            connection.execute(delete(DocumentVectorCleanup))
+            migration.downgrade()
+            migration.upgrade()
+            assert connection.execute(select(DocumentVectorCleanup.id)).first() is None
+
+
+def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, tmp_path, monkeypatch):
+    pytest.importorskip("langchain_core")
+    from types import SimpleNamespace
+    from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
+    from langboard_shared.tasks.docling.DocumentVectorStore import stage_vector_generation
+
+    monkeypatch.setattr(embedding, "Env", SimpleNamespace(DATA_DIR=tmp_path))
+    directory = tmp_path / "document-retrieval"
+    directory.mkdir()
+    source = {
+        "board_uid": "board",
+        "card_uid": "card",
+        "attachment_uid": "attachment",
+        "content_hash": "hash",
+        "embedding_fingerprint": "a" * 64,
+    }
+    path = directory / (source["embedding_fingerprint"] + ".sqlite")
+    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+        old = stage_vector_generation(
+            store, source=source, text="alpha old", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
+        )
+        new = stage_vector_generation(
+            store, source=source, text="alpha new", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
+        )
+    with DbSession.atomic() as db:
+        outbox.record_cleanup(db, old)
+    event = pending()[0]
+    assert outbox.process_cleanup(int(event.id)) is True
+    assert pending() == []
+    with open_sqlite_vector_store(path, None, dimensions=3) as store:
+        assert store.get_by_ids(old["chunk_ids"]) == []
+        assert store.get_by_ids(new["chunk_ids"])
+    assert outbox.process_cleanup(int(event.id)) is False

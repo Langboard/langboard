@@ -1,0 +1,25 @@
+# Optional override: keep bundled data volumes intact while using external services.
+services:
+  redis:
+    profiles: [bundled-redis]
+  redis-broker:
+    profiles: [bundled-redis]
+
+  api:
+    environment: &external-redis
+      CACHE_TYPE: redis
+      CACHE_URL: ${REDIS_EXTERNAL_CACHE_URL:?REDIS_EXTERNAL_CACHE_URL is required}
+      BROKER_URL: ${REDIS_EXTERNAL_BROKER_URL:?REDIS_EXTERNAL_BROKER_URL is required}
+      CACHE_KEY_PREFIX: ${CACHE_KEY_PREFIX:?CACHE_KEY_PREFIX is required}
+      BROKER_KEY_PREFIX: ${BROKER_KEY_PREFIX:?BROKER_KEY_PREFIX is required}
+    depends_on: &without-bundled-redis
+      redis: !reset null
+      redis-broker: !reset null
+
+  celeryworker:
+    environment: *external-redis
+    depends_on: *without-bundled-redis
+
+  graph:
+    environment: *external-redis
+    depends_on: *without-bundled-redis

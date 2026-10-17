@@ -128,6 +128,7 @@ class ProjectRepository(BaseRepository[Project]):
             exists()
             .where(Card.column("project_id") == Project.column("id"))
             .where(Card.column("archived_at").is_(None))
+            .where(Card.column("deleted_at").is_(None))
             .where(CardAssignedUser.column("card_id") == Card.column("id"))
             .where(CardAssignedUser.column("user_id") == user_id)
             .correlate(Project)
@@ -136,14 +137,22 @@ class ProjectRepository(BaseRepository[Project]):
 
     @staticmethod
     def _related_activity_by_project(user_id: SnowflakeID):
+        # Read the indexed latest activity per assigned card instead of joining
+        # every historical event before grouping the user's related projects.
+        last_card_activity = (
+            SqlBuilder.select.column(func.max(ProjectActivity.column("created_at")))
+            .where(ProjectActivity.column("card_id") == Card.column("id"))
+            .correlate(Card)
+            .scalar_subquery()
+        )
         return (
             SqlBuilder.select.columns(
                 Card.column("project_id").label("project_id"),
-                func.max(ProjectActivity.column("created_at")).label("related_activity_at"),
+                func.max(last_card_activity).label("related_activity_at"),
             )
             .join(CardAssignedUser, CardAssignedUser.column("card_id") == Card.column("id"))
-            .join(ProjectActivity, ProjectActivity.column("card_id") == Card.column("id"))
             .where(Card.column("archived_at").is_(None))
+            .where(Card.column("deleted_at").is_(None))
             .where(CardAssignedUser.column("user_id") == user_id)
             .group_by(Card.column("project_id"))
             .subquery()

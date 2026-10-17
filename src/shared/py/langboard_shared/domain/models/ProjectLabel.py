@@ -1,5 +1,5 @@
 from typing import Any, ClassVar
-from sqlalchemy import JSON, UniqueConstraint
+from sqlalchemy import JSON
 from ...core.db import ApiField, BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .GlobalLabel import GlobalLabel
@@ -7,7 +7,6 @@ from .Project import Project
 
 
 class ProjectLabel(BaseDbModel, table=True):
-    __table_args__ = (UniqueConstraint("project_id", "global_label_id", name="uq_project_label_global_source"),)
 
     # TODO: Label, should change default labels
     DEFAULT_LABELS: ClassVar[list[dict[str, str]]] = [

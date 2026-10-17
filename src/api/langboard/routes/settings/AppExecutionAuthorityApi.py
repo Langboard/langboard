@@ -3,10 +3,22 @@
 from fastapi import Header, Query
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
+from langboard_shared.domain.services.AppExecutionAcknowledgments import (
+    acknowledge_app_execution,
+    read_app_execution_request,
+    read_execution_acknowledgment,
+)
 from langboard_shared.domain.services.AppExecutionGrant import (
     AppExecutionCredentialDenied,
     evaluate_current_execution_grant,
 )
+from langboard_shared.domain.services.AppExecutionLeases import (
+    authorize_app_runtime,
+    check_app_runtime,
+    recover_app_runtime,
+)
+from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict, request_app_execution
+from langboard_shared.domain.services.AppExecutionStarts import read_app_runtime_report, report_app_execution_start
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,8 +62,6 @@ def execution_request(
     body: ExecutionRequestBody,
     authorization: str = Header(default="", max_length=256),
 ) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict, request_app_execution
-
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise ApiException.Unauthorized_401()
@@ -78,9 +88,6 @@ def execution_request(
 def execution_request_read(
     project_uid: str, card_uid: str, request_uid: str, authorization: str = Header(default="", max_length=256)
 ) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionAcknowledgments import read_app_execution_request
-    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
-
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise ApiException.Unauthorized_401()
@@ -117,9 +124,6 @@ def execution_acknowledgment(
     body: ExecutionAcknowledgmentBody,
     authorization: str = Header(default="", max_length=256),
 ) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionAcknowledgments import acknowledge_app_execution
-    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
-
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise ApiException.Unauthorized_401()
@@ -148,15 +152,14 @@ def execution_acknowledgment(
 def execution_acknowledgment_read(
     project_uid: str, card_uid: str, request_uid: str, authorization: str = Header(default="", max_length=256)
 ) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionAcknowledgments import read_execution_acknowledgment
-    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
-
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise ApiException.Unauthorized_401()
     try:
         result = read_execution_acknowledgment(
-            token, SnowflakeID.from_short_code(project_uid), SnowflakeID.from_short_code(card_uid),
+            token,
+            SnowflakeID.from_short_code(project_uid),
+            SnowflakeID.from_short_code(card_uid),
             SnowflakeID.from_short_code(request_uid),
         )
     except AppExecutionCredentialDenied as exc:
@@ -185,9 +188,6 @@ def execution_runtime_permit(
     body: ExecutionPermitBody,
     authorization: str = Header(default="", max_length=256),
 ) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionLeases import authorize_app_runtime
-    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
-
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise ApiException.Unauthorized_401()
@@ -233,9 +233,6 @@ def execution_start_report(
     body: ExecutionStartBody,
     authorization: str = Header(default="", max_length=256),
 ) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
-    from langboard_shared.domain.services.AppExecutionStarts import report_app_execution_start
-
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise ApiException.Unauthorized_401()
@@ -265,8 +262,6 @@ class RuntimeRecoveryBody(BaseModel):
 
 @AppRouter.api.post("/apps/v1/execution-requests/{request_uid}/runtime-permit-recovery", tags=["App.Execution"])
 def execution_runtime_recovery(request_uid: str, body: RuntimeRecoveryBody) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionLeases import recover_app_runtime
-
     try:
         result = recover_app_runtime(SnowflakeID.from_short_code(request_uid), body.runtime_token)
     except AppGovernanceDenied as exc:
@@ -276,8 +271,6 @@ def execution_runtime_recovery(request_uid: str, body: RuntimeRecoveryBody) -> J
 
 @AppRouter.api.post("/apps/v1/runtime-permits/{lease_uid}/check", tags=["App.Execution"])
 def execution_runtime_check(lease_uid: str, body: RuntimeCheckBody) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionLeases import check_app_runtime
-
     try:
         result = check_app_runtime(SnowflakeID.from_short_code(lease_uid), body.runtime_token, stopped=body.stopped)
     except AppGovernanceDenied as exc:
@@ -287,8 +280,6 @@ def execution_runtime_check(lease_uid: str, body: RuntimeCheckBody) -> JsonRespo
 
 @AppRouter.api.post("/apps/v1/runtime-permits/{lease_uid}/report", tags=["App.Execution"])
 def execution_runtime_report(lease_uid: str, body: RuntimeRecoveryBody) -> JsonResponse:
-    from langboard_shared.domain.services.AppExecutionStarts import read_app_runtime_report
-
     try:
         result = read_app_runtime_report(SnowflakeID.from_short_code(lease_uid), body.runtime_token)
     except AppGovernanceDenied as exc:

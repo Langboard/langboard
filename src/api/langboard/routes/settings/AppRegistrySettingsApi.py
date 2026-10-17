@@ -5,12 +5,22 @@ from fastapi import Path, Query
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, BaseFormModel, JsonResponse, form_model
 from langboard_shared.domain.models import User
+from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.AppComposition import (
+    board_compositions,
+    composition_catalog,
+    disable_board_composition,
+    save_composition,
+    ungroup_composition,
+)
 from langboard_shared.domain.services.AppRegistry import (
     AppRegistryConflict,
     AppRegistryDenied,
     disable_definition,
     list_definitions,
+    prepare_board_consent,
     save_definition,
+    set_board_consent,
 )
 from langboard_shared.security import Auth
 from pydantic import Field
@@ -54,7 +64,6 @@ class SaveAppCompositionForm(BaseFormModel):
 @AppRouter.api.get("/settings/apps/compositions", tags=["AppSettings.AppRegistry"])
 @AuthFilter.add("admin")
 def get_app_compositions(user: User = Auth.scope("user")) -> JsonResponse:
-    from langboard_shared.domain.services.AppComposition import composition_catalog
 
     return JsonResponse(content=_run(composition_catalog, user))
 
@@ -62,7 +71,6 @@ def get_app_compositions(user: User = Auth.scope("user")) -> JsonResponse:
 @AppRouter.api.post("/settings/apps/compositions", tags=["AppSettings.AppRegistry"])
 @AuthFilter.add("admin")
 def approve_app_composition(form: SaveAppCompositionForm, user: User = Auth.scope("user")) -> JsonResponse:
-    from langboard_shared.domain.services.AppComposition import save_composition
 
     return JsonResponse(
         content={
@@ -76,7 +84,6 @@ def approve_app_composition(form: SaveAppCompositionForm, user: User = Auth.scop
 @AppRouter.api.post("/settings/apps/compositions/{key}/ungroup", tags=["AppSettings.AppRegistry"])
 @AuthFilter.add("admin")
 def ungroup_app_composition(key: str, form: DisableAppDefinitionForm, user: User = Auth.scope("user")) -> JsonResponse:
-    from langboard_shared.domain.services.AppComposition import ungroup_composition
 
     result = _run(ungroup_composition, user, key, form.expected_revision)
     if result is None:
@@ -89,8 +96,6 @@ def ungroup_app_composition(key: str, form: DisableAppDefinitionForm, user: User
 def get_board_app_compositions(
     project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")], user: User = Auth.scope("user")
 ) -> JsonResponse:
-    from langboard_shared.domain.services import DomainService
-    from langboard_shared.domain.services.AppComposition import board_compositions
 
     service = DomainService()
     try:
@@ -114,8 +119,6 @@ def disable_board_app_composition(
     form: DisableBoardCompositionForm,
     user: User = Auth.scope("user"),
 ) -> JsonResponse:
-    from langboard_shared.domain.services import DomainService
-    from langboard_shared.domain.services.AppComposition import disable_board_composition
 
     service = DomainService()
     try:
@@ -185,8 +188,6 @@ def save_board_app_consent(
     form: BoardAppConsentForm,
     user: User = Auth.scope("user"),
 ) -> JsonResponse:
-    from langboard_shared.domain.services import DomainService
-    from langboard_shared.domain.services.AppRegistry import set_board_consent
 
     service = DomainService()
     try:
@@ -220,8 +221,6 @@ def prepare_board_app_consent(
     form: PrepareBoardAppConsentForm,
     user: User = Auth.scope("user"),
 ) -> JsonResponse:
-    from langboard_shared.domain.services import DomainService
-    from langboard_shared.domain.services.AppRegistry import prepare_board_consent
 
     service = DomainService()
     try:

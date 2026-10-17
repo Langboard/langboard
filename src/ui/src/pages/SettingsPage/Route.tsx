@@ -8,6 +8,7 @@ const SettingsProxy = lazy(() => import("./index"));
 const ModalPage = lazy(() => import("./ModalPage"));
 
 const routes: RouteObject[] = [
+    { path: ROUTES.SETTINGS.APP_STORE, element: <Navigate to={ROUTES.APPS.ROUTE} replace /> },
     ...(!IS_OLLAMA_RUNNING
         ? [
               {
@@ -36,7 +37,7 @@ const routes: RouteObject[] = [
             { path: ROUTES.SETTINGS.WORKFLOW_STAGES, element: <></> },
             { path: ROUTES.SETTINGS.APPS, element: <></> },
             { path: ROUTES.SETTINGS.APP_GROUPS, element: <></> },
-            { path: ROUTES.SETTINGS.APP_STORE, element: <></> },
+            { path: ROUTES.SETTINGS.APP_PACKAGES, element: <></> },
             {
                 path: ROUTES.SETTINGS.GLOBAL_LABELS,
                 element: <></>,

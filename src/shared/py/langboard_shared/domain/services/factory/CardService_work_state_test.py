@@ -7,7 +7,10 @@ from .CardService import CardService
 
 def test_card_batch_uses_bounded_queries_and_no_actor_or_editable_metadata(monkeypatch):
     column = SimpleNamespace(id=3, project_id=1, workflow_stage="review", is_archive=False)
-    db = SimpleNamespace(exec=Mock(return_value=SimpleNamespace(all=lambda: [column])))
+    policy = SimpleNamespace(
+        key="review", counts_as_completed=False, active_queue_policy="conditional", overdue_policy="normal"
+    )
+    db = SimpleNamespace(exec=Mock(return_value=SimpleNamespace(all=lambda: [(column, policy)])))
 
     @contextmanager
     def use(**kwargs):
@@ -29,18 +32,6 @@ def test_card_batch_uses_bounded_queries_and_no_actor_or_editable_metadata(monke
         SimpleNamespace(
             checkitem=SimpleNamespace(get_work_state_counts=counts),
             card_verification=SimpleNamespace(get_latest_by_card_ids=verifications),
-            workflow_stage=SimpleNamespace(
-                get_by_keys=Mock(
-                    return_value={
-                        "review": SimpleNamespace(
-                            key="review",
-                            counts_as_completed=False,
-                            active_queue_policy="conditional",
-                            overdue_policy="normal",
-                        )
-                    }
-                )
-            ),
         ),
     )
     cards = [
@@ -61,7 +52,6 @@ def test_card_batch_uses_bounded_queries_and_no_actor_or_editable_metadata(monke
     assert result[2]["external_signal_evidence"] is None
     db.exec.assert_called_once()
     counts.assert_called_once_with([2])
-    service.repo.workflow_stage.get_by_keys.assert_called_once_with({"review"})
     dependency_query.assert_called_once_with([2], context=None)
     verifications.assert_called_once_with([2])
     generation_query.assert_called_once_with([2])

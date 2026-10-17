@@ -117,3 +117,14 @@ test("Plate inline and preview authenticate protected images without changing pe
     await expect(inline.first()).not.toHaveAttribute("src", /.+/);
     expect(reads).toBeGreaterThanOrEqual(4);
 });
+
+for (const edit of [false, true]) {
+    test(`image alt uses persisted metadata and deliberate decorative values, edit=${edit}`, async ({ page }) => {
+        await page.goto(`/src/components/plate-ui/media-image-node.fixture.html${edit ? "?edit=1" : ""}`);
+        const images = page.locator("[data-dynamic-image-fixture] img");
+        await expect(images).toHaveCount(2);
+        await expect(images.nth(0)).toHaveAttribute("alt", "Wide source diagram");
+        await expect(images.nth(1)).toHaveAttribute("alt", "");
+        await expect(page.locator("[data-thumbnail-fixture]").nth(1).locator("img")).toHaveAttribute("alt", "Static source caption");
+    });
+}

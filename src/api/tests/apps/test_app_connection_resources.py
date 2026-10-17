@@ -18,7 +18,6 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
 from langboard_shared.domain.services.AppConnectionResources import list_connection_resources
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_connection_credentials import DECLARATION, setup
 
 
@@ -179,8 +178,8 @@ def test_resource_identity_change_does_not_reuse_prior_approval(board):
 
     connection, definition, _, resources, old_token = scope(board)
     with DbSession.atomic() as db:
-        from langboard_shared.domain.services.AppGovernance import _current
         from langboard_shared.domain.models import AppConnection
+        from langboard_shared.domain.services.AppGovernance import _current
 
         current = _current(db, AppConnection, connection.id, for_update=False)
         resources[0].identity_hash = _identity_hash(db, current, definition=definition)

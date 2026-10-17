@@ -1,22 +1,28 @@
 """Optional installed third-party Monitor wrapper against native HTTP/PostgreSQL."""
 
 import asyncio
+import json
 from copy import deepcopy
 from datetime import timedelta
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from langboard_sdk.rest import HttpTransport, NativeApiError
+from langboard_shared.core.broker import Broker
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security import KeyVault
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     AppCardInteraction,
     AppCardInteractionResponse,
+    AppCardInteractionTransition,
     AppConnection,
     AppDefinition,
+    AppEventDestination,
     AppExecutionAcknowledgment,
     AppExecutionOutbox,
+    AppExecutionRequest,
     AppResourceBinding,
     BoardAppBinding,
     Card,
@@ -26,12 +32,17 @@ from langboard_shared.domain.models import (
     CardAppResourceSelectionAudit,
     ProjectColumn,
     ProjectRole,
+    WebhookSetting,
     WorkflowStageDefinition,
 )
+from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppCardInteractions import respond_to_app_card_interaction
 from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination
 from langboard_shared.domain.services.CardAppGovernance import set_card_app_ownership
 from langboard_shared.domain.services.CardAppResources import read_card_app_resources, set_card_app_resources
+from langboard_shared.tasks.webhooks import AppEventDeliveryWorker, WebhookTask
+from langboard_shared.tasks.webhooks.utils import WebhookUrlPolicy
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 from test_app_connection_auth_postgres import connected, registered  # noqa: F401
@@ -40,11 +51,11 @@ from test_app_governance_postgres import governance  # noqa: F401
 
 def test_installed_monitor_question_recovery_response_ack_and_revocation(registered, monkeypatch):  # noqa: F811
     monitor = pytest.importorskip("example_monitor")
-    from langboard_shared.core.broker import Broker
-
+    answers = pytest.importorskip("example_monitor.answers")
     # Suppress queue dispatch only; all native HTTP, ACL and database operations are real.
     monkeypatch.setattr(Broker.celery, "send_task", lambda *args, **kwargs: None)
-    engine, (_, owner, _), connection, _ = registered
+    # Shared-board background delivery requires an organization-owned connection.
+    engine, (admin, owner, _), _, connection = registered
     for model in (
         WorkflowStageDefinition,
         ProjectColumn,
@@ -56,15 +67,20 @@ def test_installed_monitor_question_recovery_response_ack_and_revocation(registe
         CardAppResourceSelectionAudit,
         AppCardInteraction,
         AppCardInteractionResponse,
+        AppCardInteractionTransition,
         AppExecutionOutbox,
+        AppExecutionRequest,
         AppExecutionAcknowledgment,
         ProjectRole,
+        AppEventDestination,
+        WebhookSetting,
     ):
         model.__table__.create(engine)
     assert monitor.DECLARATION["capabilities"] == ["signals.read", "signals.publish"]
     declaration = deepcopy(monitor.DECLARATION)
     # Explicit acceptance-fixture consent; no widening of the deployed baseline app.
     declaration["capabilities"] += ["cards.create", "resources.read", "interactions.request", "events.receive"]
+    declaration["trust"] = {"authentication_origins": [], "mcp_origins": [], "data_origins": ["https://example.test"]}
     declaration["card_lifecycle"] = {
         "issue": {"archive": {"mode": "retain", "description": "Retain"}, "restore": "retain_external_state"}
     }
@@ -84,7 +100,7 @@ def test_installed_monitor_question_recovery_response_ack_and_revocation(registe
         binding_revision = db.query(BoardAppBinding).one().edit_revision()
     ids = (SnowflakeID(20), SnowflakeID(221))
     set_card_app_ownership(owner, *ids, "example-monitor", None, app_revision)
-    initial = read_card_app_resources(owner, *ids, "example-monitor", connection.id)
+    initial = read_card_app_resources(owner, *ids, connection.id, app_key="example-monitor")
     with Session(engine) as db:
         db.add(
             AppResourceBinding(
@@ -102,16 +118,28 @@ def test_installed_monitor_question_recovery_response_ack_and_revocation(registe
     set_card_app_resources(
         owner,
         *ids,
-        "example-monitor",
         connection.id,
         [SnowflakeID(301).to_short_code()],
         None,
-        1,
-        initial["identity_revision"],
-        app_revision,
-        binding_revision,
+        app_key="example-monitor",
+        expected_ownership_revision=1,
+        expected_identity_revision=initial["identity_revision"],
+        expected_app_revision=app_revision,
+        expected_binding_revision=binding_revision,
     )
     token = issue_connection_credential(owner, connection.id)["token"]
+    with Session(engine) as db:
+        db.add(
+            WebhookSetting(
+                id=801,
+                name="Monitor receiver",
+                url="https://example.test/events",
+                secret_id="monitor-test-secret",
+                events=["io.langboard.app.interaction.answered.v1"],
+            )
+        )
+        db.commit()
+    bind_app_event_destination(admin, connection.id, SnowflakeID(801), None)
     app = FastAPI()
     app.include_router(AppRouter.api)
     question = {
@@ -147,36 +175,72 @@ def test_installed_monitor_question_recovery_response_ack_and_revocation(registe
                 await monitor.Monitor.recover_question(
                     transport, board_uid, card_uid, {**question, "prompt": {"en": "Changed"}}
                 )
-            answer = respond_to_app_card_interaction(
-                owner,
-                *ids,
-                SnowflakeID.from_short_code(created["interaction_uid"]),
-                {"action": {"choice_id": "inspect"}},
-                1,
-                "monitor-human-answer-001",
-            )
+            service = DomainService()
+            try:
+                answer = respond_to_app_card_interaction(
+                    service,
+                    owner,
+                    *ids,
+                    SnowflakeID.from_short_code(created["interaction_uid"]),
+                    1,
+                    "monitor-human-answer-001",
+                    {"action": {"choice_id": "inspect"}},
+                )
+            finally:
+                service.close()
             read = await monitor.Monitor.current_response(transport, board_uid, card_uid, created["interaction_uid"])
-            assert read["state"] == "answered" and read["response"] == answer["response"]
+            assert read["state"] == "answered"
+            assert all(read["response"][key] == answer[key] for key in ("response_uid", "actor_uid", "values"))
             with DbSession.atomic() as db:
                 event = db.exec(
                     SqlBuilder.select.table(AppExecutionOutbox).where(
-                        AppExecutionOutbox.request_id == SnowflakeID.from_short_code(answer["response"]["response_uid"])
+                        AppExecutionOutbox.request_id == SnowflakeID.from_short_code(answer["response_uid"])
                     )
                 ).first()
-                # Simulate confirmed transport delivery; this is not runtime authorization.
-                event.state = "delivered"
-                db.update(event)
+                event_id = event.id
                 event_uid = event.get_uid()
-            acknowledgment = await monitor.Monitor.acknowledge_response(
-                transport,
-                board_uid,
-                card_uid,
-                created["interaction_uid"],
-                event_uid=event_uid,
-                runtime_reference="independent-monitor-received-1",
-            )
+                destination_revision = event.payload["destination"]["revision"]
+            receiver = FastAPI()
+            received = []
+
+            @receiver.post("/events")
+            async def receive(request: Request):
+                acknowledgment = await answers.receive_answer(
+                    transport, await request.body(), request.headers, "monitor-acceptance-signing-secret"
+                )
+                received.append(acknowledgment)
+                return acknowledgment
+
+            with monkeypatch.context() as delivery:
+                # Replace only fixture DNS, secret lookup and network transport.
+                # Native current authority, claim, signing, receiver and receipts run.
+                delivery.setattr(WebhookUrlPolicy, "getaddrinfo", lambda *args: [(2, 1, 6, "", ("93.184.216.34", 443))])
+                delivery.setattr(
+                    KeyVault,
+                    "get_key",
+                    lambda reference: (
+                        "monitor-acceptance-signing-secret" if reference == "monitor-test-secret" else None
+                    ),
+                )
+                delivery.setattr(
+                    WebhookTask,
+                    "AsyncClient",
+                    lambda **kwargs: AsyncClient(transport=ASGITransport(app=receiver), **kwargs),
+                )
+                await AppEventDeliveryWorker.deliver_app_event(event_id, destination_revision)
+                await AppEventDeliveryWorker.deliver_app_event(event_id, destination_revision)
+            assert len(received) == 1
+            acknowledgment = received[0]
+            with Session(engine) as db:
+                delivered = db.get(AppExecutionOutbox, event_id)
+                assert delivered.state == "delivered" and delivered.attempt_count == 1
+                assert delivered.claim_token is None
+                assert [item["outcome"] for item in delivered.delivery_history] == ["claimed", "delivered"]
+                assert "monitor-acceptance-signing-secret" not in json.dumps(delivered.delivery_history)
+                ack = db.query(AppExecutionAcknowledgment).one()
+                assert ack.event_id == event_id and ack.runtime_reference == "example-monitor:received:" + event_uid
             assert acknowledgment["state"] == "received"
-            assert acknowledgment["execution_resumed"] is False and acknowledgment["workflow_transitioned"] is False
+            assert acknowledgment["execution_resumed"] is False
             assert not read["execution_resumed"] and not read["workflow_transitioned"]
             with Session(engine) as db:
                 assert db.query(AppCardInteraction).count() == 1

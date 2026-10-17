@@ -7,7 +7,10 @@ from typing import Any, TypeGuard, Union, get_args, get_origin
 from urllib.parse import urlsplit
 from fastmcp import FastMCP
 from fastmcp.exceptions import AuthorizationError
+from fastmcp.server.auth import require_scopes
+from fastmcp.server.middleware import AuthMiddleware
 from fastmcp.server.transforms.search import RegexSearchTransform
+from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
 from langboard_shared.core.types import Factory
 from langboard_shared.core.utils.decorators import class_instance
 from langboard_shared.domain.models import Bot, User
@@ -15,11 +18,13 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories import Repository
 from mcp.types import Icon
+from starlette.responses import JSONResponse
 from ..mcp_tools.RoleChecker import McpRoleChecker
 from ..middlewares import McpAuthMiddleware
 from ..middlewares.McpAuthMiddleware import mcp_auth_context
 from .AgentPolicy import AGENT_POLICY
 from .Annotations import ToolAnnotationTransform
+from .OAuth import NativeOAuthMiddleware, create_oauth_provider
 from .Providers import (
     create_agent_core_provider,
     create_compatibility_provider,
@@ -97,10 +102,6 @@ class McpServer:
             self.oauth_discovery_routes = []
             return None
 
-        from fastmcp.server.auth import require_scopes
-        from fastmcp.server.middleware import AuthMiddleware
-        from .OAuth import NativeOAuthMiddleware, create_oauth_provider
-
         auth = create_oauth_provider()
         if auth is None:
             self.oauth_discovery_routes = []
@@ -125,8 +126,6 @@ class McpServer:
 
         @app.custom_route("/readyz", methods=["GET"])
         async def oauth_readiness(request):
-            from starlette.responses import JSONResponse
-
             result = await auth.storage_readiness()
             return JSONResponse(result, status_code=200 if result["status"] == "ready" else 503)
 
@@ -151,7 +150,7 @@ class McpServer:
             if not self._validate_auth(auth_value, tool_name):
                 raise AuthorizationError("Authentication required")
 
-            if not self._validate_role(auth_value, handler, **kwargs):
+            if not await call_sync_fn_in_threadpool(self._validate_role, auth_value, handler, **kwargs):
                 raise AuthorizationError("Insufficient permissions")
 
             with ExitStack() as resources:
@@ -160,7 +159,9 @@ class McpServer:
                     if factory:
                         resources.callback(factory.close)
 
-                return await handler(**kwargs) if iscoroutinefunction(handler) else handler(**kwargs)
+                if iscoroutinefunction(handler):
+                    return await handler(**kwargs)
+                return await call_sync_fn_in_threadpool(handler, **kwargs)
 
         # Use the filtered signature so FastMCP only sees the non-excluded parameters
         setattr(wrapper, "__signature__", filtered_sig)

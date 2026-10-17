@@ -1,12 +1,12 @@
 """Bounded generation-scoped queries; callers own current authorization checks."""
 
 from math import isfinite
+import tiktoken
 from .DocumentVectorGeneration import MAX_ATTACHMENT_CHUNKS
 from .DocumentVectorStore import document_source_filter
 
 
 def search_vector_generation(store, pointer: dict, query: str, settings, *, max_tokens: int = 4000) -> list[dict]:
-    import tiktoken
 
     if not isinstance(query, str) or not query.strip() or len(query) > 1000:
         raise ValueError("Query must contain 1..1000 characters")
@@ -59,7 +59,7 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
                 "chunk_id": str(identifier),
                 "content": content,
                 "source": source,
-                **({"pages": pages} if pages else {}),
+                **({"pages": pages, "provenance_scope": metadata.get("provenance_scope", "unknown")} if pages else {}),
                 **({"page": metadata["page"]} if type(metadata.get("page")) is int and metadata["page"] > 0 else {}),
             }
         )

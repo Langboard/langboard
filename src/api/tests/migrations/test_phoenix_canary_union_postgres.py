@@ -1,37 +1,38 @@
 """Replay actual Alembic history and preserve populated canonical app evidence."""
 
-from pathlib import Path
-from datetime import timedelta
 import os
+from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 import pytest
-from sqlalchemy import create_engine, inspect, insert, text
-from alembic.config import Config
 from alembic import command
+from alembic.config import Config
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
-    User,
-    Project,
-    ProjectColumn,
-    Card,
-    AppDefinition,
     AppConnection,
-    BoardAppBinding,
+    AppDefinition,
+    AppExecutionAcknowledgment,
+    AppExecutionActive,
+    AppExecutionLease,
+    AppExecutionOutbox,
+    AppExecutionRequest,
+    AppExecutionReview,
+    AppExecutionStart,
+    AppMcpConsent,
     AppResourceBinding,
+    BoardAppBinding,
+    Card,
     CardAppOwnership,
     CardAppOwnershipAudit,
     CardAppResourceSelection,
     CardAppResourceSelectionAudit,
-    AppExecutionRequest,
-    AppExecutionOutbox,
-    AppExecutionAcknowledgment,
-    AppExecutionLease,
-    AppExecutionStart,
-    AppExecutionReview,
-    AppMcpConsent,
     CardExecutionIntent,
-    AppExecutionActive,
+    Project,
+    ProjectColumn,
+    User,
+    UserAppPreference,
 )
+from sqlalchemy import create_engine, insert, inspect, text
 
 
 def save(db, obj):
@@ -278,7 +279,23 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             raise AssertionError("Populated downgrade erased audit history")
         assert db.execute(text("SELECT count(*) FROM card_execution_intent")).scalar() == 1
         assert db.execute(text("SELECT count(*) FROM app_execution_active")).scalar() == 1
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "e1987bdf2503"
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "a31f9e7b402c"
+        save(
+            db,
+            UserAppPreference(id=123, user_id=101, revision=7, pinned_apps=[{"key": "example-app", "name": "Example"}]),
+        )
+        db.commit()
+        try:
+            command.downgrade(config, "e1987bdf2503")
+        except RuntimeError as exc:
+            assert "Cannot discard saved app rail preferences" in str(exc)
+            db.rollback()
+        else:
+            raise AssertionError("Populated downgrade erased app preferences")
+        assert db.execute(text("SELECT revision, pinned_apps FROM user_app_preference")).first() == (
+            7,
+            [{"key": "example-app", "name": "Example"}],
+        )
         print("POPULATED_HISTORY_PRESERVED; EMPTY_ROUNDTRIP_OK; POPULATED_DOWNGRADE_REFUSED")
     with engine.begin() as db:
         db.execute(text(f"CREATE SCHEMA {fresh_schema}"))
@@ -287,7 +304,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         db.commit()
         config.attributes["connection"] = db
         command.upgrade(config, "head")
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "e1987bdf2503"
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "a31f9e7b402c"
         inspector = inspect(db)
         assert inspector.get_pk_constraint("card_execution_generation")["constrained_columns"] == ["card_id"]
         assert {tuple(item["column_names"]) for item in inspector.get_unique_constraints("card_execution_intent")} == {
@@ -303,8 +320,8 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         ):
             assert name in {item["name"] for item in inspector.get_check_constraints(table)}
         # ORM reads must use the actual migrated tables, not model-created fixtures.
-        from sqlalchemy.orm import Session
         from langboard_shared.domain.models.CardExecutionGeneration import CardExecutionGeneration
+        from sqlalchemy.orm import Session
 
         with Session(bind=db) as session:
             assert session.query(CardExecutionGeneration).all() == []

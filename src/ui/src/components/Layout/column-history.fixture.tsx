@@ -10,6 +10,7 @@ const user = AuthUser.Model.fromOne({ uid: "history-user", created_at: now, upda
 const cards = ["history-first", "history-second"].map((uid) =>
     ProjectCard.Model.fromOne({
         uid,
+        project_uid: "fixture",
         project_column_uid: "column",
         count_comment: 0,
         current_auth_role_actions: [],

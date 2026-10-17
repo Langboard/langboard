@@ -18,7 +18,7 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 
 ## 🚀 Quick Start
 
-- Prerequisite: Install **Docker** and **Docker Compose** first.
+- Prerequisite: Install **Docker Engine 25.0+** and **Docker Compose 2.24.4+** first. Kafka uses native startup healthcheck intervals; Compose selection also uses native `!reset` overrides.
 
 - For Windows users
   - You can run one of `quickstart.ps1`, `quickstart-ollama-cpu.ps1`, and `quickstart-ollama-gpu.ps1` in `scripts` directory with powershell

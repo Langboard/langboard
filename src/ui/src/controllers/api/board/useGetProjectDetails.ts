@@ -5,6 +5,7 @@ import { ChatTemplateModel, InternalBotModel, Project, ProjectCard, ProjectColum
 import { Utils } from "@langboard/core/utils";
 import refreshProjectColumnDock from "@/controllers/api/board/refreshProjectColumnDock";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import type { QueryFunctionContext } from "@tanstack/react-query";
 
 export interface IGetProjectDetailsForm {
     uid: string;
@@ -21,9 +22,10 @@ export interface IGetProjectDetailsResponse {
 const useGetProjectDetails = (form: IGetProjectDetailsForm, options?: TQueryOptions<unknown, IGetProjectDetailsResponse>) => {
     const { query } = useQueryMutation();
 
-    const getProjectDetails = async () => {
+    const getProjectDetails = async ({ signal }: QueryFunctionContext) => {
         const url = Utils.String.format(Routing.API.BOARD.DETAILS, { uid: form.uid });
         const res = await api.get(url, {
+            signal,
             params: { include_cards: form.includeCards ?? true },
             env: {
                 interceptToast: options?.interceptToast,

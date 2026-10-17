@@ -16,6 +16,7 @@ from ...core.routing import SocketTopic
 from ...core.storage import Storage
 from ...core.types import SnowflakeID
 from ...domain.models import CardAttachment, CardMetadata
+from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
 from .DocumentKeywords import keyword_languages, normalize_keywords
@@ -64,14 +65,7 @@ def _index_card_attachment(
         # Only an upload or explicit attachment action may authorize conversion.
         if not isinstance(vision_config, dict):
             return
-        binding = service.internal_bot.get_by_id_like(vision_config.get("binding_uid"))
-        if not binding:
-            raise ValueError("The document vision binding is no longer available")
-        binding_config = loads(binding.value)
-        if str(binding_config.get("base_url", "")).rstrip("/") != str(vision_config.get("base_url", "")).rstrip("/"):
-            raise ValueError("The document provider changed; request processing again from the attachment")
-        private_config = {**vision_config, "api_key": binding_config.get("api_key", "")}
-        private_config.pop("binding_uid", None)
+        private_config = _current_vision_config(service, vision_config)
         if find_spec("docling") is None:
             raise RuntimeError(
                 "Document processing unavailable: install the document-processing extra in the broker worker."
@@ -122,9 +116,14 @@ def _index_card_attachment(
         progress(0, None)
         structural: list[dict] = []
         markdown = _convert_to_markdown(
-            temp_path, on_progress=progress, vision_value=dumps(private_config), on_keywords=collect_keywords,
-            on_document=structural.append
+            temp_path,
+            on_progress=progress,
+            vision_value=dumps(private_config),
+            on_keywords=collect_keywords,
+            on_document=structural.append,
         )
+        # Conversion may outlive provider deletion, a role change or endpoint replacement.
+        _current_vision_config(service, vision_config)
         indexed = service.docling_metadata.mark_document_indexed(
             CardMetadata,
             card,
@@ -140,13 +139,15 @@ def _index_card_attachment(
             generation=generation,
         )
         service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
-    except Exception as error:
+    except Exception:
+        # Storage/provider exceptions can contain credentials or document contents.
         service.docling_metadata.mark_document_failed(
             CardMetadata,
             card,
             current_attachment.get_uid(),
             current_attachment.filename,
-            f"{type(error).__name__}: {error}",
+            "Document processing failed; check the worker document-processing extra, provider configuration "
+            "and source availability, then retry this attachment.",
             generation=generation,
         )
         service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
@@ -159,6 +160,21 @@ def _index_card_attachment(
 
     if indexed and isinstance(document.get("embedding_config") if document else None, dict):
         _queue_embedding(service, card, current_attachment.get_uid(), generation)
+
+
+def _current_vision_config(service, snapshot: dict) -> dict:
+    """Keep upload-time model settings, resolving credentials only from the current binding."""
+    binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
+    if not binding or binding.bot_type != InternalBotType.DocumentVision:
+        raise ValueError("The document vision binding is no longer available")
+    current = loads(binding.value)
+    if not isinstance(current, dict) or str(current.get("base_url", "")).rstrip("/") != str(
+        snapshot.get("base_url", "")
+    ).rstrip("/"):
+        raise ValueError("The document provider changed; request processing again from the attachment")
+    config = {**snapshot, "api_key": current.get("api_key", "")}
+    config.pop("binding_uid", None)
+    return config
 
 
 def _queue_embedding(service, card, attachment_uid: str, generation: str) -> None:

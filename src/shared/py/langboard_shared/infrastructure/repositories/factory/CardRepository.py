@@ -1,6 +1,7 @@
 from typing import Any, Sequence
 from sqlalchemy import Text, cast, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseOrderRepository
@@ -60,15 +61,15 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         project_id = InfraHelper.convert_id(project)
         card_ids = [InfraHelper.convert_id(uid) for uid in card_uids]
         with DbSession.use(readonly=False) as db:
-            cards = db.exec(
-                SqlBuilder.select.table(Card)
+            card_ids = db.exec(
+                SqlBuilder.select.column(Card.id)
                 .join(Project, Project.column("id") == Card.column("project_id"))
                 .where(Project.column("deleted_at") == None)  # noqa: E711
                 .where(Card.column("project_id") == project_id)
                 .where(Card.column("id").in_(card_ids))
                 .where(card_visibility_scope(context))
             ).all()
-        return [card.get_uid() for card in cards]
+        return [InfraHelper.convert_uid(card_id) for card_id in card_ids]
 
     def update_description_if_current(self, card: Card, expected_content: str) -> bool:
         """Lock and compare the primary row before updating only its description."""
@@ -132,8 +133,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             ).all()
         return {card.source_uid: card for card in cards if card.source_uid is not None}
 
-    def get_board_list(self, project: TProjectParam, archive_visible_since: SafeDateTime, *, context: CardVisibilityContext) -> list[tuple[Card, int]]:
+    def get_board_list(
+        self, project: TProjectParam, archive_visible_since: SafeDateTime, *, context: CardVisibilityContext
+    ) -> list[tuple[Card, int]]:
         project_id = InfraHelper.convert_id(project)
+        hot_scope = (Card.column("archived_at") == None) | (Card.column("archived_at") >= archive_visible_since)  # noqa: E711
         comment_counts = (
             SqlBuilder.select.columns(
                 CardComment.column("card_id"),
@@ -142,6 +146,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .join(Card, Card.column("id") == CardComment.column("card_id"))
             .where(Card.column("project_id") == project_id)
             .where(Card.deleted_at.is_(None), card_visibility_scope(context))
+            .where(hot_scope)
             .group_by(CardComment.column("card_id"))
             .subquery()
         )
@@ -153,13 +158,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     Card,
                     func.coalesce(comment_counts.c.count_comment, 0).label("count_comment"),  # pyright: ignore[reportArgumentType]
                 )
+                .options(defer(Card.ai_description, raiseload=True))
                 .outerjoin(comment_counts, Card.column("id") == comment_counts.c.card_id)
                 .where(Card.column("project_id") == project_id)
                 .where(Card.deleted_at.is_(None), card_visibility_scope(context))
-                .where(
-                    (Card.column("archived_at") == None)  # noqa: E711
-                    | (Card.column("archived_at") >= archive_visible_since)
-                )
+                .where(hot_scope)
                 .order_by(Card.column("order").asc())
             )
             cards = result.all()
@@ -175,10 +178,16 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         project_id = InfraHelper.convert_id(project)
         query = (
-            SqlBuilder.select.tables(Card, User, Bot)
+            SqlBuilder.select.tables(Card.column("id"), User, Bot)
+            .options(
+                load_only(User.id, User.firstname, User.lastname, User.avatar, User.deleted_at, raiseload=True),
+                load_only(Bot.id, Bot.name, Bot.avatar, Bot.deleted_at, raiseload=True),
+            )
+            .select_from(Card)
             .outerjoin(User, Card.column("created_by_user_id") == User.column("id"))
             .outerjoin(Bot, Card.column("created_by_bot_id") == Bot.column("id"))
             .where(Card.column("project_id") == project_id)
+            .where(Card.column("deleted_at").is_(None))
             .where(
                 (Card.column("archived_at") == None)  # noqa: E711
                 | (Card.column("archived_at") >= archive_visible_since)
@@ -187,10 +196,10 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         creators: dict[int, User | Bot] = {}
         with DbSession.use(readonly=True) as db:
-            for card, user, bot in db.exec(query).all():
+            for card_id, user, bot in db.exec(query).all():
                 creator = user if user is not None else bot
                 if creator is not None:
-                    creators[card.id] = creator
+                    creators[card_id] = creator
         return creators
 
     def get_archived_page_by_project(
@@ -364,7 +373,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         )
         query = (
             SqlBuilder.select.tables(Card, ProjectColumn)
-            .join(ProjectColumn, Card.column("project_column_id") == ProjectColumn.column("id"))
+            .join(
+                ProjectColumn,
+                (Card.column("project_column_id") == ProjectColumn.column("id"))
+                & (ProjectColumn.column("project_id") == project_id),
+            )
             .where(Card.column("project_id") == project_id)
             .where(card_visibility_scope(context))
             .where(Card.column("source_type") == None)  # noqa: E711
@@ -421,6 +434,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 .label("source_rank"),
             )
             .join(Card, Card.id == CardAttachment.card_id)
+            .join(
+                ProjectColumn,
+                (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id),
+            )
+            .where(ProjectColumn.deleted_at.is_(None))
             .where(Card.project_id == InfraHelper.convert_id(project))
             .where(Card.id.in_(card_ids[:20]))
             .where(card_visibility_scope(context))

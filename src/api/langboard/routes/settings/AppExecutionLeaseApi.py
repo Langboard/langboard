@@ -2,26 +2,15 @@
 
 from typing import Annotated
 from fastapi import Header, Path
-from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import ApiException, AppRouter
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from pydantic import BaseModel, ConfigDict, Field
+from .AppOperation import run_app_operation as _run
 
 
 class RuntimeTokenBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     runtime_token: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-def _run(operation, *args, **kwargs):
-    try:
-        return JsonResponse(content=operation(*args, **kwargs), headers={"Cache-Control": "no-store"})
-    except AppGovernanceDenied as exc:
-        raise ApiException.Forbidden_403() from exc
-    except AppGovernanceConflict as exc:
-        raise ApiException.Conflict_409() from exc
-    except ValueError as exc:
-        raise ApiException.BadRequest_400() from exc
 
 
 class RuntimeActiveBody(RuntimeTokenBody):

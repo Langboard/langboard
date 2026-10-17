@@ -14,6 +14,7 @@ from langboard_shared.core.broker import Broker
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.OllamaModelPullService import PULL_TASK
 from langboard_shared.Env import Env
+from langboard_shared.tasks.docling.DocumentCleanupTask import TASK_NAME as DOCUMENT_VECTOR_CLEANUP_TASK
 from langboard_shared.tasks.notifications.ProjectEmailNotificationQueue import (
     PROJECT_EMAIL_DELIVERY_TASK,
     PROJECT_EMAIL_FANOUT_TASK,
@@ -27,6 +28,7 @@ REQUIRED_CELERY_TASKS = (
     PROJECT_EMAIL_FANOUT_TASK,
     PROJECT_EMAIL_DELIVERY_TASK,
     PULL_TASK,
+    DOCUMENT_VECTOR_CLEANUP_TASK,
 )
 
 LEGACY_CONSUMERS = (

@@ -89,3 +89,147 @@ The observed API origin matched the configured deployment API origin. No
 credential material was read. Instance addresses, board identities and exact
 request IDs are retained in private verification records, not product guidance. Current source auth transport regression passed 16 cases;
 that local result does not resolve this deployed reproduction.
+
+
+## Recent-card history follow-up
+
+A later authenticated canary retry reached the original card GET with HTTP200
+and rendered the detail description, native checklists and persisted summary
+comment. An XHR-send debugger breakpoint was briefly enabled and removed before
+the final observation. This single successful retry under the debugger does not
+establish that the intermittent cancellation is fixed. Later unrelated board
+availability, approval and read-state requests still aborted. A subsequent normal
+close/reopen without an active debugger also returned HTTP200 for its original
+card GET and rendered the comment composer. These two successes narrow the
+problem to intermittent behavior rather than a persistent card ACL rejection.
+
+The browser capture also showed availability requests for multiple other boards.
+Source inspection traced these to recent-card validation in the mounted Explorer,
+even while its context panel was hidden. The section passed its entire history
+to validation while displaying only ten entries. This is confirmed unnecessary
+background work; it is not proven to cause the card GET cancellation.
+
+Explorer now passes its actual desktop/mobile visibility to recent-card
+validation. A hidden panel or collapsed recent-card section attaches no focus or
+online validation listeners and dispatches no history lookup. An open section
+validates the displayed ten cards; expanding older history validates those entries
+on demand. The existing serial batches, explicit permission checks, confirmed
+403/deletion pruning, transient-error retention and cancellation cleanup remain.
+No periodic reconciliation, endpoint or dependency was added.
+
+Chromium regression covers 1280/700/390px layouts, permission loss, offline/online
+recovery and a fourteen-board history: hidden zero requests, ten visible cards,
+older-history expansion and collapsed focus/online inactivity. These local
+results require separate deployed canary acceptance.
+
+## MCP bundle read consolidation
+
+The native bundle adapter previously loaded the project and card through repository
+lookups before calling `CardService.resolve_readable_card`. That shared visibility
+owner already reloads current primary rows and validates deletion, ancestry,
+membership and channel visibility. Pass the requested IDs directly to it, removing
+two redundant preliminary reads and avoiding dependence on an older replica row.
+All optional bundle sections still load only after the owner authorizes the card.
+This reduces source-level query work; it does not establish a deployed latency gain
+or fix the browser cancellation above.
+
+An additional authenticated canary capture observed the original cards XHR cancel
+with `net::ERR_ABORTED` after 154ms while unrelated availability calls returned
+200. No CORS error or HTTP 500 was present in that failure event. The cause remains
+unproven; neither a 15-second timeout nor successful MCP writes explains this
+specific cancellation. Preserve it as a separate browser acceptance failure.
+
+## Telemetry visibility and fresh navigation
+
+The configured browser telemetry ingestion project was not present in the
+current observer's accessible project list. The organization selector exposed
+only one accessible organization. A successful envelope HTTP response therefore
+does not establish that this observer can retrieve the corresponding event.
+Check project existence, key-to-project mapping and observer access separately;
+absence from this list does not prove project deletion. Infrastructure ownership
+retains this investigation. Do not create a second project or change credentials
+to work around missing evidence.
+
+A later full navigation reproduced cancellation before card loading: identity
+hydration and the board's primary GET reported `net::ERR_ABORTED` with
+`canceled=true`, without an HTTP error response or a reported CORS block. A
+separate third-party analytics script failed DNS resolution; that script failure
+does not establish an API DNS failure. Preserve gateway/API arrival evidence
+before attributing these cancellations to application authorization or CPU
+pressure. Previously rendered in-memory cards are not fresh-navigation proof.
+
+## Server error payload boundary
+
+An existing error event exposed a tool request body and database breadcrumbs.
+`send_default_pii=False` and disabled local-variable collection did not remove
+those fields. The shared logger now supplies an explicit `before_send` allowlist
+to the installed Sentry SDK. It retains exception types, module/function/line
+coordinates, release/environment and valid trace/span identifiers. It excludes
+requests, users, breadcrumbs, arbitrary scope data, exception text, log arguments,
+source context and local variables.
+
+The tool dispatcher supplies request ID, tool name and cause type as explicit
+diagnostics. Log-only tool errors group by tool and cause instead of their
+redacted message. Existing structured stdout records and mutation receipts remain
+unchanged. An in-memory official SDK transport verifies the final error envelope
+without sending customer content to a telemetry service. This is source evidence;
+the deployed server and browser still require separate acceptance.
+
+
+## Correlated server delay and bounded stage timings (2026-10-17)
+
+A later authenticated canary load returned the original card XHR with HTTP 200
+and a matching `Network.loadingFinished`: response headers arrived in 6,386.934 ms,
+including `Server-Timing: app;dur=6202.576`. The matching API telemetry record
+reported 6,205.817 ms overall, 435,206 response-body bytes and `completed=true`.
+The board metadata response separately reported 174.133 ms of application time.
+Raw request/trace correlation is retained privately and supplied to the central
+observability owner. The event buffer was truncated, so this supports those
+matched responses only, not a complete waterfall or percentile result.
+
+The source card route now emits five fixed `Server-Timing` metrics:
+`board_context`, `board_cards`, `board_checklists`, `board_bots`, and
+`board_serialize`. They separate authorized context/column preparation, card
+projection, checklist projection, bot configuration and response serialization.
+They omit resource IDs, actor identity, payloads, connection details and query
+text. Existing middleware app timing, request correlation and CORS exposure remain
+unchanged; no tracing backend, sampling expansion or new dependency is added.
+These metrics are only attached after the existing authorized route succeeds.
+See the [standard header documentation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Server-Timing).
+
+The route regression failed first because the stage header was absent, then
+passed with a deterministic clock while preserving the shared archive cutoff and
+response body. The combined archive, actor-visibility and runtime telemetry suite
+passed 32 cases, including streamed body preservation and safe correlation.
+These source stages are not deployed; the six-second sample cannot yet be
+attributed to an individual stage. Read-only aggregate inspection also found no
+AI-description bytes in this board's 294 hot cards, so deferring that field alone
+cannot explain this sample. Their stored description JSON totaled 1,128,146 bytes;
+that is neither wire size nor proof of the latency cause.
+
+### Concurrent database observation
+
+A subsequent authenticated original cards XHR completed with HTTP 200,
+`app;dur=5579.045` and response headers at 5,917.638 ms. A read-only
+`pg_stat_activity` observation window fully bracketed its dispatch-to-headers
+interval. Of 200 samples across 41.837 seconds, 29 overlapped this request;
+three observed active statements, with maximum observed statement age 188.388 ms
+and no reported wait-event type. These statements are not request-correlated.
+The 200 ms sampling interval can miss short statements and cannot measure pool
+checkout wait or application CPU. This does not rule out cumulative SQL cost or
+database connection contention. Earlier windows ended before the response and
+are retained as incomplete measurements, not equivalent acceptance evidence.
+
+The initial browser event buffer was truncated, but the original request's
+dispatch, response and loading completion were all retained. Only that matched
+request is accepted; this is not a complete navigation waterfall or percentile.
+
+Separate cgroup observation found two effective CPUs, no CFS quota, approximately
+97.7% utilization of those two CPUs over one measured second, and CPU pressure
+`some avg10=93.78`. Host-owner historical evidence also failed the agreed CPU/RAM
+headroom condition. These are capacity-contention evidence, not an attribution
+of every millisecond to CPU. The central infrastructure owner is handling the
+placement/capacity remedy; the product does not silently change broker topology,
+host allocation, database settings, or volumes to mask the symptom. The route
+stage timings above still require deployment before application stages can be
+compared under the same runtime conditions.

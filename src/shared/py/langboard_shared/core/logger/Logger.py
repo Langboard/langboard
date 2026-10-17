@@ -1,11 +1,60 @@
 from logging import CRITICAL, ERROR, NOTSET, Handler, basicConfig, getLevelNamesMapping, getLogger, setLoggerClass
 from logging import Logger as LoggingLogger
+from re import fullmatch
 from typing import Any
 from rich.logging import RichHandler
 from sentry_sdk import init as sentry_init
 from ...Env import Env
 from ..utils.decorators import class_instance, thread_safe_singleton
 from .LogFileHandler import LogFileHandler
+
+
+def diagnostic_event(event: dict[str, Any], _hint: dict[str, Any]) -> dict[str, Any]:
+    """Keep error coordinates and explicit diagnostics, never application payloads."""
+    safe = {
+        key: event[key]
+        for key in ("event_id", "timestamp", "platform", "level", "release", "environment")
+        if key in event
+    }
+    safe["logentry"] = {"message": "Application error (content omitted)"}
+    values = []
+    for exception in event.get("exception", {}).get("values", []):
+        name = exception.get("type", "Error")
+        values.append(
+            {
+                "type": name if isinstance(name, str) and fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,79}", name) else "Error",
+                "value": "Application error (content omitted)",
+                "stacktrace": {
+                    "frames": [
+                        {key: frame[key] for key in ("module", "function", "lineno", "colno", "in_app") if key in frame}
+                        for frame in exception.get("stacktrace", {}).get("frames", [])
+                    ]
+                },
+            }
+        )
+    if values:
+        safe["exception"] = {"values": values}
+    # These fields are set by the tool dispatcher, not copied from tool arguments.
+    extra = event.get("extra", {})
+    tags = {}
+    for key, pattern in {
+        "request_id": r"[a-f0-9]{32}",
+        "tool": r"[a-z][a-z0-9_]{0,79}",
+        "cause_type": r"[A-Za-z][A-Za-z0-9_.]{0,79}",
+    }.items():
+        value = extra.get(key)
+        if isinstance(value, str) and fullmatch(pattern, value):
+            tags[key] = value
+    if tags:
+        safe["tags"] = tags
+        if not values and "tool" in tags and "cause_type" in tags:
+            safe["fingerprint"] = ["mcp-tool", tags["tool"], tags["cause_type"]]
+    trace = event.get("contexts", {}).get("trace", {})
+    if fullmatch(r"[a-f0-9]{32}", str(trace.get("trace_id", ""))) and fullmatch(
+        r"[a-f0-9]{16}", str(trace.get("span_id", ""))
+    ):
+        safe["contexts"] = {"trace": {key: trace[key] for key in ("trace_id", "span_id")}}
+    return safe
 
 
 class _LoggerWrapper(LoggingLogger):
@@ -71,6 +120,7 @@ class Logger:
                 release=Env.SENTRY_RELEASE,
                 send_default_pii=False,
                 include_local_variables=False,
+                before_send=diagnostic_event,
             )
 
     def get_config(self) -> dict[str, Any]:

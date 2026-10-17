@@ -8,7 +8,6 @@ from alembic.operations import Operations
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppCardArchive, BoardAppBinding
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from sqlalchemy.exc import IntegrityError
 
 

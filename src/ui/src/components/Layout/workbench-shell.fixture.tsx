@@ -6,8 +6,19 @@ import WorkbenchRouteLayout from "./WorkbenchRouteLayout";
 import DashboardStyledLayout from "./DashboardStyledLayout";
 import { LabelBadge } from "@/components/LabelBadge";
 import DropdownMenu from "@/components/base/DropdownMenu";
+import Floating from "@/components/base/Floating";
+import useAuthStore from "@/core/stores/AuthStore";
+import { AuthUser } from "@/core/models";
 import "@/i18n";
 import "@/assets/styles/main.css";
+
+const selectFixtureUser = (uid: string) => {
+    useAuthStore.setState({
+        state: "loaded",
+        currentUser: AuthUser.Model.fromOne({ uid, created_at: new Date(), updated_at: new Date() }),
+    });
+};
+selectFixtureUser("sidebar-user-a");
 
 const PageContext = createContext("missing context");
 function SidebarContent() {
@@ -43,6 +54,9 @@ function Page({ name }: { name: string }) {
                 headerTitle={name}
                 activityRailItems={[
                     { icon: "panel-left", label: "Explorer", active: isMobile ? contextOpen : true, onClick: () => setContextOpen((open) => !open) },
+                    { icon: "inbox", label: "Inbox", onClick: () => setContextOpen(true) },
+                    { icon: "network", label: "Relations", onClick: () => setContextOpen(true) },
+                    { icon: "key", label: "Hidden action", hidden: true, onClick: () => {} },
                     { icon: "settings", label: "App settings", onClick: () => {}, placement: "bottom" },
                 ]}
                 workbenchContext={<SidebarContent />}
@@ -52,9 +66,16 @@ function Page({ name }: { name: string }) {
                 }
             >
                 <h1>{name}</h1>
+                <Floating.Nav fixed items={[{ label: "Work dock", icon: "hammer" }]} />
                 <output data-testid="page-mounts">{mountNumber}</output>
                 <p>{location.pathname}</p>
                 <nav className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => selectFixtureUser("sidebar-user-a")}>
+                        Use first user
+                    </button>
+                    <button type="button" onClick={() => selectFixtureUser("sidebar-user-b")}>
+                        Use second user
+                    </button>
                     <Link to="/dashboard/projects/all">Open Dashboard</Link>
                     <Link to="/board/fixture" state={{ commandPaletteFocus: true }}>
                         Open Board

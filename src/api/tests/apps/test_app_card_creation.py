@@ -25,7 +25,6 @@ from langboard_shared.domain.services.AppCardCreation import AppCardCreationConf
 from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from langboard_shared.helpers import ensure_models_imported
 from sqlalchemy import text

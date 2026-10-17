@@ -6,10 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from langboard_shared.domain.models import CardMetadata
+from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.tasks.docling import DoclingMetadataTask as task
 
 
-def test_missing_worker_package_preserves_attachment_and_skips_file_work(monkeypatch):
+def _worker_source():
     attachment = SimpleNamespace(get_uid=lambda: "attachment", card_id=1, filename="report.pdf", file=object())
     card = SimpleNamespace(project_id=2)
     metadata = Mock()
@@ -19,7 +20,8 @@ def test_missing_worker_package_preserves_attachment_and_skips_file_work(monkeyp
     service = SimpleNamespace(
         internal_bot=SimpleNamespace(
             get_by_id_like=lambda _: SimpleNamespace(
-                value='{"api_key":"test-key","model_name":"changed-global-model","base_url":"https://example.test/v1"}'
+                bot_type=InternalBotType.DocumentVision,
+                value='{"api_key":"test-key","model_name":"changed-global-model","base_url":"https://example.test/v1"}',
             )
         ),
         card_attachment=SimpleNamespace(get_by_id_like=lambda _: attachment),
@@ -27,6 +29,12 @@ def test_missing_worker_package_preserves_attachment_and_skips_file_work(monkeyp
         project=SimpleNamespace(get_by_id_like=lambda _: object()),
         docling_metadata=metadata,
     )
+    service.internal_bot.get_current_by_id_like = Mock(side_effect=service.internal_bot.get_by_id_like)
+    return service, attachment, card, metadata
+
+
+def test_missing_worker_package_preserves_attachment_and_skips_file_work(monkeypatch):
+    service, attachment, card, metadata = _worker_source()
     monkeypatch.setattr(task, "find_spec", lambda _: None, raising=False)
     download = Mock(side_effect=AssertionError("Missing package must not download"))
     convert = Mock(side_effect=AssertionError("Missing package must not spawn conversion"))
@@ -43,7 +51,8 @@ def test_missing_worker_package_preserves_attachment_and_skips_file_work(monkeyp
         card,
         "attachment",
         "report.pdf",
-        "RuntimeError: Document processing unavailable: install the document-processing extra in the broker worker.",
+        "Document processing failed; check the worker document-processing extra, provider configuration "
+        "and source availability, then retry this attachment.",
         generation=None,
     )
     metadata.publish_update.assert_called_once()
@@ -132,23 +141,7 @@ def test_converter_timeout_kills_process_and_removes_partial_output(monkeypatch,
 def test_upload_binding_snapshot_survives_global_model_change(monkeypatch):
     from json import loads
 
-    attachment = SimpleNamespace(get_uid=lambda: "attachment", card_id=1, filename="report.pdf", file=object())
-    card = SimpleNamespace(project_id=2)
-    metadata = Mock()
-    metadata.get_document_by_attachment_uid.return_value = {
-        "vision_config": {"binding_uid": "vision", "model_name": "upload-model", "base_url": "https://example.test/v1"}
-    }
-    service = SimpleNamespace(
-        internal_bot=SimpleNamespace(
-            get_by_id_like=lambda _: SimpleNamespace(
-                value='{"api_key":"test-key","model_name":"changed-global-model","base_url":"https://example.test/v1"}'
-            )
-        ),
-        card_attachment=SimpleNamespace(get_by_id_like=lambda _: attachment),
-        card=SimpleNamespace(get_by_id_like=lambda _: card),
-        project=SimpleNamespace(get_by_id_like=lambda _: object()),
-        docling_metadata=metadata,
-    )
+    service, attachment, card, metadata = _worker_source()
     monkeypatch.setattr(task, "find_spec", lambda _: object())
 
     def download(_, output):
@@ -165,3 +158,65 @@ def test_upload_binding_snapshot_survives_global_model_change(monkeypatch):
     assert "binding_uid" not in config
     metadata.mark_document_indexed.assert_called_once()
     metadata.mark_document_failed.assert_not_called()
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+@pytest.mark.parametrize("change", ["deleted", "type", "endpoint"])
+def test_vision_binding_current_primary_fences_download_and_publication(monkeypatch, when, change):
+    service, attachment, _card, metadata = _worker_source()
+    current = service.internal_bot.get_by_id_like("vision")
+    service.internal_bot.get_current_by_id_like = Mock(side_effect=lambda _: current)
+    monkeypatch.setattr(task, "find_spec", lambda _: object())
+
+    def revoke():
+        nonlocal current
+        if change == "deleted":
+            current = None
+        elif change == "type":
+            current.bot_type = InternalBotType.DocumentEmbedding
+        else:
+            current.value = '{"api_key":"new-secret","base_url":"https://changed.invalid/v1"}'
+
+    def download(_source, output):
+        output.write(b"source")
+        return True
+
+    def convert(_path, **_kwargs):
+        if when == "after":
+            revoke()
+        return "private provider response"
+
+    io = Mock(side_effect=download)
+    monkeypatch.setattr(task.Storage, "download_file", io)
+    monkeypatch.setattr(task, "_convert_to_markdown", Mock(side_effect=convert))
+    if when == "before":
+        revoke()
+    task._index_card_attachment(service, attachment)
+    metadata.mark_document_indexed.assert_not_called()
+    metadata.mark_document_failed.assert_called_once()
+    if when == "before":
+        io.assert_not_called()
+        task._convert_to_markdown.assert_not_called()
+    else:
+        task._convert_to_markdown.assert_called_once()
+    assert "new-secret" not in str(metadata.mark_document_failed.call_args)
+
+
+@pytest.mark.parametrize("boundary", ["download", "convert"])
+def test_worker_errors_never_publish_credentials_or_document_content(monkeypatch, boundary):
+    service, attachment, _card, metadata = _worker_source()
+    monkeypatch.setattr(task, "find_spec", lambda _: object())
+    secret = "fixture-credential-and-private-document"
+
+    def download(_source, output):
+        if boundary == "download":
+            raise RuntimeError(secret)
+        output.write(b"source")
+        return True
+
+    monkeypatch.setattr(task.Storage, "download_file", download)
+    monkeypatch.setattr(task, "_convert_to_markdown", Mock(side_effect=RuntimeError(secret)))
+    task._index_card_attachment(service, attachment)
+    metadata.mark_document_failed.assert_called_once()
+    assert secret not in str(metadata.mark_document_failed.call_args)
+    metadata.mark_document_indexed.assert_not_called()

@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr, model_val
 from .DocumentSplitter import DocumentSplitterSettings
 
 
+DEFAULT_COLLECTION_PREFIX = "langboard_documents"
+
+
 class DocumentRetrievalSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -12,6 +15,7 @@ class DocumentRetrievalSettings(BaseModel):
     store: Literal["sqlite", "qdrant"] = "sqlite"
     external_url: HttpUrl | None = None
     external_api_key: SecretStr | None = Field(default=None, exclude=True)
+    collection_prefix: str = Field(default=DEFAULT_COLLECTION_PREFIX, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
     dimensions: int = Field(default=1536, ge=1, le=65536)
     splitter: DocumentSplitterSettings = Field(default_factory=DocumentSplitterSettings)
     search_type: Literal["similarity", "mmr"] = "similarity"
@@ -25,6 +29,8 @@ class DocumentRetrievalSettings(BaseModel):
     @model_validator(mode="after")
     def validate_capabilities(self) -> "DocumentRetrievalSettings":
         if self.store == "sqlite":
+            if self.collection_prefix != DEFAULT_COLLECTION_PREFIX:
+                raise ValueError("the built-in store has no external collection prefix")
             if self.external_url is not None or self.external_api_key is not None:
                 raise ValueError("the built-in store has no external endpoint or credential")
             if self.search_type != "similarity":

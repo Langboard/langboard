@@ -1,3 +1,4 @@
+import { createMeasureMarker } from "@/core/utils/CursorOverlay";
 import { Command as CommandPrimitive } from "cmdk";
 import React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -187,18 +188,6 @@ interface ICursorOverlayPosition {
     highlightWidth: number;
     top: number;
 }
-
-const createMeasureMarker = () => {
-    const marker = document.createElement("span");
-    marker.style.display = "inline-block";
-    marker.style.width = "0";
-    marker.style.padding = "0";
-    marker.style.margin = "0";
-    marker.style.border = "0";
-    marker.style.overflow = "hidden";
-    marker.textContent = "\u200b";
-    return marker;
-};
 
 interface ICollaborativeAutoCompleteInputProps extends React.ComponentProps<typeof Floating.LabelInput> {
     remoteCursors: ICollaborativeTextCursor[];

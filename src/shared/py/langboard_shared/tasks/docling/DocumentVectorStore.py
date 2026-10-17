@@ -33,7 +33,7 @@ def open_qdrant_store(
         timeout=settings.timeout_seconds,
     )
     try:
-        collection = "langboard_documents_" + fingerprint
+        collection = settings.collection_prefix + "_" + fingerprint
         if not client.collection_exists(collection):
             if not create:
                 yield None

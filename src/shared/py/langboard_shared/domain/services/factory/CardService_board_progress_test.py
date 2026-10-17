@@ -7,14 +7,14 @@ from sqlalchemy import create_engine, event
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from ....core.db.DbEngine import DbEngine
 from ....core.types import SafeDateTime
-from ....domain.models import Checkitem, Checklist, ProjectColumn
+from ....domain.models import Checkitem, Checklist, ProjectColumn, WorkflowStageDefinition
 from ....infrastructure.repositories.factory.CheckitemRepository import CheckitemRepository
 from .CardService import CardService
 
 
 def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (Checklist, Checkitem, ProjectColumn):
+    for model in (Checklist, Checkitem, ProjectColumn, WorkflowStageDefinition):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -76,7 +76,6 @@ def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
         checklist=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: lists),
         checkitem=CheckitemRepository(None, None),
         card_verification=SimpleNamespace(get_latest_by_card_ids=lambda ids, **kwargs: {}),
-        workflow_stage=SimpleNamespace(get_by_keys=lambda keys: {}),
     )
     service = CardService(lambda _: None, lambda _: None, repository)
     service.resolve_visibility_context = Mock(return_value=(project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=7)))
@@ -85,9 +84,10 @@ def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
     queries = []
     event.listen(engine, "before_cursor_execute", lambda conn, cursor, statement, *args: queries.append(statement))
     try:
-        result = service.get_board_list(project)
+        result, user_checklists = service.get_board_snapshot(project)
         aggregates = [query for query in queries if "count(checkitem.id)" in query]
         assert len(aggregates) == 1, aggregates
+        assert all(not checklist.is_system for checklist in user_checklists)
         assert len(result) == 100
         assert result[0]["relationships"] == [{"edge": (1, 4)}]
         assert result[1]["relationships"] == result[2]["relationships"] == [{"edge": (2, 3)}]

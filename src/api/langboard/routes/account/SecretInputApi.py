@@ -12,7 +12,7 @@ from langboard_shared.Env import Env
 from langboard_shared.security import Auth
 from pydantic import SecretStr
 from starlette.concurrency import run_in_threadpool
-from ...secrets.SecretInput import COOKIE, TTL, complete_input, open_input
+from ...secrets.SecretInput import COOKIE, TTL, cancel_input, complete_input, open_input
 
 
 def _response(payload):
@@ -97,7 +97,6 @@ def cancel_secret_input(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    from ...secrets.SecretInput import cancel_input
 
     if request.headers.get("origin") != Env.PUBLIC_UI_URL.rstrip("/"):
         raise ApiException.BadRequest_400()

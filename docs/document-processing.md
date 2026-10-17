@@ -46,6 +46,15 @@ credentials are not passed in subprocess arguments. Missing bindings fail clearl
 instead of falling back to downloading local inference weights. Partial/failed
 conversion is not recorded as a successful document index.
 
+The worker resolves the current Document Vision binding from the primary database
+before downloading the source and again before publishing converted content. A
+deleted binding, a different binding type, or a changed provider base URL rejects
+the queued result. Upload-time model and keyword settings remain fixed; credentials
+are read from the current binding. These checkpoints do not cancel requests already
+sent to the provider or hold a database lock throughout conversion. Worker failures
+publish a fixed troubleshooting message instead of provider/storage exception text
+that could contain credentials or source content.
+
 The `document-processing` extra selects `docling-slim`'s conversion, PDF, Office,
 and Web extras. It excludes `standard`, local model/OCR extras, Torch, torchvision,
 CUDA/NVIDIA packages, and Docling IBM model weights. Transformers currently
@@ -166,6 +175,23 @@ and four-language command checks. It is not deployed acceptance. Optional
 vector result composition, precise source-page navigation and live multilingual
 retrieval quality remain separate requirements.
 
+### Current workflow source validation for keyword search
+
+Both board card-context search and transcript snippet projection validate that a
+card's workflow column belongs to the same board. Removed columns are excluded
+before result limits and excerpt ranking. An inconsistent or stale card/column
+relationship must not expose another board's column name, consume the result
+budget, or return a removed workflow's transcript. These checks use the current
+primary SQL source and preserve the existing card visibility policy, literal
+matching, two-source/500-character excerpt bounds and optional embeddings.
+They neither repair operating records nor create/rebuild an external index.
+
+The SQLite/PostgreSQL regression creates inconsistent and removed workflow
+sources beside a readable current card. The unmodified implementation fails all
+four cases; the fixed query returns the current card even with a limit of one
+and excludes invalid sources from transcript excerpts. This is source regression
+evidence, not Elasticsearch integration or canary acceptance.
+
 ### Page-scoped non-destructive document reads
 
 `read_card_document` accepts an optional positive `page`. It loads only the
@@ -196,3 +222,155 @@ not prove deployed provider processing or multilingual transcription quality.
 Keyword language labels reuse the existing locale resources while retaining the
 stored `ko`, `en`, `ja` and `zh` values. Standard-library `re` is imported once;
 optional LangChain/Qdrant integrations retain deferred loading.
+
+
+## Shared external vector collections
+
+Qdrant retrieval settings include `collection_prefix` (default
+`langboard_documents` for existing installations). Set a unique prefix per
+installation when sharing an endpoint. Names consist of 1–63 ASCII letters,
+digits, underscore or hyphen, beginning with a letter or digit. The official
+LangChain/Qdrant integration uses `<prefix>_<embedding-fingerprint>`; no custom
+vector protocol or database adapter is introduced.
+
+The upload snapshot freezes the prefix. Published source pointers record it;
+MCP retrieval checks the recorded prefix and uses that snapshot. Cleanup uses
+the pointer's original prefix even if current settings changed. Pointers predating
+this field retain `langboard_documents`. Explicit reindexing to a different prefix
+must publish the new source pointer before cleanup of the previous generation.
+Settings changes trigger no background scan, migration or destructive purge.
+
+Prefixes prevent accidental name collisions; they do not authorize access. Use
+Qdrant server credentials restricted to the intended collections, and separate
+security boundaries where stronger tenant isolation is required. Endpoint
+allowlisting, current board/card ACLs and source-generation fences still apply.
+Local integration tests exercise the official Qdrant client's persistent local
+mode, independent searches and deletion across namespaces, and legacy cleanup.
+They do not prove a deployed shared server's authentication/TLS or canary E2E.
+
+### Private certificate authorities
+
+Use the official client's native HTTPX trust settings for REST-based Qdrant
+connections. The standard Docker environment generator forwards `SSL_CERT_FILE`
+and `SSL_CERT_DIR` to API, worker and graph environments. Set a container-local CA
+bundle path or an OpenSSL hashed CA directory, mounted read-only by the operator.
+Empty values retain the client's default trust. These are process-wide HTTPX
+settings, not per-board fields, credentials or a certificate-verification bypass.
+
+The custom bundle replaces default trust. Include the public CAs required by other
+HTTPS providers in the same process. Keep `KEY_PROVIDER_VAULT_CA_CERT` for the
+existing vault-specific client; not every network library uses HTTPX settings.
+No CA file, private key or company endpoint belongs in the public source tree.
+See [HTTPX environment variables](https://www.python-httpx.org/environment_variables/)
+and the pinned [Qdrant 1.19.1 REST client](https://github.com/qdrant/qdrant-client/blob/v1.19.1/qdrant_client/qdrant_remote.py).
+
+Regression tests use the real official Qdrant client against a disposable HTTPS
+wire fixture: a trusted CA permits a read-only collection-existence request and an
+untrusted certificate rejects it before HTTP handling. This exercises certificate
+validation and the common connection factory, not a real Qdrant server, server
+authorization, gRPC, persistence or deployment acceptance. A real shared-server
+check remains required before promotion.
+
+### Disposable external-server acceptance
+
+An opt-in test exercises the common connection factory against an actual Qdrant
+REST server. Provision a disposable HTTPS server with API-key authentication and
+permission to create/delete test collections. Supply its URL and secret through
+`LANGBOARD_TEST_QDRANT_URL` and `LANGBOARD_TEST_QDRANT_API_KEY`. For a private CA,
+set `SSL_CERT_FILE` to the trusted bundle as described above. Run:
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/shared/py uv run --no-sync pytest -q \
+  src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_external_test.py
+```
+
+The existing `document-retrieval` dependency extra is required. Without explicit
+test credentials the test skips; an unsecured server fails the authentication
+check. It writes only to random `langboard_acceptance_…` namespaces and deletes
+those collections in `finally`. It checks official-client persistence across
+connections, multilingual content, similarity/MMR, exact source-generation and
+board filters, independent installation namespaces, dimension mismatch rejection
+and idempotent generation deletion. Embeddings are deterministic test vectors;
+no provider calls or local inference models are used. Do not target production.
+
+Local acceptance on 2026-10-17 passed against official Qdrant 1.19.1, image
+`qdrant/qdrant@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10`,
+with a temporary private CA and the pinned 1.19.1 Python client. This is not
+server-side collection RBAC, browser/API/worker acceptance, gRPC verification or
+a performance benchmark. The opt-in test is separate from the simulated-wire
+CA regression above and does not start services during ordinary unit tests.
+
+### Recorded external vector cleanup authorization
+
+Qdrant cleanup resolves its recorded binding from the primary database before
+connecting. Deleted or repurposed bindings and replaced endpoints reject cleanup
+without contacting either the old or replacement server. Credentials are refreshed
+from that binding; dimensions, collection prefix and source pointer remain those
+of the recorded generation. Cleanup opens existing collections only and does not
+recreate a missing collection or infer a replacement endpoint. This checkpoint
+does not cancel a deletion already sent to Qdrant. Broker delivery is recovered through the transactional cleanup outbox described
+below. The connection check itself does not authorize a replacement endpoint.
+
+### Transactional vector cleanup recovery
+
+Migration `a31f9e7b402c` adds `document_vector_cleanup`. Replacing a committed
+embedding pointer or deleting its attachment document records the previous pointer
+in the same primary database transaction. Rollback removes both changes. An
+after-commit broker notification is only an optimization: a failed notification
+leaves the request in the database. The outbox contains identifiers and recorded
+storage coordinates, never model/vector API keys or document content. It has no
+attachment foreign key, so deleting the attachment cannot cascade away the request.
+
+The existing API cron runner registers `run:document-cleanup:recover` every minute
+via `scripts/run_document_cleanup_recovery.sh`. Each run reads at most 100 due
+requests using the due-time index and stops dispatching on broker failure. It does
+not scan attachments or trigger conversion, embedding, or reindexing. External
+schedulers may invoke the same command when the bundled scheduler is disabled.
+
+The worker atomically claims each request for 120 seconds, closes the transaction
+before filesystem/network deletion, and acknowledges only its own claim token.
+Duplicate delivery while leased does nothing. A lost worker becomes recoverable
+after lease expiry. Failures retain the exact pointer with a fixed error code and
+exponential backoff, capped at one hour. Successful idempotent deletion removes the
+outbox row. No model is invoked. Missing/revoked original bindings retain failed
+requests for operator repair rather than guessing another endpoint.
+
+Apply the API migration, roll workers with the new cleanup task registered, then
+roll API images that produce cleanup requests. Downgrade refuses
+to discard pending cleanup rows; do not empty them merely to force rollback. The
+legacy queued cleanup task remains registered for messages accepted by older
+workers. This outbox covers the pointer replacement and attachment-document
+deletion paths above. Failed staging, wholesale board/card purge, and deployed
+broker/worker acceptance require separate verification.
+
+### Opt-in real broker cleanup acceptance
+
+`src/api/tests/card_workspace/test_document_cleanup_broker.py` uses a dedicated
+Redis endpoint, a disposable PostgreSQL schema and a separate native Celery worker
+process. Enable it only with `LANGBOARD_TEST_CLEANUP_BROKER_URL` and
+`LANGBOARD_FILE_TEST_DATABASE_URL` pointing to test services, using a Python runtime
+with the existing document-retrieval extra. Run:
+
+```sh
+pytest -q -s src/api/tests/card_workspace/test_document_cleanup_broker.py
+```
+
+The test confirms a real connection failure leaves the committed request pending,
+checks task registration, recovers through Redis/Celery into PostgreSQL and deletes
+the actual recorded SQLite vector generation while retaining the new one. A
+completed event is replayed through the queue and both task completions are
+observed. SQL, broker dispatch and vector deletion are not mocked. Embeddings are
+deterministic fixtures; the worker explicitly registers the cleanup task rather
+than loading every unrelated application task. This is not full worker bootstrap,
+remote Qdrant or deployed canary acceptance.
+
+The test uses random queue/key prefixes, schema and vector filename. It removes
+only that namespace, schema and file, and shuts down its worker. The operator owns
+the test Redis/PostgreSQL lifecycle. Without the explicit URLs it skips. A local
+run used the official Redis 7.4-alpine image at digest
+`sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499`,
+bound to loopback with 0.5 CPU/96MiB limits. Do not use production endpoints.
+
+The Phoenix deployment preflight now requires
+`langboard.document_vector_cleanup` on every responding worker, alongside existing
+required tasks, so a mixed/stale worker deployment cannot silently pass that gate.

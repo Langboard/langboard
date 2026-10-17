@@ -1,8 +1,7 @@
 from typing import Literal
-from sqlalchemy import func
+from sqlalchemy import func, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
-from ....core.types import SnowflakeID
 from ....core.types.ParamTypes import TCheckitemParam
 from ....domain.models import Checkitem, CheckitemTimerRecord
 from ....helpers import InfraHelper
@@ -43,48 +42,35 @@ class CheckitemTimerRecordRepository(BaseRepository[CheckitemTimerRecord]):
         if not checkitem_ids:
             return {}
 
-        first_ids = self.__get_arc_ids(checkitem_ids, "first")
-        last_ids = self.__get_arc_ids(checkitem_ids, "last")
-        timer_ids = [*first_ids, *last_ids]
-        if not timer_ids:
-            return {}
-
-        with DbSession.use(readonly=True) as db:
-            records = db.exec(
-                SqlBuilder.select.table(CheckitemTimerRecord).where(CheckitemTimerRecord.column("id").in_(timer_ids))
-            ).all()
-
-        timers_by_id = {timer.id: timer for timer in records}
-        result: dict[int, dict[Literal["first", "last"], CheckitemTimerRecord]] = {}
-        for timer_id in first_ids:
-            timer = timers_by_id.get(timer_id)
-            if timer:
-                result.setdefault(timer.checkitem_id, {})["first"] = timer
-        for timer_id in last_ids:
-            timer = timers_by_id.get(timer_id)
-            if timer:
-                result.setdefault(timer.checkitem_id, {})["last"] = timer
-        return result
-
-    def __get_arc_ids(
-        self, checkitem_ids: list[SnowflakeID] | list[int], arc_type: Literal["first", "last"]
-    ) -> list[SnowflakeID]:
-        order_by = (
-            (CheckitemTimerRecord.column("created_at").asc(), CheckitemTimerRecord.column("id").asc())
-            if arc_type == "first"
-            else (CheckitemTimerRecord.column("created_at").desc(), CheckitemTimerRecord.column("id").desc())
-        )
+        # One snapshot and one sort per item. Only the two endpoint rows leave
+        # the database; long timer histories are never hydrated in Python.
         ranked = (
             SqlBuilder.select.columns(
                 CheckitemTimerRecord.column("id"),
                 func.row_number()
-                .over(partition_by=CheckitemTimerRecord.column("checkitem_id"), order_by=order_by)
-                .label("row_number"),
+                .over(
+                    partition_by=CheckitemTimerRecord.column("checkitem_id"),
+                    order_by=(CheckitemTimerRecord.column("created_at"), CheckitemTimerRecord.column("id")),
+                )
+                .label("position"),
+                func.count().over(partition_by=CheckitemTimerRecord.column("checkitem_id")).label("total"),
             )
             .where(CheckitemTimerRecord.column("checkitem_id").in_(checkitem_ids))
             .subquery()
         )
-
+        query = (
+            select(CheckitemTimerRecord, ranked.c.position, ranked.c.total)
+            .join(ranked, ranked.c.id == CheckitemTimerRecord.column("id"))
+            .where((ranked.c.position == 1) | (ranked.c.position == ranked.c.total))
+        )
         with DbSession.use(readonly=True) as db:
-            rows = db.exec(SqlBuilder.select.column(ranked.c.id).where(ranked.c.row_number == 1)).all()
-        return [SnowflakeID(row) for row in rows]
+            records = db.exec(query).all()
+
+        result: dict[int, dict[Literal["first", "last"], CheckitemTimerRecord]] = {}
+        for timer, position, total in records:
+            arc = result.setdefault(timer.checkitem_id, {})
+            if position == 1:
+                arc["first"] = timer
+            if position == total:
+                arc["last"] = timer
+        return result

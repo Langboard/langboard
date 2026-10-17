@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { applyOptimisticOrder } from "@/core/helpers/dnd/applyOptimisticOrder";
 import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { reorderWithEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
@@ -57,27 +58,7 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
         }
 
         const reordered = reorder({ list, startIndex, finishIndex });
-        reordered.forEach((item, index) => {
-            item.order = index;
-        });
-
-        const undo = () => {
-            const undoRedorered = reorder({
-                list,
-                startIndex: finishIndex,
-                finishIndex: startIndex,
-            });
-            undoRedorered.forEach((item, index) => {
-                item.order = index;
-            });
-
-            return undoRedorered;
-        };
-
-        return {
-            list: reordered,
-            undo,
-        };
+        return applyOptimisticOrder(list, reordered);
     };
 
     const reorderItemsWithEdge = <TValue extends TColumnModel | TRowModel>({
@@ -98,29 +79,7 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
             indexOfTarget,
             closestEdgeOfTarget,
         });
-        reordered.forEach((item, index) => {
-            item.order = index;
-        });
-
-        const undo = () => {
-            const undoReordered = reorderWithEdge({
-                axis: "vertical",
-                list,
-                startIndex: indexOfTarget,
-                indexOfTarget: startIndex,
-                closestEdgeOfTarget: closestEdgeOfTarget === "top" ? "bottom" : "top",
-            });
-            undoReordered.forEach((item, index) => {
-                item.order = index;
-            });
-
-            return undoReordered;
-        };
-
-        return {
-            list: reordered,
-            undo,
-        };
+        return applyOptimisticOrder(list, reordered);
     };
 
     const moveRow = ({

@@ -16,7 +16,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import McpToolGroup
 from langboard_shared.domain.services import DomainService
 from test_connection_context import prepare
-from test_github_installation import board, installation, secrets  # noqa: F401
+from test_github_installation import installation  # noqa: F401
 from test_github_lifecycle import lifecycle  # noqa: F401
 from test_github_signal import signal_storage  # noqa: F401
 

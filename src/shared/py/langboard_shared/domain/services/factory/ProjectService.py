@@ -135,6 +135,13 @@ class ProjectService(BaseDomainService):
         project = InfraHelper.get_by_id_like(Project, project)
         if not project:
             return None
+        assignment = self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(project, bot_type)
+        if assignment:
+            return assignment
+
+        # Older projects may predate a newly configured default bot. Repair only
+        # when that bot is requested, rather than on every board/MCP detail read.
+        self.__ensure_default_internal_bots(project)
         return self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(project, bot_type)
 
     def __ensure_default_internal_bots(self, project: Project) -> None:
@@ -241,7 +248,6 @@ class ProjectService(BaseDomainService):
         if not project:
             return None
 
-        self.__ensure_default_internal_bots(project)
         response = project.api_response()
         owner = InfraHelper.get_by_id_like(User, project.owner_id, with_deleted=True)
         if not owner:

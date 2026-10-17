@@ -12,13 +12,14 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import Project, ProjectRole, User
 from sqlalchemy import create_engine, update
+from sqlalchemy.pool import StaticPool
 
 
 async def test_actual_db_roles_block_apply_and_revoked_replay(monkeypatch):
     import importlib
 
     server_module = importlib.import_module("langboard.mcp_integration.Server")
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Project.__table__.create(engine)
     ProjectRole.__table__.create(engine)
     project = Project(id=100, owner_id=999, title="QA")

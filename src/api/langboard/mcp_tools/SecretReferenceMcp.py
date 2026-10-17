@@ -8,6 +8,8 @@ from langboard_shared.domain.services.factory.SecretReferenceService import Secr
 from mcp.types import InputRequiredResult
 from pydantic import Field
 from ..mcp_integration import McpTool
+from ..secrets.McpSecretInput import request_input
+from ..secrets.SecretInput import begin_input, begin_rotation, input_status
 
 
 @McpTool.add(
@@ -36,8 +38,6 @@ def request_secret_input(
     user: User,
     service: DomainService,
 ) -> dict[str, Any] | InputRequiredResult:
-    from ..secrets.McpSecretInput import request_input
-    from ..secrets.SecretInput import begin_input
 
     try:
         return request_input(
@@ -59,7 +59,6 @@ def get_secret_input_status(
     user: User,
     service: DomainService,
 ) -> dict[str, Any]:
-    from ..secrets.SecretInput import input_status
 
     try:
         return input_status(service, user, input_uid)
@@ -77,8 +76,6 @@ def request_secret_rotation_input(
     user: User,
     service: DomainService,
 ) -> dict[str, Any] | InputRequiredResult:
-    from ..secrets.McpSecretInput import request_input
-    from ..secrets.SecretInput import begin_rotation
 
     try:
         return request_input(

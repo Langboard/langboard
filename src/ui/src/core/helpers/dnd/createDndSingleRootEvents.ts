@@ -1,3 +1,4 @@
+import { applyOptimisticOrder } from "@/core/helpers/dnd/applyOptimisticOrder";
 import { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/dist/types/types";
 import { reorder } from "@atlaskit/pragmatic-drag-and-drop/reorder";
 import { getReorderDestinationIndex } from "@atlaskit/pragmatic-drag-and-drop-hitbox/util/get-reorder-destination-index";
@@ -52,23 +53,13 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
         const rows = Object.values(rowsMap).sort((a, b) => a.order - b.order);
 
         const reordered = reorder({ list: rows, startIndex, finishIndex });
-        reordered.forEach((item, index) => {
-            item.order = index;
-        });
-
-        const undo = () => {
-            const undoRedorered = reorder({ list: rows, startIndex: finishIndex, finishIndex: startIndex });
-            undoRedorered.forEach((item, index) => {
-                item.order = index;
-            });
-        };
-
+        const { undo } = applyOptimisticOrder(rows, reordered);
         return { undo };
     };
 
-    const autoScrollEvents: Record<string, CleanupFn> = {};
+    const autoScrollCleanups: Record<string, CleanupFn> = {};
     if (scrollable && settings) {
-        autoScrollEvents.autoScrollForElements = autoScrollForElements({
+        autoScrollCleanups.autoScrollForElements = autoScrollForElements({
             canScroll({ source }) {
                 if (!settings.isOverElementAutoScrollEnabled) {
                     return false;
@@ -80,7 +71,7 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
             element: scrollable,
         });
 
-        autoScrollEvents.unsafeOverflowAutoScrollForElements = unsafeOverflowAutoScrollForElements({
+        autoScrollCleanups.unsafeOverflowAutoScrollForElements = unsafeOverflowAutoScrollForElements({
             element: scrollable,
             getConfiguration: () => ({ maxScrollSpeed: settings.rootScrollSpeed }),
             canScroll({ source }) {
@@ -151,8 +142,8 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
                     undo,
                 });
             },
-            ...autoScrollEvents,
-        })
+        }),
+        ...Object.values(autoScrollCleanups)
     );
 };
 

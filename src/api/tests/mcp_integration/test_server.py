@@ -1,3 +1,5 @@
+import asyncio
+from threading import Event, get_ident
 from types import SimpleNamespace
 import pytest
 from fastmcp import Client
@@ -116,3 +118,49 @@ def test_native_wrapper_preserves_visible_parameter_annotations(monkeypatch: pyt
 
     assert tool.parameters["required"] == ["title"]
     assert tool.parameters["properties"] == {"title": {"type": "string"}}
+
+
+@pytest.mark.parametrize("async_handler", [False, True])
+async def test_wrapper_keeps_blocking_work_off_loop_and_preserves_actor(monkeypatch, async_handler):
+    loop = asyncio.get_running_loop()
+    loop_thread = get_ident()
+    started = asyncio.Event()
+    released = Event()
+    actor = Server.User(firstname="MCP", lastname="Reader", email="mcp@example.invalid", password="test-only")
+    auth = {"user_or_bot": actor}
+
+    def authorize(current_actor, handler, **kwargs):
+        assert get_ident() != loop_thread, "Synchronous role queries block the API event loop"
+        assert current_actor is actor and mcp_auth_context.get() is auth
+        return True
+
+    def sync_handler(value: int, user_or_bot: Server.User) -> dict[str, int]:
+        assert get_ident() != loop_thread, "Synchronous tool handlers block the API event loop"
+        assert user_or_bot is actor and mcp_auth_context.get() is auth
+        loop.call_soon_threadsafe(started.set)
+        assert released.wait(2), "The event loop could not release the running tool"
+        return {"value": value}
+
+    async def native_async_handler(value: int, user_or_bot: Server.User) -> dict[str, int]:
+        assert get_ident() == loop_thread
+        assert user_or_bot is actor and mcp_auth_context.get() is auth
+        return {"value": value}
+
+    monkeypatch.setattr(Server.McpServer, "_validate_auth", lambda *args: True)
+    monkeypatch.setattr(Server.McpServer, "_validate_role", authorize)
+    handler = native_async_handler if async_handler else sync_handler
+    wrapper = Server.McpServer._wrap_tool("test_worker", handler)
+    token = mcp_auth_context.set(auth)
+    task = asyncio.create_task(wrapper(value=7))
+    try:
+        if not async_handler:
+            await asyncio.wait_for(started.wait(), timeout=1)
+            assert not task.done()
+            released.set()
+        assert await task == {"value": 7}
+        assert mcp_auth_context.get() is auth
+    finally:
+        released.set()
+        if not task.done():
+            await task
+        mcp_auth_context.reset(token)

@@ -9,31 +9,84 @@ case "$profile" in
     export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
+      src/shared/py/langboard_shared/core/caching/RedisCache_test.py \
+      src/shared/py/langboard_shared/core/broker/RedisBroker_test.py \
+      src/api/tests/runtime/test_external_redis_compose.py \
+      src/api/tests/runtime/test_kafka_healthcheck_compose.py \
+      src/api/tests/runtime/test_external_phoenix_compose.py \
+      src/api/tests/runtime/test_external_phoenix_ingress.py \
+      src/api/tests/runtime/test_project_read_bootstrap.py \
+      src/api/tests/card_workspace/test_board_creator_projection.py \
+      src/api/tests/card_workspace/test_card_board_summary.py \
+      src/api/tests/runtime/test_board_chat_availability.py \
       src/api/tests/core/test_unprivileged_cron.py \
       src/api/tests/core/test_logger_tracebacks.py \
+      src/api/tests/core/test_ip_whitelist.py \
+      src/api/tests/runtime/test_shared_form_validation.py \
+      src/api/tests/apps/test_user_app_preferences_http.py \
+      src/api/tests/apps/test_app_execution_requests.py \
+      src/api/tests/apps/test_app_execution_ack.py \
+      src/api/tests/apps/test_app_execution_lease.py \
+      src/api/tests/apps/test_app_execution_start.py \
+      src/api/tests/apps/test_card_signal_projection.py \
+      src/api/tests/contracts/test_datamodel_generation.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
       src/api/tests/runtime/test_socket_auth.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/mcp_integration/test_card_mcp_contract.py \
       src/api/tests/card_visibility/test_visibility_transition.py \
       src/api/tests/card_visibility/test_policy.py \
+      src/api/tests/card_visibility/test_search_source_scope.py \
       src/api/tests/card_visibility/test_private_policy.py \
+      src/api/tests/card_visibility/test_metadata_visibility.py \
+      src/api/tests/card_visibility/test_metadata_projection.py \
+      src/api/tests/dashboard/test_project_activity_priority.py \
+      src/api/tests/dashboard/test_board_seen_cursor.py \
+      src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
+      src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \
+      src/api/tests/card_workspace/test_document_cleanup_outbox.py \
+      src/api/tests/card_workspace/test_board_snapshot_checklists.py \
+      src/api/tests/card_workspace/test_work_state_column_projection.py \
+      src/api/tests/card_workspace/test_document_cleanup_broker.py \
+      src/api/tests/dashboard/test_related_activity_projection.py \
+      src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py)
     ;;
   worker)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \
       src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py \
+      src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py \
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts && node --test src/core/stores/AuthStore.session.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
+    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
     ;;
   api-postgres)
     export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
+      src/api/tests/apps/test_user_app_preferences_http.py \
+      src/api/tests/apps/test_app_execution_requests.py \
+      src/api/tests/apps/test_app_execution_ack.py \
+      src/api/tests/apps/test_app_execution_lease.py \
+      src/api/tests/apps/test_app_execution_start.py \
+      src/api/tests/apps/test_card_signal_projection.py \
+      src/api/tests/migrations/test_phoenix_canary_union_postgres.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
-      src/api/tests/card_visibility/test_socket_subscription_batch.py)
+      src/api/tests/card_visibility/test_socket_subscription_batch.py \
+      src/api/tests/card_visibility/test_metadata_projection.py \
+      src/api/tests/dashboard/test_project_activity_priority.py \
+      src/api/tests/dashboard/test_board_seen_cursor.py \
+      src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
+      src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \
+      src/api/tests/card_workspace/test_document_cleanup_outbox.py \
+      src/api/tests/card_workspace/test_board_creator_projection.py \
+      src/api/tests/card_workspace/test_board_snapshot_checklists.py \
+      src/api/tests/card_workspace/test_work_state_column_projection.py \
+      src/api/tests/card_workspace/test_document_cleanup_broker.py \
+      src/api/tests/dashboard/test_related_activity_projection.py \
+      src/api/tests/card_workspace/timers/ \
+      src/api/tests/card_visibility/test_search_source_scope.py)
     ;;
   *)
     echo "Unsupported validation profile: $profile" >&2

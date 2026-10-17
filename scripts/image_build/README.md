@@ -36,7 +36,10 @@ source and profile before release.
 
 The API profile also declares an isolated PostgreSQL integration stage. It reuses
 the locked API validation dependencies and runs the Phoenix card authorization
-and subscription batch/revocation tests. The central fixture supplies
+and subscription batch/revocation tests, plus the 1,000-item timer projections
+for checklist, card, and My Work views. Timer fixtures live under
+`src/api/tests/card_workspace/timers/`, with isolated PostgreSQL schemas and
+foreign-key enforcement on SQLite. The central fixture supplies
 `LANGBOARD_FILE_TEST_DATABASE_URL` through `postgres.sqlalchemy-url`; a missing
 fixture fails before tests instead of accepting skipped PostgreSQL cases.
 The stage preserves the child exit code in both its process status and result

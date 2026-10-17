@@ -20,8 +20,6 @@ from langboard_shared.domain.models import (
     SecretReference,
     User,
 )
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from pydantic import SecretStr
 from test_dokploy_connection import setup  # noqa: F401
 from test_dokploy_webhook import configured  # noqa: F401

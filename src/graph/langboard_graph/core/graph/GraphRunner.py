@@ -82,6 +82,7 @@ class GraphRunner:
                 tweaks,
                 self.input_request.session_id,
                 self.input_request.thread_id or self.input_request.session_id,
+                model_source={"table": self.raw_bot[0], "id": int(self.raw_bot[1]["id"])} if self.raw_bot else None,
             )
             if graph_result.interrupts:
                 approval_count = await self._persist_approval_requests(graph_result.interrupts)

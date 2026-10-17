@@ -47,6 +47,7 @@ from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
 from .CardMetadata import CardMetadata
+from .DocumentVectorCleanup import DocumentVectorCleanup
 from .CardRelationship import CardRelationship
 from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
@@ -119,6 +120,7 @@ from .UserIdentityLink import UserIdentityLink
 from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
+from .UserAppPreference import UserAppPreference
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WorkflowStageDefinition import WorkflowStageDefinition
@@ -182,6 +184,7 @@ __all__ = [
     'CardCommentReaction',
     'CardContentBlock',
     'CardMetadata',
+    'DocumentVectorCleanup',
     'CardRelationship',
     'CardVerificationRecord',
     'CardVisibilityChange',
@@ -249,6 +252,7 @@ __all__ = [
     'UserNotification',
     'UserNotificationUnsubscription',
     'UserProfile',
+    'UserAppPreference',
     'WebhookSetting',
     'AppCardInteraction',
     'AppCardInteractionResponse',

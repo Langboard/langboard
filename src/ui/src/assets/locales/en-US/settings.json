@@ -349,6 +349,7 @@
   "Download and install": "Download and install",
   "Manual ZIP installation": "Manual ZIP installation",
   "App ZIP package": "App ZIP package",
+  "App ZIP size help": "Choose a nonempty ZIP file up to 8 MiB.",
   "Install ZIP": "Install ZIP",
   "Installed apps": "Installed apps",
   "Manual app": "Manual",

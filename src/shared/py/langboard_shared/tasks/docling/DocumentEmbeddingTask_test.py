@@ -48,7 +48,13 @@ def fixture(monkeypatch, tmp_path):
         Mock(
             return_value=(
                 {"base_url": "https://fixture.invalid", "model_name": "model"},
-                SimpleNamespace(store="sqlite", dimensions=3, timeout_seconds=2, splitter=object()),
+                SimpleNamespace(
+                    store="sqlite",
+                    dimensions=3,
+                    timeout_seconds=2,
+                    splitter=object(),
+                    collection_prefix="langboard_documents",
+                ),
             )
         ),
     )
@@ -130,12 +136,44 @@ def test_same_model_reindex_honors_explicit_splitter_changes(monkeypatch, tmp_pa
         provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
     )
     document["embedding"] = {
-        "status": "indexed", "source_generation": "current", "config": previous,
+        "status": "indexed",
+        "source_generation": "current",
+        "config": previous,
         "pointer": {"embedding_fingerprint": fingerprint, "storage": {"type": "sqlite"}},
     }
     task.embed_transcription(service, "attachment", "current")
     assert task.stage_vector_generation.call_count == int(splitter_changed)
     assert service.docling_metadata.publish_document_embedding.call_count == int(splitter_changed)
+
+
+@pytest.mark.parametrize("previous_prefix", [None, "next_documents", "old_documents"])
+def test_same_model_explicit_reindex_honors_collection_change(monkeypatch, tmp_path, previous_prefix):
+    from copy import deepcopy
+    from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    config, settings = task.validate_embedding_config.return_value
+    settings.store = "qdrant"
+    settings.external_url = "https://vectors.invalid"
+    settings.collection_prefix = "next_documents"
+    document["embedding_config"]["retrieval"] = {"splitter": {"type": "recursive"}}
+    fingerprint = embedding_fingerprint(
+        provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
+    )
+    storage = {"type": "qdrant", "endpoint": settings.external_url}
+    if previous_prefix:
+        storage["collection_prefix"] = previous_prefix
+    document["embedding"] = {
+        "status": "indexed",
+        "source_generation": "current",
+        "config": deepcopy(document["embedding_config"]),
+        "pointer": {"embedding_fingerprint": fingerprint, "storage": storage},
+    }
+    task.embed_transcription(service, "attachment", "current")
+    changed = previous_prefix != "next_documents"
+    assert task.stage_vector_generation.call_count == int(changed)
+    if changed:
+        assert task.stage_vector_generation.call_args.kwargs["storage"]["collection_prefix"] == "next_documents"
 
 
 def test_queue_outage_and_metadata_outage_never_downgrade_transcription(monkeypatch):
@@ -182,7 +220,7 @@ def test_qdrant_generation_publishes_backend_independent_ids_and_cleans_rejected
     assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["pointer"] == pointer
 
 
-def test_sqlite_reindex_removes_legacy_only_after_pointer_commit(monkeypatch, tmp_path):
+def test_sqlite_reindex_retains_legacy_until_transactional_cleanup(monkeypatch, tmp_path):
     from langboard_shared.tasks.docling.DocumentEmbedding import validated_embeddings
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
     from langboard_shared.tasks.docling.DocumentSqliteStore import open_document_store, open_sqlite_vector_store
@@ -231,11 +269,11 @@ def test_sqlite_reindex_removes_legacy_only_after_pointer_commit(monkeypatch, tm
     assert pointer["storage"] == {"type": "sqlite"} and "namespace" not in pointer
     with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
         assert store.get_by_ids(pointer["chunk_ids"])
-        assert store.store.get(tuple(legacy["namespace"]), "0") is None
+        assert store.store.get(tuple(legacy["namespace"]), "0") is not None
 
 
 @pytest.mark.parametrize("publication", [True, False, "error"])
-def test_changed_model_or_store_cleans_recorded_generation_only_after_publication(monkeypatch, tmp_path, publication):
+def test_worker_leaves_committed_generation_cleanup_to_publication_transaction(monkeypatch, tmp_path, publication):
     service, document, _ = fixture(monkeypatch, tmp_path)
     prior = {
         "generation": "previous",
@@ -244,8 +282,6 @@ def test_changed_model_or_store_cleans_recorded_generation_only_after_publicatio
         "storage": {"type": "qdrant", "endpoint": "https://old.invalid", "binding_uid": "old-binding", "dimensions": 3},
     }
     document["embedding"]["pointer"] = prior
-    queue = Mock()
-    monkeypatch.setattr(task, "_queue_previous_generation", queue)
     service.docling_metadata.publish_document_embedding.return_value = publication is True
     if publication == "error":
         service.docling_metadata.publish_document_embedding.side_effect = [
@@ -254,25 +290,11 @@ def test_changed_model_or_store_cleans_recorded_generation_only_after_publicatio
         ]
     task.embed_transcription(service, "attachment", "current")
     if publication is True:
-        queue.assert_called_once_with(prior)
         task.delete_vector_generation.assert_not_called()
         assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "indexed"
     else:
-        queue.assert_not_called()
         task.delete_vector_generation.assert_called_once()
 
-
-def test_cleanup_dispatch_outage_cannot_downgrade_committed_generation(monkeypatch, tmp_path):
-    service, document, _ = fixture(monkeypatch, tmp_path)
-    document["embedding"]["pointer"] = {
-        "generation": "previous",
-        "embedding_fingerprint": "a" * 64,
-        "namespace": ["documents", "board", "attachment", "fingerprint", "previous"],
-    }
-    monkeypatch.setattr(task.Broker.celery, "send_task", Mock(side_effect=RuntimeError("broker unavailable")))
-    task.embed_transcription(service, "attachment", "current")
-    assert service.docling_metadata.publish_document_embedding.call_count == 1
-    assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "indexed"
 
 
 @pytest.mark.parametrize("change", ["deleted", "type", "endpoint", "vector-endpoint"])
@@ -428,7 +450,7 @@ def test_explicit_splitter_reindex_applies_snapshot_in_persistent_store(monkeypa
             assert all(chunk.metadata["attachment_uid"] == "attachment" for chunk in chunks)
             assert all(chunk.metadata["board_uid"] == "board-uid" for chunk in chunks)
             if len(pointers) == 2:
-                assert not store.get_by_ids(pointers[0]["chunk_ids"])
+                assert store.get_by_ids(pointers[0]["chunk_ids"])
         # Duplicate delivery is a no-op after authoritative publication.
         call_count = len(requests)
         task.embed_transcription(service, "attachment", "current", request_uid)

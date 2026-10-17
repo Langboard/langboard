@@ -4,6 +4,7 @@ import { api } from "@/core/helpers/Api";
 import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { MetadataModel } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
+import type { QueryFunctionContext } from "@tanstack/react-query";
 
 const useGetMetadata = (form: TMetadataForm, options?: TQueryOptions) => {
     const { query } = useQueryMutation();
@@ -20,8 +21,9 @@ const useGetMetadata = (form: TMetadataForm, options?: TQueryOptions) => {
             throw new Error("Invalid metadata type");
     }
 
-    const getMetadata = async () => {
+    const getMetadata = async ({ signal }: QueryFunctionContext) => {
         const res = await api.get(url, {
+            signal,
             env: {
                 interceptToast: options?.interceptToast,
             } as never,
@@ -40,7 +42,7 @@ const useGetMetadata = (form: TMetadataForm, options?: TQueryOptions) => {
         return res.data;
     };
 
-    const result = query(["get-metadata"], getMetadata, {
+    const result = query(["get-metadata", form.type, form.project_uid, form.uid], getMetadata, {
         ...options,
         retry: 0,
         refetchInterval: Infinity,

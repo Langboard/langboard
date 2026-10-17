@@ -380,9 +380,10 @@ def test_stop_only_keeps_unchecked_and_inactive_definition_applies(flow):
     f.summary.assert_called_once()
 
 
-def test_archive_and_reorder_do_not_apply_entry_effects(flow):
+@pytest.mark.parametrize("reorder_parent", [None, ""])
+def test_archive_and_reorder_do_not_apply_entry_effects(flow, reorder_parent):
     f = flow
-    f.service.change_order(f.actor, f.project, f.card, 0, None)
+    f.service.change_order(f.actor, f.project, f.card, 0, reorder_parent)
     assert snapshot(f.engine, f.card.id)[2] == 2
     f.service.change_order(f.actor, f.project, f.card, 0, f.archive)
     assert snapshot(f.engine, f.card.id)[2] == 2

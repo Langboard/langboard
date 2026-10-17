@@ -7,6 +7,7 @@ import "@/assets/styles/main.css";
 const user = AuthUser.Model.fromOne({ uid: "comment-fixture-user", created_at: new Date(), updated_at: new Date() });
 const card = ProjectCard.Model.fromOne({
     uid: "comment-fixture-card",
+    project_uid: "fixture",
     count_comment: 1,
     current_auth_role_actions: [],
     created_at: new Date(),

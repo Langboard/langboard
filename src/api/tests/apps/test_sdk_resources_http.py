@@ -9,7 +9,6 @@ from langboard_sdk import AppResources, HttpTransport, NativeApiError
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.domain.models import AppResourceBinding, BoardAppBinding, Project
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_connection_resources import scope
 
 

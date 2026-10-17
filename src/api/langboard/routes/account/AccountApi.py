@@ -7,6 +7,8 @@ from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.domain.models import User, UserGroup
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.UserAppPreferences import PreferenceConflict, app_preferences
 from langboard_shared.Env import UI_QUERY_NAMES
 from langboard_shared.security import Auth
 from .AccountForm import (
@@ -14,11 +16,35 @@ from .AccountForm import (
     ChangePasswordForm,
     CreateUserGroupForm,
     EmailForm,
+    UpdateAppPreferencesForm,
     UpdatePreferredLangForm,
     UpdateProfileForm,
     UpdateUserGroupAssignedEmailForm,
     VerifyNewEmailForm,
 )
+
+
+def _app_preferences(user, **kwargs):
+    try:
+        return JsonResponse(content=app_preferences(user, **kwargs), headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied as exc:
+        raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
+    except PreferenceConflict as exc:
+        raise ApiException.Conflict_409(ApiErrorCode.EX1003) from exc
+
+
+@AppRouter.api.get("/account/app-preferences", tags=["Account"])
+@AuthFilter.add("user")
+def get_app_preferences(user: User = Auth.scope("user")) -> JsonResponse:
+    return _app_preferences(user)
+
+
+@AppRouter.api.put("/account/app-preferences", tags=["Account"])
+@AuthFilter.add("user")
+def update_app_preferences(form: UpdateAppPreferencesForm, user: User = Auth.scope("user")) -> JsonResponse:
+    return _app_preferences(
+        user, pinned_apps=[pin.model_dump() for pin in form.pinned_apps], expected_revision=form.expected_revision
+    )
 
 
 @AppRouter.api.put("/account/profile", tags=["Account"], responses=OpenApiSchema().auth().get())

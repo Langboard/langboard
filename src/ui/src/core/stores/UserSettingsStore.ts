@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type { TOpenCardsByUser } from "@/pages/DashboardPage/components/OpenCardsData";
 
 export const NOTIFICATIONS_TIME_RANGE_OPTIONS = ["3d", "7d", "1m", "all"] as const;
+export interface IPinnedApp {
+    key: string;
+    name: string;
+}
+export const MAX_PINNED_APPS = 32;
 export interface IUserSettings {
     column_card_sorts?: Record<string, string>;
     notifications_time_range?: (typeof NOTIFICATIONS_TIME_RANGE_OPTIONS)[number];
@@ -12,6 +17,8 @@ export interface IUserSettings {
     explorer_open_cards_collapsed?: Record<string, boolean>;
     wiki_hint_dismissed?: Record<string, boolean>;
     workbench_context_open?: Record<string, boolean>;
+    workbench_sidebar_collapsed?: Record<string, boolean>;
+    pinned_apps?: Record<string, IPinnedApp[]>;
 }
 
 interface IUserSettingsStore {
@@ -104,3 +111,42 @@ export const useWorkbenchContextOpen = (userUID?: string) => {
 };
 
 export default useUserSettingsStore;
+
+export function normalizePinnedApps(value: unknown): IPinnedApp[] {
+    if (!Array.isArray(value)) return [];
+    const pins: IPinnedApp[] = [];
+    const seen = new Set<string>();
+    for (const item of value) {
+        if (
+            !item ||
+            typeof item.key !== "string" ||
+            !/^[a-z][a-z0-9_-]{0,31}$/.test(item.key) ||
+            typeof item.name !== "string" ||
+            !item.name.trim() ||
+            seen.has(item.key)
+        )
+            continue;
+        pins.push({ key: item.key, name: Array.from(item.name.trim()).slice(0, 80).join("") });
+        seen.add(item.key);
+        if (pins.length === MAX_PINNED_APPS) break;
+    }
+    return pins;
+}
+
+export function usePinnedApps(userUID?: string) {
+    const saved = useUserSettings("pinned_apps");
+    const pins = useMemo(() => normalizePinnedApps(userUID ? saved?.[userUID] : undefined), [saved, userUID]);
+    const replace = useCallback(
+        (next: IPinnedApp[]) => {
+            if (!userUID) return;
+            const store = getUserSettingsStore();
+            const current = store.settings.pinned_apps ?? {};
+            store.updateSettingsByKey("pinned_apps", {
+                ...current,
+                [userUID]: normalizePinnedApps(next),
+            });
+        },
+        [userUID]
+    );
+    return { pins, replace };
+}

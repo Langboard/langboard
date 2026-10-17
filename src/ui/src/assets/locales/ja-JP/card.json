@@ -1,4 +1,6 @@
 {
+  "Latest history": "最新の履歴",
+  "Older history": "以前の履歴",
   "Card editing restricted by board role": "現在のボードのロールでは、カードのタイトルや本文を編集できません。",
   "Could not load card": "カードを読み込めませんでした",
   "Could not refresh card": "カードを再読み込みできませんでした。最後に読み込んだ内容を表示しています。",

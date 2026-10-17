@@ -11,6 +11,7 @@ from ..models import ProjectColumn, WorkflowStageDefinition
 class WorkflowChoice:
     stage: str
     required: bool
+    stage_active: bool
     status: Literal["missing", "ambiguous", "resolved", "invalid"]
     column_uid: str | None
     candidates: tuple[str, ...]
@@ -74,7 +75,7 @@ def resolve_app_workflow(
             selected = candidates[0]
         choices.append(
             WorkflowChoice(
-                key, key in requirements.required, status, selected if status == "resolved" else None, candidates
+                key, key in requirements.required, key in active, status, selected if status == "resolved" else None, candidates
             )
         )
     return WorkflowMappingResult(tuple(choices))

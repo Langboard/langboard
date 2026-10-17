@@ -106,12 +106,12 @@ export const BoardAddCardProvider = ({
                     // The user opens the viewer only through an explicit card or widget interaction.
                     toLastPage();
                     scrollToCreatedCard(uid);
+                    setIsEditing(() => false);
+                    endCallback();
                     return t("successes.Card added successfully.");
                 },
                 finally: () => {
                     setIsValidating(false);
-                    setIsEditing(() => false);
-                    endCallback();
                 },
             });
         },

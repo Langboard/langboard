@@ -114,6 +114,9 @@ def split_structural_document(
         pages = sorted({prov.page_no for item in section.meta.doc_items for prov in item.prov})
         section_metadata = {
             **metadata,
+            # HierarchicalChunker owns section provenance; subsequent splitting
+            # does not align excerpt offsets to individual source pages/items.
+            "provenance_scope": "section",
             "pages": pages,
             "docling_items": [item.self_ref for item in section.meta.doc_items],
             "headings": section.meta.headings or [],

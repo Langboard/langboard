@@ -9,7 +9,6 @@ import httpx
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppExecutionOutbox
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.tasks.webhooks.utils import ResolvedWebhookTarget
 from test_app_event_delivery import delivery_scope
 

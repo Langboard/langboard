@@ -11,8 +11,6 @@ from langboard_shared.domain.services.factory.SecretReferenceService import (
     SecretReferenceConflict,
     SecretReferenceUnavailable,
 )
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from pydantic import SecretStr
 
 

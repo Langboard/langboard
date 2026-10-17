@@ -3,6 +3,7 @@ from importlib.metadata import version
 from os import environ
 from os.path import dirname
 from pathlib import Path
+from re import fullmatch
 from typing import Any, Literal, cast
 from dotenv import load_dotenv
 from .core.utils.decorators import class_instance, thread_safe_singleton
@@ -15,6 +16,12 @@ for env_path in expected_env_paths:
         continue
     load_dotenv(env_path)
 expected_env_paths.clear()
+
+
+def _redis_key_prefix(prefix: str, name: str) -> str:
+    if prefix and not fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,126}:", prefix):
+        raise ValueError(f"{name} must be a literal namespace ending with ':' (maximum 128 characters)")
+    return prefix
 
 
 @class_instance()
@@ -338,8 +345,16 @@ class Env:
         return self.__get_from_cache("CACHE_URL", "")
 
     @property
+    def CACHE_KEY_PREFIX(self) -> str:
+        return _redis_key_prefix(self.__get_from_cache("CACHE_KEY_PREFIX", ""), "CACHE_KEY_PREFIX")
+
+    @property
     def BROKER_URL(self) -> str:
         return self.__get_from_cache("BROKER_URL", self.CACHE_URL)
+
+    @property
+    def BROKER_KEY_PREFIX(self) -> str:
+        return _redis_key_prefix(self.__get_from_cache("BROKER_KEY_PREFIX", ""), "BROKER_KEY_PREFIX")
 
     @property
     def COMMON_SECRET_KEY(self) -> str:
@@ -586,6 +601,25 @@ class Env:
     @property
     def KEY_PROVIDER_OPENBAO_URL(self) -> str:
         return self.__get_from_cache("KEY_PROVIDER_OPENBAO_URL", "http://127.0.0.1:8200")
+
+    @property
+    def KEY_PROVIDER_OPENBAO_ROLE_ID(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_OPENBAO_ROLE_ID", "")
+
+    @property
+    def KEY_PROVIDER_OPENBAO_SECRET_ID(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_OPENBAO_SECRET_ID", "")
+
+    @property
+    def KEY_PROVIDER_VAULT_CA_CERT(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_VAULT_CA_CERT", "")
+
+    @property
+    def KEY_PROVIDER_VAULT_TIMEOUT(self) -> int:
+        value = int(self.__get_from_cache("KEY_PROVIDER_VAULT_TIMEOUT", "30"))
+        if not 1 <= value <= 120:
+            raise ValueError("KEY_PROVIDER_VAULT_TIMEOUT must be between 1 and 120 seconds")
+        return value
 
     @property
     def KEY_PROVIDER_HASHICORP_URL(self) -> str:

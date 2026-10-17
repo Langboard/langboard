@@ -4,9 +4,10 @@ from ....core.domain import BaseOrderRepository
 from ....core.schema import TimeBasedPagination
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TChecklistParam, TProjectParam, TUserParam
-from ....domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist, Project, User
+from ....domain.models import Card, Checkitem, Checklist, Project, User
 from ....domain.models.Checkitem import CheckitemStatus
 from ....helpers import InfraHelper
+from .CheckitemTimerRecordRepository import CheckitemTimerRecordRepository
 
 
 class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
@@ -76,22 +77,12 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
             query = query.where(Card.column("id") == InfraHelper.convert_id(card))
         with DbSession.use(readonly=True) as db:
             workers = list(db.exec(query).all())
-            if not workers:
-                return []
-            item_ids = [checkitem.id for checkitem, _ in workers]
-            latest = (
-                select(
-                    CheckitemTimerRecord.column("checkitem_id"),
-                    func.max(CheckitemTimerRecord.column("id")).label("latest_id"),
-                )
-                .where(CheckitemTimerRecord.column("checkitem_id").in_(item_ids))
-                .group_by(CheckitemTimerRecord.column("checkitem_id"))
-                .subquery()
-            )
-            timer_query = SqlBuilder.select.table(CheckitemTimerRecord).join(
-                latest, CheckitemTimerRecord.column("id") == latest.c.latest_id
-            )
-            latest_timer = {record.checkitem_id: record for record in db.exec(timer_query).all()}
+        if not workers:
+            return []
+        arcs = self._get_repository(CheckitemTimerRecordRepository).get_arc_map_by_checkitems(
+            [checkitem for checkitem, _ in workers]
+        )
+        latest_timer = {item_id: arc["last"] for item_id, arc in arcs.items()}
         return [
             (
                 checkitem,

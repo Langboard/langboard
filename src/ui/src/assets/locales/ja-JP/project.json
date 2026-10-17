@@ -147,6 +147,7 @@
     "Select column": "列を選択",
     "Column": "列",
     "Previous column unavailable": "以前の列は利用できません",
+    "Mapping inactive": "このワークフローステージは無効または利用できません。先にワークフロー設定で有効にしてください。",
     "Mapping missing": "先にボード列にこのステージを割り当ててください。",
     "Mapping ambiguous": "移動先を選択してください。",
     "Mapping resolved": "移動先選択済み",

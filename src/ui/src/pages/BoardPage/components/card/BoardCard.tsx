@@ -389,6 +389,7 @@ function BoardTaskCardResult({
     const [t] = useTranslation();
     const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
+    const title = card.useField("title");
     const description = card.useField("description");
     const visibility = card.useField("visibility");
     const canChangeVisibility = card.useField("can_change_visibility");
@@ -593,6 +594,9 @@ function BoardTaskCardResult({
                                     <Box
                                         ref={contentViewportRef}
                                         data-card-content-viewport=""
+                                        role="region"
+                                        aria-label={title}
+                                        tabIndex={0}
                                         className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                                     >
                                         <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
@@ -751,9 +755,9 @@ function BoardCardMobileActions(): React.JSX.Element | null {
 
 function BoardCardMobileComments({ scrollableRef }: { scrollableRef?: React.RefObject<HTMLDivElement | null> }): React.JSX.Element | null {
     const { card } = useBoardCard();
-    const { isCommentPanelOpen } = useBoardCardPanel();
+    const { isCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
 
-    if (!isCommentPanelOpen) {
+    if (!isCommentPanelOpen || commentLayoutMode !== "mobile") {
         return null;
     }
 
@@ -918,7 +922,9 @@ function BoardCardCommentPanel(): React.JSX.Element {
                         <BoardCommentForm variant="panel" />
                     </Box>
                     <ScrollArea.Root className="min-h-0 flex-1" viewportRef={commentViewportRef}>
-                        <BoardCommentList key={`board-card-comment-list-${card.uid}`} scrollableRef={commentViewportRef} className="px-4 py-3" />
+                        {isOpen && (
+                            <BoardCommentList key={`board-card-comment-list-${card.uid}`} scrollableRef={commentViewportRef} className="px-4 py-3" />
+                        )}
                     </ScrollArea.Root>
                 </Flex>
             </Box>
@@ -956,7 +962,7 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
 
 function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
-    const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
+    const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel, commentLayoutMode } = useBoardCardPanel();
     const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
     const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
@@ -1089,7 +1095,14 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
                         label: t("card.Comments"),
                         icon: "message-square",
                         active: isCommentPanelOpen,
-                        onClick: toggleCommentPanel,
+                        onClick: () => {
+                            toggleCommentPanel();
+                            if (!isCommentPanelOpen && commentLayoutMode === "mobile") {
+                                window.dispatchEvent(
+                                    new CustomEvent(WORKBENCH_OUTLINE_EVENT, { detail: { cardUID: card.uid, section: "comments" } })
+                                );
+                            }
+                        },
                     },
                 ]}
             />

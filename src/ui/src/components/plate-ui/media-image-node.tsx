@@ -1,5 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+
+import { getImageAlt } from "./media-image-alt";
 
 import type { TImageElement } from "platejs";
 import type { PlateElementProps } from "platejs/react";
@@ -81,7 +82,7 @@ export const ImageElement = withHOC(ResizableProvider, function ImageElement(pro
                                 focused && selected && "ring-2 ring-ring ring-offset-2",
                                 isDragging && "opacity-50"
                             )}
-                            alt={(props.attributes as any).alt}
+                            alt={getImageAlt(props.element)}
                             role={readOnly ? "button" : undefined}
                             tabIndex={readOnly ? 0 : undefined}
                             aria-label={readOnly ? t("editor.Image") : undefined}

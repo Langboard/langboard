@@ -63,6 +63,7 @@ def test_backend_source_or_identifier_mismatch_is_never_returned():
     ]
     hits = search_vector_generation(store, pointer, "alpha", DocumentRetrievalSettings(store="qdrant", external_url="https://fixture.invalid"))
     assert hits[0]["pages"] == [1, 2]
+    assert hits[0]["provenance_scope"] == "unknown"
     assert hits[0]["source"] == source
 
 
@@ -143,7 +144,7 @@ def test_structural_pages_survive_official_sqlite_persistence_and_query(tmp_path
         )
     with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
         hits = search_vector_generation(store, pointer, "alpha", DocumentRetrievalSettings(dimensions=3))
-    assert hits and all(hit["pages"] == [3] for hit in hits)
+    assert hits and all(hit["pages"] == [3] and hit["provenance_scope"] == "section" for hit in hits)
     assert all(hit["source"]["content_hash"] == "hash" for hit in hits)
     assert any("한국어" in hit["content"] and "日本語" in hit["content"] for hit in hits)
 

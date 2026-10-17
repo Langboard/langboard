@@ -116,3 +116,17 @@ def test_host_uses_the_sdk_workflow_contract_without_a_duplicate_definition():
     from langboard_sdk import WorkflowRequirements as SdkRequirements
 
     assert WorkflowRequirements is SdkRequirements
+
+
+def test_inactive_optional_stage_is_missing_but_cannot_offer_column_repair():
+    columns, stages = facts()
+    stages[-1].is_active = False
+    result = evaluate(columns, stages)
+    optional = result.choices[-1]
+    assert not optional.required
+    assert optional.status == "missing"
+    assert not optional.stage_active
+    assert optional.candidates == ()
+    assert result.transitions_enabled
+    stages[-1].is_active = True
+    assert evaluate(columns, stages).choices[-1].stage_active

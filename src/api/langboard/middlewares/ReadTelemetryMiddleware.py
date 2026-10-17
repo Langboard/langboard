@@ -1,4 +1,4 @@
-"""Bounded, payload-free measurements for dashboard and board reads."""
+"""Bounded, payload-free measurements for selected workspace reads."""
 
 import json
 import logging
@@ -21,7 +21,11 @@ class ReadTelemetryMiddleware(BaseMiddleware):
         if (
             scope["type"] != "http"
             or scope.get("method") != "GET"
-            or not (path == "/dashboard/projects" or path.startswith("/board/"))
+            or not (
+                path in {"/dashboard/projects", "/notifications", "/settings/notification-schedule"}
+                or path.startswith("/board/")
+                or path.startswith("/metadata/project/")
+            )
         ):
             await self.app(scope, receive, send)
             return

@@ -5,6 +5,7 @@ import { Project, ProjectBotSchedule, ProjectBotScope } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import refreshProjectColumnDock from "@/controllers/api/board/refreshProjectColumnDock";
+import type { QueryFunctionContext } from "@tanstack/react-query";
 
 export interface IGetProjectForm {
     uid: string;
@@ -17,9 +18,10 @@ export interface IGetProjectResponse {
 const useGetProject = (form: IGetProjectForm, options?: TQueryOptions<unknown, IGetProjectResponse>) => {
     const { query } = useQueryMutation();
 
-    const getProject = async () => {
+    const getProject = async ({ signal }: QueryFunctionContext) => {
         const url = Utils.String.format(Routing.API.BOARD.GET, { uid: form.uid });
         const res = await api.get(url, {
+            signal,
             timeout: 15_000,
             env: {
                 interceptToast: options?.interceptToast,

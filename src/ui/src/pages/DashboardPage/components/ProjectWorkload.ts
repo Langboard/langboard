@@ -13,8 +13,8 @@ export function isUnfinishedColumn(column: Pick<WorkloadColumn, "name" | "is_arc
     if (column.is_archive || column.workflow_stage === "reference") return false;
     if (typeof column.workflow_counts_as_completed === "boolean") return !column.workflow_counts_as_completed;
     if (column.workflow_stage === "closed") return false;
-    // Match the existing legacy queue policy only while explicit workflow mapping is absent.
-    return !!column.workflow_stage || !["done", "completed", "complete", "완료"].includes(column.name.trim().toLowerCase());
+    // Display names are editable; only workflow policy determines completion.
+    return true;
 }
 
 export function workloadColumns<TColumn extends WorkloadColumn>(columns: TColumn[]) {

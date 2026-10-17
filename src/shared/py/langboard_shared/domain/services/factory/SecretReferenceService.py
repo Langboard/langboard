@@ -133,7 +133,7 @@ class SecretReferenceService(BaseDomainService):
         )
 
     def _authorize(self, actor: User, scope: str, scope_id: int) -> bool:
-        with DbSession.use(readonly=False) as db:
+        with DbSession.atomic() as db:
             if not isinstance(actor, User):
                 return False
             current = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id).with_for_update()).first()

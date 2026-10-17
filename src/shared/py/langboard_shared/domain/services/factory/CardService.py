@@ -8,6 +8,7 @@ from typing import Any, Literal, Sequence, cast, overload
 from sqlalchemy import Text, func, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -53,6 +54,7 @@ from ...models import (
     ProjectRole,
     ProjectWiki,
     User,
+    WorkflowStageDefinition,
 )
 from ...models.Checkitem import CheckitemStatus
 from ...models.ProjectRole import ProjectRoleAction
@@ -409,15 +411,31 @@ class CardService(BaseDomainService):
             return {}
         column_ids = {card.project_column_id for card in cards}
         with DbSession.use(readonly=True) as db:
-            columns = {
-                column.id: column
-                for column in db.exec(
-                    SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.column("id").in_(column_ids))
+            column_policies = {
+                column.id: (column, policy)
+                for column, policy in db.exec(
+                    SqlBuilder.select.tables(ProjectColumn, WorkflowStageDefinition)
+                    .outerjoin(WorkflowStageDefinition, ProjectColumn.workflow_stage == WorkflowStageDefinition.key)
+                    .options(
+                        load_only(
+                            ProjectColumn.id,
+                            ProjectColumn.project_id,
+                            ProjectColumn.workflow_stage,
+                            ProjectColumn.is_archive,
+                            raiseload=True,
+                        ),
+                        load_only(
+                            WorkflowStageDefinition.id,
+                            WorkflowStageDefinition.key,
+                            WorkflowStageDefinition.counts_as_completed,
+                            WorkflowStageDefinition.active_queue_policy,
+                            WorkflowStageDefinition.overdue_policy,
+                            raiseload=True,
+                        ),
+                    )
+                    .where(ProjectColumn.column("id").in_(column_ids))
                 ).all()
             }
-        policies = self.repo.workflow_stage.get_by_keys(
-            {column.workflow_stage for column in columns.values() if column.workflow_stage}
-        )
         counts = self.repo.checkitem.get_work_state_counts([card.id for card in cards])
         verification_records = self.repo.card_verification.get_latest_by_card_ids([card.id for card in cards])
         blockers = dependency_blockers([card.id for card in cards], context=context)
@@ -426,9 +444,9 @@ class CardService(BaseDomainService):
         signals = card_signal_projections(cards) if context is not None else {}
         states = {}
         for card in cards:
-            column = columns.get(card.project_column_id)
+            column, policy = column_policies.get(card.project_column_id, (None, None))
             stage = column.workflow_stage if column and column.project_id == card.project_id else None
-            policy = policies.get(stage)
+            policy = policy if stage else None
             total, completed, started, paused = counts.get(card.id, (0, 0, 0, 0))
             record = verification_records.get(card.id)
             states[card.id] = project_work_state(
@@ -622,17 +640,18 @@ class CardService(BaseDomainService):
             api_card["description_content_source"] = "blocks"
         return api_card
 
-    def get_board_list(
+    def get_board_snapshot(
         self,
         project: TProjectParam | None,
         user_or_bot: TUserOrBot | None = None,
         archive_visible_since: SafeDateTime | None = None,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[Checklist]]:
+        """Return board cards and their already-read user checklist rows together."""
         resolved = self.resolve_visibility_context(project, user_or_bot, channel)
         if resolved is None:
-            return []
+            return [], []
 
         project, context = resolved
         if archive_visible_since is None:
@@ -700,8 +719,7 @@ class CardService(BaseDomainService):
             seen_map = self.repo.user_card_read_state.get_seen_seq_map(user.id, [card.id for card, _ in raw_cards])
             board_seq = max((card.last_change_seq for card, _ in raw_cards), default=0)
             if assigned is not None and board_seq > (assigned.board_seen_seq or 0):
-                assigned.board_seen_seq = board_seq
-                self.repo.project_assigned_user.update(assigned)
+                self.repo.project_assigned_user.advance_board_seen(user, project, board_seq)
 
         cards = []
         linked_cards = [card for card, _ in raw_cards if getattr(card, "is_linked_resource", False)]
@@ -722,6 +740,7 @@ class CardService(BaseDomainService):
                 creator=self._card_creator_projection(card, creators.get(card.id)),
                 completed=completed_by_card.get(card.id, False),
                 is_check_card=is_check_card,
+                include_body=False,
             )
             progress = work_states[card.id]["checklist_progress"]
             api_card["checklist_total_count"] = progress["total"]
@@ -741,7 +760,7 @@ class CardService(BaseDomainService):
                 }
             cards.append(api_card)
 
-        return cards
+        return cards, [checklist for checklist in raw_checklists if not checklist.is_system]
 
     def get_active_workers(self, project: Project, card: Card | None = None) -> dict[int, list[dict[str, Any]]]:
         """Project one avatar per timer owner without changing card assignment."""
@@ -794,7 +813,11 @@ class CardService(BaseDomainService):
             "uid": creator.get_uid(),
             "type": User.USER_TYPE if isinstance(creator, User) else Bot.BOT_TYPE,
             "name": creator.get_fullname(),
-            "avatar": creator.api_response().get("avatar"),
+            "avatar": (
+                creator.avatar.path
+                if creator.avatar is not None and (not isinstance(creator, User) or creator.deleted_at is None)
+                else None
+            ),
             "created_at": card.created_at.isoformat(),
         }
 
@@ -2078,6 +2101,8 @@ class CardService(BaseDomainService):
             old_column = InfraHelper.get_by_id_like(ProjectColumn, card.project_column_id)
             if not old_column or old_column.project_id != project.id:
                 return None
+            # REST forms use an empty parent UID for same-column reorders.
+            new_column = new_column or None
             if new_column:
                 new_column = InfraHelper.get_by_id_like(ProjectColumn, new_column)
                 if not new_column or new_column.project_id != project.id or new_column.deleted_at is not None:

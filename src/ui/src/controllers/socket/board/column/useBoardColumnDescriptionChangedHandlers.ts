@@ -9,7 +9,7 @@ interface IDescriptionChangedProps extends IBaseUseSocketHandlersProps<{}> {
 
 /** Keep an open board's guidance current without modifying card state. */
 const useBoardColumnDescriptionChangedHandlers = ({ callback, projectUID }: IDescriptionChangedProps) => {
-    return useSocketHandler<{}, { uid: string; description: string }>({
+    return useSocketHandler<{}, { uid: string; description: string; translations?: ProjectColumn.Interface["translations"] }>({
         topic: ESocketTopic.Board,
         topicId: projectUID,
         eventKey: `board-column-description-changed-${projectUID}`,
@@ -19,7 +19,9 @@ const useBoardColumnDescriptionChangedHandlers = ({ callback, projectUID }: IDes
             callback,
             responseConverter: (data) => {
                 const column = ProjectColumn.Model.getModel(data.uid);
-                if (column) column.description = data.description;
+                if (column) {
+                    column.applyMetadata({ name: column.name, description: data.description, translations: data.translations });
+                }
                 return {};
             },
         },

@@ -14,8 +14,10 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
+from ...mcp_integration.Receipts import is_revision_conflict
 from ...middlewares.McpAuthMiddleware import _resolve_mcp_tool_group_uid, mcp_auth_context
 
 
@@ -59,7 +61,7 @@ async def execute_mcp_tool(tool_name: str, request: Request):
     # Get MCP tool group and validate access
     service = DomainService()
     try:
-        tool_group = service.mcp_tool_group.get_by_id_like(mcp_tool_group_uid)
+        tool_group = await run_in_threadpool(service.mcp_tool_group.get_by_id_like, mcp_tool_group_uid)
         if not tool_group:
             raise ApiException.NotFound_404(ApiErrorCode.NF3006)
 
@@ -120,6 +122,18 @@ async def execute_mcp_tool(tool_name: str, request: Request):
         except AuthorizationError as exc:
             raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
         except ToolError as exc:
+            if is_revision_conflict(exc):
+                return JsonResponse(
+                    status_code=409,
+                    content={
+                        "code": "REVISION_CONFLICT",
+                        "message": "Resource changed after review; read and review a new request.",
+                        "outcome": "not_applied",
+                        "revision_conflict": True,
+                        "retryable": False,
+                        "next_action": "read_and_review",
+                    },
+                )
             # A tool can fail after saving. Keep the outcome unknown and correlate
             # diagnostics without logging arguments, credentials or exception text.
             try:
@@ -137,6 +151,7 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 tool_name,
                 type(exc).__name__,
                 type(cause).__name__,
+                extra={"request_id": request_id, "tool": tool_name, "cause_type": type(cause).__name__},
             )
             return JsonResponse(
                 status_code=500,

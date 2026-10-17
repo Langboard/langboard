@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from langboard.routes.settings import AppCardReadApi  # noqa: F401
 from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.routing import AppRouter
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_grant import grant_scope
 
 

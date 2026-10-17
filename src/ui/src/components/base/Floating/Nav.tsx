@@ -71,7 +71,7 @@ function Nav({
             justify="center"
             className={cn(
                 "pointer-events-none z-50 w-full shrink-0",
-                fixed && "fixed bottom-2 left-[var(--floating-left,8px)] right-2 w-auto",
+                fixed && "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] left-[var(--floating-left,8px)] right-2 w-auto",
                 className
             )}
         >

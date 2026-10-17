@@ -329,15 +329,7 @@ class InternalBotRunService(BaseDomainService):
             raise RuntimeError("The claimed AI run lost its Graph identity fence")
         return run, bot_request, ai_message
 
-    def finish_board_chat(
-        self,
-        run_id: SnowflakeID,
-        attempt: int,
-        status: InternalBotRunStatus,
-        output_text: str,
-        error_message: str | None,
-    ) -> bool:
-        return self.repo.internal_bot_run.finish(run_id, attempt, status, output_text, error_message)
+    finish_board_chat = finish_editor
 
     def pause_board_chat(
         self, run_id: SnowflakeID, attempt: int, output_text: str, interrupt: dict[str, Any]

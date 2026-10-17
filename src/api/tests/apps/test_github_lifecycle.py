@@ -10,7 +10,7 @@ from langboard.apps.GitHubLifecycle import MAX_BODY, verify_lifecycle
 from langboard.apps.GitHubManifest import GitHubManifestUnavailable
 from langboard_shared.core.db import DbSession
 from pydantic import SecretStr
-from test_github_installation import board, installation, secrets  # noqa: F401
+from test_github_installation import installation  # noqa: F401
 
 
 @pytest.fixture

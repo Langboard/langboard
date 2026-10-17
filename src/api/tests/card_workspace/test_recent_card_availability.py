@@ -15,6 +15,7 @@ from langboard_shared.domain.models import Project, ProjectRole, User
 from langboard_shared.filter import RoleFilter
 from pydantic import ValidationError
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from starlette.requests import Request
 
 
@@ -23,7 +24,7 @@ from starlette.requests import Request
     [([], False, 403), (["read"], False, 200), (["card_update"], False, 403), (["read"], True, 403)],
 )
 def test_route_uses_actual_current_project_read_role(monkeypatch, actions, foreign, expected):
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     for model in (User, Project, ProjectRole):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)

@@ -140,6 +140,10 @@ export const VirtualizedDescriptionContent = memo(
                           ? viewport.scrollHeight
                           : viewport.scrollTop + viewport.clientHeight * (key === "PageDown" ? 0.9 : -0.9);
                 virtualizer.scrollToOffset(offset, { behavior: "auto" });
+                // Match section navigation after virtual rows have been rendered/measured.
+                navigationFrameRef.current = requestAnimationFrame(() => {
+                    virtualizer.scrollToOffset(offset, { behavior: "auto" });
+                });
                 return true;
             },
             [scrollParentRef, virtualizer]

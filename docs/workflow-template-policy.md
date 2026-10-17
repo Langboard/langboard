@@ -11,6 +11,20 @@ template-created boards. Column guidance remains separate and is combined with
 the current stage description for API/MCP readers. Renaming a column does not
 change the key. Legacy string columns retain a null stage without name inference.
 
+## Board-specific text overrides
+
+Changing a template-created column's canonical name or description makes that
+field board-owned. The native column service clears only that field in the
+inherited translation map, so a previous template translation cannot hide the
+user's edit. The other field's translations and the workflow key remain intact.
+Clearing a description is an explicit override too. Re-submitting unchanged text
+does not invalidate translations. The source template is never rewritten.
+
+Existing name/description events carry the updated map; the board consumes it
+through the existing model metadata update path. Persistence/event regressions
+cover rename, description replacement and description clearing. They do not
+replace authenticated deployment, reconnect or multi-client acceptance.
+
 The structural integration regression exercises database save/readback, a
 registry edit, native column creation, guidance resolution, board-to-template
 copy, and another registry edit. It also supplies policy fields at the service

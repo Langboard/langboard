@@ -133,7 +133,9 @@ async function mockBoardApi(page: Page, options: IMockOptions = {}): Promise<voi
         }
         await fulfillWithCors(route, projectPayload);
     });
-    await page.route("**/activity/project/fixture-project/card/*/column-history", (route) => fulfillWithCors(route, { history: [], total_count: 0 }));
+    await page.route("**/activity/project/fixture-project/card/*/column-history", (route) =>
+        fulfillWithCors(route, { records: [], next_cursor: null })
+    );
     await page.route("**/auth/**", (route) => fulfillWithCors(route, { access_token: "fixture-token", user: FIXTURE_USER, bots: [] }));
 }
 
@@ -627,3 +629,72 @@ test("an authorized detail omitted from the board projection can return to the F
     await expect(page.getByRole("button", { name: "Restore Card other-0", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
 });
+
+test("compact board refresh does not clear a hydrated card description", async ({ page }) => {
+    await mockBoardApi(page);
+    const body = "Full detail survives compact board refresh.";
+    await page.route("**/board/fixture-project/card/fixture-card", (route) =>
+        fulfillWithCors(route, {
+            card: { ...FIXTURE_CARD, description: { content: body }, has_description: true },
+            attachments: [],
+            checklists: [],
+            global_relationships: [],
+            project_columns: [],
+            project_labels: [],
+            bot_scopes: [],
+        })
+    );
+    let summaryReads = 0;
+    await page.route("**/board/fixture-project/cards", (route) => {
+        if (route.request().method() !== "OPTIONS") summaryReads++;
+        const { description: _description, ...summary } = FIXTURE_CARD;
+        return fulfillWithCors(route, {
+            cards: [{ ...summary, has_description: true }],
+            columns: [],
+            checklists: [],
+            global_relationships: [],
+            column_bot_scopes: [],
+            column_bot_schedules: [],
+        });
+    });
+    await page.goto(`${FIXTURE}?compactSummary=1`);
+    await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Refresh compact summary", exact: true }).press("Enter");
+    await expect.poll(() => summaryReads).toBe(1);
+    await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
+});
+
+for (const width of [1920, 390]) {
+    test(`comments mount once at ${width}px and unmount while closed`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await mockBoardApi(page);
+        await page.route("**/board/fixture-project/card/fixture-card/comments", (route) => {
+            return fulfillWithCors(route, {
+                comments: [
+                    {
+                        uid: "single-comment",
+                        card_uid: FIXTURE_CARD.uid,
+                        created_at: NOW_ISO,
+                        updated_at: NOW_ISO,
+                        content: { content: "Single comment surface" },
+                        user: FIXTURE_USER,
+                        is_edited: false,
+                        reactions: {},
+                    },
+                ],
+            });
+        });
+        await page.goto(FIXTURE);
+        const comments = page.locator('[data-card-comment-uid="single-comment"]');
+        const toggle = page.getByRole("button", { name: "Comments", exact: true });
+        await expect(toggle).toBeVisible();
+        await expect(comments).toHaveCount(0);
+        await toggle.click();
+        await expect(comments).toHaveCount(1);
+        await expect(comments).toBeVisible();
+        await toggle.click();
+        await expect(comments).toHaveCount(0);
+        await toggle.click();
+        await expect(comments).toHaveCount(1);
+    });
+}

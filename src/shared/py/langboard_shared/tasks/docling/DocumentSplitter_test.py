@@ -98,3 +98,18 @@ def test_docling_roundtrip_keeps_page_sources_and_multilingual_text_with_configu
         )
         assert any("한국어" in chunk.page_content for chunk in chunks if 1 in chunk.metadata["pages"])
         assert any("日本語" in chunk.page_content for chunk in chunks if 2 in chunk.metadata["pages"])
+
+
+def test_split_excerpt_does_not_claim_exact_page_alignment_for_a_multipage_section():
+    from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem, Size
+    from langboard_shared.tasks.docling.DocumentSplitter import split_structural_document
+
+    source = DoclingDocument(name="Multipage paragraph")
+    for number in (1, 2):
+        source.add_page(page_no=number, size=Size(width=600, height=800))
+    item = source.add_text(label=DocItemLabel.TEXT, text="Page one excerpt. " * 20 + "Page two excerpt. " * 20)
+    item.prov = [ProvenanceItem(page_no=n, bbox=BoundingBox(l=0, t=0, r=600, b=800), charspan=(0, 340)) for n in (1, 2)]
+    chunks = split_structural_document(source.export_to_dict(), DocumentSplitterSettings(chunk_size=64, chunk_overlap=8), metadata={})
+    assert len(chunks) > 2
+    assert all(chunk.metadata["provenance_scope"] == "section" and chunk.metadata["pages"] == [1, 2] for chunk in chunks)
+    assert all("page" not in chunk.metadata for chunk in chunks)

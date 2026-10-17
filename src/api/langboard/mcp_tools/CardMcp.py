@@ -18,6 +18,7 @@ from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import VerificationEvidence, VerificationSubmission
 from langboard_shared.domain.services.DomainService import DomainService
+from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
@@ -146,7 +147,8 @@ def read_card_attachment(
 
 
 @McpTool.add(
-    "user", description="Read a bounded transcription or Docling source page without embeddings; continue by page, offset and generation."
+    "user",
+    description="Read a bounded transcription or Docling source page without embeddings; continue by page, offset and generation.",
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def read_card_document(
@@ -269,6 +271,7 @@ def search_card_document(
         resolve_embedding_snapshot,
         validate_embedding_config,
     )
+    from langboard_shared.tasks.docling.DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX
     from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
     from langboard_shared.tasks.docling.DocumentVectorQuery import search_vector_generation
     from langboard_shared.tasks.docling.DocumentVectorStore import open_document_vector_store
@@ -315,7 +318,11 @@ def search_card_document(
             raise ValueError("Document embedding configuration changed")
         storage = pointer.get("storage") or {}
         if storage.get("type") != settings.store or (
-            settings.store == "qdrant" and storage.get("endpoint") != str(settings.external_url).rstrip("/")
+            settings.store == "qdrant"
+            and (
+                storage.get("endpoint") != str(settings.external_url).rstrip("/")
+                or storage.get("collection_prefix", DEFAULT_COLLECTION_PREFIX) != settings.collection_prefix
+            )
         ):
             raise ValueError("Document vector storage configuration changed")
         embeddings = create_document_embeddings(
@@ -333,7 +340,7 @@ def search_card_document(
             if store is None:
                 raise ValueError("Document vectors unavailable")
             hits = search_vector_generation(store, pointer, query, settings, max_tokens=max_tokens)
-    except Exception:
+    except ValueError:
         raise ValueError("Document vector retrieval unavailable; verify binding and reindex this attachment") from None
     _, latest_card, _ = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     latest = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, latest_card, attachment_uid)
@@ -354,7 +361,7 @@ def search_card_document(
         if not current_settings.enabled:
             raise ValueError("Document retrieval disabled")
         resolve_embedding_snapshot(snapshot, current_binding.value)
-    except Exception:
+    except ValueError:
         raise ValueError("Document embedding binding unavailable") from None
     return {
         "project_uid": project_uid,
@@ -1039,7 +1046,9 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
     return {"items": items, "total_count": len(members), "truncated": len(members) > 50}
 
 
-@McpTool.add(description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters.")
+@McpTool.add(
+    description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters."
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def list_project_cards(
     project_uid: str,
@@ -1243,21 +1252,24 @@ def update_card_checklist(
         raise ValueError("Checklist title is required")
     if is_checked is not None and not isinstance(is_checked, bool):
         raise ValueError("is_checked must be a boolean")
-    _, card = _require_task_card(project_uid, card_uid)
-    checklist = service.checklist.get_by_id_like(checklist_uid)
-    if checklist is None or checklist.card_id != card.id:
-        raise ValueError("Checklist not found in card")
-    if title is not None and checklist.title != title.strip():
-        if not service.checklist.change_title(user_or_bot, project_uid, card_uid, checklist, title.strip()):
+    with DbSession.atomic():
+        _, card = _require_task_card(project_uid, card_uid)
+        checklist = service.checklist.get_by_id_like(checklist_uid)
+        if checklist is None or checklist.card_id != card.id:
             raise ValueError("Checklist not found in card")
-    if is_checked is not None and not service.checklist.toggle_checked(
-        user_or_bot, project_uid, card_uid, checklist, desired_checked=is_checked
-    ):
-        raise ValueError("Checklist not found in card")
-    checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
-    return {
-        "checklists": bounded_items([public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25)
-    }
+        if title is not None and checklist.title != title.strip():
+            if not service.checklist.change_title(user_or_bot, project_uid, card_uid, checklist, title.strip()):
+                raise ValueError("Checklist not found in card")
+        if is_checked is not None and not service.checklist.toggle_checked(
+            user_or_bot, project_uid, card_uid, checklist, desired_checked=is_checked
+        ):
+            raise ValueError("Checklist not found in card")
+        checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
+        return {
+            "checklists": bounded_items(
+                [public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25
+            )
+        }
 
 
 @McpTool.add(description="Delete a checklist from a card.")
@@ -1397,24 +1409,27 @@ def update_card_checkitem(
         deadline = SafeDateTime.fromisoformat(deadline_at)
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-    _, card = _require_task_card(project_uid, card_uid)
-    item = service.checkitem.get_by_id_like(checkitem_uid)
-    checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
-    if item is None or checklist is None or checklist.card_id != card.id:
-        raise ValueError("Checkitem not found in card")
-    if title is not None and item.title != title.strip():
-        if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
+    with DbSession.atomic():
+        _, card = _require_task_card(project_uid, card_uid)
+        item = service.checkitem.get_by_id_like(checkitem_uid)
+        checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
+        if item is None or checklist is None or checklist.card_id != card.id:
             raise ValueError("Checkitem not found in card")
-    if deadline_at is not None and not service.checkitem.change_deadline(project_uid, card_uid, item, deadline):
-        raise ValueError("Checkitem not found in card")
-    if is_checked is not None and not service.checkitem.toggle_checked(
-        user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
-    ):
-        raise ValueError("Checkitem not found in card")
-    checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
-    return {
-        "checklists": bounded_items([public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25)
-    }
+        if title is not None and item.title != title.strip():
+            if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
+                raise ValueError("Checkitem not found in card")
+        if deadline_at is not None and not service.checkitem.change_deadline(project_uid, card_uid, item, deadline):
+            raise ValueError("Checkitem not found in card")
+        if is_checked is not None and not service.checkitem.toggle_checked(
+            user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
+        ):
+            raise ValueError("Checkitem not found in card")
+        checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
+        return {
+            "checklists": bounded_items(
+                [public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25
+            )
+        }
 
 
 @McpTool.add("user", description="Start, pause, resume, stop, or complete my checklist work timer.")
@@ -1675,7 +1690,9 @@ def save_public_card_metadata(
     metadata = service.metadata.save_card(user_or_bot, project, card, normalized_key, value, normalized_old_key)
     if metadata is None:
         raise RuntimeError("Failed to save metadata")
-    MetadataPublisher.updated_metadata(SocketTopic.BoardCard, card.get_uid(), normalized_key, metadata.value, normalized_old_key)
+    MetadataPublisher.updated_metadata(
+        SocketTopic.BoardCard, card.get_uid(), normalized_key, metadata.value, normalized_old_key
+    )
     return public_metadata({normalized_key: metadata.value})[0]
 
 
@@ -1736,7 +1753,7 @@ def create_card_content_block(
     )
     if block is None:
         raise ValueError("Card not found in project")
-    return {"content_block": _public_content_block(block)}
+    return {"content_block": CardContentBlockService.public_block(block)}
 
 
 @McpTool.add(
@@ -1762,7 +1779,7 @@ def update_card_content_block(
     block = service.card_content_block.update(user_or_bot, project_uid, card_uid, block_uid, expected_revision, payload)
     if block is None:
         raise PermissionError("Block not found in card")
-    return {"content_block": _public_content_block(block)}
+    return {"content_block": CardContentBlockService.public_block(block)}
 
 
 @McpTool.add(description="Delete a card content block by uid.")
@@ -1799,14 +1816,3 @@ def move_card_content_block(
     if not service.card_content_block.move(user_or_bot, project_uid, card_uid, block_uid, after_block_uid, order):
         raise PermissionError("Block not found in card")
     return {"moved": True}
-
-
-def _public_content_block(block: Any) -> dict[str, Any]:
-    return {
-        "block_uid": block.get_uid(),
-        "type": block.block_type,
-        "order": block.order,
-        "revision": block.revision,
-        "payload": block.payload,
-        "updated_at": block.updated_at.isoformat() if block.updated_at else None,
-    }
