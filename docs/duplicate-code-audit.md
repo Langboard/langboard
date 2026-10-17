@@ -131,3 +131,15 @@ The same regression harness now honors callback dependency memoization. Six adde
 cases fail before this correction and pass afterward (18 total), covering scope
 changes, zero counts, omitted counts and no refresh request when the count is zero.
 This remains source-level lifecycle evidence, not authenticated canary acceptance.
+
+### Read-only checklist rendering
+
+An unassigned checkitem dereferenced `assignedUser.uid` when the viewer lacked
+`card_update`. Optional access prevents the render failure without changing who
+can edit: an unassigned item requires card edit permission, while an assigned
+item remains editable by its owner. Run
+`node --test scripts/checkitem-readonly-render.test.cjs` from `src/ui`.
+The actual display component is executed with model/context hooks and inert child
+widgets: both null/undefined read-only cases fail before the change, and all five
+permission cases pass afterward. This is component-render evidence, not DOM or
+deployed browser acceptance.
