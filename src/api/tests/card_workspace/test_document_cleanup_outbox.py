@@ -99,6 +99,40 @@ def test_failure_backoff_keeps_pointer_and_sanitizes_error(cleanup_store, monkey
     assert remove.call_count == 2
 
 
+def test_negative_vector_delete_ack_preserves_cleanup_until_retry(cleanup_store, monkeypatch):
+    from langboard_shared.tasks.docling.DocumentVectorStore import delete_vector_generation
+    from langchain_qdrant import QdrantVectorStore
+    from qdrant_client.models import UpdateResult, UpdateStatus
+
+    # Exercise the official integration's bool return for a valid but incomplete
+    # provider operation, then its completed retry, through the durable outbox.
+    client = Mock()
+    client.delete.side_effect = [
+        UpdateResult(operation_id=1, status=UpdateStatus.ACKNOWLEDGED),
+        UpdateResult(operation_id=1, status=UpdateStatus.COMPLETED),
+    ]
+    store = QdrantVectorStore(
+        client=client, collection_name="recorded_documents", validate_embeddings=False, validate_collection_config=False
+    )
+    monkeypatch.setattr(embedding, "remove_recorded_embedding", lambda value: delete_vector_generation(store, value))
+    event = record()
+    assert outbox.process_cleanup(int(event.id)) is False
+    retry = pending()[0]
+    assert retry.pointer == pointer() and retry.attempt_count == 1 and retry.claim_token is None
+    assert retry.last_error == "cleanup_failed_check_original_connection"
+    with DbSession.atomic() as db:
+        db.exec(
+            update(DocumentVectorCleanup)
+            .where(DocumentVectorCleanup.id == event.id)
+            .values(due_at=SafeDateTime.now() - timedelta(seconds=1))
+        )
+    assert outbox.process_cleanup(int(event.id)) is True
+    assert pending() == []
+    assert client.delete.call_count == 2
+    for call in client.delete.call_args_list:
+        assert call.kwargs == {"collection_name": "recorded_documents", "points_selector": ["old-1"]}
+
+
 def test_lease_fences_duplicate_delivery_and_recovers_worker_loss(cleanup_store, monkeypatch):
     event = record()
     now = SafeDateTime.now()

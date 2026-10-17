@@ -454,3 +454,15 @@ generation and replays the completed event harmlessly. Provider and publication
 authority are fixtures; this is not external-provider or deployed acceptance.
 A process killed before the cleanup record commits, or an unavailable primary DB
 preventing that commit, is outside this tested recovery guarantee.
+
+An explicit `False` result from `VectorStore.delete()` also counts as cleanup
+failure. The official Qdrant integration returns this value for an acknowledged
+operation that has not completed. The existing outbox retains the pointer and
+backs off; it removes the request only after a successful retry. Providers that
+return `None` on success retain their existing behavior.
+
+`test_negative_vector_delete_ack_preserves_cleanup_until_retry` exercises the
+official Qdrant integration with acknowledged/completed response fixtures and real
+SQLite/PostgreSQL outbox transactions. The cleanup, vector-store and embedding
+regression suites pass 70 tests together. These checks cover SDK response handling
+and durable retry, not a live external Qdrant server or deployed acceptance.

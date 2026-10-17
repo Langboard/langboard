@@ -157,6 +157,7 @@ def delete_vector_generation(store: "VectorStore", pointer: dict) -> None:
     ):
         raise ValueError("Invalid recorded chunk identifiers")
     try:
-        store.delete(ids=ids)
+        if store.delete(ids=ids) is False:
+            raise RuntimeError("Vector store did not complete deletion")
     except Exception:
         raise VectorGenerationCleanupError(pointer) from None
