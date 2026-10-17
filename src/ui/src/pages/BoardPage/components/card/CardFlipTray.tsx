@@ -135,6 +135,7 @@ export default function CardFlipTray({
     useEffect(() => {
         const uids = JSON.parse(identities) as string[];
         if (!uids.length) return;
+        const checked = new Set(uids);
         const controller = new AbortController();
         let running = false;
         const validate = async () => {
@@ -152,10 +153,10 @@ export default function CardFlipTray({
                     response.data.card_uids.forEach((uid) => available.add(uid));
                 }
                 if (!controller.signal.aborted && uids.some((uid) => !available.has(uid)))
-                    useCardFlipStore.getState().retain(userUID, projectUID, available);
+                    useCardFlipStore.getState().retain(userUID, projectUID, available, checked);
             } catch (error) {
                 if (!controller.signal.aborted && isAxiosError(error) && error.response?.status === 403)
-                    useCardFlipStore.getState().retain(userUID, projectUID, new Set());
+                    useCardFlipStore.getState().retain(userUID, projectUID, new Set(), checked);
             } finally {
                 running = false;
             }

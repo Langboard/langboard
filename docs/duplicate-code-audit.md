@@ -143,3 +143,20 @@ The actual display component is executed with model/context hooks and inert chil
 widgets: both null/undefined read-only cases fail before the change, and all five
 permission cases pass afterward. This is component-render evidence, not DOM or
 deployed browser acceptance.
+
+### Card tray availability snapshots
+
+Availability checks run against a snapshot of the folded-card tray. Previously,
+`retain` filtered every current card when that response arrived, so a card added
+after dispatch could disappear without being checked. Require the checked UID
+set at the existing store boundary, matching the recent-card store's scoped
+pruning rule. Both successful responses and board-access denials now remove
+only members of that request snapshot. Other users/projects and newly folded
+cards remain intact. No cache, hook, transport or dependency was added.
+
+Run `node --experimental-strip-types --test
+src/pages/BoardPage/components/card/CardFlipStore.test.ts` from `src/ui`.
+The new late-response regression fails against the previous store, then all
+four store tests pass after the correction. The existing availability request
+still aborts on scope change and ignores malformed/failed responses. These
+checks prove store behavior; deployed tray/browser acceptance remains pending.
