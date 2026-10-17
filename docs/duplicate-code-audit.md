@@ -76,6 +76,23 @@ markers were removed first. The audit inventory is a prioritization aid, not an
 automatic rewrite or deletion rule. Local verification inventories retain the
 exact paths for the next pass.
 
+### Follow-up: default bot-trigger scope selector
+
+The two default-scope selectors duplicated the mutation guard, API payload,
+translated options, toast/error lifecycle and complete Select markup. They now
+share one selector. The existing-scope wrapper only subscribes to the model's
+branch UID and passes its current value; the no-scope path uses `custom`.
+`custom` still maps to a null default branch in the existing API mutation.
+The existing model hook remains unconditional within its wrapper.
+
+The component loses 62 net lines. Option memoization also depends on the
+translation function so a language change can refresh the custom option.
+Existing design widgets, styles, request/toast behavior and domain boundaries
+are retained. Application/tooling TypeScript and targeted ESLint/Prettier pass.
+No new abstraction, dependency or implementation-mirroring test is introduced.
+This is source refactoring evidence; the updated UI is not yet accepted on the
+deployed canary, and the umbrella cleanup card remains incomplete.
+
 ## Follow-up: single-list auto-scroll cleanup
 
 Reviewing the remaining drag-and-drop candidates exposed a lifecycle defect in

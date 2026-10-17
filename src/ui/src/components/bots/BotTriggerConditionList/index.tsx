@@ -67,13 +67,13 @@ function BotTriggerConditionApplyDefaultButton() {
     const { botScope } = useBotTriggerConditionList();
 
     if (!botScope) {
-        return <BotTriggerConditionApplyDefaultButtonWithoutBotScope />;
+        return <BotTriggerConditionDefaultScopeSelect />;
     }
 
     return <BotTriggerConditionApplyDefaultButtonWithBotScope botScope={botScope} />;
 }
 
-function BotTriggerConditionApplyDefaultButtonWithoutBotScope() {
+function BotTriggerConditionDefaultScopeSelect({ value = "custom" }: { value?: string }) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const { params, botUID } = useBotTriggerConditionList();
@@ -89,7 +89,7 @@ function BotTriggerConditionApplyDefaultButtonWithoutBotScope() {
                 label: scope.name,
             })),
         ];
-    }, [defaultScopes]);
+    }, [defaultScopes, t]);
 
     const applyDefault = (defaultScopeUID?: string) => {
         if (isApplying) {
@@ -118,7 +118,7 @@ function BotTriggerConditionApplyDefaultButtonWithoutBotScope() {
     return (
         <Flex justify="end" items="center" gap="2">
             <Select.Root
-                value="custom"
+                value={value}
                 onValueChange={(value) => {
                     applyDefault(value);
                 }}
@@ -144,70 +144,8 @@ interface IBotTriggerConditionApplyDefaultButtonWithBotScopeProps {
 }
 
 function BotTriggerConditionApplyDefaultButtonWithBotScope({ botScope }: IBotTriggerConditionApplyDefaultButtonWithBotScopeProps) {
-    const [t] = useTranslation();
-    const navigate = usePageNavigateRef();
-    const { params, botUID } = useBotTriggerConditionList();
-    const { mutateAsync } = useApplyDefaultBotScope({ bot_uid: botUID }, { interceptToast: true });
-    const [isApplying, setIsApplying] = useState(false);
-    const defaultScopes = ModelRegistry.BotDefaultScopeBranchModel.Model.useModels((model) => model.bot_uid === botUID);
     const defaultScopeBranchUID = (botScope as BaseBotScopeModel.TModel).useField("default_scope_branch_uid");
-
-    const defaultScopeOptions = useMemo(() => {
-        return [
-            { value: "custom", label: t("bot.Custom") },
-            ...defaultScopes.map((scope) => ({
-                value: scope.uid,
-                label: scope.name,
-            })),
-        ];
-    }, [defaultScopes]);
-
-    const applyDefault = (defaultScopeUID?: string) => {
-        if (isApplying) {
-            return;
-        }
-
-        setIsApplying(true);
-        const promise = mutateAsync({
-            target_table: params.target_table,
-            target_uid: params.target_uid,
-            default_scope_branch_uid: defaultScopeUID === "custom" ? null : defaultScopeUID,
-        });
-
-        Toast.Add.promise(promise, {
-            loading: t("common.Changing..."),
-            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
-            success: () => {
-                return t("successes.Bot default triggers applied successfully.");
-            },
-            finally: () => {
-                setIsApplying(false);
-            },
-        });
-    };
-
-    return (
-        <Flex justify="end" items="center" gap="2">
-            <Select.Root
-                value={defaultScopeBranchUID || "custom"}
-                onValueChange={(value) => {
-                    applyDefault(value);
-                }}
-                disabled={isApplying}
-            >
-                <Select.Trigger className="w-48">
-                    <Select.Value placeholder={t("bot.Apply default scope branch")} />
-                </Select.Trigger>
-                <Select.Content>
-                    {defaultScopeOptions.map((option) => (
-                        <Select.Item key={option.value} value={option.value}>
-                            {option.label}
-                        </Select.Item>
-                    ))}
-                </Select.Content>
-            </Select.Root>
-        </Flex>
-    );
+    return <BotTriggerConditionDefaultScopeSelect value={defaultScopeBranchUID || "custom"} />;
 }
 
 export default BotTriggerConditionList;
