@@ -517,6 +517,47 @@ for (const width of [1440, 390]) {
         await pending!.fulfill({ json: { records: [record("Second review")] } });
         await expect(timeline.locator("time")).toHaveText(["Second review"]);
     });
+
+    test(`column history follows the selected app language without refetching at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let requests = 0;
+        const createdAt = "2026-10-01T12:00:00Z";
+        await page.route(/\/column-history(?:\?|$)/, async (route) => {
+            requests += 1;
+            await route.fulfill({
+                json: {
+                    records: [
+                        {
+                            uid: "localized-event",
+                            activity_type: "card_moved",
+                            created_at: createdAt,
+                            column: { name: "Review queue" },
+                            recorder: { type: "user", firstname: "History", lastname: "Worker" },
+                        },
+                    ],
+                },
+            });
+        });
+        await page.goto("/src/components/Layout/column-history.fixture.html");
+        const entry = page.locator("nav time");
+        await expect(entry).toHaveText("Review queue");
+        for (const language of ["ko-KR", "en-US", "ja-JP", "zh-CN"]) {
+            const exact = await page.evaluate(
+                async ({ language, createdAt }) => {
+                    const modulePath = "/src/i18n.ts";
+                    const { default: i18n } = await import(modulePath);
+                    await i18n.changeLanguage(language);
+                    return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(createdAt));
+                },
+                { language, createdAt }
+            );
+            await expect(entry).toHaveAttribute("aria-label", `Review queue · ${exact} · History Worker`);
+            await entry.focus();
+            await expect(page.getByRole("tooltip")).toContainText(exact);
+            await entry.press("Escape");
+        }
+        expect(requests).toBe(1);
+    });
 }
 
 test("rail keeps settings reachable below scrolling workspace actions", async ({ page }) => {
