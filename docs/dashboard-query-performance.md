@@ -602,3 +602,28 @@ progress tests pass 14 cases; five PostgreSQL-only cases were skipped without a
 configured test database. The new relationship scope case runs on SQLite.
 No extra query, policy implementation or authority cache is added. Authenticated
 canary acceptance and the operating latency effect remain unverified.
+
+
+## Empty visible board enrichment gate (2026-10-18)
+
+`get_board_snapshot` now returns the empty card/checklist pair immediately after
+its existing current visibility resolution and scoped card query return no rows.
+Previously the function still entered assignment, relationship, label, creator,
+checklist, worker and seen-state reads. An empty authorized result needs none of
+those enrichments. This also covers a board containing only internal/private,
+deleted or cold archived cards excluded by the existing scope; it does not change
+visibility rules, the API's second current-access check or nonempty projections.
+
+The new regression failed twice against the previous SQLite implementation when
+it attempted the unexpected enrichment read (two PostgreSQL cases skipped without
+the disposable database variable). After the two-line service change, all seven
+board snapshot tests pass against SQLite and an isolated PostgreSQL schema, with
+no skips. The four empty-result cases execute exactly one card SELECT and no
+subsequent repository/seen-state calls; the other cases retain current-context
+denial and the nonempty API response/checklist-reuse contract. Ruff and diff checks
+pass. The initial all-excluded fixture was corrected to make deleted and cold
+archive rows explicitly SHARED before recording the failing baseline.
+
+This bounds work on empty visible boards. It does not establish a latency gain
+for populated boards or a deployed canary improvement. Original before/after logs
+remain in `.verification/empty-board-{before,after}-20261018.log`.

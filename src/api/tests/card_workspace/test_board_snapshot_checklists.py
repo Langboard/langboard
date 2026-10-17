@@ -29,6 +29,49 @@ def test_board_missing_current_context_stops_before_projection():
     resolver.assert_called_once_with("missing-project", actor, CollaborationChannel.Api)
 
 
+@pytest.mark.parametrize("has_excluded_cards", [False, True])
+def test_empty_visible_board_stops_after_its_scoped_card_query(board, monkeypatch, has_excluded_cards):
+    _, user, project, _, _, columns, _ = board
+    engine = DbEngine.get_main_engine()
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    for model in (Bot, Card, CardComment):
+        model.__table__.create(engine)
+    cutoff = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
+    if has_excluded_cards:
+        with DbSession.use(readonly=False) as db:
+            for fields in (
+                {"visibility": "INTERNAL"},
+                {"visibility": "PRIVATE", "owner_user_id": 2, "created_by_user_id": 2},
+                {"deleted_at": cutoff},
+                {"archived_at": cutoff - timedelta(seconds=1)},
+            ):
+                db.insert(
+                    Card(
+                        project_id=project.id,
+                        project_column_id=columns[0].id,
+                        title="Excluded",
+                        **{"visibility": "SHARED", **fields},
+                    )
+                )
+    context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, False, actor_user_id=int(user.id))
+    repository = Mock()
+    repository.card = CardRepository(None, None)
+    service = CardService(None, None, repository)
+    service.resolve_visibility_context = Mock(return_value=(project, context))
+    statements = []
+
+    def capture(_conn, _cursor, statement, *_):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        assert service.get_board_snapshot(project, user, cutoff) == ([], [])
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert len(statements) == 1 and "FROM card" in statements[0]
+    assert repository.mock_calls == [], "Empty visible boards must not issue enrichment or seen-state operations"
+
+
 def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeypatch):  # noqa: F811
     _, user, project, _, _, columns, _ = board
     engine = DbEngine.get_main_engine()

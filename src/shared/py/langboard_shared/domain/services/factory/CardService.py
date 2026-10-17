@@ -666,6 +666,8 @@ class CardService(BaseDomainService):
         if archive_visible_since is None:
             archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
         raw_cards = self.repo.card.get_board_list(project, archive_visible_since, context=context)
+        if not raw_cards:
+            return [], []
         visible_cards = {card.id: card for card, _ in raw_cards}
         raw_members = self.repo.card_assigned_user.get_all_by_project(project, archive_visible_since, context=context)
         members: dict[int, list[str]] = {}
