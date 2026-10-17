@@ -44,9 +44,10 @@ def main() -> None:
                     "MAX_REQUEST_BODY_SIZE_BYTES=${MAX_REQUEST_BODY_SIZE_BYTES}\n",
                     encoding="utf-8",
                 )
-            shutil.copyfile(
-                root / "docker" / "envs" / "server-common.env.template", output / "server-common.env.template"
-            )
+            for template in ("server-common", "server"):
+                shutil.copyfile(
+                    root / "docker" / "envs" / f"{template}.env.template", output / f"{template}.env.template"
+                )
             settings = {
                 "PROJECT_NAME": "fixture",
                 "MAX_FILE_SIZE_MB": "50",
@@ -65,6 +66,8 @@ def main() -> None:
                 "SOCKET_PHOENIX_EDITOR_SYNC_EXPECTED_NODES": "1",
                 "SOCKET_INTERNAL_URL": internal_url,
                 "SOCKET_EDITOR_INTERNAL_URL": editor_url,
+                "SSL_CERT_FILE": "/fixture/ca-bundle.pem" if internal_url else "",
+                "SSL_CERT_DIR": "/fixture/ca-directory" if internal_url else "",
             }
             (fixture / ".env").write_text("\n".join(f"{key}={value}" for key, value in settings.items()))
             clean_env = {key: value for key, value in os.environ.items() if key not in settings}
@@ -94,6 +97,8 @@ def main() -> None:
                         )
                         assert values["SOCKET_INTERNAL_URL"] == (internal_url or "http://fixture_socket_phoenix:5690")
                         assert values["SOCKET_EDITOR_INTERNAL_URL"] == (editor_url or "http://fixture_server:8010")
+                        assert values["SSL_CERT_FILE"] == settings["SSL_CERT_FILE"]
+                        assert values["SSL_CERT_DIR"] == settings["SSL_CERT_DIR"]
                 if secret:
                     assert secret not in result.stdout + result.stderr
 

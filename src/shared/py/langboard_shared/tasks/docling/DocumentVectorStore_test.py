@@ -20,6 +20,92 @@ class Fixture(Embeddings):
         return [float("alpha" in text), float("beta" in text), 0.1]
 
 
+@pytest.mark.parametrize("trusted", [False, True])
+def test_official_qdrant_client_uses_native_ca_bundle(tmp_path, monkeypatch, trusted):
+    """Real TLS transport, with only Qdrant's read-only wire responses simulated."""
+    import json
+    import shutil
+    import ssl
+    import subprocess
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    openssl = shutil.which("openssl")
+    if not openssl:
+        pytest.skip("OpenSSL is required to generate a disposable TLS certificate")
+    cert, key = tmp_path / "certificate.pem", tmp_path / "key.pem"
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    paths = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            paths.append(self.path)
+            result = (
+                {"title": "qdrant", "version": "1.19.1", "commit": "fixture"}
+                if self.path == "/"
+                else {"result": {"exists": False}, "status": "ok", "time": 0.0}
+            )
+            body = json.dumps(result).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"https://127.0.0.1:{server.server_port}"
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    if trusted:
+        monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+    settings = DocumentRetrievalSettings(store="qdrant", external_url=endpoint, dimensions=3)
+    try:
+        if trusted:
+            with open_qdrant_store(settings, None, "a" * 64, {endpoint}, create=False) as store:
+                assert store is None
+            assert any(path.endswith("/exists") for path in paths)
+        else:
+            with pytest.raises(Exception, match=r"(?i)certificate.verify.failed"):
+                with open_qdrant_store(settings, None, "a" * 64, {endpoint}, create=False):
+                    pass
+            assert not paths
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_official_store_persists_sources_filters_and_deletes(tmp_path):
     client = QdrantClient(path=str(tmp_path / "vectors"))
     client.create_collection("documents", vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))

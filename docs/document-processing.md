@@ -221,3 +221,26 @@ allowlisting, current board/card ACLs and source-generation fences still apply.
 Local integration tests exercise the official Qdrant client's persistent local
 mode, independent searches and deletion across namespaces, and legacy cleanup.
 They do not prove a deployed shared server's authentication/TLS or canary E2E.
+
+### Private certificate authorities
+
+Use the official client's native HTTPX trust settings for REST-based Qdrant
+connections. The standard Docker environment generator forwards `SSL_CERT_FILE`
+and `SSL_CERT_DIR` to API, worker and graph environments. Set a container-local CA
+bundle path or an OpenSSL hashed CA directory, mounted read-only by the operator.
+Empty values retain the client's default trust. These are process-wide HTTPX
+settings, not per-board fields, credentials or a certificate-verification bypass.
+
+The custom bundle replaces default trust. Include the public CAs required by other
+HTTPS providers in the same process. Keep `KEY_PROVIDER_VAULT_CA_CERT` for the
+existing vault-specific client; not every network library uses HTTPX settings.
+No CA file, private key or company endpoint belongs in the public source tree.
+See [HTTPX environment variables](https://www.python-httpx.org/environment_variables/)
+and the pinned [Qdrant 1.19.1 REST client](https://github.com/qdrant/qdrant-client/blob/v1.19.1/qdrant_client/qdrant_remote.py).
+
+Regression tests use the real official Qdrant client against a disposable HTTPS
+wire fixture: a trusted CA permits a read-only collection-existence request and an
+untrusted certificate rejects it before HTTP handling. This exercises certificate
+validation and the common connection factory, not a real Qdrant server, server
+authorization, gRPC, persistence or deployment acceptance. A real shared-server
+check remains required before promotion.
