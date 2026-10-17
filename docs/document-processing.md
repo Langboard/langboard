@@ -340,8 +340,8 @@ roll API images that produce cleanup requests. Downgrade refuses
 to discard pending cleanup rows; do not empty them merely to force rollback. The
 legacy queued cleanup task remains registered for messages accepted by older
 workers. This outbox covers pointer replacement, attachment-document deletion,
-and explicit card/board deletion. Failed staging and deployed broker/worker
-acceptance require separate verification.
+explicit card/board deletion, and unpublished generations whose immediate
+cleanup fails. Deployed broker/worker acceptance requires separate verification.
 
 ### Opt-in real broker cleanup acceptance
 
@@ -393,8 +393,7 @@ PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
 
 This is source regression evidence. Existing pending requests that already lost
 their count are not repaired automatically, and this change does not scan or
-delete production indexes. Failed staging cleanup and deployed acceptance
-remain separate work.
+delete production indexes. Deployed acceptance remains separate work.
 
 ### Card and board deletion
 
@@ -433,3 +432,25 @@ then rejects the deleted source after commit. Both card and board deletion are
 covered. A skipped PostgreSQL variant is not concurrency proof. This is a source
 transaction regression, not deployed worker/provider or canary acceptance.
 The tests do not delete production data.
+
+
+### Unpublished generation cleanup failures
+
+If a vector store partially accepts staging and then fails, the worker first
+attempts to delete the requested chunk IDs. The same cleanup applies when the
+authoritative publication fence rejects a staged generation or publication raises
+an error. A failed immediate deletion carries the server-owned pointer in a typed,
+sanitized error; the worker commits that pointer to the existing cleanup outbox
+before publishing the generic embedding failure. The previous searchable pointer
+remains unchanged. Broker dispatch failure leaves the committed request available
+for the existing bounded recovery cron. No attachment scan, new scheduler or
+provider credentials in cleanup records are introduced.
+
+The `test_unpublished_vectors_survive_delete_failure_as_durable_cleanup` regression
+in the outbox suite exercises all three paths with real SQLite vector writes and
+SQLite/PostgreSQL outbox transactions. After a broker failure it processes the
+committed request, verifies deletion of only the staged IDs, retains the previous
+generation and replays the completed event harmlessly. Provider and publication
+authority are fixtures; this is not external-provider or deployed acceptance.
+A process killed before the cleanup record commits, or an unavailable primary DB
+preventing that commit, is outside this tested recovery guarantee.

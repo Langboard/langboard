@@ -345,3 +345,72 @@ def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, 
             assert store.get_by_ids(old["chunk_ids"]) == []
             assert store.get_by_ids(new["chunk_ids"])
     assert outbox.process_cleanup(int(event.id)) is False
+
+
+@pytest.mark.parametrize("failure", ["stage", "rejected", "publication-error"])
+def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_store, monkeypatch, tmp_path, failure):
+    from contextlib import nullcontext
+    from langboard_shared.tasks.docling.DocumentEmbeddingTask_test import fixture
+    from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
+    from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+    from langboard_shared.tasks.docling.DocumentVectorStore import delete_vector_generation, stage_vector_generation
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    config, settings = embedding.validate_embedding_config.return_value
+    settings.splitter = DocumentSplitterSettings()
+    fingerprint = embedding_fingerprint(
+        provider=config["base_url"], model=config["model_name"], dimensions=3, version="v1"
+    )
+    directory = tmp_path / "document-retrieval"
+    directory.mkdir()
+    path = directory / (fingerprint + ".sqlite")
+    source = dict(
+        board_uid="board-uid",
+        card_uid="card-uid",
+        attachment_uid="attachment",
+        content_hash="hash",
+        embedding_fingerprint=fingerprint,
+    )
+    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+        survivor = stage_vector_generation(
+            store, source=source, text="previous generation", splitter=settings.splitter, storage={"type": "sqlite"}
+        )
+        document["embedding"]["pointer"] = survivor
+        add = store.add_documents
+
+        def partial_write(*args, **kwargs):
+            result = add(*args, **kwargs)
+            if failure == "stage":
+                raise RuntimeError("private provider failure fixture-secret")
+            return result
+
+        monkeypatch.setattr(store, "add_documents", partial_write)
+        monkeypatch.setattr(store, "delete", Mock(side_effect=RuntimeError("private delete failure fixture-secret")))
+        monkeypatch.setattr(embedding, "open_document_vector_store", lambda *_: nullcontext(store))
+        monkeypatch.setattr(embedding, "stage_vector_generation", stage_vector_generation)
+        monkeypatch.setattr(embedding, "delete_vector_generation", delete_vector_generation)
+        service.docling_metadata.publish_document_embedding.return_value = False
+        if failure == "publication-error":
+            service.docling_metadata.publish_document_embedding.side_effect = [
+                RuntimeError("publication failed"),
+                False,
+            ]
+        embedding.embed_transcription(service, "attachment", "current")
+        events = pending()
+        assert len(events) == 1
+        staged = events[0].pointer
+        assert staged["chunk_ids"] != survivor["chunk_ids"]
+        assert store.get_by_ids(staged["chunk_ids"])
+        assert store.get_by_ids(survivor["chunk_ids"])
+        assert "fixture-secret" not in str(staged) and "private" not in str(staged)
+        failed = service.docling_metadata.publish_document_embedding.call_args.args[-1]
+        assert failed["status"] == "failed" and failed["pointer"] == survivor
+    cleanup_store.assert_called_once()
+    assert outbox.process_cleanup(int(events[0].id)) is True
+    assert pending() == []
+    assert outbox.process_cleanup(int(events[0].id)) is False
+    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+        assert not store.get_by_ids(staged["chunk_ids"])
+        assert store.get_by_ids(survivor["chunk_ids"])

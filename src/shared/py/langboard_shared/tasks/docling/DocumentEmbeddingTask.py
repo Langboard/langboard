@@ -13,6 +13,7 @@ from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrie
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
 from .DocumentVectorStore import (
+    VectorGenerationCleanupError,
     delete_vector_generation,
     open_document_vector_store,
     open_qdrant_store,
@@ -177,7 +178,13 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             if not committed:
                 remove(store, pointer)
                 return
-    except Exception:
+    except Exception as error:
+        if isinstance(error, VectorGenerationCleanupError):
+            from ...core.db import DbSession
+            from .DocumentCleanupTask import record_cleanup
+
+            with DbSession.atomic() as db:
+                record_cleanup(db, error.pointer)
         # Provider exceptions may contain credentials or document text. Never publish raw errors.
         service.docling_metadata.publish_document_embedding(
             card,

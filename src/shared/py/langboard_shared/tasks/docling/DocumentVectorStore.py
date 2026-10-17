@@ -13,6 +13,14 @@ if TYPE_CHECKING:
     from .DocumentRetrievalSettings import DocumentRetrievalSettings
 
 
+class VectorGenerationCleanupError(RuntimeError):
+    """Retain unpublished IDs for durable cleanup without exposing provider errors."""
+
+    def __init__(self, pointer: dict):
+        super().__init__("Vector generation cleanup must be retried")
+        self.pointer = pointer
+
+
 @contextmanager
 def open_qdrant_store(
     settings: "DocumentRetrievalSettings", embeddings, fingerprint: str, allowed_urls: set[str], *, create=True
@@ -135,7 +143,7 @@ def stage_vector_generation(
         if returned != ids:
             raise ValueError("Vector store did not preserve the requested chunk identifiers")
     except Exception:
-        store.delete(ids=ids)
+        delete_vector_generation(store, pointer)
         raise
     return pointer
 
@@ -148,4 +156,7 @@ def delete_vector_generation(store: "VectorStore", pointer: dict) -> None:
         or not all(isinstance(i, str) and i for i in ids)
     ):
         raise ValueError("Invalid recorded chunk identifiers")
-    store.delete(ids=ids)
+    try:
+        store.delete(ids=ids)
+    except Exception:
+        raise VectorGenerationCleanupError(pointer) from None
