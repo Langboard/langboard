@@ -206,3 +206,30 @@ attributed to an individual stage. Read-only aggregate inspection also found no
 AI-description bytes in this board's 294 hot cards, so deferring that field alone
 cannot explain this sample. Their stored description JSON totaled 1,128,146 bytes;
 that is neither wire size nor proof of the latency cause.
+
+### Concurrent database observation
+
+A subsequent authenticated original cards XHR completed with HTTP 200,
+`app;dur=5579.045` and response headers at 5,917.638 ms. A read-only
+`pg_stat_activity` observation window fully bracketed its dispatch-to-headers
+interval. Of 200 samples across 41.837 seconds, 29 overlapped this request;
+three observed active statements, with maximum observed statement age 188.388 ms
+and no reported wait-event type. These statements are not request-correlated.
+The 200 ms sampling interval can miss short statements and cannot measure pool
+checkout wait or application CPU. This does not rule out cumulative SQL cost or
+database connection contention. Earlier windows ended before the response and
+are retained as incomplete measurements, not equivalent acceptance evidence.
+
+The initial browser event buffer was truncated, but the original request's
+dispatch, response and loading completion were all retained. Only that matched
+request is accepted; this is not a complete navigation waterfall or percentile.
+
+Separate cgroup observation found two effective CPUs, no CFS quota, approximately
+97.7% utilization of those two CPUs over one measured second, and CPU pressure
+`some avg10=93.78`. Host-owner historical evidence also failed the agreed CPU/RAM
+headroom condition. These are capacity-contention evidence, not an attribution
+of every millisecond to CPU. The central infrastructure owner is handling the
+placement/capacity remedy; the product does not silently change broker topology,
+host allocation, database settings, or volumes to mask the symptom. The route
+stage timings above still require deployment before application stages can be
+compared under the same runtime conditions.
