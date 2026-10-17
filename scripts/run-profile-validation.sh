@@ -2,11 +2,11 @@
 set -eu
 
 profile=${PROFILE:?PROFILE is required}
+export PROJECT_NAME="${PROJECT_NAME:-langboard}"
 mkdir -p /result/artifacts
 
 case "$profile" in
   api)
-    export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
       src/shared/py/langboard_shared/core/caching/RedisCache_test.py \
@@ -60,10 +60,9 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
+    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
     ;;
   api-postgres)
-    export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
       src/api/tests/apps/test_user_app_preferences_http.py \
