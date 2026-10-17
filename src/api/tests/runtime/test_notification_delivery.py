@@ -296,9 +296,7 @@ def test_disabled_email_outbox_keeps_web_only_notifications(
 
 
 @pytest.mark.parametrize("failed_queue", ["work", "web"])
-def test_recovery_command_attempts_remaining_queues_after_failure(
-    monkeypatch: MonkeyPatch, failed_queue: str
-) -> None:
+def test_recovery_command_attempts_remaining_queues_after_failure(monkeypatch: MonkeyPatch, failed_queue: str) -> None:
     module = import_module("langboard.commands.RunNotificationWebFanoutCommand")
     assert not module.RunNotificationWebFanoutCommand.is_only_in_dev()
     publish_work = Mock(side_effect=RuntimeError("work unavailable") if failed_queue == "work" else None)
@@ -410,9 +408,10 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_github_health_cron.sh", "github-health-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_notification_recovery.sh", "notification-web-fanout-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 6
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 7
     cron_utils.reload_cron.assert_called_once_with()
 
 
@@ -433,6 +432,7 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "github-health-recovery"),
         call(cron, "notification-web-fanout-recovery"),
         call(cron, "ollama-pull-recovery"),
+        call(cron, "document-cleanup-recovery"),
         call(cron, "internal-bot-run-recovery"),
     ]
     assert cron_utils.create_job.call_args_list == [
@@ -441,9 +441,10 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_github_health_cron.sh", "github-health-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_notification_recovery.sh", "notification-web-fanout-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 6
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 7
     cron_utils.reload_cron.assert_called_once_with()
 
 
