@@ -78,7 +78,7 @@ class ProjectColumnPublisher(BaseSocketPublisher):
     @staticmethod
     def description_changed(project: Project, column: ProjectColumn) -> None:
         """Publish guidance changes without impersonating a rename or moving cards."""
-        model = {"uid": column.get_uid(), "description": column.description}
+        model = {"uid": column.get_uid(), "description": column.description, "translations": column.translations}
         topic_id = project.get_uid()
         ProjectColumnPublisher.put_dispather(
             model,

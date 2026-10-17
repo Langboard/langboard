@@ -223,6 +223,7 @@ class ProjectColumnService(BaseDomainService):
         if column.description == description:
             return True
         column.description = description
+        column.translations = {locale: {**text, "description": ""} for locale, text in column.translations.items()}
         self.repo.project_column.update(column)
         ProjectColumnPublisher.description_changed(project, column)
         logging.getLogger(__name__).info("Updated workflow guidance for column %s", column.get_uid())
@@ -277,10 +278,12 @@ class ProjectColumnService(BaseDomainService):
 
         old_name = column.name
         column.name = name
+        if old_name != name:
+            column.translations = {locale: {**text, "name": ""} for locale, text in column.translations.items()}
 
         self.repo.project_column.update(column)
 
-        ProjectColumnPublisher.name_changed(project, column, name)
+        ProjectColumnPublisher.metadata_changed(project, column)
         ProjectColumnActivityTask.project_column_name_changed(user_or_bot, project, old_name, column)
         ProjectColumnBotTask.project_column_name_changed(user_or_bot, project, column)
 
