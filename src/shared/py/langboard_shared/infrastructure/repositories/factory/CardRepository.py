@@ -1,7 +1,7 @@
 from typing import Any, Sequence
 from sqlalchemy import Text, cast, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.orm import defer, load_only
+from sqlalchemy.orm import defer
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseOrderRepository
@@ -178,11 +178,12 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         project_id = InfraHelper.convert_id(project)
         query = (
-            SqlBuilder.select.tables(Card, User, Bot)
-            .options(load_only(Card.id, raiseload=True))
+            SqlBuilder.select.tables(Card.column("id"), User, Bot)
+            .select_from(Card)
             .outerjoin(User, Card.column("created_by_user_id") == User.column("id"))
             .outerjoin(Bot, Card.column("created_by_bot_id") == Bot.column("id"))
             .where(Card.column("project_id") == project_id)
+            .where(Card.column("deleted_at").is_(None))
             .where(
                 (Card.column("archived_at") == None)  # noqa: E711
                 | (Card.column("archived_at") >= archive_visible_since)
@@ -191,10 +192,10 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         creators: dict[int, User | Bot] = {}
         with DbSession.use(readonly=True) as db:
-            for card, user, bot in db.exec(query).all():
+            for card_id, user, bot in db.exec(query).all():
                 creator = user if user is not None else bot
                 if creator is not None:
-                    creators[card.id] = creator
+                    creators[card_id] = creator
         return creators
 
     def get_archived_page_by_project(

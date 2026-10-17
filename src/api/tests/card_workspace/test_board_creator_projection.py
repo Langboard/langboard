@@ -17,6 +17,11 @@ def test_board_creators_keep_author_and_archive_scope_without_loading_bodies(mon
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     cutoff = SafeDateTime.now() - timedelta(days=7)
+    loaded_cards = []
+
+    def capture_card(card, _context):
+        loaded_cards.append(card.id)
+
     try:
         with DbSession.use(readonly=False) as db:
             user = User(firstname="Fixture", lastname="Author", email="author@example.invalid", password="test-only")
@@ -49,6 +54,7 @@ def test_board_creators_keep_author_and_archive_scope_without_loading_bodies(mon
                 selects.append(statement)
 
         event.listen(engine, "before_cursor_execute", capture)
+        event.listen(Card, "load", capture_card)
         authors = CardRepository(None, None).get_board_creators(project, cutoff)
         assert {key: value.get_uid() for key, value in authors.items()} == {
             cards[0].id: user.get_uid(), cards[1].id: bot.get_uid(), cards[3].id: user.get_uid(),
@@ -59,5 +65,8 @@ def test_board_creators_keep_author_and_archive_scope_without_loading_bodies(mon
         assert "card.ai_description" not in selected
         assert authors[cards[0].id].firstname == "Fixture"
         assert authors[cards[1].id].name == "Fixture bot"
+        assert loaded_cards == [], "Author enrichment must not hydrate card models again"
     finally:
+        if event.contains(Card, "load", capture_card):
+            event.remove(Card, "load", capture_card)
         engine.dispose()
