@@ -8,11 +8,58 @@ import pytest
 from langboard_shared.domain.models import Card, Checkitem, CheckitemTimerRecord, Checklist
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
+from langboard_shared.infrastructure.repositories.factory.CheckitemRepository import CheckitemRepository
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
     CheckitemTimerRecordRepository,
 )
 from sqlalchemy import event
 from sqlalchemy.orm import Session
+
+
+def test_active_workers_share_timestamp_ordering_and_keep_two_queries(timer_engine):
+    early = datetime(2026, 10, 5, tzinfo=UTC)
+    late = datetime(2026, 10, 6, tzinfo=UTC)
+    with Session(timer_engine) as db:
+        db.add(Card(id=2000, project_id=10, project_column_id=40, title="Timer workers"))
+        db.commit()
+        db.add(Checklist(id=3000, card_id=2000, title="Work"))
+        db.commit()
+        db.add_all(
+            Checkitem(id=i, checklist_id=3000, title=f"Work {i}", user_id=2, status=status)
+            for i, status in [(1, CheckitemStatus.Started), (2, CheckitemStatus.Paused), (3, CheckitemStatus.Started)]
+        )
+        db.commit()
+        db.add_all(
+            [
+                CheckitemTimerRecord(id=100, checkitem_id=1, status=CheckitemStatus.Started, created_at=late),
+                CheckitemTimerRecord(id=101, checkitem_id=1, status=CheckitemStatus.Started, created_at=early),
+                CheckitemTimerRecord(id=200, checkitem_id=2, status=CheckitemStatus.Paused, created_at=late),
+            ]
+        )
+        db.commit()
+    statements = []
+
+    def capture_query(conn, cursor, statement, params, context, many):
+        statements.append(statement)
+
+    def make_repo(repository):
+        return repository(make_repo, lambda _: None)
+
+    workers = make_repo(CheckitemRepository)
+    event.listen(timer_engine, "before_cursor_execute", capture_query)
+    try:
+        result = workers.get_active_workers_by_project(10)
+        assert len(statements) == 2
+        anchors = {int(item.id): anchor for item, _, anchor in result}
+        assert set(anchors) == {1, 2, 3}
+        assert anchors[1].replace(tzinfo=UTC) == late
+        assert anchors[2] is None
+        assert anchors[3] is None
+        statements.clear()
+        assert workers.get_active_workers_by_project(10, 9999) == []
+        assert len(statements) == 1
+    finally:
+        event.remove(timer_engine, "before_cursor_execute", capture_query)
 
 
 @pytest.mark.parametrize("view", ["checklist", "card", "active"])

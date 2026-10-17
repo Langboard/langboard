@@ -2,6 +2,16 @@
 
 ## Timer endpoint projection, 2026-10-17
 
+Board active-worker avatars now reuse this repository through the existing
+repository factory. Their former `max(id)` query disagreed with My Work's
+`(created_at, id)` ordering when an older event was inserted with a newer ID.
+A real-database regression failed on both SQLite and PostgreSQL before the
+change. Both now retain the newest timestamp, omit running anchors for paused
+items and missing history, and execute two statements (workers plus timer
+endpoints); an empty worker result executes only one. Existing archived-card
+exclusion is unchanged. The combined timer and archive suite passed 16 cases.
+This source correction has not yet been verified on deployed canary.
+
 The shared timer repository now reads first/last events in one statement. A
 partitioned row number ordered by `(created_at, id)` and a partition count identify
 the two endpoints. Only those rows are hydrated; a single event supplies both

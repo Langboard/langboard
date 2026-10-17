@@ -431,7 +431,7 @@ def test_hot_queries_share_the_exact_boundary_and_hide_cold_relationship_endpoin
     monkeypatch.setattr(DbSession, "use", use_database)
 
     def make_repo(repository: Any) -> Any:
-        return repository(lambda _type: None, lambda _name: None)
+        return repository(make_repo, lambda _name: None)
 
     project = 1
 
