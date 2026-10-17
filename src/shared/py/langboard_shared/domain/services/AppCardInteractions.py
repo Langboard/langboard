@@ -673,6 +673,7 @@ def _queue_response_event(db, row, answer):
         "execution": row.request.get("execution"),
         "state": "answered",
         "execution_resumed": False,
+        "workflow_transitioned": False,
         "workflow_plan": _selected_workflow_plan(row, answer.values),
         "destination": {"destination_uid": destination.get_uid(), "revision": destination.revision},
     }
