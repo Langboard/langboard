@@ -174,8 +174,15 @@ def list_threads(service, actor, project_uid, card_uid, channel, *, before_uid=N
     if not 1 <= limit <= 50:
         raise ValueError("Invalid page size")
     latest = select(func.max(WhisperMessage.id)).where(WhisperMessage.thread_id == WhisperThread.id).scalar_subquery()
+    preview = (
+        select(func.substr(WhisperMessage.content, 1, 160))
+        .where(WhisperMessage.thread_id == WhisperThread.id)
+        .order_by(WhisperMessage.id)
+        .limit(1)
+        .scalar_subquery()
+    )
     query = (
-        select(WhisperThread, WhisperParticipant.last_read_message_id, latest)
+        select(WhisperThread, WhisperParticipant.last_read_message_id, latest, preview)
         .outerjoin(
             WhisperParticipant,
             and_(WhisperParticipant.thread_id == WhisperThread.id, WhisperParticipant.user_id == actor.id),
@@ -190,8 +197,12 @@ def list_threads(service, actor, project_uid, card_uid, channel, *, before_uid=N
         rows = db.exec(query).all()
     return {
         "threads": [
-            {**_project(thread), "has_unread": bool(last and (seen is None or last > seen))}
-            for thread, seen, last in rows[:limit]
+            {
+                **_project(thread),
+                "has_unread": bool(last and (seen is None or last > seen)),
+                "preview": first_content or "",
+            }
+            for thread, seen, last, first_content in rows[:limit]
         ],
         "next_cursor": rows[limit - 1][0].get_uid() if len(rows) > limit else None,
     }
@@ -357,10 +368,17 @@ def list_participants(service, actor, project_uid, card_uid, channel, thread_uid
         if before_uid:
             query = query.where(WhisperParticipant.id < InfraHelper.convert_id(before_uid))
         rows = db.exec(query).all()
+        latest_id = db.exec(
+            SqlBuilder.select.column(func.max(WhisperMessage.id)).where(WhisperMessage.thread_id == thread.id)
+        ).first()
     return {
         "participants": [
             {
                 "user_uid": user.get_uid(),
+                "has_unread": bool(
+                    latest_id
+                    and (participant.last_read_message_id is None or latest_id > participant.last_read_message_id)
+                ),
                 "firstname": user.firstname,
                 "lastname": user.lastname,
                 "last_read_message_uid": InfraHelper.convert_uid(participant.last_read_message_id)

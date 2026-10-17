@@ -20,6 +20,7 @@ export interface IGetCardDetailsForm {
 
 export interface IGetCardDetailsResponse {
     card: ProjectCard.TModel;
+    whispers_allowed?: boolean;
     attachments: ProjectCardAttachment.TModel[];
     linked_wikis: { wiki_uid: string; title: string }[];
     checklists: ProjectChecklist.TModel[];
@@ -66,6 +67,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
 
         return {
             card: ProjectCard.Model.fromOne(res.data.card),
+            whispers_allowed: res.data.whispers_allowed === true,
             attachments: ProjectCardAttachment.Model.fromArray(res.data.attachments, true),
             linked_wikis: res.data.linked_wikis ?? [],
             checklists,

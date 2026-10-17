@@ -27,6 +27,7 @@ from langboard_shared.domain.services.CardVisibilityPolicy import CollaborationC
 from langboard_shared.domain.services.WhisperThreads import (
     WhisperUnavailable,
     create_thread,
+    list_participants,
     list_threads,
     mark_read,
     read_messages,
@@ -75,6 +76,7 @@ def test_discussion_persists_replies_state_and_explicit_read_without_public_comm
     created = create_thread(*args, "Private human discussion")
     uid = created["thread"]["uid"]
     assert list_threads(*args)["threads"][0]["has_unread"] is False
+    assert list_threads(*args)["threads"][0]["preview"] == "Private human discussion"
     with DbSession.use(readonly=False) as db:
         # A second actor is a real board member with the native read grant.
         other = User(
@@ -94,8 +96,20 @@ def test_discussion_persists_replies_state_and_explicit_read_without_public_comm
     # GET is non-mutating; only the explicit acknowledgement marks a page read.
     assert list_threads(*second)["threads"][0]["has_unread"] is True
     mark_read(*second, uid, messages[0]["uid"])
+    assert (
+        next(item for item in list_participants(*second, uid)["participants"] if item["user_uid"] == other.get_uid())[
+            "has_unread"
+        ]
+        is False
+    )
     assert list_threads(*second)["threads"][0]["has_unread"] is False
     reply(*args, uid, "Follow-up")
+    assert (
+        next(item for item in list_participants(*second, uid)["participants"] if item["user_uid"] == other.get_uid())[
+            "has_unread"
+        ]
+        is True
+    )
     assert list_threads(*second)["threads"][0]["has_unread"] is True
     assert set_state(*args, uid, "RESOLVED")["thread"]["state"] == "RESOLVED"
     with pytest.raises(ValueError):
@@ -251,6 +265,10 @@ def test_migration_tables_match_native_models_and_preserve_retained_discussions(
         for model in (WhisperThread, WhisperMessage, WhisperParticipant):
             actual = {column["name"] for column in inspect(connection).get_columns(model.__tablename__)}
             assert actual == set(model.__table__.columns.keys())
+            assert all(
+                key["options"].get("ondelete") == "CASCADE"
+                for key in inspect(connection).get_foreign_keys(model.__tablename__)
+            )
     with DbSession.use(readonly=False) as db:
         thread = WhisperThread(project_id=project.id, card_id=card.id, creator_id=user.id)
         db.insert(thread)
@@ -430,3 +448,98 @@ def test_native_http_routes_enforce_transport_and_preserve_human_discussions(dis
         assert len(client.get(base, headers=human).json()["threads"]) == 1
         assert client.patch(f"{base}/{uid}", headers=human, json={"state": "RESOLVED"}).status_code == 200
         assert client.post(f"{base}/{uid}/messages", headers=human, json={"content": "Cannot reply"}).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "channel,visibility,mode,allowed",
+    [
+        (HUMAN, "SHARED", "project_members", True),
+        (HUMAN, "PRIVATE", "project_members", False),
+        (HUMAN, "SHARED", "scim", False),
+        (CollaborationChannel.Api, "SHARED", "project_members", False),
+        (CollaborationChannel.Mcp, "SHARED", "project_members", False),
+        (CollaborationChannel.Bot, "SHARED", "project_members", False),
+    ],
+)
+def test_card_details_projects_only_current_human_whisper_capability(
+    discussion, monkeypatch, channel, visibility, mode, allowed
+):
+    import json
+    from langboard.routes.board import BoardCardApi
+
+    actor, project, card, native = discussion
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: mode))
+    if visibility == "PRIVATE":
+        with DbSession.use(readonly=False) as db:
+            card.visibility, card.owner_user_id = visibility, actor.id
+            db.update(card)
+    empty = SimpleNamespace(get_api_list_by_card=lambda _: [])
+    service = SimpleNamespace(
+        card=SimpleNamespace(
+            resolve_readable_card=native.card.resolve_readable_card,
+            get_details=lambda *args, **kwargs: {},
+            can_delete=lambda *args: False,
+        ),
+        project=SimpleNamespace(get_user_role_actions_by_project=lambda *args: ["read"]),
+        app_setting=SimpleNamespace(get_api_global_relationship_list=lambda: []),
+        project_column=SimpleNamespace(get_api_list_by_project=lambda *args, **kwargs: []),
+        project_label=SimpleNamespace(get_api_list_by_project=lambda *args: []),
+        checklist=empty,
+        card_attachment=empty,
+    )
+    monkeypatch.setattr(BoardCardApi, "visible_linked_wikis", lambda *args: [])
+    monkeypatch.setattr(BoardCardApi, "receipt_history", lambda *args: [])
+    response = BoardCardApi.get_card_details(
+        project.get_uid(), card.get_uid(), SimpleNamespace(scope={"collaboration_channel": channel}), actor, service
+    )
+    assert json.loads(response.body)["whispers_allowed"] is allowed
+
+
+def test_native_relationship_edit_preserves_unchanged_discussion_identity(discussion, monkeypatch):
+    from contextlib import contextmanager
+    from importlib import import_module
+    from langboard_shared.infrastructure.repositories.factory.CardRelationshipRepository import (
+        CardRelationshipRepository,
+    )
+
+    module = import_module("langboard_shared.domain.services.factory.CardRelationshipService")
+    actor, project, card, native = discussion
+    with DbSession.use(readonly=False) as db:
+        other = Card(project_id=project.id, title="Related", visibility="SHARED")
+        added = Card(project_id=project.id, title="Added", visibility="SHARED")
+        db.insert(other)
+        db.insert(added)
+        relation_type = GlobalCardRelationshipType(parent_name="Reference", child_name="Reference")
+        db.insert(relation_type)
+        edge = CardRelationship(card_id_parent=card.id, card_id_child=other.id, relationship_type_id=relation_type.id)
+        db.insert(edge)
+    uid = create_thread(*_args(discussion), "Keep this relationship discussion", relationship_uid=edge.get_uid())[
+        "thread"
+    ]["uid"]
+
+    @contextmanager
+    def readiness():
+        yield SimpleNamespace(watch=lambda *_: None)
+
+    monkeypatch.setattr(module, "execution_readiness_uow", readiness)
+    monkeypatch.setattr(module, "require_card_app_mutation", lambda *args: None)
+    service = module.CardRelationshipService(
+        lambda _: SimpleNamespace(publish_work_states=lambda *args: None),
+        lambda _: None,
+        SimpleNamespace(card_relationship=CardRelationshipRepository(None, None)),
+    )
+    monkeypatch.setattr(service, "_mark_card_changed_for_unread", lambda *args: None)
+    monkeypatch.setattr(service, "dispatch_updated", lambda *args, **kwargs: None)
+    relations = [(other.get_uid(), relation_type.get_uid()), (added.get_uid(), relation_type.get_uid())]
+    service.update(actor, project, card, False, relations)
+    assert read_messages(*_args(discussion), uid)["messages"][0]["content"] == "Keep this relationship discussion"
+    with DbSession.use(readonly=False) as db:
+        assert (
+            db.exec(SqlBuilder.select.table(CardRelationship).where(CardRelationship.id == edge.id)).first() is not None
+        )
+    service.update(actor, project, card, False, relations[1:])
+    assert list_threads(*_args(discussion))["threads"] == []
+    if DbEngine.get_main_engine().dialect.name == "postgresql":
+        with DbSession.use(readonly=False) as db:
+            for model in (WhisperThread, WhisperMessage, WhisperParticipant):
+                assert db.exec(SqlBuilder.select.column(func.count()).select_from(model)).first() == 0

@@ -152,6 +152,7 @@ def get_available_recent_cards(
                 ],
                 "project_labels": [ProjectLabel],
                 "bot_scopes": [CardBotScope],
+                "whispers_allowed": "boolean",
             }
         )
         .auth()
@@ -210,6 +211,7 @@ def get_card_details(
             "project_labels": project_labels,
             "bot_scopes": bot_scopes,
             "execution_receipts": receipt_history(card.id),
+            "whispers_allowed": not is_linked_resource and context.can_use_card_whisper(CardVisibility(card.visibility)),
         }
     )
 

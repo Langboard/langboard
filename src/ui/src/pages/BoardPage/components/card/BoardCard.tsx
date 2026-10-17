@@ -1,4 +1,5 @@
 import CardAppResources from "./CardAppResources";
+import BoardCardWhispers from "./BoardCardWhispers";
 import CardAppInteractions from "./CardAppInteractions";
 import CardAppArchiveReceipts from "./CardAppArchiveReceipts";
 import { ProjectRole } from "@/core/models/roles";
@@ -267,6 +268,7 @@ const BoardCard = memo(
                 ) : (
                     <BoardCardProvider key={cardUID} projectUID={projectUID} card={cardData.card} currentUser={currentUser} viewportRef={viewportRef}>
                         <BoardCardResult
+                            whispersAllowed={cardData.whispers_allowed === true}
                             executionReceipts={cardData.execution_receipts}
                             linkedWikis={cardData.linked_wikis}
                             isExpanded={isExpanded}
@@ -354,6 +356,7 @@ export function SkeletonBoardCard(): React.JSX.Element {
 }
 
 interface IBoardCardResultProps {
+    whispersAllowed?: boolean;
     executionReceipts?: IGetCardDetailsResponse["execution_receipts"];
     linkedWikis?: IGetCardDetailsResponse["linked_wikis"];
     isExpanded: bool;
@@ -379,6 +382,7 @@ function BoardTaskCardResult({
     onClose,
     onFlip,
     onEditModeStateChange,
+    whispersAllowed = false,
     executionReceipts = [],
     linkedWikis = [],
 }: IBoardCardResultProps): React.JSX.Element {
@@ -710,6 +714,7 @@ function BoardTaskCardResult({
                                                     )}
                                                 </>
                                             )}
+                                            {whispersAllowed && visibility !== "PRIVATE" && <BoardCardWhispers />}
                                             <BoardCardMobileComments scrollableRef={contentViewportRef} />
                                         </Flex>
                                     </Box>

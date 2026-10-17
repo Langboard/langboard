@@ -2,9 +2,10 @@
 
 ## Delivery status
 
-The persistence and human UI API boundary are implemented. The card interface,
-mention picker, anchor entry points and authenticated canary acceptance remain
-pending. This is not a completed user-facing feature.
+Persistence, the human UI API and the card discussion interface are implemented.
+Local browser interaction and native HTTP/database acceptance are verified; a
+new product image and authenticated canary acceptance remain pending. This is
+not a deployment-complete feature.
 
 ## Access boundary
 
@@ -20,6 +21,10 @@ thread is a single object available from either endpoint only while both cards
 are currently readable, nondeleted INTERNAL or SHARED cards. Converting either
 endpoint to PRIVATE hides that relationship discussion. No public comments,
 ordinary activity events or shared notifications are generated.
+
+Updating unchanged relationship edges preserves their IDs and discussions. Removing
+an edge deletes its anchored discussion through the native cascading foreign keys;
+visibility changes only hide existing discussions and do not delete them.
 
 ## Human UI endpoints
 
@@ -66,3 +71,42 @@ latest-message lookup and cursor reads without a redundant thread-only index.
 Native HTTP tests exercise route registration, AuthFilter, server channel derivation
 and database persistence with isolated credential verification. Transport identity tests additionally verify that
 client headers cannot turn API/MCP credentials into a human session.
+
+
+## Card interface and bounded loading
+
+Card details project `whispers_allowed` from the existing server-resolved current
+visibility context. The interface is absent on PRIVATE/linked-resource cards and
+for nonhuman or external callers. No new permission lookup is added to card
+details. The discussion starts collapsed and performs no whisper request until
+opened. Thread/message pages are bounded; participant receipts load only when
+requested. Reads are cancelled on unmount and do not poll or retry automatically.
+Query keys include the current user, board and card; cache entries are removed
+when the last observer unmounts. Account/card changes reset component state.
+
+The context selector uses already loaded card, relationship, content block,
+comment, checklist and attachment models without fetching every child. A removed
+context disables creation instead of silently falling back to the card.
+Structured mention selection is bounded to ten people; known external members
+are omitted, and the server revalidates all recipients at the write boundary.
+A bounded first-message preview identifies each discussion. Existing theme-aware
+buttons, selects, checkboxes, text areas and locale/date helpers are reused.
+English, Korean, Japanese and Chinese labels are included. Message content and
+previews render as plain text.
+
+Drafts remain local while folding the discussion or switching threads. Unsaved
+drafts show a dot and register the browser unload warning; they are not written
+to public-comment models or persistent browser storage. Navigating away from the
+card unmounts this local state; durable draft recovery is not provided. An unknown-result
+write keeps its draft and blocks further writes without automatic replay. Current
+access failures hide cached discussions until a successful explicit refresh; rejected
+validation leaves the draft editable and displays an error. Users
+can refresh and inspect saved messages before explicitly discarding the failed
+draft and unlocking sending. Read receipts advance only through the explicit
+read button; GET and expanding a discussion never acknowledge messages.
+
+The `WhisperDiscussions.fixture.html` UI fixture isolates transport and includes
+`?lost`, `?private`, `?write-denied` and `?locale=ko-KR` modes. Run the existing UI Vite configuration
+and open the fixture in a fresh browser to reproduce lazy loading, message
+creation, mentions, resolve/reopen, access revocation and lost-response handling.
+This fixture is not evidence of live canary authorization or deployment.
