@@ -71,7 +71,7 @@ export default function BoardMinimap({ scrollable, scrollportId }: { scrollable:
         <div
             ref={root}
             className={cn(
-                "fixed bottom-20 right-4 z-30 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl",
+                "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+5rem)] right-4 z-30 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl",
                 "border bg-background/95 shadow-lg backdrop-blur"
             )}
             data-board-minimap=""

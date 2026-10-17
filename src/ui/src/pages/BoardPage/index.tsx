@@ -658,12 +658,14 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                     {
                         icon: "panel-left",
                         label: t("common.Explorer"),
+                        mobile: "primary",
                         onClick: () => showWorkbenchContext("explorer"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "explorer",
                     },
                     {
                         icon: "list-checks",
                         label: t("dashboard.My Work"),
+                        mobile: "primary",
                         onClick: () => showWorkbenchContext("my-work"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "my-work",
                     },
@@ -707,6 +709,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                     ...panelApps.map((app) => ({
                         icon: "puzzle",
                         label: app.panel?.name ?? app.name,
+                        mobile: "app" as const,
                         onClick: () => {
                             setSelectedAppKey(app.key);
                             showWorkbenchContext("app");

@@ -183,6 +183,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
                 {
                     icon: "folder-kanban",
                     label: t("dashboard.Projects"),
+                    mobile: "primary",
                     onClick: headerNavs[0].onClick!,
                     active: pageType === "projects" && tabName === "all",
                 },
@@ -190,6 +191,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
                 {
                     icon: "list-checks",
                     label: t("dashboard.My Work"),
+                    mobile: "primary",
                     onClick: () => showContext("my-work"),
                     active: contextMode === "my-work" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
                 },

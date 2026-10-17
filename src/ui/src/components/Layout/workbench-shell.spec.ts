@@ -41,10 +41,10 @@ test("route changes retain the physical shell and preserve page context in its s
     await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 });
 
-test("mobile drawer actions are keyboard reachable and open context content", async ({ page }) => {
+test("mobile rail actions are keyboard reachable and open context content", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).click();
+
     const explorer = page.getByRole("button", { name: "Explorer", exact: true });
     await explorer.focus();
     await explorer.press("Enter");
@@ -64,9 +64,8 @@ test("initial shell registration mounts the page once", async ({ page }) => {
 test("mobile mode selection enters the panel, and explicit dismissal restores navigation focus", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    const trigger = page.getByRole("button", { name: "Toggle navigation menu", exact: true });
+    const trigger = page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true });
     await trigger.press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
     await expect(panel).toBeFocused();
     await panel.press("Tab");
@@ -76,23 +75,22 @@ test("mobile mode selection enters the panel, and explicit dismissal restores na
     await expect(panel).toHaveCount(0);
     await expect(trigger).toBeFocused();
     await trigger.press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     await expect(panel).toBeFocused();
     await panel.press("Tab");
     await close.press("Enter");
     await expect(panel).toHaveCount(0);
     await expect(trigger).toBeFocused();
-    // Cancelling the navigation drawer keeps normal trigger restoration.
-    await trigger.press("Enter");
-    await page.getByRole("dialog").press("Escape");
-    await expect(trigger).toBeFocused();
+    // Cancelling overflow keeps normal trigger restoration.
+    const more = page.getByRole("button", { name: "More", exact: true });
+    await more.press("Enter");
+    await page.getByRole("menu").press("Escape");
+    await expect(more).toBeFocused();
 });
 
 test("a nested mobile menu owns Escape before the context panel", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
+    await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
     await expect(panel).toBeFocused();
     await panel.getByRole("button", { name: "Nested menu", exact: true }).press("Enter");
@@ -113,9 +111,8 @@ test("project navigation focuses the existing palette trigger after the new conf
 test("Escape from page-owned portaled controls dismisses the physical mobile panel", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-    const trigger = page.getByRole("button", { name: "Toggle navigation menu", exact: true });
+    const trigger = page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true });
     await trigger.press("Enter");
-    await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).press("Enter");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
     await expect(panel).toBeFocused();
@@ -461,8 +458,8 @@ test.describe("mobile context label preview", () => {
     test("touch preview paints above the context panel and outside tap dismisses only the label", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         await page.goto("/src/components/Layout/workbench-shell.fixture.html");
-        await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).click();
-        await page.getByRole("dialog").getByRole("button", { name: "Explorer", exact: true }).click();
+
+        await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true }).click();
         const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
         await expect(panel).toBeFocused();
         await panel.getByRole("button", { name: "🧩 Contract", exact: true }).tap();
@@ -583,3 +580,37 @@ test("column history replaces bounded pages and returns to latest without accumu
     await expect(timeline.locator("time")).toHaveCount(20);
     expect(cursors).toEqual([null, "event-20", null]);
 });
+
+for (const width of [360, 390, 412]) {
+    test(`mobile rail reserves body space and overflow restores focus at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+        await expect(page.getByRole("button", { name: "Toggle navigation menu", exact: true })).toHaveCount(0);
+        const bounds = await rail.boundingBox();
+        expect(bounds!.y + bounds!.height).toBe(844);
+        expect(bounds!.height).toBe(57);
+        const body = await page.locator("main").boundingBox();
+        expect(body!.y + body!.height).toBeLessThanOrEqual(bounds!.y);
+        const dock = await page.getByRole("button", { name: "Work dock", exact: true }).boundingBox();
+        expect(dock!.y + dock!.height).toBeLessThan(bounds!.y);
+        for (const button of await rail.getByRole("button").all()) {
+            const hit = await button.boundingBox();
+            expect(hit!.width).toBeGreaterThanOrEqual(44);
+            expect(hit!.height).toBeGreaterThanOrEqual(44);
+        }
+        const more = rail.getByRole("button", { name: "More", exact: true });
+        await more.click();
+        await expect(page.getByRole("menuitem", { name: "App settings", exact: true })).toBeVisible();
+        await expect(page.getByRole("menuitem", { name: "Hidden action", exact: true })).toHaveCount(0);
+        await page.getByRole("menuitem", { name: "App settings", exact: true }).press("Escape");
+        await expect(more).toBeFocused();
+        await more.click();
+        await page.getByRole("menuitem", { name: "Relations", exact: true }).click();
+        const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
+        await expect(panel).toBeFocused();
+        await panel.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(more).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+}
