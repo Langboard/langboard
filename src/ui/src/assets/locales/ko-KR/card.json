@@ -183,7 +183,7 @@
   "Document processing requested": "문서 처리 요청됨",
   "Processing document": "문서 처리 중",
   "Document queued": "문서 처리 대기",
-  "Document indexed": "문서 검색 가능",
+  "Document indexed": "문서 텍스트 준비 완료",
   "Document processing failed": "문서 처리 실패",
   "Document processing disabled": "첨부만 보관",
   "Document page progress": "{{completed, number}} / {{total, number}}페이지",

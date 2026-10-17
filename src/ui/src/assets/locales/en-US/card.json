@@ -183,7 +183,7 @@
   "Document processing requested": "Document processing requested",
   "Processing document": "Processing document",
   "Document queued": "Document queued",
-  "Document indexed": "Document searchable",
+  "Document indexed": "Document text ready",
   "Document processing failed": "Document processing failed",
   "Document processing disabled": "Attachment only",
   "Document page progress": "{{completed, number}} / {{total, number}} pages",
