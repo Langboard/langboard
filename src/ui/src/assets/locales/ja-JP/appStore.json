@@ -1,0 +1,21 @@
+{
+  "Manage installation": "インストール管理",
+  "Catalog unavailable": "アプリ一覧を読み込めませんでした。",
+  "Disabled by policy": "現在のポリシーではアプリを利用できません。",
+  "All apps": "すべてのアプリ",
+  "Not installed": "インストールが必要",
+  "Requested capabilities": "要求する権限",
+  "Separate consent": "インストールや閲覧だけではアクセス権は付与されません。ボード接続とアカウント権限には個別の同意が必要です。",
+  "Configure on board": "このボードで設定",
+  "Choose board": "ボードを開いてアプリを接続してください。",
+  "Administrator installation required": "管理者によるインストール後に接続できます。",
+  "App unavailable": "現在のポリシーではこのアプリを利用できません。",
+  "Discovery description": "承認されたアプリを確認できます。アカウント接続と権限は各ボードで設定します。",
+  "Installed": "インストール済み",
+  "No apps": "利用できるアプリはありません。",
+  "Next page": "次のページ",
+  "Board": "ボード",
+  "Official app": "公式アプリ",
+  "Manual app": "手動インストールのアプリ",
+  "Registered app": "登録アプリ"
+}

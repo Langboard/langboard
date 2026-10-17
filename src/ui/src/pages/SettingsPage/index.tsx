@@ -150,10 +150,10 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     const { hasRoleAction: hasMcpRoleAction } = useRoleActionFilter(mcpRoleActions);
 
     const settingsNavs: Record<string, IActivityRailItem> = {
-        [ROUTES.SETTINGS.APP_STORE]: {
+        [ROUTES.SETTINGS.APP_PACKAGES]: {
             icon: "package",
-            label: t("settings.App store"),
-            onClick: () => navigate(ROUTES.SETTINGS.APP_STORE),
+            label: t("appStore.Manage installation"),
+            onClick: () => navigate(ROUTES.SETTINGS.APP_PACKAGES),
             hidden: !currentUser.is_admin,
         },
         [ROUTES.SETTINGS.APPS]: {
@@ -293,7 +293,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             paths: [
                 ROUTES.SETTINGS.APPS,
                 ROUTES.SETTINGS.APP_GROUPS,
-                ROUTES.SETTINGS.APP_STORE,
+                ROUTES.SETTINGS.APP_PACKAGES,
                 ROUTES.SETTINGS.MCP_TOOL_GROUPS,
                 ROUTES.SETTINGS.API_KEYS,
                 ROUTES.SETTINGS.WEBHOOKS,
@@ -307,7 +307,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
 
     let pageContent;
     switch (pathname) {
-        case ROUTES.SETTINGS.APP_STORE:
+        case ROUTES.SETTINGS.APP_PACKAGES:
             pageContent = <AppPackagesPage currentUser={currentUser} />;
             break;
         case ROUTES.SETTINGS.APP_GROUPS:

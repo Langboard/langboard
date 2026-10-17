@@ -614,3 +614,54 @@ for (const width of [360, 390, 412]) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     });
 }
+
+for (const width of [390, 1440]) {
+    test(`user app discovery stays separate from installation at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        const requests: string[] = [];
+        await page.route("**/apps/catalog*", async (route) => {
+            requests.push(route.request().url());
+            expect(route.request().method()).toBe("GET");
+            const url = new URL(route.request().url());
+            expect(url.searchParams.get("project_uid")).toBe("2RRwwB5JNm0");
+            await route.fulfill({
+                json: {
+                    items: [
+                        {
+                            key: "github-panel",
+                            name: "GitHub",
+                            description: "Approved integration",
+                            version: "1.2.0",
+                            is_installed: true,
+                            capabilities: ["panels.render"],
+                        },
+                    ],
+                    official: [{ key: "github-panel", name: "GitHub", description: "Official integration" }],
+                    effective_mode: "approved_only",
+                    can_manage_installation: false,
+                    next_cursor: null,
+                },
+            });
+        });
+        await page.goto("/src/pages/AppsPage/AppStore.fixture.html");
+        await expect(page.getByRole("link", { name: /GitHub/ })).toHaveCount(1);
+        await expect(page.getByRole("link", { name: "Manage installation" })).toHaveCount(0);
+        await page.getByRole("link", { name: /GitHub/ }).click();
+        await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
+        await expect(page.getByText("panels.render", { exact: true })).toBeVisible();
+        expect(requests.some((url) => new URL(url).searchParams.get("key") === "github-panel")).toBe(true);
+        await expect(page.getByRole("link", { name: "Configure on this board" })).toHaveAttribute("href", "/board/2RRwwB5JNm0/settings/apps");
+        await page.getByRole("link", { name: "All apps", exact: true }).click();
+        await expect(page.getByRole("link", { name: /GitHub/ })).toHaveCount(1);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("legacy store redirects into user discovery and honors disabled policy", async ({ page }) => {
+    await page.route("**/apps/catalog*", (route) =>
+        route.fulfill({ json: { items: [], official: [], effective_mode: "disabled", can_manage_installation: false, next_cursor: null } })
+    );
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/settings/app-store"));
+    await expect(page.getByText("Apps are disabled by the current policy.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Manage installation" })).toHaveCount(0);
+});

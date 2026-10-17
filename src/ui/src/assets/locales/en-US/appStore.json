@@ -1,0 +1,21 @@
+{
+  "Manage installation": "Manage installation",
+  "Catalog unavailable": "The app catalog could not be loaded.",
+  "Disabled by policy": "Apps are disabled by the current policy.",
+  "All apps": "All apps",
+  "Not installed": "Requires installation",
+  "Requested capabilities": "Requested capabilities",
+  "Separate consent": "Installing or viewing an app does not grant access. Board connections and account permissions require separate consent.",
+  "Configure on board": "Configure on this board",
+  "Choose board": "Open a board to connect this app.",
+  "Administrator installation required": "An administrator must install this app before it can be connected.",
+  "App unavailable": "This app is unavailable under the current policy.",
+  "Discovery description": "Discover approved apps. Connect accounts and choose permissions separately on each board.",
+  "Installed": "Installed",
+  "No apps": "No apps are available.",
+  "Next page": "Next page",
+  "Board": "Board",
+  "Official app": "Official app",
+  "Manual app": "Manual app",
+  "Registered app": "Registered app"
+}

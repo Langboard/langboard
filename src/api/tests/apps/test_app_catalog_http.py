@@ -22,13 +22,14 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
     monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
     _, actor, project, _, role, *_ = board
     with DbSession.atomic() as db:
-        for key, enabled in (("alpha", True), ("beta", True), ("disabled", False)):
+        for key, enabled in (("alpha", True), ("beta", True), ("disabled", False), ("github-panel", True)):
             db.insert(AppDefinition(key=key, approved_by=2, is_enabled=enabled, declaration={
                 "key": key, "name": key.title(), "version": "1.0.0", "description": "Public summary",
                 "capabilities": ["panels.render"], "resource_types": [],
                 "trust": {"data_origins": ["https://private.example.invalid"]},
                 "panel": {"url": "https://private.example.invalid/panel"},
-            }, package={"storage": {"secret": "private-storage-locator"}, "sha256": "private-digest"}))
+            }, package={"storage": {"secret": "private-storage-locator"}, "kind": "manual", "sha256": "a" * 64,
+                        "store": {"icon": "panel/icon.svg", "icon_dark": "panel/icon-dark.svg", "internal": "private-metadata"}}))
     app = FastAPI()
     app.include_router(AppRouter.api)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
@@ -46,12 +47,22 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
         assert first["next_cursor"] == "alpha"
         assert first["items"] == [{"key": "alpha", "name": "Alpha", "version": "1.0.0",
             "description": "Public summary", "capabilities": ["panels.render"],
-            "resource_types": [], "is_installed": True}]
+            "resource_types": [], "is_installed": True, "source": "manual", "installation": {"kind": "manual", "sha256": "a" * 64,
+            "store": {"icon": "panel/icon.svg", "icon_dark": "panel/icon-dark.svg"}}}]
         assert len(first["official"]) == 3
+        assert first["official"][0]["is_installed"] is True
+        assert first["official"][0]["version"] == "1.0.0"
+        assert first["official"][0]["source"] == "manual"
+        detail = client.get("/apps/catalog", params={"key": "github-panel"}, headers=headers)
+        assert [item["key"] for item in detail.json()["items"]] == ["github-panel"]
+        assert client.get("/apps/catalog", params={"key": "alpha", "after": "beta"}, headers=headers).status_code == 400
         assert "private" not in response.text
         second = client.get("/apps/catalog", params={"after": "alpha", "limit": 1}, headers=headers).json()
         assert [item["key"] for item in second["items"]] == ["beta"]
-        assert second["next_cursor"] is None
+        assert second["next_cursor"] == "beta"
+        last = client.get("/apps/catalog", params={"after": "beta", "limit": 1}, headers=headers).json()
+        assert [item["key"] for item in last["items"]] == ["github-panel"]
+        assert last["next_cursor"] is None
         assert client.get("/settings/apps/packages", headers=headers).status_code == 403
         assert client.post("/settings/apps/packages/official/github-panel/install", json={}, headers=headers).status_code == 403
         for params in ({"limit": 0}, {"limit": 51}, {"after": "../private"}):

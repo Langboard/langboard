@@ -17,9 +17,9 @@ Opening a mobile context panel transfers focus into it; explicit dismissal retur
 focus to its launching rail button or overflow trigger. Nested menus retain Escape
 ownership. Immersive chat retains its existing visual viewport handling.
 
-This is the shell portion of the mobile app navigation work. The general-user
-catalog routes, personal pin persistence, installation/binding consent flows, and
-authenticated canary acceptance remain separate requirements. Source browser
+The general-user catalog now uses separate lazy routes described below. Personal
+pin persistence, app-specific launch/consent flows, and authenticated canary
+acceptance remain separate requirements. Source browser
 fixtures do not establish canary acceptance or a measured performance improvement.
 
 Run the focused shell checks from `src/ui`:
@@ -50,7 +50,8 @@ These results still do not establish authenticated canary acceptance.
 administrator-only package registry and installation endpoints. It returns a
 bounded keyset page (`limit` 1–50, default 25; `after` is the previous key) of
 enabled, instance-approved definitions. Only name, description, version,
-capabilities, resource types, and installation presence are projected. Discovery
+capabilities, resource types, installation presence/provenance, and a whitelisted
+static package icon/screenshot descriptor are projected. Discovery
 does not return raw declarations, panel/trust URLs, storage locators, personal
 connections, or installation revisions. It downloads no release and initializes
 no application. The official catalog is static metadata, not an approval grant.
@@ -70,5 +71,29 @@ limits/cursors, foreign-board denial, organization restriction, role revocation,
 instance disablement, and deactivated users. Initial fixture-construction
 failures were corrected and retained in local verification logs. The development
 JWT fixture emits short-key warnings; these are not runtime deployment evidence.
-The `/apps` and `/apps/:appKey` views, legacy redirect, rail add action, personal
-pinning, and authenticated canary acceptance are still pending.
+The lazy `/apps` and `/apps/:appKey` views now use this boundary directly,
+without mounting SettingsProxy, requesting administrator setting roles, probing
+Ollama, or initializing app panels. `/settings/app-store` redirects to `/apps`;
+administrator ZIP/install/update controls remain at `/settings/app-packages`.
+Dashboard and board rails expose the final add action. Board-origin discovery
+retains the board identifier and links installed app details to the existing board
+configuration flow; it does not submit consent automatically.
+
+Exact app-key lookup supports detail deep links beyond the first page. A separate
+bounded query for the three host-owned official keys preserves their actual
+installation state across catalog pages. Logical keys are merged once per view;
+manual packages using an official key keep their manual provenance. Package
+icons reuse AppPackageIcon's light/dark handling and lazy loading. Capability
+names describe the declaration, not permissions already granted to the user.
+English, Korean, Japanese, and Chinese copy is bundled with existing locale files.
+
+Final verification: all 38 Workbench browser cases passed in 32.0 seconds,
+including 390px/1440px user discovery, detail navigation, duplicate-key merging,
+board configuration links, and disabled-policy legacy redirects. TypeScript,
+scoped ESLint, Ruff and diff checks passed. Authenticated SQLite/PostgreSQL and
+package install/update/disable checks passed six cases in 10.21 seconds after the
+final public-metadata projection. These browser cases use intercepted API
+responses and the real store component/routes in a local fixture; the separate
+HTTP suite checks the server policy boundary. Neither proves deployment or
+canary acceptance. Personal pinning, offline/revocation UX, app-specific launch,
+and authenticated canary performance/E2E remain pending.

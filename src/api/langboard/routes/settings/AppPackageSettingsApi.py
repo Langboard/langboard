@@ -30,15 +30,17 @@ def get_catalog(
     project_uid: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
     after: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$"),
     limit: int = Query(default=25, ge=1, le=50),
+    key: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$"),
     user: User = Auth.scope("user"),
 ) -> JsonResponse:
     try:
-        catalog = _run(list_catalog, user, project_uid=project_uid, after_key=after, limit=limit)
+        catalog = _run(list_catalog, user, project_uid=project_uid, after_key=after, limit=limit, app_key=key, featured_keys=tuple(item.key for item in OFFICIAL_APPS))
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
+    featured = {item["key"]: item for item in catalog.pop("featured")}
     # Static discovery never downloads packages or initializes an app.
     catalog["official"] = [] if catalog["effective_mode"] == "disabled" else [
-        {"key": item.key, "name": item.name, "description": item.description, "repository": item.repository}
+        {"key": item.key, "name": item.name, "description": item.description, "repository": item.repository, "source": "official", **featured.get(item.key, {})}
         for item in OFFICIAL_APPS
     ]
     return JsonResponse(content=catalog, headers={"Cache-Control": "no-store"})

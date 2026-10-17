@@ -1,0 +1,21 @@
+{
+  "Manage installation": "管理安装",
+  "Catalog unavailable": "无法加载应用列表。",
+  "Disabled by policy": "当前策略不允许使用应用。",
+  "All apps": "所有应用",
+  "Not installed": "需要安装",
+  "Requested capabilities": "请求的权限",
+  "Separate consent": "安装或查看应用不会授予访问权限。看板连接和账户权限需要单独同意。",
+  "Configure on board": "在此看板中设置",
+  "Choose board": "请打开看板以连接此应用。",
+  "Administrator installation required": "管理员安装此应用后才能连接。",
+  "App unavailable": "当前策略不允许使用此应用。",
+  "Discovery description": "浏览已批准的应用。账户连接和权限在各看板中单独设置。",
+  "Installed": "已安装",
+  "No apps": "没有可用的应用。",
+  "Next page": "下一页",
+  "Board": "看板",
+  "Official app": "官方应用",
+  "Manual app": "手动安装的应用",
+  "Registered app": "已注册应用"
+}

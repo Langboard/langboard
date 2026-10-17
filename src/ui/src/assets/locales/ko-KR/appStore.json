@@ -1,0 +1,21 @@
+{
+  "Manage installation": "설치 관리",
+  "Catalog unavailable": "앱 목록을 불러오지 못했습니다.",
+  "Disabled by policy": "현재 정책에서 앱 사용을 허용하지 않습니다.",
+  "All apps": "전체 앱",
+  "Not installed": "설치 필요",
+  "Requested capabilities": "요청 권한",
+  "Separate consent": "앱 설치나 조회만으로 접근 권한이 부여되지 않습니다. 보드 연결과 계정 권한은 별도로 동의해야 합니다.",
+  "Configure on board": "이 보드에서 설정",
+  "Choose board": "보드에 들어가 앱을 연결하세요.",
+  "Administrator installation required": "관리자가 앱을 설치한 뒤 연결할 수 있습니다.",
+  "App unavailable": "현재 정책에서 사용할 수 없는 앱입니다.",
+  "Discovery description": "승인된 앱을 둘러보세요. 계정 연결과 권한은 각 보드에서 따로 설정합니다.",
+  "Installed": "설치됨",
+  "No apps": "사용 가능한 앱이 없습니다.",
+  "Next page": "다음 페이지",
+  "Board": "보드",
+  "Official app": "공식 앱",
+  "Manual app": "수동 설치 앱",
+  "Registered app": "등록 앱"
+}

@@ -717,6 +717,12 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         active: isWorkbenchContextVisible && workbenchContextMode === "app" && selectedAppKey === app.key,
                         hidden: !!selectCardViewType,
                     })),
+                    {
+                        icon: "plus",
+                        label: t("settings.App store"),
+                        mobile: "add",
+                        onClick: () => navigate(`${ROUTES.APPS.ROUTE}?project_uid=${project.uid}`),
+                    },
                     ...headerNavs.map((nav, index) => ({
                         icon: ["columns-3", "notebook-pen", "network", "history", "settings", "bot"][index],
                         label: String(nav.name),

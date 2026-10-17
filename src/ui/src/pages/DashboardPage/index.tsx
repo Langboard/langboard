@@ -208,6 +208,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
                     active: pageType === "projects" && tabName === "recent",
                 },
                 { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
+                { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
                 ...sidebarNavs.map((item) => ({ icon: item.icon, label: item.name, onClick: item.onClick! })),
                 {
                     icon: "settings",
