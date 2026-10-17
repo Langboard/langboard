@@ -667,7 +667,7 @@ class CardService(BaseDomainService):
             archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
         raw_cards = self.repo.card.get_board_list(project, archive_visible_since, context=context)
         visible_cards = {card.id: card for card, _ in raw_cards}
-        raw_members = self.repo.card_assigned_user.get_all_by_project(project, archive_visible_since)
+        raw_members = self.repo.card_assigned_user.get_all_by_project(project, archive_visible_since, context=context)
         members: dict[int, list[str]] = {}
         for member, card_assigned_user in raw_members:
             if card_assigned_user.card_id not in members:
@@ -698,7 +698,7 @@ class CardService(BaseDomainService):
             relationships[relationship.card_id_parent].append(projection)
             relationships[relationship.card_id_child].append(projection)
 
-        raw_labels = self.repo.project_label.get_all_card_labels_by_project(project, archive_visible_since)
+        raw_labels = self.repo.project_label.get_all_card_labels_by_project(project, archive_visible_since, context=context)
         labels: dict[int, list[dict[str, Any]]] = {}
         for label, card_label in raw_labels:
             if card_label.card_id not in labels:

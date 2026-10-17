@@ -534,3 +534,30 @@ read-side-effect, physical-count, unfinished-work, column-deletion and current-
 visibility coverage passed 17 tests. These source and query-count results do not
 prove deployed latency improvement; authenticated canary acceptance still needs
 the updated image.
+
+## Scope board enrichment reads before hydration
+
+The board snapshot now passes its independently resolved current visibility
+context to the existing assignment and label batch queries. Each applies the
+shared card-visibility predicate and live-card filter before hydrating rows.
+Previously these two reads loaded all hot assignments/labels from the board,
+including hidden cards, and only visible cards were ultimately serialized.
+This reduces unnecessary intermediate data; it does not establish a prior
+hidden-card disclosure or explain all observed server latency.
+
+Project and archive cutoff predicates are retained. The current owner can still
+see their private-card enrichment; other private cards, external users' internal
+cards, deleted cards, foreign boards and cold archive rows are excluded. Other
+internal callers that omit the optional context retain their existing behavior.
+No authority cache, new policy implementation or additional query is introduced.
+
+Real SQLite coverage compares scoped and legacy reads for internal and external
+actors. Focused enrichment, snapshot/checklist, archive, current visibility and
+seen-cursor coverage passed 14 tests with five PostgreSQL-only skips. The new
+regression is included in the API profile. PostgreSQL and authenticated canary
+acceptance are not claimed by this run.
+
+A separate local relative-time check measured 400 formatter calls in 3.144 ms
+median across ten warm Node runs. That does not support a formatter cache as a
+fix for the multi-second board request, so no cache was added. Raw samples are
+retained under `src/ui/.verification/relative-format-before-20261018.json`.

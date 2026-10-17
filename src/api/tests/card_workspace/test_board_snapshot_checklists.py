@@ -63,9 +63,9 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
     monkeypatch.setattr(card_repository, "get_board_creators", lambda *args: {})
     repository = SimpleNamespace(
         card=card_repository,
-        card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args: []),
+        card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args, context: []),
         card_relationship=SimpleNamespace(get_all_by_project=lambda *args: []),
-        project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *args: []),
+        project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *args, context: []),
         checklist=ChecklistRepository(None, None),
     )
     cards = CardService(None, None, repository)

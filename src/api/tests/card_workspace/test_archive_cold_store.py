@@ -75,7 +75,7 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
     calls = calls if calls is not None else {}
 
     def capture(name: str):
-        def inner(_project: Any, archive_visible_since: SafeDateTime) -> list[Any]:
+        def inner(_project: Any, archive_visible_since: SafeDateTime, *, context=None) -> list[Any]:
             calls[name] = archive_visible_since
             return []
 
