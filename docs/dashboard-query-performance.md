@@ -88,6 +88,38 @@ that leaves another card's request intact. The metadata and existing settings
 loading regressions are included in the UI validation profile. This verifies the
 query lifecycle; it is not a claim of authenticated canary multi-window acceptance.
 
+## Cancel abandoned primary board requests
+
+Project bootstrap, card snapshot and project settings queries now pass TanStack
+Query's native `AbortSignal` to Axios, matching the existing metadata path. When
+navigation removes the final observer, the pending HTTP transport is cancelled.
+A late adapter response cannot continue into model hydration or launch optional
+dock/metadata enrichment. Native query keys, deduplication, authorization ordering,
+explicit retry and the already nonblocking enrichment behavior are retained.
+No manual request registry, navigation timer or new cancellation abstraction is
+introduced. Browser cancellation does not prove the API has cancelled SQL work
+that it already started.
+
+The real React/TanStack/Axios browser fixture holds either the previous project's
+bootstrap or card response, switches boards, observes transport abortion and
+allows the late response to finish. It verifies the current board loads and no
+previous-board enrichment starts. Both cases failed before the change. The six
+project-load browser checks and four existing card-enrichment checks pass. The
+settings test uses a real QueryClient and Axios adapter to verify cancellation
+prevents late model writes and dock requests; it failed on the unchanged source.
+Settings plus metadata Node checks pass eight tests. TypeScript, scoped ESLint
+and diff checks pass.
+
+One intermediate browser assertion incorrectly expected `Project.fromOne` to
+populate the shared model collection. It was corrected to observe the actual
+loaded project, transport abortion and request history; the failed run is retained.
+Raw records are `.verification/board-cancel-before.log`,
+`.verification/board-settings-cancel-before.log`,
+`.verification/board-cancel-after.log`, `.verification/board-cancel-final.log`,
+`.verification/board-cancel-cards.log` and
+`.verification/board-cancel-node-final.log`. These are local fixture regressions,
+not authenticated canary navigation or production latency measurements.
+
 
 ## Board comment aggregation follows the hot archive window
 
