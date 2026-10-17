@@ -349,6 +349,7 @@
   "Download and install": "ダウンロードしてインストール",
   "Manual ZIP installation": "手動 ZIP インストール",
   "App ZIP package": "アプリ ZIP パッケージ",
+  "App ZIP size help": "空でない8 MiB以下のZIPファイルを選択してください。",
   "Install ZIP": "ZIP をインストール",
   "Installed apps": "インストール済みアプリ",
   "Manual app": "手動",

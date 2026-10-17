@@ -3,7 +3,7 @@ import { api } from "@/core/helpers/Api";
 import type { AuthUser } from "@/core/models";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Download, Package, Search, ShieldCheck, Upload } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Input from "@/components/base/Input";
 import AppPackageIcon, { packageAsset, type PackageInstallation } from "@/components/AppPackageIcon";
@@ -35,6 +35,8 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
     const [failed, setFailed] = useState(false);
     const [updateKey, setUpdateKey] = useState("");
     const [file, setFile] = useState<File | null>(null);
+    const fileInput = useRef<HTMLInputElement>(null);
+    const invalidFile = !!file && (!file.size || file.size > 8 * 1024 * 1024);
     const query = useQuery({
         queryKey: ["app-packages", currentUser.uid],
         enabled: currentUser.is_admin,
@@ -56,7 +58,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                     })
                 ).data.app;
             } else {
-                if (!file || file.size > 8 * 1024 * 1024) throw new Error("Invalid ZIP package");
+                if (!file || invalidFile) throw new Error("Invalid ZIP package");
                 const form = new FormData();
                 form.append("file", file);
                 if (updateKey) {
@@ -74,6 +76,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
             if (installed?.revision !== receipt.revision || !installed.is_enabled) throw new Error("Installation readback mismatch");
             await onInstalled?.();
             setFile(null);
+            if (fileInput.current) fileInput.current.value = "";
         } catch {
             setFailed(true);
         } finally {
@@ -208,7 +211,15 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                         <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Langboard</p>
                         <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("settings.App store")}</h2>
                         <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">{t("settings.Discover apps help")}</p>
-                        <Button className="mt-5 rounded-full" variant="outline" onClick={() => setManualOpen((value) => !value)}>
+                        <Button
+                            className="mt-5 rounded-full"
+                            variant="outline"
+                            disabled={pending}
+                            onClick={() => {
+                                setFile(null);
+                                setManualOpen((value) => !value);
+                            }}
+                        >
                             <Upload className="mr-2 size-4" />
                             {t("settings.Manual ZIP installation")}
                         </Button>
@@ -249,7 +260,10 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                         {visible.map((item) => (
                             <article
                                 key={item.key}
-                                className="card card-border flex min-w-0 flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm transition-shadow hover:shadow-md"
+                                className={
+                                    "card card-border flex min-w-0 flex-col gap-4 rounded-2xl border " +
+                                    "bg-card p-5 shadow-sm transition-shadow hover:shadow-md"
+                                }
                             >
                                 <button
                                     className="flex min-w-0 items-center gap-4 text-left"
@@ -316,12 +330,18 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                             </label>
                             <input
                                 id="app-package-file"
+                                ref={fileInput}
                                 className="mt-2 w-full min-w-0 text-sm"
                                 type="file"
                                 accept=".zip,application/zip"
+                                aria-describedby="app-package-file-help"
+                                aria-invalid={invalidFile}
                                 disabled={pending || failed}
                                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                             />
+                            <p id="app-package-file-help" className={`mt-2 text-xs ${invalidFile ? "text-destructive" : "text-muted-foreground"}`}>
+                                {t("settings.App ZIP size help")}
+                            </p>
                             <label className="mt-4 block text-sm" htmlFor="app-package-update">
                                 {t("settings.Manual installation target")}
                             </label>
@@ -342,7 +362,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                             <Button
                                 className="mt-4 rounded-full"
                                 variant="outline"
-                                disabled={!file || pending || failed}
+                                disabled={!file || invalidFile || pending || failed}
                                 onClick={() => void install()}
                             >
                                 {t("settings.Install ZIP")}

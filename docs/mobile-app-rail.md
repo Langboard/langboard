@@ -210,3 +210,41 @@ two isolated contexts and intercepted API responses to exercise restoration,
 409 readback, response loss without write replay, and offline recovery. Server
 HTTP/migration proof and browser fixture proof are separate; authenticated canary
 store-to-board launch and performance remain outstanding.
+
+## Manual installer recovery regression
+
+Closing and reopening the manual installer previously emptied the browser file
+picker while retaining the old `File` in React state, leaving Install ZIP enabled
+for an invisible selection. The original source failed the new browser check.
+The toggle now discards that selection; confirmed installation clears both the
+state and native input. The toggle is disabled while installation is pending.
+Empty files and ZIPs larger than the existing 8 MiB limit are blocked before
+upload, with accessible help in English, Korean, Japanese and Chinese.
+
+The browser suite checks actual multipart bytes from the small, server-validated
+`fixtures/manual-panel.zip`, new installs without a revision, updates with the
+current revision, and 1440px/390px presentation. Conflict and lost-response tests
+verify that writes remain locked until an explicit Refresh reads the current
+installation. Recovery does not automatically replay a write. UI API responses
+are intercepted; this is not a composed live API/browser acceptance run.
+
+All 16 installer browser cases passed in 13.3 seconds after supplying verified
+official release assets; none were skipped in that run. The existing production
+download verifier fetched and validated actual public GitHub, GlitchTip and
+Dokploy v0.1.1 ZIPs, including release digest, bounded download and declaration
+checks. The light/dark icon cases used files from those validated archives at
+1440px and 390px. Package digests:
+
+| App | SHA-256 |
+| --- | --- |
+| GitHub | `26102fbd6a306c191ec42f0cba73edcd1489015b1deb6708a77b769da4063380` |
+| GlitchTip | `7984aa2ff9649628860be242492cbf1df76baa6e101fd26fe2e308dfe531041d` |
+| Dokploy | `4c65566c457753383b4a0e7561661e0cf970ef8b1a024d9655c93b53d1a33f69` |
+
+Separate authenticated HTTP package checks passed four cases on SQLite and
+PostgreSQL in 5.15 seconds: installation persistence and assets, update revision
+guards, disabled assets, administrator revocation and malformed official release
+rejection. These use disposable storage/database fixtures, not operating boards.
+TypeScript, scoped ESLint and diff checks passed. The initial native Buffer/DOM
+BodyInit type mismatch was corrected with a copied Uint8Array. Canary deployment,
+real board consent/launch and measured performance remain outstanding.
