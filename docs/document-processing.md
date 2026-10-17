@@ -374,3 +374,24 @@ bound to loopback with 0.5 CPU/96MiB limits. Do not use production endpoints.
 The Phoenix deployment preflight now requires
 `langboard.document_vector_cleanup` on every responding worker, alongside existing
 required tasks, so a mixed/stale worker deployment cannot silently pass that gate.
+
+### Cleanup of existing namespace generations
+
+The transactional cleanup request preserves `chunk_count` as well as the recorded
+namespace for generations created by the earlier official LangGraph store path.
+Without the count, the deletion worker rejects the request and retains it for
+retry indefinitely. Current `chunk_ids` generations retain their existing behavior.
+The SQLite integration test covers both pointer formats through the committed
+outbox and actual store deletion, checking that a newer generation and its
+vectors survive and a repeated cleanup is harmless. No provider inference,
+credential storage, source document mutation or database conversion is required.
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
+  src/api/tests/card_workspace/test_document_cleanup_outbox.py -q
+```
+
+This is source regression evidence. Existing pending requests that already lost
+their count are not repaired automatically, and this change does not scan or
+delete production indexes. Board/card-wide deletion and failed staging cleanup
+remain separate acceptance work.

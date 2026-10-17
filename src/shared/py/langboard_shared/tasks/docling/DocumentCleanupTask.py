@@ -27,6 +27,7 @@ def record_cleanup(db, pointer: dict | None) -> bool:
             "content_hash",
             "embedding_fingerprint",
             "generation",
+            "chunk_count",
             "chunk_ids",
             "namespace",
         )

@@ -281,11 +281,12 @@ def test_cleanup_migration_refuses_populated_downgrade(binding_store):  # noqa: 
             assert connection.execute(select(DocumentVectorCleanup.id)).first() is None
 
 
-def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, tmp_path, monkeypatch):
+@pytest.mark.parametrize("pointer_format", ["chunk_ids", "namespace"])
+def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, tmp_path, monkeypatch, pointer_format):
     pytest.importorskip("langchain_core")
     from types import SimpleNamespace
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
-    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_document_store, open_sqlite_vector_store
     from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
     from langboard_shared.tasks.docling.DocumentVectorStore import stage_vector_generation
 
@@ -300,19 +301,47 @@ def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, 
         "embedding_fingerprint": "a" * 64,
     }
     path = directory / (source["embedding_fingerprint"] + ".sqlite")
-    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
-        old = stage_vector_generation(
-            store, source=source, text="alpha old", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
-        )
-        new = stage_vector_generation(
-            store, source=source, text="alpha new", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
-        )
+    if pointer_format == "namespace":
+        from langboard_shared.tasks.docling.DocumentVectorGeneration import replace_attachment_generation
+
+        legacy_source = {key: value for key, value in source.items() if key != "embedding_fingerprint"}
+        with open_document_store(path, Fixture(), dimensions=3) as store:
+            old = replace_attachment_generation(
+                store,
+                **legacy_source,
+                fingerprint=source["embedding_fingerprint"],
+                text="alpha old",
+                splitter=DocumentSplitterSettings(),
+                publish_pointer=False,
+            )
+            new = replace_attachment_generation(
+                store,
+                **legacy_source,
+                fingerprint=source["embedding_fingerprint"],
+                text="alpha new",
+                splitter=DocumentSplitterSettings(),
+                publish_pointer=False,
+            )
+    else:
+        with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+            old = stage_vector_generation(
+                store, source=source, text="alpha old", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
+            )
+            new = stage_vector_generation(
+                store, source=source, text="alpha new", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
+            )
     with DbSession.atomic() as db:
         outbox.record_cleanup(db, old)
     event = pending()[0]
     assert outbox.process_cleanup(int(event.id)) is True
     assert pending() == []
-    with open_sqlite_vector_store(path, None, dimensions=3) as store:
-        assert store.get_by_ids(old["chunk_ids"]) == []
-        assert store.get_by_ids(new["chunk_ids"])
+    if pointer_format == "namespace":
+        with open_document_store(path, Fixture(), dimensions=3) as store:
+            assert store.get(tuple(old["namespace"]), "0") is None
+            assert store.get(tuple(new["namespace"]), "0") is not None
+            assert store.conn.execute("SELECT COUNT(*) FROM store_vectors").fetchone()[0] == new["chunk_count"]
+    else:
+        with open_sqlite_vector_store(path, None, dimensions=3) as store:
+            assert store.get_by_ids(old["chunk_ids"]) == []
+            assert store.get_by_ids(new["chunk_ids"])
     assert outbox.process_cleanup(int(event.id)) is False
