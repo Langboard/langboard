@@ -4,9 +4,9 @@
 
 # Function to get compose args from script
 ifeq ($(ComSpec),)
-get_compose_args = $(shell WITH_DOCS=$(WITH_DOCS) WITH_UI_WATCHER=$(WITH_UI_WATCHER) WITH_OLLAMA_CPU=$(WITH_OLLAMA_CPU) WITH_OLLAMA_GPU=$(WITH_OLLAMA_GPU) WITH_OTEL=$(WITH_OTEL) WITH_DB_BACKUP=$(WITH_DB_BACKUP) bash scripts/utils/get-compose-args.sh)
+get_compose_args = $(shell WITH_DOCS=$(WITH_DOCS) WITH_UI_WATCHER=$(WITH_UI_WATCHER) WITH_OLLAMA_CPU=$(WITH_OLLAMA_CPU) WITH_OLLAMA_GPU=$(WITH_OLLAMA_GPU) WITH_OTEL=$(WITH_OTEL) WITH_DB_BACKUP=$(WITH_DB_BACKUP) bash scripts/utils/get-compose-args.sh || echo __LANGBOARD_COMPOSE_CONFIG_FAILED__)
 else
-get_compose_args = $(shell powershell -NoProfile -ExecutionPolicy Bypass -File scripts/utils/get-compose-args.ps1 -WithDocs $(WITH_DOCS) -WithUiWatcher $(WITH_UI_WATCHER) -WithOllamaCpu $(WITH_OLLAMA_CPU) -WithOllamaGpu $(WITH_OLLAMA_GPU) -WithOtel $(WITH_OTEL) -WithDbBackup $(WITH_DB_BACKUP))
+get_compose_args = $(shell powershell -NoProfile -ExecutionPolicy Bypass -File scripts/utils/get-compose-args.ps1 -WithDocs $(WITH_DOCS) -WithUiWatcher $(WITH_UI_WATCHER) -WithOllamaCpu $(WITH_OLLAMA_CPU) -WithOllamaGpu $(WITH_OLLAMA_GPU) -WithOtel $(WITH_OTEL) -WithDbBackup $(WITH_DB_BACKUP) || echo __LANGBOARD_COMPOSE_CONFIG_FAILED__)
 endif
 
 UI_DIR := src/ui
@@ -44,6 +44,10 @@ SOCKET_PHOENIX_OTEL_COLLECTOR_DIGEST ?= sha256:fd328de2552466ad78385e1b1289c3f24
 
 # Get compose args from script
 COMPOSE_ARGS := $(call get_compose_args)
+# GNU Make 3.81 has no .SHELLSTATUS; preserve selector failures explicitly.
+ifneq ($(filter __LANGBOARD_COMPOSE_CONFIG_FAILED__,$(COMPOSE_ARGS)),)
+$(error Docker Compose configuration selection failed; fix the setting reported above)
+endif
 
 
 check_tools:

@@ -86,3 +86,42 @@ def test_default_mode_keeps_bundled_redis(tmp_path):
     assert selected.returncode == 0
     assert ".redis.yaml" in selected.stdout
     assert ".redis-external.yaml" not in selected.stdout
+
+
+@pytest.mark.parametrize(
+    "values,valid",
+    [({"REDIS_EXTERNAL_CACHE_URL": EXTERNAL["REDIS_EXTERNAL_CACHE_URL"]}, False), ({}, True), (EXTERNAL, True)],
+)
+def test_make_respects_compose_selection_before_docker(tmp_path, values, valid):
+    make = shutil.which("make")
+    if not make:
+        pytest.skip("GNU Make is required")
+    shutil.copyfile(ROOT / "Makefile", tmp_path / "Makefile")
+    scripts = tmp_path / "scripts" / "utils"
+    scripts.mkdir(parents=True)
+    for name in ("get-compose-args.sh", "utils.sh"):
+        shutil.copyfile(ROOT / "scripts" / "utils" / name, scripts / name)
+    (tmp_path / ".env").write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+    calls = tmp_path / "docker-calls"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    docker = binary / "docker"
+    docker.write_text(f"#!/bin/sh\nprintf 'called\\n' >> {shlex.quote(str(calls))}\n")
+    docker.chmod(0o755)
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("REDIS_EXTERNAL_") and key not in ("CACHE_KEY_PREFIX", "BROKER_KEY_PREFIX", "ComSpec")
+    }
+    env["PATH"] = str(binary) + os.pathsep + os.environ["PATH"]
+    result = subprocess.run(
+        [make, "deploy_ui"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15, check=False
+    )
+    if valid:
+        assert result.returncode == 0, result.stderr
+        assert calls.exists()
+        assert (".redis-external.yaml" in result.stdout) is bool(values)
+    else:
+        assert result.returncode != 0, result.stdout
+        assert "REDIS_EXTERNAL_BROKER_URL" in result.stderr
+        assert not calls.exists(), "Docker must not run with an empty selection after configuration failure"

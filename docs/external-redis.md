@@ -53,6 +53,12 @@ remain declared; configuration rendering creates or deletes no data. Do not
 enable `bundled-redis` alongside external mode. PowerShell selects the same
 override; its runtime was not exercised in the macOS verification.
 
+The Make entry point must stop when selection fails (for example, a missing
+external broker URL). A failed selector must never become an empty argument list
+for a later `docker compose` build/run/up/down command. The guard supports GNU
+Make 3.81 without relying on newer `.SHELLSTATUS` behavior. Correct the reported
+setting before retrying; it does not silently fall back to bundled services.
+
 Celery uses Kombu's native `global_keyprefix` through `broker_transport_options`,
 including its queue keys and Redis pub/sub channels. `BROKER_KEY_PREFIX` has the
 same literal namespace validation as the cache prefix. A blank prefix retains
