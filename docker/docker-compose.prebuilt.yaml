@@ -1,0 +1,122 @@
+# Standalone production definition: never layer over development Compose files.
+# Explicit profiles prevent a default deployment from taking over live owners.
+x-runtime: &runtime
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 16m
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [default, dependencies]
+  volumes:
+    - type: volume
+      source: local-data
+      target: /app/local
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  api:
+    <<: *runtime
+    profiles: [application]
+    image: ${LANGBOARD_API_IMAGE:?Set the verified API image digest}
+    env_file: ["${LANGBOARD_API_ENV_FILE:?Set the protected API runtime environment file}"]
+    environment:
+      WORKER: main
+      API_HOST: 0.0.0.0
+      API_PORT: "5381"
+      API_INTERNAL_URL: http://api:5381
+      DEFAULT_GRAPH_URL: http://graph:5020
+      FASTMCP_HOME: /app/.fastmcp
+      SOCKET_URL: ${SOCKET_URL:?Set the external browser realtime URL}
+      SOCKET_INTERNAL_URL: ${SOCKET_INTERNAL_URL:?Set the external realtime internal URL}
+      SOCKET_EDITOR_INTERNAL_URL: ${SOCKET_EDITOR_INTERNAL_URL:?Set the external editor internal URL}
+    command: [uv, run, --no-sync, langboard, run, --workers, "${API_WORKERS_COUNT:-2}"]
+    expose: ["5381"]
+    volumes:
+      - type: volume
+        source: local-data
+        target: /app/local
+      - type: volume
+        source: mcp-oauth-state
+        target: /app/.fastmcp
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5381/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  worker:
+    <<: *runtime
+    # Enable only after the previous broker consumer has drained and stopped.
+    profiles: [workers]
+    image: ${LANGBOARD_WORKER_IMAGE:?Set the verified document worker image digest}
+    env_file: ["${LANGBOARD_WORKER_ENV_FILE:?Set the protected worker runtime environment file}"]
+    environment:
+      WORKER: broker
+      API_INTERNAL_URL: http://api:5381
+      DEFAULT_GRAPH_URL: http://graph:5020
+      FASTMCP_HOME: /app/.fastmcp
+      SOCKET_INTERNAL_URL: ${SOCKET_INTERNAL_URL:?Set the external realtime internal URL}
+      SOCKET_EDITOR_INTERNAL_URL: ${SOCKET_EDITOR_INTERNAL_URL:?Set the external editor internal URL}
+    command: [uv, run, --no-sync, langboard, run:broker]
+    volumes:
+      - type: volume
+        source: local-data
+        target: /app/local
+      - type: volume
+        source: mcp-oauth-state
+        target: /app/.fastmcp
+    depends_on:
+      api:
+        condition: service_healthy
+
+  graph:
+    <<: *runtime
+    profiles: [application]
+    image: ${LANGBOARD_GRAPH_IMAGE:?Set the verified graph image digest}
+    env_file: ["${LANGBOARD_GRAPH_ENV_FILE:?Set the protected graph runtime environment file}"]
+    environment:
+      GRAPH_HOST: 0.0.0.0
+      GRAPH_PORT: "5020"
+      API_INTERNAL_URL: http://api:5381
+      SOCKET_INTERNAL_URL: ${SOCKET_INTERNAL_URL:?Set the external realtime internal URL}
+      SOCKET_EDITOR_INTERNAL_URL: ${SOCKET_EDITOR_INTERNAL_URL:?Set the external editor internal URL}
+    command: [graph, run, --workers, "${GRAPH_WORKERS_COUNT:-1}"]
+    expose: ["5020"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  ui:
+    init: true
+    profiles: [application]
+    image: ${LANGBOARD_UI_IMAGE:?Set the verified UI image digest}
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    expose: ["8080"]
+    networks: [default]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  local-data:
+    external: true
+    name: ${LANGBOARD_LOCAL_VOLUME:?Set the existing or restore-verified application data volume}
+  mcp-oauth-state:
+    external: true
+    name: ${LANGBOARD_OAUTH_VOLUME:?Set the existing OAuth state volume identity}
+
+networks:
+  default:
+    driver: bridge
+  dependencies:
+    external: true
+    name: ${LANGBOARD_DEPENDENCY_NETWORK:?Set the existing dependency network identity}

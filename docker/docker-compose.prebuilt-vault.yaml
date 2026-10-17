@@ -1,0 +1,18 @@
+# Optional file-based vault credentials. AppRole/environment providers omit this.
+services:
+  api:
+    secrets:
+      - source: vault-credentials
+        target: /app/.vault-credentials
+  worker:
+    secrets:
+      - source: vault-credentials
+        target: /app/.vault-credentials
+  graph:
+    secrets:
+      - source: vault-credentials
+        target: /app/.vault-credentials
+secrets:
+  vault-credentials:
+    file: ${LANGBOARD_VAULT_CREDENTIALS_FILE:?Set the existing protected vault credential file}
+    # API code reads this established path; Compose mounts it read-only.
