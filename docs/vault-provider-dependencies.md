@@ -68,6 +68,8 @@ Both OpenBao and HashiCorp clients keep TLS verification enabled. Set
 for private certificate authorities; mount that file read-only with your deployment
 override. An empty value uses trusted system CAs. There is no TLS-disable option.
 `KEY_PROVIDER_VAULT_TIMEOUT` defaults to 30 seconds and accepts 1–120 seconds.
+External OpenBao key generation does not create the legacy plaintext development
+key copy. That copy is retained only for explicit `openbao-local` development.
 These use the existing [official hvac client options](https://python-hvac.org/en/stable/source/hvac_v1.html).
 
 The existing KV v2 mount is `apikeys`. Provision a separate vault or a restricted

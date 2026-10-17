@@ -14,7 +14,7 @@ class OpenBaoVaultProvider(VaultProvider):
         if not role_id or not secret_id:
             raise ValueError(
                 "OpenBao AppRole credentials are required. Set KEY_PROVIDER_OPENBAO_ROLE_ID and "
-                "KEY_PROVIDER_OPENBAO_SECRET_ID, or use .vault-credentials for openbao-local."
+                "KEY_PROVIDER_OPENBAO_SECRET_ID, or mount an existing .vault-credentials file."
             )
 
         try:
@@ -35,7 +35,7 @@ class OpenBaoVaultProvider(VaultProvider):
         key_material = secrets.token_urlsafe(32)
         self.store_secret(key_id, key_material)
         # Preserve the legacy development API-key copy, not imported credentials.
-        if Env.ENVIRONMENT != "production":
+        if Env.ENVIRONMENT == "development" and Env.KEY_PROVIDER_TYPE == "openbao-local":
             self._save_key_to_file(key_id, key_material)
         return key_material
 

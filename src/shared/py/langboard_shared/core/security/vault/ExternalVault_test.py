@@ -69,3 +69,25 @@ def test_invalid_timeout_fails_before_connection(monkeypatch, value):
     monkeypatch.setitem(Env._Env__envs, "KEY_PROVIDER_VAULT_TIMEOUT", value)
     with pytest.raises(ValueError):
         _ = Env.KEY_PROVIDER_VAULT_TIMEOUT
+
+
+@pytest.mark.parametrize(
+    "provider_type,environment,copy_expected",
+    [
+        ("openbao-local", "development", True),
+        ("openbao-local", "production", False),
+        ("openbao-external", "development", False),
+        ("openbao-external", "production", False),
+    ],
+)
+def test_generated_external_keys_never_create_a_plaintext_local_copy(
+    monkeypatch, provider_type, environment, copy_expected
+):
+    module = importlib.import_module(f"{__package__}.OpenBaoVaultProvider")
+    monkeypatch.setattr(module, "Env", SimpleNamespace(KEY_PROVIDER_TYPE=provider_type, ENVIRONMENT=environment))
+    provider = object.__new__(OpenBaoVaultProvider)
+    provider.store_secret = Mock()
+    provider._save_key_to_file = Mock()
+    material = provider.create_key("fixture")
+    provider.store_secret.assert_called_once_with("fixture", material)
+    assert provider._save_key_to_file.called is copy_expected
