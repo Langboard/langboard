@@ -1,19 +1,13 @@
 """Stable logical reference; vault locators never belong in public projections."""
 
 from typing import Any
-from sqlalchemy import TEXT, CheckConstraint, UniqueConstraint
-from sqlalchemy.schema import conv
+from sqlalchemy import TEXT
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .User import User
 
 
 class SecretReference(BaseDbModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("scope", "scope_id", "name", name=conv("uq_secret_reference_scope_name")),
-        CheckConstraint("scope IN ('personal','project','workspace')", name=conv("ck_secret_reference_scope")),
-        CheckConstraint("state IN ('active','revoked')", name=conv("ck_secret_reference_state")),
-    )
     scope: str = Field(nullable=False)
     scope_id: SnowflakeID = SnowflakeIDField(nullable=False)
     name: str = Field(nullable=False)

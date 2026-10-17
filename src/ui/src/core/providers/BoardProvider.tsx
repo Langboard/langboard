@@ -194,7 +194,8 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                     name: SocketEvents.SERVER.BOARD.DETAILS_CHANGED,
                     params: { uid: project.uid },
                     callback: (data) => {
-                        if (!data || typeof data !== "object" || !("card_visibility_changed" in data) || data.card_visibility_changed !== true) return;
+                        if (!data || typeof data !== "object" || !("card_visibility_changed" in data) || data.card_visibility_changed !== true)
+                            return;
                         void queryClient.invalidateQueries({
                             predicate: ({ queryKey }) =>
                                 typeof queryKey[0] === "string" &&
@@ -204,7 +205,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                 },
             }),
         ],
-        [boardCardMetadataHandlers, linkedResourceHandlers, project.uid, queryClient]
+        [boardCardMetadataHandlers, linkedResourceHandlers, project, queryClient]
     );
     const cardMetadataRecords = MetadataModel.Model.useModels((model) => model.type === "card", [cards, metadataUpdated]);
     const forbiddenMessageIdRef = useRef<string | number | null>(null);

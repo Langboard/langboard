@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from langboard_sdk.interactions import validate_card_interaction, validate_card_interaction_values
 from sqlalchemy import select
 from ...core.db import DbSession, SqlBuilder
+from ...core.security.CollaborationChannel import CollaborationChannel
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import (
     AppCardInteraction,
@@ -12,17 +13,26 @@ from ..models import (
     AppCardInteractionTransition,
     AppConnection,
     AppDefinition,
+    AppExecutionAcknowledgment,
+    AppExecutionOutbox,
+    AppExecutionRequest,
     BoardAppBinding,
     Card,
     CardComment,
+    CardCommentReaction,
     Project,
+    ProjectAssignedUser,
+    ProjectColumn,
     ProjectRole,
     User,
+    WorkflowStageDefinition,
 )
-from .AppConnectionAuthentication import authenticate_connection_credential
-from .AppEventDelivery import _expired
+from .AppCardScope import require_app_card_scope
+from .AppConnectionAuthentication import AuthenticatedAppConnection, _connection, authenticate_connection_credential
+from .AppEventDelivery import _expired, enqueue_event
+from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT, current_destination
 from .AppExecutionAcknowledgments import _request
-from .AppExecutionGrant import AppExecutionCredentialDenied
+from .AppExecutionGrant import AppExecutionCredentialDenied, evaluate_accepted_execution_grant
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 from .DomainService import DomainService
 
@@ -40,7 +50,6 @@ def _scope(db, token, project_id, card_id):
 
 
 def _scope_principal(db, principal, project_id, card_id):
-    from .AppCardScope import require_app_card_scope
 
     card, *_ = require_app_card_scope(db, principal, project_id, card_id,
                                       capability="interactions.request", role_action="card_update")
@@ -109,7 +118,6 @@ def _selected_workflow_plan(row, values):
 
 
 def _freeze_workflow(db, principal, project_id, request):
-    from ..models import ProjectColumn, WorkflowStageDefinition
 
     binding = db.exec(
         SqlBuilder.select.table(BoardAppBinding)
@@ -160,7 +168,6 @@ def _freeze_workflow(db, principal, project_id, request):
 
 def _validate_workflow_snapshot(db, row, values):
     """A saved choice cannot acquire a different target after mapping changes."""
-    from ..models import ProjectColumn, WorkflowStageDefinition
 
     plan = _selected_workflow_plan(row, values)
     if plan["state"] != "planned":
@@ -200,9 +207,6 @@ def list_card_interactions(service, actor, project_id, card_id, *, limit=25, bef
     Disconnecting an app prevents new execution, but does not erase card history.
     Related response/delivery records are fetched once per page, not once per row.
     """
-    from ...core.security.CollaborationChannel import CollaborationChannel
-    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
-    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
 
     if type(limit) is not int or not 1 <= limit <= 25:
         raise ValueError("Interaction page size must be between 1 and 25")
@@ -301,7 +305,6 @@ def create_app_card_interaction(token, project_id, card_id, body):
         lock_policy_mutation(db)
         principal, card = _scope(db, token, project_id, card_id)
         if "execution" in request:
-            from ...core.types import SnowflakeID
 
             context = request["execution"]
             execution = _request(db, token, project_id, card_id, SnowflakeID.from_short_code(context["request_uid"]))
@@ -309,7 +312,6 @@ def create_app_card_interaction(token, project_id, card_id, body):
                 raise AppCardInteractionConflict()
         presentation = request["presentation"]
         if presentation["type"] == "comment_reaction":
-            from ...core.types import SnowflakeID
 
             comment = _current(db, CardComment, SnowflakeID.from_short_code(presentation["comment_uid"]))
             if comment is None or comment.card_id != card.id:
@@ -452,12 +454,6 @@ def respond_to_app_card_interaction(
     _retained_response=False,
 ):
     """Accept one current human answer; delivery and workflow outcomes are separate."""
-    import re
-    from ...core.security.CollaborationChannel import CollaborationChannel
-    from ...core.types import SnowflakeID
-    from ..models import AppExecutionRequest, ProjectAssignedUser
-    from .AppConnectionAuthentication import AuthenticatedAppConnection, _connection
-    from .AppExecutionGrant import evaluate_accepted_execution_grant
 
     if type(expected_revision) is not int or expected_revision < 1:
         raise ValueError("A positive interaction revision is required")
@@ -522,7 +518,6 @@ def respond_to_app_card_interaction(
         if row.app_key != principal.app_key:
             raise AppGovernanceDenied()
         if row.request["presentation"]["type"] == "comment_reaction" and not _retained_response:
-            from ..models import CardCommentReaction
 
             reaction = (
                 _current(db, CardCommentReaction, _reaction_event_id, for_update=False) if _reaction_event_id else None
@@ -618,8 +613,6 @@ def respond_to_app_card_interaction(
 
 
 def _response_delivery(db, answer):
-    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
-    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
 
     event = db.exec(
         SqlBuilder.select.table(AppExecutionOutbox).where(
@@ -644,8 +637,6 @@ def _response_delivery(db, answer):
 
 
 def _queue_response_event(db, row, answer):
-    from ..models import AppExecutionOutbox
-    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT, current_destination
 
     binding = db.exec(
         SqlBuilder.select.table(BoardAppBinding).where(
@@ -688,7 +679,6 @@ def _queue_response_event(db, row, answer):
     db.update(event)
 
     def enqueue():
-        from .AppEventDelivery import enqueue_event
 
         enqueue_event(event.id)
 
@@ -740,12 +730,10 @@ def revalidate_response_event(db, event):
     ).first()
     if "events.receive" not in binding.granted_capabilities:
         raise AppGovernanceDenied()
-    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT, current_destination
 
     connection = _current(db, AppConnection, row.connection_id)
     destination, _ = current_destination(db, connection, APP_INTERACTION_RESPONSE_EVENT)
     if event.payload.get("destination") != {"destination_uid": destination.get_uid(), "revision": destination.revision}:
-        from .AppGovernance import AppGovernanceConflict
 
         raise AppGovernanceConflict()
     return row, answer
@@ -753,8 +741,6 @@ def revalidate_response_event(db, event):
 
 def acknowledge_app_interaction_response(token, project_id, card_id, interaction_id, event_id, runtime_reference):
     """Acknowledge event reception only; never imply provider execution or resume."""
-    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
-    from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
 
     if not isinstance(runtime_reference, str) or not runtime_reference.strip() or len(runtime_reference) > 200:
         raise ValueError("Runtime reference must contain 1 to 200 characters")
@@ -812,7 +798,6 @@ def acknowledge_app_interaction_response(token, project_id, card_id, interaction
 
 def read_interaction_acknowledgment(token, project_id, card_id, interaction_id):
     """Read the retained reception receipt without delivery or runtime side effects."""
-    from ..models import AppExecutionAcknowledgment, AppExecutionOutbox
 
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
@@ -833,7 +818,6 @@ def read_interaction_acknowledgment(token, project_id, card_id, interaction_id):
             return {"schema_version": 1, "interaction_uid": row.get_uid(), "response_uid": answer.get_uid(),
                     "state": "not_received", "changed": False, "execution_resumed": False}
         event = _current(db, AppExecutionOutbox, ack.event_id, for_update=False)
-        from .AppEventDestination import APP_INTERACTION_RESPONSE_EVENT
 
         if (event is None or event.event_type != APP_INTERACTION_RESPONSE_EVENT
             or ack.app_key != row.app_key or ack.connection_id != row.connection_id):
@@ -870,7 +854,6 @@ def pending_comment_interactions(db, project_id, card_id, comment_id):
 
 def accept_current_comment_reaction(service, actor, project_id, card_id, comment_id, reaction_type):
     """Resolve only a newly stored human reaction; normal reactions retain their UX."""
-    from ..models import CardCommentReaction
 
     if not isinstance(actor, User):
         return None

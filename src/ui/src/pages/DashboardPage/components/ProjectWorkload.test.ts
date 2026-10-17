@@ -19,8 +19,8 @@ test("counts require authoritative values and exclude closed/archive/reference r
         column({ uid: "next", name: "Ready", order: 1, incomplete_count: 2 }),
     ];
     assert.equal(workloadTotal(columns), 5);
-    assert.equal(workloadTotal([column({ workflow_stage: null, name: "Done" })]), 0);
-    assert.equal(matchesWorkload({ project_column_uid: "open" }, column({ workflow_stage: null, name: "Done" })), false);
+    assert.equal(workloadTotal([column({ workflow_stage: null, name: "Done" })]), 3);
+    assert.equal(matchesWorkload({ project_column_uid: "open" }, column({ workflow_stage: null, name: "Done" })), true);
     assert.deepEqual(
         workloadColumns(columns).map((value) => value.uid),
         ["open", "next"]

@@ -473,3 +473,11 @@ test("empty app descriptions provide setup guidance for third-party apps", async
     await expect(app.getByText("Choose whether this app appears in the side rail. Panel visibility does not grant service permissions.", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
 });
+
+test("inactive optional stages explain availability without impossible repair actions", async ({ page }) => {
+    await page.goto(`${path}?missing&inactive`);
+    await expect(page.getByText("This workflow stage is inactive or unavailable. Enable it in workflow settings first.")).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Existing column for stage" })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "New workflow column name" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Assign stage to column", exact: true })).toHaveCount(0);
+});

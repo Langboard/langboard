@@ -21,7 +21,6 @@ from langboard_shared.domain.services.AppEventDelivery import claim_app_event, f
 from langboard_shared.domain.services.AppEventDestination import APP_CARD_ARCHIVE_EVENT, bind_app_event_destination
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_card_creation import call, creation  # noqa: F401
 
 

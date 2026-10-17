@@ -24,7 +24,6 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.services.AppExecutionLeases import check_app_runtime
 from langboard_shared.domain.services.AppExecutionStarts import report_app_execution_start
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from sqlalchemy import text
 from test_app_execution_start import start_scope
 

@@ -5,7 +5,7 @@ retains cross-column checks and named query indexes for migrations and fresh
 metadata-based databases, without model __table_args__ declarations.
 """
 
-from sqlalchemy import CheckConstraint, Index, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint, text
 from sqlalchemy.schema import conv
 from .AppCardInteraction import AppCardInteraction
 from .AppConnection import AppConnection
@@ -15,9 +15,24 @@ from .AppGovernancePolicy import AppGovernancePolicy
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
 from .BoardAppBinding import BoardAppBinding
+from .Card import Card
 from .CardAppResourceSelection import CardAppResourceSelection
 from .CardAppSignalBinding import CardAppSignalBinding
 from .CardSignalCreation import CardSignalCreation
+from .CardVerificationRecord import CardVerificationRecord
+from .CardVisibilityChange import CardVisibilityChange
+from .Checklist import Checklist
+from .DocumentVectorCleanup import DocumentVectorCleanup
+from .DokployNotificationReceipt import DokployNotificationReceipt
+from .DokployWebhookBinding import DokployWebhookBinding
+from .GitHubHealthJob import GitHubHealthJob
+from .GitHubLifecycleReceipt import GitHubLifecycleReceipt
+from .GitHubSignalDelivery import GitHubSignalDelivery
+from .ProjectActivity import ProjectActivity
+from .ProjectLabel import ProjectLabel
+from .SecretReference import SecretReference
+from .SecretReferenceAudit import SecretReferenceAudit
+from .UserCardReadState import UserCardReadState
 
 
 AppConnection.__table__.append_constraint(
@@ -115,4 +130,153 @@ CardSignalCreation.__table__.append_constraint(
 
 CardAppResourceSelection.__table__.append_constraint(
     UniqueConstraint("card_id", "app_key", name="uq_card_app_resource_selection")
+)
+
+
+Card.__table__.append_constraint(
+    CheckConstraint("(source_type IS NULL) = (source_uid IS NULL)", name="linked_source_complete")
+)
+
+Index("ix_card_project_archive_page", Card.__table__.c.project_id, Card.__table__.c.archived_at, Card.__table__.c.id)
+
+Card.__table__.append_constraint(
+    CheckConstraint("visibility IN ('INTERNAL', 'SHARED', 'PRIVATE')", name="card_visibility")
+)
+
+Index("ix_card_project_visibility", Card.__table__.c.project_id, Card.__table__.c.visibility)
+
+Card.__table__.append_constraint(
+    CheckConstraint(
+        "(visibility = 'PRIVATE' AND owner_user_id IS NOT NULL AND owner_user_id > 0 AND created_by_user_id IS NOT NULL AND owner_user_id = created_by_user_id AND created_by_bot_id IS NULL) OR (visibility <> 'PRIVATE' AND owner_user_id IS NULL)",
+        name="card_private_owner",
+    )
+)
+
+CardVerificationRecord.__table__.append_constraint(
+    CheckConstraint("decision IN ('verified', 'partial', 'unverified')", name="verification_decision")
+)
+
+CardVerificationRecord.__table__.append_constraint(
+    CheckConstraint("(recorded_by_user_id IS NULL) <> (recorded_by_bot_id IS NULL)", name="verification_actor")
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint("previous_visibility IN ('INTERNAL', 'SHARED')", name="visibility_change_previous")
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint("next_visibility IN ('INTERNAL', 'SHARED')", name="visibility_change_next")
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint("previous_visibility <> next_visibility", name="visibility_change_distinct")
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint("(changed_by_user_id IS NULL) <> (changed_by_bot_id IS NULL)", name="visibility_change_actor")
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint("channel IN ('human_ui','mcp','api','bot')", name="visibility_change_channel")
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint(
+        "next_visibility <> 'SHARED' OR (channel = 'human_ui' AND changed_by_bot_id IS NULL)",
+        name="visibility_change_human_share",
+    )
+)
+
+Index(
+    "ix_card_visibility_change_card_created",
+    CardVisibilityChange.__table__.c.card_id,
+    CardVisibilityChange.__table__.c.created_at,
+    CardVisibilityChange.__table__.c.id,
+)
+
+Index(
+    "uq_checklist_active_system_card",
+    Checklist.__table__.c.card_id,
+    unique=True,
+    postgresql_where=text("is_system AND deleted_at IS NULL"),
+    sqlite_where=text("is_system = 1 AND deleted_at IS NULL"),
+)
+
+Index("ix_document_vector_cleanup_due_at", DocumentVectorCleanup.__table__.c.due_at)
+
+DokployNotificationReceipt.__table__.append_constraint(
+    UniqueConstraint("config_id", "config_revision", "payload_digest", name="uq_dokploy_notification_receipt")
+)
+
+DokployWebhookBinding.__table__.append_constraint(
+    UniqueConstraint("board_binding_id", "connection_id", name="uq_dokploy_webhook_binding")
+)
+
+DokployWebhookBinding.__table__.append_constraint(
+    CheckConstraint("state IN ('enabled','disabled')", name=conv("ck_dokploy_webhook_state"))
+)
+
+GitHubHealthJob.__table__.append_constraint(UniqueConstraint("receipt_id", name="uq_github_health_receipt"))
+
+GitHubHealthJob.__table__.append_constraint(
+    CheckConstraint(
+        "state IN ('pending','processing','completed','blocked','failed')", name=conv("ck_github_health_state")
+    )
+)
+
+Index("ix_github_health_due", GitHubHealthJob.__table__.c.state, GitHubHealthJob.__table__.c.available_at)
+
+GitHubLifecycleReceipt.__table__.append_constraint(
+    UniqueConstraint("connection_id", "delivery_id", name="uq_github_lifecycle_delivery")
+)
+
+GitHubSignalDelivery.__table__.append_constraint(
+    UniqueConstraint("connection_id", "event_id", name="uq_github_signal_delivery")
+)
+
+GitHubSignalDelivery.__table__.append_constraint(
+    CheckConstraint(
+        "state IN ('pending','processing','completed','blocked','failed')", name=conv("ck_github_signal_state")
+    )
+)
+
+Index("ix_github_signal_due", GitHubSignalDelivery.__table__.c.state, GitHubSignalDelivery.__table__.c.available_at)
+
+Index(
+    "ix_project_activity_project_id_created_at",
+    ProjectActivity.__table__.c.project_id,
+    ProjectActivity.__table__.c.created_at,
+)
+
+Index(
+    "ix_project_activity_card_id_created_at",
+    ProjectActivity.__table__.c.card_id,
+    ProjectActivity.__table__.c.created_at,
+)
+
+ProjectLabel.__table__.append_constraint(
+    UniqueConstraint("project_id", "global_label_id", name="uq_project_label_global_source")
+)
+
+SecretReference.__table__.append_constraint(
+    UniqueConstraint("scope", "scope_id", "name", name=conv("uq_secret_reference_scope_name"))
+)
+
+SecretReference.__table__.append_constraint(
+    CheckConstraint("scope IN ('personal','project','workspace')", name=conv("ck_secret_reference_scope"))
+)
+
+SecretReference.__table__.append_constraint(
+    CheckConstraint("state IN ('active','revoked')", name=conv("ck_secret_reference_state"))
+)
+
+SecretReferenceAudit.__table__.append_constraint(
+    CheckConstraint(
+        "action IN ('created','resolved','renamed','moved','revoked','rotated','bound','migrated','copied')",
+        name=conv("ck_secret_reference_audit_action"),
+    )
+)
+
+UserCardReadState.__table__.append_constraint(
+    UniqueConstraint("user_id", "card_id", name="uq_user_card_read_state_user_card")
 )

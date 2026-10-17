@@ -12,7 +12,6 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import binding, board  # noqa: F401
 from langboard_shared.Env import Env
 from test_glitchtip_connection import secrets, setup  # noqa: F401
 

@@ -15,7 +15,6 @@ from langboard_shared.domain.services.AppConnectionAuthentication import issue_c
 from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAppResources import set_card_app_resources
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.helpers import ModelHelper
 from sqlalchemy import text
 from test_card_app_resources import prepare
@@ -229,8 +228,8 @@ def test_execution_rejects_resource_approved_for_a_prior_connection_identity(boa
     from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
 
     with DbSession.atomic() as db:
-        from langboard_shared.domain.services.AppGovernance import _current
         from langboard_shared.domain.models import AppConnection
+        from langboard_shared.domain.services.AppGovernance import _current
 
         current = _current(db, AppConnection, connection.id, for_update=False)
         resources[0].identity_hash = _identity_hash(db, current, definition=definition)

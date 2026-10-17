@@ -10,7 +10,6 @@ from langboard_shared.domain.models import AppExecutionOutbox, AppExecutionReque
 from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict, request_app_execution
 from langboard_shared.domain.services.CardAppResources import set_card_app_resources
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from sqlalchemy import text
 from test_app_execution_requests import prepare
 

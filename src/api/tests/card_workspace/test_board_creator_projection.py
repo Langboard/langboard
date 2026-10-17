@@ -10,7 +10,6 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, Card, Project, User
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from sqlalchemy import create_engine, event
 

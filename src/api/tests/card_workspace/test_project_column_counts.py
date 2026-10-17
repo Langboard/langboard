@@ -1,17 +1,12 @@
 """Column task counts exclude linked Wiki reference cards."""
 
-import os
-
-
-os.environ.setdefault("PROJECT_NAME", "langboard")
-
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.models import Card, Project, ProjectColumn, User
+from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
+from langboard_shared.infrastructure.repositories.factory.ProjectColumnRepository import ProjectColumnRepository
 from sqlalchemy import create_engine
-from ....core.db import DbSession, SqlBuilder
-from ....core.db.DbEngine import DbEngine
-from ....core.types import SafeDateTime
-from ....domain.models import Card, Project, ProjectColumn, User
-from .CardRepository import CardRepository
-from .ProjectColumnRepository import ProjectColumnRepository
 
 
 def test_column_count_excludes_linked_wiki_and_deleted_cards(monkeypatch):

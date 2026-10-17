@@ -147,6 +147,7 @@
     "Select column": "Select column",
     "Column": "Column",
     "Previous column unavailable": "Previous column unavailable",
+    "Mapping inactive": "This workflow stage is inactive or unavailable. Enable it in workflow settings first.",
     "Mapping missing": "Assign this stage to a board column first.",
     "Mapping ambiguous": "Choose one destination.",
     "Mapping resolved": "Destination selected",

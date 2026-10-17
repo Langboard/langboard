@@ -36,6 +36,7 @@ def _resolve(db, definition, project, explicit):
             {
                 "stage": choice.stage,
                 "required": choice.required,
+                "stage_active": choice.stage_active,
                 "status": choice.status,
                 "column_uid": choice.column_uid,
                 "candidates": list(choice.candidates),

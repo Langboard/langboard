@@ -202,7 +202,7 @@ def _get_completed_resume_response(
     thread_id: str, resume_request: GraphResumeRequest, graph_status: dict[str, Any]
 ) -> RunResponse | None:
     values = graph_status.get("values")
-    if not isinstance(values, dict) or values.get("approval_result") != resume_request.resume:
+    if not isinstance(values, dict) or values.get("approval_result") != redact_graph_credentials(resume_request.resume):
         return None
 
     message = values.get("response")

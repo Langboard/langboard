@@ -15,7 +15,6 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import EmployeeMembershipPolicy, McpToolGroup
 from langboard_shared.domain.services import DomainService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_card_app_resources import prepare
 
 

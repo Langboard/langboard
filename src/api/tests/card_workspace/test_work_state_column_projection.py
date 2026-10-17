@@ -8,7 +8,6 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Card, ProjectColumn
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
 from sqlalchemy import event
 

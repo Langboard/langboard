@@ -8,46 +8,7 @@ from sqlalchemy import select
 from ....core.db import DbSession
 from ....core.security import KeyVault
 from ...models import Organization, SecretReference
-from .SecretReferenceService import SecretReferenceConflict, SecretReferenceService, SecretReferenceUnavailable
-from .WorkflowStageService import WorkflowStageService
-from .WorkflowStageService_app_test import board  # noqa: F401
-
-
-@pytest.fixture
-def secrets(board, monkeypatch, tmp_path):
-    from ....core.db.DbEngine import DbEngine
-    from ....core.security.vault.LocalDevVaultProvider import LocalDevVaultProvider
-
-    engine = DbEngine.get_main_engine()
-    if engine.dialect.name == "sqlite":
-        Organization.__table__.create(engine, checkfirst=True)
-    # Exercise the actual migration, not just ORM metadata creation.
-    import importlib.util
-    from pathlib import Path
-    from alembic.migration import MigrationContext
-    from alembic.operations import Operations
-
-    for filename in (
-        "20261008061000-820ebc13da57.py",
-        "20261008065000-932fcd24eb68.py",
-        "20261008072000-a430de35fc79.py",
-        "20261008114000-e87412793ab3.py",
-        "20261009040000-7c98451eab03.py",
-        "20261009100000-b51832cfe4a7.py",
-        "20261010212000-e15b02634f97.py",
-    ):
-        migration_path = Path(__file__).resolve().parents[7] / "src/api/langboard/migrations/versions" / filename
-        spec = importlib.util.spec_from_file_location("secret_reference_migration", migration_path)
-        migration = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(migration)
-        with engine.begin() as connection:
-            monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
-            migration.upgrade()
-    monkeypatch.setattr(KeyVault, "provider", LocalDevVaultProvider(tmp_path))
-    service = SecretReferenceService(
-        lambda cls: board[0] if cls is WorkflowStageService else None, lambda _: None, None
-    )
-    return service, board, tmp_path
+from .SecretReferenceService import SecretReferenceConflict, SecretReferenceUnavailable
 
 
 def test_personal_reference_redacts_locator_and_rechecks_current_actor(secrets):

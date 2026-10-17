@@ -147,6 +147,7 @@
     "Select column": "칼럼 선택",
     "Column": "칼럼",
     "Previous column unavailable": "기존 칼럼 사용 불가",
+    "Mapping inactive": "비활성 또는 사용할 수 없는 워크플로우 스테이지입니다. 워크플로우 설정에서 먼저 활성화하세요.",
     "Mapping missing": "먼저 보드 칼럼에 이 스테이지를 지정하세요.",
     "Mapping ambiguous": "대상 하나를 선택하세요.",
     "Mapping resolved": "대상 선택됨",

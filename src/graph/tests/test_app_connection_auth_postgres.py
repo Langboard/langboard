@@ -2,25 +2,26 @@
 
 import asyncio
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
-from pathlib import Path
 from threading import Event, get_ident
 from time import monotonic, sleep
+from types import SimpleNamespace
 import langboard.routes.settings.AppBoardConsentApi  # noqa: F401
 import langboard.routes.settings.AppCardInteractionApi  # noqa: F401
 import langboard.routes.settings.AppCardReadApi  # noqa: F401
 import langboard.routes.settings.AppConnectionCredentialApi  # noqa: F401
 import langboard.routes.settings.AppConnectionIdentityApi  # noqa: F401
-import langboard.routes.settings.AppExecutionLeaseApi  # noqa: F401
+import langboard.routes.settings.AppConnectionResourcesApi  # noqa: F401
 import langboard.routes.settings.AppExecutionAuthorityApi  # noqa: F401
+import langboard.routes.settings.AppExecutionLeaseApi  # noqa: F401
 import langboard.routes.settings.AppExecutionReviewApi  # noqa: F401
 import langboard.routes.settings.AppInboundConnectionApi  # noqa: F401
 import langboard.routes.settings.AppMcpConsentApi  # noqa: F401
 import langboard.routes.settings.AppRegistrySettingsApi  # noqa: F401
-import langboard.routes.settings.AppConnectionResourcesApi  # noqa: F401
 import langboard.routes.settings.AppResourceSelectionApi  # noqa: F401
 import langboard.routes.settings.AppWorkflowMappingApi  # noqa: F401
 import langboard.routes.settings.BoardWorkflowSettingsApi  # noqa: F401
@@ -36,22 +37,31 @@ from langboard.card_workspace.application.queries import get_card_bundle, get_pr
 from langboard.card_workspace.domain import CommentPage, SectionPage
 from langboard.card_workspace.infrastructure.native import NativeCardWorkspaceAdapter
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard_sdk import AppCards
 from langboard_sdk.client import MutationOutcomeUnknown
 from langboard_sdk.execution import AppExecution
+from langboard_sdk.interactions import AppCardInteractions
 from langboard_sdk.resources import AppResources
 from langboard_sdk.rest import HttpTransport, NativeApiError
 from langboard_shared.core.caching import Cache
-from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db import BaseDbModel, DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
-from langboard_shared.core.security import AuthSecurity
+from langboard_shared.core.security import AuthSecurity, KeyVault
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
+    AppCardInteraction,
+    AppCardInteractionResponse,
     AppConnection,
     AppConnectionCredential,
     AppDefinition,
+    AppEventDestination,
     AppExecutionAcknowledgment,
+    AppExecutionActive,
+    AppExecutionLease,
     AppExecutionOutbox,
+    AppExecutionReview,
+    AppExecutionStart,
     AppMcpConsent,
     AppResourceBinding,
     BoardAppBinding,
@@ -63,16 +73,26 @@ from langboard_shared.domain.models import (
     CardExecutionGeneration,
     CardExecutionIntent,
     CardRelationship,
+    EmployeeMembershipPolicy,
     GlobalCardRelationshipType,
+    IdentityProvider,
     Organization,
-    ProjectAssignedUser,
     Project,
+    ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
+    ScimGroup,
+    ScimGroupMember,
     User,
+    UserIdentityLink,
+    WebhookSetting,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.AppBoardConsent import prepare_board_consent, save_board_consent
+from langboard_shared.domain.services.AppCardInteractions import (
+    respond_to_app_card_interaction,
+    revalidate_response_event,
+)
 from langboard_shared.domain.services.AppConnectionAuthentication import (
     authenticate_connection_credential,
     issue_connection_credential,
@@ -83,6 +103,10 @@ from langboard_shared.domain.services.AppConnectionManagement import (
     create_inbound_connection,
     disconnect_inbound_connection,
     list_inbound_connections,
+)
+from langboard_shared.domain.services.AppEventDestination import (
+    APP_INTERACTION_RESPONSE_EVENT,
+    bind_app_event_destination,
 )
 from langboard_shared.domain.services.AppGovernance import (
     AppGovernanceConflict,
@@ -105,7 +129,11 @@ from langboard_shared.domain.services.AppRegistry import (
 from langboard_shared.domain.services.AppResourceSelection import list_resource_selections, save_resource_selection
 from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_mapping, save_workflow_mapping
 from langboard_shared.domain.services.BoardWorkflowSettings import read_column_workflow, save_column_workflow
-from langboard_shared.domain.services.CardAppGovernance import read_card_app_ownership, set_card_app_ownership
+from langboard_shared.domain.services.CardAppGovernance import (
+    CardAppOwnershipConflict,
+    read_card_app_ownership,
+    set_card_app_ownership,
+)
 from langboard_shared.domain.services.CardAppResources import read_card_app_resources, set_card_app_resources
 from langboard_shared.domain.services.CardDependencyState import card_dependency_state
 from langboard_shared.domain.services.CardExecutionIntent import (
@@ -114,10 +142,13 @@ from langboard_shared.domain.services.CardExecutionIntent import (
 )
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
-from langboard_shared.publishers import CardRelationshipPublisher, ProjectColumnPublisher
+from langboard_shared.helpers import ensure_models_imported
+from langboard_shared.publishers import CardPublisher, CardRelationshipPublisher, ProjectColumnPublisher
 from langboard_shared.security import Auth
-from langboard_shared.tasks.activities import CardRelationshipActivityTask
+from langboard_shared.tasks.activities import CardActivityTask, CardRelationshipActivityTask
 from langboard_shared.tasks.bots import CardBotTask
+from langboard_shared.tasks.webhooks import AppEventDeliveryTask, WebhookTask
+from langboard_shared.tasks.webhooks.utils import WebhookUrlPolicy
 from sqlalchemy import event, select, text, update
 from sqlalchemy.orm import Session
 from test_app_governance_postgres import governance  # noqa: F401
@@ -1269,12 +1300,9 @@ def test_native_mcp_workflow_guidance_uses_explicit_stage_and_batch_lookup(regis
     WorkflowStageDefinition.__table__.create(engine)
     ProjectColumn.__table__.create(engine)
     Card.__table__.create(engine)
-    from langboard_shared.core.db import BaseDbModel
-    from langboard_shared.helpers import ensure_models_imported
 
     ensure_models_imported()
     BaseDbModel.metadata.create_all(engine)
-    from langboard_shared.domain.models.CardExecutionGeneration import CardExecutionGeneration
 
     CardExecutionGeneration.__table__.create(engine)
     with Session(engine) as db:
@@ -1329,7 +1357,6 @@ def test_native_mcp_workflow_guidance_uses_explicit_stage_and_batch_lookup(regis
 
 
 def test_card_app_ownership_human_authority_cas_and_audit_retention(registered, monkeypatch):
-    from langboard_shared.domain.services.CardAppGovernance import CardAppOwnershipConflict
 
     engine, (admin, owner, outsider), personal, _ = registered
     WorkflowStageDefinition.__table__.create(engine)
@@ -1429,7 +1456,6 @@ def test_card_app_ownership_human_authority_cas_and_audit_retention(registered, 
 
 
 def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cleanup(registered, monkeypatch):
-    from langboard_shared.domain.services.CardAppGovernance import CardAppOwnershipConflict
 
     engine, (admin, owner, outsider), personal, _ = registered
     with Session(engine) as db:
@@ -1592,7 +1618,6 @@ def test_card_resource_snapshots_reject_identity_ownership_drift_and_preserve_cl
 def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
     registered, monkeypatch, consumer_acceptance
 ):
-    from langboard_shared.domain.models import Project
 
     engine, (admin, owner, outsider), personal, shared = registered
     # Native card movement reads its bundle through the read engine.
@@ -1602,26 +1627,14 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
         db.commit()
     consumer = None
     if consumer_acceptance:
-        import os
 
         module = os.environ.get("LANGBOARD_EXECUTION_CONSUMER_TEST_MODULE")
         if not module:
             pytest.skip("Requires an independent installed consumer acceptance module")
         consumer = pytest.importorskip(module)
     app_key = consumer.APP_KEY if consumer else "example"
-    from langboard_shared.core.db import EditorContentModel
 
-    card_content = "작업\n" * 6000
-    from langboard_shared.domain.models import (
-        AppCardInteraction,
-        AppCardInteractionResponse,
-        AppEventDestination,
-        AppExecutionActive,
-        AppExecutionLease,
-        AppExecutionReview,
-        AppExecutionStart,
-        WebhookSetting,
-    )
+    card_content = "Work\n" * 6000
 
     for model in (
         AppExecutionLease,
@@ -1649,8 +1662,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
         ProjectRole,
     ):
         model.__table__.create(engine)
-    from langboard_shared.core.db import BaseDbModel
-    from langboard_shared.helpers import ensure_models_imported
 
     ensure_models_imported()
     BaseDbModel.metadata.create_all(engine)
@@ -1913,8 +1924,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                     )
 
             if consumer_acceptance:
-                from types import SimpleNamespace
-                from langboard_sdk import AppCards
 
                 async def consumer_card():
                     async with AsyncClient(
@@ -2105,9 +2114,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             report = asyncio.run(sdk_report())
             assert report["active_report"] and report["start_report"]["execution_reference"] == "process-example-1"
             assert report["expires_at"] == before_start["expires_at"]
-            from langboard_shared.publishers import CardPublisher
-            from langboard_shared.tasks.activities import CardActivityTask
-            from langboard_shared.tasks.bots import CardBotTask
 
             moves = []
             monkeypatch.setattr(CardPublisher, "order_changed", lambda *args: moves.append("published"))
@@ -2187,14 +2193,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             assert client.post(check_path, json={"runtime_token": runtime_token}).json()["permit_execution"] is True
             assert asyncio.run(sdk_read())["authority"]["authority_version"] != authority["authority_version"]
             assert client.get(ack_path, headers=app_headers).status_code == 200
-            from langboard_sdk.interactions import AppCardInteractions
-            from langboard_shared.domain.services.AppCardInteractions import respond_to_app_card_interaction
-            from langboard_shared.domain.services.AppCardInteractions import revalidate_response_event
-            from langboard_shared.domain.services.AppEventDestination import (
-                APP_INTERACTION_RESPONSE_EVENT,
-                bind_app_event_destination,
-            )
-            from langboard_shared.domain.services.DomainService import DomainService
 
             with Session(engine) as db:
                 db.add(
@@ -2214,7 +2212,7 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                 "schema_version": 1,
                 "kind": "question",
                 "app_request_key": "active_question",
-                "prompt": {"en": "Continue?", "ko": "진행할까요?"},
+                "prompt": {"en": "Continue?"},
                 "questions": [
                     {
                         "id": "decision",
@@ -2267,10 +2265,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                 answer_event_id = event_row.id
                 answer_event_payload = deepcopy(event_row.payload)
             if consumer_acceptance:
-                from langboard_shared.core.security import KeyVault
-                from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination
-                from langboard_shared.tasks.webhooks import AppEventDeliveryTask, WebhookTask
-                from langboard_shared.tasks.webhooks.utils import WebhookUrlPolicy
 
                 async def deliver_to_consumer():
                     async with consumer.answer_receiver(
@@ -2380,7 +2374,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                         evidence_reference=evidence,
                     )
 
-            from langboard_sdk import AppCards
 
             async def sdk_card(offset=0, limit=16000):
                 async with AsyncClient(
@@ -2393,13 +2386,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
             content_read = asyncio.run(sdk_card())
             assert content_read["card_revision"] == review_authority["card_revision"]
             assert content_read["binding_revision"] == review_authority["binding_revision"]
-            from langboard_shared.domain.models import (
-                EmployeeMembershipPolicy,
-                IdentityProvider,
-                ScimGroup,
-                ScimGroupMember,
-                UserIdentityLink,
-            )
 
             with monkeypatch.context() as visibility:
                 visibility.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
@@ -2607,7 +2593,6 @@ def test_human_execution_intent_cas_idempotency_and_current_resource_fences(
                 db.query(AppExecutionOutbox).filter(AppExecutionOutbox.request_id == second_question_id).delete()
                 db.query(AppCardInteraction).filter(AppCardInteraction.id == second_question_id).delete()
                 db.commit()
-            from langboard_shared.domain.models import Project
 
             with Session(engine) as db:
                 # Same personal connection owner, now an explicitly read-only board member.
@@ -2896,9 +2881,6 @@ def test_relationship_replacement_atomic_blocks_cycles_and_concurrent_writers(re
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     for model in (WorkflowStageDefinition, ProjectColumn, Card, GlobalCardRelationshipType, CardRelationship):
         model.__table__.create(engine)
-    from langboard_shared.core.db import BaseDbModel
-    from langboard_shared.helpers import ensure_models_imported
-    from langboard_shared.domain.models.CardExecutionGeneration import CardExecutionGeneration
 
     ensure_models_imported()
     BaseDbModel.metadata.create_all(engine)

@@ -9,11 +9,12 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.domain.models import Project, ProjectRole, User
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture
 def receipt_roles(monkeypatch):
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     for model in (User, Project, ProjectRole):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)

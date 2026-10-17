@@ -10,8 +10,6 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppSignal, Card, CardAppSignalBinding, Organization
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from test_glitchtip_connection import setup  # noqa: F401
 from test_glitchtip_signal import refresh, selected  # noqa: F401

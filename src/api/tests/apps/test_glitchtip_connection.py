@@ -10,8 +10,6 @@ from langboard.apps import GlitchTipConnection as gt
 from langboard.apps import MetadataTransport as transport
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from pydantic import SecretStr
 

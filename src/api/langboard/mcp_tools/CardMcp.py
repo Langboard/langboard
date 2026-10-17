@@ -340,7 +340,7 @@ def search_card_document(
             if store is None:
                 raise ValueError("Document vectors unavailable")
             hits = search_vector_generation(store, pointer, query, settings, max_tokens=max_tokens)
-    except Exception:
+    except ValueError:
         raise ValueError("Document vector retrieval unavailable; verify binding and reindex this attachment") from None
     _, latest_card, _ = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     latest = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, latest_card, attachment_uid)
@@ -361,7 +361,7 @@ def search_card_document(
         if not current_settings.enabled:
             raise ValueError("Document retrieval disabled")
         resolve_embedding_snapshot(snapshot, current_binding.value)
-    except Exception:
+    except ValueError:
         raise ValueError("Document embedding binding unavailable") from None
     return {
         "project_uid": project_uid,

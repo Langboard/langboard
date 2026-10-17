@@ -17,7 +17,6 @@ from langboard_shared.domain.services.AppEventDestination import (
     prepare_app_event_signature,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_requests import accepted_request, prepare
 
 

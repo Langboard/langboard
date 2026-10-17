@@ -1,16 +1,29 @@
+import json
+import os
+from copy import deepcopy
+from datetime import timedelta
+from types import SimpleNamespace
+from uuid import uuid4
 import pytest
+from langboard_shared.core.db import DbSession
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.models import InternalBot
+from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+from langboard_shared.domain.models.InternalBot import InternalBotType
+from sqlalchemy import update
+from langboard_graph.core.graph import checkpoint
+from langboard_graph.core.graph.default import history, nodes
+from langboard_graph.core.graph.default.context import create_runtime_context_state
+from langboard_graph.core.graph.default.graph import run_default_graph
 from langboard_graph.core.graph.default.privacy import redact_graph_credentials
 from langboard_graph.core.graph.default.tooling import create_langboard_context_prompt, create_langboard_event_input
+from langboard_graph.routes import RunApi
 
 
 @pytest.mark.parametrize("delta", [False, True])
 @pytest.mark.parametrize("summary", [False, True])
 def test_deleted_card_comment_history_does_not_expose_body(monkeypatch, delta, summary):
-    from datetime import timedelta
-    from types import SimpleNamespace
-    from langboard_shared.core.types import SafeDateTime
-    from langboard_graph.core.graph.default import history
-
     now = SafeDateTime.now()
     comment = SimpleNamespace(
         id=1,
@@ -75,14 +88,11 @@ def test_model_runtime_prompts_do_not_serialize_structured_credentials():
 
 @pytest.mark.asyncio
 async def test_status_route_redacts_public_values_but_preserves_internal_resume_match(monkeypatch):
-    import json
-    from langboard_graph.routes import RunApi
-
     secret = "fixture-secret-not-real"
     resume = {"approved": True, "app_api_token": secret}
     status = {
         "thread_id": "fixture",
-        "values": {"approval_result": resume, "response": "done"},
+        "values": {"approval_result": redact_graph_credentials(resume), "response": "done"},
         "interrupts": [],
         "next": [],
     }
@@ -97,17 +107,11 @@ async def test_status_route_redacts_public_values_but_preserves_internal_resume_
     request = RunApi.GraphResumeRequest(resume=resume)
     recovered = RunApi._get_completed_resume_response("fixture", request, status)
     assert recovered is not None
-    assert status["values"]["approval_result"]["app_api_token"] == secret
+    assert secret not in str(status)
 
 
 @pytest.mark.asyncio
 async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypatch):
-    import os
-    from uuid import uuid4
-    from langboard_graph.core.graph import checkpoint
-    from langboard_graph.core.graph.default import history
-    from langboard_graph.core.graph.default.graph import run_default_graph
-
     raw_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
     if not raw_url:
         pytest.skip("Requires disposable PostgreSQL")
@@ -138,7 +142,8 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
             }
         },
         "LangboardCalledVariablesComponent": {
-            "current_runner_data": {"uid": "fixture-actor", "settings": {"api_key": secret}}
+            "app_api_token": secret,
+            "current_runner_data": {"uid": "fixture-actor", "settings": {"api_key": secret, "webhook_secret": secret}},
         },
     }
     try:
@@ -154,7 +159,14 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
             for channel in ("history_messages", "history_delta", "history_context_prompt"):
                 assert secret not in str(snapshot.checkpoint["channel_values"][channel])
             assert "Keep history title" in snapshot.checkpoint["channel_values"]["history_context_prompt"]
-            # Only projections/approval metadata are covered; raw tweaks remain a separate gap.
+            assert (
+                snapshot.checkpoint["channel_values"]["tweaks"]["LangboardCalledVariablesComponent"]["app_api_token"]
+                != secret
+            )
+            # Inspect every retained checkpoint and pending write, not only public status.
+            async for retained in saver.alist({"configurable": {"thread_id": thread}}):
+                assert secret not in str(retained.checkpoint)
+                assert secret not in str(retained.pending_writes)
             pending = snapshot.pending_writes
             assert pending
             assert secret not in str([value for _, channel, value in pending if channel == "__interrupt__"])
@@ -168,8 +180,6 @@ async def test_real_postgres_initial_approval_interrupt_redacts_payload(monkeypa
 
 @pytest.mark.asyncio
 async def test_tool_approval_redacts_interrupt_without_changing_execution_arguments(monkeypatch):
-    from langboard_graph.core.graph.default import nodes
-
     secret = "fixture-secret-not-real"
     args = {"client_secret": secret, "title": "Keep title"}
     payload = {"message": "Approve action", "request_payload": {"tool_args": args}}
@@ -195,14 +205,13 @@ async def test_tool_approval_redacts_interrupt_without_changing_execution_argume
 
 
 def test_state_context_projections_do_not_duplicate_credentials():
-    from langboard_graph.core.graph.default.context import create_runtime_context_state
-
     secret = "fixture-secret-not-real"
     tweaks = {
         "Graph": {"ontology_context": {"title": "Ontology", "api_key": secret}},
         "LangboardCalledVariablesComponent": {
             "project_uid": "fixture-project",
-            "current_runner_data": {"uid": "fixture-actor", "settings": {"api_key": secret}},
+            "app_api_token": secret,
+            "current_runner_data": {"uid": "fixture-actor", "settings": {"api_key": secret, "webhook_secret": secret}},
             "rest_data": {
                 "card_uid": "fixture-card",
                 "related_cards": {
@@ -229,9 +238,6 @@ def test_state_context_projections_do_not_duplicate_credentials():
 @pytest.mark.parametrize("last_sync", [None, "2026-10-01T00:00:00+00:00"])
 @pytest.mark.parametrize("summary_enabled", [False, True])
 def test_history_redacts_state_and_prompt_without_changing_delta_or_summary(monkeypatch, last_sync, summary_enabled):
-    from copy import deepcopy
-    from langboard_graph.core.graph.default import history
-
     secret = "fixture-secret-not-real"
     messages = [
         {
@@ -288,3 +294,89 @@ def test_history_redacts_state_and_prompt_without_changing_delta_or_summary(monk
     assert messages == original
     state["history_delta"]["new"][0]["content"] = "Changed"
     assert messages == original
+
+
+@pytest.mark.parametrize("key", ["webhook_secret", "github_token", "database_password", "custom-authorization-header"])
+def test_prefixed_sensitive_keys_follow_shared_audit_policy(key):
+    value = {"ordinary": "preserved", "nested": [{key: "credential-fixture"}]}
+    result = redact_graph_credentials(value)
+    assert result["ordinary"] == "preserved"
+    assert result["nested"][0][key] == "***"
+    assert value["nested"][0][key] == "credential-fixture"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+async def test_checkpoint_resume_reloads_current_model_credentials_without_persisting_them(board, monkeypatch):
+    raw_url = os.environ["LANGBOARD_FILE_TEST_DATABASE_URL"]
+    url = raw_url.replace("postgresql+psycopg://", "postgresql://")
+    await checkpoint.close_graph_checkpointer()
+    monkeypatch.setattr(type(checkpoint.Env), "MAIN_DATABASE_URL", property(lambda self: url))
+    engine = DbEngine.get_main_engine()
+    InternalBot.__table__.create(engine)
+    original, rotated, token = "original-model-secret", "rotated-model-secret", "fresh-approved-token"
+    settings = {"model_name": "fixture-model", "api_key": original, "base_url": "https://example.test/v1"}
+    with DbSession.use(readonly=False) as db:
+        bot = InternalBot(
+            bot_type=InternalBotType.ProjectChat,
+            display_name="Runtime fixture",
+            platform=BotPlatform.Default,
+            platform_running_type=BotPlatformRunningType.Default,
+            value=json.dumps({"agent_llm": "OpenAI Compatible", **settings}),
+        )
+        db.insert(bot)
+        bot_id = int(bot.id)
+    thread = "runtime-resume-" + uuid4().hex
+    tweaks = {
+        "Graph": {
+            "agent_llm": "OpenAI Compatible",
+            "settings": settings,
+            "approval_request": {"message": "Approve action"},
+        },
+        "LangboardCalledVariablesComponent": {"app_api_token": "original-app-secret"},
+    }
+    monkeypatch.setattr(history, "collect_langboard_history_messages", lambda *args: [])
+    observed = []
+
+    def model(provider, restored):
+        assert provider == "OpenAI Compatible"
+        assert restored["api_key"] == rotated
+        return object()
+
+    async def invoke(*args, **kwargs):
+        observed.append(kwargs["tweaks"]["LangboardCalledVariablesComponent"]["app_api_token"])
+        return SimpleNamespace(content="Resumed"), []
+
+    async def tools(*args):
+        return [], {}
+
+    monkeypatch.setattr(nodes, "create_default_chat_model", model)
+    monkeypatch.setattr(nodes, "_invoke_agent", invoke)
+    monkeypatch.setattr(nodes, "create_langboard_api_tool_context", tools)
+    try:
+        result = await run_default_graph(
+            "run", tweaks, thread, thread, model_source={"table": "internal_bot", "id": bot_id}
+        )
+        assert result.interrupts
+        # A new pool/graph cannot rely on an in-process secret cache.
+        await checkpoint.close_graph_checkpointer()
+        with engine.begin() as db:
+            db.execute(
+                update(InternalBot)
+                .where(InternalBot.id == bot_id)
+                .values(value=json.dumps({"agent_llm": "OpenAI Compatible", **settings, "api_key": rotated}))
+            )
+        decision = {"approved": True, "app_api_token": token}
+        result = await run_default_graph(None, None, thread, thread, resume=decision)
+        assert result.message == "Resumed"
+        assert observed == [token]
+        async with checkpoint.open_graph_checkpointer() as saver:
+            async for retained in saver.alist({"configurable": {"thread_id": thread}}):
+                for secret in (original, rotated, token, "original-app-secret"):
+                    assert secret not in str(retained.checkpoint)
+                    assert secret not in str(retained.pending_writes)
+        assert settings["api_key"] == original
+    finally:
+        async with checkpoint.open_graph_checkpointer() as saver:
+            await saver.adelete_thread(thread)
+        await checkpoint.close_graph_checkpointer()

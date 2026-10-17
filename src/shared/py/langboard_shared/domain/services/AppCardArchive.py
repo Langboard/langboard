@@ -4,6 +4,7 @@ from json import loads
 from types import SimpleNamespace
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
+from ...publishers import AppSettingPublisher
 from ..models import (
     AppCardArchive,
     AppConnection,
@@ -13,12 +14,20 @@ from ..models import (
     CardAppOwnership,
     CardAppResourceSelection,
     ExternalImportRecord,
+    Project,
+    ProjectRole,
+    User,
 )
+from ..models.ProjectRole import ProjectRoleAction
+from .AppCardScope import require_app_card_scope
+from .AppConnectionAuthentication import authenticate_connection_credential
+from .AppEventDelivery import enqueue_event
+from .AppEventDestination import APP_CARD_ARCHIVE_EVENT, current_destination
+from .AppExecutionGrant import AppExecutionCredentialDenied
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current
 
 
 def configure_archive_sync(service, actor, project_id, app_key, expected_revision, card_types):
-    from ..models.ProjectRole import ProjectRoleAction
 
     if not isinstance(card_types, list) or any(not isinstance(x, str) for x in card_types) or len(set(card_types)) != len(card_types):
         raise ValueError("Archive types must be a unique list")
@@ -42,7 +51,6 @@ def configure_archive_sync(service, actor, project_id, app_key, expected_revisio
             binding.archive_sync_revision += 1
         binding.archive_sync_types = sorted(card_types)
         db.update(binding)
-        from ...publishers import AppSettingPublisher
 
         db.after_commit(AppSettingPublisher.apps_changed)
         return {"archive_sync_types": binding.archive_sync_types, "revision": binding.edit_revision()}
@@ -129,7 +137,6 @@ def record_app_card_archive(db, actor, project, card):
 
 
 def _queue_archive_event(db, row, selection):
-    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT, current_destination
 
     try:
         if selection is None:
@@ -158,7 +165,6 @@ def _queue_archive_event(db, row, selection):
     db.update(row)
 
     def enqueue():
-        from .AppEventDelivery import enqueue_event
 
         enqueue_event(event.id)
 
@@ -166,14 +172,11 @@ def _queue_archive_event(db, row, selection):
 
 
 def revalidate_archive_event(db, event, *, reporting=False):
-    from ..models import ProjectRole, User
-    from .AppCardScope import require_app_card_scope
 
     row = _current(db, AppCardArchive, event.request_id)
     connection = _current(db, AppConnection, event.connection_id)
     if row is None or connection is None or row.app_key != event.app_key or row.project_id != event.project_id or connection.app_key != row.app_key:
         raise AppGovernanceDenied()
-    from .AppEventDestination import current_destination
 
     destination, _ = current_destination(db, connection, event.event_type)
     if event.payload.get("destination") != {"destination_uid": destination.get_uid(), "revision": destination.revision}:
@@ -188,7 +191,6 @@ def revalidate_archive_event(db, event, *, reporting=False):
     actor = _current(db, User, row.actor_id)
     role = db.exec(SqlBuilder.select.table(ProjectRole).where(ProjectRole.project_id == row.project_id,
                   ProjectRole.user_id == row.actor_id)).first()
-    from ..models import Project
     project = _current(db, Project, row.project_id)
     if actor is None or actor.deleted_at or not actor.activated_at or (project.owner_id != actor.id and
             (role is None or not role.is_granted("card_update"))):
@@ -214,7 +216,6 @@ def revalidate_archive_event(db, event, *, reporting=False):
 
 def _locked_archive_outcome(db, principal, project_id, archive_id):
     """Match delivery's outbox -> archive lock order and refresh the receipt."""
-    from .AppEventDestination import APP_CARD_ARCHIVE_EVENT
 
     row = _current(db, AppCardArchive, archive_id, for_update=False)
     if row is None or row.project_id != project_id or row.app_key != principal.app_key:
@@ -235,8 +236,6 @@ def _locked_archive_outcome(db, principal, project_id, archive_id):
 
 def read_archive_outcome(token, project_id, archive_id):
     """Current owning-app receipt for ambiguous reports; no mutation or delivery retry."""
-    from .AppConnectionAuthentication import authenticate_connection_credential
-    from .AppExecutionGrant import AppExecutionCredentialDenied
 
     with DbSession.atomic() as db:
         try:
@@ -251,8 +250,6 @@ def read_archive_outcome(token, project_id, archive_id):
 
 def report_archive_outcome(token, project_id, archive_id, expected_revision, outcome):
     """Persist an authenticated app report; transport success is not provider success."""
-    from .AppConnectionAuthentication import authenticate_connection_credential
-    from .AppExecutionGrant import AppExecutionCredentialDenied
 
     if type(expected_revision) is not int or expected_revision < 0:
         raise ValueError("A nonnegative outcome revision is required")

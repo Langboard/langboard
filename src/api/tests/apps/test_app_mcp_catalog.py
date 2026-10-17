@@ -21,7 +21,6 @@ from langboard_shared.domain.services.AppMcpConnectionConsent import (
     save_mcp_connection_consent,
 )
 from langboard_shared.domain.services.AppRegistry import save_definition
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_grant import grant_scope
 
 
@@ -121,7 +120,6 @@ def test_catalog_native_http_consent_update_revocation_and_sdk(board, monkeypatc
         # User transport is independent from the app token. An unrelated
         # instance administrator cannot approve another person's connection.
         from langboard_shared.core.security import AuthSecurity
-        from langboard_shared.core.types import SafeDateTime
         from langboard_shared.domain.models import User
         from langboard_shared.Env import Env
         with DbSession.atomic() as db:

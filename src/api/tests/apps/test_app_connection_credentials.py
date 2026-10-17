@@ -22,7 +22,6 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.services import AppConnectionAuthentication as auth
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 
 
@@ -238,7 +237,10 @@ def test_credential_history_is_owner_scoped_paged_and_revocable_after_disable(bo
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
 def test_inbound_disconnect_withdraws_tokens_and_consent_preserves_history(board):
     from langboard_shared.domain.models import AppMcpConsent
-    from langboard_shared.domain.services.AppConnectionManagement import disconnect_inbound_connection, list_inbound_connections
+    from langboard_shared.domain.services.AppConnectionManagement import (
+        disconnect_inbound_connection,
+        list_inbound_connections,
+    )
     from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 
     connection, _ = setup(board[1])

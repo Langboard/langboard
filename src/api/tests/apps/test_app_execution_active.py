@@ -8,21 +8,28 @@ from alembic.operations import Operations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.routes.settings import AppExecutionLeaseApi  # noqa: F401
-from langboard_shared.core.routing import AppRouter
-from sqlalchemy import text
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
-    AppDefinition, AppExecutionActive, AppExecutionLease, AppExecutionStart,
-    AppResourceBinding, CardAppOwnership, BoardAppBinding, Card, EmployeeMembershipPolicy, ProjectExecutionBinding,
+    AppDefinition,
+    AppExecutionActive,
+    AppExecutionLease,
+    AppExecutionStart,
+    AppResourceBinding,
+    BoardAppBinding,
+    Card,
+    CardAppOwnership,
+    EmployeeMembershipPolicy,
+    ProjectExecutionBinding,
 )
 from langboard_shared.domain.services.AppExecutionActive import activate_app_runtime, read_app_active_handoff
 from langboard_shared.domain.services.AppExecutionLeases import check_app_runtime
 from langboard_shared.domain.services.AppExecutionStarts import report_app_execution_start
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.domain.services.factory.CardService import CardService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
+from sqlalchemy import text
 from test_app_execution_start import start_scope
 
 
@@ -49,7 +56,8 @@ def test_native_active_handoff_current_permit_replay_rollback_and_revocation(boa
         board[5][1].workflow_stage = "active"
         board[6][1].key = "active"
         board[6][1].is_builtin = True
-        db.update(board[5][1]); db.update(board[6][1])
+        db.update(board[5][1])
+        db.update(board[6][1])
         binding = db.exec(SqlBuilder.select.table(BoardAppBinding)).first()
         binding.granted_capabilities = [*binding.granted_capabilities, "interactions.request"]
         binding.workflow_mapping = {**binding.workflow_mapping, "active": board[5][1].get_uid()}
@@ -120,7 +128,10 @@ def test_native_active_handoff_current_permit_replay_rollback_and_revocation(boa
     assert observed["request_uid"] == request.get_uid()
     assert observed["authority"]["card_revision"] == current.last_change_seq
     assert observed["authority"]["authority_version"] != request.authority["authority_version"]
-    from langboard_shared.domain.services.AppCardInteractions import create_app_card_interaction, respond_to_app_card_interaction
+    from langboard_shared.domain.services.AppCardInteractions import (
+        create_app_card_interaction,
+        respond_to_app_card_interaction,
+    )
     from langboard_shared.domain.services.DomainService import DomainService
     interaction = create_app_card_interaction(token, board[2].id, card.id, {
         "schema_version": 1, "kind": "action", "app_request_key": "active-human-choice",

@@ -7,7 +7,7 @@ import pytest
 from jwt import encode
 from langboard_shared.core.db import ChatContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import ChatHistory, ChatSession, User
 from langboard_shared.Env import Env
 from sqlalchemy import create_engine, text, update
@@ -92,7 +92,6 @@ def history_db(monkeypatch, request):
     ],
 )
 def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
-    from langboard_shared.core.types import SnowflakeID
 
     payload = {
         "sub": "1",
@@ -133,7 +132,6 @@ def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
 
 @pytest.mark.parametrize("case", ["anchor_only", "foreign_anchor", "missing_anchor", "mismatched_session"])
 def test_chat_history_anchor_limits_collection_to_one_session(history_db, case):
-    from langboard_shared.core.types import SnowflakeID
 
     with Session(history_db) as db:
         db.add(ChatSession(id=12, user_id=1))

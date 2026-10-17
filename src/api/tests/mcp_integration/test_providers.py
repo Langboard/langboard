@@ -1,24 +1,32 @@
 """Exercise the compatibility provider through actual FastMCP dispatch."""
 
+import json
+from inspect import Parameter, Signature
 from types import SimpleNamespace
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from fastmcp.tools import Tool
+from langboard.App import App
+from langboard.Loader import ModuleLoader
+from langboard.mcp_integration.Annotations import READ_ONLY_TOOLS
 from langboard.mcp_integration.Providers import (
     AGENT_CORE_TOOLS,
+    READ_PAGE_BOUNDS,
     create_agent_core_provider,
     create_compatibility_provider,
     create_raw_primitive_provider,
+    with_read_page_bounds,
 )
 from langboard.mcp_integration.Server import McpServer, _create_fastmcp
 from langboard.mcp_integration.Tool import McpTool
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.helpers import MiddlewareHelper
 
 
 async def test_modern_annotations_reach_catalog_and_raw_search_without_changing_legacy():
-    import json
-    from langboard.Loader import ModuleLoader
-    from langboard.mcp_integration.Annotations import READ_ONLY_TOOLS
 
     ModuleLoader.load("mcp_tools", "Mcp", log=False)
     registered = set(McpTool.get_tools())
@@ -83,7 +91,6 @@ async def test_provider_preserves_wrapped_dispatch_and_tool_group_deny(monkeypat
 
 
 async def test_registered_profiles_partition_catalog_without_changing_schemas():
-    from langboard.Loader import ModuleLoader
 
     ModuleLoader.load("mcp_tools", "Mcp", log=False)
     registered = set(McpTool.get_tools())
@@ -111,7 +118,6 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
         assert query["default"] is None
         assert query["anyOf"][0]["minLength"] == 1
         assert query["anyOf"][0]["maxLength"] == 100
-        from langboard.mcp_integration.Providers import READ_PAGE_BOUNDS
 
         for name, bounds in READ_PAGE_BOUNDS.items():
             for parameter, maximum in bounds.items():
@@ -125,7 +131,6 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
 
 @pytest.mark.parametrize("role_allowed", [True, False])
 async def test_raw_search_respects_grants_and_proxy_rechecks_current_authorization(monkeypatch, role_allowed):
-    import json
 
     calls = []
 
@@ -180,11 +185,6 @@ async def test_raw_search_respects_grants_and_proxy_rechecks_current_authorizati
 
 @pytest.mark.parametrize("path", ["/mcp/stream", "/mcp/agent/stream", "/mcp/raw/stream"])
 def test_mounted_profiles_retain_http_authentication(monkeypatch, path):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from langboard.App import App
-    from langboard.Loader import ModuleLoader
-    from langboard_shared.helpers import MiddlewareHelper
 
     monkeypatch.setattr(ModuleLoader, "load", lambda *args, **kwargs: {})
     monkeypatch.setattr(MiddlewareHelper, "validate_auth", lambda scope, **kwargs: 401)
@@ -334,9 +334,6 @@ async def test_card_policy_resource_reuses_current_query_and_rejects_ungranted_r
     ],
 )
 async def test_modern_page_bounds_reject_invalid_arguments_before_domain_dispatch(name, parameter, maximum):
-    from inspect import Parameter, Signature
-    from fastmcp.tools import Tool
-    from langboard.mcp_integration.Providers import with_read_page_bounds
 
     calls = []
 

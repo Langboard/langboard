@@ -159,7 +159,8 @@ api.defaults.adapter = async (config) => {
             choices: [
                 {
                     stage: "active",
-                    required: true,
+                    required: !new URLSearchParams(location.search).has("inactive"),
+                    stage_active: !new URLSearchParams(location.search).has("inactive"),
                     status: missing && !repaired ? "missing" : "resolved",
                     column_uid: missing && !repaired ? null : "one",
                     candidates: missing && !repaired ? [] : ["one", "two"],

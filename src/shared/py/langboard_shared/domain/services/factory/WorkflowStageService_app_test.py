@@ -1,117 +1,21 @@
 """App previews use current primary authority and semantic registry rows."""
 
-import os
-from uuid import uuid4
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
+from langboard_sdk import WorkflowRequirements
 from ....core.db import DbSession
 from ....core.db.DbEngine import DbEngine
 from ....core.types import SafeDateTime
 from ...models import (
     AppConnection,
-    AppDefinition,
-    AppGovernancePolicy,
     AppResourceBinding,
     BoardAppBinding,
-    Organization,
-    Project,
-    ProjectAssignedUser,
     ProjectColumn,
-    ProjectRole,
-    User,
-    WorkflowStageDefinition,
 )
-from langboard_sdk import WorkflowRequirements
+
 
 REQUIREMENTS = WorkflowRequirements(("active", "review", "closed"), ("ready",))
-from .WorkflowStageService import WorkflowStageService
 
 
-@pytest.fixture(params=["sqlite://", "postgresql-test"])
-def board(monkeypatch, request):
-    url = request.param
-    if url == "postgresql-test":
-        url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
-        if not url:
-            pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
-    if url == "sqlite-http":
-        from sqlalchemy.pool import StaticPool
-
-        engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    else:
-        engine = create_engine(url)
-    schema = None
-    if engine.dialect.name == "postgresql":
-        schema = "app_authority_test_" + uuid4().hex
-        with engine.begin() as db:
-            db.execute(text(f'CREATE SCHEMA "{schema}"'))
-        engine.dispose()
-        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    for model in (
-        User,
-        Organization,
-        AppDefinition,
-        AppGovernancePolicy,
-        Project,
-        ProjectAssignedUser,
-        ProjectRole,
-        ProjectColumn,
-        WorkflowStageDefinition,
-        BoardAppBinding,
-        AppConnection,
-        AppResourceBinding,
-    ):
-        model.__table__.create(engine)
-    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
-
-    def replica_forbidden():
-        raise AssertionError("App preview must not read a stale replica")
-
-    monkeypatch.setattr(DbEngine, "get_readonly_engine", replica_forbidden)
-    with Session(engine, expire_on_commit=False) as db:
-        user = User(
-            id=1,
-            firstname="Test",
-            lastname="Reader",
-            email="reader@example.invalid",
-            password="test-only",
-            activated_at=SafeDateTime.now(),
-        )
-        owner = User(
-            id=2,
-            firstname="Test",
-            lastname="Owner",
-            email="owner@example.invalid",
-            password="test-only",
-            activated_at=SafeDateTime.now(),
-        )
-        db.add_all([user, owner])
-        db.commit()
-        project = Project(id=10, owner_id=2, title="Current board")
-        db.add_all([project, Project(id=11, owner_id=2, title="Foreign board")])
-        db.commit()
-        member = ProjectAssignedUser(id=20, project_id=10, user_id=1)
-        role = ProjectRole(id=30, project_id=10, user_id=1, actions=["read"])
-        columns = [
-            ProjectColumn(id=40 + i, project_id=10, name="Localized", workflow_stage=key)
-            for i, key in enumerate(("active", "review", "closed"))
-        ]
-        stages = [
-            WorkflowStageDefinition(id=50 + i, key=key, name="Localized", is_builtin=True)
-            for i, key in enumerate(("active", "review", "closed"))
-        ]
-        for row in (member, role, *columns, *stages):
-            db.add(row)
-        db.commit()
-    service = WorkflowStageService(lambda _: None, lambda _: None, None)
-    try:
-        yield service, user, project, member, role, columns, stages
-    finally:
-        if schema:
-            with engine.begin() as db:
-                db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        engine.dispose()
 
 
 def preview(board, explicit=None):
@@ -198,14 +102,6 @@ def test_stale_project_owner_and_unknown_actor_do_not_grant_access(board):
     assert service.preview_app_mapping(None, project, REQUIREMENTS, {}) is None
 
 
-@pytest.fixture
-def binding(board):
-    with DbSession.use(readonly=False) as db:
-        row = BoardAppBinding(project_id=10, app_key="github", state="enabled", granted_capabilities=["signals.read"])
-        db.insert(row)
-        board[4].actions = ["read", "update"]
-        db.update(board[4])
-    return row
 
 
 def save_mapping(board, binding, mapping=None, enabled=True, revision=None):

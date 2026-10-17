@@ -2,6 +2,7 @@
 
 from sqlalchemy import or_
 from ...core.db import SqlBuilder
+from ...core.types import SnowflakeID
 from ..models import (
     AppConnection,
     AppDefinition,
@@ -76,7 +77,6 @@ def require_app_card_scope(
         or not {capability, "resources.read"}.issubset(binding.granted_capabilities)
     ):
         raise AppGovernanceDenied()
-    from ...core.types import SnowflakeID
 
     resources = db.exec(
         SqlBuilder.select.table(AppResourceBinding)

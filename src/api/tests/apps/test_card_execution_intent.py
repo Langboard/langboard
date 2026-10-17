@@ -1,16 +1,22 @@
 """Human intent must produce the canonical request, delivery identity and generation."""
 
 import pytest
-from sqlalchemy import select, text
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.models import AppExecutionOutbox, AppExecutionRequest, CardExecutionIntent, EmployeeMembershipPolicy
-from langboard_shared.domain.services.CardExecutionIntent import (
-    read_execution_intent_context, read_execution_intent_receipt, request_card_execution_intent,
+from langboard_shared.domain.models import (
+    AppExecutionOutbox,
+    AppExecutionRequest,
+    CardExecutionIntent,
+    EmployeeMembershipPolicy,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
+from langboard_shared.domain.services.CardExecutionIntent import (
+    read_execution_intent_context,
+    read_execution_intent_receipt,
+    request_card_execution_intent,
+)
+from sqlalchemy import select, text
 from test_app_execution_grant import grant_scope
 
 

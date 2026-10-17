@@ -147,6 +147,7 @@
     "Select column": "选择列",
     "Column": "列",
     "Previous column unavailable": "原列不可用",
+    "Mapping inactive": "此工作流阶段未启用或不可用。请先在工作流设置中启用。",
     "Mapping missing": "请先将此阶段分配给看板列。",
     "Mapping ambiguous": "请选择一个目标。",
     "Mapping resolved": "已选择目标",

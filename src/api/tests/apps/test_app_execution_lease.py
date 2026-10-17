@@ -16,7 +16,6 @@ from langboard_shared.domain.services.AppExecutionAcknowledgments import acknowl
 from langboard_shared.domain.services.AppExecutionLeases import authorize_app_runtime, check_app_runtime
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_ack import scope
 
 

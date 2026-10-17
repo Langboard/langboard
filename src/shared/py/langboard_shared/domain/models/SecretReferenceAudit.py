@@ -1,8 +1,6 @@
 """Host audit facts; no credential, vault locator or free-form payload."""
 
 from typing import Any
-from sqlalchemy import CheckConstraint
-from sqlalchemy.schema import conv
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .SecretReference import SecretReference
@@ -10,12 +8,6 @@ from .User import User
 
 
 class SecretReferenceAudit(BaseDbModel, table=True):
-    __table_args__ = (
-        CheckConstraint(
-            "action IN ('created','resolved','renamed','moved','revoked','rotated','bound','migrated','copied')",
-            name=conv("ck_secret_reference_audit_action"),
-        ),
-    )
     reference_id: SnowflakeID = SnowflakeIDField(foreign_key=SecretReference, nullable=False, index=True)
     actor_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False)
     action: str = Field(nullable=False)

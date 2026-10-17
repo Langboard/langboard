@@ -1,5 +1,5 @@
 from typing import Any, ClassVar
-from sqlalchemy import TEXT, CheckConstraint, Index
+from sqlalchemy import TEXT
 from ...core.db import ApiField, DateTimeField, EditorContentModel, Field, ModelColumnType, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -9,21 +9,6 @@ from .ProjectColumn import ProjectColumn
 
 class Card(BaseNotificationScheduleModel, table=True):
     LINKED_RESOURCE_PROJECT_WIKI: ClassVar[str] = "project_wiki"
-    __table_args__ = (
-        CheckConstraint(
-            "(source_type IS NULL) = (source_uid IS NULL)",
-            name="linked_source_complete",
-        ),
-        Index("ix_card_project_archive_page", "project_id", "archived_at", "id"),
-        CheckConstraint("visibility IN ('INTERNAL', 'SHARED', 'PRIVATE')", name="card_visibility"),
-        Index("ix_card_project_visibility", "project_id", "visibility"),
-        CheckConstraint(
-            "(visibility = 'PRIVATE' AND owner_user_id IS NOT NULL AND owner_user_id > 0 "
-            "AND created_by_user_id IS NOT NULL AND owner_user_id = created_by_user_id "
-            "AND created_by_bot_id IS NULL) OR (visibility <> 'PRIVATE' AND owner_user_id IS NULL)",
-            name="card_private_owner",
-        ),
-    )
 
     created_by_user_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
     created_by_bot_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)

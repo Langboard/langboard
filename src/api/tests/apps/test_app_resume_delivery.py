@@ -25,7 +25,6 @@ from langboard_shared.domain.services.AppExecutionControl import (
 )
 from langboard_shared.domain.services.AppExecutionLeases import authorize_app_runtime, check_app_runtime
 from langboard_shared.domain.services.AppExecutionStarts import read_app_runtime_report, report_app_execution_start
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from sqlalchemy import text
 from test_app_execution_start import start_scope
 

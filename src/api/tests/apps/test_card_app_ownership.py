@@ -10,7 +10,6 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppDefinition, Card, CardAppOwnership, CardAppOwnershipAudit
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAppGovernance import CardAppOwnershipConflict, set_card_app_ownership
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_connection_credentials import DECLARATION
 
 

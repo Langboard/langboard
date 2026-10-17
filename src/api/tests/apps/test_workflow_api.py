@@ -30,7 +30,6 @@ from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowCo
 from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageEditConflict
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import binding, board  # noqa: F401
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import ProjectColumnPublisher
@@ -308,3 +307,13 @@ def test_catalog_declarations_do_not_grant_binding_authority(board, binding):
     with pytest.raises(TypeError):
         APP_MANIFESTS["caller"] = APP_MANIFESTS["github"]
     assert board[0].disable_app_binding(board[1], board[2].get_uid(), "caller", binding.get_uid(), binding.edit_revision()) is None
+
+
+def test_snapshot_marks_inactive_optional_stage_unavailable_for_repair(board):
+    with DbSession.use(readonly=False) as db:
+        db.insert(WorkflowStageDefinition(key="ready", name="Ready", is_active=False, is_builtin=True))
+    data = json.loads(get_app_workflow_mapping(board[2].get_uid(), "github", board[1], service(board)).body)
+    choice = next(item for item in data["choices"] if item["stage"] == "ready")
+    assert choice["status"] == "missing"
+    assert not choice["stage_active"]
+    assert choice["candidates"] == []

@@ -8,7 +8,6 @@ from langboard_shared.core.storage import FileModel
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, Card, CardAttachment, CardComment, ProjectColumn
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 
 

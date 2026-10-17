@@ -20,6 +20,7 @@ interface IMyWorkCard {
     deadline_at: string | null;
     updated_at: string;
     reasons: string[];
+    work_state?: { workflow_stage?: string | null };
 }
 
 const sections = ["Overdue", "Today", "Upcoming", "Review / Check", "Assigned to me", "Mentioned", "Created by me"] as const;
@@ -31,7 +32,7 @@ function sectionFor(card: IMyWorkCard): TSection {
         return card.deadline_at && new Date(card.deadline_at).toDateString() === new Date().toDateString() ? "Today" : "Upcoming";
     }
     if (card.reasons.includes("assigned")) {
-        if (["check", "review", "검토", "검수"].includes(card.project_column_name.trim().toLowerCase())) return "Review / Check";
+        if (card.work_state?.workflow_stage === "review") return "Review / Check";
         return "Assigned to me";
     }
     if (card.reasons.includes("mentioned")) return "Mentioned";
