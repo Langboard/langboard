@@ -253,3 +253,21 @@ placement/capacity remedy; the product does not silently change broker topology,
 host allocation, database settings, or volumes to mask the symptom. The route
 stage timings above still require deployment before application stages can be
 compared under the same runtime conditions.
+
+### Recovery process startup
+
+The document cleanup recovery script now invokes its existing task module with
+`python -m langboard_shared.tasks.docling.DocumentCleanupTask`, matching the
+direct module entry points used by other recovery jobs. It retains the existing
+`flock` path, nonblocking duplicate behavior, one-minute schedule and bounded
+cleanup query. It does not load the full CLI command catalog or DomainService.
+The operator CLI command remains available. An isolated database regression
+executes the module entry point and verifies that a committed cleanup request
+is dispatched and remains durable until its worker acknowledges it.
+
+A local fresh-process observation loaded 2,052 modules through CLI discovery
+versus 1,255 through the cleanup module. Single samples took 2.649 and 1.759
+seconds respectively; user CPU was 1.604 and 1.355 seconds. These observations
+identify avoidable imports, not production latency savings or proof that this
+one recovery job explains host CPU contention. Compare deployed process CPU
+and authenticated request timings before claiming an operational improvement.

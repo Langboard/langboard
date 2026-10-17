@@ -125,3 +125,7 @@ def process_cleanup(event_id: int) -> bool:
 @Broker.wrap_async_task_decorator({"name": TASK_NAME, "acks_late": True, "reject_on_worker_lost": True})
 async def document_vector_cleanup_task(event_id: int):
     process_cleanup(event_id)
+
+
+if __name__ == "__main__":
+    recover_cleanup()

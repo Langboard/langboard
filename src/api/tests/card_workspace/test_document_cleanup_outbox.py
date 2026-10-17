@@ -1,5 +1,6 @@
 """Cleanup request durability, bounded recovery and lease fencing on SQLite/PostgreSQL."""
 
+import runpy
 from datetime import timedelta
 from unittest.mock import Mock
 import pytest
@@ -61,6 +62,15 @@ def test_commit_survives_broker_failure_and_rollback_never_dispatches(cleanup_st
     assert outbox.recover_cleanup() == 1
     assert cleanup_store.call_count == 2
     assert outbox.process_cleanup(0) is False
+
+
+def test_module_entrypoint_recovers_committed_requests(cleanup_store):
+    event = record()
+    cleanup_store.reset_mock(side_effect=True)
+    with pytest.warns(RuntimeWarning, match="found in sys.modules"):
+        runpy.run_module(outbox.__name__, run_name="__main__")
+    cleanup_store.assert_called_once_with(outbox.TASK_NAME, args=[int(event.id)])
+    assert len(pending()) == 1
 
 
 def test_failure_backoff_keeps_pointer_and_sanitizes_error(cleanup_store, monkeypatch):
