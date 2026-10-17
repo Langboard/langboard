@@ -134,12 +134,9 @@ if ($env:WITH_OTEL -eq "true" -and -not [string]::IsNullOrEmpty($env:SOCKET_PHOE
     $COMPOSE_ARGS += " -f ${COMPOSE_PREFIX}.phoenix-otel-traces.yaml"
 }
 
-# Check if vault is needed based on KEY_PROVIDER_TYPE in .env file
-if (Test-Path ".env") {
-    $envContent = Get-Content ".env" | Where-Object { $_ -match '^KEY_PROVIDER_TYPE=openbao-local' }
-    if ($envContent) {
-        $COMPOSE_ARGS += " ${VAULT_COMPOSE_ARGS}"
-    }
+# Match the runtime default and compare the resolved value, not a file prefix.
+if ([string]::IsNullOrEmpty($env:KEY_PROVIDER_TYPE) -or $env:KEY_PROVIDER_TYPE -eq "openbao-local") {
+    $COMPOSE_ARGS += " ${VAULT_COMPOSE_ARGS}"
 }
 
 # Native commands require each Compose argument as a separate array item.

@@ -603,6 +603,25 @@ class Env:
         return self.__get_from_cache("KEY_PROVIDER_OPENBAO_URL", "http://127.0.0.1:8200")
 
     @property
+    def KEY_PROVIDER_OPENBAO_ROLE_ID(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_OPENBAO_ROLE_ID", "")
+
+    @property
+    def KEY_PROVIDER_OPENBAO_SECRET_ID(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_OPENBAO_SECRET_ID", "")
+
+    @property
+    def KEY_PROVIDER_VAULT_CA_CERT(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_VAULT_CA_CERT", "")
+
+    @property
+    def KEY_PROVIDER_VAULT_TIMEOUT(self) -> int:
+        value = int(self.__get_from_cache("KEY_PROVIDER_VAULT_TIMEOUT", "30"))
+        if not 1 <= value <= 120:
+            raise ValueError("KEY_PROVIDER_VAULT_TIMEOUT must be between 1 and 120 seconds")
+        return value
+
+    @property
     def KEY_PROVIDER_HASHICORP_URL(self) -> str:
         return self.__get_from_cache("KEY_PROVIDER_HASHICORP_URL", "http://127.0.0.1:8200")
 

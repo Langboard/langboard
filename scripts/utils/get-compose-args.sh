@@ -90,8 +90,9 @@ if [ "${WITH_OTEL}" = "true" ] && [ -n "${SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT:-}
     COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.phoenix-otel-traces.yaml"
 fi
 
-# Check if vault is needed based on KEY_PROVIDER_TYPE in .env file
-if [ -f .env ] && grep -q "^KEY_PROVIDER_TYPE=openbao-local" .env; then
+# Match the runtime default and compare the resolved value, not a file prefix.
+vault_provider="${KEY_PROVIDER_TYPE:-openbao-local}"
+if [ "${vault_provider,,}" = "openbao-local" ]; then
     COMPOSE_ARGS+=" ${VAULT_COMPOSE_ARGS}"
 fi
 
