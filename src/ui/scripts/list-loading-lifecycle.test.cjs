@@ -25,9 +25,14 @@ function harness() {
     const react = {
         useState: slot,
         useRef: (value) => slot({ current: value })[0],
-        useCallback: (fn) => {
-            callbacks.push(fn);
-            return fn;
+        useCallback: (fn, deps) => {
+            const index = cursor++;
+            const previous = slots[index];
+            if (!previous || !deps || deps.length !== previous.deps?.length || deps.some((value, i) => !Object.is(value, previous.deps[i]))) {
+                slots[index] = { fn, deps };
+            }
+            callbacks.push(slots[index].fn);
+            return slots[index].fn;
         },
         useMemo: (fn) => fn(),
         useEffect: () => {},
@@ -39,7 +44,7 @@ function harness() {
     let respond = async () => ({ data: { records: full, logs: full, schedules: full, checkitems: full, cards: full, projects: [] } });
     const api = {
         get: (url, options) => {
-            calls.push({ ...options.params });
+            calls.push({ url, ...options.params });
             return respond(url, options);
         },
     };
@@ -57,7 +62,7 @@ function harness() {
             if (name === "react/jsx-runtime") return { jsx: (_, props) => props.value };
             if (name === "@/core/helpers/Api") return { api };
             if (name === "@/core/helpers/QueryMutation") return { useQueryMutation: () => ({ mutate: (_, fn) => ({ mutateAsync: fn }) }) };
-            if (name === "@/controllers/api/shared/utils") return { getListRequestData: () => [model, "/list"] };
+            if (name === "@/controllers/api/shared/utils") return { getListRequestData: (form) => [model, form.testUrl || "/list"] };
             if (name === "@/core/models") return models;
             if (name === "@langboard/core/utils") return { Utils: { String: { format: () => "/bot", Token: { shortUUID: () => "list" } } } };
             if (name === "@langboard/core/constants")
@@ -156,6 +161,59 @@ for (const [path, args, paged] of fixtures) {
 }
 
 for (const path of ["controllers/api/shared/useGetPaginatedList.ts", "controllers/api/shared/useGetInfiniteRefreshableList.ts"]) {
+    test(`${path}: zero count clears the refresh prompt without another list request`, async () => {
+        const h = harness(),
+            hook = h.load(path).default;
+        const args = { form: {}, limit: 2, isLastPage: false, setPage() {}, setIsLastPage() {}, lastCurrentDateRef: { current: new Date(0) } };
+        h.respond(async () => ({ data: { count_new_records: 5 } }));
+        await h.render(hook, args).checkOutdated(new Date(0));
+        assert.equal(h.render(hook, args).countNewRecords, 5);
+        h.respond(async () => ({ data: { count_new_records: 0 } }));
+        await h.render(hook, args).checkOutdated(new Date(0));
+        assert.equal(h.render(hook, args).countNewRecords, 0);
+        await h.render(hook, args).refresh();
+        assert.equal(h.calls.length, 2);
+    });
+
+    test(`${path}: list responses clear zero counts and retain omitted counts`, async () => {
+        const h = harness(),
+            hook = h.load(path).default;
+        const args = { form: {}, limit: 2, isLastPage: false, setPage() {}, setIsLastPage() {}, lastCurrentDateRef: { current: new Date(0) } };
+        h.respond(async () => ({ data: { count_new_records: 5 } }));
+        await h.render(hook, args).checkOutdated(new Date(0));
+        h.respond(async () => ({ data: { records: [] } }));
+        await h.render(hook, args).mutateAsync({ page: 0 });
+        assert.equal(h.render(hook, args).countNewRecords, 5);
+        h.respond(async () => ({ data: { records: [], count_new_records: 0 } }));
+        await h.render(hook, args).mutateAsync({ page: 0 });
+        assert.equal(h.render(hook, args).countNewRecords, 0);
+    });
+
+    test(`${path}: count and list requests follow the current scope after rerender`, async () => {
+        const h = harness(),
+            hook = h.load(path).default;
+        const args = {
+            form: { testUrl: "/first", assignee_uid: "first" },
+            limit: 2,
+            isLastPage: false,
+            setPage() {},
+            setIsLastPage() {},
+            lastCurrentDateRef: { current: new Date(0) },
+        };
+        h.render(hook, args);
+        const next = { ...args, form: { testUrl: "/second", assignee_uid: "second" } };
+        h.respond(async () => ({ data: { records: [], count_new_records: 0 } }));
+        await h.render(hook, next).checkOutdated(new Date(0));
+        await h.render(hook, next).mutateAsync({ page: 0 });
+        assert.deepEqual(
+            h.calls.map(({ url, assignee_uid }) => ({ url, assignee_uid })),
+            [
+                { url: "/second", assignee_uid: "second" },
+                { url: "/second", assignee_uid: "second" },
+            ]
+        );
+    });
+
     test(`${path}: failed refresh preserves count, limit and date`, async () => {
         const h = harness(),
             hook = h.load(path).default,

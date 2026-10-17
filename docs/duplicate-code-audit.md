@@ -117,3 +117,17 @@ source passes all 12. Both application and tooling TypeScript checks pass throug
 release, refresh rollback and provider/observer gates. They do not exercise React
 DOM rendering, initial-effect timing or deployed canary behavior. The separate
 measured server-side board latency and transport cancellation remain unresolved.
+
+### Follow-up: current activity scope and zero counts
+
+Both shared list hooks retained a stale new-record count when the server returned
+zero. Their count-only requests also omitted the selected activity assignee, and
+memoized callbacks could keep the previous URL/assignee after a scope change.
+Use the same assignee for count and record reads, include current request inputs
+in callback dependencies, and accept numeric zero while retaining an omitted
+count. This removes the stale refresh prompt and its unnecessary list request.
+
+The same regression harness now honors callback dependency memoization. Six added
+cases fail before this correction and pass afterward (18 total), covering scope
+changes, zero counts, omitted counts and no refresh request when the count is zero.
+This remains source-level lifecycle evidence, not authenticated canary acceptance.

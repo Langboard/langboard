@@ -27,6 +27,7 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
     const limitRef = useRef(limit);
 
     const [model, url] = getListRequestData(form);
+    const assigneeUID = (form as any).assignee_uid;
 
     const getPaginatedList = useCallback(async () => {
         if (isFetchingRef.current) {
@@ -37,7 +38,7 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
         try {
             const res = await api.get(url, {
                 params: {
-                    assignee_uid: (form as any).assignee_uid,
+                    assignee_uid: assigneeUID,
                     refer_time: lastCurrentDateRef.current,
                     limit: limitRef.current,
                 },
@@ -52,7 +53,7 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
 
             model.fromArray(res.data.records, true);
 
-            if (res.data.count_new_records) {
+            if (typeof res.data.count_new_records === "number") {
                 setCountNewRecords(res.data.count_new_records);
             }
 
@@ -60,7 +61,7 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
         } finally {
             isFetchingRef.current = false;
         }
-    }, [countNewRecords, setCountNewRecords]);
+    }, [url, model, assigneeUID, lastCurrentDateRef, prepareData, options?.interceptToast]);
 
     const refresh = useCallback(async () => {
         if (isFetchingRef.current || !countNewRecords) {
@@ -91,6 +92,7 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
 
             const res = await api.get(url, {
                 params: {
+                    assignee_uid: assigneeUID,
                     only_count: true,
                     refer_time: referTime,
                     page: 1,
@@ -101,11 +103,11 @@ const useGetPaginatedList = <TModelName extends TCreatedAtModelName>(
                 } as never,
             });
 
-            if (res.data.count_new_records) {
+            if (typeof res.data.count_new_records === "number") {
                 setCountNewRecords(res.data.count_new_records);
             }
         },
-        [countNewRecords, setCountNewRecords]
+        [url, assigneeUID, options?.interceptToast]
     );
 
     const result = mutate([`get-paginated-list-${url.replace(/\//g, "-")}`], getPaginatedList, {
