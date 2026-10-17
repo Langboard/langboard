@@ -173,6 +173,8 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         self,
         project: TProjectParam,
         archive_visible_since: SafeDateTime,
+        *,
+        context: CardVisibilityContext | None = None,
     ) -> dict[int, User | Bot]:
         """Resolve immutable card authors with one query instead of per-card lookups."""
 
@@ -193,6 +195,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 | (Card.column("archived_at") >= archive_visible_since)
             )
         )
+
+        if context is not None:
+            query = query.where(card_visibility_scope(context))
 
         creators: dict[int, User | Bot] = {}
         with DbSession.use(readonly=True) as db:

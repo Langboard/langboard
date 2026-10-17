@@ -705,7 +705,7 @@ class CardService(BaseDomainService):
                 labels[card_label.card_id] = []
             labels[card_label.card_id].append(label.api_response())
 
-        creators = self.repo.card.get_board_creators(project, archive_visible_since)
+        creators = self.repo.card.get_board_creators(project, archive_visible_since, context=context)
         raw_checklists = self.repo.checklist.get_all_by_project(
             project,
             archive_visible_since=archive_visible_since,

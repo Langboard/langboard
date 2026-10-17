@@ -38,7 +38,7 @@ def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, mo
     monkeypatch.setattr(membership, "get_by_user_and_project", lambda *args: stale)
     card = Card(id=99, project_id=project.id, project_column_id=40, title="Snapshot", last_change_seq=50)
     repository = SimpleNamespace(
-        card=SimpleNamespace(get_board_list=lambda *a, **kw: [(card, 0)], get_board_creators=lambda *a: {}),
+        card=SimpleNamespace(get_board_list=lambda *a, **kw: [(card, 0)], get_board_creators=lambda *a, **kw: {}),
         card_assigned_user=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
         card_relationship=SimpleNamespace(get_all_by_project=lambda *a: []),
         project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *a, **kw: []),

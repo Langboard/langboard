@@ -561,3 +561,9 @@ A separate local relative-time check measured 400 formatter calls in 3.144 ms
 median across ten warm Node runs. That does not support a formatter cache as a
 fix for the multi-second board request, so no cache was added. Raw samples are
 retained under `src/ui/.verification/relative-format-before-20261018.json`.
+
+Author enrichment also receives the same current visibility context. Its existing
+lightweight projection now excludes hidden-card authors in SQL before loading
+User/Bot display fields. The standalone callers without a context retain their
+existing scope; deleted, foreign and cold-archive filters are unchanged. This
+removes intermediate work, without claiming a measured canary latency gain.

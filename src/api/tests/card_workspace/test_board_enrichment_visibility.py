@@ -1,4 +1,4 @@
-"""Board enrichment reads must not hydrate assignments or labels for hidden cards."""
+"""Board enrichment reads must not hydrate assignments, labels, or authors for hidden cards."""
 
 from datetime import timedelta
 import pytest
@@ -6,6 +6,7 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    Bot,
     Card,
     CardAssignedProjectLabel,
     CardAssignedUser,
@@ -16,6 +17,7 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.infrastructure.repositories.factory.CardAssignedUserRepository import CardAssignedUserRepository
+from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.ProjectLabelRepository import ProjectLabelRepository
 from sqlalchemy import create_engine
 
@@ -23,7 +25,7 @@ from sqlalchemy import create_engine
 @pytest.mark.parametrize("internal", [False, True])
 def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypatch, internal):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectAssignedUser, Card, ProjectLabel, CardAssignedUser, CardAssignedProjectLabel):
+    for model in (User, Bot, Project, ProjectAssignedUser, Card, ProjectLabel, CardAssignedUser, CardAssignedProjectLabel):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -56,7 +58,7 @@ def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypa
                 ("Cold archive", {"archived_at": cutoff - timedelta(seconds=1)}),
                 ("Recent archive", {"archived_at": cutoff}),
             ):
-                card = Card(project_id=project.id, title=title, visibility="SHARED")
+                card = Card(project_id=project.id, title=title, visibility="SHARED", created_by_user_id=user.id)
                 for key, value in fields.items():
                     setattr(card, key, value)
                 db.insert(card)
@@ -81,5 +83,8 @@ def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypa
         assert {assignment.card_id for _, assignment in labels} == expected
         assert all(value.id == user.id for value, _ in members)
         assert all(value.id == label.id for value, _ in labels)
+        creators = CardRepository(None, None).get_board_creators(project, cutoff, context=context)
+        assert set(creators) == expected
+        assert all(creator.id == user.id for creator in creators.values())
     finally:
         engine.dispose()

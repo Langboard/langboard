@@ -60,7 +60,7 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
         db.insert(Checklist(card_id=rows["Visible"].id, title="Hidden completion", is_system=True, is_checked=True))
         db.insert(Checklist(card_id=rows["Visible"].id, title="Deleted checklist", deleted_at=now))
     card_repository = CardRepository(None, None)
-    monkeypatch.setattr(card_repository, "get_board_creators", lambda *args: {})
+    monkeypatch.setattr(card_repository, "get_board_creators", lambda *args, **kwargs: {})
     repository = SimpleNamespace(
         card=card_repository,
         card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args, context: []),

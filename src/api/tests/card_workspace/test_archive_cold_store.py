@@ -81,7 +81,7 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
 
         return inner
 
-    def capture_creators(_project: Any, archive_visible_since: SafeDateTime) -> dict[int, Any]:
+    def capture_creators(_project: Any, archive_visible_since: SafeDateTime, *, context=None) -> dict[int, Any]:
         calls["creators"] = archive_visible_since
         return {}
 
