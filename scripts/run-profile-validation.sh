@@ -60,7 +60,7 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
+    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
     ;;
   api-postgres)
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"

@@ -9,15 +9,18 @@ import WikiList, { SkeletonWikiList } from "@/pages/BoardPage/components/wiki/Wi
 import { IBoardRelatedPageProps } from "@/pages/BoardPage/types";
 import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
 import { memo, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import BoardLoadError from "./BoardLoadError";
 
 export function SkeletonBoardWikiPage(): React.JSX.Element {
     return <SkeletonWikiList />;
 }
 
 const BoardWikiPage = memo(({ project, currentUser }: IBoardRelatedPageProps) => {
+    const [t] = useTranslation();
     const socket = useSocket();
     const navigate = usePageNavigateRef();
-    const { data, error } = useGetWikis({ project_uid: project.uid });
+    const { data, error, isFetching, refetch } = useGetWikis({ project_uid: project.uid });
 
     useEffect(() => {
         if (!error) {
@@ -58,15 +61,16 @@ const BoardWikiPage = memo(({ project, currentUser }: IBoardRelatedPageProps) =>
 
     return (
         <>
-            {!data ? (
+            {error && <BoardLoadError isFetching={isFetching} retry={() => void refetch()} message={t("dashboard.Could not load wikis")} />}
+            {!data && !error ? (
                 <SkeletonWikiList />
-            ) : (
+            ) : data ? (
                 <BoardWikiProvider key={project.uid} project={project} projectMembers={data.project_members} currentUser={currentUser}>
                     <BoardWikiUnsavedProvider>
                         <WikiList />
                     </BoardWikiUnsavedProvider>
                 </BoardWikiProvider>
-            )}
+            ) : null}
         </>
     );
 });
