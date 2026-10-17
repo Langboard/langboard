@@ -147,7 +147,8 @@ def read_card_attachment(
 
 
 @McpTool.add(
-    "user", description="Read a bounded transcription or Docling source page without embeddings; continue by page, offset and generation."
+    "user",
+    description="Read a bounded transcription or Docling source page without embeddings; continue by page, offset and generation.",
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def read_card_document(
@@ -1045,7 +1046,9 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
     return {"items": items, "total_count": len(members), "truncated": len(members) > 50}
 
 
-@McpTool.add(description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters.")
+@McpTool.add(
+    description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters."
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def list_project_cards(
     project_uid: str,
@@ -1249,21 +1252,24 @@ def update_card_checklist(
         raise ValueError("Checklist title is required")
     if is_checked is not None and not isinstance(is_checked, bool):
         raise ValueError("is_checked must be a boolean")
-    _, card = _require_task_card(project_uid, card_uid)
-    checklist = service.checklist.get_by_id_like(checklist_uid)
-    if checklist is None or checklist.card_id != card.id:
-        raise ValueError("Checklist not found in card")
-    if title is not None and checklist.title != title.strip():
-        if not service.checklist.change_title(user_or_bot, project_uid, card_uid, checklist, title.strip()):
+    with DbSession.atomic():
+        _, card = _require_task_card(project_uid, card_uid)
+        checklist = service.checklist.get_by_id_like(checklist_uid)
+        if checklist is None or checklist.card_id != card.id:
             raise ValueError("Checklist not found in card")
-    if is_checked is not None and not service.checklist.toggle_checked(
-        user_or_bot, project_uid, card_uid, checklist, desired_checked=is_checked
-    ):
-        raise ValueError("Checklist not found in card")
-    checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
-    return {
-        "checklists": bounded_items([public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25)
-    }
+        if title is not None and checklist.title != title.strip():
+            if not service.checklist.change_title(user_or_bot, project_uid, card_uid, checklist, title.strip()):
+                raise ValueError("Checklist not found in card")
+        if is_checked is not None and not service.checklist.toggle_checked(
+            user_or_bot, project_uid, card_uid, checklist, desired_checked=is_checked
+        ):
+            raise ValueError("Checklist not found in card")
+        checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
+        return {
+            "checklists": bounded_items(
+                [public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25
+            )
+        }
 
 
 @McpTool.add(description="Delete a checklist from a card.")
@@ -1403,24 +1409,27 @@ def update_card_checkitem(
         deadline = SafeDateTime.fromisoformat(deadline_at)
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-    _, card = _require_task_card(project_uid, card_uid)
-    item = service.checkitem.get_by_id_like(checkitem_uid)
-    checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
-    if item is None or checklist is None or checklist.card_id != card.id:
-        raise ValueError("Checkitem not found in card")
-    if title is not None and item.title != title.strip():
-        if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
+    with DbSession.atomic():
+        _, card = _require_task_card(project_uid, card_uid)
+        item = service.checkitem.get_by_id_like(checkitem_uid)
+        checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
+        if item is None or checklist is None or checklist.card_id != card.id:
             raise ValueError("Checkitem not found in card")
-    if deadline_at is not None and not service.checkitem.change_deadline(project_uid, card_uid, item, deadline):
-        raise ValueError("Checkitem not found in card")
-    if is_checked is not None and not service.checkitem.toggle_checked(
-        user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
-    ):
-        raise ValueError("Checkitem not found in card")
-    checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
-    return {
-        "checklists": bounded_items([public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25)
-    }
+        if title is not None and item.title != title.strip():
+            if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
+                raise ValueError("Checkitem not found in card")
+        if deadline_at is not None and not service.checkitem.change_deadline(project_uid, card_uid, item, deadline):
+            raise ValueError("Checkitem not found in card")
+        if is_checked is not None and not service.checkitem.toggle_checked(
+            user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
+        ):
+            raise ValueError("Checkitem not found in card")
+        checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
+        return {
+            "checklists": bounded_items(
+                [public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25
+            )
+        }
 
 
 @McpTool.add("user", description="Start, pause, resume, stop, or complete my checklist work timer.")
@@ -1681,7 +1690,9 @@ def save_public_card_metadata(
     metadata = service.metadata.save_card(user_or_bot, project, card, normalized_key, value, normalized_old_key)
     if metadata is None:
         raise RuntimeError("Failed to save metadata")
-    MetadataPublisher.updated_metadata(SocketTopic.BoardCard, card.get_uid(), normalized_key, metadata.value, normalized_old_key)
+    MetadataPublisher.updated_metadata(
+        SocketTopic.BoardCard, card.get_uid(), normalized_key, metadata.value, normalized_old_key
+    )
     return public_metadata({normalized_key: metadata.value})[0]
 
 

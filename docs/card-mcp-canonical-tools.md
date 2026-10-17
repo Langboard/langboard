@@ -42,3 +42,18 @@ features. The regression first failed on redundant reads, then passed for a
 25-item unchanged projection, an accepted change and a rejected native mutation.
 The combined adapter/projection suite passed 47 cases. Source checks do not prove
 deployed client discovery, query latency, or REST/UI/MCP acceptance.
+
+## Checklist update consistency
+
+`update_card_checklist` and `update_card_checkitem` validate input syntax before
+opening one existing `DbSession.atomic()` unit. Ancestry checks, all requested
+field changes and the bounded response projection share its primary session.
+An update or projection failure rolls back the requested fields and suppresses
+their after-commit effects. The response therefore does not depend on replica
+catch-up immediately after a successful write. Public schemas and pagination
+bounds remain unchanged.
+
+The regression uses separate primary and stale replica databases, checking
+successful read-after-write, a later field failure and a projection failure for
+both tools. It does not establish the cause of a historical stale canary response
+or prove acceptance of an undeployed commit.
