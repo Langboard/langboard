@@ -47,6 +47,31 @@ allowed. Keep these deployment captures and rollback provenance outside Git.
 Do not replace a schema baseline merely to silence a regression. Intentional
 changes require review and an explicit compatibility decision.
 
+### Card-list contract transition
+
+The current canary intentionally defaults `list_project_cards` to a bounded
+relationship tree (`10bfe154f2aacc4678d8a3ab905d16c304995386`). Compatibility
+transport also preserves that tree (`0b179e94bc876de253ef1440fa3cc29c4373e28e`).
+The older portable snapshot still described a flat-only response. The current
+page-bound repair updates only this tool's input/output schemas in the snapshot;
+the other 117 baseline tools, annotations and group checks remain unchanged.
+This transition requires code-owner review with the repair, not an automatic
+baseline refresh from arbitrary candidate output.
+
+Compatibility decision: retain the current tree default. Clients requiring the
+flat index must send `format="normal"`; compatibility transport then retains
+repeated column names and the original flat response fields. An old client that
+assumes a flat default must migrate before consuming the current canary. Both
+profiles advertise and enforce integer limits 1–25, default 20, before domain
+dispatch. `test_card_list_transport.py` exercises both formats and profiles
+through FastMCP, including rejection before dispatch. The compatibility output
+schema remains an object because the transport supports both response shapes;
+the format-specific transport tests supply the stronger payload assertions.
+
+The original captured snapshot remains in Git history. This proposed source
+contract transition is not proof of deployed discovery, authenticated access,
+or successful old-client migration.
+
 ## Remaining delivery gates
 
 Authenticated old-client and new-client discovery, business output parity,
