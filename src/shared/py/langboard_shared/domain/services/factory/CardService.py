@@ -700,8 +700,7 @@ class CardService(BaseDomainService):
             seen_map = self.repo.user_card_read_state.get_seen_seq_map(user.id, [card.id for card, _ in raw_cards])
             board_seq = max((card.last_change_seq for card, _ in raw_cards), default=0)
             if assigned is not None and board_seq > (assigned.board_seen_seq or 0):
-                assigned.board_seen_seq = board_seq
-                self.repo.project_assigned_user.update(assigned)
+                self.repo.project_assigned_user.advance_board_seen(user, project, board_seq)
 
         cards = []
         linked_cards = [card for card, _ in raw_cards if getattr(card, "is_linked_resource", False)]

@@ -175,6 +175,23 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
                 )
             )
 
+    def advance_board_seen(self, user: TUserParam, project: TProjectParam, seen_seq: int) -> None:
+        """Advance the cursor atomically without manufacturing a project visit."""
+        with DbSession.use(readonly=False) as db:
+            db.exec(
+                SqlBuilder.update.table(ProjectAssignedUser)
+                .values(
+                    board_seen_seq=seen_seq,
+                    last_viewed_at=ProjectAssignedUser.column("last_viewed_at"),
+                    updated_at=ProjectAssignedUser.column("updated_at"),
+                )
+                .where(
+                    ProjectAssignedUser.column("project_id") == InfraHelper.convert_id(project),
+                    ProjectAssignedUser.column("user_id") == InfraHelper.convert_id(user),
+                    ProjectAssignedUser.column("board_seen_seq") < seen_seq,
+                )
+            )
+
     def delete_all_by_project_and_users(self, project: TProjectParam, users: Sequence[TUserParam]):
         if not isinstance(users, Sequence) or isinstance(users, str):
             users = [users]

@@ -72,6 +72,43 @@ separate last-view update still writes visit recency/frequency and is not remove
 by this change. Actual canary response timing and bot operation need verification
 after release.
 
+## Monotonic board read cursors without fabricated visits
+
+The card snapshot reader previously loaded a membership cursor and later wrote
+the snapshot's maximum visible change sequence without a database condition. An
+older snapshot could therefore overwrite a newer cursor. Updating that model
+also invoked the `last_viewed_at` column's automatic update and changed membership
+`updated_at`, even though this operation was only a read-cursor advance.
+
+The existing membership repository now performs one conditional primary update,
+scoped to user and project, with `board_seen_seq < observed_seq`. The cursor only
+advances. It explicitly retains `last_viewed_at` and `updated_at` to suppress their
+automatic updates. An equal/older request affects zero rows, including when a
+stale replica supplied the membership snapshot. Starred state, visit frequency and
+the per-card unread baseline are preserved. A deleted membership is never recreated.
+No locking protocol, migration, cache or request contract is added.
+
+The six new SQLite/PostgreSQL stale-snapshot cases failed on the original source:
+a newer cursor regressed from 100 to 50, or cursor writes manufactured a visit.
+After the fix, the database reports affected rows of one for 0→50 and zero for
+50→50 or 100→50. A real PostgreSQL parallel 50/100 update finishes at 100. Native
+card unread flags and actual project-visit recency/count behavior are retained.
+The focused cursor, dashboard activity, card read visibility and shared board
+progress regressions passed 22 tests in 4.08 seconds. Ruff, shell syntax and diff
+checks pass. The cursor suite is included in the existing API and disposable
+PostgreSQL profiles.
+
+Records: `.verification/board-seen-before.log`,
+`.verification/board-seen-after.log`, `.verification/board-seen-final.log` and
+`.verification/board-seen-concurrency-final.log`. An intermediate fixture used
+preassigned foreign-row IDs that the native insert replaces; the fixture now
+reads its generated IDs, and that failed run is preserved. These are disposable
+database checks, not operating data repair or a canary latency measurement.
+
+The board GET still intentionally advances its existing notification cursor, and
+project bootstrap still records a real visit. This change does not claim all GET
+routes are side-effect free or remove the separate read/write separation task.
+
 
 ## Independent detail metadata requests
 
