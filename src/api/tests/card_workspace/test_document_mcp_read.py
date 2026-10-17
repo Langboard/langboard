@@ -408,3 +408,55 @@ def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, t
         assert "embedding_config" not in result and "config" not in result
     assert document["embedding"]["pointer"] == pointer
     assert document["embedding_config"]["model_name"] == "new-model"
+
+
+@pytest.mark.parametrize("change", ["unchanged", "deleted", "type", "endpoint"])
+def test_transcription_publication_rechecks_current_primary_binding(monkeypatch, binding_store, change):
+    from json import dumps
+    from langboard_shared.core.db import DbSession
+    from langboard_shared.domain.models import InternalBot
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.domain.models.InternalBot import InternalBotType
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    from langboard_shared.tasks.docling import DoclingMetadataTask as worker
+    from langboard_shared.tasks.docling.DoclingMetadataTask_test import _worker_source
+
+    config = {"base_url": "https://example.test/v1", "model_name": "global-model", "api_key": "fixture-key"}
+    with DbSession.use(readonly=False) as db:
+        binding = InternalBot(bot_type=InternalBotType.DocumentVision, display_name="Vision fixture",
+                              platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+                              value=dumps(config))
+        db.insert(binding)
+    service, attachment, _card, metadata = _worker_source()
+    metadata.get_document_by_attachment_uid.return_value["vision_config"]["binding_uid"] = binding.get_uid()
+    service.internal_bot = InternalBotService(lambda _: None, lambda _: None, None)
+    monkeypatch.setattr(worker, "find_spec", lambda _: object())
+
+    def download(_source, output):
+        output.write(b"source")
+        return True
+
+    def convert(_path, **_kwargs):
+        if change != "unchanged":
+            with DbSession.use(readonly=False) as db:
+                if change == "deleted":
+                    db.delete(binding)
+                else:
+                    if change == "type":
+                        binding.bot_type = InternalBotType.DocumentEmbedding
+                    else:
+                        binding.value = dumps({**config, "base_url": "https://replaced.invalid/v1"})
+                    db.update(binding)
+        return "original source text"
+
+    monkeypatch.setattr(worker.Storage, "download_file", download)
+    converter = Mock(side_effect=convert)
+    monkeypatch.setattr(worker, "_convert_to_markdown", converter)
+    worker._index_card_attachment(service, attachment)
+    converter.assert_called_once()
+    if change == "unchanged":
+        metadata.mark_document_indexed.assert_called_once()
+        metadata.mark_document_failed.assert_not_called()
+    else:
+        metadata.mark_document_indexed.assert_not_called()
+        metadata.mark_document_failed.assert_called_once()

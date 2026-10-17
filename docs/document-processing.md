@@ -46,6 +46,15 @@ credentials are not passed in subprocess arguments. Missing bindings fail clearl
 instead of falling back to downloading local inference weights. Partial/failed
 conversion is not recorded as a successful document index.
 
+The worker resolves the current Document Vision binding from the primary database
+before downloading the source and again before publishing converted content. A
+deleted binding, a different binding type, or a changed provider base URL rejects
+the queued result. Upload-time model and keyword settings remain fixed; credentials
+are read from the current binding. These checkpoints do not cancel requests already
+sent to the provider or hold a database lock throughout conversion. Worker failures
+publish a fixed troubleshooting message instead of provider/storage exception text
+that could contain credentials or source content.
+
 The `document-processing` extra selects `docling-slim`'s conversion, PDF, Office,
 and Web extras. It excludes `standard`, local model/OCR extras, Torch, torchvision,
 CUDA/NVIDIA packages, and Docling IBM model weights. Transformers currently

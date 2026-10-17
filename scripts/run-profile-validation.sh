@@ -37,6 +37,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_metadata_projection.py \
       src/api/tests/dashboard/test_project_activity_priority.py \
       src/api/tests/dashboard/test_board_seen_cursor.py \
+      src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
       src/api/tests/dashboard/test_related_activity_projection.py \
       src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py)
@@ -44,6 +45,7 @@ case "$profile" in
   worker)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \
       src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py \
+      src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py \
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
@@ -61,6 +63,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_metadata_projection.py \
       src/api/tests/dashboard/test_project_activity_priority.py \
       src/api/tests/dashboard/test_board_seen_cursor.py \
+      src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
       src/api/tests/dashboard/test_related_activity_projection.py \
       src/api/tests/card_workspace/timers/ \
       src/api/tests/card_visibility/test_search_source_scope.py)
