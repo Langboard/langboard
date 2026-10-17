@@ -280,16 +280,17 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
             connection.execute(
                 text("UPDATE execution_outbox SET state = 'pending', attempt_count = 0, lease_until = NULL")
             )
-        for _ in range(worker.MAX_DELIVERY_ATTEMPTS):
+        for attempt in range(1, worker.MAX_DELIVERY_ATTEMPTS + 1):
             with pytest.raises(worker.ExecutionDeliveryFailed):
                 asyncio_run(worker.drain_one())
             with engine.connect() as connection:
                 state, attempts, lease = connection.execute(
                     text("SELECT state, attempt_count, lease_until FROM execution_outbox WHERE card_id = 100")
                 ).one()
-            assert state == "pending"
+            assert attempts == attempt
+            assert state == ("failed" if attempt == worker.MAX_DELIVERY_ATTEMPTS else "pending")
             assert lease is None
-        assert asyncio_run(worker.drain_one())
+        assert not asyncio_run(worker.drain_one())
         with engine.connect() as connection:
             state, error, attempts = connection.execute(
                 text("SELECT state, last_error, attempt_count FROM execution_outbox WHERE card_id = 100")

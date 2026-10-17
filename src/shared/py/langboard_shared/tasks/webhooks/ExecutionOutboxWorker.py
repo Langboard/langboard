@@ -5,7 +5,7 @@ from asyncio import run as run_async
 from dataclasses import dataclass
 from datetime import timezone
 from uuid import UUID
-from sqlalchemy import column, func, or_, select, table, text, update
+from sqlalchemy import case, column, func, or_, select, table, text, update
 from ...core.db import DbSession
 from ...core.types import SnowflakeID
 from ...helpers import InfraHelper
@@ -169,13 +169,21 @@ async def drain_one(event_id: UUID | None = None) -> bool:
     try:
         await post_signed_webhook(claimed.model, claimed.webhook_uid)
     except Exception as error:
-        # Release the claim but keep the attempt count so exhaustion is
-        # bounded; Celery retries this task and the cron re-drains 'pending'.
+        # The final HTTP failure is terminal immediately; no fifth task or cron
+        # pass is needed after Celery's initial attempt and three retries.
         with DbSession.atomic() as db:
             db.exec(
                 update(OUTBOX)
                 .where(OUTBOX.c.id == claimed.event_id)
-                .values(state="pending", last_error=type(error).__name__[:80], lease_until=None, processed_at=func.now())
+                .values(
+                    state=case((OUTBOX.c.attempt_count >= MAX_DELIVERY_ATTEMPTS, "failed"), else_="pending"),
+                    last_error=case(
+                        (OUTBOX.c.attempt_count >= MAX_DELIVERY_ATTEMPTS, "delivery_attempts_exhausted"),
+                        else_=type(error).__name__[:80],
+                    ),
+                    lease_until=None,
+                    processed_at=func.now(),
+                )
             )
         raise ExecutionDeliveryFailed(f"Execution delivery failed: event={claimed.event_id}") from error
     with DbSession.atomic() as db:

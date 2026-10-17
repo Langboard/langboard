@@ -41,3 +41,19 @@ project, card and generation, such as `langboard:{project}:{card}:{generation}`.
 Disabling a binding stops new execution events and invalidates delivery for the
 disabled binding. Avoid having a second polling integration execute the same
 cards independently of this event and generation contract.
+
+## Delivery exhaustion
+
+The initial HTTP attempt and three retries share a four-attempt budget. Failed
+attempts one through three release the lease back to `pending`; the fourth failed
+HTTP attempt persists `failed` with `delivery_attempts_exhausted` immediately.
+No fifth task or recovery-cron pass is required to reach this terminal state.
+Already exhausted pending or expired claims are also closed without another POST.
+Manual reconciliation can explicitly reset failed rows to a fresh attempt budget.
+
+The PostgreSQL lifecycle regression checks the persisted state after each failed
+attempt, then verifies that another drain performs no delivery. Its other checks
+cover success, expired-lease recovery, live-lease exclusion, row locking, concurrent
+hot-path/recovery exclusion, destination drift and manual reconciliation. The
+fixture replaces the HTTP sender; it does not prove an external consumer's
+signature verification, durable deduplication or deployed cross-repository E2E.
