@@ -11,14 +11,23 @@ from sqlalchemy import create_engine
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.storage import FileModel
-from ....domain.models import Card, CardAttachment, CardDocumentArtifact, CardMetadata, Project, ProjectColumn, User
+from ....domain.models import (
+    Card,
+    CardAttachment,
+    CardDocumentArtifact,
+    CardMetadata,
+    DocumentVectorCleanup,
+    Project,
+    ProjectColumn,
+    User,
+)
 from ....domain.services import DomainService
 from .InternalBotService import InternalBotService
 
 
 def test_document_generation_fences_old_results_and_preserves_previous_text_on_failure(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata):
+    for model in (User, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata, DocumentVectorCleanup):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)

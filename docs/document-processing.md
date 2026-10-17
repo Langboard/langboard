@@ -308,5 +308,37 @@ without contacting either the old or replacement server. Credentials are refresh
 from that binding; dimensions, collection prefix and source pointer remain those
 of the recorded generation. Cleanup opens existing collections only and does not
 recreate a missing collection or infer a replacement endpoint. This checkpoint
-does not cancel a deletion already sent to Qdrant. Broker delivery failures still
-require a durable cleanup outbox; this connection check does not supply one.
+does not cancel a deletion already sent to Qdrant. Broker delivery is recovered through the transactional cleanup outbox described
+below. The connection check itself does not authorize a replacement endpoint.
+
+### Transactional vector cleanup recovery
+
+Migration `a31f9e7b402c` adds `document_vector_cleanup`. Replacing a committed
+embedding pointer or deleting its attachment document records the previous pointer
+in the same primary database transaction. Rollback removes both changes. An
+after-commit broker notification is only an optimization: a failed notification
+leaves the request in the database. The outbox contains identifiers and recorded
+storage coordinates, never model/vector API keys or document content. It has no
+attachment foreign key, so deleting the attachment cannot cascade away the request.
+
+The existing API cron runner registers `run:document-cleanup:recover` every minute
+via `scripts/run_document_cleanup_recovery.sh`. Each run reads at most 100 due
+requests using the due-time index and stops dispatching on broker failure. It does
+not scan attachments or trigger conversion, embedding, or reindexing. External
+schedulers may invoke the same command when the bundled scheduler is disabled.
+
+The worker atomically claims each request for 120 seconds, closes the transaction
+before filesystem/network deletion, and acknowledges only its own claim token.
+Duplicate delivery while leased does nothing. A lost worker becomes recoverable
+after lease expiry. Failures retain the exact pointer with a fixed error code and
+exponential backoff, capped at one hour. Successful idempotent deletion removes the
+outbox row. No model is invoked. Missing/revoked original bindings retain failed
+requests for operator repair rather than guessing another endpoint.
+
+Apply the API migration, roll workers with the new cleanup task registered, then
+roll API images that produce cleanup requests. Downgrade refuses
+to discard pending cleanup rows; do not empty them merely to force rollback. The
+legacy queued cleanup task remains registered for messages accepted by older
+workers. This outbox covers the pointer replacement and attachment-document
+deletion paths above. Failed staging, wholesale board/card purge, and deployed
+broker/worker acceptance require separate verification.

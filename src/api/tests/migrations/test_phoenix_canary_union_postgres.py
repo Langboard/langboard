@@ -279,7 +279,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             raise AssertionError("Populated downgrade erased audit history")
         assert db.execute(text("SELECT count(*) FROM card_execution_intent")).scalar() == 1
         assert db.execute(text("SELECT count(*) FROM app_execution_active")).scalar() == 1
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "f2098cef3604"
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "a31f9e7b402c"
         save(
             db,
             UserAppPreference(id=123, user_id=101, revision=7, pinned_apps=[{"key": "example-app", "name": "Example"}]),
@@ -304,7 +304,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         db.commit()
         config.attributes["connection"] = db
         command.upgrade(config, "head")
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "f2098cef3604"
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "a31f9e7b402c"
         inspector = inspect(db)
         assert inspector.get_pk_constraint("card_execution_generation")["constrained_columns"] == ["card_id"]
         assert {tuple(item["column_names"]) for item in inspector.get_unique_constraints("card_execution_intent")} == {

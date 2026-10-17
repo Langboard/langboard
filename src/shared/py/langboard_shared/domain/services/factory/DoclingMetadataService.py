@@ -438,7 +438,13 @@ class DoclingMetadataService(BaseDomainService):
             updated = {**document, "embedding": embedding}
             if embedding_config is not None:
                 updated["embedding_config"] = embedding_config
-            return self.upsert_document(CardMetadata, card, updated, expected_generation=generation)
+            published = self.upsert_document(CardMetadata, card, updated, expected_generation=generation)
+            previous = (document.get("embedding") or {}).get("pointer")
+            if published and embedding.get("status") == "indexed" and previous != embedding.get("pointer"):
+                from ....tasks.docling.DocumentCleanupTask import record_cleanup
+
+                record_cleanup(db, previous)
+            return published
 
     def delete_document_by_attachment_uid(
         self, model_cls: type[BaseMetadataModel], foreign_model: BaseDbModel, attachment_uid: str
@@ -463,6 +469,10 @@ class DoclingMetadataService(BaseDomainService):
                         )
                     )
                 )
+            if model_cls is CardMetadata and removed:
+                from ....tasks.docling.DocumentCleanupTask import record_cleanup
+
+                record_cleanup(db, (removed.get("embedding") or {}).get("pointer"))
             return removed
 
     def publish_update(

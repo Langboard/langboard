@@ -1,8 +1,8 @@
 """Embed only a queued, current transcription snapshot; never scan existing attachments."""
 
-from json import dumps, loads
+from json import loads
 from sqlite3 import OperationalError
-from ...core.broker import Broker, TaskParameters
+from ...core.broker import Broker
 from ...core.routing import SocketTopic
 from ...domain.models import CardMetadata
 from ...domain.models.InternalBot import InternalBotType
@@ -177,23 +177,6 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             if not committed:
                 remove(store, pointer)
                 return
-            prior = old.get("pointer")
-            if (
-                isinstance(prior, dict)
-                and prior.get("embedding_fingerprint") == fingerprint
-                and (prior.get("storage") or {"type": "sqlite"}) == pointer.get("storage")
-            ):
-                try:
-                    if settings.store == "sqlite" and "namespace" in prior:
-                        remove_document_generation(directory, prior)
-                    else:
-                        remove(store, prior)
-                except Exception:
-                    # The new source pointer is already committed. Cleanup cannot downgrade it.
-                    _queue_previous_generation(prior)
-            elif isinstance(prior, dict) and ("chunk_ids" in prior or "namespace" in prior):
-                # Different models/stores must clean up using the recorded old connection.
-                _queue_previous_generation(prior)
     except Exception:
         # Provider exceptions may contain credentials or document text. Never publish raw errors.
         service.docling_metadata.publish_document_embedding(
@@ -205,17 +188,3 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             expected_embedding=old,
         )
     service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
-
-
-def _queue_previous_generation(pointer: dict) -> None:
-    """Best-effort dispatch after publication; never downgrade the new generation."""
-    try:
-        args, kwargs = TaskParameters(dumps(pointer)).pack()
-        Broker.celery.send_task(
-            "langboard_shared.tasks.docling.DocumentEmbeddingTask.remove_attachment_embedding",
-            args=args,
-            kwargs=kwargs,
-        )
-    except Exception:
-        # A durable outbox is still needed for broker outages.
-        pass

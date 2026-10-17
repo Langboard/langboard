@@ -15,6 +15,7 @@ def run():
         ("/app/scripts/run_github_health_cron.sh", "github-health-recovery"),
         ("/app/scripts/run_notification_recovery.sh", "notification-web-fanout-recovery"),
         ("/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
+        ("/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         ("/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
     ):
         existing_jobs = list(cron.find_comment(comment))

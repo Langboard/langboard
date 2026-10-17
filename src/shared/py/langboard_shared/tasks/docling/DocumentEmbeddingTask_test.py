@@ -220,7 +220,7 @@ def test_qdrant_generation_publishes_backend_independent_ids_and_cleans_rejected
     assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["pointer"] == pointer
 
 
-def test_sqlite_reindex_removes_legacy_only_after_pointer_commit(monkeypatch, tmp_path):
+def test_sqlite_reindex_retains_legacy_until_transactional_cleanup(monkeypatch, tmp_path):
     from langboard_shared.tasks.docling.DocumentEmbedding import validated_embeddings
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
     from langboard_shared.tasks.docling.DocumentSqliteStore import open_document_store, open_sqlite_vector_store
@@ -269,11 +269,11 @@ def test_sqlite_reindex_removes_legacy_only_after_pointer_commit(monkeypatch, tm
     assert pointer["storage"] == {"type": "sqlite"} and "namespace" not in pointer
     with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
         assert store.get_by_ids(pointer["chunk_ids"])
-        assert store.store.get(tuple(legacy["namespace"]), "0") is None
+        assert store.store.get(tuple(legacy["namespace"]), "0") is not None
 
 
 @pytest.mark.parametrize("publication", [True, False, "error"])
-def test_changed_model_or_store_cleans_recorded_generation_only_after_publication(monkeypatch, tmp_path, publication):
+def test_worker_leaves_committed_generation_cleanup_to_publication_transaction(monkeypatch, tmp_path, publication):
     service, document, _ = fixture(monkeypatch, tmp_path)
     prior = {
         "generation": "previous",
@@ -282,8 +282,6 @@ def test_changed_model_or_store_cleans_recorded_generation_only_after_publicatio
         "storage": {"type": "qdrant", "endpoint": "https://old.invalid", "binding_uid": "old-binding", "dimensions": 3},
     }
     document["embedding"]["pointer"] = prior
-    queue = Mock()
-    monkeypatch.setattr(task, "_queue_previous_generation", queue)
     service.docling_metadata.publish_document_embedding.return_value = publication is True
     if publication == "error":
         service.docling_metadata.publish_document_embedding.side_effect = [
@@ -292,25 +290,11 @@ def test_changed_model_or_store_cleans_recorded_generation_only_after_publicatio
         ]
     task.embed_transcription(service, "attachment", "current")
     if publication is True:
-        queue.assert_called_once_with(prior)
         task.delete_vector_generation.assert_not_called()
         assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "indexed"
     else:
-        queue.assert_not_called()
         task.delete_vector_generation.assert_called_once()
 
-
-def test_cleanup_dispatch_outage_cannot_downgrade_committed_generation(monkeypatch, tmp_path):
-    service, document, _ = fixture(monkeypatch, tmp_path)
-    document["embedding"]["pointer"] = {
-        "generation": "previous",
-        "embedding_fingerprint": "a" * 64,
-        "namespace": ["documents", "board", "attachment", "fingerprint", "previous"],
-    }
-    monkeypatch.setattr(task.Broker.celery, "send_task", Mock(side_effect=RuntimeError("broker unavailable")))
-    task.embed_transcription(service, "attachment", "current")
-    assert service.docling_metadata.publish_document_embedding.call_count == 1
-    assert service.docling_metadata.publish_document_embedding.call_args.args[-1]["status"] == "indexed"
 
 
 @pytest.mark.parametrize("change", ["deleted", "type", "endpoint", "vector-endpoint"])
@@ -466,7 +450,7 @@ def test_explicit_splitter_reindex_applies_snapshot_in_persistent_store(monkeypa
             assert all(chunk.metadata["attachment_uid"] == "attachment" for chunk in chunks)
             assert all(chunk.metadata["board_uid"] == "board-uid" for chunk in chunks)
             if len(pointers) == 2:
-                assert not store.get_by_ids(pointers[0]["chunk_ids"])
+                assert store.get_by_ids(pointers[0]["chunk_ids"])
         # Duplicate delivery is a no-op after authoritative publication.
         call_count = len(requests)
         task.embed_transcription(service, "attachment", "current", request_uid)
