@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 
 @pytest.mark.parametrize("view", ["checklist", "card", "active"])
-def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(timer_engine, monkeypatch, view):
+def test_thousand_item_views_use_one_timer_query_and_preserve_ties(timer_engine, monkeypatch, view):
     engine = timer_engine
     card = SimpleNamespace(id=2000, get_uid=lambda: "card", api_response=lambda: {"uid": "card"})
     project = SimpleNamespace(api_response=lambda: {"uid": "project"})
@@ -81,9 +81,67 @@ def test_thousand_item_views_use_three_timer_queries_and_preserve_ties(timer_eng
             for query in queries
             if query.lstrip().upper().startswith("SELECT") and "checkitem_timer_record" in query
         ]
-        assert len(timer_reads) == 3
+        assert len(timer_reads) == 1
         point_read.assert_not_called()
         # Existing single-event callers resolve ties identically to the batch.
         assert point_read(1, "last").id == 9000
     finally:
         event.remove(engine, "before_cursor_execute", capture_query)
+
+
+def test_arc_batch_keeps_endpoints_without_loading_history_or_other_items(timer_engine):
+    engine = timer_engine
+    early = datetime(2026, 10, 5, tzinfo=UTC)
+    late = datetime(2026, 10, 6, tzinfo=UTC)
+    with Session(engine) as db:
+        db.add(Card(id=2000, project_id=10, project_column_id=40, title="Timer endpoints"))
+        db.commit()
+        db.add(Checklist(id=3000, card_id=2000, title="Work"))
+        db.commit()
+        db.add_all([Checkitem(id=i, checklist_id=3000, title=f"Work {i}") for i in range(1, 5)])
+        db.commit()
+        db.add_all(
+            [
+                # First and last use the ID to break equal timestamps.
+                CheckitemTimerRecord(id=100, checkitem_id=1, status=CheckitemStatus.Started, created_at=early),
+                CheckitemTimerRecord(id=101, checkitem_id=1, status=CheckitemStatus.Started, created_at=early),
+                CheckitemTimerRecord(id=102, checkitem_id=1, status=CheckitemStatus.Stopped, created_at=early),
+                # Timestamp takes priority over ID; a single event is both endpoints.
+                CheckitemTimerRecord(id=200, checkitem_id=2, status=CheckitemStatus.Started, created_at=late),
+                CheckitemTimerRecord(id=201, checkitem_id=2, status=CheckitemStatus.Stopped, created_at=early),
+                CheckitemTimerRecord(id=300, checkitem_id=4, status=CheckitemStatus.Started, created_at=early),
+            ]
+        )
+        db.commit()
+    queries, hydrated = [], []
+
+    def capture_query(conn, cursor, statement, params, context, many):
+        queries.append(statement)
+
+    def capture_record(record, context):
+        hydrated.append(record.id)
+
+    timers = CheckitemTimerRecordRepository(None, None)
+    event.listen(engine, "before_cursor_execute", capture_query)
+    event.listen(CheckitemTimerRecord, "load", capture_record)
+    try:
+        assert timers.get_arc_map_by_checkitems([]) == {}
+        assert queries == []
+        # Item 3 has no history. Item 4 is deliberately outside the requested set.
+        result = timers.get_arc_map_by_checkitems([SimpleNamespace(id=i) for i in (1, 2, 3)])
+        assert len(queries) == 1
+        assert set(hydrated) == {100, 102, 200, 201}
+        assert set(result) == {1, 2}
+        assert result[1]["first"].id == 100
+        assert result[1]["last"].id == 102
+        assert result[2]["first"].id == 201
+        assert result[2]["last"].id == 200
+        queries.clear()
+        hydrated.clear()
+        single = timers.get_arc_map_by_checkitems([SimpleNamespace(id=4)])
+        assert len(queries) == 1
+        assert hydrated == [300]
+        assert single[4]["first"] is single[4]["last"]
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_query)
+        event.remove(CheckitemTimerRecord, "load", capture_record)

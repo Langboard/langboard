@@ -1,5 +1,46 @@
 # Dashboard related-activity projection
 
+## Timer endpoint projection, 2026-10-17
+
+The shared timer repository now reads first/last events in one statement. A
+partitioned row number ordered by `(created_at, id)` and a partition count identify
+the two endpoints. Only those rows are hydrated; a single event supplies both
+endpoints. Empty input executes no SQL. This replaces two endpoint-ID queries and
+a third model query without changing caller payloads, adding a cache, or loading
+the full history in Python. Both endpoints use the same statement snapshot.
+
+Before this change, a bounded read-only probe of the deployed API found four
+checkitems on an existing readable card: three without timer history and one
+stopped event. The deployed repository used three timer SELECTs (29.982 ms);
+four legacy last-event reads used four SELECTs (18.033 ms). Card projection used
+four SELECTs including the item query (24.985 ms), and latest event IDs/timer
+fields matched the legacy reads. These are individual observations under the
+existing runtime load, not comparable latency percentiles or proof of an overall
+HTTP improvement. The native MCP bundle independently returned the same four
+stopped checkitems. No timer or customer content was changed.
+
+On disposable PostgreSQL with ten timer events per item, seven warm alternating
+executions per implementation produced these median repository durations:
+
+| Requested items | Previous three-query batch | Single-query batch |
+| --- | --- | --- |
+| 4 | 2.848 ms | 1.218 ms |
+| 100 | 6.771 ms | 4.232 ms |
+| 1,000 | 47.828 ms | 46.722 ms |
+
+Endpoint IDs matched at every size. The large-batch difference is small; these
+local fixture measurements do not establish canary or full-request latency.
+The temporary schema was removed after measurement. Regression coverage executes
+the three 1,000-item service projections on SQLite and PostgreSQL, plus real
+repository checks for equal-timestamp ties, timestamp priority over ID, empty and
+missing histories, single-event identity, exclusion of unrequested items, and
+hydration of endpoints only. Combined timer/workflow tests passed 21 cases with
+no skips when the workflow fixture also used disposable PostgreSQL.
+
+The deployed API still has the previous three-query implementation. Deployment,
+authenticated REST/My Work acceptance with an active timer, and a corresponding
+runtime before/after measurement remain required before archiving the timer card.
+
 The project list derives related-project recency from the current user's
 assignments to active, non-deleted cards. Each card's latest activity is read
 through the existing `(card_id, created_at)` activity index, then grouped by
