@@ -137,3 +137,52 @@ def test_scope_deletion_commits_cleanup_and_rolls_back_as_one_unit(document_sour
         )
     finally:
         service.close()
+
+
+@pytest.mark.parametrize("scope", ["card", "project"])
+def test_scope_delete_fences_concurrent_publication(document_source, cleanup_store, binding_store, scope):  # noqa: F811
+    if binding_store.dialect.name != "postgresql":
+        pytest.skip("Row-lock contention requires PostgreSQL")
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from time import monotonic, sleep
+    from sqlalchemy import func, select
+
+    metadata, card, _, document = document_source
+    with DbSession.use(readonly=False) as db:
+        project = db.exec(SqlBuilder.select.table(Project).where(Project.id == card.project_id)).first()
+    started = Event()
+    worker = {}
+
+    def publish():
+        with DbSession.atomic() as db:
+            worker["pid"] = db.exec(select(func.pg_backend_pid())).first()[0]
+            started.set()
+            return metadata.publish_document_embedding(
+                card,
+                document["attachment_uid"],
+                "current",
+                "hash",
+                {"status": "indexed", "pointer": {**pointer(), "generation": "late"}},
+                expected_embedding=document["embedding"],
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with DbSession.atomic() as db:
+            metadata.record_scope_embedding_cleanup(project, card if scope == "card" else None)
+            owner = db.exec(select(func.pg_backend_pid())).first()[0]
+            future = pool.submit(publish)
+            assert started.wait(3), "Publication connection did not start"
+            blocked = False
+            deadline = monotonic() + 5
+            while monotonic() < deadline:
+                blockers = db.exec(select(func.pg_blocking_pids(worker["pid"]))).first()[0]
+                if owner in blockers:
+                    blocked = True
+                    break
+                sleep(0.02)
+            assert blocked, "Publication did not wait for the source deletion transaction"
+            assert not future.done()
+            db.delete(card if scope == "card" else project)
+        assert future.result(timeout=5) is False
+    assert len(pending()) == 1 and pending()[0].pointer["generation"] == "old"

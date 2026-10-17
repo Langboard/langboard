@@ -424,5 +424,12 @@ The scope regression exercises the actual source repositories and transactional
 outbox, with unrelated notification/readiness systems stubbed. It checks rollback,
 a board of 101 documents crossing the read-batch boundary, bounded later dispatch,
 late publication rejection and repeated deletion without new cleanup requests.
-PostgreSQL variants require `LANGBOARD_FILE_TEST_DATABASE_URL`; a skipped variant
-is not concurrency or deployment proof. The tests do not delete production data.
+PostgreSQL variants require `LANGBOARD_FILE_TEST_DATABASE_URL` pointing to a
+dedicated disposable test database. With PostgreSQL 17, this suite passed 46 tests;
+two SQLite variants skip because SQLite cannot exercise PostgreSQL row locks.
+The concurrent publication cases use two actual connections and
+`pg_blocking_pids()` to verify that publication waits for the deletion transaction,
+then rejects the deleted source after commit. Both card and board deletion are
+covered. A skipped PostgreSQL variant is not concurrency proof. This is a source
+transaction regression, not deployed worker/provider or canary acceptance.
+The tests do not delete production data.
