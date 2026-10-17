@@ -333,3 +333,28 @@ These tests establish source behavior only. Separately verify the deployed
 image revision, CI execution rather than skipped jobs, existing-session card
 entry, a fresh federated SSO round trip, and live MCP read/write behavior.
 A recovered cookie session does not prove that a new SSO flow succeeded.
+
+### Notification recovery startup
+
+The minute-based notification recovery cron now executes the existing task
+module directly. The operator CLI delegates to the same recovery function.
+The flock, cadence, advisory database ownership and individual queue recovery
+rules are unchanged. Work-event, web, email and project-email recovery still
+attempt subsequent queues after an earlier failure, then purge terminal email
+records. No additional scheduler, cache or retry loop is introduced.
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
+  src/api/tests/runtime/test_notification_delivery.py -q
+```
+
+Expected: 61 tests pass. The module entry point fails five new cases before the
+change; the existing command passes those cases. Both entry points pass after
+the change, including individual work/web/email/project queue failures.
+
+Three local fresh-process import-only samples loaded 2015 modules through the
+CLI and 1876 through the notification task and its work-event dependency.
+Median elapsed times were 2.628s and 1.785s; median user CPU times were 1.645s
+and 1.470s. These samples exclude database and broker operations and do not
+establish deployed request latency or production CPU improvement. Notification
+recovery still requires the domain services it actually invokes.

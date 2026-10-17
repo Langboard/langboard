@@ -1,3 +1,4 @@
+import runpy
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
@@ -295,30 +296,63 @@ def test_disabled_email_outbox_keeps_web_only_notifications(
     repository.notification_email_delivery.accept.assert_not_called()
 
 
-@pytest.mark.parametrize("failed_queue", ["work", "web"])
-def test_recovery_command_attempts_remaining_queues_after_failure(monkeypatch: MonkeyPatch, failed_queue: str) -> None:
-    module = import_module("langboard.commands.RunNotificationWebFanoutCommand")
-    assert not module.RunNotificationWebFanoutCommand.is_only_in_dev()
-    publish_work = Mock(side_effect=RuntimeError("work unavailable") if failed_queue == "work" else None)
-    monkeypatch.setattr(
-        import_module("langboard_shared.tasks.notifications.NotificationWorkEventTask"),
-        "publish_pending_work_events",
-        publish_work,
-    )
-    recover_web = Mock(side_effect=RuntimeError("web unavailable") if failed_queue == "web" else None)
-    monkeypatch.setattr(module, "recover_pending_web_fanout", recover_web)
-    recover_email = Mock()
-    purge_email = Mock()
-    monkeypatch.setattr(module, "recover_pending_email_delivery", recover_email)
-    monkeypatch.setattr(module, "purge_terminal_email_deliveries", purge_email)
+@pytest.mark.parametrize("entrypoint", ["command", "module"])
+@pytest.mark.parametrize("failed_queue", [None, "work", "web", "email", "project"])
+def test_recovery_entrypoints_drain_independent_queues(monkeypatch, entrypoint, failed_queue):
+    events = Mock()
+    for queue in ("work", "web", "email", "project", "purge_email", "purge_project"):
+        events.attach_mock(Mock(side_effect=RuntimeError(queue) if queue == failed_queue else None), queue)
+    work = import_module("langboard_shared.tasks.notifications.NotificationWorkEventTask")
+    project = import_module("langboard_shared.tasks.notifications.ProjectEmailNotificationTask")
+    monkeypatch.setattr(work, "publish_pending_work_events", events.work)
+    monkeypatch.setattr(project, "recover_pending_project_activity_email", events.project)
+    # The command may have imported this binding before the module entry point runs.
+    task = import_module("langboard_shared.tasks.notifications.NotificationWebFanoutTask")
+    monkeypatch.setattr(task, "recover_pending_project_activity_email", events.project)
+    service = Mock()
+    service.notification.recover_pending_web_fanout = events.web
+    service.notification.recover_pending_email_delivery = events.email
+    service.notification.purge_terminal_email_deliveries = events.purge_email
+    service.project_email_notification.purge_terminal_deliveries = events.purge_project
+    for queue in ("web", "email", "project", "purge_email", "purge_project"):
+        getattr(events, queue).return_value = 0
 
-    with pytest.raises(RuntimeError, match=f"{failed_queue} unavailable"):
-        module.RunNotificationWebFanoutCommand().execute(module.RunNotificationWebFanoutCommandOptions())
+    @contextmanager
+    def use_service():
+        yield service
 
-    recover_email.assert_called_once_with()
-    purge_email.assert_called_once_with()
-    publish_work.assert_called_once_with()
-    recover_web.assert_called_once_with()
+    @contextmanager
+    def use_db(readonly):
+        assert readonly is False
+        database = Mock()
+        database.exec.return_value.first.return_value = True
+        yield database
+
+    monkeypatch.setattr(DomainService, "use", use_service)
+    monkeypatch.setattr(DbSession, "use", use_db)
+
+    def run():
+        if entrypoint == "module":
+            with pytest.warns(RuntimeWarning, match="found in sys.modules"):
+                runpy.run_module(task.__name__, run_name="__main__")
+        else:
+            command = import_module("langboard.commands.RunNotificationWebFanoutCommand")
+            assert not command.RunNotificationWebFanoutCommand.is_only_in_dev()
+            command.RunNotificationWebFanoutCommand().execute(command.RunNotificationWebFanoutCommandOptions())
+
+    if failed_queue:
+        with pytest.raises(RuntimeError, match=f"^{failed_queue}$"):
+            run()
+    else:
+        run()
+    assert events.mock_calls == [
+        call.work(),
+        call.web(),
+        call.email(),
+        call.project(),
+        call.purge_email(),
+        call.purge_project(),
+    ]
 
 
 def test_recovery_publishes_and_marks_pending_web_notification(monkeypatch: MonkeyPatch) -> None:
