@@ -58,6 +58,10 @@ when preserving registrations. Existing installations must migrate any prior
 FastMCP storage before adopting the volume; this change does not copy or reset
 existing credential files. Multiple API workers share the directory, but
 cross-host replicas need an explicitly shared backend and concurrency checks.
+The current refresh exchange lock is local to one provider process. Sharing the
+storage directory does not make refresh rotation safe across API workers or
+replicas. Cross-process refresh consumption remains an unverified deployment
+gate even when the shared backend persists tokens correctly.
 
 Run the existing environment generator, then recreate only the affected API
 service with the deployment's normal Compose files. A restart does not refresh
