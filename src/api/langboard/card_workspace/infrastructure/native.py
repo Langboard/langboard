@@ -472,7 +472,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
     ) -> dict[str, Any]:
         """Converge one checklist projection, checkpointing identities before the receipt."""
 
-        card = self._ensure_card(project_uid, card_uid)
+        _, card = self._ensure_project_card(project_uid, card_uid)
         metadata_key = require_public_metadata_key(f"projection.checklist.{projection_key}")
         metadata = self.get_public_card_metadata(project_uid, card_uid) or {}
         state = self._checklist_projection_state(metadata.get(metadata_key))
@@ -507,8 +507,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             self._save_checklist_projection_state(card, metadata_key, state)
             changed = True
         elif checklist["title"] != title:
-            native = self._ensure_checklist(project_uid, card_uid, checklist["uid"])
-            if not self._service.checklist.change_title(self._actor, project_uid, card_uid, native, title):
+            if not self._service.checklist.change_title(self._actor, project_uid, card_uid, checklist["uid"], title):
                 raise ValueError("Checklist not found in card")
             changed = True
 
@@ -529,10 +528,11 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 actual = created.api_response()
                 self._save_checklist_projection_state(card, metadata_key, state)
                 changed = True
-            native_item = self._ensure_checkitem(project_uid, card_uid, item_uid)
+            # Native mutation services resolve IDs and validate ancestry; unchanged
+            # projected items need no separate per-item repository reads.
             if actual.get("title") != item.title.strip():
                 if not self._service.checkitem.change_title(
-                    self._actor, project_uid, card_uid, native_item, item.title.strip()
+                    self._actor, project_uid, card_uid, item_uid, item.title.strip()
                 ):
                     raise ValueError("Checkitem not found in card")
                 changed = True
@@ -540,12 +540,12 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 deadline = SafeDateTime.fromisoformat(item.deadline_at)
                 if deadline.tzinfo is None:
                     deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-                if not self._service.checkitem.change_deadline(project_uid, card_uid, native_item, deadline):
+                if not self._service.checkitem.change_deadline(project_uid, card_uid, item_uid, deadline):
                     raise ValueError("Checkitem not found in card")
                 changed = True
             if bool(actual.get("is_checked")) != item.is_checked:
                 if not self._service.checkitem.toggle_checked(
-                    self._actor, project_uid, card_uid, native_item, desired_checked=item.is_checked
+                    self._actor, project_uid, card_uid, item_uid, desired_checked=item.is_checked
                 ):
                     raise ValueError("Checkitem not found in card")
                 changed = True
@@ -619,29 +619,6 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         if project is None or card is None or card.project_id != project.id:
             raise ValueError("Card not found in project")
         return project, card
-
-    def _ensure_card(self, project_uid: str, card_uid: str, required: bool = True) -> Any:
-        try:
-            return self._ensure_project_card(project_uid, card_uid)[1]
-        except ValueError:
-            if required:
-                raise
-            return None
-
-    def _ensure_checklist(self, project_uid: str, card_uid: str, checklist_uid: str) -> Any:
-        _, card = self._ensure_project_card(project_uid, card_uid)
-        checklist = self._service.checklist.get_by_id_like(checklist_uid)
-        if checklist is None or checklist.card_id != card.id:
-            raise ValueError("Checklist not found in card")
-        return checklist
-
-    def _ensure_checkitem(self, project_uid: str, card_uid: str, checkitem_uid: str) -> Any:
-        _, card = self._ensure_project_card(project_uid, card_uid)
-        item = self._service.checkitem.get_by_id_like(checkitem_uid)
-        checklist = self._service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
-        if item is None or checklist is None or checklist.card_id != card.id:
-            raise ValueError("Checkitem not found in card")
-        return item
 
     @staticmethod
     def _bounded_source(items: list[Any], label: str) -> list[Any]:
