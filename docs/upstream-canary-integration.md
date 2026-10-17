@@ -54,3 +54,16 @@ These focused suites cover desktop/mobile draft retention, synchronization input
 gating, pending-save cancellation, hydrated description retention and comment
 mounting. Authenticated canary save/reload and external-account permission checks
 remain separate release acceptance steps.
+
+## Federated build request boundary
+
+The image-request job uses a standard GitHub runner only to check out the
+federated request client, obtain its short-lived OIDC assertion, and submit an
+exact source revision to the central broker. It does not depend on an
+organization-local runner group or run product validation or image builds.
+Those tasks remain in the shared central executor and BuildKit infrastructure.
+
+Review refs request validation only; product requests retain the deploy-ref
+boundary. Central repository identity, protected-ref, current-tip, workflow/run,
+validation, and signed-release checks still apply. A successful request receipt
+is not evidence of a completed image build or Dokploy deployment.

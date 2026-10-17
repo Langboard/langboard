@@ -138,6 +138,9 @@ class BrokerClientTest(unittest.TestCase):
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
+        self.assertEqual(job["runs-on"], "ubuntu-latest")
+        self.assertNotIn("CI_RUNNER", job["if"])
+        self.assertNotIn("container", job)
         checkout = steps["Checkout federated request client"]
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
