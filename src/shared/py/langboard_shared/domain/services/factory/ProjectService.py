@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -29,7 +29,6 @@ from ...models.InternalBot import InternalBotType
 from ...models.ProjectRole import ProjectRoleAction
 from .CheckitemService import CheckitemService
 from .DoclingMetadataService import DoclingMetadataService
-from .ProjectColumnService import ProjectColumnService
 from .ProjectLabelService import ProjectLabelService
 from .ScimProvisioningService import ScimProvisioningService
 
@@ -182,14 +181,6 @@ class ProjectService(BaseDomainService):
         )
 
         return schedules
-
-    def get_api_list_with_columns(self, user: User) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        projects, project_ids = self.get_api_list(user)
-
-        column_service = self._get_service(ProjectColumnService)
-        columns = column_service.get_api_list_by_project(cast(list, project_ids))
-
-        return projects, columns
 
     def get_api_starred_project_list(self, user: User, limit: int | None = None) -> list[dict[str, Any]]:
         if not user or user.is_new():

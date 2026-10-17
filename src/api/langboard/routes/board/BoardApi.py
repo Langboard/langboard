@@ -92,21 +92,33 @@ def is_project_available(project_uid: str, service: DomainService = DomainServic
 def get_project(
     project_uid: str, user_or_bot: User | Bot = Auth.scope("all"), service: DomainService = DomainService.scope()
 ) -> JsonResponse:
+    timings = [perf_counter()]
     result = service.project.get_details(user_or_bot, project_uid, is_setting=False)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     project, response = result
+    timings.append(perf_counter())
     project_bot_scopes = service.project.get_api_bot_scope_list(project)
     project_bot_schedules = service.project.get_api_bot_schedule_list(project)
+    timings.append(perf_counter())
     if isinstance(user_or_bot, User):
         service.project.set_last_view(user_or_bot, project)
-    return JsonResponse(
+    timings.append(perf_counter())
+    result = JsonResponse(
         content={
             "project": response,
             "project_bot_scopes": project_bot_scopes,
             "project_bot_schedules": project_bot_schedules,
         }
     )
+    timings.append(perf_counter())
+    result.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={(end - start) * 1000:.3f}"
+        for name, start, end in zip(
+            ("project_details", "project_bots", "project_visit", "project_serialize"), timings, timings[1:]
+        )
+    )
+    return result
 
 
 @AppRouter.schema(permission=ApiPermission.Read)

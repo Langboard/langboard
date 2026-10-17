@@ -17,6 +17,7 @@ case "$profile" in
       src/api/tests/runtime/test_prebuilt_compose.py \
       src/api/tests/runtime/test_external_phoenix_ingress.py \
       src/api/tests/runtime/test_project_read_bootstrap.py \
+      src/api/tests/runtime/test_read_phase_timing.py \
       src/api/tests/identity/test_employee_membership_settings.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_card_board_summary.py \

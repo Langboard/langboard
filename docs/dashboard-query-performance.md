@@ -479,3 +479,34 @@ and outsiders. Existing account-revocation and second-check denial tests remain
 part of focused acceptance. The API and API-PostgreSQL validation profiles include
 the policy/query-count module. Source query reduction is not proof of a canary
 HTTP latency improvement; that requires the new image and runtime measurements.
+
+## Read-route phase timing, 2026-10-18
+
+Board details now expose `project_details`, `project_bots`, `project_visit` and
+`project_serialize` durations through the existing `Server-Timing` header.
+Dashboard projects expose `dashboard_projects`, `dashboard_columns` and
+`dashboard_serialize`. The existing middleware retains these metrics and appends
+the total `app` duration. Metrics contain fixed names and milliseconds only.
+No user, project, SQL or payload content is added to the header.
+
+Dashboard authorization and query order remain unchanged: columns receive only
+the IDs returned by the current user's project query. The unused combined service
+wrapper was removed. Human last-view writes and bot behavior remain unchanged;
+the timing makes the visit write visible for later measured review.
+
+The focused route, bootstrap, activity-order and middleware suite passed 43 tests,
+including missing-board and database-failure behavior, authorized column scope,
+payload preservation, timing-header composition and CORS exposure. These tests
+do not establish production latency improvement.
+
+Before deploying these changes, ten authenticated Chrome reloads on the current
+canary returned HTTP 200 for the board card endpoint in every sample. CDP
+`requestTime` to `loadingFinished` durations ranged from 1,561 to 8,216 ms;
+the median was 4,919 ms and nearest-rank p95 was 8,216 ms. Encoded responses were
+439,766–440,092 bytes. Existing server `app` durations ranged from 1,400.703 to
+8,041.930 ms. This small sequential sample describes observed variability, not a
+capacity benchmark or a before/after comparison. The final browser DOM contained
+the board columns without a load error. The current canary exposes only the total
+`app` metric; the new phases still require deployment and request-ID correlation.
+The sanitized local receipt retains timestamps, request IDs, durations and bytes
+under `.verification/canary-board-server-timing-20261018-followup.json`.

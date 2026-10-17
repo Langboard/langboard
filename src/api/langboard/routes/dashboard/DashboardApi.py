@@ -1,4 +1,5 @@
 from datetime import timedelta
+from time import perf_counter
 from fastapi import Depends, Query, Request, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
@@ -86,9 +87,20 @@ def get_starred_projects(
 )
 @AuthFilter.add("user")
 def get_projects(user: User = Auth.scope("user"), service: DomainService = DomainService.scope()) -> JsonResponse:
-    projects, columns = service.project.get_api_list_with_columns(user)
-
-    return JsonResponse(content={"projects": projects, "columns": columns})
+    timings = [perf_counter()]
+    projects, project_ids = service.project.get_api_list(user)
+    timings.append(perf_counter())
+    columns = service.project_column.get_api_list_by_project(project_ids)
+    timings.append(perf_counter())
+    response = JsonResponse(content={"projects": projects, "columns": columns})
+    timings.append(perf_counter())
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={(end - start) * 1000:.3f}"
+        for name, start, end in zip(
+            ("dashboard_projects", "dashboard_columns", "dashboard_serialize"), timings, timings[1:]
+        )
+    )
+    return response
 
 
 @AppRouter.api.post(
