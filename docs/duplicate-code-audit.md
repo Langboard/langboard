@@ -160,3 +160,23 @@ The new late-response regression fails against the previous store, then all
 four store tests pass after the correction. The existing availability request
 still aborts on scope change and ignores malformed/failed responses. These
 checks prove store behavior; deployed tray/browser acceptance remains pending.
+
+
+## Follow-up: unused identity reads in board member classification
+
+Board details classify the already loaded member set through the native SCIM
+service. The projection previously read identity links and SCIM groups even
+when the configured classification mode could not use them. Keep the current
+primary policy/user reads, and read links only for configured SCIM or trusted
+OIDC classification. Read SCIM group membership only when SCIM classification
+is configured. No identity cache, background reconciliation or new abstraction
+is introduced. Explicit SCIM policy still takes precedence over OIDC, including
+an empty employee-group selection; inactive users remain unknown.
+
+The real SQLite regression exercises one and 25 members in each mode. OIDC
+classification uses three SELECTs instead of four; unconfigured/disabled
+classification uses two instead of four. Configured SCIM retains four reads.
+The original source fails six of the eight new query-count cases. All 29
+focused tests pass after the change, including existing authority-change, native
+group-ID, custom bot assignment and board-read bootstrap behavior. This reduces source query work; it does not prove
+a deployed latency improvement. Authenticated canary measurement remains pending.
