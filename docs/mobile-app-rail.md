@@ -133,3 +133,27 @@ is not a deployed AppPanel handshake. Server preference synchronization, real
 board launch/consent acceptance, and authenticated canary performance/E2E remain
 open. The native checklist item for the complete persistence/launch flow stays
 unchecked until its remaining acceptance is demonstrated.
+
+## Recovering a failed panel launch
+
+A failed permission read previously left the visible panel without a recovery
+action until it was closed and reopened. The error surface now reuses the shared
+Retry button and translation. Each explicit retry disposes the old session and
+performs a fresh permission read before creating a frame. It does not restore
+cached authority, submit consent, initialize hidden apps, or run a polling loop.
+Revocation still removes the frame and clears its transient state; retrying a
+403 response cannot recreate it.
+
+The missing recovery action was reproduced against the original source. All
+seven AppPanel browser cases then passed in 16.0 seconds, including initial 503
+and simulated network-disconnection failures, retry denied with 403, successful
+reconnection through the SDK handshake, and subsequent revocation. Each recovery
+case observed four explicit GETs and no writes. TypeScript and scoped ESLint
+passed. These are local fixtures with intercepted server responses, not live
+canary or external app availability evidence.
+
+The existing administrator installer regression also passed four cases in
+7.6 seconds: official install receipt, responsive details, uncertain receipt
+write lock, and ordinary-member denial. Six published-package asset cases were
+skipped because verified release assets were not supplied. Manual ZIP upload and
+the complete deployed store-to-board launch remain separate acceptance checks.
