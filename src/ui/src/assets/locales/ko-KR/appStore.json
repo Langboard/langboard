@@ -19,11 +19,12 @@
   "Manual app": "수동 설치 앱",
   "Registered app": "등록 앱",
   "Your shortcuts": "내 바로가기",
-  "Shortcut storage": "이 브라우저에서 현재 계정별로 저장합니다. 바로가기는 앱·보드 권한을 부여하지 않습니다.",
+  "Shortcut storage": "계정에 저장하여 기기 간 동기화합니다. 기존 로컬 바로가기는 편집할 때만 업로드합니다. 앱·보드 권한은 부여하지 않습니다.",
   "Earlier shortcut": "{{name}} 앞으로 이동",
   "Later shortcut": "{{name}} 뒤로 이동",
   "Remove shortcut": "{{name}} 바로가기 제거",
   "Unpin from rail": "레일에서 고정 해제",
   "Pin to rail": "레일에 고정",
-  "Shortcut limit": "바로가기는 최대 {{count}}개까지 고정할 수 있습니다."
+  "Shortcut limit": "바로가기는 최대 {{count}}개까지 고정할 수 있습니다.",
+  "Shortcut sync unavailable": "바로가기를 동기화할 수 없습니다. 다시 변경하기 전에 현재 계정 설정을 조회해 주세요."
 }

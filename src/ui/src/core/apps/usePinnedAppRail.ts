@@ -1,7 +1,7 @@
 import type { IActivityRailItem } from "@/components/Layout/ActivityRail";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
-import { usePinnedApps } from "@/core/stores/UserSettingsStore";
+import useSyncedPinnedApps from "./useSyncedPinnedApps";
 
 export default function usePinnedAppRail({
     userUID,
@@ -14,7 +14,7 @@ export default function usePinnedAppRail({
     activeKey?: string;
     onLaunch?: (key: string) => boolean;
 }) {
-    const preferences = usePinnedApps(userUID);
+    const preferences = useSyncedPinnedApps(userUID);
     const navigate = usePageNavigateRef();
     const items: IActivityRailItem[] = preferences.pins.map((pin) => ({
         id: `app:${pin.key}`,

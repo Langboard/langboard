@@ -20,6 +20,7 @@ case "$profile" in
       src/api/tests/core/test_logger_tracebacks.py \
       src/api/tests/core/test_ip_whitelist.py \
       src/api/tests/runtime/test_shared_form_validation.py \
+      src/api/tests/apps/test_user_app_preferences_http.py \
       src/api/tests/contracts/test_datamodel_generation.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
       src/api/tests/runtime/test_socket_auth.py \
@@ -47,6 +48,8 @@ case "$profile" in
     export PROJECT_NAME="${PROJECT_NAME:-langboard}"
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
+      src/api/tests/apps/test_user_app_preferences_http.py \
+      src/api/tests/migrations/test_phoenix_canary_union_postgres.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py \
       src/api/tests/card_visibility/test_metadata_projection.py \

@@ -119,6 +119,7 @@ from .UserIdentityLink import UserIdentityLink
 from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
+from .UserAppPreference import UserAppPreference
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WorkflowStageDefinition import WorkflowStageDefinition
@@ -249,6 +250,7 @@ __all__ = [
     'UserNotification',
     'UserNotificationUnsubscription',
     'UserProfile',
+    'UserAppPreference',
     'WebhookSetting',
     'AppCardInteraction',
     'AppCardInteractionResponse',

@@ -1,7 +1,21 @@
 import { hasPanelAccess } from "../../core/apps/PanelAccess";
 import type { CatalogApp } from "../../controllers/api/board/useBoardAppCatalog";
-import type { Route } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+test.beforeEach(async ({ page }) => {
+    const accounts = new Map<string, { revision: number; pinned_apps: { key: string; name: string }[] }>();
+    await page.route("**/account/app-preferences", (route) => {
+        const actor = new URL(page.url()).searchParams.get("actor") ?? "fixture-user";
+        const current = accounts.get(actor) ?? { revision: 0, pinned_apps: [] };
+        if (route.request().method() === "PUT") {
+            const input = route.request().postDataJSON();
+            if (input.expected_revision !== current.revision) return route.fulfill({ status: 409, json: {} });
+            accounts.set(actor, { revision: current.revision + 1, pinned_apps: input.pinned_apps });
+        }
+        return route.fulfill({ json: accounts.get(actor) ?? current });
+    });
+});
 
 for (const width of [1440, 390]) {
     test(`outline follows the current card attachment models at ${width}px`, async ({ page }) => {
@@ -787,4 +801,88 @@ test("stored shortcuts are bounded, normalized and never initialize panels", asy
     await expect(page.getByRole("button", { name: "Pin to rail", exact: true })).toBeDisabled();
     await expect(page.locator("iframe")).toHaveCount(0);
     expect(reads).toBe(1);
+    const unicodeName = await page.evaluate(async () => {
+        const path = "/src/core/stores/UserSettingsStore.ts";
+        const { normalizePinnedApps } = await import(path);
+        return normalizePinnedApps([{ key: "unicode", name: "🧩".repeat(81) }])[0].name;
+    });
+    expect(unicodeName).toBe("🧩".repeat(80));
+});
+
+test("account shortcuts restore on an isolated device and recover conflicts without replaying writes", async ({ page, browser }) => {
+    let current = { revision: 2, pinned_apps: [{ key: "beta", name: "Beta" }] };
+    let offline = false;
+    let uncertain = false;
+    let writes = 0;
+    const fixture = "/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/apps/alpha");
+    const connect = async (device: Page) => {
+        await device.route("**/account/app-preferences", (route) => {
+            if (route.request().method() === "GET") {
+                return offline ? route.abort("internetdisconnected") : route.fulfill({ json: current });
+            }
+            writes++;
+            const input = route.request().postDataJSON();
+            if (input.expected_revision !== current.revision) return route.fulfill({ status: 409, json: {} });
+            current = { revision: current.revision + 1, pinned_apps: input.pinned_apps };
+            if (uncertain) {
+                uncertain = false;
+                return route.abort("internetdisconnected");
+            }
+            return route.fulfill({ json: current });
+        });
+        await device.route("**/apps/catalog*", (route) =>
+            route.fulfill({
+                json: {
+                    items: [{ key: "alpha", name: "Alpha", description: "Approved", is_installed: true }],
+                    official: [],
+                    next_cursor: null,
+                    effective_mode: "approved_only",
+                    can_manage_installation: false,
+                },
+            })
+        );
+    };
+    await connect(page);
+    await page.goto(fixture);
+    const shortcuts = (device: Page) => device.getByRole("region", { name: "Your shortcuts", exact: true }).getByRole("link");
+    await expect(shortcuts(page)).toHaveText(["Beta"]);
+    expect(writes).toBe(0);
+    await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+    await expect(shortcuts(page)).toHaveText(["Beta", "Alpha"]);
+    const other = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+        const device = await other.newPage();
+        await connect(device);
+        await device.goto("http://127.0.0.1:4183" + fixture);
+        await expect(shortcuts(device)).toHaveText(["Beta", "Alpha"]);
+        expect(writes).toBe(1);
+        current = { revision: 4, pinned_apps: [{ key: "beta", name: "Beta" }] };
+        await page.getByRole("button", { name: "Remove Alpha shortcut", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("Shortcut sync is unavailable");
+        await expect(shortcuts(page)).toHaveText(["Beta"]);
+        expect(writes).toBe(2);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Pin to rail", exact: true })).toBeEnabled();
+        expect(writes).toBe(2);
+        // The server saves, but the response is lost: read back without replay.
+        uncertain = true;
+        await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(shortcuts(page)).toHaveText(["Beta", "Alpha"]);
+        expect(writes).toBe(3);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Unpin from rail", exact: true })).toBeEnabled();
+        expect(writes).toBe(3);
+        offline = true;
+        await device.reload();
+        await expect(device.getByRole("alert")).toContainText("Shortcut sync is unavailable");
+        await expect(device.getByRole("button", { name: "Unpin from rail", exact: true })).toBeDisabled();
+        offline = false;
+        await device.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(device.getByRole("button", { name: "Unpin from rail", exact: true })).toBeEnabled();
+        expect(writes).toBe(3);
+        await expect(device.locator("iframe")).toHaveCount(0);
+    } finally {
+        await other.close();
+    }
 });

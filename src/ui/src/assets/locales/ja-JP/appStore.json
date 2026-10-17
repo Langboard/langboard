@@ -19,11 +19,12 @@
   "Manual app": "手動インストールのアプリ",
   "Registered app": "登録アプリ",
   "Your shortcuts": "マイショートカット",
-  "Shortcut storage": "このブラウザーにアカウント別で保存します。アプリやボードの権限は付与されません。",
+  "Shortcut storage": "アカウントに保存して端末間で同期します。既存のローカルショートカットは編集時のみアップロードします。アプリやボードの権限は付与しません。",
   "Earlier shortcut": "{{name}}を前に移動",
   "Later shortcut": "{{name}}を後ろに移動",
   "Remove shortcut": "{{name}}のショートカットを削除",
   "Unpin from rail": "レールの固定を解除",
   "Pin to rail": "レールに固定",
-  "Shortcut limit": "最大{{count}}件のショートカットを固定できます。"
+  "Shortcut limit": "最大{{count}}件のショートカットを固定できます。",
+  "Shortcut sync unavailable": "ショートカットを同期できません。再度変更する前に現在のアカウント設定を取得してください。"
 }

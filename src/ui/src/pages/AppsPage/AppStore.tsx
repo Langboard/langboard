@@ -120,7 +120,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                         size="icon"
                                         variant="ghost"
                                         className="min-h-11 min-w-11"
-                                        disabled={index === 0}
+                                        disabled={pinnedApps.busy || index === 0}
                                         aria-label={t("appStore.Earlier shortcut", { name: pin.name })}
                                         onClick={() => pinnedApps.move(pin.key, -1)}
                                     >
@@ -130,7 +130,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                         size="icon"
                                         variant="ghost"
                                         className="min-h-11 min-w-11"
-                                        disabled={index === pinnedApps.pins.length - 1}
+                                        disabled={pinnedApps.busy || index === pinnedApps.pins.length - 1}
                                         aria-label={t("appStore.Later shortcut", { name: pin.name })}
                                         onClick={() => pinnedApps.move(pin.key, 1)}
                                     >
@@ -141,6 +141,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                         variant="ghost"
                                         className="min-h-11 min-w-11"
                                         aria-label={t("appStore.Remove shortcut", { name: pin.name })}
+                                        disabled={pinnedApps.busy}
                                         onClick={() => pinnedApps.toggle(pin)}
                                     >
                                         <X className="size-4" />
@@ -149,6 +150,14 @@ export default function AppStore({ userUID }: { userUID: string }) {
                             ))}
                         </ol>
                     </section>
+                )}
+                {pinnedApps.error && (
+                    <div role="alert" className="space-y-2 rounded-xl border p-3 text-sm">
+                        <p>{t("appStore.Shortcut sync unavailable")}</p>
+                        <Button variant="outline" className="min-h-11" onClick={pinnedApps.retry}>
+                            {t("common.Retry")}
+                        </Button>
+                    </div>
                 )}
                 {!valid || query.isError ? (
                     <div role="alert" className="rounded-xl border p-4">
@@ -209,7 +218,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                         variant="outline"
                                         className="min-h-11"
                                         aria-pressed={isPinned}
-                                        disabled={!isPinned && pinnedApps.pins.length >= MAX_PINNED_APPS}
+                                        disabled={pinnedApps.busy || (!isPinned && pinnedApps.pins.length >= MAX_PINNED_APPS)}
                                         onClick={() => pinnedApps.toggle(selected)}
                                     >
                                         <Pin className="mr-2 size-4" />

@@ -112,7 +112,7 @@ export const useWorkbenchContextOpen = (userUID?: string) => {
 
 export default useUserSettingsStore;
 
-function normalizePinnedApps(value: unknown): IPinnedApp[] {
+export function normalizePinnedApps(value: unknown): IPinnedApp[] {
     if (!Array.isArray(value)) return [];
     const pins: IPinnedApp[] = [];
     const seen = new Set<string>();
@@ -126,7 +126,7 @@ function normalizePinnedApps(value: unknown): IPinnedApp[] {
             seen.has(item.key)
         )
             continue;
-        pins.push({ key: item.key, name: item.name.trim().slice(0, 80) });
+        pins.push({ key: item.key, name: Array.from(item.name.trim()).slice(0, 80).join("") });
         seen.add(item.key);
         if (pins.length === MAX_PINNED_APPS) break;
     }
@@ -136,34 +136,17 @@ function normalizePinnedApps(value: unknown): IPinnedApp[] {
 export function usePinnedApps(userUID?: string) {
     const saved = useUserSettings("pinned_apps");
     const pins = useMemo(() => normalizePinnedApps(userUID ? saved?.[userUID] : undefined), [saved, userUID]);
-    const update = useCallback(
-        (change: (current: IPinnedApp[]) => IPinnedApp[]) => {
+    const replace = useCallback(
+        (next: IPinnedApp[]) => {
             if (!userUID) return;
             const store = getUserSettingsStore();
             const current = store.settings.pinned_apps ?? {};
             store.updateSettingsByKey("pinned_apps", {
                 ...current,
-                [userUID]: normalizePinnedApps(change(normalizePinnedApps(current[userUID]))),
+                [userUID]: normalizePinnedApps(next),
             });
         },
         [userUID]
     );
-    const toggle = useCallback(
-        (app: IPinnedApp) =>
-            update((current) => (current.some((pin) => pin.key === app.key) ? current.filter((pin) => pin.key !== app.key) : [...current, app])),
-        [update]
-    );
-    const move = useCallback(
-        (key: string, direction: -1 | 1) =>
-            update((current) => {
-                const index = current.findIndex((pin) => pin.key === key);
-                const target = index + direction;
-                if (index < 0 || target < 0 || target >= current.length) return current;
-                const next = [...current];
-                [next[index], next[target]] = [next[target], next[index]];
-                return next;
-            }),
-        [update]
-    );
-    return { pins, toggle, move };
+    return { pins, replace };
 }

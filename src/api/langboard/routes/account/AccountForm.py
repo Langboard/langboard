@@ -1,4 +1,25 @@
 from langboard_shared.core.routing import BaseFormModel, form_model
+from pydantic import BaseModel, Field, field_validator
+
+
+class PinnedAppPreference(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    key: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    name: str = Field(min_length=1, max_length=80)
+
+
+@form_model
+class UpdateAppPreferencesForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    expected_revision: int = Field(ge=0, le=2147483646, strict=True)
+    pinned_apps: list[PinnedAppPreference] = Field(max_length=32)
+
+    @field_validator("pinned_apps")
+    @classmethod
+    def unique_keys(cls, pins):
+        if len({pin.key for pin in pins}) != len(pins):
+            raise ValueError("App shortcuts must have unique keys")
+        return pins
 
 
 @form_model

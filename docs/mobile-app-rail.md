@@ -107,7 +107,8 @@ entries, deduplicate keys, trim names, and bound the list to 32 shortcuts. The
 store detail exposes pin/unpin; the shared shortcut list exposes accessible
 move-earlier/later and remove controls. This is browser-local persistence using
 the existing store. Server synchronization and cross-device persistence have
-not been implemented or claimed.
+not been implemented at this checkpoint; the account synchronization below
+supersedes that initial local-only behavior.
 
 `usePinnedAppRail` supplies the same shortcuts to dashboard, board, store, and
 settings rails without another catalog request or app initialization. Mobile
@@ -157,3 +158,55 @@ The existing administrator installer regression also passed four cases in
 write lock, and ordinary-member denial. Six published-package asset cases were
 skipped because verified release assets were not supplied. Manual ZIP upload and
 the complete deployed store-to-board launch remain separate acceptance checks.
+
+## Account synchronization
+
+`GET /account/app-preferences` reads the authenticated account's shortcuts from
+the primary database. `PUT` accepts only `expected_revision` and an ordered list
+of at most 32 unique `{key, name}` entries (32-character app keys and 80-character
+display names). Extra properties, duplicate keys, invalid identifiers, and foreign
+account selectors are rejected. No token, connection, consent or runtime URL is
+stored. Unavailable apps remain valid removable shortcuts; a preference grants
+no installation or execution authority.
+
+An absent preference is revision 0. Each explicit save increments the revision;
+stale writes return 409. The account row serializes initial creation, and existing
+rows also use a conditional revision update. Account activation and deletion are
+checked in the same primary transaction. GET does not create a row. Responses
+use `Cache-Control: no-store`.
+
+The shared rail hook reuses TanStack Query with an account-scoped key, a 30-second
+freshness window and five-minute inactive retention. Existing identity cleanup
+clears the query cache. There is no polling timer or app initialization. Successful
+server reads update the browser cache. Revision 0 preserves existing local pins
+until the user explicitly edits them; it does not upload them on login. A saved
+empty list clears the account's local pins too.
+
+Writes wait for an authoritative read, are not retried automatically, and disable
+editing while pending or failed. A conflict, invalid receipt or lost response
+triggers readback and exposes a manual Retry action. A server-committed write with
+a lost response is not replayed. Retry reads the account state before enabling
+another edit. The app-store explanation and recovery copy use existing widgets
+and English, Korean, Japanese and Chinese locale resources.
+
+Migration `f2098cef3604` adds only `user_app_preference` after `e1987bdf2503`;
+existing application, identity, card and permission tables are unchanged. A
+populated downgrade is refused to avoid erasing preferences. Deploy the migration
+and API before the matching UI; an unavailable endpoint leaves edits disabled
+while cached shortcuts remain visible. No operating database was migrated during
+local verification.
+
+Verification: authenticated preference HTTP checks passed on SQLite and PostgreSQL,
+including account isolation, bounded validation, reordered/empty lists, stale
+revision rejection, deactivation and two concurrent PostgreSQL writers. Actual
+Alembic history replay passed for populated and fresh PostgreSQL schemas, empty
+rollback/re-upgrade and populated rollback refusal. Both checks were added to the
+existing API/PostgreSQL validation profiles: 356 passed/7 skipped (41.54s) and
+52 passed (22.95s). The seven skips require an explicitly supplied Redis server;
+development JWT fixtures emit short-key warnings. Full Workbench: 42 passed
+(40.1s); final shortcut-only regression: 3 passed (8.7s), including preservation
+of 80 Unicode code points without splitting emoji surrogate pairs. The browser test uses
+two isolated contexts and intercepted API responses to exercise restoration,
+409 readback, response loss without write replay, and offline recovery. Server
+HTTP/migration proof and browser fixture proof are separate; authenticated canary
+store-to-board launch and performance remain outstanding.
