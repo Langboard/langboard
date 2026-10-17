@@ -751,9 +751,9 @@ function BoardCardMobileActions(): React.JSX.Element | null {
 
 function BoardCardMobileComments({ scrollableRef }: { scrollableRef?: React.RefObject<HTMLDivElement | null> }): React.JSX.Element | null {
     const { card } = useBoardCard();
-    const { isCommentPanelOpen } = useBoardCardPanel();
+    const { isCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
 
-    if (!isCommentPanelOpen) {
+    if (!isCommentPanelOpen || commentLayoutMode !== "mobile") {
         return null;
     }
 
@@ -918,7 +918,9 @@ function BoardCardCommentPanel(): React.JSX.Element {
                         <BoardCommentForm variant="panel" />
                     </Box>
                     <ScrollArea.Root className="min-h-0 flex-1" viewportRef={commentViewportRef}>
-                        <BoardCommentList key={`board-card-comment-list-${card.uid}`} scrollableRef={commentViewportRef} className="px-4 py-3" />
+                        {isOpen && (
+                            <BoardCommentList key={`board-card-comment-list-${card.uid}`} scrollableRef={commentViewportRef} className="px-4 py-3" />
+                        )}
                     </ScrollArea.Root>
                 </Flex>
             </Box>

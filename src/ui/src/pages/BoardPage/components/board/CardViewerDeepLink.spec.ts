@@ -663,3 +663,38 @@ test("compact board refresh does not clear a hydrated card description", async (
     await expect.poll(() => summaryReads).toBe(1);
     await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
 });
+
+for (const width of [1920, 390]) {
+    test(`comments mount once at ${width}px and unmount while closed`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await mockBoardApi(page);
+        await page.route("**/board/fixture-project/card/fixture-card/comments", (route) => {
+            return fulfillWithCors(route, {
+                comments: [
+                    {
+                        uid: "single-comment",
+                        card_uid: FIXTURE_CARD.uid,
+                        created_at: NOW_ISO,
+                        updated_at: NOW_ISO,
+                        content: { content: "Single comment surface" },
+                        user: FIXTURE_USER,
+                        is_edited: false,
+                        reactions: {},
+                    },
+                ],
+            });
+        });
+        await page.goto(FIXTURE);
+        const comments = page.locator('[data-card-comment-uid="single-comment"]');
+        const toggle = page.getByRole("button", { name: "Comments", exact: true });
+        await expect(toggle).toBeVisible();
+        await expect(comments).toHaveCount(0);
+        await toggle.click();
+        await expect(comments).toHaveCount(1);
+        await expect(comments).toBeVisible();
+        await toggle.click();
+        await expect(comments).toHaveCount(0);
+        await toggle.click();
+        await expect(comments).toHaveCount(1);
+    });
+}
