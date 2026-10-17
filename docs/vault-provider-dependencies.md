@@ -77,6 +77,31 @@ AppRole and namespace of secret paths per instance; a naming prefix alone is not
 an authorization boundary. Limit read/write/delete to the instance's paths. Runtime
 clients do not need root tokens or permission to enable engines or alter policies.
 
+### External OpenBao deployment checklist
+
+Configure the following names in the instance deployment, with real credentials
+in its secret injection mechanism rather than in the example or source control:
+
+```dotenv
+KEY_PROVIDER_TYPE=openbao-external
+KEY_PROVIDER_OPENBAO_URL=https://vault.example.invalid:8200
+KEY_PROVIDER_VAULT_CA_CERT=/run/certs/vault-ca.pem
+KEY_PROVIDER_VAULT_TIMEOUT=30
+```
+
+Inject `KEY_PROVIDER_OPENBAO_ROLE_ID` and `KEY_PROVIDER_OPENBAO_SECRET_ID` as a
+complete pair. The example endpoint is deliberately nonfunctional. Mount the CA
+bundle at the configured path in **each** consuming API and worker container;
+omit the CA setting when using the system trust store. Generate the shared server
+environment with the repository's normal deployment tooling. Do not configure
+only the API while leaving a worker on its previous provider.
+
+Before activation, render the selected Compose configuration and verify that the
+bundled vault service is absent. Preserve its existing volume. After activation,
+exercise a disposable secret through both the API and worker, then restart those
+consumers and verify the same reference resolves. This is an operator acceptance
+checklist, not a claim that the current canary has passed it.
+
 ### Changing providers safely
 
 Saving a provider selection does not migrate secrets, rewrite SecretRefs, reindex
