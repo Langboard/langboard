@@ -286,3 +286,14 @@ This source defect was independently confirmed in the running API image during
 the Redis adoption investigation. It does not establish the exact cause of an
 individual browser logout or OIDC rejection without correlated request logs.
 The browser session and MCP connection must be verified separately after release.
+
+OIDC discovery and JWKS use the same optional-cache boundary: cache read errors
+fall back to fetching the current provider metadata, and cache write errors do
+not discard a successful provider response. No local metadata store, retry loop
+or secondary cache is introduced. Provider request failures still propagate;
+JWT signature, issuer, audience, time and nonce checks remain in the existing
+validation path. A real RSA-signed JWT regression covers cache read/write
+outages, incorrect audience, incorrect signature and provider failure. The
+pre-change module fails both outage scenarios; the corrected implementation
+passes them together with the existing identity/self-link tests (14 tests).
+This does not make a Keycloak gateway timeout recoverable inside Langboard.
