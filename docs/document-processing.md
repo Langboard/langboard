@@ -244,3 +244,32 @@ untrusted certificate rejects it before HTTP handling. This exercises certificat
 validation and the common connection factory, not a real Qdrant server, server
 authorization, gRPC, persistence or deployment acceptance. A real shared-server
 check remains required before promotion.
+
+### Disposable external-server acceptance
+
+An opt-in test exercises the common connection factory against an actual Qdrant
+REST server. Provision a disposable HTTPS server with API-key authentication and
+permission to create/delete test collections. Supply its URL and secret through
+`LANGBOARD_TEST_QDRANT_URL` and `LANGBOARD_TEST_QDRANT_API_KEY`. For a private CA,
+set `SSL_CERT_FILE` to the trusted bundle as described above. Run:
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/shared/py uv run --no-sync pytest -q \
+  src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_external_test.py
+```
+
+The existing `document-retrieval` dependency extra is required. Without explicit
+test credentials the test skips; an unsecured server fails the authentication
+check. It writes only to random `langboard_acceptance_…` namespaces and deletes
+those collections in `finally`. It checks official-client persistence across
+connections, multilingual content, similarity/MMR, exact source-generation and
+board filters, independent installation namespaces, dimension mismatch rejection
+and idempotent generation deletion. Embeddings are deterministic test vectors;
+no provider calls or local inference models are used. Do not target production.
+
+Local acceptance on 2026-10-17 passed against official Qdrant 1.19.1, image
+`qdrant/qdrant@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10`,
+with a temporary private CA and the pinned 1.19.1 Python client. This is not
+server-side collection RBAC, browser/API/worker acceptance, gRPC verification or
+a performance benchmark. The opt-in test is separate from the simulated-wire
+CA regression above and does not start services during ordinary unit tests.
