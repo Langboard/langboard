@@ -65,7 +65,7 @@ RUN --mount=type=cache,id=langboard-phoenix-yarn,target=/home/validation/.cache/
 
 # Keep internal Python installation and the original cross-runtime gate intact.
 COPY --chown=validation:validation src ./src
-COPY --chown=validation:validation Makefile tach.toml ./
+COPY --chown=validation:validation Makefile tach.toml conftest.py ./
 COPY --chown=validation:validation scripts ./scripts
 COPY --chown=validation:validation .github/workflows/request-image-build.yaml ./.github/workflows/request-image-build.yaml
 COPY --chown=validation:validation docker ./docker

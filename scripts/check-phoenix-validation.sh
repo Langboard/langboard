@@ -8,6 +8,7 @@ status=0
     && : "${LANGBOARD_OUTBOX_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}" \
     && : "${LANGBOARD_EFFECT_TEST_DATABASE:?A disposable PostgreSQL fixture is required}" \
     && : "${LANGBOARD_TEMPLATE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}" \
+    && test -s conftest.py \
     && test -s scripts/sdk/verify_python_artifact_test.py \
     && test -s src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py \
     && test -s src/shared/py/langboard_shared/core/logger/LogFileHandler_test.py \
