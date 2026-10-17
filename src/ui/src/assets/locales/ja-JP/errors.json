@@ -81,5 +81,16 @@
     "OP1002": "アップロードに失敗しました。もう一度お試しください。",
     "OP1003": "自分のアカウントは削除できません。"
   },
-  "This section failed to render.": "このセクションを表示できませんでした。"
+  "This section failed to render.": "このセクションを表示できませんでした。",
+  "form": {
+    "invalid": "無効な値です",
+    "patternMismatch": "指定された形式と一致しません",
+    "rangeOverflow": "値が大きすぎます",
+    "rangeUnderflow": "値が小さすぎます",
+    "stepMismatch": "指定された刻み幅と一致しません",
+    "tooLong": "値が長すぎます",
+    "tooShort": "値が短すぎます",
+    "typeMismatch": "指定された種類と一致しません",
+    "valueMissing": "値を入力してください"
+  }
 }

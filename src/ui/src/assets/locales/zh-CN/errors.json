@@ -81,5 +81,16 @@
     "OP1002": "上传失败，请重试。",
     "OP1003": "无法删除自己的账户。"
   },
-  "This section failed to render.": "无法显示此部分。"
+  "This section failed to render.": "无法显示此部分。",
+  "form": {
+    "invalid": "值无效",
+    "patternMismatch": "值不符合要求的格式",
+    "rangeOverflow": "值太大",
+    "rangeUnderflow": "值太小",
+    "stepMismatch": "值不符合允许的步长",
+    "tooLong": "值太长",
+    "tooShort": "值太短",
+    "typeMismatch": "值不符合要求的类型",
+    "valueMissing": "请输入值"
+  }
 }

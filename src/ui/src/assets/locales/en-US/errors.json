@@ -81,5 +81,16 @@
     "OP1002": "Upload failed. Please try again.",
     "OP1003": "You can't delete yourself."
   },
-  "This section failed to render.": "This section failed to render."
+  "This section failed to render.": "This section failed to render.",
+  "form": {
+    "invalid": "This value is not valid",
+    "patternMismatch": "This value does not match the required pattern",
+    "rangeOverflow": "This value is too large",
+    "rangeUnderflow": "This value is too small",
+    "stepMismatch": "This value does not match the required step",
+    "tooLong": "This value is too long",
+    "tooShort": "This value is too short",
+    "typeMismatch": "This value does not match the required type",
+    "valueMissing": "This value is missing"
+  }
 }
