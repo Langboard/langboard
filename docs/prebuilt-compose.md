@@ -59,6 +59,23 @@ copies/restores data. Never point a new volume at an empty directory and call it
 a migration. Verify access as the image's UID/GID `10001:10001`; do not apply broad
 recursive ownership changes to shared storage.
 
+## Isolated UI build inputs
+
+The UI profile uses `docker/ui-production.Dockerfile`, target `runtime`. Supply
+`API_URL`, `PUBLIC_UI_URL` and `SOCKET_URL` as build arguments for the intended
+environment. The production Vite build requires all three and compiles them into
+the static assets; setting container environment variables later does not change
+them. The runtime stage serves those assets with nginx and has no URL rewrite
+entrypoint.
+
+For staging, use the actual routed staging API, UI and compatible Langboard
+Phoenix URLs. Match the API's public URL/CORS configuration to those origins and
+keep the internal realtime/editor endpoints isolated too. `SOCKET_URL` accepts
+HTTP(S) or WS(S); the browser transport converts HTTP(S) to WS(S). Do not reuse a
+production UI image for isolated acceptance merely because it loads at a staging
+hostname. Verify the release's build inputs and the browser's actual API/realtime
+requests before writing test data. Public URL inputs are not credentials.
+
 ## Optional native overlays
 
 - `docker-compose.prebuilt-vault.yaml` mounts an existing file-based vault
@@ -125,6 +142,27 @@ starts the scheduler/recovery jobs**. This behavior is retained. The worker uses
 API against the live writable DB, broker, OAuth store or application directory.
 Use restored isolated state and separate queues/keys/remote editor ownership.
 Graph can initiate external model/tool effects when called; isolate those too.
+
+A database restore can retain pending deliveries, schedules and external
+destinations even with a separate broker. There is currently no instance-wide
+supported pause/disable flag for all recovery jobs. `NOTIFICATION_EMAIL_OUTBOX_ENABLED`
+only controls its email path. `run --lifespan off` does not prevent the scheduler:
+`ServerRunner.run()` registers and reloads cron before Uvicorn starts. Do not use
+`ENVIRONMENT=development` to alter authentication/security behavior for staging.
+
+When restored integrations cannot be safely isolated, preserve the restore for
+migration/data checks without starting the normal API against it. Start functional
+staging with a separate clean database, clean application/OAuth directories and
+isolated dependencies and credentials instead. The normal production-mode
+`run` command with `WORKER=main` upgrades the schema, bootstraps common workflow
+and relationship definitions, initializes default internal bots and creates an
+initial administrator when none exists. Supply staging-only `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` through protected runtime configuration; then create test boards
+through the existing UI/API. This is the existing CLI bootstrap, not an additional
+seed service. `db:seed` is marked as a development command, can be omitted from
+executable distributions and requires an actual registered seed; do not assume
+it provides a production test tenant. A clean staging instance does not prove
+restored credentials, attachments or OAuth continuity; verify those separately.
 
 Before production activation:
 
