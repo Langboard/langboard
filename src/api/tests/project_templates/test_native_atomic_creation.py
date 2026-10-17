@@ -122,7 +122,13 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                             "name": "Queue",
                             "workflow_stage": "ready",
                             "description": "Column contract",
-                            "translations": {"ko": {"name": "대기", "description": "칼럼 지침"}},
+                            "translations": {
+                                "en": {"name": "Queue", "description": "Column contract"},
+                                "ko": {"name": "대기", "description": "칼럼 지침"},
+                                "ja": {"name": "待機", "description": "列の指針"},
+                                "zh": {"name": "等待", "description": "列说明"},
+                                "es": {"name": "Pendiente", "description": "Guía de la columna"},
+                            },
                         }
                     ],
                     global_label_uids=[label.get_uid()],
@@ -202,7 +208,7 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                     assert copied_scope.is_frozen is True
                 active_column = next(item for item in rows[models.ProjectColumn] if not item.is_archive)
                 assert active_column.description == "Column contract"
-                assert active_column.translations["ko"]["name"] == "대기"
+                assert active_column.translations == template.column_definitions()[0]["translations"]
                 effects.clear()
                 copied_template = service.project_template.copy_from_project(_project, "Roundtrip custom")
                 restored, restored_columns, _ = service.project_template.create_project(
