@@ -28,6 +28,7 @@ from ...models.Checkitem import CheckitemStatus
 from ...models.InternalBot import InternalBotType
 from ...models.ProjectRole import ProjectRoleAction
 from .CheckitemService import CheckitemService
+from .DoclingMetadataService import DoclingMetadataService
 from .ProjectColumnService import ProjectColumnService
 from .ProjectLabelService import ProjectLabelService
 from .ScimProvisioningService import ScimProvisioningService
@@ -688,7 +689,9 @@ class ProjectService(BaseDomainService):
                 should_publish=False,
             )
 
-        self.repo.project.delete(project)
+        with DbSession.atomic():
+            self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project)
+            self.repo.project.delete(project)
 
         ProjectPublisher.deleted(project)
         ProjectActivityTask.project_deleted(user, project)

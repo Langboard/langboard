@@ -13,7 +13,7 @@ TASK_NAME = "langboard.document_vector_cleanup"
 LEASE_SECONDS = 120
 
 
-def record_cleanup(db, pointer: dict | None) -> bool:
+def record_cleanup(db, pointer: dict | None, *, dispatch: bool = True) -> bool:
     """Called inside the transaction removing the last authoritative source pointer."""
     if not isinstance(pointer, dict) or not (pointer.get("chunk_ids") or pointer.get("namespace")):
         return False
@@ -48,7 +48,8 @@ def record_cleanup(db, pointer: dict | None) -> bool:
         }
     event = DocumentVectorCleanup(pointer=recorded)
     db.insert(event)
-    db.after_commit(lambda: enqueue_cleanup(int(event.id)))
+    if dispatch:
+        db.after_commit(lambda: enqueue_cleanup(int(event.id)))
     return True
 
 

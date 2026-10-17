@@ -339,9 +339,9 @@ Apply the API migration, roll workers with the new cleanup task registered, then
 roll API images that produce cleanup requests. Downgrade refuses
 to discard pending cleanup rows; do not empty them merely to force rollback. The
 legacy queued cleanup task remains registered for messages accepted by older
-workers. This outbox covers the pointer replacement and attachment-document
-deletion paths above. Failed staging, wholesale board/card purge, and deployed
-broker/worker acceptance require separate verification.
+workers. This outbox covers pointer replacement, attachment-document deletion,
+and explicit card/board deletion. Failed staging and deployed broker/worker
+acceptance require separate verification.
 
 ### Opt-in real broker cleanup acceptance
 
@@ -393,5 +393,36 @@ PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
 
 This is source regression evidence. Existing pending requests that already lost
 their count are not repaired automatically, and this change does not scan or
-delete production indexes. Board/card-wide deletion and failed staging cleanup
-remain separate acceptance work.
+delete production indexes. Failed staging cleanup and deployed acceptance
+remain separate work.
+
+### Card and board deletion
+
+Explicit card or board deletion records the source's existing embedding pointers
+in the same transaction as the source deletion. Rolling back preserves both the
+source and the absence of cleanup requests. The service uses the same project,
+then card lock order as embedding publication, and reads only the selected
+scope's document metadata in batches of 100. A new inference result cannot
+publish after its project or card is deleted. Other boards remain untouched;
+Wiki reference deletion does not delete the Wiki's resources.
+
+A single card retains immediate after-commit dispatch. Board-wide deletion
+records requests without synchronously contacting the broker for every document;
+the existing minute-based recovery cron dispatches at most 100 due requests per
+run. Worker acknowledgement, retry fencing and recorded external connection
+validation retain their existing behavior. No full attachment reconciler, source
+file deletion, new scheduler or database migration is introduced.
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
+  src/api/tests/card_workspace/test_document_scope_cleanup.py \
+  src/api/tests/card_workspace/test_document_cleanup_outbox.py \
+  src/api/tests/wiki_linked_cards/test_wiki_linked_resource_card.py -q
+```
+
+The scope regression exercises the actual source repositories and transactional
+outbox, with unrelated notification/readiness systems stubbed. It checks rollback,
+a board of 101 documents crossing the read-batch boundary, bounded later dispatch,
+late publication rejection and repeated deletion without new cleanup requests.
+PostgreSQL variants require `LANGBOARD_FILE_TEST_DATABASE_URL`; a skipped variant
+is not concurrency or deployment proof. The tests do not delete production data.

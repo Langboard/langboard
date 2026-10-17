@@ -9,7 +9,7 @@ from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.routing import SocketTopic
 from ....core.types import SafeDateTime
-from ....domain.models import CardAttachment, CardDocumentArtifact, CardMetadata, Project
+from ....domain.models import Card, CardAttachment, CardDocumentArtifact, CardMetadata, Project
 from ....domain.models.bases import BaseMetadataModel
 from ....Env import Env
 from ....helpers import InfraHelper
@@ -474,6 +474,52 @@ class DoclingMetadataService(BaseDomainService):
 
                 record_cleanup(db, (removed.get("embedding") or {}).get("pointer"))
             return removed
+
+    def record_scope_embedding_cleanup(self, project: Project, card: Card | None = None) -> None:
+        """Record derived-index deletion inside the caller's source deletion transaction."""
+        from ....tasks.docling.DocumentCleanupTask import record_cleanup
+
+        with DbSession.atomic() as db:
+            # Match embedding publication's project -> card lock order. A late
+            # inference result must not publish after this source is deleted.
+            current_project = db.exec(
+                SqlBuilder.select.column(Project.id)
+                .where(Project.id == project.id, Project.deleted_at.is_(None))
+                .with_for_update()
+            ).first()
+            if current_project is None:
+                return
+            if card is not None:
+                current_card = db.exec(
+                    SqlBuilder.select.column(Card.id)
+                    .where(Card.id == card.id, Card.project_id == project.id, Card.deleted_at.is_(None))
+                    .with_for_update()
+                ).first()
+                if current_card is None:
+                    return
+            cards = select(Card.id).where(Card.project_id == project.id)
+            if card is not None:
+                cards = cards.where(Card.id == card.id)
+            after_id = 0
+            while True:
+                rows = db.exec(
+                    SqlBuilder.select.columns(CardMetadata.id, CardMetadata.value)
+                    .where(
+                        CardMetadata.card_id.in_(cards),
+                        CardMetadata.key == DOCLING_DOCUMENTS_METADATA_KEY,
+                        CardMetadata.id > after_id,
+                    )
+                    .order_by(CardMetadata.id)
+                    .limit(100)
+                ).all()
+                for _, value in rows:
+                    for document in self.parse_documents({DOCLING_DOCUMENTS_METADATA_KEY: value}):
+                        # Bulk deletion uses the existing bounded recovery cron,
+                        # avoiding one synchronous broker call per document.
+                        record_cleanup(db, (document.get("embedding") or {}).get("pointer"), dispatch=card is not None)
+                if len(rows) < 100:
+                    break
+                after_id = rows[-1][0]
 
     def publish_update(
         self, model_cls: type[BaseMetadataModel], foreign_model: BaseDbModel, topic: SocketTopic

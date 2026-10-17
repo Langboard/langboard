@@ -69,6 +69,7 @@ from ..ExecutionGeneration import execution_generations
 from .CardContentBlockService import CardContentBlockService
 from .CardRelationshipService import CardRelationshipService
 from .CheckitemService import CheckitemService
+from .DoclingMetadataService import DoclingMetadataService
 from .GlobalLabelService import GlobalLabelService
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
@@ -2375,6 +2376,8 @@ class CardService(BaseDomainService):
             # Linked cards are disposable references. Purging the board-side row
             # allows the same source to be linked again while its Wiki stays intact.
             is_linked_resource = card.is_linked_resource
+            if not is_linked_resource:
+                self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project, card)
             self.repo.card.delete(card, purge=is_linked_resource)
             self.repo.card.reoder_after_delete(card.project_column_id, card.order)
 
