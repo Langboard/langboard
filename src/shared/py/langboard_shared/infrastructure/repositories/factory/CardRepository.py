@@ -369,7 +369,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         )
         query = (
             SqlBuilder.select.tables(Card, ProjectColumn)
-            .join(ProjectColumn, Card.column("project_column_id") == ProjectColumn.column("id"))
+            .join(
+                ProjectColumn,
+                (Card.column("project_column_id") == ProjectColumn.column("id"))
+                & (ProjectColumn.column("project_id") == project_id),
+            )
             .where(Card.column("project_id") == project_id)
             .where(card_visibility_scope(context))
             .where(Card.column("source_type") == None)  # noqa: E711
@@ -426,6 +430,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 .label("source_rank"),
             )
             .join(Card, Card.id == CardAttachment.card_id)
+            .join(
+                ProjectColumn,
+                (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id),
+            )
+            .where(ProjectColumn.deleted_at.is_(None))
             .where(Card.project_id == InfraHelper.convert_id(project))
             .where(Card.id.in_(card_ids[:20]))
             .where(card_visibility_scope(context))

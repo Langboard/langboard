@@ -166,6 +166,23 @@ and four-language command checks. It is not deployed acceptance. Optional
 vector result composition, precise source-page navigation and live multilingual
 retrieval quality remain separate requirements.
 
+### Current workflow source validation for keyword search
+
+Both board card-context search and transcript snippet projection validate that a
+card's workflow column belongs to the same board. Removed columns are excluded
+before result limits and excerpt ranking. An inconsistent or stale card/column
+relationship must not expose another board's column name, consume the result
+budget, or return a removed workflow's transcript. These checks use the current
+primary SQL source and preserve the existing card visibility policy, literal
+matching, two-source/500-character excerpt bounds and optional embeddings.
+They neither repair operating records nor create/rebuild an external index.
+
+The SQLite/PostgreSQL regression creates inconsistent and removed workflow
+sources beside a readable current card. The unmodified implementation fails all
+four cases; the fixed query returns the current card even with a limit of one
+and excludes invalid sources from transcript excerpts. This is source regression
+evidence, not Elasticsearch integration or canary acceptance.
+
 ### Page-scoped non-destructive document reads
 
 `read_card_document` accepts an optional positive `page`. It loads only the

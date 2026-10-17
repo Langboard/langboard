@@ -31,6 +31,7 @@ case "$profile" in
       src/api/tests/mcp_integration/test_card_mcp_contract.py \
       src/api/tests/card_visibility/test_visibility_transition.py \
       src/api/tests/card_visibility/test_policy.py \
+      src/api/tests/card_visibility/test_search_source_scope.py \
       src/api/tests/card_visibility/test_private_policy.py \
       src/api/tests/card_visibility/test_metadata_visibility.py \
       src/api/tests/card_visibility/test_metadata_projection.py \
@@ -61,7 +62,8 @@ case "$profile" in
       src/api/tests/dashboard/test_project_activity_priority.py \
       src/api/tests/dashboard/test_board_seen_cursor.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
-      src/api/tests/card_workspace/timers/)
+      src/api/tests/card_workspace/timers/ \
+      src/api/tests/card_visibility/test_search_source_scope.py)
     ;;
   *)
     echo "Unsupported validation profile: $profile" >&2
