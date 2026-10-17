@@ -33,3 +33,13 @@ The initial complete run passed 34 of 35 cases. The description navigator Home-k
 case retained `scrollTop=2` instead of zero; that failure is preserved and is not
 waived. The final selected rail, focus, floating-dock, and shell cases passed 12
 tests; three viewport cases were rerun after the final border inset adjustment.
+
+The Home-key failure was subsequently reproduced in four of five isolated runs.
+Keyboard scrolling now reapplies its target on the next render frame, matching
+the existing section-navigation correction. The previous scheduled navigation is
+cancelled before every new request. The same Home-key check then passed five of
+five runs, and the complete Workbench suite passed all 35 cases in 30.2 seconds.
+Type checking and scoped ESLint also passed. Disabling browser scroll anchoring
+and using native instant scrolling alone did not reliably fix the failure; those
+experiments were discarded. Exact browser-internal causality remains unproven.
+These results still do not establish authenticated canary acceptance.
