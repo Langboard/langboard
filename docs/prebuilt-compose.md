@@ -174,10 +174,14 @@ Before production activation:
    `docker compose config --images` to the immutable release receipts. Avoid
    printing a fully resolved config because it contains runtime secrets.
 4. Rehearse the intended API image's migration against the isolated restored DB.
-   An explicit `compose run --rm --no-deps api uv run --no-sync langboard
-   db:upgrade` runs the upgrade command without starting the API scheduler; this
-   is a write and must target the isolated DB during rehearsal. It does not
-   validate the full API bootstrap by itself.
+   An explicit `docker compose run --rm --no-deps -e IS_CLI=true api uv run
+   --no-sync langboard db:up` runs the upgrade command without starting the API
+   scheduler. Set `IS_CLI` before process import because CLI dependencies can
+   initialize KeyVault before the command dispatcher sets the CLI flag. This
+   selects the existing local CLI vault under `DATA_DIR/vault-data`; use disposable
+   isolated application data and do not pass this flag to the API runtime.
+   The upgrade writes to the database and must target the isolated DB during
+   rehearsal. It does not validate full API bootstrap or production key access.
 5. Drain writes and document jobs, stop old API/scheduler and broker consumers,
    finish the final state synchronization, and verify no competing editor owner.
    Then explicitly activate `application` and `workers` on the final state.
