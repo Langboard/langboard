@@ -779,3 +779,37 @@ existing API and full Phoenix validation profiles; no additional
 workflow or runner is introduced. Raw browser samples and before/after receipts
 are retained in private verification artifacts without credentials or payloads.
 Deployed error reduction and post-image performance acceptance remain pending.
+
+
+### Remaining recovery CLI discovery
+
+Central read-only observations at about 10:38Z found strong CPU pressure in the
+API cgroup and its two-core LXC. A later 10.04-second process CPU delta attributed
+about 0.86 CPU cores to four nice-10 background processes, versus about 0.046
+cores to the API main process; this is a separate sampling interval, not an
+exact-request attribution. The four-core host also had substantial CPU pressure.
+No process, VM or running job was stopped.
+
+Source comparison against the actual deployed OCI revision shows its cron runner
+still permits four simultaneous jobs; the candidate's existing two-job/fairness
+bound is not yet deployed. Seven recovery jobs are registered every minute.
+Most candidate jobs already use direct Python modules, but Ollama and internal
+bot recovery still invoked the full CLI, including discovery/import of unrelated
+commands on every execution.
+
+Those two scripts now invoke their existing command modules with `python -m`.
+Each module delegates to the same command and options classes; original flock
+paths, recovery methods, error propagation and board-chat reconciliation are
+reused. Manual CLI registration remains available. This removes the whole-CLI
+bootstrap from those cron invocations without another service, queue or command
+registry. It does not remove their required domain imports or claim to resolve
+host contention.
+
+Four direct-entrypoint cases failed on the original modules, then the combined
+entrypoint, fresh-process import, real cron/lock and existing Ollama/internal-run
+regression passed 103 cases. The two existing JWT fixture short-key warnings are
+retained. Dispatch tests replace the service boundary; the existing recovery
+service suites exercise its state transitions separately. Fresh import cases
+confirm neither CLI discovery nor schema generation/inflect is loaded. Both
+existing API and Phoenix validation profiles include the new cases. Measure CPU
+and request latency again after the immutable candidate image is deployed.

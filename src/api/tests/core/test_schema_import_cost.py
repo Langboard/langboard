@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
     "module",
     [
         "langboard.apps.GitHubHealthWorker",
+        "langboard.commands.RunOllamaModelPullRecoveryCommand",
+        "langboard.commands.RunInternalBotRunRecoveryCommand",
         "langboard_shared.tasks.webhooks.ExecutionOutboxWorker",
         "langboard_shared.tasks.webhooks.AppEventDeliveryWorker",
     ],
@@ -26,7 +28,8 @@ def test_recovery_import_does_not_load_schema_generator(module):
             (
                 f"import importlib, sys; importlib.import_module({module!r}); "
                 "assert 'langboard_shared.core.utils.datamodel.parser.jsonschema' not in sys.modules; "
-                "assert 'inflect' not in sys.modules"
+                "assert 'inflect' not in sys.modules; "
+                "assert 'langboard.CLI' not in sys.modules"
             ),
         ],
         env={**os.environ, "SENTRY_DSN": ""},

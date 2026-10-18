@@ -38,3 +38,7 @@ class RunOllamaModelPullRecoveryCommand(BaseCommand):
     def execute(self, _: RunOllamaModelPullRecoveryCommandOptions) -> None:
         with DomainService.use() as service:
             service.ollama_model_pull.recover()
+
+
+if __name__ == "__main__":
+    RunOllamaModelPullRecoveryCommand().execute(RunOllamaModelPullRecoveryCommandOptions())
