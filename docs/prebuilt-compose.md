@@ -75,8 +75,12 @@ remains supported for self-hosted installations. Errors name the input without
 printing its value. This validates URL syntax, not the destination's isolation,
 reachability or authorization; those still require deployment acceptance.
 
-Run `node --test scripts/production-build-config.test.mjs` from `src/ui` to
-exercise the actual Vite configuration without compiling or publishing images.
+Before building, check that all three URLs identify the intended deployment and
+use compatible API, UI and Phoenix releases. For prebuilt images, obtain the
+release build inputs from the publisher and confirm they match your public
+origins. After deployment, inspect the browser network requests to verify the
+compiled API and realtime destinations, CORS access and successful realtime
+connection through your ingress.
 
 For staging, use the actual routed staging API, UI and compatible Langboard
 Phoenix URLs. Match the API's public URL/CORS configuration to those origins and

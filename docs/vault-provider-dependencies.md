@@ -99,8 +99,7 @@ only the API while leaving a worker on its previous provider.
 Before activation, render the selected Compose configuration and verify that the
 bundled vault service is absent. Preserve its existing volume. After activation,
 exercise a disposable secret through both the API and worker, then restart those
-consumers and verify the same reference resolves. This is an operator acceptance
-checklist, not a claim that the current canary has passed it.
+consumers and verify the same reference resolves.
 
 ### Changing providers safely
 

@@ -5,7 +5,8 @@
 Python cache consumers use `CACHE_URL`; Celery uses `BROKER_URL` (falling back
 to `CACHE_URL` for legacy installations). Credentials belong in deployment
 secrets, never in source. Redis client URL parsing also supports `rediss://`;
-this change adds no certificate-validation bypass.
+configure trusted certificates for TLS connections. Langboard does not add a
+certificate-validation bypass.
 
 Set `CACHE_KEY_PREFIX` to a unique, server-owned instance namespace such as
 `langboard:example:cache:`. The value must end in `:`, contain only ASCII
@@ -49,13 +50,11 @@ Redis services behind an inactive profile, removes their dependency edges, and
 sets API, graph and Celery worker URLs and namespaces together. Existing volumes
 remain declared; configuration rendering creates or deletes no data. Do not
 enable `bundled-redis` alongside external mode. PowerShell selects the same
-override; its runtime was not exercised in the macOS verification.
+override.
 
-The Make entry point must stop when selection fails (for example, a missing
-external broker URL). A failed selector must never become an empty argument list
-for a later `docker compose` build/run/up/down command. The guard supports GNU
-Make 3.81 without relying on newer `.SHELLSTATUS` behavior. Correct the reported
-setting before retrying; it does not silently fall back to bundled services.
+The Make entry point stops when selection fails, for example when an external
+broker URL is missing. Correct the reported setting before retrying; selection
+failure does not silently fall back to bundled services.
 
 Celery uses Kombu's native `global_keyprefix` through `broker_transport_options`,
 including its queue keys and Redis pub/sub channels. `BROKER_KEY_PREFIX` has the
@@ -64,8 +63,7 @@ legacy broker names. Prefixes coordinate names; server ACLs enforce access.
 Broker command and channel ACLs must cover the configured namespace, including
 Kombu control/event traffic; cache command grants alone are not a broker ACL.
 
-Phoenix has no Redis consumer in its current Elixir runtime. Its unused
-`CACHE_URL` and Redis readiness dependency have been removed.
+The Phoenix realtime service does not require a Redis connection.
 
 ## Rollout boundaries
 

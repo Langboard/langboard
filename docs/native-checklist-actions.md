@@ -1,6 +1,6 @@
 # Native checklist actions
 
-Langboard exposes `change_card_checklist(project_uid, card_uid, change)` in Agent/Core and native OAuth. It absorbs the plugin's eight action shapes without replacing the existing `update_card_checklist` primitive, whose legacy title/checked-state schema remains unchanged.
+Langboard exposes `change_card_checklist(project_uid, card_uid, change)` in Agent/Core and native OAuth. The existing `update_card_checklist` primitive retains its legacy title/checked-state schema.
 
 | Action | Required fields | Optional fields |
 | --- | --- | --- |
@@ -17,4 +17,4 @@ Each change is a discriminated union. Unexpected fields, blank identifiers/title
 
 Canonical commands retain board/card ancestry checks, active-column validation, action permissions and actor/service injection. Promotion retains the existing canonical CardUpdate permission. After an ambiguous promotion, read the checkitem's `cardified_card` before retrying. Completion does not approve a card or automatically change its workflow.
 
-Legacy API-key clients still need an explicit grant for the new tool. Native OAuth does not use a manually composed ToolGroup. Existing plugin routing remains until native authenticated parity is verified; there is no destructive cutover in this change.
+Legacy API-key clients need an explicit grant for this tool. Native OAuth does not use a manually composed ToolGroup. See [native MCP profiles](native-mcp-profiles.md) and [native MCP OAuth](native-mcp-oauth.md) for transport and authorization requirements.
