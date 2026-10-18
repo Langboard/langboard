@@ -479,3 +479,54 @@ The existing real-component browser fixture covers four-language captions and
 canonical submitted values, disabled submission, Qdrant/SQLite modes and desktop/
 mobile layout. The localization workflow runs this focused suite. Local source
 verification does not replace authenticated acceptance after UI deployment.
+
+
+### PostgreSQL retrieval default and preserved legacy indexes
+
+New retrieval settings default to `store: postgres`, while retrieval remains
+opt-in (`enabled: false`). The adapter reuses the official
+`langgraph-checkpoint-postgres==3.1.3` `PostgresStore` and the same LangChain
+vector boundary as SQLite. It uses the existing `MAIN_DATABASE_URL`, including
+its TLS query settings; there is no additional application database or ORM.
+API/worker image profiles already install the `document-retrieval` extra.
+
+Before enabling this store, the database operator must install pgvector in the
+`public` schema. The application fails explicitly if it is missing or installed
+elsewhere; it never falls back to SQLite. Its database role needs schema creation
+and read/write access to the generated model schemas. Explicit attachment
+indexing creates a dimension-bound schema per embedding fingerprint through
+native LangGraph migrations. Search and cleanup never create or migrate it.
+Stored dimensions must match the configured model (1–16,000).
+
+The current adapter uses exact cosine search (`flat`), avoiding an implicit ANN
+index with different dimension limits. This scans the relevant stored vectors;
+large workloads should select the existing external Qdrant option and measure
+latency before enabling retrieval broadly. Model namespaces and source filters
+are not authorization: current board/card access and active-generation checks
+remain required at the existing retrieval boundary.
+
+Previously stored settings explicitly retain `store: sqlite`; their indexes,
+recorded generation identifiers and credential-free cleanup remain supported.
+Saving settings does not migrate files, replace embeddings or scan attachments.
+Only a new upload or an explicit attachment indexing request uses its selected
+settings. Original transcriptions and PostgreSQL keyword search remain available
+without embeddings. Elasticsearch selection is still separate unfinished work.
+
+Real integration tests require `LANGBOARD_VECTOR_TEST_DATABASE_URL` matching `MAIN_DATABASE_URL` in an isolated test process and pointing to
+an explicitly disposable PostgreSQL database with pgvector already in `public`.
+They skip without that dedicated variable and never use the production database
+implicitly. Coverage includes persistence, multilingual content, missing-index
+reads without schema creation, source-generation filtering, independent model
+dimensions and cleanup without embedding credentials. These tests are source
+acceptance, not deployed canary or external-user acceptance.
+
+
+Source acceptance on 2026-10-18: four real PostgreSQL/pgvector cases passed,
+59 existing retrieval/store/embedding cases passed (one existing negative-CA
+client compatibility warning), and seven real-component settings browser cases
+passed at desktop/mobile widths and four locales. TypeScript, targeted product
+ESLint, formatting, locale parity and both lock checks passed. The first explicit
+opt-in fixture run attempted to assign a read-only Env property and failed;
+the fixture now requires matching isolated process configuration without changing
+that property. Failed receipts remain preserved. No canary image was deployed
+by this verification.

@@ -92,6 +92,12 @@ def open_document_vector_store(
         context = open_sqlite_vector_store(
             path, embeddings, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds
         )
+    elif settings.store == "postgres":
+        from .DocumentPostgresStore import open_postgres_vector_store
+
+        context = open_postgres_vector_store(
+            embeddings, fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds, create=create
+        )
     elif settings.store == "qdrant":
         context = open_qdrant_store(settings, embeddings, fingerprint, allowed_urls, create=create)
     else:
@@ -102,7 +108,7 @@ def open_document_vector_store(
 
 def document_source_filter(storage: dict, source: dict):
     """Translate exact source constraints to the official backend filter format."""
-    if storage.get("type") == "sqlite":
+    if storage.get("type") in {"sqlite", "postgres"}:
         return source
     if storage.get("type") != "qdrant":
         raise ValueError("Unsupported vector storage")

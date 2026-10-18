@@ -48,6 +48,15 @@ def remove_recorded_embedding(pointer: dict) -> None:
     if storage.get("type", "sqlite") == "sqlite":
         remove_document_generation(Env.DATA_DIR / "document-retrieval", pointer)
         return
+    if storage.get("type") == "postgres":
+        from .DocumentPostgresStore import open_postgres_vector_store
+
+        with open_postgres_vector_store(
+            None, pointer["embedding_fingerprint"], dimensions=storage["dimensions"], create=False
+        ) as store:
+            if store is not None:
+                delete_vector_generation(store, pointer)
+        return
     if storage.get("type") != "qdrant":
         raise ValueError("Unsupported recorded vector storage")
     service = DomainService()
@@ -114,7 +123,7 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             and (old.get("pointer") or {}).get("embedding_fingerprint") == fingerprint
             and ((old.get("pointer") or {}).get("storage") or {}).get("type", "sqlite") == settings.store
             and (
-                settings.store == "sqlite"
+                settings.store in {"sqlite", "postgres"}
                 or (
                     ((old.get("pointer") or {}).get("storage") or {}).get("endpoint")
                     == str(settings.external_url).rstrip("/")
@@ -139,6 +148,8 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
                 embedding_fingerprint=fingerprint,
             )
             storage = {"type": settings.store}
+            if settings.store == "postgres":
+                storage["dimensions"] = settings.dimensions
             if settings.store == "qdrant":
                 storage.update(
                     endpoint=str(settings.external_url).rstrip("/"),

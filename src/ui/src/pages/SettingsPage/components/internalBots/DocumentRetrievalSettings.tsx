@@ -20,7 +20,7 @@ export default function DocumentRetrievalSettings({
     const splitter = settings.splitter && typeof settings.splitter === "object" ? (settings.splitter as Settings) : {};
     const [splitterType, setSplitterType] = useState(String(splitter.type ?? "recursive"));
     const [lengthUnit, setLengthUnit] = useState(String(splitter.length_unit ?? "characters"));
-    const [storeType, setStoreType] = useState(String(settings.store ?? "sqlite"));
+    const [storeType, setStoreType] = useState(String(settings.store ?? "postgres"));
     const [searchType, setSearchType] = useState(String(settings.search_type ?? "similarity"));
     const numeric = (name: string, fallback: number, min: number, max: number, step = 1, optional = false) => (
         <label className="grid gap-1 text-xs" key={name}>
@@ -155,7 +155,7 @@ export default function DocumentRetrievalSettings({
                     }
                 }
                 next.enabled = form.has("enabled");
-                if (storeType === "sqlite") {
+                if (storeType !== "qdrant") {
                     delete next.external_url;
                     delete next.external_api_key;
                     delete next.collection_prefix;
@@ -180,14 +180,16 @@ export default function DocumentRetrievalSettings({
                         defaultValue={storeType}
                         onChange={(event) => {
                             setStoreType(event.target.value);
-                            if (event.target.value === "sqlite") setSearchType("similarity");
+                            if (event.target.value !== "qdrant") setSearchType("similarity");
                         }}
                         className="h-9 rounded-md border bg-background px-2 text-sm"
                     >
+                        <option value="postgres">{t("internalBot.retrieval.store_postgres")}</option>
                         <option value="sqlite">{t("internalBot.retrieval.store_sqlite")}</option>
                         <option value="qdrant">{t("internalBot.retrieval.store_qdrant")}</option>
                     </select>
                 </label>
+                {storeType === "postgres" && <p className="text-xs text-muted-foreground">{t("internalBot.retrieval.store_postgres_help")}</p>}
                 {storeType === "qdrant" && (
                     <div className="grid gap-3 sm:grid-cols-2">
                         <label className="grid gap-1 text-xs">
@@ -217,7 +219,7 @@ export default function DocumentRetrievalSettings({
                     </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-2">
-                    {numeric("dimensions", 1536, 1, 65536)}
+                    {numeric("dimensions", 1536, 1, storeType === "postgres" ? 16000 : 65536)}
                     {select("splitter.type", "recursive", ["recursive", "character", "markdown"])}
                     {numeric("splitter.chunk_size", 1000, 64, 8192)}
                     {numeric("splitter.chunk_overlap", 150, 0, 2048)}

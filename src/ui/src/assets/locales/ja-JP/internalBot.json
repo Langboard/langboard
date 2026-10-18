@@ -55,6 +55,8 @@
     "lambda_mult": "関連性の重み",
     "score_threshold": "最小類似度（任意）",
     "fetch_error": "候補数は結果数以上にしてください。",
-    "search_help": "MMRは関連性と多様性を調整します。類似度の最小スコアを空欄にするとフィルターを適用しません。"
+    "search_help": "MMRは関連性と多様性を調整します。類似度の最小スコアを空欄にするとフィルターを適用しません。",
+    "store_postgres": "PostgreSQL (pgvector)",
+    "store_postgres_help": "メインのPostgreSQLデータベースのpgvectorを使用します。既存のSQLiteデータは元の保存先に残り、設定変更で移動や再索引は行いません。"
   }
 }

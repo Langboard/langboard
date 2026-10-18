@@ -55,6 +55,8 @@
     "lambda_mult": "Relevance weight",
     "score_threshold": "Minimum similarity (optional)",
     "fetch_error": "Candidate limit must be at least the result limit.",
-    "search_help": "MMR balances relevance and diversity. Similarity supports an optional minimum score; leave it empty to disable filtering."
+    "search_help": "MMR balances relevance and diversity. Similarity supports an optional minimum score; leave it empty to disable filtering.",
+    "store_postgres": "PostgreSQL (pgvector)",
+    "store_postgres_help": "Uses the main PostgreSQL database with pgvector. Existing SQLite data stays in its recorded store; settings do not migrate or reindex attachments."
   }
 }

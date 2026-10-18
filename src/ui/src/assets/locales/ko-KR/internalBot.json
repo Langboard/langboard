@@ -55,6 +55,8 @@
     "lambda_mult": "관련성 가중치",
     "score_threshold": "최소 유사도 (선택)",
     "fetch_error": "후보 수는 결과 수 이상이어야 합니다.",
-    "search_help": "MMR은 관련성과 다양성을 조절합니다. 유사도 검색의 최소 점수는 비워 두면 필터를 적용하지 않습니다."
+    "search_help": "MMR은 관련성과 다양성을 조절합니다. 유사도 검색의 최소 점수는 비워 두면 필터를 적용하지 않습니다.",
+    "store_postgres": "PostgreSQL (pgvector)",
+    "store_postgres_help": "기본 PostgreSQL DB의 pgvector를 사용합니다. 기존 SQLite 데이터는 기록된 저장소에 유지되며 설정 변경으로 첨부를 이동하거나 재색인하지 않습니다."
   }
 }
