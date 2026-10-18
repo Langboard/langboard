@@ -156,6 +156,7 @@ def _evaluate_principal(db, principal, project_id, card_id, expected_generation,
         or stage is None
         or not stage.is_active
         or not stage.is_builtin
+        or stage.counts_as_completed
         or not binding.stage_transitions_enabled
         or binding.workflow_mapping.get(workflow_stage) != column.get_uid()
     ):
@@ -217,8 +218,8 @@ def evaluate_runtime_execution_grant(db, request, lease):
     only after this lease's retained start and explicit native move. Any later
     content, resource, binding, ownership, generation or policy change revokes it.
     """
-    from .AppConnectionAuthentication import AuthenticatedAppConnection, _connection
     from ..models import AppExecutionActive, AppExecutionStart
+    from .AppConnectionAuthentication import AuthenticatedAppConnection, _connection
 
     connection = _connection(db, request.connection_id)
     principal = AuthenticatedAppConnection(
@@ -258,10 +259,10 @@ def evaluate_runtime_execution_grant(db, request, lease):
 
 def evaluate_accepted_execution_grant(db, request):
     """Current request authority, including only a live explicitly handed-off run."""
+    from ...core.types import SafeDateTime
     from ..models import AppConnectionCredential, AppExecutionActive
     from .AppConnectionAuthentication import _identity_hash
     from .AppEventDelivery import _expired
-    from ...core.types import SafeDateTime
 
     handoff = db.exec(
         SqlBuilder.select.table(AppExecutionActive).where(AppExecutionActive.request_id == request.id)

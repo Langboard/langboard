@@ -592,8 +592,10 @@ through dedicated app Bearer authentication, without accepting caller identity.
 
 The current primary checks owning app, current connection/policy and actor role,
 card visibility, current resource selection/access/type, current board consent,
-explicit built-in ready mapping, unsatisfied blocking prerequisites, pending
-native approvals and the requested positive execution generation. Successful
+explicit built-in ready mapping, a current non-completed workflow policy,
+unsatisfied blocking prerequisites, pending native approvals and the requested
+positive execution generation. If the current stage becomes completed, both new
+authority checks and subsequent runtime permit checks deny execution. Successful
 inspection returns `state: eligible` and `started: false`, with ownership,
 selection, board and card revisions. It is not a stored grant, lease, execution
 start, stop acknowledgment or a mutation authorization token. Every future write
