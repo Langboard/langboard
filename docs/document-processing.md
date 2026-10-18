@@ -541,3 +541,51 @@ and the production `document-retrieval` install dry run pass. Existing app and
 full Phoenix validation installs use `--locked` to reject stale metadata before
 installation; `--frozen` alone would trust an outdated lock. No validation job,
 runner or deployment environment was added.
+
+## Optional Elasticsearch keyword search: implementation boundary
+
+Elasticsearch is not implemented or selectable in this source. PostgreSQL remains
+the keyword-search owner, including transcribed attachment text without embeddings.
+Do not expose a working-looking settings option backed only by an unused client
+module, or redirect a deployment to another application's cluster/index.
+
+The implementation must preserve these boundaries before it replaces a read path:
+
+- Use the official Python client for endpoint, API-key authentication, certificate
+  verification/custom CA, request timeout and bounded bulk operations. Select a
+  supported client/server version pair from the operator's actual deployment;
+  do not disable TLS verification or choose an old client just to reach a legacy
+  service. Optional dependencies must remain absent from the default import path.
+- Store connection secrets through the existing SecretRef boundary. Instance-owned
+  index names and server-enforced permissions are both required; a name prefix
+  alone is not isolation. Never reuse another application's existing index.
+- Index Langboard-owned text projections with board/card/attachment provenance,
+  content generation and revision. Card text, comments and transcriptions need
+  their existing authoritative write owners; attachment inference remains optional.
+  Multilingual extracted keywords are searchable attributes, not executable DSL.
+- Commit a durable indexing/deletion request with the authoritative source change;
+  dispatch only after commit. Retry due requests with a bounded lease. Do not put
+  remote network calls in the source transaction, reuse execution-ready semantics
+  as indexing state, or create a full-file polling reconciler. Setting a provider
+  must not enqueue all existing files or regenerate embeddings.
+- Query a bounded candidate set for an explicit board. Treat index IDs, text and
+  snippets as untrusted: revalidate current primary DB project/card/column access,
+  deletion and source generation before materializing any response. Do not expose
+  remote snippets before that check. Stale, unavailable or incomplete indexing
+  must retain PostgreSQL search coverage, rather than silently omit new content.
+- Switching providers keeps old data and connection references available for
+  explicit migration/cleanup and rollback. Source deletion needs durable derived
+  index cleanup even if credentials or the current endpoint change. Search and
+  connection checks must never perform indexing, inference or schema setup.
+
+Acceptance requires a real supported external cluster: scoped credentials, TLS
+and permission failures, two instance/board namespaces, source replacement and
+revocation, delivery failure/recovery, deletion and restart persistence. Add the
+settings UI only when it can report these actual capabilities and failures.
+PostgreSQL behavior must pass with Elasticsearch absent. Until then the portability
+card's Elasticsearch item remains incomplete; local SQL or vector-store tests do
+not substitute for that acceptance.
+
+Official references: [client connections](https://www.elastic.co/docs/reference/elasticsearch/clients/python/connecting),
+[TLS/timeouts](https://www.elastic.co/docs/reference/elasticsearch/clients/python/configuration),
+[bounded bulk helpers](https://elasticsearch-py.readthedocs.io/en/stable/api_helpers.html).
