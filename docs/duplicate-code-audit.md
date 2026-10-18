@@ -13,6 +13,23 @@ lines. The initial 1,502 source files contained 46 candidate groups. The refresh
 1,518 files contain 41 groups. Candidates require caller and closure review;
 matching text is not sufficient authority to combine different workflows.
 
+## Native model exports, 2026-10-19
+
+The existing package imported `AppCardArchive`, `AppCardInteractionTransition`
+and `AppExecutionActive` but omitted them from `__all__`. Their table registration
+was already intact; this was not a missing-model migration or runtime incident.
+The package now exports those existing classes, sorts native imports and combines
+repeated imports from the same module. All 137 export names resolve uniquely.
+`AppSchema` stays outside the public exports and still attaches invariants after
+all model imports. No model, registry, service, migration or dependency was added.
+
+The previous wildcard-import assertion failed before the export correction.
+Fresh-process import checks and existing SQLite/PostgreSQL archive uniqueness,
+downgrade and history-preservation regressions passed 10 cases without skips.
+The package initializer's four prior Ruff findings are resolved. These are source
+consistency checks; they do not establish a deployed-canary improvement or a new
+external SDK capability.
+
 ## Canonical owners
 
 | Repeated behavior | Shared owner | Consumers |

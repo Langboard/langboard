@@ -2,28 +2,24 @@ from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
 from .ApiKeyUsage import ApiKeyUsage
-from .AppCardInteraction import AppCardInteraction
 from .AppCardArchive import AppCardArchive
+from .AppCardInteraction import AppCardInteraction
 from .AppCardInteractionResponse import AppCardInteractionResponse
 from .AppCardInteractionTransition import AppCardInteractionTransition
-from .AppEventDestination import AppEventDestination
-from .AppExecutionOutbox import AppExecutionOutbox
-from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
-from .AppExecutionLease import AppExecutionLease
-from .AppExecutionStart import AppExecutionStart
-from .AppExecutionRequest import AppExecutionRequest
-from .AppExecutionReview import AppExecutionReview
-from .AppMcpConsent import AppMcpConsent
+from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
-from .CardAppResourceSelection import CardAppResourceSelection
-from .CardAppResourceSelection import CardAppResourceSelectionAudit
-from .CardAppOwnership import CardAppOwnership
-from .CardAppOwnership import CardAppOwnershipAudit
 from .AppDefinition import AppDefinition
-from .AppComposition import AppComposition
-from .AppComposition import AppCompositionMember
+from .AppEventDestination import AppEventDestination
+from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
+from .AppExecutionActive import AppExecutionActive
+from .AppExecutionLease import AppExecutionLease
+from .AppExecutionOutbox import AppExecutionOutbox
+from .AppExecutionRequest import AppExecutionRequest
+from .AppExecutionReview import AppExecutionReview
+from .AppExecutionStart import AppExecutionStart
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
 from .BoardAppBinding import BoardAppBinding
@@ -34,6 +30,8 @@ from .BotSchedule import BotSchedule
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
+from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
+from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
 from .CardAppSignalBinding import CardAppSignalBinding
 from .CardAssignedProjectLabel import CardAssignedProjectLabel
 from .CardAssignedUser import CardAssignedUser
@@ -46,9 +44,8 @@ from .CardComment import CardComment
 from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
+from .CardExecutionGeneration import CardExecutionGeneration, CardExecutionIntent
 from .CardMetadata import CardMetadata
-from .DocumentVectorCleanup import DocumentVectorCleanup
-from .DocumentKeywordIndex import DocumentKeywordIndex
 from .CardRelationship import CardRelationship
 from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
@@ -60,6 +57,8 @@ from .ChatTemplate import ChatTemplate
 from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
+from .DocumentKeywordIndex import DocumentKeywordIndex
+from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
 from .DokployWebhookBinding import DokployWebhookBinding
 from .EditorGraphApprovalRequest import EditorGraphApprovalRequest
@@ -72,14 +71,18 @@ from .GlobalCardRelationshipType import GlobalCardRelationshipType
 from .GlobalLabel import GlobalLabel
 from .GraphApprovalRequest import GraphApprovalRequest
 from .InternalBot import InternalBot
+from .InternalBotRun import InternalBotRun
 from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
+from .NotificationEmailDelivery import NotificationEmailDelivery
 from .NotificationScheduleRule import NotificationScheduleRule
+from .OllamaModelPull import OllamaModelPull
 from .Organization import Organization
 from .Project import Project
 from .ProjectActivity import ProjectActivity
+from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from .ProjectAssignedUser import ProjectAssignedUser
 from .ProjectBotDefaultScope import ProjectBotDefaultScope
@@ -92,8 +95,7 @@ from .ProjectColumnBotDefaultScope import ProjectColumnBotDefaultScope
 from .ProjectColumnBotLog import ProjectColumnBotLog
 from .ProjectColumnBotSchedule import ProjectColumnBotSchedule
 from .ProjectColumnBotScope import ProjectColumnBotScope
-from .ProjectEmailNotificationPolicy import ProjectEmailNotificationPolicy
-from .ProjectEmailNotificationPolicy import ProjectEmailNotificationRecipient
+from .ProjectEmailNotificationPolicy import ProjectEmailNotificationPolicy, ProjectEmailNotificationRecipient
 from .ProjectExecutionBinding import ProjectExecutionBinding
 from .ProjectInvitation import ProjectInvitation
 from .ProjectLabel import ProjectLabel
@@ -112,27 +114,19 @@ from .SecretReferenceAudit import SecretReferenceAudit
 from .SettingRole import SettingRole
 from .User import User
 from .UserActivity import UserActivity
+from .UserAppPreference import UserAppPreference
 from .UserCardReadState import UserCardReadState
 from .UserEmail import UserEmail
 from .UserGroup import UserGroup
 from .UserGroupAssignedEmail import UserGroupAssignedEmail
-from .UserIdentityLink import IdentityProvider
-from .UserIdentityLink import UserIdentityLink
+from .UserIdentityLink import IdentityProvider, UserIdentityLink
 from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
-from .UserAppPreference import UserAppPreference
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WorkflowStageDefinition import WorkflowStageDefinition
-from .CardExecutionGeneration import CardExecutionGeneration
-from .CardExecutionGeneration import CardExecutionIntent
-from .InternalBotRun import InternalBotRun
-from .NotificationEmailDelivery import NotificationEmailDelivery
-from .OllamaModelPull import OllamaModelPull
-from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
-from .AppExecutionActive import AppExecutionActive
 
 
 __all__ = [
@@ -140,6 +134,7 @@ __all__ = [
     'WhisperMessage',
     'WhisperParticipant',
     'AppExecutionReview',
+    'AppExecutionActive',
     'AppMcpConsent',
     'CardAppResourceSelection',
     'CardAppResourceSelectionAudit',
@@ -261,7 +256,9 @@ __all__ = [
     'UserAppPreference',
     'WebhookSetting',
     'AppCardInteraction',
+    'AppCardArchive',
     'AppCardInteractionResponse',
+    'AppCardInteractionTransition',
     'AppComposition',
     'AppCompositionMember',
     'CardExecutionGeneration',
