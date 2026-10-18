@@ -17,6 +17,8 @@ let credentialRows: { credential_uid: string; expires_at: string; revoked_at: st
 const inboundReads: string[] = [];
 Object.assign(window, { inboundReads });
 const missing = new URLSearchParams(location.search).has("missing");
+const invalid = new URLSearchParams(location.search).has("invalid");
+let workflowMapping = { active: invalid ? "deleted" : "one" };
 let repaired = false;
 let disabled = false;
 Object.assign(window, { workflowWrites: writes });
@@ -81,6 +83,7 @@ api.defaults.adapter = async (config) => {
     if (config.method === "put" || config.method === "post") {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
         if (!config.url?.endsWith("/workflow")) repaired = true;
+        else workflowMapping = JSON.parse(config.data ?? "{}").workflow_mapping ?? workflowMapping;
         if (config.url?.endsWith("/disable")) disabled = true;
     }
     if ((config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions")) &&
@@ -151,7 +154,7 @@ api.defaults.adapter = async (config) => {
                 },
                 review: { name: "Review", description: "", translations: {} },
             },
-            binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: { active: "one" } },
+            binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: workflowMapping },
             column_names: { one: "Doing", two: "Implementation" },
             available_columns: [
                 { uid: "two", name: "Implementation", workflow_stage: new URLSearchParams(location.search).has("replace") ? "review" : null },
@@ -161,9 +164,9 @@ api.defaults.adapter = async (config) => {
                     stage: "active",
                     required: !new URLSearchParams(location.search).has("inactive"),
                     stage_active: !new URLSearchParams(location.search).has("inactive"),
-                    status: missing && !repaired ? "missing" : "resolved",
-                    column_uid: missing && !repaired ? null : "one",
-                    candidates: missing && !repaired ? [] : ["one", "two"],
+                    status: invalid && workflowMapping.active === "deleted" ? "invalid" : missing && !repaired ? "missing" : "resolved",
+                    column_uid: invalid ? workflowMapping.active : missing && !repaired ? null : "one",
+                    candidates: (missing || invalid) && !repaired ? [] : ["one", "two"],
                 },
             ],
         },

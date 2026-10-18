@@ -153,73 +153,74 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                 <span className="text-xs text-muted-foreground">
                                     {t(`project.settings.Mapping ${choice.stage_active ? choice.status : "inactive"}`)}
                                 </span>
-                                {choice.stage_active && choice.status === "missing" && (
-                                    <div className="flex flex-col gap-2 border-t pt-2">
-                                        <select
-                                            aria-label={t("project.settings.Existing column for stage")}
-                                            className="min-w-0 rounded-md border border-input bg-background p-2"
-                                            value={repairColumns[choice.stage] ?? ""}
-                                            disabled={!canEditBasicInfo || pending || dirty || !data.binding}
-                                            onChange={(event) => {
-                                                setReplacement(null);
-                                                setRepairColumns((current) => ({ ...current, [choice.stage]: event.target.value }));
-                                            }}
-                                        >
-                                            <option value="">{t("project.settings.Select column")}</option>
-                                            {(data.available_columns ?? []).map((column) => (
-                                                <option key={column.uid} value={column.uid}>
-                                                    {column.name}
-                                                    {column.workflow_stage ? ` · ${stageName(column.workflow_stage)}` : ""}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={!canEditBasicInfo || pending || dirty || !data.binding || !repairColumns[choice.stage]}
-                                            onClick={() => void repair(choice.stage, false)}
-                                        >
-                                            {t("project.settings.Assign stage to column")}
-                                        </Button>
-                                        {replacement?.stage === choice.stage && replacement.columnUID === repairColumns[choice.stage] && (
-                                            <div className="flex flex-col gap-2 rounded-md bg-muted p-2">
-                                                <p role="status" className="text-xs">
-                                                    {t("project.settings.Replace column stage warning")}
-                                                </p>
-                                                <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    disabled={!canEditBasicInfo || pending || dirty || !data.binding}
-                                                    onClick={() => void repair(choice.stage, false, true)}
-                                                >
-                                                    {t("project.settings.Confirm stage replacement")}
-                                                </Button>
-                                                <Button type="button" size="sm" variant="ghost" onClick={() => setReplacement(null)}>
-                                                    {t("common.Cancel")}
-                                                </Button>
-                                            </div>
-                                        )}
-                                        <input
-                                            aria-label={t("project.settings.New workflow column name")}
-                                            className="min-w-0 rounded-md border border-input bg-background p-2"
-                                            maxLength={100}
-                                            value={newNames[choice.stage] ?? ""}
-                                            disabled={!canEditBasicInfo || pending || dirty || !data.binding}
-                                            onChange={(event) => setNewNames((current) => ({ ...current, [choice.stage]: event.target.value }))}
-                                        />
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={!canEditBasicInfo || pending || dirty || !data.binding || !newNames[choice.stage]?.trim()}
-                                            onClick={() => void repair(choice.stage, true)}
-                                        >
-                                            {t("project.settings.Create column with stage")}
-                                        </Button>
-                                    </div>
-                                )}
+                                {choice.stage_active &&
+                                    (choice.status === "missing" || (choice.status === "invalid" && !choice.candidates.length)) && (
+                                        <div className="flex flex-col gap-2 border-t pt-2">
+                                            <select
+                                                aria-label={t("project.settings.Existing column for stage")}
+                                                className="min-w-0 rounded-md border border-input bg-background p-2"
+                                                value={repairColumns[choice.stage] ?? ""}
+                                                disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                                onChange={(event) => {
+                                                    setReplacement(null);
+                                                    setRepairColumns((current) => ({ ...current, [choice.stage]: event.target.value }));
+                                                }}
+                                            >
+                                                <option value="">{t("project.settings.Select column")}</option>
+                                                {(data.available_columns ?? []).map((column) => (
+                                                    <option key={column.uid} value={column.uid}>
+                                                        {column.name}
+                                                        {column.workflow_stage ? ` · ${stageName(column.workflow_stage)}` : ""}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={!canEditBasicInfo || pending || dirty || !data.binding || !repairColumns[choice.stage]}
+                                                onClick={() => void repair(choice.stage, false)}
+                                            >
+                                                {t("project.settings.Assign stage to column")}
+                                            </Button>
+                                            {replacement?.stage === choice.stage && replacement.columnUID === repairColumns[choice.stage] && (
+                                                <div className="flex flex-col gap-2 rounded-md bg-muted p-2">
+                                                    <p role="status" className="text-xs">
+                                                        {t("project.settings.Replace column stage warning")}
+                                                    </p>
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                                        onClick={() => void repair(choice.stage, false, true)}
+                                                    >
+                                                        {t("project.settings.Confirm stage replacement")}
+                                                    </Button>
+                                                    <Button type="button" size="sm" variant="ghost" onClick={() => setReplacement(null)}>
+                                                        {t("common.Cancel")}
+                                                    </Button>
+                                                </div>
+                                            )}
+                                            <input
+                                                aria-label={t("project.settings.New workflow column name")}
+                                                className="min-w-0 rounded-md border border-input bg-background p-2"
+                                                maxLength={100}
+                                                value={newNames[choice.stage] ?? ""}
+                                                disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                                onChange={(event) => setNewNames((current) => ({ ...current, [choice.stage]: event.target.value }))}
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={!canEditBasicInfo || pending || dirty || !data.binding || !newNames[choice.stage]?.trim()}
+                                                onClick={() => void repair(choice.stage, true)}
+                                            >
+                                                {t("project.settings.Create column with stage")}
+                                            </Button>
+                                        </div>
+                                    )}
                             </div>
                         ))}
                     </div>

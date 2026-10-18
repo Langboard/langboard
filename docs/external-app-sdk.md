@@ -39,6 +39,10 @@ This document distinguishes implemented contracts from remaining acceptance.
    Runtime actions consume those saved destinations; adding another column with
    the same stage must not redirect an existing app. Deleting the saved column
    or changing its stage invalidates that destination and requires repair.
+   If no matching column remains, the editor offers the existing stage-repair
+   controls for invalid destinations as well as missing stages. After creating
+   or assigning a column, the user explicitly selects and saves the replacement;
+   repairing a column alone does not redirect the app or enable transitions.
 
 ## Current support and acceptance
 

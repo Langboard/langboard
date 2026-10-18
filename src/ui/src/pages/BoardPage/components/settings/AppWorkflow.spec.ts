@@ -481,3 +481,37 @@ test("inactive optional stages explain availability without impossible repair ac
     await expect(page.getByRole("textbox", { name: "New workflow column name" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Assign stage to column", exact: true })).toHaveCount(0);
 });
+
+for (const width of [1440, 390]) {
+    for (const create of [false, true]) {
+        test(`repair invalid destination ${create ? "create" : "assign"} at ${width}px`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 850 });
+            await page.goto(`${path}?invalid`);
+            await expect(page.getByRole("option", { name: "Previous column unavailable" })).toHaveCount(1);
+            if (width === 390 && create) {
+                await expect(page.getByRole("textbox", { name: "New workflow column name" })).toBeVisible();
+                await page.screenshot({ path: ".verification/workflow-invalid-mobile-20261018.png" });
+            }
+            if (create) {
+                await page.getByRole("textbox", { name: "New workflow column name" }).fill("In progress");
+                await page.getByRole("button", { name: "Create column with stage" }).click();
+            } else {
+                await page.getByRole("combobox", { name: "Existing column for stage" }).selectOption("two");
+                await page.getByRole("button", { name: "Assign stage to column" }).click();
+            }
+            await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+            const destination = page.getByRole("combobox").first();
+            await expect(destination).toHaveValue("deleted");
+            await expect(destination.locator('option[value="two"]')).toHaveCount(1);
+            await destination.selectOption("two");
+            await page.getByRole("button", { name: "Save workflow mapping" }).click();
+            await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(2);
+            expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[1])).toMatchObject({
+                workflow_mapping: { active: "two" }, expected_revision: "a".repeat(64), enable_transitions: false,
+            });
+            await expect(destination).toHaveValue("two");
+            await expect(page.getByRole("option", { name: "Previous column unavailable" })).toHaveCount(0);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        });
+    }
+}
