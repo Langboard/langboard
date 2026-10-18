@@ -366,5 +366,6 @@
   "No apps found": "검색 조건에 맞는 앱이 없습니다",
   "SCIM issuer": "SCIM 발급자",
   "Group ID": "그룹 ID",
-  "External group ID": "외부 그룹 ID"
+  "External group ID": "외부 그룹 ID",
+  "Model pull could not be completed": "모델 다운로드를 완료하지 못했습니다."
 }

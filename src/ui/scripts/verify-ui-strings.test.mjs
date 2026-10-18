@@ -80,3 +80,27 @@ test("rendered branches and concatenations cannot hide untranslated text", () =>
         ["Close menu", "Open menu", "Close", "Loading", "Unnamed", "Page", "Items:"]
     );
 });
+
+test("custom tooltip/label props and computed toast messages retain untranslated literals", () => {
+    const found = scanSource(
+        "Messages.tsx",
+        `
+        const controls = <><ToolbarButton tooltip="Task list"/><TaskLink label={ready ? "Review" : t("common.Waiting")}/></>;
+        Toast.Add.error(failed ? "Save failed" : t("common.Done"));
+        window.confirm(\`Delete \${name}?\`);
+        z.string().refine(valid, { message: missing ? "Required" : t("common.Invalid") });
+        Toast.Add.error(error.message); Toast.Add.success(t("common.Saved"));
+        const userContent = <><TaskLink label={user.title}/><span>{user.description}</span><TaskLink label={\`\${user.firstname} \${user.lastname}\`}/></>;
+    `
+    );
+    assert.deepEqual(
+        found.map(({ kind, text }) => [kind, text]),
+        [
+            ["attribute:tooltip", "Task list"],
+            ["attribute:label", "Review"],
+            ["dialog-toast", "Save failed"],
+            ["dialog-toast", "Delete ?"],
+            ["validation", "Required"],
+        ]
+    );
+});

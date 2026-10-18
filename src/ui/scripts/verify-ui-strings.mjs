@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const attributes = new Set(["aria-label", "title", "alt", "placeholder"]);
+const attributes = new Set(["aria-label", "title", "alt", "placeholder", "tooltip", "label"]);
 const keyTitleComponents = new Set(["BoardSettingsSection", "BoardCardSection", "BoardBotScopeItemDialog"]);
 const humanText = (text) => /\p{L}/u.test(text.replace(/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/gi, ""));
 
@@ -93,11 +93,10 @@ export function scanSource(file, source) {
                       : null;
             if (kind)
                 for (const arg of node.arguments) {
-                    if (ts.isStringLiteralLike(arg)) add(arg, kind, arg.text);
+                    rendered(arg, kind);
                     if (ts.isObjectLiteralExpression(arg))
                         for (const prop of arg.properties) {
-                            if (ts.isPropertyAssignment(prop) && prop.name.getText(tree) === "message" && ts.isStringLiteralLike(prop.initializer))
-                                add(prop, kind, prop.initializer.text);
+                            if (ts.isPropertyAssignment(prop) && prop.name.getText(tree) === "message") rendered(prop.initializer, kind);
                         }
                 }
         }

@@ -366,5 +366,6 @@
   "No apps found": "該当するアプリはありません",
   "SCIM issuer": "SCIM 発行者",
   "Group ID": "グループ ID",
-  "External group ID": "外部グループ ID"
+  "External group ID": "外部グループ ID",
+  "Model pull could not be completed": "モデルのダウンロードを完了できませんでした。"
 }

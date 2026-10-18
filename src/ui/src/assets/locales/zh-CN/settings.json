@@ -366,5 +366,6 @@
   "No apps found": "没有符合条件的应用",
   "SCIM issuer": "SCIM 签发者",
   "Group ID": "组 ID",
-  "External group ID": "外部组 ID"
+  "External group ID": "外部组 ID",
+  "Model pull could not be completed": "无法完成模型下载。"
 }

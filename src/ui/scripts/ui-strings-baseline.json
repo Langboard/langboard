@@ -118,5 +118,12 @@
     "line": 259,
     "kind": "jsx-expression",
     "text": "GlitchTip · ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/task/BoardTaskMetadataSection.tsx",
+    "line": 98,
+    "kind": "attribute:label",
+    "text": "PR",
+    "reason": "Technical pull request abbreviation, retained in every locale."
   }
 ]

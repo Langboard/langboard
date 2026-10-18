@@ -366,5 +366,6 @@
   "No apps found": "No matching apps",
   "SCIM issuer": "SCIM issuer",
   "Group ID": "Group ID",
-  "External group ID": "External group ID"
+  "External group ID": "External group ID",
+  "Model pull could not be completed": "Model pull could not be completed"
 }
