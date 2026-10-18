@@ -214,18 +214,8 @@ environment, file mounts and volume handling. Inspect the installed version's
 server onboarding and cleanup behavior before adopting a live Docker host;
 registration and Docker/Swarm/proxy installation have different effects.
 
-## Source verification
-
-The focused regression renders the actual files with Docker Compose, without
-starting containers or touching deployment data:
-
-```sh
-PROJECT_NAME=langboard ENVIRONMENT=development PYTHONPATH=src/shared/py:src/api \
-  python -m pytest -q src/api/tests/runtime/test_prebuilt_compose.py
-```
-
-It checks the standalone service set, absence of builds/source binds/dependency
-services, preserved external volume/network identities, opt-in file secrets and
-existing ingress ports, missing-input failures and inactive default profiles.
-Rendering does not prove that the target image, credentials, file permissions,
-network, restore or live migration work. Those remain deployment acceptance gates.
+Before rollout, verify the selected immutable image, injected credentials, file
+permissions, external network reachability and retained volume identities on the
+target host. Validate backup restoration and owner handoff before retiring the
+previous deployment. Rendering Compose configuration alone does not validate
+those runtime conditions.
