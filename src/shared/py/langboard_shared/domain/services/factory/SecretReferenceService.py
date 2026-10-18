@@ -486,6 +486,7 @@ class SecretReferenceService(BaseDomainService):
         Vault IO occurs outside DB transactions. A second locked authority read
         denies revocation or rotation which happened while the vault was read.
         """
+        # Settings imports this service's exceptions; defer the reverse dependency.
         from ..KeywordSearchSettings import configuration
 
         if DbSession.has_active_transaction():

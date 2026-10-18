@@ -2,7 +2,8 @@
 
 from sqlalchemy import func, or_, select, update
 from ...core.db import DbSession, SqlBuilder
-from ...core.search.ElasticsearchKeywordSearch import validated_destination
+from ...core.search.ElasticsearchKeywordSearch import _connection_options, validated_destination
+from ...core.security import KeyVault
 from ...Env import Env
 from ...helpers import InfraHelper
 from ..models import DocumentKeywordIndex, KeywordSearchConfiguration, KeywordSearchConnection, SecretReference, User
@@ -46,8 +47,6 @@ def configuration(*, operation="read", connection_id=None, lock=False):
                 or not (setting.reads_enabled if operation == "read" else setting.indexing_enabled)
             ):
                 raise ValueError("Keyword operation is disabled")
-            from ...core.security import KeyVault
-
             reference_statement = SqlBuilder.select.table(SecretReference).where(
                 SecretReference.id == InfraHelper.convert_id(connection.secret_ref.rsplit("/", 1)[1])
             )
@@ -100,7 +99,6 @@ def configuration(*, operation="read", connection_id=None, lock=False):
 
 def index_configuration():
     """Validate queue configuration without accessing native credential material."""
-    from ...core.search.ElasticsearchKeywordSearch import _connection_options
 
     try:
         config = configuration(operation="index")
@@ -132,7 +130,7 @@ def enabled(operation):
 
 def runtime_options(config, *, operation):
     """Resolve material at use; callers perform network only after this returns."""
-    from ...core.search.ElasticsearchKeywordSearch import _connection_options
+    # DomainService initializes factory services that consume these settings.
     from . import DomainService
 
     if DbSession.has_active_transaction():
@@ -197,8 +195,6 @@ def save(
             connection = None
         else:
             reference = service.secret_reference._find(actor, secret_ref, lock=True)
-            from ...core.security import KeyVault
-
             if (
                 reference.scope != "instance"
                 or int(reference.scope_id) != 0
@@ -301,8 +297,6 @@ def snapshot(actor, *, cursor=None):
             .order_by(SecretReference.id.desc())
             .limit(101)
         ).all()
-
-        from ...core.security import KeyVault
 
         identities = {
             int(InfraHelper.convert_id(item.secret_ref.rsplit("/", 1)[1]))
