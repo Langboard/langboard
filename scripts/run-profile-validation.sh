@@ -29,6 +29,7 @@ case "$profile" in
       src/api/tests/core/test_unprivileged_cron.py \
       src/api/tests/core/test_recovery_entrypoints.py \
       src/api/tests/core/test_schema_import_cost.py \
+      src/api/tests/core/test_factory_dependency_boundary.py \
       src/api/tests/core/test_logger_tracebacks.py \
       src/api/tests/core/test_ip_whitelist.py \
       src/api/tests/runtime/test_shared_form_validation.py \

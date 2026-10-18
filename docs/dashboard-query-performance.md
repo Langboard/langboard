@@ -813,3 +813,25 @@ service suites exercise its state transitions separately. Fresh import cases
 confirm neither CLI discovery nor schema generation/inflect is loaded. Both
 existing API and Phoenix validation profiles include the new cases. Measure CPU
 and request latency again after the immutable candidate image is deployed.
+
+
+### Pure factory imports defer the HTTP framework
+
+The current recovery import profile still loads FastAPI through the shared
+`Factory` base, even for non-HTTP callers. Its only direct use of `Depends` is
+inside `scope()`. Moving that import into `scope()` preserves the existing HTTP
+dependency generator and closes owned factories in its original finally block.
+No service/repository registry, model loading order or upstream factory pattern
+was replaced.
+
+Original source failed the fresh-process no-HTTP-import assertion; both native
+HTTP success/failure lifecycle cases already passed. Candidate factory,
+recovery-import/entrypoint and runtime tests passed 41 cases. Existing API and
+Phoenix profiles include the regression. Five interleaved local fresh-process
+pairs imported the original committed Factory through the standard import loader
+and the candidate normally: original median178.683ms with FastAPI loaded,
+candidate median3.396ms without it. This narrow core.types import benchmark does
+not claim that the full worker avoids FastAPI, that model initialization is
+eliminated or that deployed API latency is improved. The actual GitHub recovery
+module still imports required domain/service layers; whole-worker and production
+measurements remain separate gates after deployment.

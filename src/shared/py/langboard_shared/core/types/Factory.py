@@ -1,7 +1,6 @@
 from abc import ABC
 from contextlib import contextmanager
 from typing import Any, Callable, Self, TypeVar, cast
-from fastapi import Depends
 
 
 class IFactoryProduct:
@@ -19,6 +18,8 @@ class Factory(ABC):
 
     @classmethod
     def scope(cls) -> Self:
+        from fastapi import Depends
+
         async def create_factory():
             factory = cls()
             try:
