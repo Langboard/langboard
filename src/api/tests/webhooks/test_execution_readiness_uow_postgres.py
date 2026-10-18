@@ -298,7 +298,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
 
 
 @pytest.mark.skipif(not DATABASE_URL, reason="dedicated PostgreSQL proof URL not set")
-def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_supersede(
+def test_ready_content_edit_drains_commit_snapshot_and_only_readiness_edges_supersede(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Prove the five READY mutation semantics against a real database."""
@@ -397,7 +397,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         current = current_execution(100)
         assert (current.is_ready, current.generation) == (True, 1)
 
-        # Completion 1: READY-preserving title edit keeps the execution and delivers latest content.
+        # Completion 1: READY-preserving title edit keeps execution and delivers the commit snapshot.
         with engine.begin() as connection:
             connection.execute(text("UPDATE card SET title = 'Edited title', updated_at = now() WHERE id = 100"))
         with engine.begin() as connection:
@@ -406,7 +406,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         assert len(delivered) == 1
         delivered_model = delivered[0][0]
         assert delivered_model.data["execution_generation"] == 1
-        assert delivered_model.data["title"] == "Edited title"
+        assert delivered_model.data["title"] == "Frozen title"
         # The commit-time frozen snapshot stays untouched as provenance.
         with engine.connect() as connection:
             frozen = connection.execute(
@@ -415,7 +415,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
             assert frozen[0]["title"] == "Frozen title"
             assert frozen[1] == "delivered"
 
-        # Completion 2: READY-preserving label change delivers the latest labels.
+        # Completion 2: READY-preserving label change keeps execution and the original labels.
         with engine.begin() as connection:
             connection.execute(
                 text("DELETE FROM card_assigned_project_label WHERE card_id = 100 AND project_label_id = 9")
@@ -428,7 +428,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
             )
         delivered.clear()
         assert asyncio_run(worker.drain_one())
-        assert [delivery[0].data["labels"] for delivery in delivered] == [["reviewer"]]
+        assert [delivery[0].data["labels"] for delivery in delivered] == [["draft-role"]]
 
         # Completion 3: a prerequisite that is not terminal blocks readiness; old generation executes zero.
         with execution_readiness_uow() as execution:

@@ -103,8 +103,8 @@ def _frozen_snapshot(occurred_at: datetime) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_ready_content_edit_delivers_once_with_latest_content(monkeypatch: pytest.MonkeyPatch) -> None:
-    """READY-preserving title edit: the event survives and delivers the latest content."""
+async def test_ready_content_edit_delivers_once_with_commit_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """READY-preserving title edit retains delivery and the commit-time event payload."""
     occurred_at = datetime(2026, 9, 24, tzinfo=timezone.utc)
     edited_at = datetime(2026, 9, 24, 1, tzinfo=timezone.utc)
     current = CurrentExecution(
@@ -122,15 +122,16 @@ async def test_ready_content_edit_delivers_once_with_latest_content(monkeypatch:
     model, webhook_uid = posted[0]
     assert model.event_id == str(event_id)
     assert model.data["execution_generation"] == 5
-    assert model.data["title"] == "Edited title"
-    assert model.data["source_revision"] == edited_at.isoformat()
+    assert model.data["title"] == "Frozen title"
+    assert model.data["source_revision"] == occurred_at.isoformat()
+    assert model.data["assignees"] == []
     assert webhook_uid == "hook-40"
     assert marks == [("delivered", None)]
 
 
 @pytest.mark.asyncio
-async def test_ready_role_label_change_delivers_latest_labels(monkeypatch: pytest.MonkeyPatch) -> None:
-    """READY-preserving label change: delivered labels come from the point-read, never the frozen snapshot."""
+async def test_ready_role_label_change_retains_commit_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """READY-preserving label change retains the original event labels."""
     occurred_at = datetime(2026, 9, 24, tzinfo=timezone.utc)
     current = CurrentExecution(
         revision=datetime(2026, 9, 24, 2, tzinfo=timezone.utc),
@@ -143,7 +144,7 @@ async def test_ready_role_label_change_delivers_latest_labels(monkeypatch: pytes
     _, _, posted, marks = _claim_harness(monkeypatch, _frozen_snapshot(occurred_at), current)
 
     assert await worker.drain_one()
-    assert posted[0][0].data["labels"] == ["reviewer"]
+    assert posted[0][0].data["labels"] == ["frozen-role"]
     assert marks == [("delivered", None)]
 
 
@@ -258,3 +259,33 @@ async def test_destination_drift_blocks_without_post(monkeypatch: pytest.MonkeyP
     assert posted == []
     assert marks == [("blocked", "stale_binding")]
     assert snapshot == _frozen_snapshot(occurred_at)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("title", 7), ("labels", None), ("labels", [7]),
+    ("assignee_ids", [True]), ("assignee_ids", ["7"]), ("assignee_ids", [-1]), ("assignee_ids", [2**63]),
+    ("source_revision", "invalid"), ("source_revision", "2026-09-24T00:00:00"),
+])
+async def test_invalid_commit_snapshot_blocks_without_mutable_fallback(monkeypatch, field, value):
+    occurred_at = datetime(2026, 9, 24, tzinfo=timezone.utc)
+    snapshot = _frozen_snapshot(occurred_at)
+    snapshot[field] = value
+    current = CurrentExecution(occurred_at, True, 5, "Current", ["current"], [7])
+    _, _, posted, marks = _claim_harness(monkeypatch, snapshot, current)
+    assert await worker.drain_one()
+    assert posted == []
+    assert marks == [("blocked", "snapshot_unavailable")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["title", "labels", "assignee_ids", "source_revision"])
+async def test_legacy_incomplete_snapshot_blocks_without_mutable_fallback(monkeypatch, field):
+    occurred_at = datetime(2026, 9, 24, tzinfo=timezone.utc)
+    snapshot = _frozen_snapshot(occurred_at)
+    del snapshot[field]
+    current = CurrentExecution(occurred_at, True, 5, "Current", ["current"], [7])
+    _, _, posted, marks = _claim_harness(monkeypatch, snapshot, current)
+    assert await worker.drain_one()
+    assert posted == []
+    assert marks == [("blocked", "snapshot_unavailable")]

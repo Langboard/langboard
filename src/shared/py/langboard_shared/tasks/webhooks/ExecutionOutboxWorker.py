@@ -10,7 +10,7 @@ from ...core.db import DbSession
 from ...core.types import SnowflakeID
 from ...helpers import InfraHelper
 from .ExecutionBindingPolicy import binding_for_project, binding_invalid_reasons
-from .ExecutionReadinessUow import CurrentExecution, current_execution
+from .ExecutionReadinessUow import current_execution
 from .utils import WebhookModel
 from .WebhookTask import post_signed_webhook
 
@@ -67,19 +67,37 @@ def _mark(
     db.exec(query.values(state=state, last_error=error, processed_at=func.now()))
 
 
-def _event_data(project_id: int, card_id: int, generation: int, current: CurrentExecution) -> dict:
-    """Project the claim-time point-read; the outbox row keeps commit-time provenance."""
+def _event_data(project_id: int, card_id: int, generation: int, snapshot: dict) -> dict | None:
+    """Project only a complete persisted snapshot; legacy incomplete rows fail closed."""
+    if not {"title", "labels", "assignee_ids", "source_revision"} <= snapshot.keys():
+        return None
+    if snapshot["title"] is not None and not isinstance(snapshot["title"], str):
+        return None
+    if not isinstance(snapshot["labels"], list) or not all(isinstance(name, str) for name in snapshot["labels"]):
+        return None
+    if not isinstance(snapshot["assignee_ids"], list) or not all(
+        type(uid) is int and 0 < uid <= SnowflakeID.MAX_VALUE for uid in snapshot["assignee_ids"]
+    ):
+        return None
+    revision = snapshot["source_revision"]
+    if not isinstance(revision, str):
+        return None
+    try:
+        if datetime.fromisoformat(revision).utcoffset() is None:
+            return None
+    except ValueError:
+        return None
     project_uid = SnowflakeID(project_id).to_short_code()
     card_uid = SnowflakeID(card_id).to_short_code()
     return {
         "project_uid": project_uid,
         "card_uid": card_uid,
         "execution_generation": generation,
-        "title": current.title,
-        "labels": current.labels,
-        "assignees": [SnowflakeID(uid).to_short_code() for uid in current.assignee_ids],
+        "title": snapshot["title"],
+        "labels": list(snapshot["labels"]),
+        "assignees": [SnowflakeID(uid).to_short_code() for uid in snapshot["assignee_ids"]],
         "card_url": f"/board/{project_uid}/{card_uid}",
-        "source_revision": current.revision.isoformat(),
+        "source_revision": revision,
     }
 
 
@@ -128,10 +146,13 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
         if not all(snapshot.get(key) for key in ("binding_id", "binding_revision", "webhook_uid")):
             _mark(db, event_id, "blocked", "destination_unavailable")
             return _TERMINAL
+        data = _event_data(project_id, card_id, generation, snapshot)
+        if data is None:
+            _mark(db, event_id, "blocked", "snapshot_unavailable")
+            return _TERMINAL
         current = current_execution(card_id, db)
-        # The event is a "this generation is executable" signal, not an
-        # immutable snapshot: a READY-preserving content edit must not discard
-        # the execution. Only lost readiness or a newer generation supersedes.
+        # Commit-time provenance is immutable. Current readiness and generation
+        # remain execution fences; READY-preserving edits retain deliverability.
         if current is None or not current.is_ready or current.generation != generation:
             _mark(db, event_id, "superseded", "stale_readiness")
             return _TERMINAL
@@ -152,7 +173,7 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
             event=event_type,
             event_id=str(event_id),
             occurred_at=occurred_at.astimezone(timezone.utc).isoformat(),
-            data=_event_data(project_id, card_id, generation, current),
+            data=data,
         )
         db.exec(
             update(OUTBOX)

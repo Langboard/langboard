@@ -9,8 +9,10 @@ enabling it. The signed webhook must explicitly allow
 ## Ready event
 
 A `io.langboard.work.ready.v1` event signals that one card generation became
-executable. It is not an immutable task snapshot. The delivered title, labels,
-assignees and `source_revision` come from one delivery-time card read.
+executable. Its title, labels, assignees and `source_revision` are frozen in the
+producer's commit transaction. Every delivery of the same `event_id`, including
+retries and recovery after a worker restart, uses that persisted semantic payload.
+This event provenance does not replace the consumer's current authorized task read.
 
 The event uses a relative `card_url` path. Resolve it against the project origin
 configured for the integration. Retrieve authoritative content with the
@@ -26,9 +28,17 @@ back creates a new generation. A content edit that preserves readiness does not
 increase the generation, so the consumer uses current authorized content rather
 than executing a second task for the same generation.
 
-`data.source_revision` is the delivery-time card update timestamp, provided for
+`data.source_revision` is the commit-time card update timestamp, provided for
 provenance. It is not an execution fence. `description.revision` is a separate
 content revision and must not be compared as though it were the same value.
+
+Legacy rows with a complete commit snapshot keep the same payload contract.
+Rows with absent, incomplete or malformed snapshot content are permanently blocked
+with `snapshot_unavailable`; delivery never reconstructs them from mutable card
+content. Missing destination provenance remains `destination_unavailable`.
+Reconciliation cannot recreate missing historical content. Recover those rows only
+through an explicitly authorized new execution generation, after current readiness
+and binding authorization have been reviewed.
 
 ## Authentication and duplicate delivery
 

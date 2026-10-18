@@ -45,10 +45,9 @@ _READY = select(text(_READY_EXPRESSION))
 class CurrentExecution(NamedTuple):
     """One point-read projection of a card's execution state and content.
 
-    The event payload is only a "this generation is executable" signal, so the
-    delivery fence is `is_ready and generation`. Mutable content (title,
-    labels, assignees) is re-read here at delivery time instead of being
-    replayed from the commit-time snapshot; `revision` is provenance.
+    Delivery uses `is_ready and generation` as its current execution fence.
+    Event content and revision come from the persisted commit-time snapshot;
+    consumers independently retrieve current authorized task content.
     """
 
     revision: datetime

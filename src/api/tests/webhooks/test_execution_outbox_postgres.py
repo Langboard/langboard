@@ -467,3 +467,153 @@ def _short_code_for(project_id: int) -> str:
     from langboard_shared.core.types import SnowflakeID
 
     return SnowflakeID(project_id).to_short_code()
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="dedicated PostgreSQL proof URL not set")
+def test_producer_snapshot_survives_retry_and_session_restart_with_current_fences(monkeypatch) -> None:
+    """Native producer and policy preserve event data across edits, retry and crash recovery."""
+    from asyncio import run as asyncio_run
+    from langboard_shared.core.db import DbSession
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.domain.models import (
+        GlobalCardRelationshipType,
+        Project,
+        ProjectColumn,
+        ProjectExecutionBinding,
+        WebhookSetting,
+        WorkflowStageDefinition,
+    )
+    from langboard_shared.tasks.webhooks import ExecutionBindingPolicy, ExecutionOutboxTask
+    from langboard_shared.tasks.webhooks import ExecutionOutboxWorker as worker
+    from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution, execution_readiness_uow
+    from sqlalchemy.schema import CreateTable
+
+    schema = f"outbox_immutable_{uuid4().hex}"
+    admin = create_engine(DATABASE_URL)
+    with admin.begin() as connection:
+        connection.execute(text(f"CREATE SCHEMA {schema}"))
+    engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    enqueued = []
+    monkeypatch.setattr(ExecutionOutboxTask, "execution_outbox_task", enqueued.append)
+    # External key storage and HTTP are the only delivery boundaries replaced.
+    monkeypatch.setattr(ExecutionBindingPolicy.KeyVault, "get_key", lambda _: "test-only")
+    posted = []
+
+    async def post(model, webhook_uid):
+        posted.append((model.model_dump(), webhook_uid))
+        if len(posted) == 1:
+            raise RuntimeError("first HTTP attempt failed")
+
+    monkeypatch.setattr(worker, "post_signed_webhook", post)
+    try:
+        with engine.begin() as connection:
+            # Native model columns retain the real policy's full ORM reads. Foreign
+            # keys to unrelated account tables are outside this isolated fixture.
+            for model in (Project, ProjectColumn, GlobalCardRelationshipType, ProjectExecutionBinding,
+                          WebhookSetting, WorkflowStageDefinition):
+                connection.execute(CreateTable(model.__table__, include_foreign_key_constraints=[]))
+            for column_name in ("column_semantic_ids", "prerequisite_relationship_type_id", "webhook_id"):
+                connection.execute(text(f"ALTER TABLE project_execution_binding DROP COLUMN {column_name}"))
+            for statement in (
+                "CREATE TABLE card (id bigint PRIMARY KEY, project_id bigint, project_column_id bigint, "
+                "deleted_at timestamptz, archived_at timestamptz, source_type text, title text, updated_at timestamptz)",
+                "CREATE TABLE card_relationship (card_id_parent bigint, card_id_child bigint, relationship_type_id bigint)",
+                "CREATE TABLE project_label (id bigint PRIMARY KEY, name text)",
+                "CREATE TABLE card_assigned_project_label (card_id bigint, project_label_id bigint)",
+                "CREATE TABLE card_assigned_user (card_id bigint, user_id bigint)",
+            ):
+                connection.execute(text(statement))
+            spec = importlib.util.spec_from_file_location("immutable_outbox_migration", MIGRATION)
+            migration = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(migration)
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+        project = Project(id=7, owner_id=123, title="Fixture")
+        ready = ProjectColumn(id=20, project_id=7, name="Ready")
+        terminal = ProjectColumn(id=21, project_id=7, name="Done")
+        relation = GlobalCardRelationshipType(id=30, parent_name="Blocks", child_name="Blocked by",
+                                              machine_semantic="blocks")
+        hook = WebhookSetting(id=40, name="Executor", url="https://executor.invalid", secret_id="test-only",
+                              events=["io.langboard.work.ready.v1"])
+        binding = ProjectExecutionBinding(
+            id=8, project_id=7, is_enabled=True, events=["io.langboard.work.ready.v1"],
+            column_semantics={ready.get_uid(): "ready", terminal.get_uid(): "terminal"},
+            column_semantic_ids={"20": "ready", "21": "terminal"},
+            prerequisite_relationship_type_id=30, prerequisite_relationship_type_uid=relation.get_uid(),
+            webhook_id=40, webhook_uid=hook.get_uid(),
+        )
+        with DbSession.atomic() as db:
+            for record in (project, ready, terminal, relation, hook, binding):
+                db.exec(record.__table__.insert().values(record.model_dump()))
+            db.exec(text("INSERT INTO card VALUES "
+                         "(100, 7, 21, NULL, NULL, NULL, 'Original', '2026-09-24T00:00:00+00:00')"))
+            db.exec(text("INSERT INTO project_label VALUES (9, 'backend')"))
+            db.exec(text("INSERT INTO card_assigned_project_label VALUES (100, 9)"))
+            db.exec(text("INSERT INTO card_assigned_user VALUES (100, 123)"))
+        with execution_readiness_uow() as execution:
+            execution.watch([100])
+            execution.db.exec(text("UPDATE card SET project_column_id = 20 WHERE id = 100"))
+        with engine.connect() as connection:
+            event_id, frozen = connection.execute(text("SELECT id, payload_json FROM execution_outbox")).one()
+        assert enqueued == [str(event_id)]
+        assert frozen["title"] == "Original"
+        assert frozen["labels"] == ["backend"]
+        assert frozen["assignee_ids"] == [123]
+        with pytest.raises(worker.ExecutionDeliveryFailed):
+            asyncio_run(worker.drain_one(event_id))
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT state, attempt_count FROM execution_outbox")).one() == ("pending", 1)
+        with execution_readiness_uow() as execution:
+            execution.watch([100])
+            execution.db.exec(text("UPDATE card SET title = 'Edited', updated_at = '2026-09-25T00:00:00+00:00'"))
+            execution.db.exec(text("UPDATE project_label SET name = 'reviewer'"))
+            execution.db.exec(text("UPDATE card_assigned_user SET user_id = 456"))
+        assert enqueued == [str(event_id)]
+        assert current_execution(100).generation == 1
+        assert current_execution(100).labels == ["reviewer"]
+        # Discard all pooled connections. The retry reads persisted data in a new session.
+        engine.dispose()
+        assert asyncio_run(worker.drain_one(event_id))
+        assert posted[0] == posted[1]
+        assert posted[1][0]["data"]["title"] == "Original"
+        assert posted[1][0]["data"]["labels"] == ["backend"]
+        assert posted[1][0]["data"]["assignees"] == [_short_code_for(123)]
+        assert posted[1][0]["data"]["source_revision"] == frozen["source_revision"]
+        with engine.begin() as connection:
+            assert connection.execute(text("SELECT payload_json FROM execution_outbox")).scalar_one() == frozen
+            connection.execute(text("UPDATE execution_outbox SET state = 'pending', attempt_count = 0, lease_until = NULL"))
+        crashed = worker._claim(event_id)
+        assert isinstance(crashed, worker.ClaimedDelivery)
+        assert crashed.model.model_dump() == posted[0][0]
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE execution_outbox SET lease_until = now() - interval '1 second'"))
+            connection.execute(text("UPDATE card SET title = 'After crash'"))
+        engine.dispose()
+        assert asyncio_run(worker.drain_one(event_id))
+        assert posted[2] == posted[0]
+        # Current policy revocation still blocks delivery with intact historical data.
+        for revoke, restore, expected in (
+            ("UPDATE card SET project_column_id = 21", "UPDATE card SET project_column_id = 20", "stale_readiness"),
+            ("UPDATE card_execution_generation SET execution_generation = 2",
+             "UPDATE card_execution_generation SET execution_generation = 1", "stale_readiness"),
+            ("UPDATE project_execution_binding SET updated_at = updated_at + interval '1 second'",
+             "UPDATE project_execution_binding SET updated_at = updated_at - interval '1 second'", "stale_binding"),
+            ("UPDATE webhook_setting SET events = '[]'", "UPDATE webhook_setting SET events = '[\"io.langboard.work.ready.v1\"]'",
+             "stale_readiness"),
+        ):
+            with engine.begin() as connection:
+                connection.execute(text("UPDATE execution_outbox SET state = 'pending', attempt_count = 0, lease_until = NULL"))
+                connection.execute(text(revoke))
+            assert asyncio_run(worker.drain_one(event_id))
+            with engine.begin() as connection:
+                assert connection.execute(text("SELECT last_error FROM execution_outbox")).scalar_one() == expected
+                assert connection.execute(text("SELECT payload_json FROM execution_outbox")).scalar_one() == frozen
+                connection.execute(text(restore))
+            assert len(posted) == 3
+    finally:
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        admin.dispose()
