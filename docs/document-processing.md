@@ -1,651 +1,361 @@
 # Optional document processing
 
-The API stores attachments and queues supported documents. Conversion runs in the
-broker worker, whose image must install `document-processing`. The API itself
-intentionally omits Docling; API-side package inspection must not disable a
-separately provisioned worker. The repository compose configuration selects the
-`with-document-processing` image target for that worker.
+Langboard stores attachments independently of document processing. Supported new
+uploads are queued for transcription only when a default Document Vision binding
+exists and its `document_processing_enabled` setting is enabled (default `true`
+within that binding). Configure the binding before enabling automatic processing.
+Changing settings or installing dependencies does not process existing attachments
+or retry earlier failures. Use an explicit action on each selected attachment.
+
+Conversion runs in the broker worker. Install its optional dependencies and use
+the document worker image target:
 
 ```sh
 uv sync --locked --no-dev --extra document-processing
 docker build --target with-document-processing -t langboard-document-worker .
 ```
 
-A worker without Docling records a clear failed document-indexing state before
-downloading the attachment or starting a converter. The attachment remains
-stored and accessible. Installing the package does not silently retry prior
-failures. A deployment without any worker cannot consume queued tasks; worker
-availability and queue monitoring remain deployment responsibilities.
-
-A loaded package is only a prerequisite. Conversion can still fail because of
-invalid documents, parser dependencies, size limits, timeouts, or unavailable
-resources. Existing metadata failure handling and temporary-file cleanup apply.
-No company-specific runtime, identity service, or cloud storage is required by
-this feature.
+The API does not require Docling. A worker without the converter records a failed
+processing state and leaves the original attachment available. Operators must
+provide a running worker and monitor its queue. Invalid documents, parser
+requirements, size limits, timeouts and resource exhaustion can still prevent
+conversion after installation. A queued response confirms a request was accepted;
+it does not confirm successful transcription or indexing.
 
 ## Remote document vision
 
-Docling remains the conversion engine and owns PDF rendering, page images,
-Office/Web parsing, DoclingDocument construction, and Markdown export. PDF and
-image inputs use its official `VlmPipeline` with `ApiVlmOptions`; only vision
-inference runs at the configured OpenAI-compatible provider. Office/Web inputs
-continue to use Docling's native format backends without a vision request.
+In **Settings → Internal AI**, create a **Document Vision · document-vision**
+binding, select an OpenAI-compatible provider, set `base_url`, `model_name` and its
+API key, and select it as the default for that type. This instance binding is
+independent of project chat bot lists. PDF and image conversion requires a model
+supporting images through Chat Completions. `model` is accepted as a legacy
+alternative to `model_name`. Optional `reasoning_effort` and `top_p` are passed
+through to compatible providers. Remote page inference uses an 8192-token output
+limit, temperature 1, a 120-second request timeout, one concurrent request and
+a 2048 image-size setting.
 
-In Settings → Internal AI, create a **Document Vision · document-vision** binding,
-choose an OpenAI-compatible provider, set `base_url`, `model_name`, and its API key,
-and select it as the default for that type. This global document binding is not
-assigned to project chat bot lists. A model such as `glm-5.3-flash` is deployment
-configuration, not a built-in vendor dependency. The endpoint must support images
-and Chat Completions; text-only models cannot convert PDF/image pages.
+Docling renders PDF/image pages and uses its official remote VLM pipeline for
+vision inference. Office/Web formats use native parsers without a vision request.
+The worker requires CPU and memory for parsing/rendering, but the
+`document-processing` extra does not install local inference weights, Torch or
+CUDA packages. Rebuild an older worker image to remove previously installed
+packages.
 
-Approve the exact provider base URL in `MODEL_PROVIDER_ALLOWED_BASE_URLS` on the
-worker. This explicit deployment boundary also allows local Ollama, LM Studio,
-or vLLM endpoints. The endpoint receives document images, so use only trusted
-providers. The worker reads the binding from the existing internal AI store;
-credentials are not passed in subprocess arguments. Missing bindings fail clearly
-instead of falling back to downloading local inference weights. Partial/failed
-conversion is not recorded as a successful document index.
+Approve the provider's exact base URL in `MODEL_PROVIDER_ALLOWED_BASE_URLS` on the
+worker. Local Ollama, LM Studio and vLLM endpoints can be configured through the
+same boundary. PDF/image content is sent to that provider; choose a trusted
+endpoint. Missing configuration fails explicitly without a local-model fallback.
+Credentials are resolved at execution and are excluded from queued configuration
+snapshots and subprocess arguments.
 
-The worker resolves the current Document Vision binding from the primary database
-before downloading the source and again before publishing converted content. A
-deleted binding, a different binding type, or a changed provider base URL rejects
-the queued result. Upload-time model and keyword settings remain fixed; credentials
-are read from the current binding. These checkpoints do not cancel requests already
-sent to the provider or hold a database lock throughout conversion. Worker failures
-publish a fixed troubleshooting message instead of provider/storage exception text
-that could contain credentials or source content.
+Queued requests retain their model and keyword settings. Current binding authority
+and endpoint are checked before downloading the source and before publication.
+Deletion, repurposing or endpoint changes can reject queued results. Credential
+rotation uses the current binding. These checks cannot recall an inference request
+already sent. Failed or partial conversion is not published as a complete index;
+public diagnostics omit provider/storage exception bodies.
 
-The `document-processing` extra selects `docling-slim`'s conversion, PDF, Office,
-and Web extras. It excludes `standard`, local model/OCR extras, Torch, torchvision,
-CUDA/NVIDIA packages, and Docling IBM model weights. Transformers currently
-provides import-time types required by the official VLM module; no local model
-is loaded. CPU/RAM are still needed for rendering and parsing. Rebuild the worker
-image to remove packages already installed by the old `standard` dependency;
-applying source files alone does not shrink an existing container.
+`keyword_languages` accepts `ko`, `en`, `ja` and `zh`, defaulting to all four.
+An empty list disables extracted keyword attributes. Keywords are separate from
+the transcription; each language retains up to eight unique normalized terms,
+each at most 80 characters. Interface captions are localized without changing
+these language tags.
 
 ## Korean/CJK font fallback
 
-The document worker image installs `fonts-noto-cjk` and `fontconfig`, refreshes
-its font cache, and verifies a Korean font match during the build. This supplies
-Korean, Japanese, and Chinese fallback glyphs when a PDF does not embed its
-original font. It is scoped to the document worker, not every API image.
-Embedded source fonts remain authoritative; installing fallback fonts cannot
-repair already corrupted text mappings or glyphs saved into the source file.
-Validate the page image sent to the model as well as the returned transcription.
+The document worker image supplies `fonts-noto-cjk` and `fontconfig` for Korean,
+Japanese and Chinese glyphs when source fonts are not embedded. Embedded fonts
+remain authoritative. Fallback fonts cannot repair corrupted source mappings or
+glyphs. Check rendered page images and transcriptions when diagnosing missing text.
 
-### Deleted board fencing
+## Explicit processing and progress
 
-Embedding tasks reject a deleted board before resolving providers. Publication
-locks the current board before the card and attachment and refuses a deleted or
-mismatched board. If deletion occurs during inference, publication fails and the
-task removes its staged vectors; previously committed source history is retained.
+The attachment menu supports processing, transcription replacement, embedding
+reindexing and **Reindex document keywords**. API integrations use:
 
-### Optional converter upload regression
+```http
+POST /board/{project_uid}/card/{card_uid}/attachment/{attachment_uid}/document-processing
+Content-Type: application/json
 
-The optional-converter integration test runs with Docling genuinely absent. It
-uses native JWT authentication, the HTTP upload endpoint, SQLite repositories,
-and local file storage. An authenticated upload returns 201, preserves the file
-and attachment, and emits one captured indexing task after commit. The native
-worker records a failed conversion with installation guidance before downloading
-the source; the attachment remains available. An unauthenticated request is 401.
+{"mode":"transcription","reprocess":false}
+```
 
-The test substitutes card visibility and captures the Celery publisher. It does
-not establish board ACL correctness, a live broker delivery, or deployed worker
-readiness. Its PostgreSQL variant requires an available test database.
+| Field | Default | Behavior |
+| --- | --- | --- |
+| `mode` | `transcription` | `transcription`, `embedding` or `keyword` |
+| `reprocess` | `false` | Explicitly request transcription replacement when `true`; applies to transcription mode |
 
-### Disabled retrieval editor
+The endpoint requires authentication, current card visibility, card update
+permission and an attachment belonging to that card. Application mutation
+restrictions also apply. Invalid source/configuration returns 400; missing or
+inaccessible attachment scope can return 404. Successful responses contain
+`status`; observe the attachment's durable state for completion.
 
-The retrieval form rejects submit events while disabled, before collecting its
-fields or calling `onSave`. This also covers programmatic submit events, which
-can bypass a disabled fieldset's buttons. The parent internal-bot editor and
-server still apply their own current permission checks. The UI regression uses
-a character splitter because disabled fields do not participate in FormData;
-relying on separator validation to stop a disabled submission would leave that
-mode unguarded. This guard does not establish deployed authorization behavior.
+Transcription mode requires a configured vision binding and supported file type.
+Embedding mode uses existing complete text and the selected embedding settings.
+Keyword mode uses current complete text and requires enabled keyword indexing
+and an authorized destination. It requires an indexed transcription with a
+generation, content hash and nonempty text within the keyword size limit. It
+performs no transcription, embedding inference or original-file read.
 
-### Text-only SQLite embedding and explicit splitter reindex
+Each action applies only to the selected attachment. Settings changes and search
+reads never enqueue a global backfill. Reprocessing retains the original file and
+previous readable transcription until a replacement succeeds. Embedding reindex
+retains the previous searchable vector pointer and its settings while pending or
+failed; a successful replacement publishes the new pair before old-vector cleanup.
+Disabling retrieval or revoking access still prevents reads of retained vectors.
 
-The official `langgraph-checkpoint-sqlite` store uses `text_fields`, not `fields`,
-to select indexed properties. Configure `text_fields: ["text"]` so only each
-split chunk is embedded. The wrong option silently selects the entire serialized
-record, adding source identifiers and metadata to inference input and diluting
-the semantic content. Source metadata remains stored for filtering and readback.
+Attachment details show separate transcription and embedding states. Card progress
+also shows queued embeddings after transcription completes; completed or failed
+embeddings do not keep the active indicator visible. Duplicate delivery does not
+require repeating completed inference. Broker failure can leave durable work
+pending for recovery; a queued notification is not worker completion.
 
-The worker regression runs the actual snapshot resolver, LangChain splitter,
-SQLite vector store and generation replacement. It indexes multilingual text
-with a 128-character chunk limit, explicitly reindexes with a 64-character limit
-under the same model fingerprint, and reopens the store to verify smaller chunks
-and removal of the prior generation after publication. Later global model and
-splitter edits do not change a queued request; credential rotation is retained.
-Captured embedding input must equal persisted chunk text without source metadata.
-The original transcription remains unchanged and duplicate delivery does not
-repeat inference. Existing attachments are not automatically reindexed.
+## Reading and searching documents
 
-Inference is a recording test implementation and the metadata publication fence
-is a test double. This establishes the local worker/splitter/store contract, not
-live provider inference, PostgreSQL publication, broker delivery or deployed UI
-acceptance. Previously indexed records require the user's explicit reindex action
-to receive text-only vectors.
+PostgreSQL text search includes transcriptions and multilingual keyword attributes
+without embeddings. Board search retains current card visibility, membership,
+audience, workflow and date filters. Removed or foreign-board workflow columns
+are excluded. Editor body/comment search matches literal content rather than
+serialized model keys; legacy NUL-containing values retain encoded matching and
+its limitations. Large text searches can be expensive; measure workload latency.
 
-### Preserve readable vectors during reindex
-
-An embedding pointer carries its own non-secret configuration snapshot in
-`embedding.config`. The document's `embedding_config` describes the requested
-next generation. Queuing explicit reindex preserves the previous pointer and
-its settings; a successful worker publishes the new pointer and settings
-together. Failure retains the prior pair. For older metadata without a pointer
-snapshot, the explicit request captures the previous document configuration
-before replacing it, and reads retain the legacy fallback.
-
-Native document vector search resolves the pointer's settings, not the pending
-request's new model or dimensions. It still rechecks current read permission,
-attachment lifecycle, source generation, pointer/configuration equality,
-provider endpoint and global retrieval enablement after querying. Retaining
-old vectors never bypasses revocation or enables retrieval when switched off.
-The local regression searches persisted vectors while the request is pending
-or failed and rejects both flows when read permission is revoked during search.
-Inference and ACL services are test doubles; PostgreSQL publication and live
-provider acceptance remain separate gates.
-
-### Card-level embedding queue indicator
-
-The existing card document progress area includes pending embedding requests,
-even when transcription has already completed. It shows the localized embedding
-queue label instead of suggesting that an indexed transcription has no remaining
-work. Attachment detail retains its separate transcription and embedding labels.
-Completed or failed embeddings do not keep the card's active progress indicator
-visible. This uses existing metadata subscriptions and translation keys without
-adding polling, scanning attachments or triggering processing.
-
-### Board-scoped transcript results in the command palette
-
-The command palette queries the existing authorized board card-context API after
-300 ms of idle typing, only while open and with 2–1000 query characters. It
-displays matching cards, their workflow column, and the bounded attachment
-filename/snippet projection. A server result replaces the same board's local
-card entry, and selecting it opens the original card. Results from the previous
-query are hidden immediately; superseded requests carry a cancellation signal.
-Closing the palette disables reads. Search does not enqueue processing or call
-an embedding provider, LLM or LangGraph. The existing PostgreSQL search includes
-transcribed text and extracted multilingual keywords without embeddings.
-
-The physical browser fixture exercises a transcript-only match, source display,
-an out-of-order response and navigation, alongside the existing mobile, focus
-and four-language command checks. It is not deployed acceptance. Optional
-vector result composition, precise source-page navigation and live multilingual
-retrieval quality remain separate requirements.
-
-### Literal editor text in native card search
-
-Body/comment search decodes the persisted model wrapper and selects its `content`
-value before applying the existing escaped literal match. Both the native JSON
-object format and the JSON-string-wrapped model format are supported. Model keys
-such as `content`, unrelated metadata and JSON escape sequences are not searchable
-body text. A real occurrence of the same word remains searchable. Newlines, tabs,
-quoted text, backslashes, literal `%`/`_` and multilingual text retain their actual
-content semantics. Card titles, attachments, date/workflow filters and current
-visibility/source checks keep their existing owners. No stored content is rewritten,
-query or cache added, or indexing/inference triggered.
-
-Legacy NUL-containing values retain encoded matching to avoid PostgreSQL text
-conversion errors and SQLite LIKE truncation. PostgreSQL uses the original encoded
-model for this exceptional case, so its prior JSON-key/escape matching limitations
-remain. This path neither rewrites the source nor claims complete control-character
-search semantics.
-
-Eight new SQLite/PostgreSQL body/comment/encoding cases failed on the original
-implementation because the JSON key matched unrelated cards. The shared extraction
-fix is covered by native repository, source-scope and current REST/MCP consumer
-regressions. MySQL/MariaDB keep equivalent native JSON extraction expressions;
-this change does not claim execution coverage for those servers. These are source
-correctness checks, not deployed canary or latency-improvement evidence.
-
-There is a measured decoding cost. In an isolated one-CPU PostgreSQL 16 fixture,
-seven warm alternating executions per implementation on 100 cards gave these
-median repository durations (generated multilingual bodies, not customer data):
-
-| Approximate body per card | Query | Previous encoded-model match | Content-value match |
-| --- | --- | ---: | ---: |
-| 0.4 KB | Common word | 3.340 ms | 3.199 ms |
-| 0.4 KB | No match | 1.976 ms | 2.624 ms |
-| 4 KB | Common word | 7.012 ms | 9.040 ms |
-| 4 KB | No match | 6.382 ms | 8.237 ms |
-| 100 KB | Common word | 119.680 ms | 161.762 ms |
-
-Comparable common-word/no-match queries returned identical IDs. This cost buys
-correct literal text/key separation; it is not a speed improvement. Large-body
-search remains a performance limitation requiring indexed-search acceptance.
-The measurements establish neither full HTTP latency nor operational percentiles.
-Private records include the runnable fixture and original failed harness runs
-(missing baseline import/table); those runs are not application failures or timing
-evidence. The final measurement ran without other tests on its database.
-
-### Current workflow source validation for keyword search
-
-Both board card-context search and transcript snippet projection validate that a
-card's workflow column belongs to the same board. Removed columns are excluded
-before result limits and excerpt ranking. An inconsistent or stale card/column
-relationship must not expose another board's column name, consume the result
-budget, or return a removed workflow's transcript. These checks use the current
-primary SQL source and preserve the existing card visibility policy, literal
-matching, two-source/500-character excerpt bounds and optional embeddings.
-They neither repair operating records nor create/rebuild an external index.
-
-The SQLite/PostgreSQL regression creates inconsistent and removed workflow
-sources beside a readable current card. The unmodified implementation fails all
-four cases; the fixed query returns the current card even with a limit of one
-and excludes invalid sources from transcript excerpts. This is source regression
-evidence, not Elasticsearch integration or canary acceptance.
+The command palette searches the authorized board after 300 ms of idle typing,
+while open, with queries of 2–1000 characters. Results show the current card,
+workflow column, attachment filename and bounded excerpts, and open the original
+card. Search does not invoke a model or start processing. Transcript excerpts are
+limited to two sources of at most 500 characters each per card, with at most 20
+cards in the normal result set.
 
 ### Page-scoped non-destructive document reads
 
-`read_card_document` accepts an optional positive `page`. It loads only the
-current attachment's generation-fenced structural artifact and uses official
-Docling `export_to_markdown(page_no=page, traverse_pictures=True)` serialization.
-Offsets and the 128–8000 character excerpt limit apply within that page. The
-response includes the source page and generation; subsequent reads must retain
-both the page and `expected_generation`. Without `page`, existing Markdown
-offset behavior is preserved. Missing structure or a missing source page returns
-an unavailable error rather than fabricated provenance or whole-document text.
-Current card/attachment authority, generation and content hash are checked again
-after serialization. No VLM, embedding, conversion or reindex task is started.
+The MCP tool `read_card_document` reads stored transcription without conversion,
+embedding or reindexing:
 
-The focused SQLite/PostgreSQL run exercised 44 tests, including actual Docling
-multilingual page serialization, page-local continuation, invalid/missing pages,
-and permission, deletion, generation and hash changes during serialization.
-Current primary binding checks for vector reads also passed. This supplies the
-agent's page follow-up read; optional board-wide vector composition and UI
-page-link navigation remain separate incomplete requirements.
-# Current source read regression evidence
+| Argument | Default | Bounds/meaning |
+| --- | --- | --- |
+| `project_uid`, `card_uid`, `attachment_uid` | Required | Current authorized source |
+| `offset` | `0` | Nonnegative character offset |
+| `max_chars` | `4000` | 128–8000 characters |
+| `expected_generation` | Unset | Require the previously returned generation |
+| `page` | Unset | Positive source-page number; offsets apply within that page |
 
-Attachment byte reads revalidate card visibility and the attachment on the primary
-database after storage IO. The native service regression makes any replica read
-fail, then commits deletion, file replacement or membership withdrawal while IO
-is in progress. The attachment MCP suite passes 18 cases across SQLite and a
-disposable PostgreSQL database, including unchanged-source success. This does
-not prove deployed provider processing or multilingual transcription quality.
-Keyword language labels reuse the existing locale resources while retaining the
-stored `ko`, `en`, `ja` and `zh` values. Standard-library `re` is imported once;
-optional LangChain/Qdrant integrations retain deferred loading.
+Responses include source identity, filename, status, generation, content hash and
+continuation information. Without `page`, offsets address the stored Markdown.
+With `page`, Docling serializes that page from the stored structural artifact.
+Keep both `page` and `expected_generation` on continuation. Missing structure or
+page returns an unavailable error, rather than guessed page provenance or the
+whole document. Incomplete transcription returns no content. Current source,
+permission, generation and hash are checked again before content is returned.
 
+Original attachment byte reads also recheck current permission and source after
+storage access; the MCP byte-read limit is 8 MiB. Vector reads similarly validate
+active generation, pointer settings, current provider authority and retrieval
+enablement. Structural chunk provenance describes a section and its pages; it
+does not guarantee that every excerpt offset identifies a single source page.
+The MCP tool `search_card_document` searches one attachment's active vectors with
+a nonblank query of 1–1000 characters and `max_tokens` of 128–4000 (default 2000).
+The total excerpt budget is also capped by `retrieval.max_return_tokens`, using
+`cl100k_base`. Matches include chunk identity, content, source generation/hash and
+available page provenance. At most 2048 chunks may be indexed per attachment.
+Older vector pointers without explicit chunk IDs require explicit reindexing
+before this tool can retrieve them. Vector search invokes the embedding provider
+for the query; stored-text search and document reads do not. Board-wide vector
+composition and precise UI source-page navigation are not provided by these
+bounded read capabilities.
 
-## Shared external vector collections
+## Embedding and splitter settings
 
-Qdrant retrieval settings include `collection_prefix` (default
-`langboard_documents` for existing installations). Set a unique prefix per
-installation when sharing an endpoint. Names consist of 1–63 ASCII letters,
-digits, underscore or hyphen, beginning with a letter or digit. The official
-LangChain/Qdrant integration uses `<prefix>_<embedding-fingerprint>`; no custom
-vector protocol or database adapter is introduced.
+Configure a **Document Embedding** binding with `agent_llm` set to `OpenAI`,
+`OpenAI Compatible` or `LiteLLM`, plus `base_url`, `model_name`, `api_key` and
+`retrieval`. Approve the embedding base URL in
+`MODEL_PROVIDER_ALLOWED_BASE_URLS`. The endpoint must return finite vectors of
+the configured dimension. Provider and external-store credentials use separate
+secret fields; endpoints cannot contain credentials, query strings or fragments.
 
-The upload snapshot freezes the prefix. Published source pointers record it;
-MCP retrieval checks the recorded prefix and uses that snapshot. Cleanup uses
-the pointer's original prefix even if current settings changed. Pointers predating
-this field retain `langboard_documents`. Explicit reindexing to a different prefix
-must publish the new source pointer before cleanup of the previous generation.
-Settings changes trigger no background scan, migration or destructive purge.
+Queued embedding requests freeze non-secret model, splitter and store settings.
+Credential values are refreshed from the authoritative binding. Changing model
+or splitter settings does not rebuild existing embeddings. Endpoint replacement
+requires a new explicit request. Only split text is embedded; source metadata is
+stored for filtering and provenance.
 
-Prefixes prevent accidental name collisions; they do not authorize access. Use
-Qdrant server credentials restricted to the intended collections, and separate
-security boundaries where stronger tenant isolation is required. Endpoint
-allowlisting, current board/card ACLs and source-generation fences still apply.
-Local integration tests exercise the official Qdrant client's persistent local
-mode, independent searches and deletion across namespaces, and legacy cleanup.
-They do not prove a deployed shared server's authentication/TLS or canary E2E.
+| `retrieval` field | Default | Supported values/bounds |
+| --- | --- | --- |
+| `enabled` | `false` | Opt-in automatic embedding/retrieval; explicit embedding requests can request indexing while off |
+| `store` | `postgres` | `postgres`, retained `sqlite`, or external `qdrant` |
+| `dimensions` | `1536` | 1–65536; PostgreSQL maximum 16000 |
+| `external_url` | `null` | Required for Qdrant; disallowed for built-in stores |
+| `external_api_key` | Unset | Separate secret for the external store; excluded from snapshots |
+| `collection_prefix` | `langboard_documents` | Qdrant collection namespace; built-in stores require the default |
+| `search_type` | `similarity` | Built-in stores: `similarity`; Qdrant also supports `mmr` |
+| `k` | `5` | 1–25 |
+| `fetch_k` | `20` | 1–100; at least `k` for MMR |
+| `score_threshold` | `null` | Finite −1 to 1; unavailable with MMR |
+| `lambda_mult` | `0.5` | Finite 0–1 |
+| `max_return_tokens` | `4000` | 128–16000 |
+| `timeout_seconds` | `10` | Finite 1–30 seconds |
+| `splitter` | Defaults below | Validated chunk configuration |
 
-### Private certificate authorities
+| `splitter` field | Default | Supported values/bounds |
+| --- | --- | --- |
+| `type` | `recursive` | `recursive`, `character`, `markdown` |
+| `chunk_size` | `1000` | 64–8192, measured in the selected length unit |
+| `chunk_overlap` | `150` | 0–2048 and smaller than `chunk_size` |
+| `length_unit` | `characters` | `characters` or `tokens` |
+| `encoding` | `cl100k_base` | `cl100k_base` or `o200k_base` for token length |
+| `separators` | `["\n\n","\n","。","．",".","，","、",","," ",""]` | 1–16 literal separators, each at most 32 characters; final empty separator required except for `character` |
+| `separator` | `"\n\n"` | Character-mode literal separator, at most 32 characters |
+| `keep_separator` | `start` | `false`, `start` or `end` |
+| `strip_whitespace` | `true` | Trim chunk whitespace |
+| `markdown_headers` | `[1,2,3]` | 1–6 distinct heading levels from 1 to 6 |
+| `strip_headers` | `false` | Remove Markdown headers from section text |
 
-Use the official client's native HTTPX trust settings for REST-based Qdrant
-connections. The standard Docker environment generator forwards `SSL_CERT_FILE`
-and `SSL_CERT_DIR` to API, worker and graph environments. Set a container-local CA
-bundle path or an OpenSSL hashed CA directory, mounted read-only by the operator.
-Empty values retain the client's default trust. These are process-wide HTTPX
-settings, not per-board fields, credentials or a certificate-verification bypass.
-
-The custom bundle replaces default trust. Include the public CAs required by other
-HTTPS providers in the same process. Keep `KEY_PROVIDER_VAULT_CA_CERT` for the
-existing vault-specific client; not every network library uses HTTPX settings.
-No CA file, private key or company endpoint belongs in the public source tree.
-See [HTTPX environment variables](https://www.python-httpx.org/environment_variables/)
-and the pinned [Qdrant 1.19.1 REST client](https://github.com/qdrant/qdrant-client/blob/v1.19.1/qdrant_client/qdrant_remote.py).
-
-Regression tests use the real official Qdrant client against a disposable HTTPS
-wire fixture: a trusted CA permits a read-only collection-existence request and an
-untrusted certificate rejects it before HTTP handling. This exercises certificate
-validation and the common connection factory, not a real Qdrant server, server
-authorization, gRPC, persistence or deployment acceptance. A real shared-server
-check remains required before promotion.
-
-### Disposable external-server acceptance
-
-An opt-in test exercises the common connection factory against an actual Qdrant
-REST server. Provision a disposable HTTPS server with API-key authentication and
-permission to create/delete test collections. Supply its URL and secret through
-`LANGBOARD_TEST_QDRANT_URL` and `LANGBOARD_TEST_QDRANT_API_KEY`. For a private CA,
-set `SSL_CERT_FILE` to the trusted bundle as described above. Run:
-
-```sh
-PROJECT_NAME=langboard PYTHONPATH=src/shared/py uv run --no-sync pytest -q \
-  src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_external_test.py
-```
-
-The existing `document-retrieval` dependency extra is required. Without explicit
-test credentials the test skips; an unsecured server fails the authentication
-check. It writes only to random `langboard_acceptance_…` namespaces and deletes
-those collections in `finally`. It checks official-client persistence across
-connections, multilingual content, similarity/MMR, exact source-generation and
-board filters, independent installation namespaces, dimension mismatch rejection
-and idempotent generation deletion. Embeddings are deterministic test vectors;
-no provider calls or local inference models are used. Do not target production.
-
-Local acceptance on 2026-10-17 passed against official Qdrant 1.19.1, image
-`qdrant/qdrant@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10`,
-with a temporary private CA and the pinned 1.19.1 Python client. This is not
-server-side collection RBAC, browser/API/worker acceptance, gRPC verification or
-a performance benchmark. The opt-in test is separate from the simulated-wire
-CA regression above and does not start services during ordinary unit tests.
-
-### Recorded external vector cleanup authorization
-
-Qdrant cleanup resolves its recorded binding from the primary database before
-connecting. Deleted or repurposed bindings and replaced endpoints reject cleanup
-without contacting either the old or replacement server. Credentials are refreshed
-from that binding; dimensions, collection prefix and source pointer remain those
-of the recorded generation. Cleanup opens existing collections only and does not
-recreate a missing collection or infer a replacement endpoint. This checkpoint
-does not cancel a deletion already sent to Qdrant. Broker delivery is recovered through the transactional cleanup outbox described
-below. The connection check itself does not authorize a replacement endpoint.
-
-### Transactional vector cleanup recovery
-
-Migration `a31f9e7b402c` adds `document_vector_cleanup`. Replacing a committed
-embedding pointer or deleting its attachment document records the previous pointer
-in the same primary database transaction. Rollback removes both changes. An
-after-commit broker notification is only an optimization: a failed notification
-leaves the request in the database. The outbox contains identifiers and recorded
-storage coordinates, never model/vector API keys or document content. It has no
-attachment foreign key, so deleting the attachment cannot cascade away the request.
-
-The existing API cron runner registers `run:document-cleanup:recover` every minute
-via `scripts/run_document_cleanup_recovery.sh`. Each run reads at most 100 due
-requests using the due-time index and stops dispatching on broker failure. It does
-not scan attachments or trigger conversion, embedding, or reindexing. External
-schedulers may invoke the same command when the bundled scheduler is disabled.
-
-The worker atomically claims each request for 120 seconds, closes the transaction
-before filesystem/network deletion, and acknowledges only its own claim token.
-Duplicate delivery while leased does nothing. A lost worker becomes recoverable
-after lease expiry. Failures retain the exact pointer with a fixed error code and
-exponential backoff, capped at one hour. Successful idempotent deletion removes the
-outbox row. No model is invoked. Missing/revoked original bindings retain failed
-requests for operator repair rather than guessing another endpoint.
-
-Apply the API migration, roll workers with the new cleanup task registered, then
-roll API images that produce cleanup requests. Downgrade refuses
-to discard pending cleanup rows; do not empty them merely to force rollback. The
-legacy queued cleanup task remains registered for messages accepted by older
-workers. This outbox covers pointer replacement, attachment-document deletion,
-explicit card/board deletion, and unpublished generations whose immediate
-cleanup fails. Deployed broker/worker acceptance requires separate verification.
-
-### Opt-in real broker cleanup acceptance
-
-`src/api/tests/card_workspace/test_document_cleanup_broker.py` uses a dedicated
-Redis endpoint, a disposable PostgreSQL schema and a separate native Celery worker
-process. Enable it only with `LANGBOARD_TEST_CLEANUP_BROKER_URL` and
-`LANGBOARD_FILE_TEST_DATABASE_URL` pointing to test services, using a Python runtime
-with the existing document-retrieval extra. Run:
-
-```sh
-pytest -q -s src/api/tests/card_workspace/test_document_cleanup_broker.py
-```
-
-The test confirms a real connection failure leaves the committed request pending,
-checks task registration, recovers through Redis/Celery into PostgreSQL and deletes
-the actual recorded SQLite vector generation while retaining the new one. A
-completed event is replayed through the queue and both task completions are
-observed. SQL, broker dispatch and vector deletion are not mocked. Embeddings are
-deterministic fixtures; the worker explicitly registers the cleanup task rather
-than loading every unrelated application task. This is not full worker bootstrap,
-remote Qdrant or deployed canary acceptance.
-
-The test uses random queue/key prefixes, schema and vector filename. It removes
-only that namespace, schema and file, and shuts down its worker. The operator owns
-the test Redis/PostgreSQL lifecycle. Without the explicit URLs it skips. A local
-run used the official Redis 7.4-alpine image at digest
-`sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499`,
-bound to loopback with 0.5 CPU/96MiB limits. Do not use production endpoints.
-
-The Phoenix deployment preflight now requires
-`langboard.document_vector_cleanup` on every responding worker, alongside existing
-required tasks, so a mixed/stale worker deployment cannot silently pass that gate.
-
-### Cleanup of existing namespace generations
-
-The transactional cleanup request preserves `chunk_count` as well as the recorded
-namespace for generations created by the earlier official LangGraph store path.
-Without the count, the deletion worker rejects the request and retains it for
-retry indefinitely. Current `chunk_ids` generations retain their existing behavior.
-The SQLite integration test covers both pointer formats through the committed
-outbox and actual store deletion, checking that a newer generation and its
-vectors survive and a repeated cleanup is harmless. No provider inference,
-credential storage, source document mutation or database conversion is required.
-
-```sh
-PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
-  src/api/tests/card_workspace/test_document_cleanup_outbox.py -q
-```
-
-This is source regression evidence. Existing pending requests that already lost
-their count are not repaired automatically, and this change does not scan or
-delete production indexes. Deployed acceptance remains separate work.
-
-### Card and board deletion
-
-Explicit card or board deletion records the source's existing embedding pointers
-in the same transaction as the source deletion. Rolling back preserves both the
-source and the absence of cleanup requests. The service uses the same project,
-then card lock order as embedding publication, and reads only the selected
-scope's document metadata in batches of 100. A new inference result cannot
-publish after its project or card is deleted. Other boards remain untouched;
-Wiki reference deletion does not delete the Wiki's resources.
-
-A single card retains immediate after-commit dispatch. Board-wide deletion
-records requests without synchronously contacting the broker for every document;
-the existing minute-based recovery cron dispatches at most 100 due requests per
-run. Worker acknowledgement, retry fencing and recorded external connection
-validation retain their existing behavior. No full attachment reconciler, source
-file deletion, new scheduler or database migration is introduced.
-
-```sh
-PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py python -m pytest \
-  src/api/tests/card_workspace/test_document_scope_cleanup.py \
-  src/api/tests/card_workspace/test_document_cleanup_outbox.py \
-  src/api/tests/wiki_linked_cards/test_wiki_linked_resource_card.py -q
-```
-
-The scope regression exercises the actual source repositories and transactional
-outbox, with unrelated notification/readiness systems stubbed. It checks rollback,
-a board of 101 documents crossing the read-batch boundary, bounded later dispatch,
-late publication rejection and repeated deletion without new cleanup requests.
-PostgreSQL variants require `LANGBOARD_FILE_TEST_DATABASE_URL` pointing to a
-dedicated disposable test database. With PostgreSQL 17, this suite passed 46 tests;
-two SQLite variants skip because SQLite cannot exercise PostgreSQL row locks.
-The concurrent publication cases use two actual connections and
-`pg_blocking_pids()` to verify that publication waits for the deletion transaction,
-then rejects the deleted source after commit. Both card and board deletion are
-covered. A skipped PostgreSQL variant is not concurrency proof. This is a source
-transaction regression, not deployed worker/provider or canary acceptance.
-The tests do not delete production data.
-
-
-### Unpublished generation cleanup failures
-
-If a vector store partially accepts staging and then fails, the worker first
-attempts to delete the requested chunk IDs. The same cleanup applies when the
-authoritative publication fence rejects a staged generation or publication raises
-an error. A failed immediate deletion carries the server-owned pointer in a typed,
-sanitized error; the worker commits that pointer to the existing cleanup outbox
-before publishing the generic embedding failure. The previous searchable pointer
-remains unchanged. Broker dispatch failure leaves the committed request available
-for the existing bounded recovery cron. No attachment scan, new scheduler or
-provider credentials in cleanup records are introduced.
-
-The `test_unpublished_vectors_survive_delete_failure_as_durable_cleanup` regression
-in the outbox suite exercises all three paths with real SQLite vector writes and
-SQLite/PostgreSQL outbox transactions. After a broker failure it processes the
-committed request, verifies deletion of only the staged IDs, retains the previous
-generation and replays the completed event harmlessly. Provider and publication
-authority are fixtures; this is not external-provider or deployed acceptance.
-A process killed before the cleanup record commits, or an unavailable primary DB
-preventing that commit, is outside this tested recovery guarantee.
-
-An explicit `False` result from `VectorStore.delete()` also counts as cleanup
-failure. The official Qdrant integration returns this value for an acknowledged
-operation that has not completed. The existing outbox retains the pointer and
-backs off; it removes the request only after a successful retry. Providers that
-return `None` on success retain their existing behavior.
-
-`test_negative_vector_delete_ack_preserves_cleanup_until_retry` exercises the
-official Qdrant integration with acknowledged/completed response fixtures and real
-SQLite/PostgreSQL outbox transactions. The cleanup, vector-store and embedding
-regression suites pass 70 tests together. These checks cover SDK response handling
-and durable retry, not a live external Qdrant server or deployed acceptance.
-
-### Localized splitter choices
-
-The retrieval editor displays splitter types, length units and separator
-placement in English, Korean, Japanese and Chinese through existing locale
-resources. Canonical submitted values such as `recursive`, `tokens` and `start`
-remain unchanged. Tokenizer identifiers retain their official names. No provider,
-vector-store migration or automatic reindex is implied by a caption change.
-
-The existing real-component browser fixture covers four-language captions and
-canonical submitted values, disabled submission, Qdrant/SQLite modes and desktop/
-mobile layout. The localization workflow runs this focused suite. Local source
-verification does not replace authenticated acceptance after UI deployment.
-
+Markdown mode splits headings before applying chunk bounds. Character mode also
+bounds unbroken paragraphs through recursive fallback. When a structural artifact
+is available, section structure and provenance are retained before applying the
+configured splitting limits. Captions are available in English, Korean, Japanese
+and Chinese; submitted values remain the canonical values above.
 
 ### PostgreSQL retrieval default and preserved legacy indexes
 
-New retrieval settings default to `store: postgres`, while retrieval remains
-opt-in (`enabled: false`). The adapter reuses the official
-`langgraph-checkpoint-postgres==3.1.3` `PostgresStore` and the same LangChain
-vector boundary as SQLite. It uses the existing `MAIN_DATABASE_URL`, including
-its TLS query settings; there is no additional application database or ORM.
-API/worker image profiles already install the `document-retrieval` extra.
+Install the `document-retrieval` extra for vector operations. PostgreSQL vectors
+use the existing `MAIN_DATABASE_URL`, including its TLS settings. Before enabling
+them, install pgvector in the `public` schema and grant the database role schema
+creation and read/write access to generated model schemas. Missing pgvector fails
+explicitly. Explicit indexing creates a dimension-bound schema per embedding
+fingerprint; search and cleanup do not create or migrate schemas.
 
-Before enabling this store, the database operator must install pgvector in the
-`public` schema. The application fails explicitly if it is missing or installed
-elsewhere; it never falls back to SQLite. Its database role needs schema creation
-and read/write access to the generated model schemas. Explicit attachment
-indexing creates a dimension-bound schema per embedding fingerprint through
-native LangGraph migrations. Search and cleanup never create or migrate it.
-Stored dimensions must match the configured model (1–16,000).
+PostgreSQL uses exact cosine search (`flat`), which scans relevant vectors. Measure
+latency for large workloads and consider external Qdrant. Existing explicit
+`store: sqlite` settings and recorded legacy generations remain supported. Saving
+settings does not convert indexes or replace stored embeddings. Text search and
+original transcriptions remain available independently of vectors.
 
-The current adapter uses exact cosine search (`flat`), avoiding an implicit ANN
-index with different dimension limits. This scans the relevant stored vectors;
-large workloads should select the existing external Qdrant option and measure
-latency before enabling retrieval broadly. Model namespaces and source filters
-are not authorization: current board/card access and active-generation checks
-remain required at the existing retrieval boundary.
+## Shared external vector collections
 
-Previously stored settings explicitly retain `store: sqlite`; their indexes,
-recorded generation identifiers and credential-free cleanup remain supported.
-Saving settings does not migrate files, replace embeddings or scan attachments.
-Only a new upload or an explicit attachment indexing request uses its selected
-settings. Original transcriptions and PostgreSQL keyword search remain available
-without embeddings. Elasticsearch selection is still separate unfinished work.
+Qdrant collections use `<collection_prefix>_<embedding-fingerprint>`. A prefix is
+1–63 ASCII letters, digits, underscores or hyphens, beginning with a letter or
+digit. Use a unique prefix per installation when sharing an endpoint. Legacy
+pointers without a prefix retain `langboard_documents`.
 
-Real integration tests require `LANGBOARD_VECTOR_TEST_DATABASE_URL` matching `MAIN_DATABASE_URL` in an isolated test process and pointing to
-an explicitly disposable PostgreSQL database with pgvector already in `public`.
-They skip without that dedicated variable and never use the production database
-implicitly. Coverage includes persistence, multilingual content, missing-index
-reads without schema creation, source-generation filtering, independent model
-dimensions and cleanup without embedding credentials. These tests are source
-acceptance, not deployed canary or external-user acceptance.
+Snapshots and published pointers retain their original prefix. A reindex to a
+new prefix publishes its replacement before old-generation cleanup. Settings
+changes perform no background scan, migration or purge. Prefixes prevent name
+collisions; server credentials and collection permissions must enforce access.
+Approve the external endpoint separately in `DOCUMENT_VECTOR_ALLOWED_BASE_URLS`
+on API/worker processes. Current board/card permissions and generation checks
+remain required.
 
+### Private certificate authorities
 
-Source acceptance on 2026-10-18: four real PostgreSQL/pgvector cases passed,
-59 existing retrieval/store/embedding cases passed (one existing negative-CA
-client compatibility warning), and seven real-component settings browser cases
-passed at desktop/mobile widths and four locales. TypeScript, targeted product
-ESLint, formatting, locale parity and both lock checks passed. The first explicit
-opt-in fixture run attempted to assign a read-only Env property and failed;
-the fixture now requires matching isolated process configuration without changing
-that property. Failed receipts remain preserved. No canary image was deployed
-by this verification.
+For Qdrant REST connections, mount a read-only CA bundle or OpenSSL hashed CA
+directory and set `SSL_CERT_FILE` or `SSL_CERT_DIR`. The standard Docker environment
+generator forwards these to API, worker and graph processes. Empty values retain
+HTTPX defaults. A custom bundle replaces default trust, so include public CAs
+needed by other HTTPX clients in the same process. These settings are process-wide;
+`KEY_PROVIDER_VAULT_CA_CERT` remains the separate vault-specific setting.
 
+See [HTTPX environment variables](https://www.python-httpx.org/environment_variables/).
+Keep certificate material, private keys, credentials and deployment endpoints out
+of public source. Verify the deployed Qdrant server's TLS, permissions and
+persistence before relying on a shared endpoint.
 
-Root package lock correction: the first PostgreSQL change updated shared and
-Graph locks but missed the independently owned root `uv.lock`. A fresh root
-`uv lock --check` reproduced that mismatch. The root lock now contains the
-Postgres adapter and its required checkpoint/pool dependencies, matching the
-already-tested Graph environment. Root, shared and Graph lock freshness checks
-and the production `document-retrieval` install dry run pass. Existing app and
-full Phoenix validation installs use `--locked` to reject stale metadata before
-installation; `--frozen` alone would trust an outdated lock. No validation job,
-runner or deployment environment was added.
+## Cleanup and recovery
 
-## Optional Elasticsearch keyword search: implementation boundary
+Replacing vectors or deleting extracted content records cleanup in the same
+transaction as the source change. Extraction-only deletion clears derived text
+and structural artifacts while preserving the original attachment, filename and
+file reference. Separate attachment deletion controls the attachment itself.
+Card/board deletion records cleanup only for its scope and rejects late inference
+publication. Removing a Wiki reference does not delete the Wiki's resources.
 
-A complete Elasticsearch search provider is not yet selectable in settings.
-PostgreSQL remains the keyword-search coverage owner, including transcribed
-attachment text without embeddings. The operator preflight and the explicitly
-enabled supplemental document read path below are available independently.
-Do not expose a working-looking settings option backed only by an unused client
-module, or redirect a deployment to another application's cluster/index.
+Cleanup uses the recorded generation and original destination. Qdrant cleanup
+requires its original current binding and endpoint; deleted, repurposed or
+redirected bindings retain failed work without contacting a replacement server.
+Credentials refresh from the original binding. Cleanup opens existing collections
+and never creates a missing collection. Legacy namespace generations require their
+recorded `chunk_count`; missing counts are not automatically reconstructed.
 
-The implementation must preserve these boundaries before it replaces a read path:
+Keep database migrations, worker task registration and recovery scheduling in
+step when upgrading. The bundled recovery invocation checks at most 100 due
+vector and 100 due keyword requests per run, without scanning attachments. The
+legacy `langboard run:document-cleanup:recover` command remains vector-only.
+Dispatch follows commit; broker failure leaves durable requests recoverable.
+Workers claim 120-second leases. Failed vector deletion retains its recorded
+pointer and retries with backoff capped at one hour; only completed deletion
+removes the request. An acknowledgement that deletion is incomplete retains work.
 
-- Use the official Python client for endpoint, API-key authentication, certificate
-  verification/custom CA, request timeout and bounded bulk operations. Select a
-  supported client/server version pair from the operator's actual deployment;
-  do not disable TLS verification or choose an old client just to reach a legacy
-  service. Optional dependencies must remain absent from the default import path.
-- Store connection secrets through the existing SecretRef boundary. Instance-owned
-  index names and server-enforced permissions are both required; a name prefix
-  alone is not isolation. Never reuse another application's existing index.
-- Index Langboard-owned text projections with board/card/attachment provenance,
-  content generation and revision. Card text, comments and transcriptions need
-  their existing authoritative write owners; attachment inference remains optional.
-  Multilingual extracted keywords are searchable attributes, not executable DSL.
-- Commit a durable indexing/deletion request with the authoritative source change;
-  dispatch only after commit. Retry due requests with a bounded lease. Do not put
-  remote network calls in the source transaction, reuse execution-ready semantics
-  as indexing state, or create a full-file polling reconciler. Setting a provider
-  must not enqueue all existing files or regenerate embeddings.
-- Query a bounded candidate set for an explicit board. Treat index IDs, text and
-  snippets as untrusted: revalidate current primary DB project/card/column access,
-  deletion and source generation before materializing any response. Do not expose
-  remote snippets before that check. Stale, unavailable or incomplete indexing
-  must retain PostgreSQL search coverage, rather than silently omit new content.
-- Switching providers keeps old data and connection references available for
-  explicit migration/cleanup and rollback. Source deletion needs durable derived
-  index cleanup even if credentials or the current endpoint change. Search and
-  connection checks must never perform indexing, inference or schema setup.
+Failed unpublished vector cleanup also retains durable work when its request can
+be committed; the previously readable generation remains intact. A process killed
+before that commit, or an unavailable primary database preventing it, can leave
+staged data outside this recovery guarantee. Monitor retained failures and repair
+original connection authority. Do not discard pending cleanup to force a database
+downgrade. Requests already sent to remote services cannot be recalled.
 
-Acceptance requires a real supported external cluster: scoped credentials, TLS
-and permission failures, two instance/board namespaces, source replacement and
-revocation, delivery failure/recovery, deletion and restart persistence. Add the
-settings UI only when it can report these actual capabilities and failures.
-PostgreSQL behavior must pass with Elasticsearch absent. Until then the portability
-card's Elasticsearch item remains incomplete; local SQL or vector-store tests do
-not substitute for that acceptance.
+## Optional Elasticsearch keyword search
 
-Official references: [client connections](https://www.elastic.co/docs/reference/elasticsearch/clients/python/connecting),
-[TLS/timeouts](https://www.elastic.co/docs/reference/elasticsearch/clients/python/configuration),
-[bounded bulk helpers](https://elasticsearch-py.readthedocs.io/en/stable/api_helpers.html).
+PostgreSQL remains the mandatory text-search path. Optional Elasticsearch reads
+supplement it with bounded attachment candidates; they do not replace existing
+matches. Provision an instance-owned concrete index separately, with verified TLS
+and scoped credentials. Index names and namespaces alone do not establish tenant
+isolation. This feature indexes attachment text projections, not a replacement
+index for all card bodies and comments, and makes no search-latency guarantee.
+
+### Native optional keyword provider settings
+
+An active instance administrator can configure **Settings → Keyword search**.
+Read and indexing switches default to off. Create an **instance** secret through
+the secure browser input or select an existing instance SecretRef. Personal,
+board and workspace secrets cannot be used by entering their URI. Credential
+values remain in the configured vault and are supplied out of band; settings
+retain only the SecretRef, approved revision and destination. Background access
+is audited as **Native keyword service**.
+
+`GET /settings/keyword-search` returns the current revision, retained connections,
+instance secret metadata and summaries of pending cleanup/blocked indexing. Its
+optional `cursor` returns at most 50 retained connections per page; follow
+`next_cursor` for more. Secret metadata is limited to 100 entries, with
+`secret_references_truncated` indicating additional entries. The selected connection
+is returned separately even when outside the current page. `PUT /settings/keyword-search` accepts:
+
+| Field | Default/bounds |
+| --- | --- |
+| `expected_revision` | Required nonnegative integer; use the current revision |
+| `endpoint` | Empty; maximum 2048 characters; configured destinations require HTTPS |
+| `index` | Empty; maximum 128 characters; one concrete index |
+| `secret_ref` | Empty; maximum 128 characters; active instance reference |
+| `secret_revision` | `0`; nonnegative integer; approved current secret revision |
+| `reads_enabled`, `indexing_enabled` | `false`; booleans |
+
+Stale revisions return 409; reload before updating. Invalid settings return 400;
+unavailable secret authority returns 403. Responses omit credential values.
+`POST /settings/keyword-search/secret-input` with `name` (1–256 characters) starts
+secure secret entry; `GET /settings/keyword-search/secret-input/{input_uid}` checks
+its status. Submit the actual credential through that secure input flow.
+
+A persisted native settings row supersedes environment switches even when both
+switches are off. Without one, the explicit legacy environment configuration below
+is used. Existing legacy jobs retain their original destination and never receive
+a native connection's key.
+
+Enabling indexing affects future processing and explicit attachment actions.
+Switching/disabling providers preserves ownership and does not delete projections,
+reindex attachments or trigger a backfill. Pending indexing for a nonselected
+connection remains blocked; deletion cleanup can still use its retained original
+active connection. Retain those connections until cleanup completes.
+
+`POST /settings/keyword-search/connections/{connection_uid}/revoke` accepts the
+current `expected_revision`, blocks new credential resolution and preserves queue
+evidence. After rotating a secret, save settings again to approve its new revision;
+old grants remain pinned. Requests already sent cannot be recalled. Version fences
+reject late acknowledgements of superseded source work.
 
 ### Read-only operator connection preflight
 
-Install the optional client explicitly with `uv sync --locked --extra keyword-search`.
-The default API/Graph imports and installation do not require Elasticsearch.
-The official client is pinned to 9.5.1; it uses Elasticsearch 9 compatibility.
-This command is not a way to repurpose an existing Elasticsearch 7 cluster.
-
-Have the deployment's existing secret delivery resolve its API-key SecretRef into
-`LANGBOARD_ELASTICSEARCH_API_KEY`, then run:
+Install the optional client with `uv sync --locked --extra keyword-search`.
+The supplied client uses Elasticsearch 9 compatibility; select a compatible server
+rather than assuming a legacy cluster is supported. Resolve the API-key SecretRef
+through deployment secret delivery into `LANGBOARD_ELASTICSEARCH_API_KEY`, then run:
 
 ```sh
 langboard search:check \
@@ -656,241 +366,80 @@ langboard search:check \
   --require-write
 ```
 
-The key is never a command-line argument. `--api-key-env` can name another injected
-environment variable. No key is persisted by the command. HTTPS certificate
-verification stays enabled; absent `--ca-certs`, the official client's trust
-defaults apply. The timeout is per request, 1..30 seconds, with automatic retries
-disabled. Credentials in URLs, wildcard/multiple/system-index names, aliases and
-data streams are rejected.
+`--api-key-env` selects another injected variable. Keys are never CLI arguments or
+persisted by the command. Certificate verification stays enabled; omit `--ca-certs`
+to use official-client defaults. Timeouts are per request, 1–30 seconds, with no
+automatic retries. Credential-bearing URLs, wildcard/multiple/system indices,
+aliases and data streams are rejected.
 
-The command checks current `read`/`view_index_metadata` privileges, resolves exactly
-one concrete index and performs a `size=0`, `match_none`, no-source search. Optional
-`--require-write` checks `index`/`delete` privileges without writing. It does not
-create an index, inspect document contents, change configuration or trigger any
-indexing. Cluster-wide `monitor` is not required: when absent, the result explicitly
-reports `version_verified=false`/`server_version=null`; it must not be interpreted
-as verified server-version inventory. When already allowed, the version is read
-and must match the installed client's major version.
+The command checks `read`/`view_index_metadata` privileges, resolves exactly one
+concrete index and performs a zero-document, no-source search. `--require-write`
+checks `index`/`delete` privileges without writing. It never creates indices or
+triggers indexing. Cluster-wide `monitor` is optional: without it,
+`version_verified=false` and `server_version=null`; with it, the server major
+version must match the client. Failures return nonzero status and fixed diagnostic
+codes without keys, remote error bodies or document content.
 
-The JSON receipt has a nonzero exit status for failures and fixed codes separating
-configuration, missing optional dependencies, authentication, permissions, TLS,
-timeouts, missing endpoints/indices, incompatible servers and incomplete search.
-It excludes API keys, remote error bodies and document contents. A successful
-connection check does not prove index ownership/isolation, write delivery,
-application search, ACL enforcement or deletion/recovery acceptance.
+Native settings expose the same read-only checks through
+`POST /settings/keyword-search/connections/{connection_uid}/preflight`.
+A missing optional client reports `keyword_search_extra_required`. A passing
+preflight establishes connectivity and checked privileges; operators must also
+verify actual indexing, authenticated application search, isolation and cleanup
+against their deployed service.
 
-Local tests exercise real official-client HTTPS against a controlled protocol
-fixture: trusted/untrusted CA, hostname mismatch, malformed CA, authentication,
-permission and version failures, timeout without retries, concrete-index selection,
-zero-document reads, secret-free results, native Commander parsing and a fresh
-process with the optional imports blocked. They are not a running Elasticsearch
-cluster or a deployed remote-service E2E. The existing card-workspace job installs
-the optional extra and runs these checks; no new job or runner is introduced.
+### Legacy environment settings
+
+| Variable | Default/meaning |
+| --- | --- |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED` | `false`; enable supplemental reads |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED` | `false`; capture new processing/explicit keyword requests |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT` | HTTPS endpoint |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX` | One instance-owned concrete index |
+| `LANGBOARD_ELASTICSEARCH_API_KEY` | Injected secret; never stored with source/job metadata |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS` | Optional CA path; also used by native connections |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_TIMEOUT` | `1`; read timeout, 1–2 seconds; also used by native reads |
+| `DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT` | `10`; write timeout, 1–30 seconds; also used by native writes |
+
+Both flags require the literal value `true` to enable their legacy path. Changing
+flags never processes existing files. Legacy cleanup requires the current
+endpoint/index to match the retained original destination before resolving the
+key. Restore that connection to unblock old cleanup; no current key is sent to an
+unmatched old destination.
 
 ### Supplemental document candidates
 
-`DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED=true` enables an optional read stage in
-the existing board-scoped card search (including its native MCP consumer). It uses
-`DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT`, `DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX`,
-`DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS`, `LANGBOARD_ELASTICSEARCH_API_KEY` and a
-strict 1..2-second `DOCUMENT_KEYWORD_ELASTICSEARCH_TIMEOUT` (default 1). Provision
-the concrete instance-owned index and run the operator preflight separately. The
-default is disabled and imports no Elasticsearch package or extra DB query.
+The remote projection contains exact keyword identities `board_uid`, `card_uid`
+and `attachment_uid`, an `active` boolean, full `text`, and `projection_hash`:
+lowercase SHA-256 of the exact UTF-8 transcription string. This differs from the
+original file's `content_hash`; do not normalize text or hash the file instead.
 
-This stage supplements PostgreSQL; it does not replace any PostgreSQL match. Its
-purpose is to accept additional full-text matches from an explicitly configured
-index while preserving native coverage on disabled, missing, unavailable, stale or
-incomplete optional indexing. It adds bounded remote IO/source validation when
-enabled and is not a demonstrated search-latency optimization.
-
-The indexed attachment projection contract is:
-
-| Field | Value |
-| --- | --- |
-| `board_uid`, `card_uid`, `attachment_uid` | Current Langboard short-code identities, stored as exact keyword fields |
-| `projection_hash` | Lowercase SHA-256 of the exact UTF-8 `CardAttachment.document_text` string |
-| `active` | Boolean `true` for a current text projection; `false` for a retained deletion fence |
-| `text` | That exact text projection, indexed for full-text search |
-
-`projection_hash` deliberately differs from the original file's existing
-`content_hash`. Do not hash the file, normalize the text or substitute a model ID.
-The read flag does not authorize indexing, automatic backfill or index creation.
-The separate opt-in indexing lifecycle below maintains newly requested attachment
-projections. The attachment menu also exposes an explicit keyword-only reindex
-action for current complete stored text, described below. Provider-selection UI
-remains unfinished.
-
-The remote request filters one board, asks for at most 20 identifiers/hashes and
-no text/highlights, and has a 500ms server search timeout with no transport retry.
-After the request, the service resolves current account/membership/audience again.
-A single primary SQL query then filters live authorized cards, attachments and
-columns before fetching source text. Only matching card/attachment identities and
-an exact current projection hash are accepted. No remote snippet is returned.
-Results reuse current filenames and at most two 500-character local excerpts per
-card; existing date/workflow filters and the normal 20-card limit remain in force.
-
-For bounded validation, projections over 131,072 characters are excluded from this
-supplemental stage; their existing PostgreSQL search is unchanged. A full provider
-will need durable projection revisions/hashes to remove that fetch restriction
-without unbounded reads. Search never triggers inference, file reads or reindexing.
-HTTPS protocol fixtures plus SQLite/PostgreSQL integration cover hidden/private/
-foreign/deleted/stale sources, Human UI/MCP/API differences, membership revocation
-and source replacement during a request, and native fallback. They do not prove
-real Elasticsearch matching, delivery/deletion, index isolation or deployed E2E.
+Reads request at most 20 identifiers/hashes for one board, without remote text or
+highlights, with a 500 ms server timeout and no transport retry. Current primary
+source permissions and membership/audience are rechecked afterward. Only matching
+live card/attachment identities and exact current projection hashes are accepted;
+excerpts come from local source. Projections over 131072 characters are excluded
+from this supplemental stage; PostgreSQL search remains available. Missing,
+unavailable, stale or incomplete optional indexing preserves PostgreSQL coverage.
+Search never reads original files or triggers indexing/inference.
 
 ### Durable attachment keyword projections
 
-`DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED=true` captures the configured
-destination when the existing upload/explicit document-processing path queues a
-new transcription. Its default is `false`, independently of the read flag.
-Changing either global flag does not process existing files. The explicit
-attachment keyword action can separately capture and activate its current complete
-transcription without running transcription or embedding again. It requires this
-indexing flag and the configured destination; neither settings changes nor search
-reads start a backfill.
+Processing captures a destination before transcription; publication of that same
+generation activates indexing. Explicit keyword reindex activates the selected
+attachment's current complete text without inference. Requests survive broker
+failure and are recovered through the bounded invocation above. Missing or
+oversized text is never silently truncated. Fixed diagnostics retain retryable
+work without storing document content, credentials or remote error responses.
 
-The native `DocumentKeywordIndex` table coalesces desired state per attachment and
-destination. An upload captures a waiting request with no due date; only publication
-of the same transcription generation activates it. Both changes share the source
-transaction and Celery dispatch occurs after commit. A failed broker publication
-leaves the committed request recoverable. The existing document-cleanup recovery
-invocation now runs `DocumentRecovery`, checking at most 100 due vector requests
-and 100 due keyword requests; it scans no attachments or files. The legacy
-`run:document-cleanup:recover` command remains vector-only for compatibility.
+Source requests, publication and removal increase external versions. Writes use
+strict external versioning. Unknown-outcome retries require matching remote
+version, provenance and hash. Deletion writes a higher-version `active=false`
+tombstone with provenance, an empty hash and no text. Tombstones and ownership
+records remain to prevent delayed older writes from restoring deleted content.
+Cleanup uses retained original ownership even when source metadata is absent.
+Manually populated remote indices are not automatically adopted.
 
-Apply migration `d95e63b0f721` before starting the updated recovery process. The
-new table's due-date index excludes waiting/completed rows; its project/card
-index supports scoped cleanup. It has no source foreign keys, so retained cleanup
-survives source removal. No existing source data is rewritten or backfilled.
-Downgrade refuses any retained row, including completed ownership records.
-
-Each native Celery task claims a 120-second lease, validates current primary
-source/generation, then releases DB locks before remote IO. Writes use the official
-client, concrete-index validation, verified TLS, no transport retries and
-`DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT` (default 10, range 1..30 seconds).
-The text limit remains 131,072 characters. Missing/oversized text is not silently
-truncated. Fixed diagnostic codes retain retryable requests without storing a
-remote response, document text or credentials in the request row.
-
-External versions increase on source requests, publication and removal. Writes
-use strict `version_type=external`, not `external_gte`. A retry after an unknown
-outcome only succeeds when the remote version and exact provenance/hash agree.
-An expired worker cannot acknowledge a newer claim. Source deletion writes a
-higher-version `active=false` tombstone containing provenance and an empty hash,
-with no text. Tombstones and ownership rows are retained so a late lower-version
-write cannot restore deleted content. This application retains PostgreSQL coverage
-and revalidates primary ACLs regardless of remote state.
-
-Attachment and card/board deletion record cleanup directly from the retained
-ownership rows, even if source metadata is already absent. Card/board cleanup uses
-one scoped update and the existing recovery invocation, without synchronous broker
-calls per attachment. Extraction-only deletion still preserves the original file.
-These rules cover projections owned by this table; manually populated remote
-indices are not automatically adopted.
-
-Only the non-secret endpoint/index snapshot is retained. The injected API key and
-CA are resolved at execution and are never stored in card metadata or the job.
-Execution requires the current endpoint/index to match the retained destination
-before resolving/sending the key. After a connection change, old cleanup is retained
-with an error until the original connection is restored; no current key is sent
-to an old destination. Multi-connection SecretRef selection remains part of the
-unfinished provider settings. Completed ownership must remain available for that
-explicit migration/cleanup path.
-
-Validation includes actual Alembic operations on SQLite/PostgreSQL, rollback and
-scope checks, expired-lease takeover, deletion with missing metadata, and independent
-native Celery producer/worker processes using Kombu's filesystem transport with
-PostgreSQL and a controlled HTTPS protocol server. The filesystem transport is
-test-only. This does not prove deployed Redis delivery, full VLM processing,
-Elasticsearch matching/isolation, provider settings or canary acceptance.
-
-### Deleting an extracted document
-
-`delete_document_by_attachment_uid` clears the selected attachment's derived
-`document_text` in the same transaction as metadata/artifact deletion and durable
-vector-cleanup recording. It uses the same attachment/card predicate for text and
-artifact removal, so a foreign card cannot clear another card's projection.
-This also removes leftover search text when the metadata row is already absent.
-The original attachment row, filename and file reference are retained by this
-extraction-only operation. The separate attachment-delete service still controls
-deletion of the attachment itself. Late results from the old extraction generation
-remain rejected; failed replacement processing continues to retain the prior text.
-
-Previously, extraction deletion left `document_text` behind. Five new assertions
-failed across SQLite/PostgreSQL and real HTTPS candidate reads before correction.
-The normal attachment-delete path already filters soft-deleted attachments from
-search, so this is not by itself proof of an observed public data leak. The fix
-closes the underlying deletion mismatch and makes old external candidates fail
-current-source validation. Rollback restores metadata, text and cleanup state
-together. The optional-feature API test environment passed 83 related tests; two
-SQLite-only locking cases were skipped with their PostgreSQL counterparts passing.
-The base API environment also passed the seven focused cases (overlapping scope).
-These are source/integration checks, not remote-index deletion or canary evidence.
-
-### Explicit keyword reindexing
-
-The attachment menu's **Reindex document keywords** confirmation submits
-`POST /board/{board}/card/{card}/attachment/{attachment}/document-processing`
-with `{"mode":"keyword"}`. It requires card update permission, current card
-visibility, and ownership of the attachment by that card. The native app mutation
-guard also applies. Transcription and embedding request modes retain their defaults.
-
-The request indexes only this attachment's current complete stored text. It
-requires an indexed transcription with a generation and content hash, nonempty
-text within the keyword projection limit, enabled keyword indexing, and a
-configured Elasticsearch destination and API key. It does not run VLM or
-embedding inference, read the original file, or scan other attachments. Missing
-source/configuration returns the existing fixed 400/404 API errors.
-
-Capture and activation share one transaction with current source locks. Dispatch
-runs after commit; broker failure retains due work for the existing recovery
-command. Worker source/deletion fences and destination policy remain authoritative.
-The success notification means the keyword request was queued; worker completion
-and a real Elasticsearch search require separate verification. No settings or
-search read triggers this action automatically.
-
-### Native optional keyword provider settings
-
-An active instance administrator can configure **Settings → Keyword search**.
-PostgreSQL remains the mandatory search path. Optional Elasticsearch reads add
-bounded candidate matches which Langboard revalidates against current source and
-card permissions. Both native read and indexing switches default to off.
-
-Create an **instance** secret using the secure browser input, or select an existing
-instance SecretRef. Personal, board and workspace references cannot be promoted
-into this workload by entering their URI. Settings retain only a SecretRef, its
-approved revision and the HTTPS endpoint/concrete index. Credential values stay in
-the configured vault. The instance administrator's saved destination selection is
-the explicit grant for the native keyword workload. Background secret access is
-recorded as **Native keyword service**, with no human actor substituted.
-
-The administrator HTTP surface is `GET/PUT /settings/keyword-search`; updates must
-include the current `expected_revision`. A stale revision returns 409 and requires
-reloading settings. The settings response lists retained connections, instance
-secret metadata, pending cleanup and blocked indexing work. A persisted native row
-supersedes the legacy environment flags, including when both switches are off.
-With no native row, existing environment configuration remains the explicit legacy
-path. Existing legacy jobs retain their original destination and never acquire a
-native connection's key.
-
-Enabling indexing affects future attachment processing and explicit attachment
-reindex requests. It does not backfill files or trigger work from a search read.
-Switching or disabling a provider preserves existing projection ownership. Pending
-index work for a nonselected connection remains blocked; source deletion cleanup
-can still use its retained original active connection. Revoking a connection through
-`POST /settings/keyword-search/connections/{connection_uid}/revoke` immediately
-blocks new credential resolution and preserves queue evidence. After rotating a
-secret, save the settings again to approve its new revision before further use;
-old grants remain pinned to their approved revision. A request already sent to a
-remote server cannot be recalled. Version fences prevent late acknowledgements
-from completing superseded source work.
-
-`POST /settings/keyword-search/connections/{connection_uid}/preflight` runs the
-existing official-client connectivity/privilege checks without writing documents.
-An unavailable optional client is reported as `keyword_search_extra_required`.
-A passing check does not establish deployed indexing, authenticated end-to-end
-search or tenant isolation. The concrete index must be provisioned separately;
-index naming and namespaces are not isolation boundaries. Retain original active
-connections until their source deletion cleanup has completed. Migration downgrade
-refuses to discard populated native grants, instance secret scope or workload audit
-history.
+Migration downgrade refuses retained ownership/native grants, instance secret
+scope or workload audit history where discarding them would lose authority or
+cleanup records. Preserve them for explicit repair and cleanup. A functioning
+optional index still requires live primary-source authorization for every read.
