@@ -103,3 +103,23 @@ The actual component fixture exercises an aborted upload at desktop1440px and
 mobile390px, verifies a removable failure, exactly one POST and no horizontal
 overflow. The original component fails the same fixture; both corrected cases
 pass. This is source regression evidence, not a new deployed-UI acceptance.
+
+## External browser editing checkpoint, 2026-10-18
+
+On the same external fixture, the actual card editor accepted a unique Korean
+body marker and completed explicit Save. Reloading the card displayed the marker;
+an independently authenticated HTTP session retrieved it and the unchanged
+attachment bytes. This is browser body-save evidence on the existing release,
+not acceptance of the pending editor-readiness or upload UI changes.
+
+Editing the existing owned comment then exposed a remaining deployed regression.
+The desktop card rendered the same comment editor in both the body and side
+panel. After synchronization and one explicit Save, fresh HTTP retrieval contained
+the original text twice and the unique edit marker once. Reload displayed the
+same persisted result in two comment surfaces. Do not classify this as successful
+comment-content acceptance merely because the update returned successfully.
+
+The pending single-surface rendering change already excludes inline comments
+when the side panel owns them and excludes the panel list when it is closed.
+It must be checked on the new product image with the exact edit/save/reload flow.
+The fixture is disposable QA data; customer-owned content was not edited.
