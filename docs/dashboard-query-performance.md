@@ -988,3 +988,21 @@ absent. This is a deployed availability/ownership baseline, not acceptance of th
 candidate code, a latency percentile, proof of all hidden-card exclusions or a
 controlled before/after comparison. No card, assignment or notification state
 was changed for this probe.
+
+## Correlate work queues and starred summaries
+
+The deployed external reads above returned no Request-ID or Server-Timing.
+Source review found the read-telemetry allowlist also omitted `/dashboard/work/my`,
+`/dashboard/work/assigned` and `/dashboard/user/projects/starred`. Add these three
+exact GET paths to the existing middleware instead of instrumenting each route
+or introducing another metric owner. Their streamed body, existing timing metrics,
+CORS exposure and status semantics are unchanged. Unknown dashboard paths,
+mutations and MCP/WebSocket transports remain outside this selection.
+
+The original streaming/correlation regression fails for all three added paths.
+Current tests exercise streamed bytes, existing Server-Timing, fresh Request-ID,
+route-template logging, payload/query/header omission and403/503 preservation on
+the new paths, alongside existing middleware and phase regressions. This is
+aggregate application timing; it does not supply SQL counts, pool acquisition
+latency, queue wait or per-request database root-cause attribution. New runtime
+headers/log correlation remain unverified until the candidate image is deployed.
