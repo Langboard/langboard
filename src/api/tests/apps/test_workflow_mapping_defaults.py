@@ -42,6 +42,41 @@ def test_unique_defaults_persist_and_do_not_follow_later_columns(board, binding,
     assert current["enabled"] is False
 
 
+def test_apps_choose_independent_destinations_for_an_ambiguous_stage(board, binding):
+    actor, project = board[1:3]
+    with DbSession.atomic() as db:
+        for key in ("github", "external-erp"):
+            db.insert(AppDefinition(
+                key=key, approved_by=actor.id,
+                declaration={"workflow_requirements": {"required": ["active"]}},
+            ))
+        db.insert(BoardAppBinding(project_id=project.id, app_key="external-erp", state="enabled"))
+        other = ProjectColumn(project_id=project.id, name="ERP destination", workflow_stage="active")
+        db.insert(other)
+    destinations = {"github": board[5][0].get_uid(), "external-erp": other.get_uid()}
+    for key, destination in destinations.items():
+        initial = read_workflow_mapping(actor, project.id, key)
+        choice = initial["choices"][0]
+        assert choice["status"] == "ambiguous" and choice["column_uid"] is None
+        assert set(choice["candidates"]) == set(destinations.values())
+        saved = save_workflow_mapping(
+            actor, project.id, key, {"active": destination}, False,
+            initial["revision"], initial["app_revision"],
+        )
+        assert saved["choices"][0]["column_uid"] == destination
+    with DbSession.atomic() as db:
+        rows = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.project_id == project.id)).all()
+        assert {row.app_key: row.workflow_mapping for row in rows} == {
+            key: {"active": destination} for key, destination in destinations.items()
+        }
+        for row in rows:
+            assert row.stage_transitions_enabled is False
+    for key, destination in destinations.items():
+        current = read_workflow_mapping(actor, project.id, key)
+        assert current["choices"][0]["status"] == "resolved"
+        assert current["choices"][0]["column_uid"] == destination
+
+
 @pytest.mark.parametrize("failure", ["missing", "ambiguous", "deleted", "stage_changed"])
 def test_incomplete_mapping_cannot_enable_transitions_and_repair_requires_explicit_save(board, binding, failure):
     actor, project = board[1:3]

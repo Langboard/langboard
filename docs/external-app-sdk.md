@@ -47,6 +47,9 @@ This document distinguishes implemented contracts from remaining acceptance.
    required destination fails atomically. It leaves both the saved mapping and
    the transition opt-in unchanged. After repair, the caller must save a valid
    explicit destination with the current revisions before opting in.
+   Multiple apps can choose different columns for the same built-in stage.
+   Each destination belongs to its board/app binding; one app's selection must
+   not overwrite another app's mapping or opt either app into transitions.
 
 ## Current support and acceptance
 
