@@ -52,8 +52,11 @@ class ProjectColumnService(BaseDomainService):
     def get_api_list_by_project(
         self, projects: TProjectParam | list[TProjectParam], limit: int | None = None,
         *, context: CardVisibilityContext | None = None,
+        contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> list[dict[str, Any]]:
         scope = {"context": context} if context is not None else {}
+        if contexts is not None:
+            scope = {"contexts": contexts}
         query_scope = {**scope, **({"limit": limit} if limit is not None else {})}
         raw_columns = self.repo.project_column.get_all_by_project(projects, **query_scope)
         work_counts = self.repo.project_column.get_work_counts(projects, **scope)

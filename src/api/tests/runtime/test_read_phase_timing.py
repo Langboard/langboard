@@ -8,6 +8,7 @@ import pytest
 from langboard_shared.core.routing.ApiException import NotFoundException
 from langboard_shared.domain.models import Bot, User
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+from starlette.requests import Request
 
 
 board = import_module("langboard.routes.board.BoardApi")
@@ -73,14 +74,15 @@ def test_dashboard_phase_timing_preserves_authorized_project_scope(monkeypatch):
     service = SimpleNamespace(
         project=SimpleNamespace(get_api_list=Mock(return_value=(projects, [123]))),
         project_column=SimpleNamespace(get_api_list_by_project=Mock(return_value=columns)),
+        card=SimpleNamespace(resolve_work_visibility_contexts=Mock(return_value={})),
     )
-    response = dashboard.get_projects(user=user, service=service)
+    response = dashboard.get_projects(Request({"type": "http"}), user=user, service=service)
     assert json.loads(response.body) == {"projects": projects, "columns": columns}
     assert response.headers["Server-Timing"] == (
         "dashboard_projects;dur=200.000, dashboard_columns;dur=100.000, dashboard_serialize;dur=50.000"
     )
     service.project.get_api_list.assert_called_once_with(user)
-    service.project_column.get_api_list_by_project.assert_called_once_with([123])
+    service.project_column.get_api_list_by_project.assert_called_once_with([123], contexts={})
 
 
 def test_dashboard_query_failure_does_not_continue_or_return_partial_data():
@@ -90,5 +92,5 @@ def test_dashboard_query_failure_does_not_continue_or_return_partial_data():
         project_column=SimpleNamespace(get_api_list_by_project=columns),
     )
     with pytest.raises(RuntimeError, match="database unavailable"):
-        dashboard.get_projects(user=object(), service=service)
+        dashboard.get_projects(Request({"type": "http"}), user=object(), service=service)
     columns.assert_not_called()

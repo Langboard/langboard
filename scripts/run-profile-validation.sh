@@ -63,6 +63,7 @@ case "$profile" in
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
+      src/api/tests/dashboard/test_column_visibility_counts.py \
       src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py)
     ;;
@@ -103,6 +104,7 @@ case "$profile" in
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
+      src/api/tests/dashboard/test_column_visibility_counts.py \
       src/api/tests/card_workspace/timers/ \
       src/api/tests/card_visibility/test_search_source_scope.py)
     ;;

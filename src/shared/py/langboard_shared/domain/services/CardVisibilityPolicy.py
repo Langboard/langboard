@@ -131,3 +131,16 @@ def card_visibility_scope(context: CardVisibilityContext, *, columns=None):
             columns["owner_user_id"] == context.actor_user_id,
         ))
     return or_(*allowed)
+
+
+def card_visibility_scope_by_project(contexts: dict[int, CardVisibilityContext]):
+    """Batch current audiences without one predicate per board sharing the same policy."""
+    from ..models import Card
+
+    grouped: dict[CardVisibilityContext, list[int]] = {}
+    for project_id, context in contexts.items():
+        grouped.setdefault(context, []).append(project_id)
+    return or_(false(), *(
+        Card.project_id.in_(project_ids) & card_visibility_scope(context)
+        for context, project_ids in grouped.items()
+    ))

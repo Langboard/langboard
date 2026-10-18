@@ -872,3 +872,31 @@ registered callback. The original fails three cases and passes the signed-out
 case. All four corrected cases and six existing project-load cancellation,
 recovery and authorization cases pass. This proves the client event contract,
 not a newly deployed Phoenix end-to-end session or improved server latency.
+
+## Dashboard count visibility, 2026-10-18
+
+Dashboard columns previously called the physical/open/unfinished aggregations
+without a card visibility context. A real relational regression reproduced four
+cards in each fixture board's counts even when the current actor could read only
+two, three, or none. Hidden internal cards and other owners' private cards must
+not contribute to a viewer's graph or totals.
+
+The route now resolves current cross-board audiences through the existing My
+Work resolver and passes them into both column aggregations. Its shared grouped
+SQL predicate moved from the card repository into the existing visibility policy
+module; My Work and column counts reuse the same implementation. An empty context
+map denies all card rows, while existing column structure is retained. Human UI
+and MCP can count the viewer's own private cards; generic API callers cannot.
+Single-board callers retain their existing optional context contract.
+
+The aggregation still executes two SELECTs across the requested boards, without
+per-board/card queries, body hydration, authorization caching, a reconciler, or a
+schema change. Current audience resolution adds its existing primary reads and
+configured identity-policy lookup; it is not free or a measured latency gain.
+SQLite/PostgreSQL regression covers mixed audiences, private ownership, generic
+API versus human/MCP channels and empty current membership. The PostgreSQL
+fixture's SET LOCAL statements are schema isolation, excluded from SELECT counts.
+The original visibility assertion failure and an initial fixture-only query-count
+failure remain in private verification logs. Production disclosure and deployed
+correctness have not been established by these local fixtures; authenticated
+canary acceptance remains pending the new image.

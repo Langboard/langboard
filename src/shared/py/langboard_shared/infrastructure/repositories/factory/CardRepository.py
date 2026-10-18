@@ -20,7 +20,11 @@ from ....domain.models import (
     User,
     WorkflowStageDefinition,
 )
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    card_visibility_scope_by_project,
+)
 from ....helpers import InfraHelper
 
 
@@ -264,16 +268,6 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         with DbSession.use(readonly=True) as db:
             return db.exec(query).first() or 0
 
-    @staticmethod
-    def _work_visibility_scope(contexts: dict[int, CardVisibilityContext]):
-        grouped: dict[CardVisibilityContext, list[int]] = {}
-        for project_id, context in contexts.items():
-            grouped.setdefault(context, []).append(project_id)
-        return or_(false(), *(
-            Card.project_id.in_(project_ids) & card_visibility_scope(context)
-            for context, project_ids in grouped.items()
-        ))
-
     def get_dashboard_list_scroller(
         self, user: TUserParam, pagination: TimeBasedPagination, *, contexts: dict[int, CardVisibilityContext],
     ):
@@ -306,7 +300,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     | ((ProjectRole.column("actions") != "*") & (CardAssignedUser.column("user_id") == user_id))
                 )
             )
-            .where(self._work_visibility_scope(contexts))
+            .where(card_visibility_scope_by_project(contexts))
             .where(Card.column("created_at") <= pagination.refer_time)
             .order_by(Card.column("created_at").desc(), Card.column("id").desc())
         )
@@ -530,7 +524,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .join(Project, Card.column("project_id") == Project.column("id"))
             .join(ProjectColumn, Card.column("project_column_id") == ProjectColumn.column("id"))
             .where(Project.column("id").in_([InfraHelper.convert_id(project) for project in project_uids]))
-            .where(self._work_visibility_scope(contexts))
+            .where(card_visibility_scope_by_project(contexts))
             .where(Project.column("deleted_at") == None)  # noqa: E711
             .where(Card.column("archived_at") == None)  # noqa: E711
             .where(ProjectColumn.column("is_archive").is_(False))
