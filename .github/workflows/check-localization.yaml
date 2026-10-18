@@ -18,6 +18,8 @@ on:
       - src/ui/src/pages/BoardPage/components/card/action/label/**
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitemTimer.tsx
       - src/ui/src/pages/DashboardPage/components/TrackingRow.tsx
+      - src/ui/playwright.attachment-upload.config.ts
+      - src/ui/src/pages/BoardPage/components/card/action/file/**
       - src/ui/playwright.timer-duration.config.ts
       - src/ui/src/core/injection/StringExtensions.ts
       - src/ui/src/core/providers/AuthProvider.tsx
@@ -178,5 +180,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.board-chat-stability.config.ts
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: src/ui
+
+      - run: yarn playwright test -c playwright.attachment-upload.config.ts
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui

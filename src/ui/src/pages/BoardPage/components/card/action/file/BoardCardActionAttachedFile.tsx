@@ -24,6 +24,8 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
     const { mutateAsync: uploadCardAttachmentMutateAsync } = useUploadCardAttachment();
     attachedFile.upload = async () => {
         setIsUploading(true);
+        setIsError(false);
+        setProgress(0);
 
         try {
             await uploadCardAttachmentMutateAsync({
@@ -32,7 +34,7 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
                 attachment: attachedFile.file,
                 onUploadProgress: (progressEvent) => {
                     const total = progressEvent.total ?? 0;
-                    const progress = (progressEvent.loaded / total) * 100;
+                    const progress = total > 0 ? Math.min(100, (progressEvent.loaded / total) * 100) : 0;
                     setProgress(progress);
                 },
             });
@@ -40,6 +42,8 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
         } catch {
             setIsError(true);
             return undefined;
+        } finally {
+            setIsUploading(false);
         }
     };
 
@@ -50,16 +54,27 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
             </Flex>
             <Flex direction="col" w="full" className="max-w-[calc(100%_-_theme(spacing.24)_+_theme(spacing.2))]">
                 <Box className="truncate">{attachedFile.file.name}</Box>
-                <Box textSize="xs" className="truncate text-muted-foreground/70">
+                <Box textSize="xs" className={isError ? "truncate text-destructive" : "truncate text-muted-foreground/70"}>
                     {!isUploading ? (
-                        formatFileSize(attachedFile.file.size, i18n.language, 1)
+                        isError ? (
+                            t("errors.{num} files could not be uploaded.", { num: 1 })
+                        ) : (
+                            formatFileSize(attachedFile.file.size, i18n.language, 1)
+                        )
                     ) : (
-                        <Progress value={progress} height="2" indicatorClassName={isError ? "bg-destructive" : ""} />
+                        <Progress value={progress} height="2" />
                     )}
                 </Box>
             </Flex>
             {!isUploading && (
-                <Button variant="destructive" size="icon-sm" className="size-6" disabled={isUploading} onClick={() => deleteFile(attachedFile.uid)}>
+                <Button
+                    aria-label={t("common.Delete")}
+                    variant="destructive"
+                    size="icon-sm"
+                    className="size-6"
+                    disabled={isUploading}
+                    onClick={() => deleteFile(attachedFile.uid)}
+                >
                     <IconComponent icon="trash-2" size="4" />
                 </Button>
             )}

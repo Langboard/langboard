@@ -17,6 +17,22 @@ to those phases or validate the pending source optimizations. Read-only
 operational correlation must inspect the same request window for worker/CPU,
 database and connection-pool evidence before selecting another runtime change.
 
+## Read sample after CPU-placement correction, 2026-10-18
+
+Twenty normal authenticated HTTP requests alternated between two boards, ten
+per board, with one-second gaps during11:38:52–11:39:39UTC. All returned200.
+The large board returned290 card rows: client median1,870.71ms / max2,943.044ms;
+aggregate application median1,072.657ms / max2,609.305ms. The small board returned
+eight rows: client median1,040.851ms / max2,428.847ms; application
+median685.923ms / max2,310.419ms. This normal HTTP sample followed a platform
+CPU-placement correction, while the product image remained unchanged.
+
+These are different request conditions from Chrome's earlier concurrent
+background traffic. Do not calculate an improvement percentage across them.
+The HTTP library's decompressed body sizes also differ from CDP encoded bytes.
+The sample supports successful reads and bounded timings, not attribution of
+all latency to CPU, database/pool quantiles, or acceptance of undeployed source.
+
 ## Timer endpoint projection, 2026-10-17
 
 Board active-worker avatars now reuse this repository through the existing

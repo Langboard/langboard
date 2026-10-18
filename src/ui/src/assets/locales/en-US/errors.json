@@ -8,6 +8,7 @@
   "Server has been temporarily disabled. Please try again later.": "Server has been temporarily disabled. Please try again later.",
   "Download failed.": "Download failed.",
   "Failed to upload attachment. File size may be too large (Max size is {size}MB).": "Failed to upload attachment. File size may be too large (Max size is {{size, number}}MB).",
+  "{num} files could not be uploaded.": "{{num, number}} files could not be uploaded.",
   "{num} files could not be uploaded. File size may be too large (Max size is {size}MB).": "{{num, number}} files could not be uploaded. File size may be too large (Max size is {{size, number}}MB).",
   "requests": {
     "AU1001": "You are not authorized to access this feature.",

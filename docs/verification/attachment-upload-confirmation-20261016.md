@@ -72,3 +72,34 @@ API, shared, Graph, socket or Compose files. The two-line generic Graph Compose
 configuration is preserved separately in draft PR#705, so this UI release can
 retain the existing complete Compose identity contract. That separate change
 requires its own Graph product and runtime acceptance.
+
+## External checkpoint and failed-upload recovery, 2026-10-18
+
+A new non-admin external fixture was created through normal account and board
+membership APIs. Existing members and the pending invitation were retained.
+Normal sign-in, shared-card creation, details update, comment creation, and a
+synthetic text attachment succeeded. A fresh external session retrieved the
+saved content and downloaded the exact bytes. The browser displayed that same
+card, comment and attachment; access to an unrelated internal board returned403.
+These checks do not establish all governance or collaborative-editor behavior.
+
+The subsequent synthetic PNG browser upload failed locally with
+`net::ERR_ACCESS_DENIED`, without an HTTP response. Independent attachment
+readback confirmed the PNG was absent before one explicitly instrumented retry.
+That retry failed the same way. Native file-picker comparison remains pending
+because the workstation is locked. No server upload failure or authentication
+cause is inferred from the browser transport error.
+
+The failure exposed two independent UI defects: the upload callback never
+cleared its uploading state on rejection, and the batch message attributed every
+failure to the file-size limit. The callback now always clears busy state and
+resets old error/progress state on an explicit retry. A failed row remains
+removable with an accessible, translated Delete button and displays a generic
+failure. The batch message has English, Korean, Japanese and Chinese resources.
+Unknown progress totals stay finite. Existing authorization, server limits,
+no-automatic-retry policy, and partial-success removal are unchanged.
+
+The actual component fixture exercises an aborted upload at desktop1440px and
+mobile390px, verifies a removable failure, exactly one POST and no horizontal
+overflow. The original component fails the same fixture; both corrected cases
+pass. This is source regression evidence, not a new deployed-UI acceptance.
