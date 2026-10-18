@@ -6,7 +6,7 @@ import { getAuthStore } from "@/core/stores/AuthStore";
 import { ESocketTopic } from "@langboard/core/enums";
 
 export interface IDashboardProjectAssignedUsersUpdatedRawResponse {
-    assigned_users: User.Interface[];
+    assigned_members: User.Interface[];
 }
 
 export interface IUseDashboardProjectAssignedUsersUpdatedHandlersProps extends IBaseUseSocketHandlersProps<{}> {
@@ -30,7 +30,11 @@ const useDashboardProjectAssignedUsersUpdatedHandlers = ({ callback, projectUID 
                     return {};
                 }
 
-                if (!data.assigned_users.some((user) => user.uid === currentUser.uid)) {
+                if (currentUser.uid === Project.Model.getModel(projectUID)?.owner_uid) {
+                    return {};
+                }
+
+                if (!data.assigned_members.some((user) => user.uid === currentUser.uid)) {
                     Project.Model.deleteModel(projectUID);
                     socket.unsubscribe(ESocketTopic.Dashboard, [projectUID]);
                 }

@@ -50,6 +50,10 @@ on:
       - src/ui/playwright.default-language.config.ts
       - src/ui/playwright.auth-language.config.ts
       - src/ui/playwright.filter.config.ts
+      - src/ui/playwright.project-load.config.ts
+      - src/ui/src/controllers/api/board/useGetProject*
+      - src/ui/src/controllers/api/board/project-membership.fixture.*
+      - src/ui/src/controllers/socket/dashboard/project/useDashboardProjectAssignedUsersUpdatedHandlers.ts
       - src/ui/vite.card-load.config.ts
       - src/ui/package.json
       - src/ui/yarn.lock

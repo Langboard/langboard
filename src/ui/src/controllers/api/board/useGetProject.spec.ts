@@ -51,3 +51,14 @@ test("failed project transport exposes keyboard retry and recovers without waiti
     await expect(page.getByRole("alert")).toHaveCount(0);
     await expect(page.locator("li").filter({ hasText: /\/dock$/ })).toHaveCount(1);
 });
+
+for (const scenario of ["assigned", "owner", "removed", "signed-out"]) {
+    test(`membership event uses the publisher contract for ${scenario}`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`/src/controllers/api/board/project-membership.fixture.html?scenario=${scenario}`);
+        await page.getByRole("button", { name: "Apply membership event" }).click();
+        await expect(page.locator("output")).toHaveText(scenario === "removed" ? "Project removed" : "Project retained");
+        expect(errors).toEqual([]);
+    });
+}

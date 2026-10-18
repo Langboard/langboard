@@ -851,3 +851,24 @@ not claim that the full worker avoids FastAPI, that model initialization is
 eliminated or that deployed API latency is improved. The actual GitHub recovery
 module still imports required domain/service layers; whole-worker and production
 measurements remain separate gates after deployment.
+
+## Dashboard membership-event contract, 2026-10-18
+
+The existing project publisher sends `assigned_members` on the dashboard
+membership event. Its UI converter incorrectly read `assigned_users` and called
+`.some` on the absent field. This contract mismatch is consistent with the
+separate browser converter error observed during membership validation; it is
+not an explanation for a later file-upload transport denial.
+
+Align the client with the current publisher field. Retain the owner even when
+absent from the explicit assigned-member list, and preserve removal and topic
+unsubscription for a removed non-owner. A signed-out client still performs no
+model mutation. No extra fetch, retry, authorization change or compatibility
+payload dialect is introduced.
+
+A browser fixture registers the actual Project model and acknowledges its native
+dashboard subscription, then dispatches the published payload through its real
+registered callback. The original fails three cases and passes the signed-out
+case. All four corrected cases and six existing project-load cancellation,
+recovery and authorization cases pass. This proves the client event contract,
+not a newly deployed Phoenix end-to-end session or improved server latency.
