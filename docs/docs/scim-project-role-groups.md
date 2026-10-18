@@ -36,3 +36,17 @@ Once any project role group is written, its combined group membership is authori
 - Project role groups reject users that are not linked to the configured `SCIM_ISSUER`.
 
 Changing or deleting a role group's binding reconciles both the former and current projects. A failed readback returns `503 Service Unavailable`; the stored group remains the desired state, so the same SCIM write can be retried safely.
+
+
+## Native database verification
+
+PostgreSQL regression fixtures use current ORM tables inside a unique temporary
+schema; they never replace top-level project or role tables. The suite checks
+concurrent assignment and forced readback failures on create, upsert, replace,
+patch and delete. It verifies the persisted desired state and effective
+entitlement, followed by an idempotent logical retry. Replaced membership join
+rows may have new surrogate IDs and relationship timestamps may advance; the
+public group identity and effective membership/roles remain stable. After a
+failed delete readback, the group stays absent and its grants remain revoked;
+repair does not recreate it. This is local database/service evidence, not live
+IdP or canary acceptance.

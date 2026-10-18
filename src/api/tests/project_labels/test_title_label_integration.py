@@ -24,7 +24,7 @@ def title_board(request, monkeypatch):
     admin = None
     schema = None
     if request.param == "postgresql":
-        url = os.getenv("LANGBOARD_TEST_DATABASE_URL")
+        url = os.getenv("LANGBOARD_TEST_DATABASE_URL") or os.getenv("LANGBOARD_FILE_TEST_DATABASE_URL")
         if not url:
             pytest.skip("Dedicated PostgreSQL proof URL not set")
         admin = create_engine(url)
@@ -44,6 +44,7 @@ def title_board(request, monkeypatch):
             models.GlobalLabel,
             models.ProjectLabel,
             models.CardAssignedProjectLabel,
+            models.CardAppOwnership,
             models.Checkitem,
             models.ProjectRole,
             models.ProjectAssignedUser,
@@ -271,7 +272,9 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     with DbSession.atomic() as db:
         actor.activated_at = SafeDateTime.now()
         db.update(actor)
-        role = models.ProjectRole(project_id=project.id, user_id=actor.id, actions=["read", "card_update"])
+        role = models.ProjectRole(
+            project_id=project.id, user_id=actor.id, actions=["read", "card_write", "card_update"]
+        )
         db.insert(role)
     monkeypatch.setattr(
         importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service
@@ -350,8 +353,12 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             db.insert(actor)
             authority = models.ProjectBotScope(bot_id=actor.id, project_id=project.id, conditions=[])
         else:
-            authority = models.ProjectRole(project_id=project.id, user_id=actor.id, actions=["read", "card_update"])
+            authority = models.ProjectRole(
+                project_id=project.id, user_id=actor.id, actions=["read", "card_write", "card_update"]
+            )
         db.insert(authority)
+    if principal == "bot":
+        assert service.bot.has_project_access(actor, project.get_uid())
     server = FastMCP("Native title label boundary")
     server.tool(name="create_card")(McpServer._wrap_tool("create_card", CardMcp.create_card))
     server.tool(name="change_card_details")(McpServer._wrap_tool("change_card_details", CardMcp.change_card_details))
