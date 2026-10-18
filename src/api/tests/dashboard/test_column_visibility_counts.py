@@ -10,18 +10,25 @@ import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Card,
+    CardAssignedUser,
     Checkitem,
     Checklist,
     Project,
+    ProjectActivity,
+    ProjectAssignedUser,
     ProjectColumn,
     User,
     WorkflowStageDefinition,
 )
+from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
+from langboard_shared.domain.services.factory.ProjectService import ProjectService
 from langboard_shared.infrastructure.repositories.factory.ProjectColumnRepository import ProjectColumnRepository
+from langboard_shared.infrastructure.repositories.factory.ProjectRepository import ProjectRepository
 from sqlalchemy import create_engine, event, text
 from starlette.requests import Request
 
@@ -48,7 +55,18 @@ def counts_db(request, monkeypatch):
             with engine.begin() as db:
                 for table in ("organization", "bot"):
                     db.execute(text(f'CREATE TABLE "{table}" (id BIGINT PRIMARY KEY)'))
-        for model in (User, Project, ProjectColumn, Card, Checklist, Checkitem, WorkflowStageDefinition):
+        for model in (
+            User,
+            Project,
+            ProjectColumn,
+            Card,
+            Checklist,
+            Checkitem,
+            WorkflowStageDefinition,
+            ProjectAssignedUser,
+            CardAssignedUser,
+            ProjectActivity,
+        ):
             model.__table__.create(engine)
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
         monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -139,3 +157,76 @@ def test_dashboard_counts_hide_internal_and_other_users_private_cards_in_one_bat
     )
     assert len(statements) == 2  # physical and unfinished aggregates, not per-board reads
     service.card.resolve_work_visibility_contexts.assert_called_once_with(user, channel)
+
+
+@pytest.mark.parametrize(
+    "channel,day,unread",
+    [
+        (CollaborationChannel.HumanUI, 3, True),
+        (CollaborationChannel.Mcp, 3, True),
+        (CollaborationChannel.Api, 1, False),
+    ],
+)
+def test_dashboard_project_summary_does_not_advertise_hidden_card_activity(counts_db, channel, day, unread):
+
+    with DbSession.use(readonly=False) as db:
+        actor = User(
+            firstname="Summary", lastname="Viewer", email="summary@example.invalid", password="test-only", is_admin=True
+        )
+        other = User(firstname="Other", lastname="Owner", email="summary-other@example.invalid", password="test-only")
+        db.insert(actor)
+        db.insert(other)
+        project = Project(owner_id=actor.id, title="Shared summary")
+        db.insert(project)
+        member = ProjectAssignedUser(project_id=project.id, user_id=actor.id, starred=True, board_seen_seq=20)
+        db.insert(member)
+        column = ProjectColumn(project_id=project.id, name="Work")
+        db.insert(column)
+        for visibility, owner, event_day in (
+            ("SHARED", None, 1),
+            ("INTERNAL", None, 9),
+            ("PRIVATE", actor.id, 3),
+            ("PRIVATE", other.id, 10),
+        ):
+            card = Card(
+                project_id=project.id,
+                project_column_id=column.id,
+                title=visibility,
+                visibility=visibility,
+                owner_user_id=owner,
+                created_by_user_id=owner or actor.id,
+                last_change_seq=event_day * 10,
+            )
+            db.insert(card)
+            db.insert(CardAssignedUser(project_assigned_id=member.id, card_id=card.id, user_id=actor.id))
+            db.insert(
+                ProjectActivity(
+                    project_id=project.id,
+                    card_id=card.id,
+                    activity_type=ProjectActivityType.CardCreated,
+                    created_at=SafeDateTime(2026, 1, event_day),
+                )
+            )
+    contexts = {int(project.id): CardVisibilityContext(channel, True, True, False, actor_user_id=int(actor.id))}
+    resolver = SimpleNamespace(resolve_work_visibility_contexts=Mock(return_value=contexts))
+    repository = ProjectRepository(None, None)
+    service = ProjectService(lambda _: resolver, lambda _: resolver, SimpleNamespace(project=repository))
+    projects, _ = service.get_api_list(actor, channel=channel)
+    assert projects[0]["last_activity_at"].day == day
+    assert projects[0]["related_activity_at"].day == day
+    assert projects[0]["related_to_current_user"] is True
+    assert projects[0]["board_has_unread_change"] is unread
+    # Once only inaccessible cards are newer, the unread dot must remain clear.
+    with DbSession.use(readonly=False) as db:
+        member.board_seen_seq = 30
+        db.update(member)
+    projects, _ = service.get_api_list(actor, channel=channel)
+    assert projects[0]["board_has_unread_change"] is False
+    starred = service.get_api_starred_project_list(actor, channel=channel)
+    assert starred[0]["last_activity_at"].day == day
+    contexts.clear()
+    projects, _ = service.get_api_list(actor, channel=channel)
+    assert projects[0]["last_activity_at"] is None
+    assert projects[0]["related_activity_at"] is None
+    assert projects[0]["related_to_current_user"] is False
+    assert projects[0]["board_has_unread_change"] is False

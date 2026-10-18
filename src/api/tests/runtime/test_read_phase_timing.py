@@ -81,7 +81,7 @@ def test_dashboard_phase_timing_preserves_authorized_project_scope(monkeypatch):
     assert response.headers["Server-Timing"] == (
         "dashboard_projects;dur=200.000, dashboard_columns;dur=100.000, dashboard_serialize;dur=50.000"
     )
-    service.project.get_api_list.assert_called_once_with(user)
+    service.project.get_api_list.assert_called_once_with(user, contexts={})
     service.project_column.get_api_list_by_project.assert_called_once_with([123], contexts={})
 
 
@@ -89,6 +89,7 @@ def test_dashboard_query_failure_does_not_continue_or_return_partial_data():
     columns = Mock()
     service = SimpleNamespace(
         project=SimpleNamespace(get_api_list=Mock(side_effect=RuntimeError("database unavailable"))),
+        card=SimpleNamespace(resolve_work_visibility_contexts=Mock(return_value={})),
         project_column=SimpleNamespace(get_api_list_by_project=columns),
     )
     with pytest.raises(RuntimeError, match="database unavailable"):

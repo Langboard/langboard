@@ -1,5 +1,6 @@
 from re import fullmatch
 from typing import Annotated
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DomainService import DomainService
@@ -22,7 +23,7 @@ def _normalize_invitation_emails(emails: list[str]) -> list[str]:
 
 @McpTool.add("user", description="Get starred projects for the current user.")
 def get_starred_projects(user: User, service: DomainService) -> dict:
-    projects = service.project.get_api_starred_project_list(user)
+    projects = service.project.get_api_starred_project_list(user, channel=CollaborationChannel.Mcp)
     return {"projects": projects}
 
 
@@ -40,7 +41,7 @@ def get_projects(
         if not isinstance(query, str) or not 1 <= len(query.strip()) <= 100:
             raise ValueError("Project query must contain 1 to 100 characters")
         query = query.strip().casefold()
-    projects, _ = service.project.get_api_list(user)
+    projects, _ = service.project.get_api_list(user, channel=CollaborationChannel.Mcp)
     if query is not None:
         projects = [project for project in projects if query in project["title"].casefold()]
     return {"projects": projects}

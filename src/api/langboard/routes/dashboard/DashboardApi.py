@@ -43,9 +43,11 @@ from .DashboardForm import DashboardPagination, DashboardProjectCreateForm
 )
 @AuthFilter.add("user")
 def get_starred_projects(
-    user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+    request: Request, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
 ) -> JsonResponse:
-    projects = service.project.get_api_starred_project_list(user)
+    projects = service.project.get_api_starred_project_list(
+        user, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    )
 
     return JsonResponse(content={"projects": projects})
 
@@ -90,11 +92,11 @@ def get_projects(
     request: Request, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
 ) -> JsonResponse:
     timings = [perf_counter()]
-    projects, project_ids = service.project.get_api_list(user)
-    timings.append(perf_counter())
     contexts = service.card.resolve_work_visibility_contexts(
         user, request.scope.get("collaboration_channel", CollaborationChannel.Api)
     )
+    projects, project_ids = service.project.get_api_list(user, contexts=contexts)
+    timings.append(perf_counter())
     columns = service.project_column.get_api_list_by_project(project_ids, contexts=contexts)
     timings.append(perf_counter())
     response = JsonResponse(content={"projects": projects, "columns": columns})

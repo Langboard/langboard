@@ -900,3 +900,38 @@ The original visibility assertion failure and an initial fixture-only query-coun
 failure remain in private verification logs. Production disclosure and deployed
 correctness have not been established by these local fixtures; authenticated
 canary acceptance remains pending the new image.
+
+### Summary metadata uses the same audience
+
+The follow-up regression found that hidden cards still advanced project activity,
+related-work recency and the unread dot after count filtering. The original real
+relational fixture returned another owner's January10 private activity instead of
+the viewer's latest January3 activity. Project list and starred projections now
+reuse the activity feed's audience predicate and My Work's card predicate before
+MAX/EXISTS aggregation. Deleted/hidden cards do not advance visible read cursors.
+Generic API callers cannot infer a personal vault through summary timestamps;
+the same user's human UI and MCP retain their own private-card projection.
+
+The dashboard resolves its current cross-board audience once and reuses it for
+project summaries and column counts. Direct native project discovery and starred
+reads resolve it through the existing service owner, with their actual caller
+channel. No per-project ACL queries, new cache, migration or visibility ontology
+is added. The activity predicate moved to the existing policy module, removing
+its repository-local copy. Existing repository callers without a context retain
+their original internal projection contract. Scoped summaries use the primary.
+
+SQLite/PostgreSQL and adjacent activity, pagination, discovery and My Work checks:
+79passed, no skips. Current-scope absence clears card-related summary facts;
+starred ordering, view counts and other project metadata remain unchanged. These
+checks do not establish deployed privacy acceptance or a latency improvement.
+
+### Central operational correlation
+
+Central FractalOps independently matched the two11:38UTC request IDs to API logs
+in CT110: final server durations1,152.031/611.344ms, encoded bodies434,298/7,374
+bytes, both200/completed. At13:38:24UTC, PgBouncer's current master/readonly pools
+showed waiting0/maxwait0, with active clients9/7. This later snapshot does not
+establish pool wait during the earlier requests. The database has no installed
+pg_stat_statements extension; the current logs expose neither per-request SQL
+counts nor pool acquisition duration. Root-cause attribution therefore remains
+incomplete. No runtime setting, extension or restart was changed for observation.

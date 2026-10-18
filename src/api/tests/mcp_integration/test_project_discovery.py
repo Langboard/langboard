@@ -8,6 +8,7 @@ from langboard.mcp_integration import ProjectDiscovery
 from langboard.mcp_integration.Providers import create_native_domain_provider
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import ProjectMcp
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 
 
 @pytest.mark.parametrize("modern", [True, False])
@@ -26,7 +27,8 @@ async def test_native_project_discovery_preserves_authorized_search_and_legacy(m
     ]
     calls = []
 
-    def get_list(user):
+    def get_list(user, *, channel):
+        assert channel == CollaborationChannel.Mcp
         assert user is actor
         calls.append(user)
         return authorized, []
