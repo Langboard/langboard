@@ -1,5 +1,66 @@
 import { expect, test } from "@playwright/test";
 const fixture = "/src/core/hooks/TimerDuration.fixture.html";
+test("100 active worker avatars tick only while inspected and release timers on pause or unmount", async ({ page }) => {
+    await page.clock.install();
+    await page.addInitScript(() => {
+        const intervals = new Set<number>();
+        const interval = window.setInterval.bind(window);
+        const clear = window.clearInterval.bind(window);
+        window.setInterval = ((...args: Parameters<typeof window.setInterval>) => {
+            const id = interval(...args);
+            if (args[1] === 1000) intervals.add(id);
+            return id;
+        }) as typeof window.setInterval;
+        window.clearInterval = (id) => {
+            intervals.delete(Number(id));
+            clear(id);
+        };
+        window.pendingTimerCount = () => intervals.size;
+    });
+    await page.goto(`${fixture}?workers`);
+    const avatars = page.getByRole("region", { name: "Worker avatars" }).locator("[tabindex='0']");
+    await expect(avatars).toHaveCount(100);
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
+    await page.clock.runFor(5000);
+    await avatars.first().hover();
+    await expect(avatars.first()).toHaveAttribute("title", "Working: Task · 5s");
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(1);
+    await page.clock.runFor(2000);
+    await expect(avatars.first()).toHaveAttribute("title", "Working: Task · 7s");
+    await avatars.first().focus();
+    await page.mouse.move(1200, 700);
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(1);
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
+    await page.evaluate(() => window.workerFixture.sample(120));
+    await avatars.last().focus();
+    await expect(avatars.last()).toHaveAttribute("title", "Working: Task · 2m");
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(1);
+    await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
+    await page.clock.runFor(3000);
+    await page.evaluate(() => {
+        Reflect.deleteProperty(document, "hidden");
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(avatars.last()).toHaveAttribute("title", "Working: Task · 2m 3s");
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(1);
+    await page.evaluate(() => {
+        window.workerFixture.sample(123);
+        window.workerFixture.pause();
+    });
+    await expect(avatars.last()).toHaveAttribute("title", "Paused: Task · 2m 3s");
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
+    await page.evaluate(() => window.workerFixture.resume());
+    await expect(avatars.last()).toHaveAttribute("title", "Working: Task · 2m 3s");
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(1);
+    await page.evaluate(() => window.workerFixture.unmount());
+    await expect(avatars).toHaveCount(0);
+    expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
+});
 test("stopped timer immediately reflects accumulated time in tracking and detail", async ({ page }) => {
     await page.goto(fixture);
     await expect(page.getByTestId("tracking")).toContainText("0s");

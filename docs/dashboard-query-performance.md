@@ -1,5 +1,30 @@
 # Dashboard related-activity projection
 
+## Active-worker avatar idle work
+
+The shared active-worker avatar previously scheduled a one-second interval for
+every running worker, even though its elapsed text is only inspected through
+the title or accessible focus label. This affected board and card-detail member
+lists through the same component. A real browser fixture reproduced 100 idle
+avatars scheduling 100 application intervals.
+
+The avatar now schedules elapsed updates only while hovered or keyboard-focused.
+Mouse departure does not stop a focused avatar. Pause, loss of both hover and
+focus, worker removal and unmount release the interval. A visibility listener
+exists only during inspection and stops updates when the document is hidden.
+Elapsed text is recalculated from the existing server sample when inspected;
+timer execution, assignment, server writes and native worker identity are
+unchanged. No shared clock, new store, dependency or request is introduced.
+
+The corrected browser fixture observes zero idle intervals for 100 running
+avatars and one interval while inspecting one avatar. It exercises elapsed
+updates, focus/hover overlap, corrected server samples, pause/resume, unmount and
+controlled visibility events. The containing timer profile passes four checks,
+including the existing tracking/detail timer behavior. Controlled visibility
+events do not establish operating-system background behavior. These are local
+component scheduling measurements, not canary HTTP latency, CPU percentages or
+a deployed performance acceptance result.
+
 ## Rejected board-body projection experiment, 2026-10-19
 
 The board reader still hydrates `Card.description` to derive `has_description`

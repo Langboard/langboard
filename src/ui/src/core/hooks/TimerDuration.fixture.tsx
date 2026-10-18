@@ -3,12 +3,15 @@ import { ProjectCheckitem } from "@/core/models";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { TrackingRowTimeTaken } from "@/pages/DashboardPage/components/TrackingRow";
 import BoardCardCheckitemTimer from "@/pages/BoardPage/components/card/checklist/BoardCardCheckitemTimer";
+import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
+import { useState } from "react";
 import "@/core/injection";
 import i18n from "@/i18n";
 declare global {
     interface Window {
         timerFixture: { accumulated(seconds: number): void; start(ago: number): void; pause(): void };
         pendingTimerCount(): number;
+        workerFixture: { pause(): void; resume(): void; sample(seconds: number): void; unmount(): void };
     }
 }
 const checkitem = ProjectCheckitem.Model.fromOne({
@@ -36,15 +39,58 @@ Object.assign(window, {
         },
     },
 });
+function WorkerAvatars() {
+    const [status, setStatus] = useState<"started" | "paused">("started");
+    const [seconds, setSeconds] = useState(0);
+    const [shown, setShown] = useState(true);
+    const [sampledAt, setSampledAt] = useState(() => new Date().toISOString());
+    window.workerFixture = {
+        pause: () => setStatus("paused"),
+        resume: () => setStatus("started"),
+        sample: (value) => {
+            setSeconds(value);
+            setSampledAt(new Date().toISOString());
+        },
+        unmount: () => setShown(false),
+    };
+    return (
+        <section aria-label="Worker avatars" style={{ display: "grid", gridTemplateColumns: "repeat(10, 40px)", gap: 4 }}>
+            {shown &&
+                Array.from({ length: 100 }, (_, index) => (
+                    <BoardActiveWorkerAvatar
+                        key={index}
+                        avatar={<span>{index}</span>}
+                        startedLabel="Working"
+                        pausedLabel="Paused"
+                        worker={{
+                            user_uid: `worker-${index}`,
+                            status,
+                            started_at: null,
+                            elapsed_seconds: seconds,
+                            checkitem_uid: `item-${index}`,
+                            title: "Task",
+                            checkitems: [
+                                { uid: `item-${index}`, title: "Task", status, started_at: null, elapsed_seconds: seconds, sampled_at: sampledAt },
+                            ],
+                        }}
+                    />
+                ))}
+        </section>
+    );
+}
 void i18n.changeLanguage("en-US").then(() =>
     createRoot(document.getElementById("root")!).render(
-        <ModelRegistry.ProjectCheckitem.Provider model={checkitem}>
-            <output data-testid="tracking">
-                <TrackingRowTimeTaken />
-            </output>
-            <section data-testid="detail">
-                <BoardCardCheckitemTimer />
-            </section>
-        </ModelRegistry.ProjectCheckitem.Provider>
+        new URLSearchParams(location.search).has("workers") ? (
+            <WorkerAvatars />
+        ) : (
+            <ModelRegistry.ProjectCheckitem.Provider model={checkitem}>
+                <output data-testid="tracking">
+                    <TrackingRowTimeTaken />
+                </output>
+                <section data-testid="detail">
+                    <BoardCardCheckitemTimer />
+                </section>
+            </ModelRegistry.ProjectCheckitem.Provider>
+        )
     )
 );
