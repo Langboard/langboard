@@ -43,6 +43,10 @@ This document distinguishes implemented contracts from remaining acceptance.
    controls for invalid destinations as well as missing stages. After creating
    or assigning a column, the user explicitly selects and saves the replacement;
    repairing a column alone does not redirect the app or enable transitions.
+   An explicit enable request with a missing, ambiguous, deleted or changed
+   required destination fails atomically. It leaves both the saved mapping and
+   the transition opt-in unchanged. After repair, the caller must save a valid
+   explicit destination with the current revisions before opting in.
 
 ## Current support and acceptance
 

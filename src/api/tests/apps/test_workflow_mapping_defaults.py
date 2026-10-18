@@ -2,6 +2,7 @@
 
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import AppDefinition, BoardAppBinding, ProjectColumn
 from langboard_shared.domain.services.AppWorkflowMapping import read_workflow_mapping, save_workflow_mapping
 
@@ -39,3 +40,48 @@ def test_unique_defaults_persist_and_do_not_follow_later_columns(board, binding,
     active = next(choice for choice in current["choices"] if choice["stage"] == "active")
     assert active["status"] == "invalid" and active["column_uid"] is None
     assert current["enabled"] is False
+
+
+@pytest.mark.parametrize("failure", ["missing", "ambiguous", "deleted", "stage_changed"])
+def test_incomplete_mapping_cannot_enable_transitions_and_repair_requires_explicit_save(board, binding, failure):
+    actor, project = board[1:3]
+    with DbSession.atomic() as db:
+        db.insert(AppDefinition(
+            key="github", approved_by=actor.id,
+            declaration={"workflow_requirements": {"required": ["active"]}},
+        ))
+    initial = read_workflow_mapping(actor, project.id, "github")
+    original = board[5][0]
+    selected = {} if failure in {"missing", "ambiguous"} else {"active": original.get_uid()}
+    with DbSession.atomic() as db:
+        column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == original.id)).first()
+        if failure == "missing":
+            column.workflow_stage = None
+            db.update(column)
+        elif failure == "ambiguous":
+            db.insert(ProjectColumn(project_id=project.id, name="Other active", workflow_stage="active"))
+        elif failure == "deleted":
+            column.deleted_at = SafeDateTime.now()
+            db.update(column)
+        else:
+            column.workflow_stage = "review"
+            db.update(column)
+    with pytest.raises(ValueError, match="Required stages must resolve"):
+        save_workflow_mapping(actor, project.id, "github", selected, True, initial["revision"], initial["app_revision"])
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
+        assert stored.stage_transitions_enabled is False
+        assert stored.workflow_mapping == {}
+        replacement = ProjectColumn(project_id=project.id, name="Chosen replacement", workflow_stage="active")
+        db.insert(replacement)
+    repaired = read_workflow_mapping(actor, project.id, "github")
+    assert repaired["enabled"] is False, "Repairing columns must not opt the board into automatic transitions"
+    saved = save_workflow_mapping(
+        actor, project.id, "github", {"active": replacement.get_uid()}, True,
+        repaired["revision"], repaired["app_revision"],
+    )
+    assert saved["enabled"] is True
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
+        assert stored.stage_transitions_enabled is True
+        assert stored.workflow_mapping == {"active": replacement.get_uid()}
