@@ -69,17 +69,19 @@ container environment or volume mounts. Verify discovery, browser consent,
 authenticated reads/writes and restart/refresh afterward. Do not infer those
 gates from container health.
 
-Implementation acceptance is not yet proven by unit tests. Mounted metadata and
-callbacks, real browser consent, restart/refresh persistence and independent
-authenticated client read/write must be verified before enabling this transport
-in a deployment.
-
 ## Employee classification
 
-Set `MCP_EMPLOYEE_GROUP_IDS` to comma-separated SCIM **external group IDs** and
-set `SCIM_ISSUER` to the provisioning authority. There are no built-in company,
-email-domain or group-name assumptions. An empty policy returns `unknown`.
-SCIM provisioning and OAuth authentication alone do not prove employment.
+Set `SCIM_ISSUER` to the provisioning authority and select synchronized SCIM
+groups in **Settings → Users**. The saved group policy takes precedence, including
+an explicitly empty selection: with a matching configured issuer, no user
+qualifies when no group is selected. Changing the issuer requires reviewing and
+saving the group selection for that authority again.
+
+Only when no saved policy exists does `MCP_EMPLOYEE_GROUP_IDS` provide the legacy
+fallback, using comma-separated SCIM **external group IDs**. Without either a
+saved policy or fallback and a configured issuer, classification is `unknown`.
+There are no built-in company, email-domain or group-name assumptions. SCIM
+provisioning and OAuth authentication alone do not prove employment.
 
 `get_employee_status` classifies only the current linked user from current
 primary-database identity and group membership. Inactive/deleted accounts,

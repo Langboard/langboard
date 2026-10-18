@@ -155,7 +155,7 @@ submits the composition revision plus the complete binding revision snapshot.
 
 Only explicitly visited modules and management sections mount their forms. Visited connection
 and consent views remain locally mounted while hidden so unsaved fields and unknown-write locks
-survive section/module navigation. They are discarded when leaving the app detail. No global
-draft store or prefetch is introduced. Existing workflow/inbound dirty and busy callbacks block
-navigation. Policy-disabled modules permit retained grant withdrawal; panel consent cannot add a
-new grant while the definition is unavailable.
+survive section/module navigation. They are discarded when leaving the app detail. Unvisited
+sections are not loaded in advance. Unsaved workflow or inbound changes and pending operations
+prevent navigation until handled. Policy-disabled modules permit retained grant withdrawal;
+panel consent cannot add a new grant while the definition is unavailable.
