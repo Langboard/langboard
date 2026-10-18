@@ -31,12 +31,12 @@ Consequently, the same provider name can appear in multiple configuration areas.
 This is a presentation/composition issue, not evidence that the identities or
 consent records are interchangeable.
 
-A future single logical app tile must retain the actual module identity,
+A logical app tile must retain the actual module identity,
 version, trust targets, binding revision, connection ownership and grants for
 each operation. It must not infer grouping or authorization from a key suffix,
 icon, name, panel URL or `signal_sources`. Source declarations grant no ownership
-of their providers. No identity migration or Store consolidation is implemented
-by this audit; those acceptance items remain open.
+of their providers. No authority identity migration follows from composition. The global catalog now
+projects existing explicit compositions as described below.
 
 ## Separation verification
 
@@ -87,3 +87,53 @@ exercised first and then a fresh native credential is issued, so the board-disab
 assertion cannot pass merely because an old credential was revoked. This proves
 native storage and authority behavior; live service cancellation and browser
 acceptance remain separate.
+
+
+## Global logical catalog projection
+
+The default `AppCatalog.list_catalog` and `/apps/catalog` contract remains a flat
+list of enabled definitions, including composition members, with raw-key
+`next_cursor` values. Cached AppStore versions and existing clients keep the same
+response shape, featured modules and pagination behavior.
+
+The current AppStore automatically requests `include_compositions=true` and uses
+a distinct query cache key. This additive projection pages a SQL union of explicit
+composition identities and ungrouped enabled definitions before fetching members. Membership comes only from
+`AppCompositionMember`; provider names and key suffixes never infer a group.
+Each page contains at most 50 logical entries, each composition contains at most
+16 explicitly registered members, and member/definition queries have bounded
+limits. Featured official modules resolve to the same explicit composition so
+an installed group appears once alongside standalone installation suggestions.
+
+Logical composition and execution module keys can collide. The catalog cursor
+in the opt-in projection therefore includes the identity kind
+(`key~composition` or `key~module`). Within that projection, legacy `after=key`
+remains accepted and skips all identities up through that key. Default discovery
+continues to emit and accept only raw-key cursors. Exact
+`key=module` detail preserves the original module identity, including when the
+module is a member. The additive `composition_key=key` selector opens logical
+detail and explicitly selects the composition projection even without
+`include_compositions`; the detail selectors are mutually exclusive. Existing module routes, binding
+keys and account shortcut records retain their meaning. Logical detail links to
+individual modules for existing shortcut controls; no logical-group shortcut
+schema or execution identity is introduced.
+
+The logical detail contains sanitized current member versions, requested
+capabilities, definition revisions and administrator availability. Disabled
+members remain visible as unavailable members and have no module action.
+Capabilities are never combined into a group grant. Built-in members retain
+their native keys; grouping does not rewrite their approved definitions. Board configuration continues through the
+existing board consent surface. Global and organization policy and current board
+read access are checked before catalog queries; disabled policy returns no
+logical detail or featured entries. Declarations, trust destinations, storage
+locators, personal connections and credentials are excluded.
+
+`test_app_catalog_http.py` covers SQLite and PostgreSQL HTTP discovery, logical
+flat default/raw-cursor compatibility and opt-in pagination including a
+colliding standalone key, current disabled/revised
+members, exact legacy detail, grouped featured entries, cross-board denial and
+unchanged board grants. `AppsPage/AppStore.spec.ts` exercises the real AppStore
+component in desktop and mobile browsers with controlled HTTP responses, including
+logical/module route selection, existing module shortcuts, disabled members and
+policy denial. These source, database and browser-fixture checks do not establish
+a production deployment or authenticated production acceptance.

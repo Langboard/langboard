@@ -26,5 +26,13 @@
   "Unpin from rail": "Unpin from rail",
   "Pin to rail": "Pin to rail",
   "Shortcut limit": "Up to {{count}} shortcuts can be pinned.",
-  "Shortcut sync unavailable": "Shortcut sync is unavailable. Read the current account settings before trying another change."
+  "Shortcut sync unavailable": "Shortcut sync is unavailable. Read the current account settings before trying another change.",
+  "Logical app": "App",
+  "Modules": "{{count}} components",
+  "App modules": "App components",
+  "Module consent": "Each module keeps its own version, permissions and board consent. Requested capabilities are not granted access. Open a module to save its shortcut.",
+  "Built-in module": "Built-in module",
+  "Module enabled": "Available for separate consent",
+  "Module disabled": "Disabled by administrator",
+  "View module": "View {{name}}"
 }

@@ -8,7 +8,7 @@ import settings from "../SettingsPage/Route";
 import AppStore from "./AppStore";
 import "@/i18n";
 import "@/assets/styles/main.css";
-const initial = new URLSearchParams(location.search).get("initial") ?? "/apps?project_uid=2RRwwB5JNm0";
+const initial = new URLSearchParams(location.search).get("initial") ?? "/apps?project_uid=TestBoard01";
 const userUID = new URLSearchParams(location.search).get("actor") ?? "fixture-user";
 const legacy = settings.routes.find((route) => route.path === ROUTES.SETTINGS.APP_STORE)!;
 const router = createMemoryRouter(
