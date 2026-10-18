@@ -286,3 +286,63 @@ search reuse and the unchanged legacy card-list schema. Static references in
 product source, docs and workflows were checked again after deletion. Live native
 MCP project discovery still finds the intended board, but that deployed read does
 not itself exercise the newly pruned source image.
+
+## Remove disconnected contract prototypes (2026-10-18)
+
+The follow-up import audit resolves absolute and relative Python imports across
+the API, shared package and Graph. Sixteen contract modules form disconnected
+prototype islands: their only consumers are each other and17 dedicated test
+files. The package initializer's alternative WorkEvent dataclasses are likewise
+used only by those prototype tests. Product scripts, workflows, documentation,
+the standalone SDK and three reference apps contain no consumer of these APIs.
+
+Remove these islands and their self-tests. Keep the existing package and all four
+contract modules that do have native consumers: `content_blocks`,
+`content_block_migration`, `title_labels`, and `audit_events`. In particular,
+Graph's redaction constants remain at the same import path.
+
+| Removed prototype group | Modules | Native boundary retained |
+| --- | --- | --- |
+| SCIM/organization values | scim_provisioning, organization_roles | Native SCIM services, role policies and database projections |
+| Parallel history ontology | chat_history, chat_context_window, chat_context_sources | Graph history normalization and current-authority queries |
+| In-memory workflow plans | workflow_template, workflow_pipeline, workflow_review | Existing stage, binding and Graph execution services |
+| Archive simulators | archive_store, archive_transfer, archive_index | Persisted native cold-store and archive-index implementations |
+| Unconnected import planners | kanboard_schema, kanboard_import, kanboard_validation | No functioning importer is inferred from these planners |
+| Parallel delivery/dedup | webhook_fanout, idempotency, initializer WorkEvent classes | Native signed webhook, notification event and durable outbox contracts |
+
+Measured change: production Python -2,404lines, dedicated tests -1,655lines.
+No adapter, replacement abstraction, runtime dependency, public tool, protocol
+method, persistent owner or migration is introduced. There is no claimed deployed
+latency gain. The removed code remains recoverable in Git history.
+
+The first native regression found three title-label integration failures. They
+also fail with the original contract tree restored: two user fixtures omitted
+the now-required `card_write` grant, and the bot mutation fixture omitted the
+existing `CardAppOwnership` table. Update those fixtures to exercise the current
+authority/schema, without bypassing role or app-ownership checks. Read-only
+revocation assertions remain. Source title-prefix behavior is unchanged while
+its separate conflicting product requirements are awaiting clarification.
+
+The PostgreSQL follow-up also found two long-skipped SCIM test failures. Their
+hand-written project table omitted current ORM columns, and the rollback test
+called a repository method that no longer exists. The current documented service
+contract intentionally retains desired group state on failed readback. Do not
+change that behavior to satisfy the obsolete test. The replacement uses real ORM
+tables in a unique, disposable schema and exercises current public create, upsert,
+replace, patch and delete service paths. It checks failed-readback state,
+effective grants/revocation, stable group identity, logical membership and
+non-duplicating retry, plus the existing concurrent assignment case. Join-row IDs
+and relationship-activity timestamps are permitted to change on replacement.
+No production SCIM policy or transaction boundary is changed.
+
+The existing API PostgreSQL and Phoenix validation profiles now select these
+regressions explicitly. They reuse the existing disposable-database variable,
+without adding a CI job, runner, workflow/ref or platform credential.
+
+Final checks on the candidate: native API/SCIM/title/content/archive suites pass
+190 cases with the dedicated PostgreSQL fixture enabled; Graph privacy/history
+suites pass189 cases in their separate environment. Neither final run skips
+tests. The native run retains six existing test-key warnings. Both runs are local
+source evidence, not company CI or deployed IdP acceptance. Temporary PostgreSQL
+used one CPU,256MiB and tmpfs only; fixture schemas and the owned container were
+removed. Changed-file Ruff, formatting, shell syntax and diff checks pass.
