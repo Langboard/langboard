@@ -59,7 +59,11 @@ export default function DocumentRetrievalSettings({
             >
                 {options.map((option) => (
                     <option key={option} value={option}>
-                        {name === "search_type" ? t(`internalBot.retrieval.mode_${option}`) : option}
+                        {name === "search_type"
+                            ? t(`internalBot.retrieval.mode_${option}`)
+                            : name === "splitter.encoding"
+                              ? option
+                              : t(`internalBot.retrieval.option_${option}`)}
                     </option>
                 ))}
             </select>

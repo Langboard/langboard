@@ -466,3 +466,16 @@ official Qdrant integration with acknowledged/completed response fixtures and re
 SQLite/PostgreSQL outbox transactions. The cleanup, vector-store and embedding
 regression suites pass 70 tests together. These checks cover SDK response handling
 and durable retry, not a live external Qdrant server or deployed acceptance.
+
+### Localized splitter choices
+
+The retrieval editor displays splitter types, length units and separator
+placement in English, Korean, Japanese and Chinese through existing locale
+resources. Canonical submitted values such as `recursive`, `tokens` and `start`
+remain unchanged. Tokenizer identifiers retain their official names. No provider,
+vector-store migration or automatic reindex is implied by a caption change.
+
+The existing real-component browser fixture covers four-language captions and
+canonical submitted values, disabled submission, Qdrant/SQLite modes and desktop/
+mobile layout. The localization workflow runs this focused suite. Local source
+verification does not replace authenticated acceptance after UI deployment.

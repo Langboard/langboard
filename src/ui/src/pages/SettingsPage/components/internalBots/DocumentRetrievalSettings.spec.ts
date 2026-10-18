@@ -50,3 +50,28 @@ for (const width of [1440, 390]) {
         await page.screenshot({ path: `test-results/retrieval-${width}.png`, fullPage: true });
     });
 }
+
+for (const [locale, captions] of Object.entries({
+    "en-US": ["Recursive", "Tokens", "Start of chunk"],
+    "ko-KR": ["재귀 분할", "토큰 수", "조각 시작"],
+    "ja-JP": ["再帰分割", "トークン数", "チャンクの先頭"],
+    "zh-CN": ["递归拆分", "令牌数", "片段开头"],
+})) {
+    test(`splitter options use localized captions and stable values for ${locale}`, async ({ page }) => {
+        await page.addInitScript((language) => localStorage.setItem("lang", language), locale);
+        await page.goto("/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture.html");
+        const form = page.locator("form");
+        await expect(form.locator('[name="splitter.type"] option[value="recursive"]')).toHaveText(captions[0]);
+        await expect(form.locator('[name="splitter.length_unit"] option[value="tokens"]')).toHaveText(captions[1]);
+        await expect(form.locator('[name="splitter.keep_separator"] option[value="start"]')).toHaveText(captions[2]);
+        await form.locator('[name="splitter.length_unit"]').selectOption("tokens");
+        await expect(form.locator('[name="splitter.encoding"]')).toHaveValue("cl100k_base");
+        await form.locator('button[type="submit"]').click();
+        const saved = JSON.parse((await page.locator("output").textContent())!);
+        expect(saved.splitter).toMatchObject({ type: "recursive", length_unit: "tokens", keep_separator: "start", encoding: "cl100k_base" });
+        if (locale === "ko-KR") {
+            await page.setViewportSize({ width: 390, height: 1000 });
+            await page.screenshot({ path: ".verification/retrieval-options-ko-mobile-20261018.png", fullPage: true });
+        }
+    });
+}
