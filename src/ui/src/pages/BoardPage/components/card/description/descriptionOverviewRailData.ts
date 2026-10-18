@@ -8,12 +8,13 @@ export interface IRailMarker {
     range?: { start: number; end: number };
 }
 
-export function buildRailMarkers(chunks: IDescriptionChunk[]): IRailMarker[] {
-    if (chunks.length <= MAX_RAIL_MARKERS) {
+export function buildRailMarkers(chunks: IDescriptionChunk[], limit = MAX_RAIL_MARKERS): IRailMarker[] {
+    limit = Math.max(1, Math.min(MAX_RAIL_MARKERS, Math.floor(limit)));
+    if (chunks.length <= limit) {
         return chunks.map((chunk, index) => ({ index, chunk }));
     }
 
-    const bucketSize = Math.ceil(chunks.length / MAX_RAIL_MARKERS);
+    const bucketSize = Math.ceil(chunks.length / limit);
     const markers: IRailMarker[] = [];
 
     for (let start = 0; start < chunks.length; start += bucketSize) {
@@ -79,4 +80,13 @@ export function getMarkerOpacity(distance: number): string {
     }
 
     return "opacity-30";
+}
+
+/** Geometry is a projection of the native viewport, never an independent scroll position. */
+export function getRailGeometry(viewportHeight: number, scrollHeight: number, scrollTop: number) {
+    const height = Math.max(0, viewportHeight - 48);
+    const scrollRange = Math.max(0, scrollHeight - viewportHeight);
+    const thumbHeight = Math.min(height, Math.max(20, (height * viewportHeight) / Math.max(1, scrollHeight)));
+    const progress = scrollRange ? Math.max(0, Math.min(1, scrollTop / scrollRange)) : 0;
+    return { height, scrollRange, thumbHeight, thumbTop: progress * (height - thumbHeight), visible: scrollRange > 1 && height > 0 };
 }

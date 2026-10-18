@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
     testDir: "./src/pages/BoardPage/components/card/description",
-    testMatch: "board-card-description-static.spec.ts",
+    testMatch: ["board-card-description-static.spec.ts", "overview-rail.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4179", channel: "chrome", headless: true },
