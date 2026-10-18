@@ -1365,3 +1365,50 @@ The PostgreSQL concurrency case itself passes. No migration, production data
 reconciliation, or external-app deployment was performed. Authenticated canary
 acceptance remains pending. Private logs:
 `.verification/workflow-consent-defaults-{before,after}-20261018.log`.
+
+
+## Reference app ZIP profile parity
+
+Server SDK 0.1.6 provides the template packager from the isolated
+`@langboard/app-server/packaging` entrypoint. GitHub, GlitchTip and Dokploy now
+use it instead of three identical 30-line packaging implementations. The Python
+SDK 0.2.37 remains the archive format/validation authority; no JavaScript ZIP
+library or additional host API was introduced. Other panel layouts can still use
+the Python packager directly. Generic template assumptions and limitations are
+specified in the standalone SDK guide.
+
+Previously, passing workflow/interaction flags to the reference app ZIP command
+silently emitted its default read-only profile. Actual baseline GlitchTip ZIP
+inspection confirmed version 0.1.1 with no workflow or interaction capability.
+The app now parses explicit flags, supplies the selected declaration and rejects
+unknown flags/incomplete profiles. Optional server features require a configured
+HTTPS PUBLIC_URL identifying their separately deployed service. A static package
+does not deploy that server or grant connection/card/transition authority.
+
+On 2026-10-18, sixteen generated packages across the three apps passed the real
+host `validate_package` and exactly matched each selected server declaration.
+Maximum package size was 51,459 bytes. Default read-only, workflow, publishing
+and supported interaction combinations were included. GlitchTip's committed
+package regression covers actual ZIP content and negative options; SDK tests
+cover deterministic bytes, relative imports, themed icons, source preservation,
+hidden-file rejection and linked-file rejection before rewrites. A newly added
+linked-file test first failed against the initial refactor; the fix rejects links
+before any file rewrites. Receipts remain private. Server SDK imports now defer
+node:sqlite until the explicitly requested archiveStore constructor; packaging
+and signal work do not load that optional local ledger.
+
+Standalone checks: Node panel/server suites and 96 Python tests passed. Server
+suite includes 14 cases; app suites passed GitHub 24, GlitchTip 33 and Dokploy 18.
+These are package/source checks, not authenticated provider actions. Existing PR1
+per independently owned repository was updated; no new PR or main merge was made.
+
+Actual canary inspection separately found an official GlitchTip Panel v0.1.1
+ZIP installed from the reviewed app repository. It uses the host package asset
+URL and is distinct from local placeholder QA declarations. The package was
+preserved. The account had no existing GlitchTip provider connection, selected
+resources or external-panel binding. A native disabled GlitchTip workflow draft
+was created and independently reread with active/review/closed destinations;
+grants remained empty and stage transitions off. This is not the optional SDK
+profile's vertical acceptance. Approved provider connection, selected resources,
+installed newer declaration, human request/response and durable event receipt
+remain required before closing the integration card.

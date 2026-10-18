@@ -252,3 +252,15 @@ groups in 1,518 source files. Original reproduction is retained at
 `src/ui/.verification/label-collaboration-*`. This is a local reducer regression,
 not proof of a deployed two-user collaboration flow or the earlier label-related
 server loading outage.
+
+
+## Reference app packaging extraction (2026-10-18)
+
+Three byte-identical reference app `package.mjs` implementations were moved into
+the standalone server SDK's packaging subpath. App-specific declarations and
+feature flags stay in each app, with no core checkout required. This also fixes
+silently omitted optional profiles in installable ZIPs. SDK 0.1.6 uses the existing
+Python package validator and introduces no runtime dependency. Sixteen packages
+passed actual host validation and declaration parity; source SDK/app tests and
+known deployed gaps are recorded in docs/external-app-sdk.md. This extraction is
+outside the UI-only exact-body count above, which remains a separate metric.
