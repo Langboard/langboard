@@ -32,6 +32,17 @@ export default function BoardSettingsApps() {
     const [compositionKey, setCompositionKey] = useState<string | null>(null);
     const [managedKey, setManagedKey] = useState<string | null>(null);
     const [section, setSection] = useState<"connections" | "permissions" | "workflow" | "panel">("connections");
+    const [visitedModules, setVisitedModules] = useState<string[]>([]);
+    const [visitedSections, setVisitedSections] = useState<Record<string, string[]>>({});
+    const [moduleSections, setModuleSections] = useState<Record<string, typeof section>>({});
+    const openModule = (key: string) => {
+        setManagedKey(key);
+        setVisitedSections((sections) => ({ ...sections, [key]: sections[key] ?? ["connections"] }));
+        setSection(moduleSections[key] ?? "connections");
+        setVisitedModules((keys) => (keys.includes(key) ? keys : [...keys, key]));
+        setPanelTarget(null);
+        setDisableTarget(null);
+    };
     const [installing, setInstalling] = useState(false);
     // Group membership and module state must come from the same server snapshot.
     const snapshot = compositionQuery.isError ? undefined : compositionQuery.data;
@@ -55,8 +66,8 @@ export default function BoardSettingsApps() {
     const [disableTarget, setDisableTarget] = useState<string | null>(null);
     const [error, setError] = useState(false);
     const [dirty, setDirty] = useState(false);
-    const [connections, setConnections] = useState<CatalogApp | null>(null);
-    const [selected, setSelected] = useState<CatalogApp | null>(null);
+    const [connections, setConnections] = useState<string[]>([]);
+    const [selected, setSelected] = useState<string[]>([]);
     const [disableGroup, setDisableGroup] = useState(false);
     const [storeFailed, setStoreFailed] = useState(false);
     const disableComposition = async () => {
@@ -102,7 +113,7 @@ export default function BoardSettingsApps() {
         }
     };
     const setPanel = async (app: CatalogApp, enabled: boolean) => {
-        if (pending || storeFailed || !canEditBasicInfo || !app.app_revision) return;
+        if (pending || storeFailed || !canEditBasicInfo || !app.app_revision || (enabled && app.is_available === false)) return;
         setPending(true);
         setError(false);
         try {
@@ -143,189 +154,185 @@ export default function BoardSettingsApps() {
         );
     return (
         <div className="flex w-full flex-col gap-4 py-4">
-            {connections ? (
-                <>
+            <>
+                {error && <p role="alert">{t("project.settings.App workflow save failed")}</p>}
+                {storeFailed && (
                     <Button
                         size="sm"
                         variant="outline"
-                        className="self-start"
-                        disabled={dirty}
-                        onClick={() => {
-                            setConnections(null);
-                            void refreshStore();
+                        disabled={pending}
+                        onClick={async () => {
+                            const result = await refreshStore();
+                            if (!result.isError) {
+                                setStoreFailed(false);
+                                setError(false);
+                                setDisableGroup(false);
+                            }
                         }}
                     >
-                        {t("project.settings.Back to App Store")}
+                        {t("common.Retry")}
                     </Button>
-                    <BoardSettingsInboundConnections key={connections.key} app={connections} onBusy={setDirty} />
-                </>
-            ) : selected ? (
-                <>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        className="self-start"
-                        disabled={dirty}
-                        onClick={() => {
-                            setSelected(null);
-                            void refreshStore();
-                        }}
-                    >
-                        {t("project.settings.Back to App Store")}
-                    </Button>
-                    <h3 className="text-base font-semibold">{selected.name}</h3>
-                    <BoardSettingsAppWorkflow key={selected.key} appKey={selected.key} onDirtyChange={setDirty} />
-                </>
-            ) : (
-                <>
-                    {error && <p role="alert">{t("project.settings.App workflow save failed")}</p>}
-                    {storeFailed && (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={pending}
-                            onClick={async () => {
-                                const result = await refreshStore();
-                                if (!result.isError) {
-                                    setStoreFailed(false);
-                                    setError(false);
-                                    setDisableGroup(false);
-                                }
-                            }}
-                        >
-                            {t("common.Retry")}
+                )}
+                <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-base font-semibold">{t("project.settings.App Store")}</h3>
+                    {currentUser?.is_admin && (
+                        <Button size="sm" variant="outline" disabled={pending || dirty} onClick={() => setInstalling(true)}>
+                            {t("settings.Download and install")}
                         </Button>
                     )}
-                    <div className="flex items-center justify-between gap-3">
-                        <h3 className="text-base font-semibold">{t("project.settings.App Store")}</h3>
-                        {currentUser?.is_admin && (
-                            <Button size="sm" variant="outline" disabled={pending || dirty} onClick={() => setInstalling(true)}>
-                                {t("settings.Download and install")}
-                            </Button>
-                        )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">{t("project.settings.App Store browse help")}</p>
-                    {managedKey && (
+                </div>
+                <p className="text-sm text-muted-foreground">{t("project.settings.App Store browse help")}</p>
+                {managedKey && !composition && (
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="self-start"
+                        disabled={pending || dirty}
+                        onClick={() => {
+                            setManagedKey(null);
+                            setVisitedModules([]);
+                            setVisitedSections({});
+                            setConnections([]);
+                            setSelected([]);
+                            setModuleSections({});
+                            setPanelTarget(null);
+                            setDisableTarget(null);
+                        }}
+                    >
+                        {t("project.settings.Back to App overview")}
+                    </Button>
+                )}
+                {composition && (
+                    <>
                         <Button
                             size="sm"
                             variant="outline"
                             className="self-start"
                             disabled={pending || dirty}
                             onClick={() => {
+                                setCompositionKey(null);
+                                setDisableGroup(false);
                                 setManagedKey(null);
+                                setVisitedModules([]);
+                                setVisitedSections({});
+                                setConnections([]);
+                                setSelected([]);
+                                setModuleSections({});
                                 setPanelTarget(null);
                                 setDisableTarget(null);
                             }}
                         >
-                            {t("project.settings.Back to App overview")}
+                            {t("project.settings.Back to App Store")}
                         </Button>
-                    )}
-                    {composition && (
-                        <>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="self-start"
-                                disabled={pending || dirty}
-                                onClick={() => {
-                                    setCompositionKey(null);
-                                    setDisableGroup(false);
-                                    setManagedKey(null);
-                                    setPanelTarget(null);
-                                    setDisableTarget(null);
-                                }}
-                            >
-                                {t("project.settings.Back to App Store")}
-                            </Button>
-                            <h3 className="text-base font-semibold">{composition.name}</h3>
-                            <p className="text-sm text-muted-foreground">{composition.description}</p>
-                            {!managedKey && canEditBasicInfo && (
-                                <div className="flex flex-col items-start gap-2">
-                                    {disableGroup ? (
-                                        <>
-                                            <p className="text-sm text-muted-foreground">{t("project.settings.Disable App group help")}</p>
-                                            <p className="text-xs text-muted-foreground">{composition.module_keys.join(" · ")}</p>
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                disabled={pending || storeFailed}
-                                                onClick={() => void disableComposition()}
-                                            >
-                                                {t("project.settings.Confirm disable App group")}
-                                            </Button>
-                                            <Button size="sm" variant="ghost" disabled={pending} onClick={() => setDisableGroup(false)}>
-                                                {t("common.Cancel")}
-                                            </Button>
-                                        </>
-                                    ) : (
+                        <h3 className="text-base font-semibold">{composition.name}</h3>
+                        <p className="text-sm text-muted-foreground">{composition.description}</p>
+                        <nav className="flex flex-wrap gap-2" aria-label={t("project.settings.Manage App modules")}>
+                            {visibleApps.map((app) => (
+                                <Button
+                                    key={app.key}
+                                    size="sm"
+                                    variant={managedKey === app.key ? "secondary" : "outline"}
+                                    aria-pressed={managedKey === app.key}
+                                    disabled={pending || dirty}
+                                    onClick={() => openModule(app.key)}
+                                >
+                                    {app.name}
+                                </Button>
+                            ))}
+                        </nav>
+                        {canEditBasicInfo && (
+                            <div className="flex flex-col items-start gap-2">
+                                {disableGroup ? (
+                                    <>
+                                        <p className="text-sm text-muted-foreground">{t("project.settings.Disable App group help")}</p>
+                                        <p className="text-xs text-muted-foreground">{composition.module_keys.join(" · ")}</p>
                                         <Button
                                             size="sm"
-                                            variant="ghost"
-                                            disabled={pending || dirty || storeFailed}
-                                            onClick={() => setDisableGroup(true)}
+                                            variant="outline"
+                                            disabled={pending || storeFailed}
+                                            onClick={() => void disableComposition()}
                                         >
-                                            {t("project.settings.Disable App group")}
+                                            {t("project.settings.Confirm disable App group")}
                                         </Button>
-                                    )}
-                                </div>
-                            )}
-                        </>
-                    )}
-                    <p className="text-sm text-muted-foreground">{t("project.settings.App Store help")}</p>
-                    {(isLoading || compositionQuery.isLoading) && <p role="status">{t("common.Loading...")}</p>}
-                    {compositionQuery.isError && !storeFailed && (
-                        <div role="status" className="text-sm text-muted-foreground">
-                            {t("project.settings.App grouping unavailable")}
-                            <Button size="sm" variant="ghost" onClick={() => void compositionQuery.refetch()}>
-                                {t("common.Retry")}
-                            </Button>
-                        </div>
-                    )}
-                    {isError && !storeFailed && (
-                        <div role="alert">
-                            {t("project.settings.App workflow unavailable")}
-                            <Button size="sm" variant="outline" onClick={() => void refetch()}>
-                                {t("common.Retry")}
-                            </Button>
-                        </div>
-                    )}
-                    <div className={managedKey ? "grid gap-3" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"}>
-                        {!composition &&
-                            !managedKey &&
-                            compositions.map((group) => (
-                                <article
-                                    key={`composition:${group.key}`}
-                                    className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="rounded-xl bg-muted p-3">
-                                            <Blocks className="size-5 text-muted-foreground" aria-hidden="true" />
-                                        </span>
-                                        <h4 className="min-w-0 break-words font-semibold">{group.name}</h4>
-                                    </div>
-                                    <p className="my-3 flex-1 text-sm text-muted-foreground">{group.description}</p>
-                                    <Button size="sm" variant="outline" onClick={() => setCompositionKey(group.key)}>
-                                        {t("project.settings.Manage App modules")}
-                                    </Button>
-                                </article>
-                            ))}
-                        {visibleApps
-                            .filter((app) => !managedKey || managedKey === app.key)
-                            .map((app) => {
-                                const { key, name, binding, workflow_requirements, resources } = app;
-                                const ConnectionForm = connectionForms.get(key);
-                                const panelEnabled = binding?.granted_capabilities.includes("panels.render");
-                                const state = app.is_available === false ? "disabled" : (binding?.state ?? "unconfigured");
-                                const description =
-                                    app.description?.trim() ||
-                                    t(`project.settings.App ${key} summary`, { defaultValue: "" }) ||
-                                    t("project.settings.App generic summary");
-                                const workflowLabel = workflow_requirements ? "Configure workflow" : "App workflow contract pending";
-                                return (
-                                    <article
-                                        key={key}
-                                        className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm"
+                                        <Button size="sm" variant="ghost" disabled={pending} onClick={() => setDisableGroup(false)}>
+                                            {t("common.Cancel")}
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={pending || dirty || storeFailed}
+                                        onClick={() => setDisableGroup(true)}
                                     >
+                                        {t("project.settings.Disable App group")}
+                                    </Button>
+                                )}
+                            </div>
+                        )}
+                    </>
+                )}
+                <p className="text-sm text-muted-foreground">{t("project.settings.App Store help")}</p>
+                {(isLoading || compositionQuery.isLoading) && <p role="status">{t("common.Loading...")}</p>}
+                {compositionQuery.isError && !storeFailed && (
+                    <div role="status" className="text-sm text-muted-foreground">
+                        {t("project.settings.App grouping unavailable")}
+                        <Button size="sm" variant="ghost" onClick={() => void compositionQuery.refetch()}>
+                            {t("common.Retry")}
+                        </Button>
+                    </div>
+                )}
+                {isError && !storeFailed && (
+                    <div role="alert">
+                        {t("project.settings.App workflow unavailable")}
+                        <Button size="sm" variant="outline" onClick={() => void refetch()}>
+                            {t("common.Retry")}
+                        </Button>
+                    </div>
+                )}
+                <div className={managedKey ? "grid gap-3" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"}>
+                    {!composition &&
+                        !managedKey &&
+                        compositions.map((group) => (
+                            <article
+                                key={`composition:${group.key}`}
+                                className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className="rounded-xl bg-muted p-3">
+                                        <Blocks className="size-5 text-muted-foreground" aria-hidden="true" />
+                                    </span>
+                                    <h4 className="min-w-0 break-words font-semibold">{group.name}</h4>
+                                </div>
+                                <p className="my-3 flex-1 text-sm text-muted-foreground">{group.description}</p>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setCompositionKey(group.key);
+                                        openModule(group.module_keys[0]);
+                                    }}
+                                >
+                                    {t("project.settings.Manage App modules")}
+                                </Button>
+                            </article>
+                        ))}
+                    {visibleApps
+                        .filter((app) => !managedKey || managedKey === app.key || visitedModules.includes(app.key))
+                        .map((app) => {
+                            const { key, name, binding, workflow_requirements, resources } = app;
+                            const ConnectionForm = connectionForms.get(key);
+                            const activeSection = managedKey === key ? section : (moduleSections[key] ?? "connections");
+                            const panelEnabled = binding?.granted_capabilities.includes("panels.render");
+                            const state = app.is_available === false ? "disabled" : (binding?.state ?? "unconfigured");
+                            const description =
+                                app.description?.trim() ||
+                                t(`project.settings.App ${key} summary`, { defaultValue: "" }) ||
+                                t("project.settings.App generic summary");
+                            const workflowLabel = workflow_requirements ? "Configure workflow" : "App workflow contract pending";
+                            return (
+                                <div key={key} hidden={!!managedKey && managedKey !== key}>
+                                    <article className="card card-border flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
                                         <div className="flex items-center gap-3">
                                             <AppPackageIcon appKey={key} installation={app.installation} />
                                             <h4 className="min-w-0 break-words font-semibold">{name}</h4>
@@ -340,8 +347,7 @@ export default function BoardSettingsApps() {
                                                     size="sm"
                                                     variant="outline"
                                                     onClick={() => {
-                                                        setManagedKey(key);
-                                                        setSection("connections");
+                                                        openModule(key);
                                                     }}
                                                 >
                                                     {t("project.settings.Manage App")}
@@ -349,16 +355,24 @@ export default function BoardSettingsApps() {
                                             </>
                                         ) : (
                                             <>
+                                                <p className="break-all text-xs text-muted-foreground">
+                                                    {key} · {app.version}
+                                                </p>
                                                 <nav className="flex flex-wrap gap-1" aria-label={t("project.settings.App management sections")}>
                                                     {(["connections", "permissions", "workflow", "panel"] as const).map((value) => (
                                                         <Button
                                                             key={value}
                                                             size="sm"
-                                                            variant={section === value ? "secondary" : "ghost"}
+                                                            variant={activeSection === value ? "secondary" : "ghost"}
                                                             disabled={pending || dirty}
-                                                            aria-pressed={section === value}
+                                                            aria-pressed={activeSection === value}
                                                             onClick={() => {
                                                                 setSection(value);
+                                                                setVisitedSections((sections) => ({
+                                                                    ...sections,
+                                                                    [key]: [...new Set([...(sections[key] ?? []), value])],
+                                                                }));
+                                                                setModuleSections((sections) => ({ ...sections, [key]: value }));
                                                                 setPanelTarget(null);
                                                                 setDisableTarget(null);
                                                             }}
@@ -367,9 +381,11 @@ export default function BoardSettingsApps() {
                                                         </Button>
                                                     ))}
                                                 </nav>
-                                                <p className="text-sm text-muted-foreground">{t(`project.settings.App section ${section} help`)}</p>
-                                                {ConnectionForm && (
-                                                    <div hidden={section !== "connections"}>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {t(`project.settings.App section ${activeSection} help`)}
+                                                </p>
+                                                {ConnectionForm && visitedSections[key]?.includes("connections") && (
+                                                    <div hidden={activeSection !== "connections"}>
                                                         <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
                                                             <ConnectionForm onStatusChange={() => void refreshStore()} />
                                                         </Suspense>
@@ -378,7 +394,7 @@ export default function BoardSettingsApps() {
                                                 <span className="self-start rounded-md bg-muted px-2 py-1 text-xs">
                                                     {t(`project.settings.App state ${state}`)}
                                                 </span>
-                                                {section === "connections" && resources && (
+                                                {activeSection === "connections" && resources && (
                                                     <details className="rounded-md border p-2 text-xs">
                                                         <summary className="cursor-pointer">
                                                             {t("project.settings.Selected App resources", { count: resources.selected_count })}
@@ -408,43 +424,79 @@ export default function BoardSettingsApps() {
                                                     </details>
                                                 )}
                                                 <p className="flex-1 text-sm text-muted-foreground">{description}</p>
-                                                {section === "permissions" && app.inbound_connection_management && (
-                                                    <BoardSettingsAppConsent
-                                                        key={`${app.key}:${app.app_revision}:${app.binding?.revision}`}
-                                                        app={app}
-                                                        onRefresh={refreshStore}
-                                                    />
+                                                {activeSection === "permissions" && (
+                                                    <div className="flex flex-wrap gap-2 text-xs">
+                                                        {(binding?.granted_capabilities ?? []).map((capability) => (
+                                                            <code key={capability}>{capability}</code>
+                                                        ))}
+                                                    </div>
                                                 )}
-                                                {section === "workflow" && app.inbound_connection_management && (
-                                                    <BoardSettingsAppArchiveSync
-                                                        key={`archive:${app.key}:${app.app_revision}:${app.binding?.revision}`}
-                                                        app={app}
-                                                        onRefresh={refreshStore}
-                                                    />
+                                                {visitedSections[key]?.includes("permissions") && app.inbound_connection_management && (
+                                                    <div hidden={activeSection !== "permissions"}>
+                                                        <BoardSettingsAppConsent
+                                                            key={`${app.key}:${app.app_revision}:${app.binding?.revision}`}
+                                                            app={app}
+                                                            onRefresh={refreshStore}
+                                                        />
+                                                    </div>
                                                 )}
-                                                {section === "connections" && app.inbound_connection_management && (
-                                                    <Button size="sm" variant="outline" onClick={() => setConnections(app)}>
+                                                {visitedSections[key]?.includes("workflow") && app.inbound_connection_management && (
+                                                    <div hidden={activeSection !== "workflow"}>
+                                                        <BoardSettingsAppArchiveSync
+                                                            key={`archive:${app.key}:${app.app_revision}:${app.binding?.revision}`}
+                                                            app={app}
+                                                            onRefresh={refreshStore}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {activeSection === "connections" && app.inbound_connection_management && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => setConnections((keys) => [...new Set([...keys, key])])}
+                                                    >
                                                         {t("project.settings.Manage inbound connections")}
                                                     </Button>
                                                 )}
-                                                {section === "connections" && !ConnectionForm && !app.panel && !app.inbound_connection_management && (
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {t("project.settings.App connection setup pending")}
-                                                    </p>
+                                                {connections.includes(key) && (
+                                                    <div hidden={activeSection !== "connections"}>
+                                                        <BoardSettingsInboundConnections key={key} app={app} onBusy={setDirty} />
+                                                    </div>
                                                 )}
-                                                {section === "workflow" && (workflow_requirements || !app.panel) && (
+                                                {activeSection === "connections" &&
+                                                    !ConnectionForm &&
+                                                    !app.panel &&
+                                                    !app.inbound_connection_management && (
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {t("project.settings.App connection setup pending")}
+                                                        </p>
+                                                    )}
+                                                {activeSection === "workflow" && (workflow_requirements || !app.panel) && (
                                                     <>
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
-                                                            disabled={pending || app.is_available === false || !workflow_requirements}
-                                                            onClick={() => setSelected(app)}
+                                                            disabled={pending || dirty || app.is_available === false || !workflow_requirements}
+                                                            onClick={() => setSelected((keys) => [...new Set([...keys, key])])}
                                                         >
                                                             {t(`project.settings.${workflowLabel}`)}
                                                         </Button>
+                                                        {selected.includes(key) && (
+                                                            <BoardSettingsAppWorkflow key={key} appKey={key} onDirtyChange={setDirty} />
+                                                        )}
+                                                        {selected.includes(key) && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                disabled={dirty}
+                                                                onClick={() => setSelected((keys) => keys.filter((item) => item !== key))}
+                                                            >
+                                                                {t("project.settings.Back to App Store")}
+                                                            </Button>
+                                                        )}
                                                     </>
                                                 )}
-                                                {section === "panel" &&
+                                                {activeSection === "panel" &&
                                                     app.panel &&
                                                     app.capabilities.includes("panels.render") &&
                                                     (panelTarget === key ? (
@@ -469,7 +521,13 @@ export default function BoardSettingsApps() {
                                                             )}
                                                             <Button
                                                                 size="sm"
-                                                                disabled={pending || storeFailed || !canEditBasicInfo || !app.app_revision}
+                                                                disabled={
+                                                                    pending ||
+                                                                    storeFailed ||
+                                                                    !canEditBasicInfo ||
+                                                                    !app.app_revision ||
+                                                                    app.is_available === false
+                                                                }
                                                                 onClick={() => void setPanel(app, true)}
                                                             >
                                                                 {t("project.settings.Confirm App panel")}
@@ -482,7 +540,13 @@ export default function BoardSettingsApps() {
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
-                                                            disabled={pending || storeFailed || !canEditBasicInfo || !app.app_revision}
+                                                            disabled={
+                                                                pending ||
+                                                                storeFailed ||
+                                                                !canEditBasicInfo ||
+                                                                !app.app_revision ||
+                                                                (!panelEnabled && app.is_available === false)
+                                                            }
                                                             onClick={() => {
                                                                 if (panelEnabled) void setPanel(app, false);
                                                                 else {
@@ -496,7 +560,7 @@ export default function BoardSettingsApps() {
                                                             {t(`project.settings.${panelEnabled ? "Disable App panel" : "Review App panel"}`)}
                                                         </Button>
                                                     ))}
-                                                {section === "permissions" &&
+                                                {activeSection === "permissions" &&
                                                     binding &&
                                                     binding.state !== "disabled" &&
                                                     (disableTarget === key ? (
@@ -532,11 +596,11 @@ export default function BoardSettingsApps() {
                                             </>
                                         )}
                                     </article>
-                                );
-                            })}
-                    </div>
-                </>
-            )}
+                                </div>
+                            );
+                        })}
+                </div>
+            </>
         </div>
     );
 }

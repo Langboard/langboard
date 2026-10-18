@@ -295,3 +295,30 @@ are required. The current Store browser suite passed 44 cases, including 1440px
 and 390px management, consent, resource selection, draft retention and failed
 readback guards. The local rendered overview was visually inspected. These
 checks do not establish deployment or a live provider connection.
+
+### Board composition detail navigation
+
+An explicitly declared composition opens one full-width module detail surface.
+Its persistent module navigation displays only the authoritative member keys;
+the active module retains its exact identity, version, binding and app revision.
+Connections and selected resource status, per-module permissions, workflow, and
+panel consent share this surface. Workflow and inbound management expand within
+the active module. Group withdrawal still confirms every member and submits the
+composition revision plus the complete binding revision snapshot.
+
+Only explicitly visited modules and management sections mount their forms.
+Visited connection and consent views remain locally mounted while hidden so
+unsaved fields and unknown-write locks survive section/module navigation. They
+are discarded when leaving the app detail. No global draft store or prefetch is
+introduced. Existing workflow/inbound dirty and busy callbacks block navigation.
+Policy-disabled modules permit retained grant withdrawal; panel consent cannot
+add a new grant while the definition is unavailable. Local component tests use
+a controlled transport and do not establish deployed E2E or provider acceptance.
+
+Local navigation acceptance: the existing workflow/Store component browser runner
+passes 57 cases, including desktop/mobile composition switching, exact panel
+and group withdrawal payloads, workflow draft guards, retained consent failures,
+no eager unvisited connection requests, policy/member restrictions, and existing
+connection/resource/credential recovery cases. TypeScript, focused lint and the
+four-language project settings key comparison pass. These tests use the existing
+controlled transport fixture; authenticated deployed acceptance remains pending.
