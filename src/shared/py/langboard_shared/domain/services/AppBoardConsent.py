@@ -49,6 +49,15 @@ def prepare_board_consent(actor, project_id, app_key):
             if not definition.is_enabled or current_policy(db, project.organization_id)["effective_mode"] == "disabled":
                 raise AppGovernanceDenied()
             binding = BoardAppBinding(project_id=project.id, app_key=app_key)
+            if definition.declaration.get("workflow_requirements") is not None:
+                # Reuse the same resolver as explicit workflow saves; importing here
+                # avoids the mapping module's dependency on this authorization context.
+                from .AppWorkflowMapping import _resolve
+
+                result = _resolve(db, definition, project, {})
+                binding.workflow_mapping = {
+                    choice["stage"]: choice["column_uid"] for choice in result["choices"] if choice["status"] == "resolved"
+                }
             db.insert(binding)
         return _response(definition, binding)
 

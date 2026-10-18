@@ -120,3 +120,39 @@ def test_incomplete_mapping_cannot_enable_transitions_and_repair_requires_explic
         stored = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.id == binding.id)).first()
         assert stored.stage_transitions_enabled is True
         assert stored.workflow_mapping == {"active": replacement.get_uid()}
+
+
+@pytest.mark.parametrize("mode", ["unique", "ambiguous", "missing", "no_contract"])
+def test_board_consent_prepares_unique_workflow_without_granting_execution(board, mode):
+    from langboard_shared.domain.services.AppBoardConsent import prepare_board_consent
+
+    actor, project = board[1:3]
+    declaration = {"capabilities": ["signals.read"], "signal_sources": ["external-erp"]}
+    if mode != "no_contract":
+        declaration["workflow_requirements"] = {"required": ["active"], "optional": ["review", "ready"]}
+    with DbSession.atomic() as db:
+        board[4].actions = ["read", "update"]
+        db.update(board[4])
+        db.insert(AppDefinition(key="external-erp", approved_by=actor.id, declaration=declaration))
+        if mode == "ambiguous":
+            db.insert(ProjectColumn(project_id=project.id, name="Another active", workflow_stage="active"))
+        elif mode == "missing":
+            column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == board[5][0].id)).first()
+            column.workflow_stage = None
+            db.update(column)
+    prepared = prepare_board_consent(actor, project.id, "external-erp")
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+            BoardAppBinding.project_id == project.id, BoardAppBinding.app_key == "external-erp",
+        )).first()
+        expected = {} if mode == "no_contract" else {"review": board[5][1].get_uid()}
+        if mode == "unique":
+            expected["active"] = board[5][0].get_uid()
+        assert stored.workflow_mapping == expected
+        assert stored.granted_capabilities == []
+        assert stored.stage_transitions_enabled is False
+        revision = stored.edit_revision()
+        assert prepared["revision"] == revision
+        db.insert(ProjectColumn(project_id=project.id, name="Later active", workflow_stage="active"))
+    repeated = prepare_board_consent(actor, project.id, "external-erp")
+    assert repeated["revision"] == revision, "Repeated setup must not silently replace existing board choices"

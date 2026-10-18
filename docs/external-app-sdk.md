@@ -36,6 +36,12 @@ This document distinguishes implemented contracts from remaining acceptance.
    descriptions come from the catalog; the UI does not maintain a provider
    allowlist. Saving a mapping keeps automatic transitions disabled.
    Both mapping APIs persist automatically resolved unique column choices.
+   Preparing a new board consent also freezes those unique destinations, using
+   the same resolver, so connecting the app before opening workflow settings does
+   not introduce an extra save step. Missing or ambiguous stages remain unmapped;
+   apps without a workflow declaration keep an empty mapping. This preparation
+   grants no capabilities and does not enable transitions. Repeating it preserves
+   the existing binding instead of silently refreshing destinations.
    Runtime actions consume those saved destinations; adding another column with
    the same stage must not redirect an existing app. Deleting the saved column
    or changing its stage invalidates that destination and requires repair.
@@ -1344,3 +1350,18 @@ Panel runtime APIs reuse the native human stop/resume services and restrict requ
 Authenticated human controls use `POST /board/{project_uid}/apps/{app_key}/panel/cards/{card_uid}/runtimes/{request_uid}/{stop|resume}` with current app/binding revisions and the observed request `generation`. Native card update authority remains required. Stop requests revoke the permit, but do not prove process termination. Resume accepts only a newer producer-issued ready generation and preserves the stopped lease. Apps must not perform automatic human controls.
 
 Panel SDK 0.2.6 exposes `runtimes.open` with `card_uid` only. The host presents retained app-scoped runtimes and human confirmation before stop or resume. SDK direct stop/resume/new operations are rejected. Opening the dialog is not approval. After panel disablement, native card controls remain available to an authorized human for retained-runtime cleanup. Independent new-run choice and its producer-generation contract remain pending.
+
+### Board-consent workflow defaults verification (2026-10-18)
+
+An app connected before workflow setup previously retained an empty persisted
+mapping even when the resolver displayed unique destinations. New-consent
+preparation now uses the existing mapping resolver. Three SQLite cases fail on
+the original source; SQLite and isolated PostgreSQL exercise unique, ambiguous,
+missing and absent workflow declarations after the fix. They also verify no
+capability/transition grant and unchanged revisions on repeated preparation after
+column changes. Together with the native mapping API regression suite: 50 passed,
+one intentional SQLite skip for a PostgreSQL-only concurrency test, 31.93 seconds.
+The PostgreSQL concurrency case itself passes. No migration, production data
+reconciliation, or external-app deployment was performed. Authenticated canary
+acceptance remains pending. Private logs:
+`.verification/workflow-consent-defaults-{before,after}-20261018.log`.
