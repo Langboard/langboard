@@ -71,6 +71,7 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
       src/api/tests/dashboard/test_column_visibility_counts.py \
+      src/api/tests/model_providers/test_image_generation.py \
       src/api/langboard/mcp_tools/UserMcp_search_test.py \
       src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py)
@@ -82,7 +83,7 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
+    command=(bash -c 'node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectWorkload.test.ts src/pages/DashboardPage/components/ProjectDiscovery.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/controllers/api/dashboard/useGetProjects.test.mjs src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention')
     ;;
   api-postgres)
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
@@ -116,9 +117,16 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
       src/api/tests/dashboard/test_column_visibility_counts.py \
+      src/api/tests/model_providers/test_image_generation.py \
       src/api/langboard/mcp_tools/UserMcp_search_test.py \
       src/api/tests/card_workspace/timers/ \
       src/api/tests/card_visibility/test_search_source_scope.py)
+    ;;
+  work-plan-lock-cost)
+    : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
+    command=(env LANGBOARD_WORK_PLAN_LOCK_BENCHMARK=1 LANGBOARD_WORK_PLAN_LOCK_RESULT_DIR=/result/artifacts \
+      uv run --no-sync pytest -q --junitxml=/result/artifacts/work-plan-lock-cost.xml \
+      src/api/tests/card_workspace/test_work_plan_lock_cost_postgres.py)
     ;;
   *)
     echo "Unsupported validation profile: $profile" >&2
@@ -134,14 +142,18 @@ else
 fi
 
 reports='[]'
+artifacts="[\"artifacts/${profile}-validation.log\"]"
 if [[ -f "/result/artifacts/${profile}.xml" ]]; then
   reports="[\"artifacts/${profile}.xml\"]"
 fi
-printf '{"schemaVersion":1,"exitCode":%s,"reports":{"junit":%s,"artifacts":["artifacts/%s-validation.log"]}}\n' \
-  "$status" "$reports" "$profile" > /result/result.json
+if [[ "$profile" == work-plan-lock-cost ]]; then
+  artifacts=$(python3 -c 'import json,pathlib; print(json.dumps(["artifacts/work-plan-lock-cost-validation.log", *["artifacts/" + p.name for p in sorted(pathlib.Path("/result/artifacts").glob("work-plan-lock-*.json"))]]))')
+fi
+printf '{"schemaVersion":1,"exitCode":%s,"reports":{"junit":%s,"artifacts":%s}}\n' \
+  "$status" "$reports" "$artifacts" > /result/result.json
 # The result stage must complete so the central contract can inspect exitCode.
 # Setup failures above still terminate the stage through `set -e`.
-if [[ "$profile" == api-postgres ]]; then
+if [[ "$profile" == api-postgres || "$profile" == work-plan-lock-cost ]]; then
   # Isolated integration uses the actual process exit code as well as the report.
   exit "$status"
 fi

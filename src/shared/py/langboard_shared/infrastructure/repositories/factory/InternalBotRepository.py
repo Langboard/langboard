@@ -21,7 +21,7 @@ class InternalBotRepository(BaseRepository[InternalBot]):
             result = db.exec(
                 SqlBuilder.select.table(InternalBot)
                 .where(InternalBot.is_default == True)  # noqa: E712
-                .where(InternalBot.bot_type != InternalBotType.DocumentVision)
+                .where(InternalBot.bot_type.in_(InternalBotType.executable_types()))
             )
             internal_bots = result.all()
         return internal_bots

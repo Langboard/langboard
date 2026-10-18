@@ -1,8 +1,10 @@
 from json import loads
+from re import fullmatch
 from typing import Any, Literal
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
+from ....core.security import KeyVault
 from ....core.storage import FileModel
 from ....core.types.ParamTypes import TInternalBotParam
 from ....helpers import InfraHelper
@@ -65,6 +67,40 @@ class InternalBotService(BaseDomainService):
         internal_bots = InfraHelper.get_all(InternalBot)
         return [internal_bot.api_response(is_setting=is_setting) for internal_bot in internal_bots]
 
+    @staticmethod
+    def _require_image_transaction_owner():
+        if DbSession.has_active_transaction():
+            raise RuntimeError("Image credential storage must own its transaction")
+
+    @staticmethod
+    def _delete_owned_image_key(provider, locator: str):
+        if not fullmatch(r"image-generation-[0-9a-f]{32}", locator):
+            return
+        with DbSession.use(readonly=False) as db:
+            shared = db.exec(SqlBuilder.select.table(InternalBot).where(InternalBot.api_key == locator)).first()
+        if not shared:
+            provider.delete_key(locator)
+
+    def _persist_image(self, internal_bot: InternalBot, operation: str, previous_locator: str = ""):
+        """Compensate new Vault writes and retire old material only after commit."""
+        provider = KeyVault.provider
+        new_locator = internal_bot.api_key if operation != "delete" and internal_bot.api_key != previous_locator else ""
+        try:
+            with DbSession.atomic() as db:
+                getattr(self.repo.internal_bot, operation)(internal_bot)
+                if previous_locator and (operation == "delete" or previous_locator != internal_bot.api_key):
+                    db.after_commit(lambda: self._delete_owned_image_key(provider, previous_locator))
+                publish = {
+                    "insert": InternalBotPublisher.created,
+                    "update": InternalBotPublisher.updated,
+                    "delete": InternalBotPublisher.deleted,
+                }[operation]
+                db.after_commit(lambda: publish(internal_bot))
+        except Exception:
+            if new_locator:
+                provider.delete_key(new_locator)
+            raise
+
     def create(
         self,
         bot_type: InternalBotType,
@@ -77,6 +113,13 @@ class InternalBotService(BaseDomainService):
         avatar: FileModel | None = None,
         is_default: bool = False,
     ) -> InternalBot:
+        if bot_type == InternalBotType.ImageGeneration:
+            self._require_image_transaction_owner()
+            from ....ai.image_generation import prepare_image_binding
+
+            if platform != BotPlatform.Default or platform_running_type != BotPlatformRunningType.Default or api_url:
+                raise ValueError("Image generation requires the native provider binding")
+            value, api_key = prepare_image_binding(value, api_key)
         internal_bot = InternalBot(
             bot_type=bot_type,
             display_name=display_name,
@@ -89,6 +132,9 @@ class InternalBotService(BaseDomainService):
             avatar=avatar,
         )
 
+        if bot_type == InternalBotType.ImageGeneration:
+            self._persist_image(internal_bot, "insert")
+            return internal_bot
         self.repo.internal_bot.insert(internal_bot)
 
         InternalBotPublisher.created(internal_bot)
@@ -100,18 +146,28 @@ class InternalBotService(BaseDomainService):
         if not source_internal_bot:
             return None
 
+        copied_key = source_internal_bot.api_key
+        if source_internal_bot.bot_type == InternalBotType.ImageGeneration:
+            self._require_image_transaction_owner()
+        if source_internal_bot.bot_type == InternalBotType.ImageGeneration and copied_key:
+            from uuid import uuid4
+
+            copied_key = KeyVault.store_secret(f"image-generation-{uuid4().hex}", KeyVault.get_key(copied_key))
         copied_internal_bot = InternalBot(
             bot_type=source_internal_bot.bot_type,
             display_name=f"{source_internal_bot.display_name} Copy",
             platform=source_internal_bot.platform,
             platform_running_type=source_internal_bot.platform_running_type,
             api_url=source_internal_bot.api_url,
-            api_key=source_internal_bot.api_key,
+            api_key=copied_key,
             value=source_internal_bot.value,
             is_default=False,
             avatar=source_internal_bot.avatar,
         )
 
+        if source_internal_bot.bot_type == InternalBotType.ImageGeneration:
+            self._persist_image(copied_internal_bot, "insert")
+            return copied_internal_bot
         self.repo.internal_bot.insert(copied_internal_bot)
 
         InternalBotPublisher.created(copied_internal_bot)
@@ -122,6 +178,23 @@ class InternalBotService(BaseDomainService):
         internal_bot = InfraHelper.get_by_id_like(InternalBot, internal_bot)
         if not internal_bot:
             return None
+
+        previous_locator = internal_bot.api_key
+        if internal_bot.bot_type == InternalBotType.ImageGeneration:
+            self._require_image_transaction_owner()
+            from ....ai.image_generation import prepare_image_binding
+
+            form = {key: value for key, value in form.items() if value is not None}
+            if (
+                form.get("platform", internal_bot.platform) != BotPlatform.Default
+                or form.get("platform_running_type", internal_bot.platform_running_type)
+                != BotPlatformRunningType.Default
+                or form.get("api_url", internal_bot.api_url)
+            ):
+                raise ValueError("Image generation requires the native provider binding")
+            form["value"], form["api_key"] = prepare_image_binding(
+                form.get("value", internal_bot.value), form.get("api_key"), internal_bot
+            )
 
         validators: TMutableValidatorMap = {
             "display_name": "default",
@@ -152,10 +225,19 @@ class InternalBotService(BaseDomainService):
                 if form["platform_running_type"] not in available_running_types:
                     form.pop("platform_running_type", None)
 
+        previous_values = {key: getattr(internal_bot, key) for key in validators}
         old_record = self.apply_mutates(internal_bot, form, validators)
         if not old_record:
             return True
 
+        if internal_bot.bot_type == InternalBotType.ImageGeneration:
+            try:
+                self._persist_image(internal_bot, "update", previous_locator)
+            except Exception:
+                for key, value in previous_values.items():
+                    setattr(internal_bot, key, value)
+                raise
+            return internal_bot
         self.repo.internal_bot.update(internal_bot)
 
         InternalBotPublisher.updated(internal_bot)
@@ -180,6 +262,11 @@ class InternalBotService(BaseDomainService):
         internal_bot = InfraHelper.get_by_id_like(InternalBot, internal_bot)
         if not internal_bot or internal_bot.is_default:
             return False
+
+        if internal_bot.bot_type == InternalBotType.ImageGeneration:
+            self._require_image_transaction_owner()
+            self._persist_image(internal_bot, "delete", internal_bot.api_key)
+            return True
 
         default_internal_bot = self.repo.internal_bot.get_default_by_type(internal_bot.bot_type)
         if not default_internal_bot:

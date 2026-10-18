@@ -1492,6 +1492,9 @@ document-processing = [
 document-retrieval = [
     { name = "langboard-shared", extra = ["document-retrieval"] },
 ]
+image-generation = [
+    { name = "langboard-shared", extra = ["image-generation"] },
+]
 keyword-search = [
     { name = "langboard-shared", extra = ["keyword-search"] },
 ]
@@ -1524,6 +1527,7 @@ requires-dist = [
     { name = "langboard-shared", extras = ["azure-vault"], marker = "extra == 'azure-vault'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["document-processing"], marker = "extra == 'document-processing'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["document-retrieval"], marker = "extra == 'document-retrieval'", editable = "src/shared/py" },
+    { name = "langboard-shared", extras = ["image-generation"], marker = "extra == 'image-generation'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["keyword-search"], marker = "extra == 'keyword-search'", editable = "src/shared/py" },
     { name = "orjson", specifier = ">=3.11.0" },
     { name = "psutil", specifier = ">=7.1.2" },
@@ -1540,7 +1544,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.41,<2.0.50" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval", "keyword-search"]
+provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval", "keyword-search", "image-generation"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1619,6 +1623,9 @@ document-retrieval = [
     { name = "tiktoken" },
     { name = "transformers" },
 ]
+image-generation = [
+    { name = "pillow" },
+]
 keyword-search = [
     { name = "elasticsearch" },
 ]
@@ -1654,6 +1661,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-sqlite", marker = "extra == 'document-retrieval'", specifier = "==3.1.1" },
     { name = "orjson", specifier = ">=3.11.0" },
     { name = "packaging", marker = "extra == 'document-processing'", specifier = ">=24" },
+    { name = "pillow", marker = "extra == 'image-generation'", specifier = "==12.3.0" },
     { name = "psutil", specifier = ">=7.1.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.12" },
     { name = "pydantic", specifier = ">=2.10.0,<2.20.0" },
@@ -1672,7 +1680,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'document-retrieval'", specifier = ">=4.42,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["keyword-search", "document-retrieval", "document-processing", "aws", "azure-vault"]
+provides-extras = ["keyword-search", "image-generation", "document-retrieval", "document-processing", "aws", "azure-vault"]
 
 [package.metadata.requires-dev]
 dev = [

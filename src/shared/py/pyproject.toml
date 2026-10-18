@@ -39,6 +39,8 @@ dependencies = [
 
 [project.optional-dependencies]
 keyword-search = ["elasticsearch==9.5.1"]
+# Raster validation only; no document converter or local inference stack.
+image-generation = ["pillow==12.3.0"]
 document-retrieval = [
     "docling-core[chunking-openai]==2.99.0",
     "transformers>=4.42,<6",
