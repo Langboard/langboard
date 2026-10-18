@@ -93,7 +93,7 @@ jobs:
           python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py
       - name: Verify Python standard library database runtime
         run: python -c "import sqlite3; assert sqlite3.connect(':memory:').execute('SELECT 1').fetchone() == (1,)"
-      - run: uv sync --frozen
+      - run: uv sync --locked
       - name: Verify PostgreSQL service connection
         run: |
           uv run --no-sync python - <<'PY'

@@ -530,3 +530,14 @@ opt-in fixture run attempted to assign a read-only Env property and failed;
 the fixture now requires matching isolated process configuration without changing
 that property. Failed receipts remain preserved. No canary image was deployed
 by this verification.
+
+
+Root package lock correction: the first PostgreSQL change updated shared and
+Graph locks but missed the independently owned root `uv.lock`. A fresh root
+`uv lock --check` reproduced that mismatch. The root lock now contains the
+Postgres adapter and its required checkpoint/pool dependencies, matching the
+already-tested Graph environment. Root, shared and Graph lock freshness checks
+and the production `document-retrieval` install dry run pass. Existing app and
+full Phoenix validation installs use `--locked` to reject stale metadata before
+installation; `--frozen` alone would trust an outdated lock. No validation job,
+runner or deployment environment was added.
