@@ -17,7 +17,7 @@ interface IBoardCardActionAttachedFileProps {
 
 const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCardActionAttachedFileProps) => {
     const { projectUID, card } = useBoardCard();
-    const [, i18n] = useTranslation();
+    const [t, i18n] = useTranslation();
     const [isUploading, setIsUploading] = useState(false);
     const [progress, setProgress] = useState(0);
     const [isError, setIsError] = useState(false);
@@ -46,7 +46,7 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
     return (
         <Flex gap="2" w="full" items="center" className="text-left text-sm">
             <Flex items="center" justify="center" inline w="12" h="9" textSize="xs" rounded="sm" className="bg-muted">
-                {attachedFile.file.name.split(".").at(-1)?.toUpperCase() ?? "FILE"}
+                {attachedFile.file.name.split(".").at(-1)?.toUpperCase() ?? t("editor.File")}
             </Flex>
             <Flex direction="col" w="full" className="max-w-[calc(100%_-_theme(spacing.24)_+_theme(spacing.2))]">
                 <Box className="truncate">{attachedFile.file.name}</Box>

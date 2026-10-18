@@ -88,5 +88,35 @@
     "line": 208,
     "kind": "jsx-text",
     "text": "Langboard"
+  },
+  {
+    "file": "src/pages/AccountPage/SecretHistoryPage.tsx",
+    "line": 111,
+    "kind": "jsx-expression",
+    "text": "v"
+  },
+  {
+    "file": "src/pages/AccountPage/SecretHistoryPage.tsx",
+    "line": 112,
+    "kind": "jsx-expression",
+    "text": "v → v"
+  },
+  {
+    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
+    "line": 255,
+    "kind": "jsx-expression",
+    "text": "GitHub · # ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
+    "line": 257,
+    "kind": "jsx-expression",
+    "text": "Dokploy ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
+    "line": 259,
+    "kind": "jsx-expression",
+    "text": "GlitchTip · ·"
   }
 ]
