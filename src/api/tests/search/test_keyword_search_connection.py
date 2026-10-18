@@ -38,6 +38,8 @@ from langboard_shared.domain.models import (
     CardMetadata,
     DocumentKeywordIndex,
     EmployeeMembershipPolicy,
+    KeywordSearchConfiguration,
+    KeywordSearchConnection,
     ProjectAssignedUser,
     ProjectColumn,
 )
@@ -380,6 +382,8 @@ def document_board(board, monkeypatch):
         CardDocumentArtifact,
         EmployeeMembershipPolicy,
         DocumentKeywordIndex,
+        KeywordSearchConfiguration,
+        KeywordSearchConnection,
     ):
         model.__table__.create(engine)
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
@@ -769,14 +773,17 @@ def test_keyword_migration_preserves_owned_rows_and_enforces_versions(board):
             source_generation="fixture-generation",
         )
         row = {column.name: getattr(job, column.name) for column in job.__table__.columns}
-        connection.execute(DocumentKeywordIndex.__table__.insert().values(**row))
+        row.pop("connection_id")
+        from sqlalchemy import MetaData, Table
+        historical = Table("document_keyword_index", MetaData(), autoload_with=connection)
+        connection.execute(historical.insert().values(**row))
         for values in ({"version": 0}, {"completed_version": 2}, {"operation": "unknown"}):
             with pytest.raises(IntegrityError):
                 with connection.begin_nested():
                     connection.execute(update(DocumentKeywordIndex).values(**values))
         with pytest.raises(RuntimeError, match="ownership"):
             migration.downgrade()
-        assert connection.execute(DocumentKeywordIndex.__table__.select()).first() is not None
+        assert connection.execute(historical.select()).first() is not None
         connection.execute(delete(DocumentKeywordIndex))
         migration.downgrade()
         assert "document_keyword_index" not in inspect(connection).get_table_names()
@@ -894,3 +901,55 @@ if __name__ == "__main__":
                 "--hostname=keyword-fixture@localhost",
             ]
         )
+
+
+def test_native_upload_manual_worker_and_original_cleanup_share_grant(document_board, secrets, monkeypatch):
+    """Real source/queue/vault flow with a controlled remote-send boundary."""
+    from types import SimpleNamespace
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.domain.services import KeywordSearchSettings as settings
+    from pydantic import SecretStr
+
+    secret_service, board, _ = secrets
+    actor = board[1]
+    with DbSession.use(readonly=False) as db:
+        actor.is_admin = True
+        db.update(actor)
+    reference = secret_service.create(actor, "instance", "instance", "keyword/native", SecretStr("original-key"))
+    host = SimpleNamespace(secret_reference=secret_service)
+    first = settings.save(actor, host, expected_revision=0, endpoint="https://first.example.invalid", index=INDEX,
+        secret_ref=reference["uri"], secret_revision=0, reads_enabled=False, indexing_enabled=True)
+    monkeypatch.setattr(DomainService, "secret_reference", property(lambda _: secret_service))
+    monkeypatch.setattr(keyword.Broker.celery, "send_task", Mock())
+    from langboard_shared.core.security import KeyVault
+    original_get = KeyVault.provider.get_key
+    vault_reads = []
+    def get_at_use(locator):
+        assert not DbSession.has_active_transaction()
+        vault_reads.append(locator)
+        return original_get(locator)
+    monkeypatch.setattr(KeyVault.provider, "get_key", get_at_use)
+    service, _, _, sources, _ = document_board
+    card, attachment = sources["Visible"]
+    assert service.docling_metadata.queue_document(CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={})
+    document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert service.docling_metadata.mark_document_indexed(CardMetadata, card, attachment.get_uid(), "pdf", content_hash="fixture-hash", content={"markdown": "Current derived text"}, generation=document["generation"])
+    job = keyword_job(document["keyword_index_job_uid"])
+    assert job.connection_id is not None and vault_reads == []
+    assert service.card_attachment.request_document_keyword_index(card.project_id, card, attachment, user=actor) == "pending"
+    assert vault_reads == []
+    requests = []
+    def controlled_send(job, payload):
+        config = settings.configuration(operation=job.operation, connection_id=job.connection_id)
+        options = settings.runtime_options(config, operation=job.operation)
+        requests.append((config["endpoint"], options["api_key"], payload["active"]))
+    monkeypatch.setattr(keyword, "_send", controlled_send)
+    assert keyword.process_keyword(int(job.id))
+    assert requests == [("https://first.example.invalid", "original-key", True)]
+    second_ref = secret_service.create(actor, "instance", "instance", "keyword/second", SecretStr("new-key"))
+    settings.save(actor, host, expected_revision=first["revision"], endpoint="https://second.example.invalid", index=INDEX,
+        secret_ref=second_ref["uri"], secret_revision=0, reads_enabled=False, indexing_enabled=True)
+    with DbSession.atomic() as db:
+        keyword.record_removal(db, card, attachment.get_uid())
+    assert keyword.process_keyword(int(job.id))
+    assert requests[-1] == ("https://first.example.invalid", "original-key", False)

@@ -7,11 +7,11 @@ from uuid import uuid4
 from sqlalchemy import update
 from ...core.broker import Broker
 from ...core.db import DbSession, SqlBuilder
-from ...core.search.ElasticsearchKeywordSearch import _connection_options, validated_destination
 from ...core.types import SafeDateTime
 from ...domain.models import Card, CardAttachment, CardMetadata, DocumentKeywordIndex, Project, ProjectColumn
 from ...domain.services import DomainService
-from ...Env import Env
+from ...domain.services.factory.SecretReferenceService import SecretReferenceUnavailable
+from ...domain.services.KeywordSearchSettings import configuration, index_configuration, runtime_options
 from ...helpers import InfraHelper
 
 
@@ -20,10 +20,8 @@ LEASE_SECONDS = 120
 
 
 def configured_destination() -> dict[str, str]:
-    return validated_destination(
-        Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT", ""),
-        Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX", ""),
-    )
+    config = index_configuration()
+    return {key: config[key] for key in ("endpoint", "index")}
 
 
 def fingerprint(destination: dict[str, str]) -> str:
@@ -32,7 +30,8 @@ def fingerprint(destination: dict[str, str]) -> str:
 
 def prepare_index(db, card: Card, attachment_uid: str, generation: str) -> str:
     """Capture an upload/request destination, waiting for that transcription only."""
-    destination = configured_destination()
+    config = index_configuration()
+    destination = {key: config[key] for key in ("endpoint", "index")}
     attachment_id = InfraHelper.convert_id(attachment_uid)
     current = db.exec(
         SqlBuilder.select.table(Card)
@@ -66,10 +65,12 @@ def prepare_index(db, card: Card, attachment_uid: str, generation: str) -> str:
             project_id=card.project_id,
             destination_fingerprint=destination_id,
             destination=destination,
+            connection_id=config["connection_id"],
             source_generation=generation,
         )
         db.insert(job)
     else:
+        job.connection_id = config["connection_id"]
         job.card_id = card.id
         job.project_id = card.project_id
         job.version += 1
@@ -234,19 +235,23 @@ def _payload(job: DocumentKeywordIndex) -> dict | None:
 
 
 def _send(job: DocumentKeywordIndex, payload: dict) -> None:
-    # Never send a current key to a retained, different endpoint or index.
-    destination = configured_destination()
+    config = (
+        configuration(operation=job.operation, connection_id=job.connection_id)
+        if job.connection_id
+        else {
+            **job.destination,
+            "legacy": True,
+            "connection_id": None,
+        }
+    )
+    if config is None:
+        raise ValueError("Original keyword connection is required")
+    destination = {key: config[key] for key in ("endpoint", "index")}
     if destination != job.destination or fingerprint(destination) != job.destination_fingerprint:
         raise ValueError("Original keyword connection is required")
+    options = runtime_options(config, operation=job.operation)
     from elasticsearch import ConflictError, Elasticsearch
 
-    options = _connection_options(
-        destination["endpoint"],
-        destination["index"],
-        Env.get_from_env("LANGBOARD_ELASTICSEARCH_API_KEY", ""),
-        Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS", ""),
-        float(Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT", "10")),
-    )
     with Elasticsearch(**options) as client:
         target = client.indices.resolve_index(name=destination["index"], expand_wildcards="none")
         if (
@@ -296,6 +301,9 @@ def process_keyword(job_id: int) -> bool:
         DocumentKeywordIndex.claim_token == token,
     )
     try:
+        attempt_configuration = (
+            configuration(operation=job.operation, connection_id=job.connection_id) if job.connection_id else None
+        )
         payload = _payload(job)
         if payload is not None and job.operation == "index" and payload["active"] is False:
             # A new version fences an earlier in-flight index write, including retries.
@@ -321,6 +329,24 @@ def process_keyword(job_id: int) -> bool:
             )
         return False
     with DbSession.atomic() as db:
+        if job.connection_id is not None:
+            try:
+                current_configuration = configuration(
+                    operation=job.operation, connection_id=job.connection_id, lock=True
+                )
+            except (ValueError, SecretReferenceUnavailable):
+                current_configuration = None
+            if current_configuration != attempt_configuration:
+                db.exec(
+                    update(DocumentKeywordIndex)
+                    .where(*fence)
+                    .values(
+                        due_at=SafeDateTime.now() + timedelta(seconds=1),
+                        claim_token=None,
+                        last_error="keyword_index_failed_check_original_connection",
+                    )
+                )
+                return False
         finished = bool(
             db.exec(
                 update(DocumentKeywordIndex)

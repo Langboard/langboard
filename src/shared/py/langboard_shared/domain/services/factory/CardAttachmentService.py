@@ -11,7 +11,6 @@ from ....core.domain import BaseDomainService
 from ....core.routing import SocketTopic
 from ....core.storage import FileModel
 from ....core.types.ParamTypes import TAttachmentParam, TCardParam, TProjectParam
-from ....Env import Env
 from ....helpers import InfraHelper
 from ....publishers import CardAttachmentPublisher
 from ....tasks.activities import CardAttachmentActivityTask
@@ -299,8 +298,8 @@ class CardAttachmentService(BaseDomainService):
         self, project: TProjectParam, card: TCardParam, attachment: TAttachmentParam, *, user: User | Bot
     ) -> str | None:
         """Queue the current complete transcription at the current keyword destination."""
-        from ....core.search.ElasticsearchKeywordSearch import _connection_options
-        from ....tasks.docling.DocumentKeywordTask import activate_index, configured_destination, prepare_index
+        from ....tasks.docling.DocumentKeywordTask import activate_index, prepare_index
+        from ..KeywordSearchSettings import index_configuration
 
         with DbSession.atomic() as db:
             current_project = db.exec(
@@ -347,19 +346,7 @@ class CardAttachmentService(BaseDomainService):
             ).first()
             if column is None or source is None:
                 return None
-            if Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false") != "true":
-                raise ValueError("Keyword indexing is unavailable")
-            try:
-                destination = configured_destination()
-                _connection_options(
-                    destination["endpoint"],
-                    destination["index"],
-                    Env.get_from_env("LANGBOARD_ELASTICSEARCH_API_KEY", ""),
-                    Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS", ""),
-                    float(Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT", "10")),
-                )
-            except (ValueError, TypeError):
-                raise ValueError("Keyword indexing is unavailable") from None
+            index_configuration()
             metadata = self._get_service(DoclingMetadataService)
             document = metadata.get_document_by_attachment_uid(CardMetadata, current_card, source.get_uid())
             if (

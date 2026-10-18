@@ -128,6 +128,8 @@ def keyword_http(board, monkeypatch):
         CardAppOwnership,
         DocumentKeywordIndex,
         EmployeeMembershipPolicy,
+        KeywordSearchConfiguration,
+        KeywordSearchConnection,
         ProjectRole,
         UserIdentityLink,
     )
@@ -141,6 +143,8 @@ def keyword_http(board, monkeypatch):
         CardAttachment,
         CardMetadata,
         DocumentKeywordIndex,
+        KeywordSearchConfiguration,
+        KeywordSearchConnection,
         EmployeeMembershipPolicy,
         CardAppOwnership,
         UserIdentityLink,

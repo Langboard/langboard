@@ -848,3 +848,49 @@ command. Worker source/deletion fences and destination policy remain authoritati
 The success notification means the keyword request was queued; worker completion
 and a real Elasticsearch search require separate verification. No settings or
 search read triggers this action automatically.
+
+### Native optional keyword provider settings
+
+An active instance administrator can configure **Settings → Keyword search**.
+PostgreSQL remains the mandatory search path. Optional Elasticsearch reads add
+bounded candidate matches which Langboard revalidates against current source and
+card permissions. Both native read and indexing switches default to off.
+
+Create an **instance** secret using the secure browser input, or select an existing
+instance SecretRef. Personal, board and workspace references cannot be promoted
+into this workload by entering their URI. Settings retain only a SecretRef, its
+approved revision and the HTTPS endpoint/concrete index. Credential values stay in
+the configured vault. The instance administrator's saved destination selection is
+the explicit grant for the native keyword workload. Background secret access is
+recorded as **Native keyword service**, with no human actor substituted.
+
+The administrator HTTP surface is `GET/PUT /settings/keyword-search`; updates must
+include the current `expected_revision`. A stale revision returns 409 and requires
+reloading settings. The settings response lists retained connections, instance
+secret metadata, pending cleanup and blocked indexing work. A persisted native row
+supersedes the legacy environment flags, including when both switches are off.
+With no native row, existing environment configuration remains the explicit legacy
+path. Existing legacy jobs retain their original destination and never acquire a
+native connection's key.
+
+Enabling indexing affects future attachment processing and explicit attachment
+reindex requests. It does not backfill files or trigger work from a search read.
+Switching or disabling a provider preserves existing projection ownership. Pending
+index work for a nonselected connection remains blocked; source deletion cleanup
+can still use its retained original active connection. Revoking a connection through
+`POST /settings/keyword-search/connections/{connection_uid}/revoke` immediately
+blocks new credential resolution and preserves queue evidence. After rotating a
+secret, save the settings again to approve its new revision before further use;
+old grants remain pinned to their approved revision. A request already sent to a
+remote server cannot be recalled. Version fences prevent late acknowledgements
+from completing superseded source work.
+
+`POST /settings/keyword-search/connections/{connection_uid}/preflight` runs the
+existing official-client connectivity/privilege checks without writing documents.
+An unavailable optional client is reported as `keyword_search_extra_required`.
+A passing check does not establish deployed indexing, authenticated end-to-end
+search or tenant isolation. The concrete index must be provisioned separately;
+index naming and namespaces are not isolation boundaries. Retain original active
+connections until their source deletion cleanup has completed. Migration downgrade
+refuses to discard populated native grants, instance secret scope or workload audit
+history.

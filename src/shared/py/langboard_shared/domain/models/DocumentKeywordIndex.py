@@ -12,6 +12,7 @@ class DocumentKeywordIndex(BaseDbModel, table=True):
     project_id: SnowflakeID = SnowflakeIDField(nullable=False)
     destination_fingerprint: str = Field(nullable=False, unique_groups=("destination",))
     destination: dict[str, str] = Field(sa_type=JSON, nullable=False, exclude=True)
+    connection_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
     source_generation: str = Field(nullable=False)
     version: int = Field(default=1, sa_type=BigInteger, nullable=False)
     completed_version: int = Field(default=0, sa_type=BigInteger, nullable=False)

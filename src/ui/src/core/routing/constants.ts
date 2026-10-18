@@ -87,6 +87,7 @@ export const ROUTES = {
         WEBHOOKS: "/settings/webhooks",
         CREATE_WEBHOOK: "/settings/webhooks/create",
         NOTIFICATION_SCHEDULE: "/settings/notification-schedule",
+        KEYWORD_SEARCH: "/settings/keyword-search",
         OLLAMA: "/settings/ollama",
         PULL_OLLAMA: "/settings/ollama/pull",
         MCP_TOOL_GROUPS: "/settings/mcp",

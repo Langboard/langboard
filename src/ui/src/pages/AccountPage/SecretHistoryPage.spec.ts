@@ -402,3 +402,29 @@ test("native Yjs peers normalize initial links and persist caption-free remote u
         await expect(result).not.toContainText(caption);
     }
 });
+
+test("workload audit shows native service without a fabricated user", async ({ page }) => {
+    await page.route("**/secret-references/fixture/history*", (route) =>
+        route.fulfill({
+            json: {
+                items: [
+                    {
+                        uid: "service-event",
+                        created_at: "2026-10-19T00:00:00Z",
+                        actor_uid: null,
+                        actor_kind: "workload",
+                        principal_id: "document_keyword",
+                        action: "resolved",
+                        revision_before: 1,
+                        revision_after: 1,
+                        source_kind: "runtime",
+                    },
+                ],
+                next_cursor: null,
+            },
+        })
+    );
+    await page.goto("/src/pages/AccountPage/secret-history.fixture.html");
+    await expect(page.getByText("Native keyword service", { exact: false })).toBeVisible();
+    await expect(page.locator("li")).not.toContainText("null");
+});

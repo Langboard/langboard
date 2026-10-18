@@ -287,7 +287,7 @@ SecretReference.__table__.append_constraint(
 )
 
 SecretReference.__table__.append_constraint(
-    CheckConstraint("scope IN ('personal','project','workspace')", name=conv("ck_secret_reference_scope"))
+    CheckConstraint("scope IN ('personal','project','workspace','instance') AND (scope != 'instance' OR scope_id = 0)", name=conv("ck_secret_reference_scope"))
 )
 
 SecretReference.__table__.append_constraint(

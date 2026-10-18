@@ -58,6 +58,7 @@ from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
 from .DocumentKeywordIndex import DocumentKeywordIndex
+from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
 from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
 from .DokployWebhookBinding import DokployWebhookBinding
@@ -186,6 +187,8 @@ __all__ = [
     'CardMetadata',
     'DocumentVectorCleanup',
     'DocumentKeywordIndex',
+    'KeywordSearchConfiguration',
+    'KeywordSearchConnection',
     'CardRelationship',
     'CardVerificationRecord',
     'CardVisibilityChange',

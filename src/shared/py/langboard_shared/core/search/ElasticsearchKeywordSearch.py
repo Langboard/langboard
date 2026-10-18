@@ -147,26 +147,19 @@ def check_elasticsearch_connection(
 
 def search_document_candidates(project_uid: str, query: str) -> list[dict[str, str]] | None:
     """Optional, bounded supplemental candidates. Never trust their text or authority."""
-    from ...Env import Env
+    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
 
-    if Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false") != "true":
-        return None
     if not query.strip() or len(query) > 1000:
         return []
+    config = None
     try:
+        config = configuration(operation="read")
+        if config is None:
+            return None
         from elasticsearch import Elasticsearch
 
-        timeout = float(Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_TIMEOUT", "1"))
-        if not 1 <= timeout <= 2:
-            return []
-        index = Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX", "")
-        options = _connection_options(
-            Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT", ""),
-            index,
-            Env.get_from_env("LANGBOARD_ELASTICSEARCH_API_KEY", ""),
-            Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS", ""),
-            timeout,
-        )
+        index = config["index"]
+        options = runtime_options(config, operation="read")
         with Elasticsearch(**options) as client:
             response = client.search(
                 index=index,
@@ -186,7 +179,7 @@ def search_document_candidates(project_uid: str, query: str) -> list[dict[str, s
     except Exception:
         # Optional provider failures must not remove PostgreSQL search coverage.
         # Client exceptions can contain the key, request or document text.
-        return []
+        return [] if config is not None else None
     if not isinstance(body, dict) or body.get("timed_out") is not False:
         return []
     shards = body.get("_shards")

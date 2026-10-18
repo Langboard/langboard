@@ -98,17 +98,17 @@ class DoclingMetadataService(BaseDomainService):
                 "embedding_config": embedding_config,
             }
             document.pop("keyword_index_error", None)
-            if (
-                model_cls is CardMetadata
-                and Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false") == "true"
-            ):
+            from ..KeywordSearchSettings import enabled as keyword_enabled
+
+            if model_cls is CardMetadata and keyword_enabled("index"):
                 from ....tasks.docling.DocumentKeywordTask import prepare_index
+                from .SecretReferenceService import SecretReferenceUnavailable
 
                 try:
                     document["keyword_index_job_uid"] = prepare_index(
                         db, foreign_model, attachment_uid, document["generation"]
                     )
-                except ValueError:
+                except (ValueError, SecretReferenceUnavailable):
                     document["keyword_index_error"] = "keyword_connection_unavailable"
             self.upsert_document(model_cls, foreign_model, document)
             return True

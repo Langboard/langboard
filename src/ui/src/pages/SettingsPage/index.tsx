@@ -32,6 +32,7 @@ const WebhooksPage = lazy(() => import("./WebhooksPage"));
 const NotificationSchedulePage = lazy(() => import("./NotificationSchedulePage"));
 const UsersPage = lazy(() => import("./UsersPage"));
 const ApiKeysPage = lazy(() => import("./ApiKeysPage"));
+const KeywordSearchPage = lazy(() => import("./KeywordSearchPage"));
 const OllamaPage = lazy(() => import("./OllamaPage"));
 const McpServerPage = lazy(() => import("./McpServerPage"));
 const WorkflowStagesPage = lazy(() => import("./WorkflowStagesPage"));
@@ -152,6 +153,12 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     const { hasRoleAction: hasMcpRoleAction } = useRoleActionFilter(mcpRoleActions);
 
     const settingsNavs: Record<string, IActivityRailItem> = {
+        [ROUTES.SETTINGS.KEYWORD_SEARCH]: {
+            icon: "search",
+            label: t("settings.keywordSearch.title"),
+            onClick: () => navigate(ROUTES.SETTINGS.KEYWORD_SEARCH),
+            hidden: !currentUser.is_admin,
+        },
         [ROUTES.SETTINGS.APP_PACKAGES]: {
             icon: "package",
             label: t("appStore.Manage installation"),
@@ -288,7 +295,11 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             ],
         },
         { label: "People and notifications", icon: "users", paths: [ROUTES.SETTINGS.USERS, ROUTES.SETTINGS.NOTIFICATION_SCHEDULE] },
-        { label: "AI and automation", icon: "bot", paths: [ROUTES.SETTINGS.INTERNAL_BOTS, ROUTES.SETTINGS.BOTS, ROUTES.SETTINGS.OLLAMA] },
+        {
+            label: "AI and automation",
+            icon: "bot",
+            paths: [ROUTES.SETTINGS.INTERNAL_BOTS, ROUTES.SETTINGS.BOTS, ROUTES.SETTINGS.OLLAMA, ROUTES.SETTINGS.KEYWORD_SEARCH],
+        },
         {
             label: "Apps and integrations",
             icon: "app-window",
@@ -353,6 +364,9 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             break;
         case ROUTES.SETTINGS.MCP_TOOL_GROUPS:
             pageContent = <McpServerPage />;
+            break;
+        case ROUTES.SETTINGS.KEYWORD_SEARCH:
+            pageContent = currentUser.is_admin ? <KeywordSearchPage /> : null;
             break;
         case ROUTES.SETTINGS.OLLAMA:
             pageContent = IS_OLLAMA_RUNNING && isOllamaAvailable ? <OllamaPage /> : null;
