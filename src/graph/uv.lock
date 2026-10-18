@@ -918,6 +918,7 @@ requires-dist = [
     { name = "cryptocode", specifier = ">=0.1" },
     { name = "docling-core", extras = ["chunking-openai"], marker = "extra == 'document-retrieval'", specifier = "==2.99.0" },
     { name = "docling-slim", extras = ["convert-core", "format-pdf", "format-office", "format-web"], marker = "extra == 'document-processing'", specifier = "==2.133.0" },
+    { name = "elasticsearch", marker = "extra == 'keyword-search'", specifier = "==9.5.1" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.121.0" },
     { name = "genson", specifier = ">=1.3.0" },
@@ -952,7 +953,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'document-retrieval'", specifier = ">=4.42,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["document-retrieval", "document-processing", "aws", "azure-vault"]
+provides-extras = ["keyword-search", "document-retrieval", "document-processing", "aws", "azure-vault"]
 
 [package.metadata.requires-dev]
 dev = [

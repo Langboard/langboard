@@ -38,6 +38,7 @@ dependencies = [
 
 
 [project.optional-dependencies]
+keyword-search = ["elasticsearch==9.5.1"]
 document-retrieval = [
     "docling-core[chunking-openai]==2.99.0",
     "transformers>=4.42,<6",

@@ -723,6 +723,36 @@ wheels = [
 ]
 
 [[package]]
+name = "elastic-transport"
+version = "9.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "sniffio" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/be/a719a217ed7f179c9e41821dff9dfd28415b21bc94da9d35fff84f7951b2/elastic_transport-9.4.2.tar.gz", hash = "sha256:366f4614f4544c5fb5d780c82f57af8f30492b44a68ed20750390aa81e20c2ea", size = 79310, upload-time = "2026-06-16T15:27:17.182Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/e4/9b7ef7a8e0bb416e0fe1879c92295041cf81e5a47e3c3110744e89b6eb35/elastic_transport-9.4.2-py3-none-any.whl", hash = "sha256:33dc89bb1855faa8b98ae8b036405a39c562778dbcdbe4a00a2eaf753148556c", size = 66314, upload-time = "2026-06-16T15:27:15.875Z" },
+]
+
+[[package]]
+name = "elasticsearch"
+version = "9.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "elastic-transport" },
+    { name = "python-dateutil" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/aa/b7/87bce7be89c822a63608e3c946a80d99fce1066ce9e9691bcb6b8ef57631/elasticsearch-9.5.1.tar.gz", hash = "sha256:98210cd96c256dd9936f58e1c762aba94da7db7d38d058bb0fbaf7e4b9567146", size = 930439, upload-time = "2026-09-09T20:17:03.842Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/78/6e/047d517a64249abd0a1b5b8c9f8244e3bf48c6916d5a68e9c76c52fc266d/elasticsearch-9.5.1-py3-none-any.whl", hash = "sha256:a980d8888ae70c03f0a1db6b2c5e3e39bf4e235abea737f522d2fd1d2d20bb99", size = 1018374, upload-time = "2026-09-09T20:17:00.18Z" },
+]
+
+[[package]]
 name = "email-validator"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1462,6 +1492,9 @@ document-processing = [
 document-retrieval = [
     { name = "langboard-shared", extra = ["document-retrieval"] },
 ]
+keyword-search = [
+    { name = "langboard-shared", extra = ["keyword-search"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1491,6 +1524,7 @@ requires-dist = [
     { name = "langboard-shared", extras = ["azure-vault"], marker = "extra == 'azure-vault'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["document-processing"], marker = "extra == 'document-processing'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["document-retrieval"], marker = "extra == 'document-retrieval'", editable = "src/shared/py" },
+    { name = "langboard-shared", extras = ["keyword-search"], marker = "extra == 'keyword-search'", editable = "src/shared/py" },
     { name = "orjson", specifier = ">=3.11.0" },
     { name = "psutil", specifier = ">=7.1.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.12" },
@@ -1506,7 +1540,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.41,<2.0.50" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval"]
+provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval", "keyword-search"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1585,6 +1619,9 @@ document-retrieval = [
     { name = "tiktoken" },
     { name = "transformers" },
 ]
+keyword-search = [
+    { name = "elasticsearch" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1600,6 +1637,7 @@ requires-dist = [
     { name = "cryptocode", specifier = ">=0.1" },
     { name = "docling-core", extras = ["chunking-openai"], marker = "extra == 'document-retrieval'", specifier = "==2.99.0" },
     { name = "docling-slim", extras = ["convert-core", "format-pdf", "format-office", "format-web"], marker = "extra == 'document-processing'", specifier = "==2.133.0" },
+    { name = "elasticsearch", marker = "extra == 'keyword-search'", specifier = "==9.5.1" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.121.0" },
     { name = "genson", specifier = ">=1.3.0" },
@@ -1634,7 +1672,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'document-retrieval'", specifier = ">=4.42,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["document-retrieval", "document-processing", "aws", "azure-vault"]
+provides-extras = ["keyword-search", "document-retrieval", "document-processing", "aws", "azure-vault"]
 
 [package.metadata.requires-dev]
 dev = [

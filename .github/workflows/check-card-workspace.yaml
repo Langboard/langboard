@@ -11,6 +11,11 @@ on:
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
       - src/api/tests/core/test_snowflake_storage_safety.py
+      - src/api/langboard/commands/CheckKeywordSearchCommand.py
+      - src/api/tests/search/test_keyword_search_connection.py
+      - pyproject.toml
+      - src/shared/py/pyproject.toml
+      - uv.lock
       - src/shared/py/langboard_shared/core/types/SnowflakeID.py
       - src/shared/py/langboard_shared/core/db/DbSession.py
       - src/api/tests/mcp_integration/test_card_mcp_contract.py
@@ -66,7 +71,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --frozen
+      - run: uv sync --locked --extra keyword-search
       - run: uv run --no-sync ruff check src/api/langboard/routes/mcp/McpApi.py src/api/langboard/card_workspace src/api/langboard/mcp_tools/CardMcp.py src/api/langboard/routes/board/BoardCardApi.py src/api/tests/card_workspace src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/shared/py/langboard_shared/domain/services/factory/CardService.py src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
       - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardContentBlockService_batch_test.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService_batch_test.py src/api/tests/card_workspace/test_commands.py src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_completion_checklist_service.py src/api/tests/card_workspace/test_graph_patch_route.py src/api/tests/card_workspace/test_card_relationship_concurrency.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_native_adapter.py src/api/tests/workflow_stages/test_work_queries.py
@@ -76,3 +81,4 @@ jobs:
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_recent_card_availability.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py
 
       - run: uv run --no-sync pytest -q src/api/tests/core/test_snowflake_storage_safety.py src/api/tests/project_labels/test_builtin_global_labels.py
+      - run: uv run --no-sync pytest -q src/api/tests/search/test_keyword_search_connection.py

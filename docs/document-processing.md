@@ -544,8 +544,10 @@ runner or deployment environment was added.
 
 ## Optional Elasticsearch keyword search: implementation boundary
 
-Elasticsearch is not implemented or selectable in this source. PostgreSQL remains
-the keyword-search owner, including transcribed attachment text without embeddings.
+Elasticsearch-backed application search is not implemented or selectable in this
+source. PostgreSQL remains the keyword-search owner, including transcribed
+attachment text without embeddings. The operator connection preflight below is
+available independently.
 Do not expose a working-looking settings option backed only by an unused client
 module, or redirect a deployment to another application's cluster/index.
 
@@ -589,3 +591,53 @@ not substitute for that acceptance.
 Official references: [client connections](https://www.elastic.co/docs/reference/elasticsearch/clients/python/connecting),
 [TLS/timeouts](https://www.elastic.co/docs/reference/elasticsearch/clients/python/configuration),
 [bounded bulk helpers](https://elasticsearch-py.readthedocs.io/en/stable/api_helpers.html).
+
+### Read-only operator connection preflight
+
+Install the optional client explicitly with `uv sync --locked --extra keyword-search`.
+The default API/Graph imports and installation do not require Elasticsearch.
+The official client is pinned to 9.5.1; it uses Elasticsearch 9 compatibility.
+This command is not a way to repurpose an existing Elasticsearch 7 cluster.
+
+Have the deployment's existing secret delivery resolve its API-key SecretRef into
+`LANGBOARD_ELASTICSEARCH_API_KEY`, then run:
+
+```sh
+langboard search:check \
+  --endpoint https://search.example.invalid:9200 \
+  --index langboard-instance-keywords-v1 \
+  --ca-certs /run/secrets/search-ca.pem \
+  --timeout 5 \
+  --require-write
+```
+
+The key is never a command-line argument. `--api-key-env` can name another injected
+environment variable. No key is persisted by the command. HTTPS certificate
+verification stays enabled; absent `--ca-certs`, the official client's trust
+defaults apply. The timeout is per request, 1..30 seconds, with automatic retries
+disabled. Credentials in URLs, wildcard/multiple/system-index names, aliases and
+data streams are rejected.
+
+The command checks current `read`/`view_index_metadata` privileges, resolves exactly
+one concrete index and performs a `size=0`, `match_none`, no-source search. Optional
+`--require-write` checks `index`/`delete` privileges without writing. It does not
+create an index, inspect document contents, change configuration or trigger any
+indexing. Cluster-wide `monitor` is not required: when absent, the result explicitly
+reports `version_verified=false`/`server_version=null`; it must not be interpreted
+as verified server-version inventory. When already allowed, the version is read
+and must match the installed client's major version.
+
+The JSON receipt has a nonzero exit status for failures and fixed codes separating
+configuration, missing optional dependencies, authentication, permissions, TLS,
+timeouts, missing endpoints/indices, incompatible servers and incomplete search.
+It excludes API keys, remote error bodies and document contents. A successful
+connection check does not prove index ownership/isolation, write delivery,
+application search, ACL enforcement or deletion/recovery acceptance.
+
+Local tests exercise real official-client HTTPS against a controlled protocol
+fixture: trusted/untrusted CA, hostname mismatch, malformed CA, authentication,
+permission and version failures, timeout without retries, concrete-index selection,
+zero-document reads, secret-free results, native Commander parsing and a fresh
+process with the optional imports blocked. They are not a running Elasticsearch
+cluster or a deployed remote-service E2E. The existing card-workspace job installs
+the optional extra and runs these checks; no new job or runner is introduced.
