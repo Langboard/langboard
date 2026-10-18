@@ -1,5 +1,48 @@
 # Dashboard related-activity projection
 
+## Rejected board-body projection experiment, 2026-10-19
+
+The board reader still hydrates `Card.description` to derive `has_description`
+and the implicit completion-checkbox state, even though board responses omit the
+body. A candidate deferred this field with SQLAlchemy `raiseload`, computed only
+its presence in the same scoped SQL statement and passed that bit through the
+existing serializer. It preserved Python `str.strip()` whitespace semantics and
+left detail bodies unchanged. SQLite/PostgreSQL visibility, archive, cursor and
+creator regressions passed 30 cases before measuring it.
+
+Measurements rejected the candidate. On disposable PostgreSQL 16 with one CPU,
+seven warm alternating executions per implementation and generated multilingual
+bodies gave these median repository durations:
+
+| Cards | Committed reader | JSONB presence projection | Body bytes hydrated by committed reader |
+| --- | ---: | ---: | ---: |
+| 10 | 10.412 ms | 13.075 ms | 975,000 UTF-8 bytes |
+| 100 | 102.220 ms | 108.353 ms | 9,975,000 UTF-8 bytes |
+
+A second candidate removed JSONB conversion and used native JSON extraction:
+
+| Cards | Committed reader in that run | JSON presence projection |
+| --- | ---: | ---: |
+| 10 | 10.717 ms | 12.229 ms |
+| 100 | 98.099 ms | 103.475 ms |
+
+Both candidates hydrated zero body bytes in Python and returned the same card
+IDs/comment counts, but neither reduced the measured repository duration. The
+stored model uses a JSON-encoded string containing the editor object; deriving
+the exact bit requires decoding both layers in SQL. Moving work into PostgreSQL
+did not improve this fixture. Removing transfer alone is insufficient evidence
+for this change, particularly while current server processing dominates observed
+canary latency.
+
+The candidate production/test changes were removed before commit. Do not count
+them as a shipped optimization or introduce a denormalized field/migration merely
+to rescue this experiment. These generated large-body measurements are not HTTP
+timings, network byte counts, production profiles or percentiles. Runtime phase,
+query and pool measurements on the new canary remain the next acceptance step.
+The private rejected patch, runnable measurement fixture and both logs are retained
+under `.verification/board-body-*20261019*`; no customer content was used. The
+isolated schemas were empty before removing only this experiment's test container.
+
 ## Authenticated canary recheck, 2026-10-18
 
 Two sequential large-board requests returned HTTP 200. Browser CDP response
