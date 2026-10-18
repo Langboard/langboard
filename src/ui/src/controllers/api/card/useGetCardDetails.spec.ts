@@ -23,3 +23,41 @@ test("card detail hydrates items once and preserves notifications, edges, timer 
     expect(refreshed.lists.map((list: { items: { uid: string }[] }) => list.items.map((item) => item.uid))).toEqual([["first"], [], []]);
     expect(refreshed.lists[0].items[0].title).toBe("Changed");
 });
+
+test("partial detail hydration retains omitted body, attachments and checklist edges", async ({ page }) => {
+    await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1");
+    const summary = page.getByTestId("summary");
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(1);
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(2);
+    let value = JSON.parse((await summary.textContent())!);
+    expect(value.retainedDescription).toBe("Body:account-a:detail-card");
+    expect(value.retainedAttachments).toEqual(["attachment-detail-card"]);
+    expect(value.retainedChecklistItems).toEqual(["second", "first"]);
+    await page.getByRole("button", { name: "Receipts", exact: true }).click();
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(3);
+    value = JSON.parse((await summary.textContent())!);
+    expect(value.retainedDescription).toBe("Body:account-a:detail-card");
+    expect(value.retainedAttachments).toEqual(["attachment-detail-card"]);
+    expect(value.retainedChecklistItems).toEqual(["second", "first"]);
+    expect(value.calls.map((call: { sections: string }) => call.sections)).toEqual(["checklists", "attachments,description", "execution_receipts"]);
+});
+
+for (const destination of ["card", "account"])
+    test(`superseded ${destination} responses abort before hydrating shared models`, async ({ page }) => {
+        await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1");
+        const summary = page.getByTestId("summary");
+        await expect(summary).toContainText("account-a:detail-card");
+        await page.getByRole("button", { name: "Deferred refresh", exact: true }).click();
+        await page.getByRole("button", { name: destination === "card" ? "Switch card" : "Switch account", exact: true }).click();
+        await expect(summary).toContainText(destination === "card" ? "account-a:other-card" : "account-b:detail-card");
+        const before = JSON.parse((await summary.textContent())!);
+        expect(before.calls[1].aborted).toBe(true);
+        const counts = [before.conversions, before.creations, before.connected];
+        await page.getByRole("button", { name: "Release", exact: true }).click();
+        // Read counters directly: cancelled queries must not mutate models without a React render.
+        await expect
+            .poll(() => page.evaluate(() => (window as unknown as { detailFixtureCounts: () => number[] }).detailFixtureCounts()))
+            .toEqual(counts);
+        await expect(summary).toContainText(destination === "card" ? "account-a:other-card" : "account-b:detail-card");
+    });

@@ -541,6 +541,8 @@ for (const width of [1440, 390]) {
         await page.goto("/src/components/Layout/column-history.fixture.html");
         const entry = page.locator("nav time");
         await expect(entry).toHaveText("Review queue");
+        await entry.focus();
+        await expect(page.getByRole("tooltip")).toBeVisible();
         for (const language of ["ko-KR", "en-US", "ja-JP", "zh-CN"]) {
             const exact = await page.evaluate(
                 async ({ language, createdAt }) => {
@@ -552,10 +554,10 @@ for (const width of [1440, 390]) {
                 { language, createdAt }
             );
             await expect(entry).toHaveAttribute("aria-label", `Review queue · ${exact} · History Worker`);
-            await entry.focus();
             await expect(page.getByRole("tooltip")).toContainText(exact);
-            await entry.press("Escape");
         }
+        await entry.press("Escape");
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
         expect(requests).toBe(1);
     });
 }
@@ -995,3 +997,305 @@ for (const width of [1440, 390]) {
         });
     }
 }
+
+const lensCard = (uid = "fixture-card") => ({
+    uid,
+    project_uid: "fixture",
+    project_column_uid: "column",
+    title: uid === "fixture-card" ? "Lens card" : "Other lens card",
+    order: 0,
+    created_at: "2026-10-18T00:00:00Z",
+    updated_at: "2026-10-18T00:00:00Z",
+    source_type: "task",
+    visibility: "SHARED",
+    project_column_name: "Doing",
+    member_uids: [],
+    project_members: [],
+    labels: [],
+    relationships: [],
+    current_auth_role_actions: ["read"],
+    count_comment: 0,
+    can_delete: false,
+    can_change_visibility: false,
+    is_check_card: false,
+    completed: false,
+    work_state: {
+        version: 1,
+        workflow_stage: "active",
+        verification_state: "stale",
+        verification_source_change_seq: 8,
+        verification: {
+            uid: "verification",
+            source_change_seq: 7,
+            decision: "partial",
+            recorded_at: "2026-10-18T00:00:00Z",
+            recorded_by_user_uid: null,
+            recorded_by_bot_uid: null,
+            evidence: [{ reference: "source-test.log", source_revision: "abc123", environment: "local-only", checkitem_uid: "acceptance" }],
+            required_checkitem_uids: ["acceptance", "missing"],
+        },
+        execution_generation: 7,
+        execution_state: null,
+        blocker_state: null,
+        material_kind: "work",
+        lifecycle: "active",
+        active_queue_eligible: null,
+        checklist_progress: { total: 2, completed: 1 },
+        reasons: [{ code: "verification_stale", message: "Raw private reason must not be shown", source_ref: "secret" }],
+        state_inconsistency: [],
+    },
+});
+
+for (const width of [1440, 320, 390]) {
+    for (const [lang, labels] of Object.entries({
+        "en-US": ["Execution", "Review", "History", "Unknown", "Stale"],
+        "ko-KR": ["실행", "검토", "기록", "알 수 없음", "오래됨"],
+        "ja-JP": ["実行", "レビュー", "履歴", "不明", "古い検証"],
+        "zh-CN": ["执行", "审核", "历史", "未知", "已过期"],
+    })) {
+        test(`native card lenses lazily read sections and support keyboard at ${width}px ${lang}`, async ({ page }) => {
+            const errors: string[] = [];
+            page.on("pageerror", (error) => errors.push(error.message));
+            await page.setViewportSize({ width, height: 844 });
+            const requests: string[][] = [];
+            const extra: string[] = [];
+            await page.route(/\/board\/fixture\/card\/[^/?]+\?sections=/, async (route) => {
+                const sections = new URL(route.request().url()).searchParams.get("sections")!.split(",");
+                requests.push(sections);
+                const result: Record<string, unknown> = { card: lensCard(), whispers_allowed: false };
+                for (const section of sections) if (section !== "description") result[section] = [];
+                if (sections.includes("execution_receipts"))
+                    result.execution_receipts = [6, 7].map((generation) => ({
+                        generation,
+                        created_at: "2026-10-18T00:00:00Z",
+                        checklist_projection: [],
+                        receipt: { status: "completed", summary: `Generation ${generation} evidence`, artifacts: [], checklist_evidence: [] },
+                    }));
+                if (sections.includes("description"))
+                    (result.card as Record<string, unknown>).description = { content: "History description", type: "text" };
+                await route.fulfill({ json: result });
+            });
+            await page.route("**/board/fixture/card/*/apps/**", (route) => {
+                extra.push(route.request().url());
+                return route.fulfill({ json: { items: [], executions: [], next_cursor: null } });
+            });
+            await page.route("**/board/fixture/card/*/seen", (route) => route.fulfill({ json: { card_uid: "fixture-card", seen_change_seq: 0 } }));
+            await page.route(/^http:\/\/localhost:5381\/activity\//, (route) => route.fulfill({ json: { records: [], next_cursor: null } }));
+            await page.goto(`/src/components/Layout/workbench-shell.fixture.html?lenses=1&lang=${lang}`);
+            await expect.poll(() => requests.length, { timeout: 20000 }).toBeGreaterThan(0);
+            const tabs = page.getByRole("tablist");
+            await expect(tabs.getByRole("tab", { name: labels[0], exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20000 });
+            await expect(page.getByRole("tabpanel")).toContainText(labels[3]);
+            expect(requests).toHaveLength(1);
+            expect(requests[0]).not.toContain("description");
+            expect(requests[0]).not.toContain("attachments");
+            expect(extra).toHaveLength(0);
+            await expect(page.getByRole("tabpanel")).toContainText("Generation 7 evidence");
+            await expect(page.getByRole("tabpanel")).not.toContainText("Generation 6 evidence");
+            if (lang === "en-US") {
+                await page.waitForTimeout(400);
+                await page.screenshot({ path: `../../.verification/workbench-lenses-20261019/controlled-${width}-execution.png` });
+            }
+            await expect(page.getByText("Raw private reason must not be shown")).toHaveCount(0);
+            await tabs.getByRole("tab", { name: labels[0], exact: true }).focus();
+            await page.keyboard.press("ArrowRight");
+            await expect(tabs.getByRole("tab", { name: labels[1], exact: true })).toBeFocused();
+            await expect(page.getByRole("tabpanel")).toContainText(labels[4]);
+            await expect(page.getByRole("tabpanel")).toContainText("abc123");
+            await expect(page.getByRole("tabpanel")).toContainText("local-only");
+            if (lang === "en-US") {
+                await page.waitForTimeout(400);
+                await page.screenshot({ path: `../../.verification/workbench-lenses-20261019/controlled-${width}-review.png` });
+            }
+            await page.keyboard.press("End");
+            await expect(tabs.getByRole("tab", { name: labels[2], exact: true })).toHaveAttribute("aria-selected", "true");
+            await expect.poll(() => requests.some((sections) => sections.includes("description"))).toBe(true);
+            await expect(page.getByRole("tabpanel")).toContainText("History description");
+            await expect(page.getByRole("tabpanel")).toContainText("Generation 6 evidence");
+            if (lang === "en-US") {
+                await page.waitForTimeout(400);
+                await page.screenshot({ path: `../../.verification/workbench-lenses-20261019/controlled-${width}-history.png` });
+            }
+            const identity = await page.locator("[data-card-surface]").getAttribute("data-card-privacy");
+            await tabs.getByRole("tab", { name: labels[0], exact: true }).click();
+            await expect(tabs.getByRole("tab", { name: labels[0], exact: true })).toHaveAttribute("aria-selected", "true");
+            expect(await page.locator("[data-card-surface]").getAttribute("data-card-privacy")).toBe(identity);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await expect(page.locator("iframe")).toHaveCount(0);
+            expect(errors).toEqual([]);
+        });
+    }
+}
+
+async function prepareDelayedLens(page: Page, { editable = false, unread = false, failSave = false, unknown = false, deadline = false } = {}) {
+    const reads: string[] = [];
+    const writes: unknown[] = [];
+    let releaseHistory: (() => void) | undefined;
+    let delayed = true;
+    let historyReleased = false;
+    await page.route("http://localhost:5381/**", async (route) => {
+        const url = new URL(route.request().url());
+        const path = url.pathname;
+        reads.push(path);
+        if (/\/card\/[^/]+$/.test(path) && route.request().method() === "GET") {
+            const sections = url.searchParams.get("sections")!.split(",");
+            if (sections.includes("description") && delayed) {
+                delayed = false;
+                if (!historyReleased)
+                    await new Promise<void>((resolve) => {
+                        releaseHistory = resolve;
+                    });
+            }
+            const uid = path.split("/").at(-1)!;
+            const card = {
+                ...lensCard(uid),
+                work_state: unknown ? undefined : lensCard(uid).work_state,
+                deadline_at: deadline ? "2030-06-15T12:00:00Z" : null,
+                current_auth_role_actions: editable ? ["*"] : ["read"],
+                count_comment: 2,
+                last_change_seq: 13,
+                has_unread_change: unread,
+                last_change_target_type: "description",
+                last_change_target_uid: null,
+            };
+            const data: Record<string, unknown> = { card, whispers_allowed: false };
+            for (const section of sections) if (section !== "description") data[section] = [];
+            if (sections.includes("description")) (data.card as Record<string, unknown>).description = { content: "Delayed history description" };
+            await route.fulfill({ json: data }).catch(() => {});
+        } else if (path.endsWith("/seen")) {
+            await route.fulfill({ json: { card_uid: "fixture-card", seen_change_seq: 13 } });
+        } else if (path.endsWith("/details") && route.request().method() === "PUT") {
+            writes.push(route.request().postDataJSON());
+            await route.fulfill({ status: failSave ? 500 : 200, json: {} });
+        } else if (path.endsWith("/comments")) {
+            await route.fulfill({ json: { comments: [] } });
+        } else await route.fulfill({ json: { items: [], records: [], next_cursor: null } });
+    });
+    return {
+        reads,
+        writes,
+        release: () => {
+            historyReleased = true;
+            releaseHistory?.();
+        },
+    };
+}
+
+for (const width of [1440, 390])
+    test(`comment controls and delayed outline navigation remain usable at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        const fixture = await prepareDelayedLens(page);
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+        await expect(page.getByRole("tab", { name: "Execution", exact: true })).toHaveAttribute("aria-selected", "true");
+        expect(fixture.reads.filter((path) => path.endsWith("/comments"))).toEqual([]);
+        await page.getByRole("button", { name: "Comments", exact: true }).click();
+        await expect(page.getByRole("tab", { name: "History", exact: true })).toHaveAttribute("aria-selected", "true");
+        if (width === 1440) await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBe(1);
+        await page.evaluate(() =>
+            window.dispatchEvent(
+                new CustomEvent("langboard:open-card-outline-section", { detail: { cardUID: "fixture-card", section: "description" } })
+            )
+        );
+        fixture.release();
+        await expect(page.locator("[data-card-outline-section=description]")).toContainText("Delayed history description");
+        await expect(page.locator("[data-card-outline-section=description]")).toBeFocused();
+        await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBeGreaterThanOrEqual(1);
+        if (width === 1440) await expect(page.getByRole("separator", { name: "Comments panel width" })).toBeVisible();
+    });
+
+test("unread navigation waits for its history section and preserves native highlighting", async ({ page }) => {
+    const fixture = await prepareDelayedLens(page, { unread: true });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await expect(page.getByRole("tab", { name: "History", exact: true })).toHaveAttribute("aria-selected", "true");
+    fixture.release();
+    await expect(page.locator("[data-card-outline-section=description]")).toBeFocused();
+    await expect(page.locator("[data-card-outline-section=description]")).toHaveClass(/unread-target-highlight/);
+    expect(fixture.reads.filter((path) => path.endsWith("/seen"))).toHaveLength(1);
+});
+
+test("editing opens the same card history and retains title drafts through discard and flip gating", async ({ page }) => {
+    const fixture = await prepareDelayedLens(page, { editable: true });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "History", exact: true })).toHaveAttribute("aria-selected", "true");
+    fixture.release();
+    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await page.getByRole("heading", { name: "Lens card", exact: true }).click();
+    const title = page.locator("textarea").filter({ visible: true }).first();
+    await expect(title).toBeVisible();
+    await title.fill("Retained title draft");
+    await expect(title).toHaveValue("Retained title draft");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Lens card", exact: true })).toBeVisible();
+    expect(fixture.writes).toEqual([]);
+    await expect(page.getByRole("tab", { name: "History", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Flip card", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Flip card", exact: true }).click();
+    await expect(page.getByTestId("flipped-card")).toHaveText("fixture-card");
+});
+
+for (const failSave of [false, true])
+    test(`native card save ${failSave ? "retains the failed draft" : "submits the edited title"}`, async ({ page }) => {
+        const fixture = await prepareDelayedLens(page, { editable: true, failSave });
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+        await page.getByRole("button", { name: "Edit", exact: true }).click();
+        await expect(page.getByRole("tab", { name: "History", exact: true })).toHaveAttribute("aria-selected", "true");
+        fixture.release();
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+        await page.getByRole("heading", { name: "Lens card", exact: true }).click();
+        const title = page.locator("textarea").filter({ visible: true }).first();
+        await expect(title).toBeEnabled();
+        await title.fill("Saved title draft");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => fixture.writes.length).toBe(1);
+        expect(fixture.writes[0]).toMatchObject({ title: "Saved title draft" });
+        if (failSave) {
+            await expect(title).toHaveValue("Saved title draft");
+            await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeDisabled();
+            await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        } else await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeEnabled();
+    });
+
+test("card and account switches reset lens selection without displaying the previous history", async ({ page }) => {
+    const fixture = await prepareDelayedLens(page);
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await page.getByRole("tab", { name: "History", exact: true }).click();
+    fixture.release();
+    await expect(page.getByRole("tabpanel")).toContainText("Delayed history description");
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
+    await page.getByRole("tab", { name: "History", exact: true }).click();
+    await expect(page.getByRole("tabpanel")).toContainText("Delayed history description");
+    await page.getByRole("button", { name: "Switch card", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Other lens card", exact: true })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tabpanel")).not.toContainText("Delayed history description");
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("unknown verification and agent lifecycle never invent approval actions", async ({ page }) => {
+    await prepareDelayedLens(page, { unknown: true });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await expect(page.getByRole("tabpanel")).toContainText("Agent lifecycle: Unknown");
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
+    await expect(page.getByRole("tabpanel")).toContainText("Verification: Unknown");
+    await expect(page.getByRole("button", { name: /Approve/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+});
+
+test("deadline draft removal is discarded through the original card editor", async ({ page }) => {
+    const fixture = await prepareDelayedLens(page, { editable: true, deadline: true });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "History", exact: true })).toHaveAttribute("aria-selected", "true");
+    fixture.release();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await page.getByText(/2030/).first().click();
+    await page.getByRole("button", { name: "Remove deadline", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Remove deadline", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByText(/2030/).first()).toBeVisible();
+    expect(fixture.writes).toEqual([]);
+});

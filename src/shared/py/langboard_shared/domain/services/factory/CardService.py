@@ -620,6 +620,7 @@ class CardService(BaseDomainService):
         user_or_bot: TUserOrBot | None = None,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        include_description: bool = True,
     ) -> dict[str, Any] | None:
         resolved = self.resolve_readable_card(project, card, user_or_bot, channel)
         if resolved is None:
@@ -630,7 +631,7 @@ class CardService(BaseDomainService):
         if not column:
             return None
 
-        api_card = card.api_response()
+        api_card = card.api_response(include_body=include_description)
         api_card["visibility"] = card.visibility
         api_card["project_column_name"] = column.name
         api_card["work_state"] = self.get_work_states([card], context=context)[card.id]
@@ -649,7 +650,7 @@ class CardService(BaseDomainService):
                         user_or_bot,
                         project,
                         [card],
-                        include_content=True,
+                        include_content=include_description,
                     )[card.get_uid()],
                 }
             )
@@ -672,10 +673,11 @@ class CardService(BaseDomainService):
         card_relationship_service = self._get_service(CardRelationshipService)
         api_card["relationships"] = card_relationship_service.get_api_list_by_card(card, context=context)
 
-        blocks = self._get_service(CardContentBlockService).api_blocks_by_card(card)
-        if blocks:
-            api_card["content_blocks"] = blocks
-            api_card["description_content_source"] = "blocks"
+        if include_description:
+            blocks = self._get_service(CardContentBlockService).api_blocks_by_card(card)
+            if blocks:
+                api_card["content_blocks"] = blocks
+                api_card["description_content_source"] = "blocks"
         return api_card
 
     def get_board_snapshot(

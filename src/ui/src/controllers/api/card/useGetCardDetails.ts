@@ -11,24 +11,38 @@ import {
     ProjectColumn,
     ProjectLabel,
 } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import { Utils } from "@langboard/core/utils";
+
+export type CardDetailSection =
+    | "description"
+    | "checklists"
+    | "attachments"
+    | "linked_wikis"
+    | "global_relationships"
+    | "project_columns"
+    | "project_labels"
+    | "bot_scopes"
+    | "execution_receipts";
 
 export interface IGetCardDetailsForm {
     project_uid: string;
     card_uid: string;
+    sections?: CardDetailSection[];
 }
 
 export interface IGetCardDetailsResponse {
     card: ProjectCard.TModel;
+    loaded_sections?: CardDetailSection[];
     whispers_allowed?: boolean;
-    attachments: ProjectCardAttachment.TModel[];
-    linked_wikis: { wiki_uid: string; title: string }[];
-    checklists: ProjectChecklist.TModel[];
-    global_relationships: GlobalRelationshipType.TModel[];
-    project_columns: ProjectColumn.TModel[];
-    project_labels: ProjectLabel.TModel[];
-    bot_scopes: ProjectCardBotScope.TModel[];
-    execution_receipts: {
+    attachments?: ProjectCardAttachment.TModel[];
+    linked_wikis?: { wiki_uid: string; title: string }[];
+    checklists?: ProjectChecklist.TModel[];
+    global_relationships?: GlobalRelationshipType.TModel[];
+    project_columns?: ProjectColumn.TModel[];
+    project_labels?: ProjectLabel.TModel[];
+    bot_scopes?: ProjectCardBotScope.TModel[];
+    execution_receipts?: {
         generation: number;
         created_at: string;
         checklist_projection: { item_uid: string; kind: string; refs: string[]; is_checked: boolean }[];
@@ -41,50 +55,75 @@ export interface IGetCardDetailsResponse {
     }[];
 }
 
-const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<unknown, IGetCardDetailsResponse>) => {
+const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<IGetCardDetailsResponse, IGetCardDetailsResponse>) => {
     const { query } = useQueryMutation();
 
-    const getCardDetails = async () => {
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    const sessionVersion = useAuthStore.getState().getSessionVersion();
+    const selection = params.sections ? [...new Set(params.sections)].sort().join(",") : undefined;
+    const getCardDetails = async ({ signal }: { signal: AbortSignal }) => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.GET_DETAILS, { uid: params.project_uid, card_uid: params.card_uid });
         const res = await api.get(url, {
+            signal,
+            params: selection === undefined ? undefined : { sections: selection },
             env: {
                 interceptToast: options?.interceptToast,
             } as never,
         });
 
-        const checkitems = ProjectCheckitem.Model.fromArray(
-            res.data.checklists.flatMap((checklist: { checkitems?: ProjectCheckitem.Interface[] }) => checklist.checkitems ?? []),
-            true
-        );
+        if (
+            signal.aborted ||
+            actorUID !== useAuthStore.getState().currentUser?.uid ||
+            sessionVersion !== useAuthStore.getState().getSessionVersion()
+        ) {
+            throw new Error("Card detail request no longer belongs to the current session");
+        }
+
+        const checkitems =
+            res.data.checklists === undefined
+                ? []
+                : ProjectCheckitem.Model.fromArray(
+                      res.data.checklists.flatMap((checklist: { checkitems?: ProjectCheckitem.Interface[] }) => checklist.checkitems ?? []),
+                      true
+                  );
         const itemsByUID = new Map(checkitems.map((item) => [item.uid, item]));
-        const checklists = ProjectChecklist.Model.fromArray(
-            res.data.checklists.map((checklist: ProjectChecklist.IStore) => ({
-                ...checklist,
-                checkitems: (checklist.checkitems ?? []).map((item) => itemsByUID.get(item.uid)!),
-            })),
-            true
-        );
+        const checklists =
+            res.data.checklists === undefined
+                ? undefined
+                : ProjectChecklist.Model.fromArray(
+                      res.data.checklists.map((checklist: ProjectChecklist.IStore) => ({
+                          ...checklist,
+                          checkitems: (checklist.checkitems ?? []).map((item) => itemsByUID.get(item.uid)!),
+                      })),
+                      true
+                  );
 
         return {
+            loaded_sections: selection?.split(",") as CardDetailSection[] | undefined,
             card: ProjectCard.Model.fromOne(res.data.card),
             whispers_allowed: res.data.whispers_allowed === true,
-            attachments: ProjectCardAttachment.Model.fromArray(res.data.attachments, true),
-            linked_wikis: res.data.linked_wikis ?? [],
+            attachments: res.data.attachments === undefined ? undefined : ProjectCardAttachment.Model.fromArray(res.data.attachments, true),
+            linked_wikis: res.data.linked_wikis,
             checklists,
-            global_relationships: GlobalRelationshipType.Model.fromArray(res.data.global_relationships, true),
-            project_columns: ProjectColumn.Model.fromArray(res.data.project_columns, true),
-            project_labels: ProjectLabel.Model.fromArray(res.data.project_labels, true),
-            bot_scopes: ProjectCardBotScope.Model.fromArray(res.data.bot_scopes, true),
-            execution_receipts: res.data.execution_receipts ?? [],
+            global_relationships:
+                res.data.global_relationships === undefined ? undefined : GlobalRelationshipType.Model.fromArray(res.data.global_relationships, true),
+            project_columns: res.data.project_columns === undefined ? undefined : ProjectColumn.Model.fromArray(res.data.project_columns, true),
+            project_labels: res.data.project_labels === undefined ? undefined : ProjectLabel.Model.fromArray(res.data.project_labels, true),
+            bot_scopes: res.data.bot_scopes === undefined ? undefined : ProjectCardBotScope.Model.fromArray(res.data.bot_scopes, true),
+            execution_receipts: res.data.execution_receipts,
         };
     };
 
-    const result = query([`get-card-details-${params.project_uid}-${params.card_uid}`], getCardDetails, {
-        ...options,
-        retry: 0,
-        refetchInterval: Infinity,
-        refetchOnWindowFocus: false,
-    });
+    const result = query(
+        [`get-card-details-${params.project_uid}-${params.card_uid}`, actorUID, sessionVersion, selection ?? "legacy"],
+        getCardDetails,
+        {
+            ...options,
+            retry: 0,
+            refetchInterval: Infinity,
+            refetchOnWindowFocus: false,
+        }
+    );
 
     return result;
 };
