@@ -1,4 +1,5 @@
 from typing import Any, Literal, cast, overload
+from sqlalchemy.orm import load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime, SnowflakeID
@@ -75,12 +76,14 @@ class CardAssignedUserRepository(BaseRepository[CardAssignedUser]):
         self, project: TProjectParam, archive_visible_since: SafeDateTime | None = None,
         *, context: CardVisibilityContext | None = None,
     ) -> list[tuple[User, CardAssignedUser]]:
+        """Read assignment identities for the board; member profiles come from its member list."""
         project_id = InfraHelper.convert_id(project)
 
         raw_users = []
         with DbSession.use(readonly=True) as db:
             query = (
                 SqlBuilder.select.tables(User, CardAssignedUser)
+                .options(load_only(User.id, raiseload=True))
                 .join(
                     CardAssignedUser,
                     User.column("id") == CardAssignedUser.column("user_id"),

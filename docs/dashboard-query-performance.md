@@ -660,3 +660,26 @@ passed 13 tests with no skips in 13.90 seconds using disposable PostgreSQL and
 SQLite. The earlier failed run (2 failed, 11 passed) is preserved separately.
 This closes the database coverage gap for those scope assertions; it does not
 prove operating latency improvement or authenticated canary release acceptance.
+
+## Assignment user identity projection (2026-10-18)
+
+The board snapshot uses assignment users only for `get_uid()`. Its assignment
+query previously hydrated every User field, including account metadata, for each
+joined assignment row. Following the existing author-projection pattern,
+`CardAssignedUserRepository.get_all_by_project` now selects only `User.id` with
+`load_only(..., raiseload=True)`. The User join, card visibility filter, archive
+cutoff and assignment rows remain unchanged; no extra query or cache is added.
+This repository method has one production caller, the board snapshot. Full
+member profiles still come from the board member list; card-detail assignment
+reads keep their existing behavior.
+
+The visibility regression records actual SQL and checks that email/password are
+absent from its projection and remain unloaded on the returned model. The four
+SQLite/PostgreSQL internal/external cases fail against the old projection. The
+combined enrichment, empty/nonempty snapshot and author-projection suite passes
+18 tests with no skips after the change. Ruff and diff checks pass. Evidence is
+in `.verification/board-assignee-projection-{before,after}-20261018.log`.
+
+This reduces selected data and User hydration in that query. It is not a measured
+production latency gain, nor proof that this query caused the observed multi-second
+canary requests. Deployment and authenticated canary timing remain pending.

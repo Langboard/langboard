@@ -23,6 +23,7 @@ from langboard_shared.infrastructure.repositories.factory.CardAssignedUserReposi
 from langboard_shared.infrastructure.repositories.factory.CardRelationshipRepository import CardRelationshipRepository
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.ProjectLabelRepository import ProjectLabelRepository
+from sqlalchemy import event, inspect
 
 
 @pytest.mark.parametrize("internal", [False, True])
@@ -108,7 +109,21 @@ def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(board, m
         assert {
             assignment.card_id for _, assignment in label_repo.get_all_card_labels_by_project(project, cutoff)
         } == unscoped_ids
-        members = member_repo.get_all_by_project(project, cutoff, context=context)
+        member_statements = []
+
+        def capture_members(_conn, _cursor, statement, *_):
+            member_statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", capture_members)
+        try:
+            members = member_repo.get_all_by_project(project, cutoff, context=context)
+        finally:
+            event.remove(engine, "before_cursor_execute", capture_members)
+        assert len(member_statements) == 1
+        projection = member_statements[0].split("FROM", 1)[0]
+        assert "password" not in projection and "email" not in projection
+        for member_user, _ in members:
+            assert {"password", "email"}.issubset(inspect(member_user).unloaded)
         labels = label_repo.get_all_card_labels_by_project(project, cutoff, context=context)
         assert {assignment.card_id for _, assignment in members} == expected
         assert {assignment.card_id for _, assignment in labels} == expected
