@@ -1,7 +1,7 @@
 from hashlib import sha256
 from typing import Any, Sequence
-from sqlalchemy import Text, cast, false, func, or_, select, update
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import JSON, Text, case, cast, false, func, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
@@ -30,13 +30,20 @@ from ....helpers import InfraHelper
 
 
 def _editor_search_text(column, dialect: str):
-    """Decode the existing JSON string representation before literal text matching."""
+    """Search editor content, excluding model keys and JSON escape syntax."""
     if dialect == "postgresql":
-        return cast(column, JSONB).op("#>>")(cast([], ARRAY(Text)))
+        encoded = cast(column, JSON).op("#>>")(cast([], ARRAY(Text)))
+        value = cast(encoded, JSON)
+        # PostgreSQL text cannot contain NUL. Retain the prior encoded-text
+        # matching semantics for legacy values before any JSON unescaping.
+        raw = cast(column, Text)
+        return case((raw.contains(r"\u0000", autoescape=True), raw), else_=value.op("->>")("content"))
     if dialect == "sqlite":
-        return func.json_extract(column, "$")
+        content = func.json_extract(func.json_extract(column, "$"), "$.content")
+        # SQLite LIKE stops at NUL; JSON encoding preserves suffix searches.
+        return case((func.instr(content, "\x00") > 0, func.json_quote(content)), else_=content)
     if dialect in {"mysql", "mariadb"}:
-        return func.json_unquote(column)
+        return func.json_unquote(func.json_extract(func.json_unquote(column), "$.content"))
     raise ValueError("Unsupported database dialect for editor content search")
 
 

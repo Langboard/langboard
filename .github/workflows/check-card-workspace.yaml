@@ -13,6 +13,7 @@ on:
       - src/api/tests/core/test_snowflake_storage_safety.py
       - src/api/langboard/commands/CheckKeywordSearchCommand.py
       - src/api/tests/search/test_keyword_search_connection.py
+      - src/api/tests/card_visibility/test_search_source_scope.py
       - src/shared/py/langboard_shared/core/search/**
       - src/shared/py/langboard_shared/tasks/docling/DocumentKeywordTask.py
       - src/shared/py/langboard_shared/tasks/docling/DocumentRecovery.py
@@ -86,7 +87,7 @@ jobs:
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/timers/
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_checklist_projection.py src/api/tests/card_workspace/test_native_adapter.py -k checklist_projection
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_linked_wikis.py
-      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_recent_card_availability.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py
+      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_recent_card_availability.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py src/api/tests/card_visibility/test_search_source_scope.py
 
       - run: uv run --no-sync pytest -q src/api/tests/core/test_snowflake_storage_safety.py src/api/tests/project_labels/test_builtin_global_labels.py
       - run: uv run --no-sync pytest -q src/api/tests/search/test_keyword_search_connection.py

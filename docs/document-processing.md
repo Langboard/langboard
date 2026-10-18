@@ -175,6 +175,51 @@ and four-language command checks. It is not deployed acceptance. Optional
 vector result composition, precise source-page navigation and live multilingual
 retrieval quality remain separate requirements.
 
+### Literal editor text in native card search
+
+Body/comment search decodes the persisted model wrapper and selects its `content`
+value before applying the existing escaped literal match. Both the native JSON
+object format and the JSON-string-wrapped model format are supported. Model keys
+such as `content`, unrelated metadata and JSON escape sequences are not searchable
+body text. A real occurrence of the same word remains searchable. Newlines, tabs,
+quoted text, backslashes, literal `%`/`_` and multilingual text retain their actual
+content semantics. Card titles, attachments, date/workflow filters and current
+visibility/source checks keep their existing owners. No stored content is rewritten,
+query or cache added, or indexing/inference triggered.
+
+Legacy NUL-containing values retain encoded matching to avoid PostgreSQL text
+conversion errors and SQLite LIKE truncation. PostgreSQL uses the original encoded
+model for this exceptional case, so its prior JSON-key/escape matching limitations
+remain. This path neither rewrites the source nor claims complete control-character
+search semantics.
+
+Eight new SQLite/PostgreSQL body/comment/encoding cases failed on the original
+implementation because the JSON key matched unrelated cards. The shared extraction
+fix is covered by native repository, source-scope and current REST/MCP consumer
+regressions. MySQL/MariaDB keep equivalent native JSON extraction expressions;
+this change does not claim execution coverage for those servers. These are source
+correctness checks, not deployed canary or latency-improvement evidence.
+
+There is a measured decoding cost. In an isolated one-CPU PostgreSQL 16 fixture,
+seven warm alternating executions per implementation on 100 cards gave these
+median repository durations (generated multilingual bodies, not customer data):
+
+| Approximate body per card | Query | Previous encoded-model match | Content-value match |
+| --- | --- | ---: | ---: |
+| 0.4 KB | Common word | 3.340 ms | 3.199 ms |
+| 0.4 KB | No match | 1.976 ms | 2.624 ms |
+| 4 KB | Common word | 7.012 ms | 9.040 ms |
+| 4 KB | No match | 6.382 ms | 8.237 ms |
+| 100 KB | Common word | 119.680 ms | 161.762 ms |
+
+Comparable common-word/no-match queries returned identical IDs. This cost buys
+correct literal text/key separation; it is not a speed improvement. Large-body
+search remains a performance limitation requiring indexed-search acceptance.
+The measurements establish neither full HTTP latency nor operational percentiles.
+Private records include the runnable fixture and original failed harness runs
+(missing baseline import/table); those runs are not application failures or timing
+evidence. The final measurement ran without other tests on its database.
+
 ### Current workflow source validation for keyword search
 
 Both board card-context search and transcript snippet projection validate that a
