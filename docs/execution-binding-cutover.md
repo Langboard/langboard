@@ -52,20 +52,11 @@ Disabling a binding stops new execution events and invalidates delivery for the
 disabled binding. Avoid having a second polling integration execute the same
 cards independently of this event and generation contract.
 
-Execution binding, project, column, relationship and webhook authorization reads
-use the primary database. Webhook delivery also reloads its current endpoint on
-the primary; a lagging fanout replica cannot select a revoked event allowlist or
-old destination. Candidate discovery can still use the existing replica path.
-The regression retains a separate unchanged replica while revoking each primary
-dependency or changing the endpoint, against SQLite and isolated PostgreSQL
-primaries. This is a pre-delivery check, not a claim that later changes can
-retract an HTTP request already sent.
-
-A card's current `counts_as_completed` stage policy also revokes readiness even
-when its execution binding still maps the column to `ready`. Native policy edits
-watch the affected cards in the existing unit of work, supersede pending events
-and retain the generation without scheduling another execution. The PostgreSQL
-regression exercises the real stage service, readiness query and outbox rows.
+Current binding, destination and authorization are checked before delivery.
+Revoking access or changing a destination cannot retract an HTTP request already
+sent. A completed workflow-stage policy revokes readiness even if a binding
+still maps that column to `ready`; pending events for that readiness are
+superseded without creating another execution generation.
 
 ## Delivery exhaustion
 
@@ -81,10 +72,6 @@ claim and a still-`delivering` row. A late success or failure cannot overwrite a
 replacement claimant or its terminal result. Expired claims remain recoverable;
 this fence does not retract HTTP requests already sent to the consumer.
 
-The PostgreSQL lifecycle regression checks the persisted state after each failed
-attempt, then verifies that another drain performs no delivery. Its other checks
-cover success, expired-lease recovery, live-lease exclusion, row locking, concurrent
-hot-path/recovery exclusion, late success/failure after expiry with and without a
-replacement claim, destination drift and manual reconciliation. The
-fixture replaces the HTTP sender; it does not prove an external consumer's
-signature verification, durable deduplication or deployed cross-repository E2E.
+Recovery work can be delayed during sustained foreground demand. Monitor
+recovery latency and backlogs when operating the integration; background priority
+does not provide additional processing capacity.

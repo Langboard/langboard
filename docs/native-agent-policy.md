@@ -1,11 +1,21 @@
-# Native agent policy
+# Native MCP agent guidance
 
-Langboard supplies its client-independent instructions through native FastMCP server metadata on compatibility, Agent/Core, Raw and OAuth transports. A client no longer needs the ChatGPT plugin's packaged skill to receive the baseline rules.
+Langboard supplies client-independent guidance through MCP server instructions
+on its compatibility, Agent/Core, Raw and configured OAuth transports. Clients
+receive instructions through initialization or metadata discovery. Clients that
+skip metadata discovery must request server metadata to obtain this guidance.
 
-The server owns one `AGENT_POLICY` constant. It covers workflow gates, native checklists, requested timer transitions, preserving assignees, local-first label selection, explicit local-label creation, no global-label creation through MCP, revision conflicts, ambiguous mutation failures, directory identity and notification read intent.
+The guidance covers respecting workflow gates, using native checklists, changing
+timers only when requested, preserving assignees, choosing local labels first,
+creating local labels only with explicit intent, revision conflicts and reading
+current state after ambiguous mutation failures. Global-label creation is not
+available through MCP. Directory identity and notification-read actions also
+require attention to the user's intent.
 
-Instructions guide agents; domain authorization and validation still enforce access. Metadata does not grant a tool or change legacy ToolGroup permissions. OAuth provisioning remains a separate deployment requirement.
+Server instructions guide client behavior. Current identity, domain permissions,
+ToolGroup grants and command validation enforce access; instructions themselves
+grant no permissions. OAuth availability depends on operator configuration.
 
-Clients obtain instructions by the legacy initialize handshake or modern discovery negotiation. A client that pins a protocol and skips metadata discovery must fetch server metadata; it cannot receive instructions through a request it does not make.
-
-Verification exercises the actual native server builders and FastMCP clients under legacy and modern discovery, with empty legacy tool grants. The OAuth route fixture additionally verifies that its server receives the same policy. These checks do not establish a live OAuth login, token refresh or business mutation.
+Use the selected endpoint's discovered schemas and
+[native MCP profile guide](native-mcp-profiles.md) for tool availability,
+mutation receipts and approval boundaries.
