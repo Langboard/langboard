@@ -1299,3 +1299,77 @@ test("deadline draft removal is discarded through the original card editor", asy
     await expect(page.getByText(/2030/).first()).toBeVisible();
     expect(fixture.writes).toEqual([]);
 });
+
+test("one comment composer retains its draft while the card changes available width", async ({ page }) => {
+    const fixture = await prepareDelayedLens(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await page.getByRole("tab", { name: "History", exact: true }).click();
+    fixture.release();
+    const prompt = page.getByRole("button", { name: /Add a comment as/ });
+    await expect(prompt).toHaveCount(1);
+    await prompt.click();
+    const editor = page.locator("[data-card-comment-form] [data-slate-editor=true]");
+    await expect(editor).toHaveCount(1);
+    await editor.fill("Retained narrow comment draft");
+    for (const width of [720, 390, 1440]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expect(editor).toHaveCount(1);
+        await expect(editor).toContainText("Retained narrow comment draft");
+        await expect(editor).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    }
+    const submitted = page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname.endsWith("/comment"));
+    await page.getByRole("button", { name: "Save", exact: true }).last().click();
+    expect((await submitted).postDataJSON().content).toContain("Retained narrow comment draft");
+});
+
+for (const denyStorage of [false, true]) {
+    test(`comment drafts remain account scoped with unavailable storage=${denyStorage}`, async ({ page }) => {
+        const fixture = await prepareDelayedLens(page);
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        fixture.release();
+        const result = await page.evaluate(async (deny) => {
+            const { getCardCommentDraftStore } = await import(String("/src/core/stores/CardCommentDraftStore.ts"));
+            const { default: auth } = await import(String("/src/core/stores/AuthStore.ts"));
+            const first = auth.getState().currentUser!;
+            if (deny) {
+                for (const method of ["getItem", "setItem", "removeItem"] as const)
+                    Storage.prototype[method] = () => {
+                        throw new DOMException("Denied", "SecurityError");
+                    };
+            }
+            const store = getCardCommentDraftStore();
+            store.saveDraft(first.uid, "fixture", "fixture-card", "Private first-account draft");
+            auth.setState({ currentUser: { ...first, uid: "second-comment-user" } });
+            const second = store.getDraft("second-comment-user", "fixture", "fixture-card");
+            store.saveDraft("second-comment-user", "fixture", "fixture-card", "Second-account draft");
+            auth.setState({ currentUser: first });
+            const restored = store.getDraft(first.uid, "fixture", "fixture-card");
+            store.clearDraft(first.uid, "fixture", "fixture-card");
+            return { second, restored, cleared: store.getDraft(first.uid, "fixture", "fixture-card") };
+        }, denyStorage);
+        expect(result).toEqual({ second: "", restored: "Private first-account draft", cleared: "" });
+    });
+}
+
+test("switching accounts while composing cannot save the previous account draft into the next account", async ({ page }) => {
+    const fixture = await prepareDelayedLens(page);
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
+    await page.getByRole("tab", { name: "History", exact: true }).click();
+    fixture.release();
+    const prompt = page.getByRole("button", { name: /Add a comment as/ });
+    await prompt.click();
+    const editor = page.locator("[data-card-comment-form] [data-slate-editor=true]");
+    await editor.fill("Private retained first account comment");
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await page.getByRole("tab", { name: "History", exact: true }).click();
+    await prompt.click();
+    await expect(editor).toHaveCount(1);
+    await expect(editor).not.toContainText("Private retained first account comment");
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await page.getByRole("tab", { name: "History", exact: true }).click();
+    await prompt.click();
+    await expect(editor).toContainText("Private retained first account comment");
+});

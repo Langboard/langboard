@@ -4,7 +4,10 @@
 
 Use the card's content panel to scroll a long description. The panel can receive
 keyboard focus. Section markers offer navigation within the description without
-opening the editor.
+opening the editor. The overview rail follows the actual scrollable viewport and
+appears only when content overflows. Its thumb shows the visible proportion;
+section markers and previews remain available for longer descriptions. Focus the
+rail to scroll with arrow keys, Page Up/Page Down, Home or End.
 
 The explicit Copy button copies the stored Markdown description, including
 sections outside the visible viewport. Browser clipboard permission can prevent
@@ -45,3 +48,21 @@ provider uses the generic fallback. An available setup form does not confirm a
 connected provider, consent or completed workflow. Follow the
 [external app integration guide](external-app-sdk.md) for connection lifecycle
 and authorization requirements.
+
+## Mobile cards and comments
+
+At viewport widths below 768 CSS pixels, card details use a single fullscreen
+mode. Use Close or browser navigation to leave; tapping outside the card does
+not dismiss it. Widening the viewport restores the desktop expansion choice.
+Available height follows the dynamic viewport, with safe-area space on phones.
+
+Comments use the card's available width: a side panel when there is sufficient
+space, otherwise an inline list and compact composer. The same composer retains
+its draft and reply context while its placement changes. Comment drafts are
+scoped to the signed-in account in the current browser session. If browser
+storage is unavailable, drafts remain in memory for that page session only.
+
+On touch or hoverless devices, manually sorted board cards with movement
+permission provide a dedicated drag handle. Hold the handle to move a card;
+ordinary card swipes scroll the board and tapping its title opens the detail.
+Automatic sorting and current permissions still govern available moves.

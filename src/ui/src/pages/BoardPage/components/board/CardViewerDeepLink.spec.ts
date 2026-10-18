@@ -724,3 +724,40 @@ test("unsynchronized restored description cannot submit a card details patch", a
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
 });
+
+for (const width of [360, 390]) {
+    test(`mobile viewer uses one fullscreen mode at ${width}px and follows available width`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await mockBoardApi(page);
+        await page.goto(FIXTURE);
+        const viewer = page.locator("[data-card-viewer]");
+        await expect(page.getByText("Fixture card", { exact: true }).first()).toBeVisible();
+        const expectFullScreen = async (expectedWidth: number, expectedHeight: number) => {
+            await expect
+                .poll(async () =>
+                    viewer.evaluate((element) => {
+                        const r = element.getBoundingClientRect();
+                        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+                    })
+                )
+                .toEqual([0, 0, expectedWidth, expectedHeight]);
+            await expect(page.getByRole("button", { name: /^(Expand|Collapse)$/ })).toHaveCount(0);
+        };
+        await expectFullScreen(width, 844);
+        await page.locator("body").dispatchEvent("pointerdown", { pointerType: "touch", button: 0 });
+        await expect(viewer).toBeVisible();
+        await page.setViewportSize({ width: 720, height: 540 });
+        await expectFullScreen(720, 540);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await expect(page.getByRole("button", { name: "Expand", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Expand", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+        await page.setViewportSize({ width, height: 600 });
+        await expectFullScreen(width, 600);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await expect(page.getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(viewer).toHaveCount(0);
+    });
+}

@@ -108,7 +108,9 @@ export default function CardFlipTray({
     const drafts = useCardCommentDraftStore((state) => state.draftMap);
     const hasDraft = (card: IFlippedCard) =>
         !!Object.keys(suspendedDrafts[flipDraftKey(userUID, projectUID, card.uid)] ?? {}).length ||
-        !!(drafts[`comment-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(projectUID, card.uid)).trim();
+        !!(
+            drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
+        ).trim();
     const navigate = usePageNavigateRef();
     const [t, i18n] = useTranslation();
     const didDrag = useRef(false);

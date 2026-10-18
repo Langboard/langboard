@@ -548,7 +548,7 @@ function BoardTaskCardResult({
     return (
         <>
             {hasRunningBot && <ShineBorder className="z-[999999]" />}
-            <Flex direction="col" className="h-full min-h-0 gap-2">
+            <Flex direction="col" className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2">
                 <Flex className={cn("min-h-0 min-w-0 flex-1", isExpanded ? "overflow-hidden" : "overflow-visible")}>
                     <Box
                         ref={commentSurfaceRef}
@@ -659,7 +659,7 @@ function BoardTaskCardResult({
                                 </Flex>
                             </Dialog.Header>
                             <CardLensTabs idPrefix={lensID} lens={lens} onChange={setLens} disabled={isCardEditing} />
-                            <Flex gap="3" direction={{ initial: "col-reverse", sm: "row" }} className="min-h-0 flex-1">
+                            <Flex gap="3" direction={commentLayoutMode === "panel" ? "row" : "col"} className="min-h-0 flex-1">
                                 <Box data-card-content-frame="" className={cn("relative min-h-0 min-w-0 flex-1", lens === "history" && "pl-10")}>
                                     <Box
                                         ref={contentViewportRef}
@@ -787,17 +787,16 @@ function BoardTaskCardResult({
                                 </Box>
                                 <BoardCardCommentPanel enabled={lens === "history"} />
                                 {visibility !== "PRIVATE" && !!boardChat && <BoardCardExpandedChatScope isExpanded={isExpanded} />}
-                                <Box w="full" maxW={{ sm: "40" }} className={cn("hidden shrink-0 sm:block", !isActionPanelOpen && "sm:hidden")}>
+                                <Box
+                                    w="full"
+                                    maxW={{ sm: "40" }}
+                                    className={cn("shrink-0", (commentLayoutMode !== "panel" || !isActionPanelOpen) && "hidden")}
+                                >
                                     <BoardCardSection title="card.Actions" titleClassName="mb-2">
                                         <BoardCardActionList key={`board-card-action-list-${card.uid}`} />
                                     </BoardCardSection>
                                 </Box>
                             </Flex>
-                            {lens === "history" && commentLayoutMode === "mobile" && (
-                                <Box className="pt-3">
-                                    <BoardCommentForm variant="mobile" />
-                                </Box>
-                            )}
                         </Box>
                     </Box>
                 </Flex>
@@ -809,14 +808,14 @@ function BoardTaskCardResult({
 
 function BoardCardMobileActions(): React.JSX.Element | null {
     const { card } = useBoardCard();
-    const { isActionPanelOpen } = useBoardCardPanel();
+    const { isActionPanelOpen, commentLayoutMode } = useBoardCardPanel();
 
-    if (!isActionPanelOpen) {
+    if (!isActionPanelOpen || commentLayoutMode === "panel") {
         return null;
     }
 
     return (
-        <Box className="sm:hidden">
+        <Box>
             <BoardCardSection title="card.Actions" titleClassName="mb-2">
                 <BoardCardActionList key={`board-card-action-list-mobile-${card.uid}`} />
             </BoardCardSection>
@@ -847,7 +846,8 @@ function BoardCardCommentPanel({ enabled }: { enabled: boolean }): React.JSX.Ele
     const commentViewportRef = useRef<HTMLDivElement | null>(null);
     const [t] = useTranslation();
     const isPanelLayout = commentLayoutMode === "panel";
-    const isOpen = enabled && isPanelLayout && isCommentPanelOpen;
+    const showComposer = enabled && isCommentPanelOpen;
+    const isOpen = showComposer && isPanelLayout;
     const panelRef = useRef<HTMLDivElement | null>(null);
     const dragRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
     const [width, setWidth] = useState(readCommentPanelWidth);
@@ -943,11 +943,11 @@ function BoardCardCommentPanel({ enabled }: { enabled: boolean }): React.JSX.Ele
             tabIndex={-1}
             className={cn(
                 "relative min-h-0 shrink-0 overflow-hidden",
-                !isPanelLayout && "hidden",
+                !isPanelLayout && "w-full",
                 isResizing ? "transition-none" : "transition-[width,min-width] duration-300 motion-reduce:transition-none"
             )}
-            style={{ width: isOpen ? width : 0, minWidth: isOpen ? width : 0 }}
-            aria-hidden={!isOpen}
+            style={isPanelLayout ? { width: isOpen ? width : 0, minWidth: isOpen ? width : 0 } : undefined}
+            aria-hidden={!showComposer}
         >
             {isOpen && (
                 <div
@@ -982,14 +982,16 @@ function BoardCardCommentPanel({ enabled }: { enabled: boolean }): React.JSX.Ele
             )}
             <Box
                 className={cn(
-                    "h-full",
-                    "overflow-hidden bg-background transition-opacity duration-200",
-                    isOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                    isPanelLayout && "h-full",
+                    "overflow-hidden bg-background transition-opacity duration-200 motion-reduce:transition-none",
+                    showComposer ? "opacity-100" : "pointer-events-none h-0 opacity-0"
                 )}
             >
                 <Flex direction="col" className="h-full min-h-0">
-                    <Box>{t("card.Comments")}</Box>
-                    <Box className="px-4 py-3">{isOpen && <BoardCommentForm variant="panel" />}</Box>
+                    {isPanelLayout && <Box>{t("card.Comments")}</Box>}
+                    <Box className={isPanelLayout ? "px-4 py-3" : undefined}>
+                        {showComposer && <BoardCommentForm variant={isPanelLayout ? "panel" : "mobile"} />}
+                    </Box>
                     <ScrollArea.Root className="min-h-0 flex-1" viewportRef={commentViewportRef}>
                         {isOpen && (
                             <BoardCommentList key={`board-card-comment-list-${card.uid}`} scrollableRef={commentViewportRef} className="px-4 py-3" />
