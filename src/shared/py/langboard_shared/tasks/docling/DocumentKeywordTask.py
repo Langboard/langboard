@@ -219,7 +219,11 @@ def _payload(job: DocumentKeywordIndex) -> dict | None:
             )
             if not document:
                 return base
-            if document.get("generation") != job.source_generation or document.get("status") != "indexed":
+            if (
+                document.get("generation") != job.source_generation
+                or document.get("status") != "indexed"
+                or not document.get("content_hash")
+            ):
                 return None
             text = attachment.document_text
             if not text or len(text) > 131072:

@@ -391,5 +391,8 @@
   "Unfinished checklist": "Unfinished checklist",
   "Checklist complete; workflow still active": "Checklist complete; workflow still active",
   "Timer still running": "Timer still running",
-  "Status details unavailable": "Status details unavailable"
+  "Status details unavailable": "Status details unavailable",
+  "Reindex document keywords": "Reindex document keywords",
+  "Keyword indexing requested": "Keyword indexing queued",
+  "Index only this attachment text": "Index only the current complete text of this attachment for keyword search. Transcription and embeddings are not rerun."
 }

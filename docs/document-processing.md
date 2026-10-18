@@ -716,8 +716,9 @@ The indexed attachment projection contract is:
 `content_hash`. Do not hash the file, normalize the text or substitute a model ID.
 The read flag does not authorize indexing, automatic backfill or index creation.
 The separate opt-in indexing lifecycle below maintains newly requested attachment
-projections. Provider-selection UI and a keyword-only manual reindex action remain
-unfinished.
+projections. The attachment menu also exposes an explicit keyword-only reindex
+action for current complete stored text, described below. Provider-selection UI
+remains unfinished.
 
 The remote request filters one board, asks for at most 20 identifiers/hashes and
 no text/highlights, and has a 500ms server search timeout with no transport retry.
@@ -742,8 +743,11 @@ real Elasticsearch matching, delivery/deletion, index isolation or deployed E2E.
 `DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED=true` captures the configured
 destination when the existing upload/explicit document-processing path queues a
 new transcription. Its default is `false`, independently of the read flag.
-Changing either global flag does not process existing files. This implementation
-does not add a keyword-only reindex API or UI; it must not be presented as one.
+Changing either global flag does not process existing files. The explicit
+attachment keyword action can separately capture and activate its current complete
+transcription without running transcription or embedding again. It requires this
+indexing flag and the configured destination; neither settings changes nor search
+reads start a backfill.
 
 The native `DocumentKeywordIndex` table coalesces desired state per attachment and
 destination. An upload captures a waiting request with no due date; only publication
@@ -822,3 +826,25 @@ together. The optional-feature API test environment passed 83 related tests; two
 SQLite-only locking cases were skipped with their PostgreSQL counterparts passing.
 The base API environment also passed the seven focused cases (overlapping scope).
 These are source/integration checks, not remote-index deletion or canary evidence.
+
+### Explicit keyword reindexing
+
+The attachment menu's **Reindex document keywords** confirmation submits
+`POST /board/{board}/card/{card}/attachment/{attachment}/document-processing`
+with `{"mode":"keyword"}`. It requires card update permission, current card
+visibility, and ownership of the attachment by that card. The native app mutation
+guard also applies. Transcription and embedding request modes retain their defaults.
+
+The request indexes only this attachment's current complete stored text. It
+requires an indexed transcription with a generation and content hash, nonempty
+text within the keyword projection limit, enabled keyword indexing, and a
+configured Elasticsearch destination and API key. It does not run VLM or
+embedding inference, read the original file, or scan other attachments. Missing
+source/configuration returns the existing fixed 400/404 API errors.
+
+Capture and activation share one transaction with current source locks. Dispatch
+runs after commit; broker failure retains due work for the existing recovery
+command. Worker source/deletion fences and destination policy remain authoritative.
+The success notification means the keyword request was queued; worker completion
+and a real Elasticsearch search require separate verification. No settings or
+search read triggers this action automatically.

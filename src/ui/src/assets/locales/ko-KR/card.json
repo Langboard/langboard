@@ -391,5 +391,8 @@
   "Unfinished checklist": "미완료 체크리스트",
   "Checklist complete; workflow still active": "체크리스트 완료 · 워크플로우 진행 중",
   "Timer still running": "타이머 실행 중",
-  "Status details unavailable": "상태 상세 확인 불가"
+  "Status details unavailable": "상태 상세 확인 불가",
+  "Reindex document keywords": "문서 키워드 다시 색인",
+  "Keyword indexing requested": "키워드 색인 대기 중",
+  "Index only this attachment text": "이 첨부파일의 현재 완료된 텍스트만 키워드 검색용으로 색인합니다. 문서 변환과 임베딩은 다시 실행하지 않습니다."
 }

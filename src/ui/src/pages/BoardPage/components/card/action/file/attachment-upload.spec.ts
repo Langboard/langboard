@@ -24,3 +24,68 @@ for (const width of [1440, 390]) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
 }
+
+for (const width of [1440, 390]) {
+    for (const outcome of ["queued", "failed"]) {
+        test(`explicit keyword action confirms current attachment and handles ${outcome} at ${width}px`, async ({ page }, testInfo) => {
+            await page.setViewportSize({ width, height: 850 });
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const bodies: unknown[] = [];
+            await page.route("**/board/fixture/card/fixture-card/attachment/fixture-attachment/document-processing", async (route) => {
+                bodies.push(route.request().postDataJSON());
+                await gate;
+                await route.fulfill({
+                    status: outcome === "queued" ? 200 : 400,
+                    contentType: "application/json",
+                    body: JSON.stringify(outcome === "queued" ? { status: "pending" } : { code: "VA0000" }),
+                });
+            });
+            await page.goto(path);
+            await page.getByRole("button", { name: "More", exact: true }).click();
+            await page.getByRole("menuitem", { name: "Reindex document keywords", exact: true }).click();
+            await expect(
+                page.getByText(
+                    "Index only the current complete text of this attachment for keyword search. Transcription and embeddings are not rerun.",
+                    { exact: true }
+                )
+            ).toBeVisible();
+            expect(bodies).toHaveLength(0);
+            if (outcome === "queued")
+                await page.screenshot({
+                    path: testInfo.outputPath("confirmation.png"),
+                    fullPage: true,
+                    animations: "disabled",
+                });
+            const confirm = page.getByRole("button", { name: "Reindex document keywords", exact: true });
+            await confirm.click();
+            await expect(confirm).toBeDisabled();
+            await expect.poll(() => bodies.length).toBe(1);
+            expect(bodies).toEqual([{ mode: "keyword" }]);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            if (outcome === "queued")
+                await page.screenshot({
+                    path: testInfo.outputPath("pending.png"),
+                    fullPage: true,
+                    animations: "disabled",
+                });
+            release();
+            if (outcome === "queued") {
+                await expect(page.getByText("Keyword indexing queued", { exact: true })).toBeVisible();
+            } else {
+                await expect(page.getByText("Keyword indexing queued", { exact: true })).toHaveCount(0);
+                await expect(page.locator("[data-sonner-toast][data-type=error]")).toBeVisible();
+            }
+            await expect(confirm).toHaveCount(0);
+            if (outcome === "failed") {
+                await page.screenshot({
+                    path: testInfo.outputPath("failure.png"),
+                    fullPage: true,
+                    animations: "disabled",
+                });
+            }
+        });
+    }
+}

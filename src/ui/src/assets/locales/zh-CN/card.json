@@ -391,5 +391,8 @@
   "Unfinished checklist": "未完成的清单",
   "Checklist complete; workflow still active": "清单已完成，工作流仍进行中",
   "Timer still running": "计时器仍在运行",
-  "Status details unavailable": "状态详情不可用"
+  "Status details unavailable": "状态详情不可用",
+  "Reindex document keywords": "重新索引文档关键词",
+  "Keyword indexing requested": "关键词索引已排队",
+  "Index only this attachment text": "仅索引此附件当前已完成的文本以用于关键词搜索。不会重新运行转录或嵌入。"
 }

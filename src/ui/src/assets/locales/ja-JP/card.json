@@ -391,5 +391,8 @@
   "Unfinished checklist": "未完了のチェックリスト",
   "Checklist complete; workflow still active": "チェックリスト完了・ワークフロー進行中",
   "Timer still running": "タイマー実行中",
-  "Status details unavailable": "状態の詳細は不明"
+  "Status details unavailable": "状態の詳細は不明",
+  "Reindex document keywords": "文書キーワードを再索引",
+  "Keyword indexing requested": "キーワード索引をキューに登録しました",
+  "Index only this attachment text": "この添付ファイルの現在の完成済みテキストだけをキーワード検索用に索引します。文字起こしと埋め込みは再実行しません。"
 }

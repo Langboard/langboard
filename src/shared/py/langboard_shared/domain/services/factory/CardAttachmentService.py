@@ -11,11 +11,12 @@ from ....core.domain import BaseDomainService
 from ....core.routing import SocketTopic
 from ....core.storage import FileModel
 from ....core.types.ParamTypes import TAttachmentParam, TCardParam, TProjectParam
+from ....Env import Env
 from ....helpers import InfraHelper
 from ....publishers import CardAttachmentPublisher
 from ....tasks.activities import CardAttachmentActivityTask
 from ....tasks.bots import CardAttachmentBotTask
-from ...models import Bot, Card, CardAttachment, CardMetadata, Project, User
+from ...models import Bot, Card, CardAttachment, CardMetadata, Project, ProjectColumn, User
 from ..CardAppMutation import guard_card_app_mutation
 from .DoclingMetadataService import DoclingMetadataService
 from .InternalBotService import InternalBotService
@@ -291,6 +292,89 @@ class CardAttachmentService(BaseDomainService):
             ):
                 raise ValueError("Attachment changed; read its current state before retrying")
             db.after_commit(enqueue)
+        return "pending"
+
+    @guard_card_app_mutation
+    def request_document_keyword_index(
+        self, project: TProjectParam, card: TCardParam, attachment: TAttachmentParam, *, user: User | Bot
+    ) -> str | None:
+        """Queue the current complete transcription at the current keyword destination."""
+        from ....core.search.ElasticsearchKeywordSearch import _connection_options
+        from ....tasks.docling.DocumentKeywordTask import activate_index, configured_destination, prepare_index
+
+        with DbSession.atomic() as db:
+            current_project = db.exec(
+                SqlBuilder.select.table(Project)
+                .where(Project.id == InfraHelper.convert_id(project), Project.deleted_at.is_(None))
+                .with_for_update()
+            ).first()
+            current_card = db.exec(
+                SqlBuilder.select.table(Card)
+                .where(Card.id == InfraHelper.convert_id(card), Card.deleted_at.is_(None))
+                .with_for_update()
+            ).first()
+            if (
+                current_project is None
+                or current_card is None
+                or current_card.project_id != current_project.id
+                or current_card.is_linked_resource
+            ):
+                return None
+            from .CardService import CardService
+
+            if (
+                isinstance(user, User)
+                and self._get_service(CardService).resolve_readable_card(current_project, current_card, user) is None
+            ):
+                return None
+            column = db.exec(
+                SqlBuilder.select.table(ProjectColumn)
+                .where(
+                    ProjectColumn.id == current_card.project_column_id,
+                    ProjectColumn.project_id == current_project.id,
+                    ProjectColumn.deleted_at.is_(None),
+                )
+                .with_for_update()
+            ).first()
+            source = db.exec(
+                SqlBuilder.select.table(CardAttachment)
+                .where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment),
+                    CardAttachment.card_id == current_card.id,
+                    CardAttachment.deleted_at.is_(None),
+                )
+                .with_for_update()
+            ).first()
+            if column is None or source is None:
+                return None
+            if Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false") != "true":
+                raise ValueError("Keyword indexing is unavailable")
+            try:
+                destination = configured_destination()
+                _connection_options(
+                    destination["endpoint"],
+                    destination["index"],
+                    Env.get_from_env("LANGBOARD_ELASTICSEARCH_API_KEY", ""),
+                    Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS", ""),
+                    float(Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT", "10")),
+                )
+            except (ValueError, TypeError):
+                raise ValueError("Keyword indexing is unavailable") from None
+            metadata = self._get_service(DoclingMetadataService)
+            document = metadata.get_document_by_attachment_uid(CardMetadata, current_card, source.get_uid())
+            if (
+                not document
+                or document.get("status") != "indexed"
+                or not document.get("generation")
+                or not document.get("content_hash")
+                or not source.document_text
+                or not source.document_text.strip()
+                or len(source.document_text) > 131072
+            ):
+                raise ValueError("Complete this attachment transcription before keyword indexing")
+            generation = document["generation"]
+            job_uid = prepare_index(db, current_card, source.get_uid(), generation)
+            activate_index(db, current_card, source.get_uid(), generation, job_uid)
         return "pending"
 
     @guard_card_app_mutation

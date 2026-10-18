@@ -196,7 +196,9 @@ def process_card_attachment_document(
     card = require_visible_card(project_uid, card_uid, request, user, service)
     require_card_child(card, CardAttachment, attachment_uid)
     try:
-        if form.mode == "embedding":
+        if form.mode == "keyword":
+            result = service.card_attachment.request_document_keyword_index(project_uid, card_uid, attachment_uid, user=user)
+        elif form.mode == "embedding":
             result = service.card_attachment.request_document_embedding(project_uid, card_uid, attachment_uid, user=user)
         else:
             result = service.card_attachment.request_document_processing(
