@@ -544,10 +544,10 @@ runner or deployment environment was added.
 
 ## Optional Elasticsearch keyword search: implementation boundary
 
-Elasticsearch-backed application search is not implemented or selectable in this
-source. PostgreSQL remains the keyword-search owner, including transcribed
-attachment text without embeddings. The operator connection preflight below is
-available independently.
+A complete Elasticsearch search provider is not yet selectable in settings.
+PostgreSQL remains the keyword-search coverage owner, including transcribed
+attachment text without embeddings. The operator preflight and the explicitly
+enabled supplemental document read path below are available independently.
 Do not expose a working-looking settings option backed only by an unused client
 module, or redirect a deployment to another application's cluster/index.
 
@@ -641,3 +641,51 @@ zero-document reads, secret-free results, native Commander parsing and a fresh
 process with the optional imports blocked. They are not a running Elasticsearch
 cluster or a deployed remote-service E2E. The existing card-workspace job installs
 the optional extra and runs these checks; no new job or runner is introduced.
+
+### Supplemental document candidates
+
+`DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED=true` enables an optional read stage in
+the existing board-scoped card search (including its native MCP consumer). It uses
+`DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT`, `DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX`,
+`DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS`, `LANGBOARD_ELASTICSEARCH_API_KEY` and a
+strict 1..2-second `DOCUMENT_KEYWORD_ELASTICSEARCH_TIMEOUT` (default 1). Provision
+the concrete instance-owned index and run the operator preflight separately. The
+default is disabled and imports no Elasticsearch package or extra DB query.
+
+This stage supplements PostgreSQL; it does not replace any PostgreSQL match. Its
+purpose is to accept additional full-text matches from an explicitly configured
+index while preserving native coverage on disabled, missing, unavailable, stale or
+incomplete optional indexing. It adds bounded remote IO/source validation when
+enabled and is not a demonstrated search-latency optimization.
+
+The indexed attachment projection contract is:
+
+| Field | Value |
+| --- | --- |
+| `board_uid`, `card_uid`, `attachment_uid` | Current Langboard short-code identities, stored as exact keyword fields |
+| `projection_hash` | Lowercase SHA-256 of the exact UTF-8 `CardAttachment.document_text` string |
+| `text` | That exact text projection, indexed for full-text search |
+
+`projection_hash` deliberately differs from the original file's existing
+`content_hash`. Do not hash the file, normalize the text or substitute a model ID.
+No indexing worker, automatic backfill, provider-selection UI or index creation is
+implemented by this read stage. Building and maintaining the index remains part
+of the unfinished provider work; enabling this flag does not perform those tasks.
+
+The remote request filters one board, asks for at most 20 identifiers/hashes and
+no text/highlights, and has a 500ms server search timeout with no transport retry.
+After the request, the service resolves current account/membership/audience again.
+A single primary SQL query then filters live authorized cards, attachments and
+columns before fetching source text. Only matching card/attachment identities and
+an exact current projection hash are accepted. No remote snippet is returned.
+Results reuse current filenames and at most two 500-character local excerpts per
+card; existing date/workflow filters and the normal 20-card limit remain in force.
+
+For bounded validation, projections over 131,072 characters are excluded from this
+supplemental stage; their existing PostgreSQL search is unchanged. A full provider
+will need durable projection revisions/hashes to remove that fetch restriction
+without unbounded reads. Search never triggers inference, file reads or reindexing.
+HTTPS protocol fixtures plus SQLite/PostgreSQL integration cover hidden/private/
+foreign/deleted/stale sources, Human UI/MCP/API differences, membership revocation
+and source replacement during a request, and native fallback. They do not prove
+real Elasticsearch matching, delivery/deletion, index isolation or deployed E2E.

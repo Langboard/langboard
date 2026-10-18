@@ -1,3 +1,4 @@
+from hashlib import sha256
 from typing import Any, Sequence
 from sqlalchemy import Text, cast, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -6,7 +7,7 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseOrderRepository
 from ....core.schema import TimeBasedPagination
-from ....core.types import SafeDateTime
+from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, TUserParam
 from ....domain.models import (
     Bot,
@@ -344,6 +345,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         context: CardVisibilityContext,
         include_closed: bool = True,
         workflow_stages: list[str] | None = None,
+        additional_card_ids: Sequence[int] = (),
     ) -> list[tuple[Card, ProjectColumn]]:
         project_id = InfraHelper.convert_id(project)
         escaped_input = input_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -382,6 +384,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .where(Card.column("source_type") == None)  # noqa: E711
             .where(
                 or_(
+                    Card.id.in_(additional_card_ids[:20]) if additional_card_ids else false(),
                     title.ilike(pattern, escape="\\"),
                     _editor_search_text(Card.column("description"), dialect).ilike(pattern, escape="\\"),
                     comments,
@@ -403,6 +406,41 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             query = query.where(date_column < until)
         with DbSession.use(readonly=False) as db:
             return db.exec(query).all()
+
+    def validate_document_candidates(
+        self, project: TProjectParam, candidates: list[dict[str, str]], *, context: CardVisibilityContext
+    ) -> dict[int, list[dict[str, str]]]:
+        """Materialize bounded external candidates only from current authorized sources."""
+        sources: dict[int, list[dict[str, str]]] = {}
+        for source in candidates[:20]:
+            try:
+                attachment_id = InfraHelper.convert_id(source["attachment_uid"])
+                if 0 < attachment_id <= SnowflakeID.MAX_VALUE:
+                    sources.setdefault(attachment_id, []).append(source)
+            except (ValueError, TypeError, KeyError):
+                continue
+        if not sources:
+            return {}
+        statement = (
+            select(CardAttachment.id, Card.id, CardAttachment.filename, CardAttachment.document_text)
+            .join(Card, Card.id == CardAttachment.card_id)
+            .join(ProjectColumn, (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id))
+            .where(Card.project_id == InfraHelper.convert_id(project), card_visibility_scope(context))
+            .where(Card.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None), Card.source_type.is_(None))
+            .where(CardAttachment.id.in_(sources), CardAttachment.deleted_at.is_(None))
+            .where(CardAttachment.document_text != "", func.length(CardAttachment.document_text) <= 131072)
+            .order_by(CardAttachment.id).limit(20)
+        )
+        result: dict[int, list[dict[str, str]]] = {}
+        with DbSession.use(readonly=False) as db:
+            for attachment_id, card_id, filename, body in db.exec(statement).all():
+                fingerprint = sha256(body.encode("utf-8")).hexdigest()
+                if not any(source.get("card_uid") == card_id.to_short_code() and source.get("projection_hash") == fingerprint for source in sources[attachment_id]):
+                    continue
+                matches = result.setdefault(card_id, [])
+                if len(matches) < 2:
+                    matches.append({"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": body[:500]})
+        return result
 
     def search_document_matches(
         self, project: TProjectParam, card_ids: list[int], query: str, *, context: CardVisibilityContext

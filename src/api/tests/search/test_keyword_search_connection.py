@@ -6,6 +6,7 @@ import os
 import ssl
 import subprocess
 import sys
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from time import sleep
@@ -16,6 +17,24 @@ from langboard.commands.CheckKeywordSearchCommand import (
     check_elasticsearch_connection,
 )
 from langboard_shared.core.bootstrap import Commander
+from langboard_shared.core.db import DbSession
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.search.ElasticsearchKeywordSearch import search_document_candidates
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+from langboard_shared.core.storage import FileModel
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    CardAttachment,
+    CardComment,
+    EmployeeMembershipPolicy,
+    ProjectAssignedUser,
+    ProjectColumn,
+)
+from langboard_shared.domain.services import DomainService
+from langboard_shared.Env import Env
+from sqlalchemy import delete, update
 
 
 INDEX = "langboard-fixture-keywords-v1"
@@ -97,6 +116,11 @@ def endpoint(certificate):
                 value = {"version": {"number": "7.17.3" if mode == "legacy" else "9.5.1"}}
             else:
                 value = {"timed_out": mode == "incomplete", "_shards": {"failed": 0}, "hits": {"private": SECRET}}
+                if "candidate_hits" in state:
+                    callback = state.get("before_search")
+                    if callback:
+                        callback()
+                    value["hits"] = {"hits": state["candidate_hits"]}
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             if mode != "wrong-product":
@@ -255,7 +279,178 @@ class Absent(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, Absent())
 from langboard.commands.CheckKeywordSearchCommand import check_elasticsearch_connection
 assert "elasticsearch" not in sys.modules
+from langboard_shared.core.search.ElasticsearchKeywordSearch import search_document_candidates
+assert search_document_candidates("fixture", "query") is None
+assert "elasticsearch" not in sys.modules
 result = check_elasticsearch_connection("https://example.invalid", "instance-keywords", "fixture")
 assert result["code"] == "keyword_search_extra_required", result
 """
     subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
+
+
+def configure_document_search(monkeypatch, endpoint):
+    url, cert, _, _ = endpoint
+    for name, value in {
+        "DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED": "true",
+        "DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT": url,
+        "DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX": INDEX,
+        "DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS": cert,
+        "LANGBOARD_ELASTICSEARCH_API_KEY": SECRET,
+    }.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, monkeypatch):
+    configure_document_search(monkeypatch, endpoint)
+    _, _, calls, state = endpoint
+    board, card, attachment = (SnowflakeID(value).to_short_code() for value in (10, 101, 201))
+    source = {"board_uid": board, "card_uid": card, "attachment_uid": attachment, "projection_hash": "a" * 64}
+    state["candidate_hits"] = [
+        {"_source": {**source, "text": SECRET}},
+        {"_source": {**source, "board_uid": "foreign"}},
+        {"_source": {**source, "projection_hash": "invalid"}},
+    ]
+    assert search_document_candidates(board, "billing") == [
+        {key: source[key] for key in ("card_uid", "attachment_uid", "projection_hash")}
+    ]
+    method, path, body, _ = calls[0]
+    assert method == "POST" and path.startswith(f"/{INDEX}/_search")
+    assert body["size"] == 20 and "text" not in body["_source"]
+    assert body["query"]["bool"]["filter"] == [{"term": {"board_uid": board}}]
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false")
+    assert search_document_candidates(board, "billing") is None
+    assert len(calls) == 1
+
+
+@pytest.fixture
+def document_board(board, monkeypatch):
+    _, actor, project, _, _, columns, _ = board
+    engine = DbEngine.get_main_engine()
+    for model in (Bot, Card, CardAttachment, CardComment, EmployeeMembershipPolicy):
+        model.__table__.create(engine)
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
+    monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: ""))
+    sources = {}
+    hits = []
+    with DbSession.use(readonly=False) as db:
+        removed_column = ProjectColumn(project_id=project.id, name="Removed workflow", deleted_at=SafeDateTime.now())
+        foreign_column = ProjectColumn(project_id=11, name="Foreign workflow")
+        db.insert(removed_column)
+        db.insert(foreign_column)
+        for title, values in (
+            ("Visible", {}),
+            ("Internal", {"visibility": "INTERNAL"}),
+            ("Private", {"visibility": "PRIVATE", "owner_user_id": 2, "created_by_user_id": 2}),
+            ("Own private", {"visibility": "PRIVATE", "owner_user_id": actor.id, "created_by_user_id": actor.id}),
+            ("Foreign", {"project_id": 11}),
+            ("Deleted", {"deleted_at": SafeDateTime.now()}),
+            ("Stale", {}),
+            ("Deleted attachment", {}),
+            ("Oversized", {}),
+            ("Wrong link", {}),
+            ("Removed workflow", {"project_column_id": removed_column.id}),
+            ("Foreign workflow", {"project_column_id": foreign_column.id}),
+        ):
+            card = Card(project_id=project.id, project_column_id=columns[0].id, title=title, visibility="SHARED")
+            for key, value in values.items():
+                setattr(card, key, value)
+            db.insert(card)
+            text = "Current invoice source" if title != "Oversized" else "x" * 131073
+            attachment = CardAttachment(
+                card_id=card.id,
+                user_id=actor.id,
+                filename="invoice.pdf",
+                document_text=text,
+                file=FileModel(
+                    storage_type="test",
+                    storage_name="test",
+                    original_filename="invoice.pdf",
+                    filename="invoice.pdf",
+                    path="/test/invoice.pdf",
+                ),
+                deleted_at=SafeDateTime.now() if title == "Deleted attachment" else None,
+            )
+            db.insert(attachment)
+            sources[title] = (card, attachment)
+            hits.append(
+                {
+                    "_source": {
+                        "board_uid": project.get_uid(),
+                        "card_uid": sources["Visible"][0].get_uid() if title == "Wrong link" else card.get_uid(),
+                        "attachment_uid": attachment.get_uid(),
+                        "projection_hash": "a" * 64 if title == "Stale" else sha256(text.encode()).hexdigest(),
+                        "text": SECRET,
+                    }
+                }
+            )
+        db.insert(
+            Card(
+                project_id=project.id,
+                project_column_id=columns[0].id,
+                title="billing from PostgreSQL",
+                visibility="SHARED",
+            )
+        )
+    service = DomainService()
+    try:
+        yield service, actor, project, sources, hits
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("channel", [CollaborationChannel.HumanUI, CollaborationChannel.Mcp, CollaborationChannel.Api])
+def test_real_https_candidates_merge_with_primary_search_without_exposing_hidden_or_stale_sources(
+    document_board, endpoint, monkeypatch, channel
+):
+    service, actor, project, sources, hits = document_board
+    configure_document_search(monkeypatch, endpoint)
+    _, _, _, state = endpoint
+    state["candidate_hits"] = hits
+    results = service.card.search_context_by_project(project, "billing", user=actor, channel=channel)
+    expected = {"Visible", "billing from PostgreSQL"}
+    if channel != CollaborationChannel.Api:
+        expected.add("Own private")
+    assert {card["title"] for card in results} == expected
+    visible = next(card for card in results if card["title"] == "Visible")
+    assert visible["document_matches"] == [
+        {
+            "attachment_uid": sources["Visible"][1].get_uid(),
+            "filename": "invoice.pdf",
+            "snippet": "Current invoice source",
+        }
+    ]
+    assert SECRET not in json.dumps(results)
+    native = next(card for card in results if card["title"] == "billing from PostgreSQL")
+    assert "document_matches" not in native
+    state["mode"] = "503"
+    results = service.card.search_context_by_project(project, "billing", user=actor, channel=channel)
+    assert [card["title"] for card in results] == ["billing from PostgreSQL"]
+
+
+@pytest.mark.parametrize("change", ["membership", "source"])
+def test_primary_authority_and_hash_are_rechecked_after_remote_request(document_board, endpoint, monkeypatch, change):
+    service, actor, project, sources, hits = document_board
+    configure_document_search(monkeypatch, endpoint)
+    _, _, _, state = endpoint
+    state["candidate_hits"] = hits[:1]
+
+    def change_during_request():
+        with DbSession.use(readonly=False) as db:
+            if change == "membership":
+                db.exec(
+                    delete(ProjectAssignedUser).where(
+                        ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id
+                    )
+                )
+            else:
+                db.exec(
+                    update(CardAttachment)
+                    .where(CardAttachment.id == sources["Visible"][1].id)
+                    .values(document_text="Replaced source")
+                )
+
+    state["before_search"] = change_during_request
+    results = service.card.search_context_by_project(
+        project, "billing", user=actor, channel=CollaborationChannel.HumanUI
+    )
+    assert [card["title"] for card in results] == ([] if change == "membership" else ["billing from PostgreSQL"])

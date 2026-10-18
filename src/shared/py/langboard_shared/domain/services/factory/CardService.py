@@ -16,6 +16,7 @@ from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from ....core.exceptions.CardDescriptionConflict import CardDescriptionConflict
 from ....core.schema import TimeBasedPagination
+from ....core.search.ElasticsearchKeywordSearch import search_document_candidates
 from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import (
@@ -1112,7 +1113,20 @@ class CardService(BaseDomainService):
             return []
         project, context = resolved
 
+        if not context.active or not context.project_member:
+            return []
         cards = []
+        candidates = search_document_candidates(project.get_uid(), input_value)
+        external_matches = {}
+        if candidates is not None:
+            # A remote request may outlive membership or employee-policy revocation.
+            resolved = self.resolve_visibility_context(project, user, channel)
+            if resolved is None:
+                return []
+            project, context = resolved
+            if not context.active or not context.project_member:
+                return []
+            external_matches = self.repo.card.validate_document_candidates(project, candidates, context=context)
         records = self.repo.card.search_context_by_project(
             project,
             input_value,
@@ -1122,10 +1136,18 @@ class CardService(BaseDomainService):
             include_closed=include_closed,
             workflow_stages=workflow_stages,
             context=context,
+            **({"additional_card_ids": list(external_matches)} if external_matches else {}),
         )
         document_matches = self.repo.card.search_document_matches(
             project, [card.id for card, _ in records], input_value, context=context
         )
+        for card, _ in records:
+            if card.id not in external_matches:
+                continue
+            matches = document_matches.setdefault(card.id, [])
+            existing = {match["attachment_uid"] for match in matches}
+            matches.extend(match for match in external_matches.get(card.id, []) if match["attachment_uid"] not in existing)
+            document_matches[card.id] = matches[:2]
         states = self.get_work_states([card for card, _ in records], context=context) if include_work_state else {}
         for card, column in records:
             description = card.description.content

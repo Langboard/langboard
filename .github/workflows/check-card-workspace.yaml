@@ -13,6 +13,8 @@ on:
       - src/api/tests/core/test_snowflake_storage_safety.py
       - src/api/langboard/commands/CheckKeywordSearchCommand.py
       - src/api/tests/search/test_keyword_search_connection.py
+      - src/shared/py/langboard_shared/core/search/**
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository.py
       - pyproject.toml
       - src/shared/py/pyproject.toml
       - uv.lock
