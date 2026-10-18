@@ -68,6 +68,16 @@ the static assets; setting container environment variables later does not change
 them. The runtime stage serves those assets with nginx and has no URL rewrite
 entrypoint.
 
+Production builds reject relative or malformed URLs, unsupported protocols,
+embedded credentials, query strings, fragments and surrounding whitespace.
+API/UI endpoints accept HTTP(S); realtime also accepts WS(S). Localhost HTTP
+remains supported for self-hosted installations. Errors name the input without
+printing its value. This validates URL syntax, not the destination's isolation,
+reachability or authorization; those still require deployment acceptance.
+
+Run `node --test scripts/production-build-config.test.mjs` from `src/ui` to
+exercise the actual Vite configuration without compiling or publishing images.
+
 For staging, use the actual routed staging API, UI and compatible Langboard
 Phoenix URLs. Match the API's public URL/CORS configuration to those origins and
 keep the internal realtime/editor endpoints isolated too. `SOCKET_URL` accepts

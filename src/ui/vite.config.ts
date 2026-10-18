@@ -122,6 +122,17 @@ export default defineConfig(({ mode }) => {
             if (!process.env[key]) {
                 throw new Error(`${key} is required for a production UI build`);
             }
+            const value = process.env[key]!;
+            let url: URL;
+            try {
+                url = new URL(value);
+            } catch {
+                throw new Error(`${key} must be an absolute URL for a production UI build`);
+            }
+            const protocols = key === "SOCKET_URL" ? ["http:", "https:", "ws:", "wss:"] : ["http:", "https:"];
+            if (value !== value.trim() || !protocols.includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+                throw new Error(`${key} must use a supported protocol without credentials, query, fragment or surrounding whitespace`);
+            }
         }
     }
 
