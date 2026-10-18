@@ -371,3 +371,28 @@ locale browser profile; no new job/runner/ref is introduced.
 These are local source/component checks. Actual model download, reconnect and
 selector switching on a new canary image remain unverified. No installed model,
 provider, credential or server-side pull state was changed for this regression.
+
+## Shared store snapshots and target changes
+
+The same manual-subscription pattern remained in MCP tools, bot status, active
+editor and user settings. The original real-browser regression kept the first
+MCP tool after switching the target without a store event. Use existing Zustand
+selectors for all four stores, removing copied React state and effect-driven
+subscriptions. User settings persistence, per-user sidebar policy and store
+public exports remain unchanged. No generic selector wrapper is introduced.
+
+Two native store regressions also failed before correction: MCP upsert/delete
+mutated previous tools snapshots, and bot status writes mutated the published
+map. Both now use the stores' existing Immer draft setter. A repeated `running`
+status is idempotent for the same bot/target; one `stopped` removes that bot while
+other running bots remain. The transport reports current status, not a start/
+stop reference count. Original diagnostic logs are retained.
+
+Fixed node snapshot tests2pass; Chromium target-switch and adjacent Ollama
+checks3pass. The target test covers MCP tool name, bot type/target, current editor
+name and selected user-setting key without an intervening store write. Related
+workbench preference/pin checks, TypeScript and targeted lint/format are recorded
+in the private receipt. Existing localization validation runs the small snapshot
+suite and the existing browser profile. No new dependency, job, runner or workflow
+ref. Deployed reconnect/event delivery and account/browser acceptance remain
+unverified; these tests do not establish a whole-board latency improvement.

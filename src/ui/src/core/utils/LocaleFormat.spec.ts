@@ -329,3 +329,16 @@ test("Ollama tracker switches model without a store event and accepts zero progr
     await page.getByRole("button", { name: "Reset pull progress", exact: true }).click();
     await expect(tracker).toContainText("0.00%");
 });
+
+test("store selectors follow changed targets without waiting for unrelated events", async ({ page }) => {
+    await page.goto("/src/core/utils/LocaleFormat.fixture.html");
+    await expect(page.getByTestId("selected-tool")).toHaveText("First tool");
+    await expect(page.getByTestId("selected-running")).toHaveText("true");
+    await expect(page.getByTestId("selected-editor")).toHaveText("false");
+    await expect(page.getByTestId("selected-setting")).toHaveText(JSON.stringify("7d"));
+    await page.getByRole("button", { name: "Switch stored target", exact: true }).click();
+    await expect(page.getByTestId("selected-tool")).toHaveText("Second tool");
+    await expect(page.getByTestId("selected-running")).toHaveText("false");
+    await expect(page.getByTestId("selected-editor")).toHaveText("true");
+    await expect(page.getByTestId("selected-setting")).toContainText("network");
+});

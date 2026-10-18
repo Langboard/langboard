@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type { TOpenCardsByUser } from "@/pages/DashboardPage/components/OpenCardsData";
@@ -74,22 +74,8 @@ const useUserSettingsStore = create(
 
 export const getUserSettingsStore = () => useUserSettingsStore.getState();
 
-export const useUserSettings = <TKey extends keyof IUserSettings>(key: TKey): IUserSettings[TKey] => {
-    const [settings, setSettings] = useState(getUserSettingsStore().settings[key]);
-
-    useEffect(() => {
-        const off = useUserSettingsStore.subscribe((state) => {
-            const newSettings = state.settings[key];
-            if (newSettings !== settings) {
-                setSettings(newSettings);
-            }
-        });
-
-        return off;
-    }, [settings, setSettings, key]);
-
-    return settings;
-};
+export const useUserSettings = <TKey extends keyof IUserSettings>(key: TKey): IUserSettings[TKey] =>
+    useUserSettingsStore((state) => state.settings[key]);
 
 export const useWorkbenchContextOpen = (userUID?: string) => {
     const saved = useUserSettings("workbench_context_open");

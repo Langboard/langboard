@@ -1,3 +1,7 @@
+import { getMcpToolStore, useMcpTool } from "@/core/stores/McpToolStore";
+import { getBotStatusStore, useHasRunningBot } from "@/core/stores/BotStatusStore";
+import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
+import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { BoardProvider } from "@/core/providers/BoardProvider";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import BoardColumnCardCollapsible from "@/pages/BoardPage/components/board/BoardColumnCardCollapsible";
@@ -130,6 +134,32 @@ function PlaceholderFixture() {
     );
 }
 
+getMcpToolStore().replaceTools([
+    { name: "first", description: "First tool", input_schema: {} },
+    { name: "second", description: "Second tool", input_schema: {} },
+]);
+getBotStatusStore().replaceMap({ card: { first: ["bot"] }, project_column: { second: [] } });
+getEditorStore().setCurrentEditor("second");
+getUserSettingsStore().updateSettings({ notifications_time_range: "7d", graph_view_modes: { fixture: "network" } });
+
+function StoreSelectionFixture() {
+    const [second, setSecond] = useState(false);
+    const name = second ? "second" : "first";
+    const tool = useMcpTool(name);
+    const running = useHasRunningBot({ type: second ? "project_column" : "card", targetUID: name });
+    const currentEditor = useIsCurrentEditor(name);
+    const setting = useUserSettings(second ? "graph_view_modes" : "notifications_time_range");
+    return (
+        <section data-testid="store-selection">
+            <output data-testid="selected-tool">{tool?.description}</output>
+            <output data-testid="selected-running">{String(running)}</output>
+            <output data-testid="selected-editor">{String(currentEditor)}</output>
+            <output data-testid="selected-setting">{JSON.stringify(setting)}</output>
+            <button onClick={() => setSecond(!second)}>Switch stored target</button>
+        </section>
+    );
+}
+
 function Fixture() {
     const [t, language] = useTranslation();
     const [pullName, setPullName] = useState("locale-progress");
@@ -143,6 +173,7 @@ function Fixture() {
     const distance = useUpdateDateDistance(date);
     return (
         <>
+            <StoreSelectionFixture />
             <div data-testid="media-placeholders">
                 <PlaceholderFixture />
             </div>

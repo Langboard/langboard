@@ -12,6 +12,11 @@ on:
       - src/ui/src/core/utils/LocaleRuntime*
       - src/ui/src/core/utils/LocaleFormat*
       - src/ui/src/core/hooks/useUpdateDateDistance.ts
+      - src/ui/src/core/stores/McpToolStore.ts
+      - src/ui/src/core/stores/BotStatusStore.ts
+      - src/ui/src/core/stores/EditorStore.ts
+      - src/ui/src/core/stores/UserSettingsStore.ts
+      - src/ui/src/core/stores/StoreSnapshot.test.ts
       - src/ui/src/core/stores/OllamaModelStore*
       - src/ui/src/pages/SettingsPage/components/ollama/OllamaModelTracker.tsx
       - src/ui/src/core/hooks/useTimerDuration.ts
@@ -101,6 +106,8 @@ jobs:
       - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
+        working-directory: src/ui
+      - run: yarn test:store-snapshots
         working-directory: src/ui
       - run: yarn test:ollama-model-store
         working-directory: src/ui
