@@ -4,6 +4,11 @@ The request workflow uses one standard-library client for review validation and
 product image requests. Both use the current GitHub Actions OIDC identity; the
 source repository does not need a central dispatch token.
 
+The request job uses the operator-configured `CI_RUNNER` in a standard Ubuntu
+job container. It is skipped when no runner is configured; it does not fall back
+to GitHub-hosted compute. The container supplies Python, Git and CA certificates
+for the request client. Validation and image building remain executor operations.
+
 ```sh
 # Review validation: v1, current PR required, review ref only.
 python3 scripts/image_build/request_validation.py

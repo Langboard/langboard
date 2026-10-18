@@ -138,9 +138,12 @@ class BrokerClientTest(unittest.TestCase):
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
-        self.assertEqual(job["runs-on"], "ubuntu-latest")
-        self.assertNotIn("CI_RUNNER", job["if"])
-        self.assertNotIn("container", job)
+        self.assertEqual(job["runs-on"], '${{ fromJSON(vars.CI_RUNNER || \'"unconfigured"\') }}')
+        self.assertIn("vars.CI_RUNNER != '' && (", job["if"])
+        self.assertEqual(job["container"], "ubuntu:24.04")
+        self.assertEqual(job["defaults"]["run"]["shell"], "bash")
+        bootstrap = steps["Prepare standard request tools"]
+        self.assertIn("ca-certificates git python3", bootstrap["run"])
         checkout = steps["Checkout federated request client"]
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
