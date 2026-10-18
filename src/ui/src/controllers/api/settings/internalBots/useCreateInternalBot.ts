@@ -1,4 +1,8 @@
 import { Routing } from "@langboard/core/constants";
+import { CanceledError } from "axios";
+import { getAuthStore } from "@/core/stores/AuthStore";
+import { ROLE_ALL_GRANTED } from "@/core/models/roles/base";
+import { SettingRole } from "@/core/models/roles";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { InternalBotModel } from "@/core/models";
@@ -20,6 +24,14 @@ const useCreateInternalBot = (options?: TMutationOptions<ICreateInternalBotForm>
     const { mutate } = useQueryMutation();
 
     const createInternalBot = async (params: ICreateInternalBotForm) => {
+        const image = params.bot_type === InternalBotModel.EInternalBotType.ImageGeneration;
+        const actor = getAuthStore().currentUser;
+        const allowed = () =>
+            !!actor &&
+            getAuthStore().currentUser === actor &&
+            actor.setting_role_actions.some((action) => action === ROLE_ALL_GRANTED || action === SettingRole.EAction.InternalBotCreate);
+        if (image && !allowed()) throw new CanceledError("Image profile permission changed");
+
         const formData = new FormData();
         Object.entries(params).forEach(([key, value]) => {
             if (Utils.Type.isNullOrUndefined(value)) {
@@ -41,9 +53,12 @@ const useCreateInternalBot = (options?: TMutationOptions<ICreateInternalBotForm>
 
         const res = await api.post(Routing.API.SETTINGS.INTERNAL_BOTS.CREATE, formData, {
             env: {
-                interceptToast: options?.interceptToast,
+                interceptToast: image || options?.interceptToast,
+                secretInput: image,
             } as never,
         });
+
+        if (image && !allowed()) throw new CanceledError("Image profile changed");
 
         return res.data;
     };

@@ -4,7 +4,8 @@
     "editor_chat": "编辑器聊天",
     "editor_copilot": "编辑器Copilot",
     "document_vision": "文档视觉 · document-vision",
-    "document_embedding": "文档嵌入 · document-embedding"
+    "document_embedding": "文档嵌入 · document-embedding",
+    "image_generation": "图像生成"
   },
   "Process new uploads": "自动处理新上传的文档",
   "Existing attachments require explicit processing": "仅在上传时应用。请在卡片中手动处理现有附件。更改此设置不会重新处理旧文件。",
@@ -58,5 +59,34 @@
     "search_help": "MMR平衡相关性与多样性。相似度最低分数留空时不进行筛选。",
     "store_postgres": "PostgreSQL (pgvector)",
     "store_postgres_help": "使用主PostgreSQL数据库的pgvector。现有SQLite数据保留在原存储中，修改设置不会迁移或重新索引附件。"
+  },
+  "image": {
+    "title": "图像生成",
+    "key_saved": "密钥已保存在服务器上。留空以保留。更改提供商或端点需要新密钥。",
+    "key_private": "密钥保存在服务器Vault中，不会返回编辑器。",
+    "fetch_models": "获取模型",
+    "save_before_test": "使用已保存的连接前，请先保存更改。",
+    "catalog_failed": "无法获取模型。可以直接输入模型ID。",
+    "available_models": "可用模型",
+    "size": "图像尺寸",
+    "quality": "质量",
+    "response_format": "响应格式",
+    "provider_default": "提供商默认值",
+    "supported_options": "仅选择图像模型支持的选项。模型列表不代表支持图像生成。",
+    "enabled": "启用此图像配置",
+    "test_title": "图像生成测试",
+    "prompt": "描述测试图标",
+    "consent": "将此提示词发送给外部图像提供商。可能产生生成费用。",
+    "preview_only": "仅测试预览。不会更改看板或个人头像。",
+    "generating": "正在生成…",
+    "generate_test": "生成测试图像",
+    "preview": "生成预览",
+    "save_failed": "无法保存。请检查端点、模型、密钥和权限。",
+    "quota": "已达到提供商用量或请求限制。未自动重试。",
+    "timeout": "生成等待超时。提供商仍可能收费。",
+    "generation_failed": "生成失败。请检查图像模型设置和权限。",
+    "cancelled": "已停止等待。这不代表取消提供商任务或退费。",
+    "required": "请输入有效端点URL和图像模型ID。",
+    "base_url": "基础 URL"
   }
 }
