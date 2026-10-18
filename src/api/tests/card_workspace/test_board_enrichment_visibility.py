@@ -12,6 +12,7 @@ from langboard_shared.domain.models import (
     CardAssignedUser,
     CardRelationship,
     GlobalCardRelationshipType,
+    GlobalLabel,
     Project,
     ProjectAssignedUser,
     ProjectLabel,
@@ -22,25 +23,25 @@ from langboard_shared.infrastructure.repositories.factory.CardAssignedUserReposi
 from langboard_shared.infrastructure.repositories.factory.CardRelationshipRepository import CardRelationshipRepository
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.ProjectLabelRepository import ProjectLabelRepository
-from sqlalchemy import create_engine
 
 
 @pytest.mark.parametrize("internal", [False, True])
-def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypatch, internal):
-    engine = create_engine("sqlite://")
+def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(board, monkeypatch, internal):
+    engine = DbEngine.get_main_engine()
     for model in (
         User,
         Bot,
         Project,
         ProjectAssignedUser,
         Card,
+        GlobalLabel,
         ProjectLabel,
         CardAssignedUser,
         CardAssignedProjectLabel,
         GlobalCardRelationshipType,
         CardRelationship,
     ):
-        model.__table__.create(engine)
+        model.__table__.create(engine, checkfirst=True)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     try:
@@ -72,7 +73,10 @@ def test_board_enrichment_filters_hidden_deleted_foreign_and_cold_cards(monkeypa
                 ("Cold archive", {"archived_at": cutoff - timedelta(seconds=1)}),
                 ("Recent archive", {"archived_at": cutoff}),
             ):
-                card = Card(project_id=project.id, title=title, visibility="SHARED", created_by_user_id=user.id)
+                card = Card(
+                    project_id=project.id, project_column_id=board[5][0].id,
+                    title=title, visibility="SHARED", created_by_user_id=user.id,
+                )
                 for key, value in fields.items():
                     setattr(card, key, value)
                 db.insert(card)

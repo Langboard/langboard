@@ -627,3 +627,19 @@ archive rows explicitly SHARED before recording the failing baseline.
 This bounds work on empty visible boards. It does not establish a latency gain
 for populated boards or a deployed canary improvement. Original before/after logs
 remain in `.verification/empty-board-{before,after}-20261018.log`.
+
+## PostgreSQL enrichment parity (2026-10-18)
+
+The existing assignment/label/creator/relationship scope regression now reuses
+the shared SQLite and isolated PostgreSQL fixture instead of creating only a
+SQLite engine. Both internal and external actors exercise the same hidden,
+private, deleted, foreign and cold/recent archive cases. PostgreSQL exposed a
+missing GlobalLabel foreign-key prerequisite in the test setup; the existing
+model table is now included. This was a fixture preparation failure, not a
+product query failure. No production query, policy or database state changed.
+
+The combined enrichment, empty/nonempty snapshot and narrow column-policy suite
+passed 13 tests with no skips in 13.90 seconds using disposable PostgreSQL and
+SQLite. The earlier failed run (2 failed, 11 passed) is preserved separately.
+This closes the database coverage gap for those scope assertions; it does not
+prove operating latency improvement or authenticated canary release acceptance.
