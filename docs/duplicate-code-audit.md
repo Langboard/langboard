@@ -264,3 +264,25 @@ Python package validator and introduces no runtime dependency. Sixteen packages
 passed actual host validation and declaration parity; source SDK/app tests and
 known deployed gaps are recorded in docs/external-app-sdk.md. This extraction is
 outside the UI-only exact-body count above, which remains a separate metric.
+
+## Remove the unconnected Python navigator search (2026-10-18)
+
+The internal `domain/contracts/project_search.py` module implemented a second
+in-memory title/fuzzy/recency scorer. Repository-wide references found only its
+own test module: no API, Graph, UI, SDK, documented contract or workflow consumed
+it. Its package initializer did not export its names. Actual project discovery
+and board-card search use the existing permission-scoped native services.
+
+Delete the unused implementation and its self-contained tests instead of adding
+an adapter or optimizing an unreachable path. Production Python decreases by
+136 lines, dedicated tests by82, with zero added runtime dependencies, public
+tools, protocol methods, persistence owners, migrations or network/DB hops. This
+is a source-maintenance reduction, not a runtime latency gain. Git history
+preserves the removed implementation.
+
+The actual project-discovery and user-MCP suites pass19 checks after deletion,
+including governed lookup, bounded/invalid queries, UTC normalization, native
+search reuse and the unchanged legacy card-list schema. Static references in
+product source, docs and workflows were checked again after deletion. Live native
+MCP project discovery still finds the intended board, but that deployed read does
+not itself exercise the newly pruned source image.
