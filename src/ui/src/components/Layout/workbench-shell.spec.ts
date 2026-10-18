@@ -573,6 +573,42 @@ test("rail keeps settings reachable below scrolling workspace actions", async ({
     await expect(settings).toBeFocused();
 });
 
+for (const storageFailure of ["malformed", "null", "read-denied", "write-denied"] as const) {
+    test(`settings storage ${storageFailure} does not prevent shell navigation`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.addInitScript((failure) => {
+            const key = "user-settings-store";
+            if (failure === "malformed" || failure === "null") localStorage.setItem(key, failure === "null" ? "null" : "{broken");
+            if (failure === "read-denied") {
+                const getItem = Storage.prototype.getItem;
+                Storage.prototype.getItem = function (name) {
+                    if (name === key) throw new DOMException("Storage unavailable", "SecurityError");
+                    return getItem.call(this, name);
+                };
+            }
+            if (failure === "write-denied") {
+                const setItem = Storage.prototype.setItem;
+                Storage.prototype.setItem = function (name, value) {
+                    if (name === key) throw new DOMException("Storage full", "QuotaExceededError");
+                    return setItem.call(this, name, value);
+                };
+            }
+        }, storageFailure);
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+        if (storageFailure === "malformed" || storageFailure === "null") {
+            expect(await page.evaluate(() => localStorage.getItem("user-settings-store"))).toBe(storageFailure === "null" ? "null" : "{broken");
+        }
+        const sidebar = page.locator("[data-workbench-sidebar]");
+        await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Board", exact: true })).toBeVisible();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+        expect(errors).toEqual([]);
+    });
+}
+
 for (const width of [1440, 1100]) {
     test(`explicit sidebar preference survives navigation and reload at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });

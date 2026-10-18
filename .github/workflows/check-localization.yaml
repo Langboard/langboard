@@ -47,6 +47,7 @@ on:
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.workbench.config.ts
+      - src/ui/src/components/Layout/workbench-shell.spec.ts
       - src/ui/playwright.explorer-recovery.config.ts
       - src/ui/playwright.card-description-static.config.ts
       - src/ui/playwright.table-selection.config.ts
@@ -169,6 +170,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui
 
+      - run: yarn playwright test -c playwright.workbench.config.ts -g 'settings storage|explicit sidebar preference|sidebar preference belongs'
+        if: github.event_name != 'workflow_dispatch'
+        working-directory: src/ui
       - run: yarn playwright test -c playwright.workbench.config.ts
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui

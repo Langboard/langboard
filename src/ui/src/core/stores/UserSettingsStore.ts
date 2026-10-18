@@ -31,16 +31,30 @@ interface IUserSettingsStore {
 
 const USER_SETTINGS_STORE_STORAGE_KEY = "user-settings-store";
 
+const readSettings = (): IUserSettings => {
+    try {
+        const settings = JSON.parse(localStorage.getItem(USER_SETTINGS_STORE_STORAGE_KEY) || "{}");
+        return settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+    } catch {
+        // Browser preferences must not prevent app initialization. Leave the stored value intact.
+        return {};
+    }
+};
+
 const useUserSettingsStore = create(
     immer<IUserSettingsStore>((set, get) => {
         const updateStorage = () => {
             setTimeout(() => {
-                localStorage.setItem(USER_SETTINGS_STORE_STORAGE_KEY, JSON.stringify(get().settings));
+                try {
+                    localStorage.setItem(USER_SETTINGS_STORE_STORAGE_KEY, JSON.stringify(get().settings));
+                } catch {
+                    // Keep this session usable when browser storage is unavailable or full.
+                }
             }, 0);
         };
 
         return {
-            settings: JSON.parse(localStorage.getItem(USER_SETTINGS_STORE_STORAGE_KEY) || "{}"),
+            settings: readSettings(),
             updateSettingsByKey: (key, value) => {
                 set((state) => {
                     state.settings[key] = value;

@@ -396,3 +396,25 @@ in the private receipt. Existing localization validation runs the small snapshot
 suite and the existing browser profile. No new dependency, job, runner or workflow
 ref. Deployed reconnect/event delivery and account/browser acceptance remain
 unverified; these tests do not establish a whole-board latency improvement.
+
+## Browser preference storage availability
+
+The shared user-settings store parsed local storage during module initialization
+and wrote preferences in an unguarded timeout. Real Chromium reproductions failed
+for malformed JSON, a stored `null`, a storage-read `SecurityError` and a write
+`QuotaExceededError`. These failures could prevent shell initialization or create
+an unhandled error after changing a preference.
+
+Guard only the existing read/parse and write boundaries. Invalid or unavailable
+storage starts with empty in-memory preferences; reading does not delete or rewrite
+the stored value. Explicit later edits use the normal persistence path. When a
+write fails, current-session interaction remains available, but persistence across
+reloads is not guaranteed. No retry loop, storage migration or new dependency is
+introduced. This does not change authentication or server-side account settings.
+
+The four original browser failures and three adjacent preference/navigation checks
+now pass (7 total), including reload at 1440px/1100px and current-user separation.
+Application TypeScript and targeted lint/format pass. The existing localization
+job runs this bounded group for PRs and retains the full workbench suite on manual
+dispatch. This is local source/component evidence, not new-image canary acceptance
+or a measured improvement to server request latency.
