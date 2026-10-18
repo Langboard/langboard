@@ -600,6 +600,15 @@ visibility, own/other private cards, deleted/archive exclusion, exact latest
 timer anchors, and the existing two-query bound. This establishes source and DB
 behavior, not a new canary release or a measured operating latency reduction.
 
+The same query now hydrates only the checkitem ID, timer owner, title, status
+and accumulated seconds, plus checklist ID/card ID. Checklist titles and unused
+checkitem deadlines, cardification references and timestamps stay unloaded with
+`raiseload=True`. Filters, ordering and the two-query bound are unchanged.
+The existing real SQL regression failed twice before this projection (SQLite
+and PostgreSQL); the batch suite and avatar/timer projection passed all 15 cases
+afterward. Public checkitem detail reads are unchanged. No operating latency
+improvement is claimed until the product image is deployed and measured.
+
 ## Scope relationship enrichment before hydration
 
 The board snapshot passes its current visibility context to the existing

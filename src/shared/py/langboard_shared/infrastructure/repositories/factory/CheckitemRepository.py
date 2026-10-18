@@ -1,4 +1,5 @@
 from sqlalchemy import case, func, select
+from sqlalchemy.orm import load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseOrderRepository
 from ....core.schema import TimeBasedPagination
@@ -62,10 +63,21 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
         *,
         context: CardVisibilityContext | None = None,
     ) -> list[tuple[Checkitem, Checklist, SafeDateTime | None]]:
-        """Fetch live-card timer owners and latest anchors in two bounded queries."""
+        """Fetch timer avatar fields and checklist identity in two bounded queries."""
         project_id = InfraHelper.convert_id(project)
         query = (
             SqlBuilder.select.tables(Checkitem, Checklist)
+            .options(
+                load_only(
+                    Checkitem.id,
+                    Checkitem.user_id,
+                    Checkitem.title,
+                    Checkitem.status,
+                    Checkitem.accumulated_seconds,
+                    raiseload=True,
+                ),
+                load_only(Checklist.id, Checklist.card_id, raiseload=True),
+            )
             .join(Checklist, Checkitem.column("checklist_id") == Checklist.column("id"))
             .join(Card, Checklist.column("card_id") == Card.column("id"))
             .where(Card.column("project_id") == project_id)

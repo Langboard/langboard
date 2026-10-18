@@ -13,7 +13,7 @@ from langboard_shared.infrastructure.repositories.factory.CheckitemRepository im
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
     CheckitemTimerRecordRepository,
 )
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 
@@ -51,6 +51,11 @@ def test_active_workers_share_timestamp_ordering_and_keep_two_queries(timer_engi
     try:
         result = workers.get_active_workers_by_project(10)
         assert len(statements) == 2
+        for item, checklist, _ in result:
+            assert {"deadline_at", "cardified_id", "created_at", "updated_at"} <= inspect(item).unloaded
+            assert {"title", "is_checked", "created_at", "updated_at"} <= inspect(checklist).unloaded
+            assert item.title.startswith("Work ") and item.user_id == 2
+            assert checklist.card_id == 2000
         anchors = {int(item.id): anchor for item, _, anchor in result}
         assert set(anchors) == {1, 2, 3}
         assert anchors[1].replace(tzinfo=UTC) == late
