@@ -3,6 +3,7 @@
 from hashlib import sha256
 from json import dumps, loads
 from typing import Annotated, Any
+from uuid import uuid4
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -25,6 +26,15 @@ from ..domain import WorkPlanConflict
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
 Ref = Annotated[str, Field(min_length=1, max_length=80)]
+
+
+class WorkPlanRejected(ValueError):
+    """An explicitly safe work-plan rejection, independent of transport masking."""
+
+    def __init__(self, code: str, message: str, next_action: str):
+        self.code, self.message, self.next_action = code, message, next_action
+        self.request_id = uuid4().hex
+        super().__init__(f"{code}: {message} request_id={self.request_id}")
 
 
 class PlanModel(BaseModel):
@@ -99,29 +109,31 @@ class WorkPlan(PlanModel):
                 self.new_checklists,
             )
         ):
-            raise ValueError("Work plan contains no changes")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "Work plan contains no changes", "revise_plan")
         refs = [c.client_ref for c in self.new_cards] + [c.client_ref for c in self.cardify_checkitems]
         if len(refs) != len(set(refs)):
-            raise ValueError("Duplicate created card reference")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "Duplicate created card reference", "revise_plan")
         if any(not c.client_ref.startswith("new:") or not c.client_ref[4:] for c in self.new_cards):
-            raise ValueError("New card references must start with new:")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "New card references must start with new:", "revise_plan")
         if any(not c.client_ref.startswith("cardify:") or not c.client_ref[8:] for c in self.cardify_checkitems):
-            raise ValueError("Cardification references must start with cardify:")
+            raise WorkPlanRejected(
+                "WORK_PLAN_INVALID", "Cardification references must start with cardify:", "revise_plan"
+            )
         ids = [c.checkitem_uid for c in self.cardify_checkitems]
         if len(ids) != len(set(ids)):
-            raise ValueError("A checkitem may be cardified only once")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "A checkitem may be cardified only once", "revise_plan")
         if len(self.add_edges) + len(self.remove_relationship_uids) > 25:
-            raise ValueError("Too many relationship changes")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "Too many relationship changes", "revise_plan")
         declared = set(refs)
         referenced = {c.target_card_ref for c in self.new_checklists}
         referenced |= {r for e in self.add_edges for r in (e.parent_ref, e.child_ref)}
         if any(r.startswith(("new:", "cardify:")) and r not in declared for r in referenced):
-            raise ValueError("Unknown created card reference")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "Unknown created card reference", "revise_plan")
         edges = [(e.parent_ref, e.child_ref, e.relationship_type_uid) for e in self.add_edges]
         if len(edges) != len(set(edges)) or len(self.remove_relationship_uids) != len(
             set(self.remove_relationship_uids)
         ):
-            raise ValueError("Duplicate relationship change")
+            raise WorkPlanRejected("WORK_PLAN_INVALID", "Duplicate relationship change", "revise_plan")
         return self
 
 
@@ -132,8 +144,14 @@ class WorkPlanService:
     def _card(self, uid, project):
         resolved = self.service.card.resolve_readable_card(project, uid, self.actor, CollaborationChannel.Mcp)
         card = resolved[1] if resolved else None
-        if not card or card.project_id != project.id or card.archived_at or card.deleted_at or card.is_linked_resource:
-            raise ValueError("Work plan card is unavailable")
+        if not card or card.project_id != project.id or card.deleted_at or card.is_linked_resource:
+            raise WorkPlanRejected("CARD_UNAVAILABLE", "Work plan card is unavailable.", "read_and_review")
+        if card.archived_at:
+            raise WorkPlanRejected(
+                "CARD_ARCHIVED",
+                "Work plan card is archived. Restore the card or choose an active card, then preview again.",
+                "restore_or_choose_active_card",
+            )
         return card
 
     def _preview(self, plan):
