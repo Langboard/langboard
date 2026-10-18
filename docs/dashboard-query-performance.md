@@ -1,5 +1,22 @@
 # Dashboard related-activity projection
 
+## Authenticated canary recheck, 2026-10-18
+
+Two sequential large-board requests returned HTTP 200. Browser CDP response
+headers arrived after 4,100.735 ms and 1,546.117 ms; the corresponding server
+`app` durations were 3,894.365 ms and 1,431.957 ms. Server processing therefore
+accounts for most of these observations before client rendering. These two
+samples do not establish percentiles, a CPU/SQL root cause or an improvement
+against a previous release. Exact request identifiers and timestamps remain in
+the private verification receipt for bounded operational correlation.
+
+The observed release exposes only aggregate `app` timing, not the source's
+`board_context`, `board_cards`, `board_checklists`, `board_bots` and
+`board_serialize` phases. Consequently this recheck cannot attribute latency
+to those phases or validate the pending source optimizations. Read-only
+operational correlation must inspect the same request window for worker/CPU,
+database and connection-pool evidence before selecting another runtime change.
+
 ## Timer endpoint projection, 2026-10-17
 
 Board active-worker avatars now reuse this repository through the existing
