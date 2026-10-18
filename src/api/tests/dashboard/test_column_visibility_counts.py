@@ -20,13 +20,16 @@ from langboard_shared.domain.models import (
     ProjectActivity,
     ProjectAssignedUser,
     ProjectColumn,
+    ProjectRole,
     User,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
+from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
 from langboard_shared.domain.services.factory.ProjectService import ProjectService
+from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories.factory.ProjectColumnRepository import ProjectColumnRepository
 from langboard_shared.infrastructure.repositories.factory.ProjectRepository import ProjectRepository
 from sqlalchemy import create_engine, event, text
@@ -59,6 +62,7 @@ def counts_db(request, monkeypatch):
             User,
             Project,
             ProjectColumn,
+            ProjectRole,
             Card,
             Checklist,
             Checkitem,
@@ -168,7 +172,6 @@ def test_dashboard_counts_hide_internal_and_other_users_private_cards_in_one_bat
     ],
 )
 def test_dashboard_project_summary_does_not_advertise_hidden_card_activity(counts_db, channel, day, unread):
-
     with DbSession.use(readonly=False) as db:
         actor = User(
             firstname="Summary", lastname="Viewer", email="summary@example.invalid", password="test-only", is_admin=True
@@ -230,3 +233,42 @@ def test_dashboard_project_summary_does_not_advertise_hidden_card_activity(count
     assert projects[0]["related_activity_at"] is None
     assert projects[0]["related_to_current_user"] is False
     assert projects[0]["board_has_unread_change"] is False
+
+
+@pytest.mark.parametrize("project_count", [1, 20])
+@pytest.mark.parametrize("channel", [CollaborationChannel.HumanUI, CollaborationChannel.Mcp, CollaborationChannel.Api])
+def test_assigned_work_does_not_load_dashboard_summaries_or_repeat_authority(
+    counts_db, monkeypatch, project_count, channel
+):
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+    with DbSession.use(readonly=False) as db:
+        actor = User(
+            firstname="Assigned",
+            lastname="Viewer",
+            email="assigned@example.invalid",
+            password="test-only",
+            activated_at=SafeDateTime.now(),
+            is_admin=True,
+        )
+        db.insert(actor)
+        for number in range(project_count):
+            project = Project(owner_id=actor.id, title=f"Assigned {number}")
+            db.insert(project)
+            db.insert(ProjectAssignedUser(project_id=project.id, user_id=actor.id))
+    statements = []
+    event.listen(
+        counts_db,
+        "before_cursor_execute",
+        lambda *args: statements.append(args[2]) if args[2].lstrip().upper().startswith("SELECT") else None,
+    )
+    with DomainService.use() as service:
+        assert service.card.list_assigned_work(actor, limit=1, channel=channel) == {"items": [], "next_cursor": None}
+    assert len(statements) == 3  # current account, current membership/read grants, one assigned page
+    assert not any("project_activity" in query or "max(card.last_change_seq)" in query for query in statements)
+    with DbSession.use(readonly=False) as db:
+        actor.activated_at = None
+        db.update(actor)
+    statements.clear()
+    with DomainService.use() as service:
+        assert service.card.list_assigned_work(actor, limit=1, channel=channel) == {"items": [], "next_cursor": None}
+    assert len(statements) == 1  # current inactive account stops before membership or card reads

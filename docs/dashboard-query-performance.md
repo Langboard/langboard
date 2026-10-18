@@ -935,3 +935,28 @@ establish pool wait during the earlier requests. The database has no installed
 pg_stat_statements extension; the current logs expose neither per-request SQL
 counts nor pool acquisition duration. Root-cause attribution therefore remains
 incomplete. No runtime setting, extension or restart was changed for observation.
+
+## Assigned-work reads omit dashboard projections
+
+Native `list_my_work` and REST `/dashboard/work/assigned` previously loaded the
+full dashboard project summary before reading one assigned-card page. That
+triggered activity/related-work/MAX cursor aggregates and resolved the current
+cross-board audience twice. In a real `DomainService` empty-queue fixture with
+one or20 readable boards, the existing implementation executed seven SELECTs.
+
+Resolve the existing current-account/membership policy once, derive readable
+project UIDs from that snapshot, then execute the same bounded assigned-card
+query. The wrapper's only caller is folded into `list_assigned_work`; no new
+application layer, cache, adapter, dependency or authorization implementation.
+Limit/cursor validation, explicit inaccessible-project rejection, lookahead,
+work-state payloads, timestamp/project/card keyset and base64 cursor remain.
+The legacy multi-purpose My Work endpoint is outside this particular change.
+
+The same real empty-queue fixture executes three SELECTs after the change: the
+current account, current membership/read grants, and the assigned page. This is
+independent of one versus20 boards and tested for human UI/MCP/generic API.
+Queries to project activity and MAX card-change cursors are absent. Nonempty
+pages still perform their existing bounded work-state enrichment; three is not
+a claim about every My Work request or deployed latency. Existing live-DB tests
+retain private-card filtering before pagination, and the native cursor regression
+now exercises the repository boundary rather than mocking the removed wrapper.

@@ -1218,13 +1218,8 @@ class CardService(BaseDomainService):
         """Shared REST/MCP assigned-work query with current read grants and keyset pagination."""
         if type(limit) is not int or not 1 <= limit <= 25:
             raise ValueError("limit must be between 1 and 25")
-        projects, _ = self._get_service(ProjectService).get_api_list(user)
-        readable = {
-            project["uid"]
-            for project in projects
-            if "*" in project["current_auth_role_actions"]
-            or ProjectRoleAction.Read.value in project["current_auth_role_actions"]
-        }
+        contexts = self.resolve_work_visibility_contexts(user, channel)
+        readable = {SnowflakeID(project_id).to_short_code() for project_id in contexts}
         if project_uid is not None:
             if project_uid not in readable:
                 raise ValueError("Project not found or not readable")
@@ -1246,28 +1241,9 @@ class CardService(BaseDomainService):
                 raise ValueError("Invalid My Work cursor") from exc
         if not readable:
             return {"items": [], "next_cursor": None}
-        items, next_fields = self.get_assigned_work_page(user, sorted(readable), limit, before, channel=channel)
-        next_cursor = (
-            base64.urlsafe_b64encode(json.dumps(next_fields, separators=(",", ":")).encode()).decode().rstrip("=")
-            if next_fields
-            else None
-        )
-        return {"items": items, "next_cursor": next_cursor}
-
-    def get_assigned_work_page(
-        self,
-        user: User,
-        project_uids: list[str],
-        limit: int,
-        before: tuple[SafeDateTime, int, int] | None = None,
-        *,
-        channel: CollaborationChannel = CollaborationChannel.Api,
-    ) -> tuple[list[dict[str, Any]], tuple[str, str, str] | None]:
-        """Read one permission-scoped, assigned-only page without per-card fetches."""
-        contexts = self.resolve_work_visibility_contexts(user, channel)
         records = self.repo.card.get_my_work_page(
             user,
-            project_uids,
+            sorted(readable),
             {"assigned"},
             [],
             SafeDateTime.now(),
@@ -1298,7 +1274,12 @@ class CardService(BaseDomainService):
         ]
         last = page[-1] if has_more and page else None
         next_fields = (last[0].updated_at.isoformat(), last[1].get_uid(), last[0].get_uid()) if last else None
-        return items, next_fields
+        next_cursor = (
+            base64.urlsafe_b64encode(json.dumps(next_fields, separators=(",", ":")).encode()).decode().rstrip("=")
+            if next_fields
+            else None
+        )
+        return {"items": items, "next_cursor": next_cursor}
 
     def get_api_page_by_project(
         self,
