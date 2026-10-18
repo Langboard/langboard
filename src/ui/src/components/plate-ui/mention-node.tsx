@@ -20,7 +20,6 @@ import {
 } from "@/components/plate-ui/inline-combobox";
 import { useTranslation } from "react-i18next";
 import { IMentionInputComboboxItemProps, MentionInputComboboxItem } from "@/components/plate-ui/mention-input-combobox-item";
-import { Utils } from "@langboard/core/utils";
 import UserLikeComponent from "@/components/UserLikeComponent";
 
 export type TMentionableUser = TUserLikeModel & {
@@ -133,11 +132,11 @@ export function MentionInputElement(props: PlateElementProps<TComboboxInputEleme
             userOrBots.push({ raw: userOrBot, value: fakeUser });
         }
         return userOrBots;
-    }, [flatMentionables]);
+    }, [flatMentionables, currentUser.uid]);
 
     return (
         <PlateElement {...props} as="span">
-            <InlineCombobox value={search} element={element} setValue={setSearch} showTrigger={false} trigger="@">
+            <InlineCombobox mobileEditorAnchor value={search} element={element} setValue={setSearch} showTrigger={false} trigger="@">
                 <span className="inline-block rounded-md bg-muted px-1.5 py-0.5 align-baseline text-sm ring-ring focus-within:ring-2">
                     <InlineComboboxInput />
                 </span>
@@ -147,7 +146,7 @@ export function MentionInputElement(props: PlateElementProps<TComboboxInputEleme
 
                     <InlineComboboxGroup>
                         {mentionables.map((mentionable) => (
-                            <MentionInputComboboxItem key={Utils.String.Token.shortUUID()} search={search} userOrBot={mentionable} editor={editor} />
+                            <MentionInputComboboxItem key={mentionable.raw.uid} search={search} userOrBot={mentionable} editor={editor} />
                         ))}
                     </InlineComboboxGroup>
                 </InlineComboboxContent>
