@@ -48,6 +48,7 @@ from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
 from .CardMetadata import CardMetadata
 from .DocumentVectorCleanup import DocumentVectorCleanup
+from .DocumentKeywordIndex import DocumentKeywordIndex
 from .CardRelationship import CardRelationship
 from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
@@ -189,6 +190,7 @@ __all__ = [
     'CardContentBlock',
     'CardMetadata',
     'DocumentVectorCleanup',
+    'DocumentKeywordIndex',
     'CardRelationship',
     'CardVerificationRecord',
     'CardVisibilityChange',

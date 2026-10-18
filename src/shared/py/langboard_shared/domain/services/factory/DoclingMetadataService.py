@@ -97,6 +97,19 @@ class DoclingMetadataService(BaseDomainService):
                 "vision_config": vision_config,
                 "embedding_config": embedding_config,
             }
+            document.pop("keyword_index_error", None)
+            if (
+                model_cls is CardMetadata
+                and Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false") == "true"
+            ):
+                from ....tasks.docling.DocumentKeywordTask import prepare_index
+
+                try:
+                    document["keyword_index_job_uid"] = prepare_index(
+                        db, foreign_model, attachment_uid, document["generation"]
+                    )
+                except ValueError:
+                    document["keyword_index_error"] = "keyword_connection_unavailable"
             self.upsert_document(model_cls, foreign_model, document)
             return True
 
@@ -254,8 +267,9 @@ class DoclingMetadataService(BaseDomainService):
                 if not result:
                     return False
                 artifact = db.exec(
-                    SqlBuilder.select.table(CardDocumentArtifact)
-                    .where(CardDocumentArtifact.attachment_id == attachment_id)
+                    SqlBuilder.select.table(CardDocumentArtifact).where(
+                        CardDocumentArtifact.attachment_id == attachment_id
+                    )
                 ).first()
                 if structural is not None:
                     if not isinstance(structural, dict) or structural.get("schema_name") != "DoclingDocument":
@@ -269,6 +283,12 @@ class DoclingMetadataService(BaseDomainService):
                 elif artifact:
                     db.delete(artifact)
             self.upsert_document(model_cls, foreign_model, document)
+            if model_cls is CardMetadata and document.get("keyword_index_job_uid"):
+                from ....tasks.docling.DocumentKeywordTask import activate_index
+
+                activate_index(
+                    db, foreign_model, attachment_uid, document.get("generation", ""), document["keyword_index_job_uid"]
+                )
         return True
 
     def mark_document_failed(
@@ -345,9 +365,7 @@ class DoclingMetadataService(BaseDomainService):
     ) -> dict[str, Any] | None:
         """Read private structure only for the current live attachment generation."""
         with DbSession.atomic() as db:
-            db.exec(
-                SqlBuilder.select.table(type(card)).where(type(card).column("id") == card.id).with_for_update()
-            )
+            db.exec(SqlBuilder.select.table(type(card)).where(type(card).column("id") == card.id).with_for_update())
             current = self.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
             if not current or current.get("generation") != generation or current.get("content_hash") != content_hash:
                 return None
@@ -469,11 +487,12 @@ class DoclingMetadataService(BaseDomainService):
                 db.exec(update(CardAttachment).where(*attachment_scope).values(document_text=""))
                 db.exec(
                     delete(CardDocumentArtifact).where(
-                        CardDocumentArtifact.attachment_id.in_(
-                            select(CardAttachment.id).where(*attachment_scope)
-                        )
+                        CardDocumentArtifact.attachment_id.in_(select(CardAttachment.id).where(*attachment_scope))
                     )
                 )
+                from ....tasks.docling.DocumentKeywordTask import record_removal
+
+                record_removal(db, foreign_model, attachment_uid)
             if model_cls is CardMetadata and removed:
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
 
@@ -502,6 +521,9 @@ class DoclingMetadataService(BaseDomainService):
                 ).first()
                 if current_card is None:
                     return
+            from ....tasks.docling.DocumentKeywordTask import record_scope_removal
+
+            record_scope_removal(db, project, card)
             cards = select(Card.id).where(Card.project_id == project.id)
             if card is not None:
                 cards = cards.where(Card.id == card.id)

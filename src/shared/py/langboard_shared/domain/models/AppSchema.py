@@ -22,6 +22,7 @@ from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
 from .CardVisibilityChange import CardVisibilityChange
 from .Checklist import Checklist
+from .DocumentKeywordIndex import DocumentKeywordIndex
 from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
 from .DokployWebhookBinding import DokployWebhookBinding
@@ -203,6 +204,29 @@ Index(
 )
 
 Index("ix_document_vector_cleanup_due_at", DocumentVectorCleanup.__table__.c.due_at)
+Index(
+    "ix_document_keyword_index_scope",
+    DocumentKeywordIndex.__table__.c.project_id,
+    DocumentKeywordIndex.__table__.c.card_id,
+)
+Index(
+    "ix_document_keyword_index_due_at",
+    DocumentKeywordIndex.__table__.c.due_at,
+    postgresql_where=text("due_at IS NOT NULL"),
+    sqlite_where=text("due_at IS NOT NULL"),
+)
+DocumentKeywordIndex.__table__.append_constraint(
+    CheckConstraint(
+        "version >= 1 AND completed_version >= 0 AND completed_version <= version",
+        name=conv("ck_document_keyword_index_versions"),
+    )
+)
+DocumentKeywordIndex.__table__.append_constraint(
+    CheckConstraint(
+        "operation IN ('index', 'remove')",
+        name=conv("ck_document_keyword_index_operation"),
+    )
+)
 
 DokployNotificationReceipt.__table__.append_constraint(
     UniqueConstraint("config_id", "config_revision", "payload_digest", name="uq_dokploy_notification_receipt")

@@ -5,7 +5,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-def _connection_options(endpoint: str, index: str, api_key: str, ca_certs: str, timeout: float) -> dict:
+def validated_destination(endpoint: str, index: str) -> dict[str, str]:
+    """Non-secret identity for a server-owned connection; no network or key lookup."""
     try:
         url = urlsplit(endpoint)
         if (
@@ -17,18 +18,29 @@ def _connection_options(endpoint: str, index: str, api_key: str, ca_certs: str, 
             or url.fragment
             or any(ord(char) < 33 for char in endpoint)
             or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,127}", index)
-            or not api_key
+        ):
+            raise ValueError("Invalid keyword destination")
+        _ = url.port
+    except (ValueError, TypeError):
+        raise ValueError("Invalid keyword destination") from None
+    return {"endpoint": endpoint.rstrip("/"), "index": index}
+
+
+def _connection_options(endpoint: str, index: str, api_key: str, ca_certs: str, timeout: float) -> dict:
+    destination = validated_destination(endpoint, index)
+    try:
+        if (
+            not api_key
             or any(ord(char) < 33 for char in api_key)
             or type(timeout) not in (int, float)
             or not 1 <= timeout <= 30
             or (ca_certs and not Path(ca_certs).is_file())
         ):
             raise ValueError("Invalid Elasticsearch configuration")
-        _ = url.port
     except (ValueError, OSError):
         raise ValueError("Invalid Elasticsearch configuration") from None
     return dict(
-        hosts=endpoint,
+        hosts=destination["endpoint"],
         api_key=api_key,
         ca_certs=ca_certs or None,
         verify_certs=True,
@@ -159,10 +171,10 @@ def search_document_candidates(project_uid: str, query: str) -> list[dict[str, s
             response = client.search(
                 index=index,
                 size=20,
-                source=["board_uid", "card_uid", "attachment_uid", "projection_hash"],
+                source=["active", "board_uid", "card_uid", "attachment_uid", "projection_hash"],
                 query={
                     "bool": {
-                        "filter": [{"term": {"board_uid": project_uid}}],
+                        "filter": [{"term": {"board_uid": project_uid}}, {"term": {"active": True}}],
                         "must": [{"match": {"text": {"query": query, "operator": "and"}}}],
                     }
                 },
@@ -187,7 +199,7 @@ def search_document_candidates(project_uid: str, query: str) -> list[dict[str, s
     result = []
     for hit in hits[:20]:
         source = hit.get("_source") if isinstance(hit, dict) else None
-        if not isinstance(source, dict) or source.get("board_uid") != project_uid:
+        if not isinstance(source, dict) or source.get("board_uid") != project_uid or source.get("active") is not True:
             continue
         if not all(
             isinstance(source.get(key), str) and re.fullmatch(r"[A-Za-z0-9]{11}", source[key])

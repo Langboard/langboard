@@ -664,13 +664,15 @@ The indexed attachment projection contract is:
 | --- | --- |
 | `board_uid`, `card_uid`, `attachment_uid` | Current Langboard short-code identities, stored as exact keyword fields |
 | `projection_hash` | Lowercase SHA-256 of the exact UTF-8 `CardAttachment.document_text` string |
+| `active` | Boolean `true` for a current text projection; `false` for a retained deletion fence |
 | `text` | That exact text projection, indexed for full-text search |
 
 `projection_hash` deliberately differs from the original file's existing
 `content_hash`. Do not hash the file, normalize the text or substitute a model ID.
-No indexing worker, automatic backfill, provider-selection UI or index creation is
-implemented by this read stage. Building and maintaining the index remains part
-of the unfinished provider work; enabling this flag does not perform those tasks.
+The read flag does not authorize indexing, automatic backfill or index creation.
+The separate opt-in indexing lifecycle below maintains newly requested attachment
+projections. Provider-selection UI and a keyword-only manual reindex action remain
+unfinished.
 
 The remote request filters one board, asks for at most 20 identifiers/hashes and
 no text/highlights, and has a 500ms server search timeout with no transport retry.
@@ -689,6 +691,69 @@ HTTPS protocol fixtures plus SQLite/PostgreSQL integration cover hidden/private/
 foreign/deleted/stale sources, Human UI/MCP/API differences, membership revocation
 and source replacement during a request, and native fallback. They do not prove
 real Elasticsearch matching, delivery/deletion, index isolation or deployed E2E.
+
+### Durable attachment keyword projections
+
+`DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED=true` captures the configured
+destination when the existing upload/explicit document-processing path queues a
+new transcription. Its default is `false`, independently of the read flag.
+Changing either global flag does not process existing files. This implementation
+does not add a keyword-only reindex API or UI; it must not be presented as one.
+
+The native `DocumentKeywordIndex` table coalesces desired state per attachment and
+destination. An upload captures a waiting request with no due date; only publication
+of the same transcription generation activates it. Both changes share the source
+transaction and Celery dispatch occurs after commit. A failed broker publication
+leaves the committed request recoverable. The existing document-cleanup recovery
+invocation now runs `DocumentRecovery`, checking at most 100 due vector requests
+and 100 due keyword requests; it scans no attachments or files. The legacy
+`run:document-cleanup:recover` command remains vector-only for compatibility.
+
+Apply migration `d95e63b0f721` before starting the updated recovery process. The
+new table's due-date index excludes waiting/completed rows; its project/card
+index supports scoped cleanup. It has no source foreign keys, so retained cleanup
+survives source removal. No existing source data is rewritten or backfilled.
+Downgrade refuses any retained row, including completed ownership records.
+
+Each native Celery task claims a 120-second lease, validates current primary
+source/generation, then releases DB locks before remote IO. Writes use the official
+client, concrete-index validation, verified TLS, no transport retries and
+`DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT` (default 10, range 1..30 seconds).
+The text limit remains 131,072 characters. Missing/oversized text is not silently
+truncated. Fixed diagnostic codes retain retryable requests without storing a
+remote response, document text or credentials in the request row.
+
+External versions increase on source requests, publication and removal. Writes
+use strict `version_type=external`, not `external_gte`. A retry after an unknown
+outcome only succeeds when the remote version and exact provenance/hash agree.
+An expired worker cannot acknowledge a newer claim. Source deletion writes a
+higher-version `active=false` tombstone containing provenance and an empty hash,
+with no text. Tombstones and ownership rows are retained so a late lower-version
+write cannot restore deleted content. This application retains PostgreSQL coverage
+and revalidates primary ACLs regardless of remote state.
+
+Attachment and card/board deletion record cleanup directly from the retained
+ownership rows, even if source metadata is already absent. Card/board cleanup uses
+one scoped update and the existing recovery invocation, without synchronous broker
+calls per attachment. Extraction-only deletion still preserves the original file.
+These rules cover projections owned by this table; manually populated remote
+indices are not automatically adopted.
+
+Only the non-secret endpoint/index snapshot is retained. The injected API key and
+CA are resolved at execution and are never stored in card metadata or the job.
+Execution requires the current endpoint/index to match the retained destination
+before resolving/sending the key. After a connection change, old cleanup is retained
+with an error until the original connection is restored; no current key is sent
+to an old destination. Multi-connection SecretRef selection remains part of the
+unfinished provider settings. Completed ownership must remain available for that
+explicit migration/cleanup path.
+
+Validation includes actual Alembic operations on SQLite/PostgreSQL, rollback and
+scope checks, expired-lease takeover, deletion with missing metadata, and independent
+native Celery producer/worker processes using Kombu's filesystem transport with
+PostgreSQL and a controlled HTTPS protocol server. The filesystem transport is
+test-only. This does not prove deployed Redis delivery, full VLM processing,
+Elasticsearch matching/isolation, provider settings or canary acceptance.
 
 ### Deleting an extracted document
 

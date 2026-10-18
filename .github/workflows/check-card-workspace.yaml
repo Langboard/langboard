@@ -14,6 +14,12 @@ on:
       - src/api/langboard/commands/CheckKeywordSearchCommand.py
       - src/api/tests/search/test_keyword_search_connection.py
       - src/shared/py/langboard_shared/core/search/**
+      - src/shared/py/langboard_shared/tasks/docling/DocumentKeywordTask.py
+      - src/shared/py/langboard_shared/tasks/docling/DocumentRecovery.py
+      - src/shared/py/langboard_shared/domain/models/DocumentKeywordIndex.py
+      - src/shared/py/langboard_shared/domain/models/AppSchema.py
+      - src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService.py
+      - src/api/langboard/migrations/versions/20261019010000-d95e63b0f721.py
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository.py
       - pyproject.toml
       - src/shared/py/pyproject.toml

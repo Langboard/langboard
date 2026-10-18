@@ -198,6 +198,7 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         Card,
         CardDocumentArtifact,
         CardMetadata,
+        DocumentKeywordIndex,
         Organization,
         Project,
         ProjectColumn,
@@ -205,7 +206,17 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
     )
     from langboard_shared.domain.services import DomainService
 
-    for model in (User, Organization, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata):
+    for model in (
+        User,
+        Organization,
+        Project,
+        ProjectColumn,
+        Card,
+        CardAttachment,
+        CardDocumentArtifact,
+        CardMetadata,
+        DocumentKeywordIndex,
+    ):
         model.__table__.create(binding_store)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: binding_store)
     with DbSession.atomic() as db:
@@ -272,7 +283,12 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
     assert pending() == []
     assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) == document
     with DbSession.use(readonly=False) as db:
-        assert db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first().document_text == "retained text"
+        assert (
+            db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id))
+            .first()
+            .document_text
+            == "retained text"
+        )
     change()
     assert len(pending()) == 1 and pending()[0].pointer == pointer()
     cleanup_store.assert_called_once()

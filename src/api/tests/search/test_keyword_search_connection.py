@@ -1,6 +1,7 @@
 """Real official-client HTTPS requests; this fixture is not an Elasticsearch cluster."""
 
 import importlib
+import importlib.util
 import json
 import os
 import ssl
@@ -8,9 +9,14 @@ import subprocess
 import sys
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
-from time import sleep
+from pathlib import Path
+from threading import Event, Thread
+from time import monotonic, sleep
+from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 import pytest
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from langboard.commands.CheckKeywordSearchCommand import (
     CheckKeywordSearchCommand,
     CheckKeywordSearchCommandOptions,
@@ -30,13 +36,16 @@ from langboard_shared.domain.models import (
     CardComment,
     CardDocumentArtifact,
     CardMetadata,
+    DocumentKeywordIndex,
     EmployeeMembershipPolicy,
     ProjectAssignedUser,
     ProjectColumn,
 )
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
-from sqlalchemy import delete, update
+from langboard_shared.tasks.docling import DocumentKeywordTask as keyword
+from sqlalchemy import delete, inspect, text, update
+from sqlalchemy.exc import IntegrityError
 
 
 INDEX = "langboard-fixture-keywords-v1"
@@ -89,6 +98,9 @@ def endpoint(certificate):
         def do_POST(self):
             self.respond()
 
+        def do_PUT(self):
+            self.respond()
+
         def respond(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             calls.append((self.command, self.path, json.loads(body) if body else {}, self.headers.get("Authorization")))
@@ -116,6 +128,31 @@ def endpoint(certificate):
                     value = {"indices": [], "aliases": [{"name": INDEX}], "data_streams": []}
             elif self.path == "/":
                 value = {"version": {"number": "7.17.3" if mode == "legacy" else "9.5.1"}}
+            elif self.path.startswith(f"/{INDEX}/_doc/"):
+                identifier = urlsplit(self.path).path.rsplit("/", 1)[-1]
+                stored = state.setdefault("keyword_documents", {})
+                previous = stored.get(identifier)
+                if self.command == "PUT":
+                    version = int(parse_qs(urlsplit(self.path).query)["version"][0])
+                    if previous and previous[0] >= version:
+                        status = 409
+                        value = {
+                            "error": {"type": "version_conflict_engine_exception", "reason": SECRET},
+                            "status": 409,
+                        }
+                    else:
+                        stored[identifier] = (version, json.loads(body))
+                        value = {"_id": identifier, "_version": version, "result": "created"}
+                        callback = state.pop("after_write", None)
+                        if callback:
+                            callback()
+                        if state.get("delay_write"):
+                            sleep(1.2)
+                else:
+                    value = {
+                        "_version": previous[0],
+                        "_source": {key: value for key, value in previous[1].items() if key != "text"},
+                    }
             else:
                 value = {"timed_out": mode == "incomplete", "_shards": {"failed": 0}, "hits": {"private": SECRET}}
                 if "candidate_hits" in state:
@@ -306,7 +343,13 @@ def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, 
     configure_document_search(monkeypatch, endpoint)
     _, _, calls, state = endpoint
     board, card, attachment = (SnowflakeID(value).to_short_code() for value in (10, 101, 201))
-    source = {"board_uid": board, "card_uid": card, "attachment_uid": attachment, "projection_hash": "a" * 64}
+    source = {
+        "active": True,
+        "board_uid": board,
+        "card_uid": card,
+        "attachment_uid": attachment,
+        "projection_hash": "a" * 64,
+    }
     state["candidate_hits"] = [
         {"_source": {**source, "text": SECRET}},
         {"_source": {**source, "board_uid": "foreign"}},
@@ -318,7 +361,7 @@ def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, 
     method, path, body, _ = calls[0]
     assert method == "POST" and path.startswith(f"/{INDEX}/_search")
     assert body["size"] == 20 and "text" not in body["_source"]
-    assert body["query"]["bool"]["filter"] == [{"term": {"board_uid": board}}]
+    assert body["query"]["bool"]["filter"] == [{"term": {"board_uid": board}}, {"term": {"active": True}}]
     monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false")
     assert search_document_candidates(board, "billing") is None
     assert len(calls) == 1
@@ -328,10 +371,20 @@ def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, 
 def document_board(board, monkeypatch):
     _, actor, project, _, _, columns, _ = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardAttachment, CardComment, CardMetadata, CardDocumentArtifact, EmployeeMembershipPolicy):
+    for model in (
+        Bot,
+        Card,
+        CardAttachment,
+        CardComment,
+        CardMetadata,
+        CardDocumentArtifact,
+        EmployeeMembershipPolicy,
+        DocumentKeywordIndex,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
     monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: ""))
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
     sources = {}
     hits = []
     with DbSession.use(readonly=False) as db:
@@ -377,6 +430,7 @@ def document_board(board, monkeypatch):
             hits.append(
                 {
                     "_source": {
+                        "active": True,
                         "board_uid": project.get_uid(),
                         "card_uid": sources["Visible"][0].get_uid() if title == "Wrong link" else card.get_uid(),
                         "attachment_uid": attachment.get_uid(),
@@ -476,3 +530,367 @@ def test_deleted_extraction_clears_legacy_projection_and_rejects_old_remote_cand
     with DbSession.use(readonly=False) as db:
         current = db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first()
         assert current.document_text == "" and current.file == attachment.file and current.deleted_at is None
+
+
+@pytest.fixture
+def keyword_source(document_board, endpoint, monkeypatch):
+    configure_document_search(monkeypatch, endpoint)
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "true")
+    send = Mock()
+    monkeypatch.setattr(keyword.Broker.celery, "send_task", send)
+    service, _, _, sources, _ = document_board
+    card, attachment = sources["Visible"]
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}
+    )
+    document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    return service, card, attachment, document, send
+
+
+def keyword_job(uid):
+    from langboard_shared.helpers import InfraHelper
+
+    with DbSession.use(readonly=False) as db:
+        return db.exec(
+            SqlBuilder.select.table(DocumentKeywordIndex).where(DocumentKeywordIndex.id == InfraHelper.convert_id(uid))
+        ).first()
+
+
+def activate_keyword_source(source, text="Current derived text"):
+    service, card, attachment, document, _ = source
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": text}, generation=document["generation"]
+    )
+    return keyword_job(document["keyword_index_job_uid"])
+
+
+def test_keyword_snapshot_waits_for_transcription_and_dispatches_after_commit(keyword_source, endpoint, monkeypatch):
+    _, _, attachment, document, send = keyword_source
+    job = keyword_job(document["keyword_index_job_uid"])
+    assert job.due_at is None and job.completed_version == 0
+    assert endpoint[0] not in json.dumps(document) and SECRET not in json.dumps(document)
+    send.assert_not_called()
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
+    with DbSession.atomic():
+        ready = activate_keyword_source(keyword_source)
+        assert ready.due_at is not None
+        send.assert_not_called()
+    send.assert_called_once_with(keyword.TASK_NAME, args=[int(job.id)])
+    assert keyword.process_keyword(int(job.id))
+    completed = keyword_job(job.get_uid())
+    assert completed.completed_version == completed.version and completed.due_at is None
+    stored = endpoint[3]["keyword_documents"][attachment.get_uid()]
+    assert stored[0] == completed.version and stored[1]["text"] == "Current derived text"
+    assert keyword.recover_keyword() == 0
+
+
+def test_keyword_outcome_unknown_retry_checks_exact_external_version(keyword_source, endpoint, monkeypatch):
+    _, _, attachment, _, send = keyword_source
+    send.side_effect = RuntimeError(SECRET)
+    job = activate_keyword_source(keyword_source)
+    assert job.due_at is not None and job.completed_version == 0
+    send.side_effect = None
+    assert keyword.recover_keyword() == 1
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_WRITE_TIMEOUT", "1")
+    endpoint[3]["delay_write"] = True
+    assert keyword.process_keyword(int(job.id)) is False
+    failed = keyword_job(job.get_uid())
+    assert failed.last_error == "keyword_index_failed_check_original_connection"
+    assert SECRET not in failed.model_dump_json()
+    assert endpoint[3]["keyword_documents"][attachment.get_uid()][0] == job.version
+    endpoint[3]["delay_write"] = False
+    with DbSession.atomic() as db:
+        db.exec(update(DocumentKeywordIndex).where(DocumentKeywordIndex.id == job.id).values(due_at=SafeDateTime.now()))
+    assert keyword.process_keyword(int(job.id))
+    done = keyword_job(job.get_uid())
+    assert done.completed_version == done.version and done.attempt_count == 2
+    assert done.due_at is None and done.last_error is None
+    puts = [path for method, path, _, _ in endpoint[2] if method == "PUT"]
+    assert len(puts) == 2 and all("version_type=external" in path for path in puts)
+
+
+def test_keyword_late_index_ack_cannot_override_delete_tombstone(keyword_source, endpoint):
+    service, card, attachment, _, _ = keyword_source
+    job = activate_keyword_source(keyword_source)
+    payload = keyword._payload(job)
+    endpoint[3]["after_write"] = lambda: service.docling_metadata.delete_document_by_attachment_uid(
+        CardMetadata, card, attachment.get_uid()
+    )
+    assert keyword.process_keyword(int(job.id)) is False
+    deletion = keyword_job(job.get_uid())
+    assert deletion.operation == "remove" and deletion.version > job.version
+    assert keyword.process_keyword(int(job.id))
+    version, tombstone = endpoint[3]["keyword_documents"][attachment.get_uid()]
+    assert version == deletion.version and tombstone["active"] is False and "text" not in tombstone
+    with pytest.raises(ValueError, match="version conflict"):
+        keyword._send(job, payload)
+    assert endpoint[3]["keyword_documents"][attachment.get_uid()] == (version, tombstone)
+
+
+def test_keyword_superseded_generation_stops_without_remote_work(keyword_source, endpoint, monkeypatch):
+    service, card, attachment, _, _ = keyword_source
+    job = activate_keyword_source(keyword_source)
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}, force=True
+    )
+    assert keyword.process_keyword(int(job.id)) is False
+    stopped = keyword_job(job.get_uid())
+    assert stopped.last_error == "source_superseded" and stopped.due_at is None
+    assert endpoint[2] == []
+    service.docling_metadata.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert keyword.process_keyword(int(job.id))
+    assert endpoint[3]["keyword_documents"][attachment.get_uid()][1]["active"] is False
+
+
+def test_keyword_connection_change_retains_original_target_without_sending_key(keyword_source, endpoint, monkeypatch):
+    job = activate_keyword_source(keyword_source)
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT", "https://changed.invalid")
+    assert keyword.process_keyword(int(job.id)) is False
+    retained = keyword_job(job.get_uid())
+    assert retained.destination == job.destination and retained.completed_version == 0
+    assert retained.due_at is not None and endpoint[2] == []
+
+
+def test_global_keyword_enable_does_not_authorize_an_existing_upload(document_board, endpoint, monkeypatch):
+    service, _, _, sources, _ = document_board
+    card, attachment = sources["Visible"]
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}
+    )
+    document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert "keyword_index_job_uid" not in document
+    configure_document_search(monkeypatch, endpoint)
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "true")
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata,
+        card,
+        attachment.get_uid(),
+        "pdf",
+        content={"markdown": "Existing upload"},
+        generation=document["generation"],
+    )
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(DocumentKeywordIndex)).all() == []
+    assert endpoint[2] == []
+
+
+def test_keyword_transaction_rollback_preserves_request_and_dispatch(keyword_source):
+    _, card, attachment, document, send = keyword_source
+    original = keyword_job(document["keyword_index_job_uid"])
+    with pytest.raises(RuntimeError, match="abort"):
+        with DbSession.atomic() as db:
+            keyword.activate_index(db, card, attachment.get_uid(), document["generation"], original.get_uid())
+            keyword.record_removal(db, card, attachment.get_uid())
+            raise RuntimeError("abort")
+    retained = keyword_job(original.get_uid())
+    assert retained.version == original.version and retained.operation == "index"
+    assert retained.due_at is None and retained.completed_version == 0
+    send.assert_not_called()
+
+
+def test_keyword_foreign_card_cannot_activate_or_remove_request(keyword_source, document_board):
+    _, _, attachment, document, send = keyword_source
+    _, _, _, sources, _ = document_board
+    foreign = sources["Foreign"][0]
+    original = keyword_job(document["keyword_index_job_uid"])
+    with DbSession.atomic() as db:
+        keyword.activate_index(db, foreign, attachment.get_uid(), document["generation"], original.get_uid())
+        keyword.record_removal(db, foreign, attachment.get_uid())
+    retained = keyword_job(original.get_uid())
+    assert retained.version == original.version and retained.due_at is None
+    send.assert_not_called()
+
+
+@pytest.mark.parametrize("scope", ["attachment", "card", "project"])
+def test_keyword_cleanup_survives_missing_source_metadata(keyword_source, document_board, endpoint, scope):
+    service, card, attachment, _, _ = keyword_source
+    job = activate_keyword_source(keyword_source)
+    assert keyword.process_keyword(int(job.id))
+    service.docling_metadata.save_documents(CardMetadata, card, [])
+    if scope == "attachment":
+        service.docling_metadata.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    else:
+        _, _, project, _, _ = document_board
+        service.docling_metadata.record_scope_embedding_cleanup(project, card if scope == "card" else None)
+    removal = keyword_job(job.get_uid())
+    assert removal.operation == "remove" and removal.version > job.version and removal.due_at is not None
+    assert keyword.process_keyword(int(job.id))
+    assert endpoint[3]["keyword_documents"][attachment.get_uid()][1]["active"] is False
+
+
+def test_keyword_expired_lease_fences_late_worker_ack(keyword_source, endpoint):
+    if DbEngine.get_main_engine().dialect.name != "postgresql":
+        pytest.skip("Independent database transactions require PostgreSQL")
+    job = activate_keyword_source(keyword_source)
+    entered, release = Event(), Event()
+    result = []
+
+    def hold_first_write():
+        entered.set()
+        assert release.wait(10), "Second worker did not release the first request"
+
+    endpoint[3]["after_write"] = hold_first_write
+    worker = Thread(target=lambda: result.append(keyword.process_keyword(int(job.id))))
+    worker.start()
+    try:
+        assert entered.wait(5), "First worker did not publish its projection"
+        with DbSession.atomic() as db:
+            db.exec(
+                update(DocumentKeywordIndex).where(DocumentKeywordIndex.id == job.id).values(due_at=SafeDateTime.now())
+            )
+        assert keyword.process_keyword(int(job.id))
+        completed = keyword_job(job.get_uid())
+        assert completed.completed_version == completed.version and completed.attempt_count == 2
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive() and result == [False]
+    retained = keyword_job(job.get_uid())
+    assert retained.completed_version == completed.version and retained.due_at is None
+
+
+def test_keyword_migration_preserves_owned_rows_and_enforces_versions(board):
+    path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261019010000-d95e63b0f721.py"
+    spec = importlib.util.spec_from_file_location("keyword_index_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = DbEngine.get_main_engine()
+    with engine.begin() as connection:
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.upgrade()
+        assert inspect(connection).get_foreign_keys("document_keyword_index") == []
+        job = DocumentKeywordIndex(
+            attachment_id=101,
+            card_id=102,
+            project_id=103,
+            destination_fingerprint="fixture",
+            destination={"endpoint": "https://example.invalid", "index": INDEX},
+            source_generation="fixture-generation",
+        )
+        row = {column.name: getattr(job, column.name) for column in job.__table__.columns}
+        connection.execute(DocumentKeywordIndex.__table__.insert().values(**row))
+        for values in ({"version": 0}, {"completed_version": 2}, {"operation": "unknown"}):
+            with pytest.raises(IntegrityError):
+                with connection.begin_nested():
+                    connection.execute(update(DocumentKeywordIndex).values(**values))
+        with pytest.raises(RuntimeError, match="ownership"):
+            migration.downgrade()
+        assert connection.execute(DocumentKeywordIndex.__table__.select()).first() is not None
+        connection.execute(delete(DocumentKeywordIndex))
+        migration.downgrade()
+        assert "document_keyword_index" not in inspect(connection).get_table_names()
+
+
+def test_keyword_native_celery_process_delivers_committed_projection(keyword_source, endpoint, tmp_path):
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Independent producer and worker require PostgreSQL")
+    _, _, attachment, document, send = keyword_source
+    job = keyword_job(document["keyword_index_job_uid"])
+    with engine.connect() as connection:
+        schema = connection.execute(text("SELECT current_schema()")).scalar_one()
+    isolated_url = engine.url.update_query_dict({"options": "-csearch_path=" + schema}).render_as_string(
+        hide_password=False
+    )
+    for name in ("queue", "processed", "control"):
+        (tmp_path / name).mkdir()
+    environment = {
+        **os.environ,
+        "MAIN_DATABASE_URL": isolated_url,
+        "READONLY_DATABASE_URL": isolated_url,
+        "CACHE_TYPE": "redis",
+        "CACHE_URL": "redis://127.0.0.1:1/0",
+        "BROKER_URL": "filesystem://",
+        "KEYWORD_TEST_BROKER_DIR": str(tmp_path),
+        "ENVIRONMENT": "development",
+        "IS_EXECUTABLE": "false",
+        "SENTRY_DSN": "",
+        "PYTHONPATH": os.pathsep.join(str(Path(path).resolve()) for path in sys.path if path),
+    }
+    command = [sys.executable, str(Path(__file__).resolve())]
+    producer = subprocess.run(
+        [*command, "keyword-produce", str(job.id)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert producer.returncode == 0, producer.stdout + producer.stderr
+    send.assert_not_called()
+    assert list((tmp_path / "queue").glob("*.msg")), "Native after-commit publication did not reach the broker"
+    log_path = tmp_path / "keyword-worker.log"
+    with log_path.open("w") as output:
+        worker = subprocess.Popen(
+            [*command, "keyword-worker"],
+            cwd=tmp_path,
+            env=environment,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = monotonic() + 20
+            while True:
+                retained = keyword_job(job.get_uid())
+                if retained.completed_version == retained.version and retained.completed_version > 0:
+                    break
+                assert worker.poll() is None and monotonic() < deadline, log_path.read_text()
+                sleep(0.1)
+            version, projection = endpoint[3]["keyword_documents"][attachment.get_uid()]
+            assert version == retained.version and projection["text"] == "Native broker transcription"
+            assert projection["active"] is True and retained.due_at is None
+        finally:
+            worker.terminate()
+            try:
+                worker.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+                worker.wait(timeout=5)
+    assert SECRET not in log_path.read_text()
+
+
+if __name__ == "__main__":
+    directory = Path(os.environ["KEYWORD_TEST_BROKER_DIR"])
+    keyword.Broker.celery.conf.update(
+        task_default_queue="keyword-fixture",
+        task_publish_retry=False,
+        broker_transport_options={
+            "data_folder_in": str(directory / "queue"),
+            "data_folder_out": str(directory / "queue"),
+            "processed_folder": str(directory / "processed"),
+            "control_folder": str(directory / "control"),
+        },
+    )
+    if sys.argv[1] == "keyword-produce":
+        job = keyword_job(SnowflakeID(int(sys.argv[2])).to_short_code())
+        with DbSession.use(readonly=False) as db:
+            card = db.exec(SqlBuilder.select.table(Card).where(Card.id == job.card_id)).first()
+        service = DomainService()
+        try:
+            assert service.docling_metadata.mark_document_indexed(
+                CardMetadata,
+                card,
+                job.attachment_id.to_short_code(),
+                "pdf",
+                content={"markdown": "Native broker transcription"},
+                generation=job.source_generation,
+            )
+        finally:
+            service.close()
+    elif sys.argv[1] == "keyword-worker":
+        assert keyword.TASK_NAME in keyword.Broker.celery.tasks
+        keyword.Broker.celery.worker_main(
+            [
+                "worker",
+                "--pool=solo",
+                "--concurrency=1",
+                "--loglevel=info",
+                "--without-gossip",
+                "--without-mingle",
+                "--without-heartbeat",
+                "-Q",
+                "keyword-fixture",
+                "--hostname=keyword-fixture@localhost",
+            ]
+        )
