@@ -111,5 +111,16 @@
   "Unfinished cards count_one": "未完了のカード {{count, number}} 件",
   "Unfinished cards count_other": "未完了のカード {{count, number}} 件",
   "Unfinished in status_one": "{{status}}：未完了のカード {{count, number}} 件",
-  "Unfinished in status_other": "{{status}}：未完了のカード {{count, number}} 件"
+  "Unfinished in status_other": "{{status}}：未完了のカード {{count, number}} 件",
+  "Clear search": "検索をクリア",
+  "Unread changes": "未読の変更",
+  "Unfinished work": "未完了の作業",
+  "Default order": "既定の順序",
+  "Recent activity": "最近の活動",
+  "Recently viewed": "最近閲覧",
+  "Name": "名前",
+  "Unread first": "未読を優先",
+  "Project filters": "プロジェクトフィルター",
+  "Sort projects": "プロジェクトの並べ替え",
+  "Reset filters": "フィルターをリセット"
 }

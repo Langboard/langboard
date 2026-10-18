@@ -2,6 +2,8 @@ import { formatNumber } from "@/core/utils/LocaleFormat";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import { Project } from "@/core/models";
+import ProjectList from "./ProjectList";
+import type { TProjectListView } from "./ProjectDiscovery";
 import ProjectCompactItem from "@/pages/DashboardPage/components/ProjectCompactItem";
 import InfiniteScroller from "@/components/InfiniteScroller";
 import useInfiniteScrollPager from "@/core/hooks/useInfiniteScrollPager";
@@ -17,6 +19,11 @@ interface IProjectCompactListProps {
     initialVisibleCount?: number;
     listClassName?: string;
     dense?: boolean;
+    view?: TProjectListView;
+    expanded?: boolean;
+    onExpandedChange?: (expanded: boolean) => void;
+    showRelatedBadge?: boolean;
+    scrollAreaUpdater?: [number, React.DispatchWithoutAction];
     updateStarredProjects: React.DispatchWithoutAction;
 }
 
@@ -27,20 +34,35 @@ const ProjectCompactList = ({
     initialVisibleCount,
     listClassName,
     dense,
+    view = "compact",
+    expanded: controlledExpanded,
+    onExpandedChange,
+    showRelatedBadge,
+    scrollAreaUpdater,
 }: IProjectCompactListProps): React.JSX.Element | null => {
     const [t, i18n] = useTranslation();
     const listId = useId();
-    const [expanded, setExpanded] = useState(false);
+    const [localExpanded, setExpanded] = useState(false);
+    const expanded = controlledExpanded ?? localExpanded;
     const { items, nextPage } = useInfiniteScrollPager({ allItems: projects, size: 24 });
     if (!projects.length) return null;
     const visibleProjects = initialVisibleCount ? (expanded ? projects : projects.slice(0, initialVisibleCount)) : items;
-    const rows = visibleProjects.map((project) => (
-        <ProjectCompactItem key={project.uid} project={project} updateStarredProjects={updateStarredProjects} dense={dense} />
-    ));
+    const rows =
+        view === "compact"
+            ? visibleProjects.map((project) => (
+                  <ProjectCompactItem
+                      key={project.uid}
+                      project={project}
+                      updateStarredProjects={updateStarredProjects}
+                      dense={dense}
+                      showRelatedBadge={showRelatedBadge}
+                  />
+              ))
+            : null;
     const listClasses = cn("grid gap-1 rounded-2xl border bg-card/60 p-1.5", listClassName);
 
     return (
-        <Box className="mt-4 min-w-0" role={title ? "region" : undefined} aria-label={title}>
+        <Box data-project-view={view} className="mt-4 min-w-0" role={title ? "region" : undefined} aria-label={title}>
             {title ? (
                 <Flex items="baseline" gap="2" className="mb-2 px-1">
                     <h2 className="text-sm font-semibold">{title}</h2>
@@ -53,14 +75,27 @@ const ProjectCompactList = ({
                             className="ml-auto h-6 px-2 text-xs"
                             aria-expanded={expanded}
                             aria-controls={listId}
-                            onClick={() => setExpanded((value) => !value)}
+                            onClick={() => {
+                                setExpanded(!expanded);
+                                onExpandedChange?.(!expanded);
+                            }}
                         >
                             {expanded ? t("editor.Show less") : t("dashboard.Show more projects", { count: projects.length - initialVisibleCount })}
                         </Button>
                     ) : null}
                 </Flex>
             ) : null}
-            {initialVisibleCount ? (
+            {view === "cards" ? (
+                <Box id={listId}>
+                    <ProjectList
+                        projects={initialVisibleCount ? visibleProjects : projects}
+                        rowClassName={listClassName}
+                        updateStarredProjects={updateStarredProjects}
+                        scrollAreaUpdater={scrollAreaUpdater}
+                        showRelatedBadge={showRelatedBadge}
+                    />
+                </Box>
+            ) : initialVisibleCount ? (
                 <Box id={listId} className={cn(listClasses, "max-h-64 overflow-y-auto")}>
                     {rows}
                 </Box>

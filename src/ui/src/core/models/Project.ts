@@ -291,6 +291,10 @@ class Project extends BaseModel<IStore> {
         this.update({ last_activity_at: parseProjectActivityTimestamp(value) as unknown as Date | null });
     }
 
+    public get board_has_unread_change(): bool | undefined {
+        return this.getValue("board_has_unread_change");
+    }
+
     public get related_to_current_user(): bool {
         return this.getValue("related_to_current_user") ?? false;
     }

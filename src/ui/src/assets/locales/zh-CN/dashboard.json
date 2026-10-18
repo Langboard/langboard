@@ -111,5 +111,16 @@
   "Unfinished cards count_one": "{{count, number}} 张未完成卡片",
   "Unfinished cards count_other": "{{count, number}} 张未完成卡片",
   "Unfinished in status_one": "{{status}}：{{count, number}} 张未完成卡片",
-  "Unfinished in status_other": "{{status}}：{{count, number}} 张未完成卡片"
+  "Unfinished in status_other": "{{status}}：{{count, number}} 张未完成卡片",
+  "Clear search": "清除搜索",
+  "Unread changes": "未读更改",
+  "Unfinished work": "未完成工作",
+  "Default order": "默认顺序",
+  "Recent activity": "最近工作活动",
+  "Recently viewed": "最近查看",
+  "Name": "名称",
+  "Unread first": "未读优先",
+  "Project filters": "项目筛选",
+  "Sort projects": "项目排序",
+  "Reset filters": "重置筛选"
 }
