@@ -27,6 +27,11 @@ depends on the endpoint and deployed version; clients must tolerate their absenc
 | `project_bots` | Board bot scope and schedule lookup |
 | `project_visit` | Current user's board visit update |
 | `project_serialize` | Board response construction |
+| `board_context` | Authorized board context and column preparation |
+| `board_cards` | Authorized card projection |
+| `board_checklists` | Checklist projection |
+| `board_bots` | Board and column bot configuration |
+| `board_serialize` | Board response construction |
 
 Durations use milliseconds. Named phases describe application boundaries; they
 are not isolated database, connection-pool or scheduler measurements. `app` is
@@ -53,3 +58,23 @@ rendering or completion of a background document job.
 
 Apply your instance's log access and retention policies. These diagnostics do
 not define a latency guarantee or replace deployment and user-flow checks.
+
+## Optional server telemetry
+
+Configure `SENTRY_DSN` through deployment secrets to use a compatible telemetry
+service. `SENTRY_ENVIRONMENT` and `SENTRY_RELEASE` distinguish environments and
+releases. Error events retain exception type, source coordinates and permitted
+correlation identifiers, while application request bodies, user information,
+breadcrumbs, source context, local variables and exception text are excluded.
+
+Performance transactions are opt-in through `SENTRY_TRACES_SAMPLE_RATE`, from
+`0` to `1`, with default `0`. Invalid, non-finite or out-of-range values disable
+sampling. An incoming sampled trace cannot override the local sampling setting.
+Transactions retain timing, correlation and bounded span categories; they omit
+SQL text, request paths, arbitrary span data and application content. These
+records support category timing rather than statement-level SQL attribution.
+
+After configuring a destination, verify event ingestion and the intended
+operator's ability to retrieve the matching event separately. A successful
+transport response alone does not establish that the event is visible in the
+selected project or that an end-to-end user operation succeeded.
