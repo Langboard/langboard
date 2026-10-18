@@ -79,7 +79,9 @@ def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card
 def _require_task_card(project_uid: str, card_uid: str) -> tuple[Project, Card]:
     params = _get_card_in_project(project_uid, card_uid)
     if not params:
-        raise ValueError("Card not found")
+        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.") from CardUnavailableError(
+            "Card not found in project"
+        )
     if params[1].is_linked_resource:
         raise ValueError("Linked Wiki cards are read-only references; move or remove the card, or edit the source Wiki")
     return params
