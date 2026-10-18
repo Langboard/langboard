@@ -30,25 +30,24 @@ import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { BoardCardProvider, useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
 import { ROUTES } from "@/core/routing/constants";
-import BoardCardActionList, { SkeletonBoardCardActionList } from "@/pages/BoardPage/components/card/action/BoardCardActionList";
+import BoardCardActionList from "@/pages/BoardPage/components/card/action/BoardCardActionList";
 import BoardCardActionRelationship from "@/pages/BoardPage/components/card/action/relationship/BoardCardActionRelationship";
-import BoardCardChecklistGroup, { SkeletonBoardCardChecklistGroup } from "@/pages/BoardPage/components/card/checklist/BoardCardChecklistGroup";
+import BoardCardChecklistGroup from "@/pages/BoardPage/components/card/checklist/BoardCardChecklistGroup";
 import { useBoardCardSectionSaveActions } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
-import BoardCardColumnName, { SkeletonBoardCardColumnName } from "@/pages/BoardPage/components/card/BoardCardColumnName";
-import BoardCardDeadline, { SkeletonBoardCardDeadline } from "@/pages/BoardPage/components/card/BoardCardDeadline";
-import BoardCardDescription, { SkeletonBoardCardDescription } from "@/pages/BoardPage/components/card/BoardCardDescription";
+import BoardCardColumnName from "@/pages/BoardPage/components/card/BoardCardColumnName";
+import BoardCardDeadline from "@/pages/BoardPage/components/card/BoardCardDeadline";
+import BoardCardDescription from "@/pages/BoardPage/components/card/BoardCardDescription";
 import BoardCardCheckBody from "@/pages/BoardPage/components/card/BoardCardCheckBody";
-import BoardCardAttachmentList, { SkeletonBoardCardAttachmentList } from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
-import BoardCardTitle, { SkeletonBoardCardTitle } from "@/pages/BoardPage/components/card/BoardCardTitle";
+import BoardCardAttachmentList from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
+import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
-import BoardCommentList, { SkeletonBoardCommentList } from "@/pages/BoardPage/components/card/comment/BoardCommentList";
+import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
 import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { useTranslation } from "react-i18next";
 import BoardCardMemberList from "@/pages/BoardPage/components/card/BoardCardMemberList";
 import BoardCardVisibility from "./BoardCardVisibility";
 import CardTypeBadges from "@/components/CardTypeBadges";
 import { cardVisibilityPresentation } from "@/core/cards/CardPresentation";
-import { SkeletonUserAvatarList } from "@/components/UserAvatarList";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useSocket } from "@/core/providers/SocketProvider";
@@ -285,12 +284,18 @@ const BoardCard = memo(
                     </Box>
                 )}
                 {!cardData && (
-                    <Button type="button" size="sm" variant="outline" className="shrink-0 self-end" onClick={onClose}>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={cn("shrink-0 self-end", !error && "absolute right-4 top-4 z-[101]")}
+                        onClick={onClose}
+                    >
                         {t("common.Close")}
                     </Button>
                 )}
                 {!cardData ? (
-                    !error && <SkeletonBoardCard />
+                    !error && <SkeletonBoardCard isExpanded={isExpanded} />
                 ) : (
                     <BoardCardProvider
                         key={identity}
@@ -319,71 +324,60 @@ const BoardCard = memo(
     }
 );
 
-export function SkeletonBoardCard(): React.JSX.Element {
+export function SkeletonBoardCard({ isExpanded = false }: { isExpanded?: boolean }): React.JSX.Element {
+    const [t] = useTranslation();
     return (
-        <Flex direction="col" className="h-full min-h-0 gap-4">
-            <Box data-card-surface="" className="relative min-h-0 flex-1 rounded-2xl border bg-background px-4 py-4 shadow-2xl sm:px-6 sm:py-6">
-                <Flex
-                    direction="col"
-                    mb="3"
-                    position="sticky"
-                    top={{ initial: "0", sm: "-2" }}
-                    pb="3"
-                    className="z-[100] space-y-1.5 border-b-2 bg-background text-left"
-                >
-                    <SkeletonBoardCardTitle />
-                    <Flex gap="3">
-                        <Dialog.Description asChild>
-                            <SkeletonBoardCardColumnName />
-                        </Dialog.Description>
+        <Flex
+            direction="col"
+            className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2"
+            data-card-loading=""
+        >
+            <Dialog.Title role="status" className="sr-only">
+                {t("common.Loading...")}
+            </Dialog.Title>
+            <Box
+                data-card-surface=""
+                aria-hidden="true"
+                className={cn(
+                    "relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden border bg-background px-4 py-4 sm:px-6 sm:py-6",
+                    isExpanded ? "border-0 shadow-none" : "rounded-2xl shadow-2xl"
+                )}
+            >
+                <Flex direction="col" className="mb-3 shrink-0 gap-2 border-b-2 pb-3">
+                    <Skeleton className="h-7 w-3/5 max-w-96" />
+                    <Flex gap="2" wrap>
+                        <Skeleton className="h-5 w-16" />
+                        <Skeleton className="h-5 w-24" />
                     </Flex>
-                    <Skeleton position="absolute" right="0" size="6" rounded="sm" className="opacity-70" />
+                    <Dialog.Description asChild>
+                        <Skeleton className="h-3 w-40 max-w-full" />
+                    </Dialog.Description>
                 </Flex>
-                <Flex gap="3" direction={{ initial: "col-reverse", sm: "row" }} className="min-h-0">
-                    <Flex direction="col" gap="4" className="min-h-0 sm:w-[calc(100%_-_theme(spacing.40)_-_theme(spacing.3))]">
-                        <Flex direction={{ initial: "col", sm: "row" }} gap="4">
-                            <BoardCardSection title="card.Members" className="sm:w-1/2" contentClassName="flex gap-1">
-                                <SkeletonUserAvatarList count={6} size={{ initial: "sm", lg: "default" }} spacing="none" className="space-x-1" />
-                            </BoardCardSection>
-                            <BoardCardSection title="card.Deadline" className="sm:w-1/2">
-                                <SkeletonBoardCardDeadline />
-                            </BoardCardSection>
+                <Flex gap="1" className="w-fit max-w-full rounded-lg bg-muted p-1">
+                    {[0, 1, 2].map((index) => (
+                        <Skeleton key={index} className="h-7 w-16 sm:w-20" />
+                    ))}
+                </Flex>
+                <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
+                    <Box className="space-y-3 rounded-md border p-3">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Flex gap="2" wrap>
+                            <Skeleton className="h-5 w-20" />
+                            <Skeleton className="h-5 w-24" />
                         </Flex>
-                        <BoardCardSection title="card.Description" className="relative min-h-56">
-                            <SkeletonBoardCardDescription />
-                        </BoardCardSection>
-                        <BoardCardSection title="card.Checklists">
-                            <SkeletonBoardCardChecklistGroup />
-                        </BoardCardSection>
-                        <BoardCardSection title="card.Attached files">
-                            <SkeletonBoardCardAttachmentList />
-                        </BoardCardSection>
-                        <Box className="lg:hidden">
-                            <BoardCardSection title="card.Comments">
-                                <SkeletonBoardCommentList />
-                            </BoardCardSection>
-                        </Box>
-                        <Box className="sm:hidden">
-                            <BoardCardSection title="card.Actions" titleClassName="mb-2">
-                                <SkeletonBoardCardActionList />
-                            </BoardCardSection>
-                        </Box>
-                    </Flex>
-                    <Box w="full" maxW={{ sm: "40" }} className="hidden shrink-0 sm:block">
-                        <Box z="10" display="inline-block" w="full">
-                            <BoardCardSection title="card.Actions" titleClassName="mb-2">
-                                <SkeletonBoardCardActionList />
-                            </BoardCardSection>
-                        </Box>
                     </Box>
+                    <Skeleton className="h-4 w-3/4 max-w-96" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-4 w-2/5" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-3 w-5/6" />
+                    <Skeleton className="mt-2 h-8 w-full" />
                 </Flex>
             </Box>
-            <Flex justify="center" className="pointer-events-none z-[110] shrink-0">
-                <Box className="pointer-events-auto mb-3 rounded-full border bg-background px-3 py-2 shadow-lg sm:mb-4">
-                    <Flex gap="2">
-                        <Skeleton className="h-9 w-28 rounded-full" />
-                        <Skeleton className="h-9 w-28 rounded-full" />
-                    </Flex>
+            <Flex justify="center" aria-hidden="true" className="shrink-0">
+                <Box className="flex w-full max-w-full gap-1 rounded-2xl border bg-background p-1 shadow-lg md:w-auto md:rounded-full">
+                    <Skeleton className="h-10 w-20 flex-1 rounded-xl md:flex-none md:rounded-full" />
+                    <Skeleton className="h-10 w-20 flex-1 rounded-xl md:flex-none md:rounded-full" />
                 </Box>
             </Flex>
         </Flex>
