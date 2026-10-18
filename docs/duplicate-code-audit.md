@@ -10,7 +10,7 @@ a claim that all semantically similar or shorter functions have been removed.
 
 The UI audit compares printed, comment-free function bodies of at least eight
 lines. The initial 1,502 source files contained 46 candidate groups. The refreshed
-1,517 files contain 42 groups. Candidates require caller and closure review;
+1,518 files contain 41 groups. Candidates require caller and closure review;
 matching text is not sufficient authority to combine different workflows.
 
 ## Canonical owners
@@ -69,7 +69,7 @@ The umbrella cleanup card must not be archived from these checks alone.
 
 ## Remaining UI candidates
 
-Forty-two groups still need individual ownership and behavior review, including
+Forty-one groups still need individual ownership and behavior review, including
 trigger-condition editing, list refresh/pagination, calendar nodes, form-control
 wrappers and integration/settings flows. Shared error callbacks and measurement
 markers were removed first. The audit inventory is a prioritization aid, not an
@@ -230,3 +230,25 @@ they were corrected to the product's existing narrow units before recording the
 failing baseline. Logs remain in `src/ui/.verification/timer-duration-*`.
 These are local browser checks, not a measured backend/board latency gain or
 accepted canary deployment.
+
+
+## Shared label collaboration projection (2026-10-18)
+
+The card label display and label picker each maintained the same peer-metadata
+reducer and value interface. An extracted execution of the original production
+reducer throws TypeError for the string key `constructor`: an inherited property
+is treated as a prior label value before reading its timestamp. The shared
+`latestLabelStates` uses a prototype-free dictionary and keeps the existing
+string/boolean/number validation, complete peer object, latest timestamp and
+first-wins tie behavior. It adds no label, changes no ACL or persistence and does
+not reinterpret malformed timestamps or label identifiers.
+
+Three focused checks cover ordering/identity retention, invalid values and
+prototype-property keys. TypeScript, changed-file ESLint, formatting and diff
+checks pass. The existing localization job includes the dependency-free test;
+no new job/runner is added. The refreshed exact-body audit reports 41 candidate
+groups in 1,518 source files. Original reproduction is retained at
+`.verification/label-meta-before-20261018.log`; final checks are in
+`src/ui/.verification/label-collaboration-*`. This is a local reducer regression,
+not proof of a deployed two-user collaboration flow or the earlier label-related
+server loading outage.
