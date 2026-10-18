@@ -9,6 +9,7 @@ case "$profile" in
   api)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
+      src/shared/py/langboard_shared/core/routing/AppExceptionHandlingRoute_test.py \
       src/shared/py/langboard_shared/core/caching/RedisCache_test.py \
       src/shared/py/langboard_shared/core/broker/RedisBroker_test.py \
       src/api/tests/runtime/test_external_redis_compose.py \

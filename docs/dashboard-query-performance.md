@@ -730,3 +730,52 @@ Evidence: `.verification/github-health-import-{before,after}-20261018.log`,
 separately blocked by a real `ERR_ECH_FALLBACK_CERTIFICATE_INVALID` on the login
 API's preflight and XHR; rendering the login HTML is insufficient proof of
 recovery. DNS repair remains with the central platform owner.
+
+
+### Authenticated browser baseline and cancelled history POST — 2026-10-18
+
+The existing canary API still runs OCI revision
+`abea934b15812ed9e3cb2be0bfd36e69c07a6d24` in Dokploy Compose. A fresh
+readback found it healthy, with zero restarts and no OOM flag; this does not prove
+absence of ancestor/container-host contention. Candidate source is a different
+revision and has not been deployed by these measurements.
+
+Twenty sequential authenticated Chrome reloads, ten each on a large board
+(118 open work cards in the sidebar) and a small board (two), completed their
+actual card-list GETs with HTTP 200. CDP response/finished events retained current
+request IDs, `app` Server-Timing, bytes and durations; no response/event buffers
+were truncated. These measurements exclude browser automation delay. Background
+requests remained enabled, preserving normal page behavior.
+
+| Card-list request | Large board | Small board |
+| --- | --- | --- |
+| Count / observed failures | 10 / 0 | 10 / 0 |
+| Total duration min / median / max | 1707 / 4063.5 / 7649 ms | 624 / 1741 / 3805 ms |
+| Server app duration min / median / max | 1535.579 / 3859.278 / 7386.335 ms | 437.002 / 1596.9455 / 3663.677 ms |
+| Encoded response bytes | 435234–435508 | 7684–7796 |
+
+Nearest-rank p95 equals the maximum with ten samples; this is not a production
+percentile guarantee, controlled before/after improvement or external-user
+acceptance. The small response also varies substantially, so payload size alone
+does not explain latency. Fresh candidate snapshot regression passed seven
+SQLite/isolated PostgreSQL cases. Current production lacks candidate stage
+headers; query/pool/host causes are still being separated with central operators.
+
+Central GlitchTip correlated two errors at 10:29:48.985Z and 10:30:20.460Z to
+another board's `POST /board/{project_uid}/cards/available`, not the measured
+GET. The exception chain was ClientDisconnect during body parsing followed by a
+framework HTTPException. Native ASGI reproduction showed that the common route
+caught only FastAPI's HTTPException subclass, so Starlette's base exception was
+incorrectly converted to a logged HTTP 500. Catch the framework base class at
+this existing boundary, preserving its status and headers. No client retry or
+broad diagnostic suppression was added. Cancellation during endpoint execution
+still returns/logs the existing server error, since a write outcome may be unknown.
+
+Original source failed two native-ASGI cases (cancelled body and Starlette HTTP
+403). Candidate routing/official telemetry regression passed 21 cases, including
+malformed JSON, FastAPI 429 headers and real endpoint/disconnect errors. The
+runtime/middleware/phase regression also passed 39 cases. The regression is in
+existing API and full Phoenix validation profiles; no additional
+workflow or runner is introduced. Raw browser samples and before/after receipts
+are retained in private verification artifacts without credentials or payloads.
+Deployed error reduction and post-image performance acceptance remain pending.
