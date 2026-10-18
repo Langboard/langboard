@@ -1,11 +1,7 @@
 import CardWorkbenchLenses, { CardLensTabs, CARD_LENS_SECTIONS, CardWorkbenchLens } from "./CardWorkbenchLenses";
 import useAuthStore from "@/core/stores/AuthStore";
-import CardAppResources from "./CardAppResources";
 import BoardCardWhispers from "./BoardCardWhispers";
-import CardAppInteractions from "./CardAppInteractions";
 import CardAppArchiveReceipts from "./CardAppArchiveReceipts";
-import { ProjectRole } from "@/core/models/roles";
-import CardSignalEvidence from "./CardSignalEvidence";
 import CardFlipTray from "./CardFlipTray";
 import { useCardFlipStore } from "./CardFlipStore";
 import Box from "@/components/base/Box";
@@ -667,19 +663,9 @@ function BoardTaskCardResult({
                                         className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                                     >
                                         <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
+                                            <BoardCardMobileActions />
                                             <CardWorkbenchLenses card={card} lens={lens} receipts={executionReceipts} />
                                             {sectionLoading && <p role="status">{t("common.Loading...")}</p>}
-                                            {!sectionLoading && lens === "review" && (
-                                                <>
-                                                    {visibility !== "PRIVATE" && <BoardCardSignalSection />}
-                                                    <CardAppInteractions
-                                                        projectUID={projectUID}
-                                                        cardUID={card.uid}
-                                                        userUID={currentUser.uid}
-                                                        canRespond={canEditCard && !card.archived_at}
-                                                    />
-                                                </>
-                                            )}
                                             {!sectionLoading && lens === "execution" && (
                                                 <>
                                                     <BoardCardDeadline key={`board-card-deadline-${card.uid}`} />
@@ -690,7 +676,6 @@ function BoardTaskCardResult({
                                             {!sectionLoading && lens === "history" && (
                                                 <>
                                                     <CardColumnHistory card={card} />
-                                                    <BoardCardAppResourceSection />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody
                                                             key={`board-card-check-body-${card.uid}`}
@@ -729,7 +714,6 @@ function BoardTaskCardResult({
                                                                     </ul>
                                                                 </BoardCardSection>
                                                             )}
-                                                            <BoardCardMobileActions />
                                                             <BoardCardSection
                                                                 title="card.Description"
                                                                 className="relative min-h-56"
@@ -741,12 +725,6 @@ function BoardTaskCardResult({
                                                                     scrollParentRef={contentViewportRef}
                                                                 />
                                                             </BoardCardSection>
-                                                            <CardAppInteractions
-                                                                projectUID={projectUID}
-                                                                cardUID={card.uid}
-                                                                userUID={currentUser.uid}
-                                                                canRespond={canEditCard && !card.archived_at}
-                                                            />
                                                             <CardAppArchiveReceipts
                                                                 projectUID={projectUID}
                                                                 cardUID={card.uid}
@@ -1209,27 +1187,3 @@ const BoardCardSection = forwardRef<HTMLDivElement, IBoardCardSectionProps>(
 );
 
 export default BoardCard;
-
-function BoardCardSignalSection() {
-    const { projectUID, card, canEditCard, socket } = useBoardCard();
-    const client = useQueryClient();
-    const cardRevision = card.useField("last_change_seq");
-    return (
-        <CardSignalEvidence
-            cardRevision={cardRevision}
-            socket={socket}
-            projectUID={projectUID}
-            cardUID={card.uid}
-            canEdit={canEditCard}
-            onChanged={() => {
-                void client.invalidateQueries({ queryKey: [`get-card-details-${projectUID}-${card.uid}`] });
-            }}
-        />
-    );
-}
-
-function BoardCardAppResourceSection() {
-    const { projectUID, card, currentUser, hasRoleAction } = useBoardCard();
-    if (!hasRoleAction(ProjectRole.EAction.Update)) return null;
-    return <CardAppResources projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} />;
-}
