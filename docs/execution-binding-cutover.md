@@ -42,6 +42,15 @@ Disabling a binding stops new execution events and invalidates delivery for the
 disabled binding. Avoid having a second polling integration execute the same
 cards independently of this event and generation contract.
 
+Execution binding, project, column, relationship and webhook authorization reads
+use the primary database. Webhook delivery also reloads its current endpoint on
+the primary; a lagging fanout replica cannot select a revoked event allowlist or
+old destination. Candidate discovery can still use the existing replica path.
+The regression retains a separate unchanged replica while revoking each primary
+dependency or changing the endpoint, against SQLite and isolated PostgreSQL
+primaries. This is a pre-delivery check, not a claim that later changes can
+retract an HTTP request already sent.
+
 ## Delivery exhaustion
 
 The initial HTTP attempt and three retries share a four-attempt budget. Failed
