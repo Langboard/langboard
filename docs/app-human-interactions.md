@@ -10,6 +10,34 @@ SDK](external-app-sdk.md) for installation and consent, [native MCP
 profiles](native-mcp-profiles.md) for client authority, and [capability
 diagnostics](native-capability-diagnostics.md) for unavailable actions.
 
+## Optional card managers
+
+Use **Actions** in a card to open **Signal evidence**, **App resources**,
+**App requests** or **App executions**. These managers load when opened instead
+of occupying the default card body. Closing a manager preserves saved evidence,
+resource selections, request history and execution receipts. It does not cancel
+an app request or stop an execution.
+
+Native MCP clients may use the advertised card-management tools under the same
+current card, connection and app permissions. Lightweight connectors may expose
+a smaller subset; a tool described in documentation is not automatically
+available on every connection. Select existing signal evidence and resource IDs
+with current revisions. Never synthesize provider evidence from an agent report.
+Read request and execution histories separately from card completion and human
+approval. An explicit execution stop request revokes the current permit; it does
+not prove that a remote process has terminated. Request responses and execution
+start or resume continue to require their existing authorized human paths.
+
+Native discovery uses `get_card_signals`, `list_card_signal_resources` and
+`list_card_signal_candidates`. Candidates are a bounded page from the current
+authorized board inbox; follow `next_cursor`, and inspect already linked evidence
+with `get_card_signals`. Attach or unlink only the intended existing signal using
+`attach_card_signal` or `unlink_card_signal` and the current card/binding revision.
+`list_card_app_requests` and `list_card_app_executions` inspect retained history;
+`request_card_app_execution_stop` requires the intended current generation.
+Resource selection uses `get_card_app_resources` and
+`set_card_app_resource_selection` with its own current revision.
+
 ## App cancellation
 
 `POST /apps/v1/boards/{board}/cards/{card}/interactions/{interaction}/cancel` accepts only a
