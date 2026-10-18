@@ -9,8 +9,8 @@ were found before this change; none remain under that definition. This is not
 a claim that all semantically similar or shorter functions have been removed.
 
 The UI audit compares printed, comment-free function bodies of at least eight
-lines. The initial 1,502 source files contained 46 candidate groups. The current
-1,503 files contain 44 groups. Candidates require caller and closure review;
+lines. The initial 1,502 source files contained 46 candidate groups. The refreshed
+1,517 files contain 42 groups. Candidates require caller and closure review;
 matching text is not sufficient authority to combine different workflows.
 
 ## Canonical owners
@@ -69,7 +69,7 @@ The umbrella cleanup card must not be archived from these checks alone.
 
 ## Remaining UI candidates
 
-Forty-four groups still need individual ownership and behavior review, including
+Forty-two groups still need individual ownership and behavior review, including
 trigger-condition editing, list refresh/pagination, calendar nodes, form-control
 wrappers and integration/settings flows. Shared error callbacks and measurement
 markers were removed first. The audit inventory is a prioritization aid, not an
@@ -197,3 +197,36 @@ The original source fails six of the eight new query-count cases. All 29
 focused tests pass after the change, including existing authority-change, native
 group-ID, custom bot assignment and board-read bootstrap behavior. This reduces source query work; it does not prove
 a deployed latency improvement. Authenticated canary measurement remains pending.
+
+## Shared live timer duration (2026-10-18)
+
+The current primary `Langboard/langboard` main e585b322 and the previous upstream
+main 45171c109 are both ancestors of the consolidated canary source. No upstream
+merge or architecture replacement was needed for this pass.
+
+The refreshed exact-body UI audit found 43 candidate groups in 1,515 source
+files. Reviewing the timer group exposed an actual divergence: TrackingRow
+memoized duration only on its tick, omitted start-time corrections from its
+effect dependencies, and scheduled another timeout every second even while
+stopped or paused. The card-detail timer already handled live fields and only
+scheduled work while running.
+
+Both now use `useTimerDuration`, preserving the existing date-fns calculation and
+localized formatter. Field changes render immediately; only a running timer with
+a start date owns an interval, cleaned on pause, start-date change and unmount.
+No shared clock store, extra request, polling service or dependency is added.
+The production consumers remove about 60 repeated lines. The inventory remains
+a textual candidate list, not proof of semantic duplication or full cleanup.
+
+Browser regression mounts both real timer components with the real model
+registry. Two original failures reproduce stale accumulated time and start-time
+correction. Candidate passes three checks, including controlled-clock running
+progress, pause stability and no recurring timer work while stopped/paused.
+The timer instrumentation observes two intervals while both views run and zero
+after pause. TypeScript, changed production ESLint, formatting and diff checks
+pass. The existing localization workflow includes this suite without adding a
+job or runner. Original fixture expectations initially used long English units;
+they were corrected to the product's existing narrow units before recording the
+failing baseline. Logs remain in `src/ui/.verification/timer-duration-*`.
+These are local browser checks, not a measured backend/board latency gain or
+accepted canary deployment.
