@@ -39,6 +39,13 @@ case "$profile" in
       src/api/tests/apps/test_app_execution_lease.py \
       src/api/tests/apps/test_app_execution_start.py \
       src/api/tests/apps/test_card_signal_projection.py \
+      src/api/tests/apps/test_card_management_mcp.py \
+      src/api/tests/apps/test_card_app_resources_mcp.py \
+      src/api/tests/mcp_integration/test_agent_policy.py \
+      src/api/tests/mcp_integration/test_native_oauth.py \
+      src/api/tests/mcp_integration/test_work_plan_private_card.py \
+      src/api/tests/mcp_integration/test_work_plan_mcp.py \
+      src/api/tests/mcp_integration/test_mcp_api.py \
       src/api/tests/contracts/test_datamodel_generation.py \
       src/api/tests/project_labels/test_title_label_integration.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
@@ -88,6 +95,9 @@ case "$profile" in
       src/api/tests/apps/test_app_execution_lease.py \
       src/api/tests/apps/test_app_execution_start.py \
       src/api/tests/apps/test_card_signal_projection.py \
+      src/api/tests/apps/test_card_management_mcp.py \
+      src/api/tests/apps/test_card_app_resources_mcp.py \
+      src/api/tests/mcp_integration/test_work_plan_private_card.py \
       src/api/tests/migrations/test_phoenix_canary_union_postgres.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/card_visibility/test_socket_subscription_batch.py \
