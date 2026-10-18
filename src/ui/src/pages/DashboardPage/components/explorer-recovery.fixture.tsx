@@ -5,10 +5,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
 import ProjectExplorerSidebar from "./ProjectExplorerSidebar";
-import { Project } from "@/core/models";
+import { AuthUser, Project } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import "@/i18n";
 import "@/assets/styles/main.css";
 
+const currentUser = AuthUser.Model.fromOne({ uid: "explorer-fixture-user", created_at: new Date(), updated_at: new Date() });
+useAuthStore.setState({ currentUser, state: "loaded" });
 const client = new QueryClient();
 const cached = new URLSearchParams(location.search).has("cached");
 const data = {
@@ -16,7 +19,11 @@ const data = {
     columns: [],
 };
 if (cached)
-    client.setQueryData(["get-dashboard-projects"], { projects: Project.Model.fromArray(data.projects, true), columns: [] }, { updatedAt: 1 });
+    client.setQueryData(
+        ["get-dashboard-projects", currentUser.uid],
+        { projects: Project.Model.fromArray(data.projects, true), columns: [] },
+        { updatedAt: 1 }
+    );
 let fail = true;
 api.defaults.adapter = async (config) => {
     const response = { status: 200, statusText: "OK", headers: {}, config };
