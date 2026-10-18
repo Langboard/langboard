@@ -47,3 +47,22 @@ test. That transition requires one summary event and at most three timer reads;
 the fixture substitutes publishers and exercises SQLite by default. Authenticated
 live list/search readback confirms the compact contract for returned cards; it
 does not establish all board ACL combinations or live mass-event delivery.
+
+## Recover template choice inventories without discarding drafts
+
+Bot and global-label choice failures are independent of template-list or save
+failures. Each choice inventory now offers an explicit, guarded retry inside an
+open editor. The retry control stays outside the disabled fieldset so it remains
+usable when choices failed. It only reloads that inventory, without resetting
+columns, translations, selected bot/label IDs, description or default template.
+Existing bot snapshots remain preserved during unrelated saves even if bot
+choices are still unavailable. No automatic retry loop is added.
+
+The original desktop/mobile browser regression failed because the retry controls
+were absent. The complete editor suite now passes16cases, including recovery at
+1280/390px, preserved selections/unsaved description, zero writes during retries,
+legacy bot fallback, translation order and duplicate save/default guards. These
+browser fixtures use intercepted API responses; they do not establish live API
+save or deployed canary acceptance. Application TypeScript, targeted ESLint,
+Prettier and the existing UI-string baseline pass. Existing translated labels and
+base UI widgets are reused with no additional resource or dependency.

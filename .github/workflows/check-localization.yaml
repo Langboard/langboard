@@ -41,6 +41,8 @@ on:
       - src/ui/playwright.locale-runtime.config.ts
       - src/ui/playwright.locale-format.config.ts
       - src/ui/playwright.error-locale.config.ts
+      - src/ui/src/pages/SettingsPage/ProjectTemplates*
+      - src/ui/playwright.template-editor.config.ts
       - src/ui/playwright.retrieval.config.ts
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
@@ -126,6 +128,8 @@ jobs:
       - run: yarn playwright test -c playwright.timer-duration.config.ts
         working-directory: src/ui
       - run: yarn playwright test -c playwright.locale-format.config.ts
+        working-directory: src/ui
+      - run: yarn playwright test -c playwright.template-editor.config.ts --workers=1
         working-directory: src/ui
       - run: yarn playwright test -c playwright.retrieval.config.ts --workers=1
         working-directory: src/ui
