@@ -84,6 +84,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                     WorkflowStageDefinition(
                         id=2, key="released", name="Released", counts_as_completed=True
                     ).model_dump(),
+                    WorkflowStageDefinition(id=3, key="active", name="Active", counts_as_completed=False).model_dump(),
                 ],
             )
             with Operations.context(MigrationContext.configure(connection)):
@@ -274,6 +275,19 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             )
         assert len(enqueued) == 5
         assert len(published_work_states) == committed_publications
+        # An explicit legacy ready mapping cannot override completion policy
+        # on the target card's own workflow stage.
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE project_column SET workflow_stage='active' WHERE id=20"))
+        assert (current_execution(102).is_ready, current_execution(102).generation) == (True, 3)
+        active_fields = {**fields, "key": "active", "name": "Active", "counts_as_completed": True}
+        service.save(active_fields, WorkflowStageDefinition(id=3, key="active", name="Active").get_uid())
+        assert (current_execution(102).is_ready, current_execution(102).generation) == (False, 3)
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT state FROM execution_outbox WHERE card_id=102 AND execution_generation=3"
+            )).scalar_one() == "superseded"
+        assert len(enqueued) == 5
     finally:
         engine.dispose()
         replica_engine.dispose()

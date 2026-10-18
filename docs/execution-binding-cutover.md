@@ -51,6 +51,12 @@ dependency or changing the endpoint, against SQLite and isolated PostgreSQL
 primaries. This is a pre-delivery check, not a claim that later changes can
 retract an HTTP request already sent.
 
+A card's current `counts_as_completed` stage policy also revokes readiness even
+when its execution binding still maps the column to `ready`. Native policy edits
+watch the affected cards in the existing unit of work, supersede pending events
+and retain the generation without scheduling another execution. The PostgreSQL
+regression exercises the real stage service, readiness query and outbox rows.
+
 ## Delivery exhaustion
 
 The initial HTTP attempt and three retries share a four-attempt budget. Failed

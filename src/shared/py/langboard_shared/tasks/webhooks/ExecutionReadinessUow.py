@@ -29,6 +29,10 @@ _READY_EXPRESSION = f"""
           AND b.column_semantic_ids ->> (c.project_column_id::text) = 'ready'
           AND target.deleted_at IS NULL AND NOT target.is_archive AND target.project_id = c.project_id
           AND NOT EXISTS (
+              SELECT 1 FROM workflow_stage_definition target_stage
+              WHERE target_stage.key = target.workflow_stage AND target_stage.counts_as_completed
+          )
+          AND NOT EXISTS (
               SELECT 1 FROM card_relationship r
               {BLOCKING_RELATION_JOINS}
               WHERE r.card_id_child = c.id AND {UNSATISFIED_PREREQUISITE}
