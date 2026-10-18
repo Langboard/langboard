@@ -35,6 +35,10 @@ This document distinguishes implemented contracts from remaining acceptance.
    that declares workflow requirements, with or without a panel. App names and
    descriptions come from the catalog; the UI does not maintain a provider
    allowlist. Saving a mapping keeps automatic transitions disabled.
+   Both mapping APIs persist automatically resolved unique column choices.
+   Runtime actions consume those saved destinations; adding another column with
+   the same stage must not redirect an existing app. Deleting the saved column
+   or changing its stage invalidates that destination and requires repair.
 
 ## Current support and acceptance
 

@@ -98,7 +98,12 @@ def save_workflow_mapping(actor, project_id, app_key, mapping, enabled, expected
                 raise AppGovernanceDenied()
             if not result["transitions_resolved"]:
                 raise ValueError("Required stages must resolve to active board columns")
-        binding.workflow_mapping = mapping
+        # Freeze unique defaults just like the native board workflow editor.
+        # Runtime app actions consume this saved mapping, not display choices.
+        binding.workflow_mapping = {
+            **mapping,
+            **{choice["stage"]: choice["column_uid"] for choice in result["choices"] if choice["status"] == "resolved"},
+        }
         binding.stage_transitions_enabled = enabled
         db.update(binding)
         db.after_commit(AppSettingPublisher.apps_changed)
