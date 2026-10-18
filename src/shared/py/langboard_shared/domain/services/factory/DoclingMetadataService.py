@@ -460,12 +460,17 @@ class DoclingMetadataService(BaseDomainService):
             documents = [document for document in current if document.get("attachment_uid") != attachment_uid]
             self.save_documents(model_cls, foreign_model, documents)
             if model_cls is CardMetadata:
+                # Metadata may already be missing. Clear the selected derived
+                # search projection without deleting or rewriting its attachment.
+                attachment_scope = (
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
+                    CardAttachment.card_id == foreign_model.id,
+                )
+                db.exec(update(CardAttachment).where(*attachment_scope).values(document_text=""))
                 db.exec(
                     delete(CardDocumentArtifact).where(
                         CardDocumentArtifact.attachment_id.in_(
-                            select(CardAttachment.id)
-                            .where(CardAttachment.id == InfraHelper.convert_id(attachment_uid))
-                            .where(CardAttachment.card_id == foreign_model.id)
+                            select(CardAttachment.id).where(*attachment_scope)
                         )
                     )
                 )

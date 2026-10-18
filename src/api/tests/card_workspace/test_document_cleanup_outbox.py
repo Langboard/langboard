@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import DocumentVectorCleanup
+from langboard_shared.domain.models import CardAttachment, DocumentVectorCleanup
 from langboard_shared.tasks.docling import DocumentCleanupTask as outbox
 from langboard_shared.tasks.docling import DocumentEmbeddingTask as embedding
 from sqlalchemy import update
@@ -196,7 +196,6 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
     from langboard_shared.core.storage import FileModel
     from langboard_shared.domain.models import (
         Card,
-        CardAttachment,
         CardDocumentArtifact,
         CardMetadata,
         Organization,
@@ -222,6 +221,7 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
             user_id=owner.id,
             card_id=card.id,
             filename="source.pdf",
+            document_text="retained text",
             file=FileModel(
                 storage_type="test",
                 storage_name="test",
@@ -271,6 +271,8 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
             raise RuntimeError("rollback")
     assert pending() == []
     assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) == document
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first().document_text == "retained text"
     change()
     assert len(pending()) == 1 and pending()[0].pointer == pointer()
     cleanup_store.assert_called_once()
@@ -282,6 +284,10 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
         assert len(pending()) == 1
     else:
         assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) is None
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first()
+            assert current.document_text == "" and current.file == attachment.file
+            assert current.deleted_at is None
         service.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
         assert len(pending()) == 1
 

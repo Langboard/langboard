@@ -689,3 +689,26 @@ HTTPS protocol fixtures plus SQLite/PostgreSQL integration cover hidden/private/
 foreign/deleted/stale sources, Human UI/MCP/API differences, membership revocation
 and source replacement during a request, and native fallback. They do not prove
 real Elasticsearch matching, delivery/deletion, index isolation or deployed E2E.
+
+### Deleting an extracted document
+
+`delete_document_by_attachment_uid` clears the selected attachment's derived
+`document_text` in the same transaction as metadata/artifact deletion and durable
+vector-cleanup recording. It uses the same attachment/card predicate for text and
+artifact removal, so a foreign card cannot clear another card's projection.
+This also removes leftover search text when the metadata row is already absent.
+The original attachment row, filename and file reference are retained by this
+extraction-only operation. The separate attachment-delete service still controls
+deletion of the attachment itself. Late results from the old extraction generation
+remain rejected; failed replacement processing continues to retain the prior text.
+
+Previously, extraction deletion left `document_text` behind. Five new assertions
+failed across SQLite/PostgreSQL and real HTTPS candidate reads before correction.
+The normal attachment-delete path already filters soft-deleted attachments from
+search, so this is not by itself proof of an observed public data leak. The fix
+closes the underlying deletion mismatch and makes old external candidates fail
+current-source validation. Rollback restores metadata, text and cleanup state
+together. The optional-feature API test environment passed 83 related tests; two
+SQLite-only locking cases were skipped with their PostgreSQL counterparts passing.
+The base API environment also passed the seven focused cases (overlapping scope).
+These are source/integration checks, not remote-index deletion or canary evidence.

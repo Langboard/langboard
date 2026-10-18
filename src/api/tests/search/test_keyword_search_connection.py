@@ -17,7 +17,7 @@ from langboard.commands.CheckKeywordSearchCommand import (
     check_elasticsearch_connection,
 )
 from langboard_shared.core.bootstrap import Commander
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.search.ElasticsearchKeywordSearch import search_document_candidates
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -28,6 +28,8 @@ from langboard_shared.domain.models import (
     Card,
     CardAttachment,
     CardComment,
+    CardDocumentArtifact,
+    CardMetadata,
     EmployeeMembershipPolicy,
     ProjectAssignedUser,
     ProjectColumn,
@@ -269,7 +271,7 @@ def test_native_commander_parses_the_connection_check_options(endpoint, monkeypa
 
 
 def test_default_import_and_missing_extra_are_independent_of_elasticsearch():
-    env = {**os.environ, "PROJECT_NAME": "langboard"}
+    env = {**os.environ, "PROJECT_NAME": "langboard", "DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED": "false"}
     script = """
 import importlib.abc, sys
 class Absent(importlib.abc.MetaPathFinder):
@@ -326,7 +328,7 @@ def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, 
 def document_board(board, monkeypatch):
     _, actor, project, _, _, columns, _ = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardAttachment, CardComment, EmployeeMembershipPolicy):
+    for model in (Bot, Card, CardAttachment, CardComment, CardMetadata, CardDocumentArtifact, EmployeeMembershipPolicy):
         model.__table__.create(engine)
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
     monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: ""))
@@ -454,3 +456,23 @@ def test_primary_authority_and_hash_are_rechecked_after_remote_request(document_
         project, "billing", user=actor, channel=CollaborationChannel.HumanUI
     )
     assert [card["title"] for card in results] == ([] if change == "membership" else ["billing from PostgreSQL"])
+
+
+def test_deleted_extraction_clears_legacy_projection_and_rejects_old_remote_candidates(
+    document_board, endpoint, monkeypatch
+):
+    service, actor, project, sources, hits = document_board
+    configure_document_search(monkeypatch, endpoint)
+    _, _, _, state = endpoint
+    state["candidate_hits"] = hits[:1]
+    card, attachment = sources["Visible"]
+    # The source has no metadata row: clearing a leftover projection must still work.
+    assert service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) is None
+    service.docling_metadata.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    results = service.card.search_context_by_project(
+        project, "billing", user=actor, channel=CollaborationChannel.HumanUI
+    )
+    assert [card["title"] for card in results] == ["billing from PostgreSQL"]
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first()
+        assert current.document_text == "" and current.file == attachment.file and current.deleted_at is None
