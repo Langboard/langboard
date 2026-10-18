@@ -692,3 +692,41 @@ in `.verification/board-assignee-projection-{before,after}-20261018.log`.
 This reduces selected data and User hydration in that query. It is not a measured
 production latency gain, nor proof that this query caused the observed multi-second
 canary requests. Deployment and authenticated canary timing remain pending.
+
+## Recovery imports avoid request-source generation (2026-10-18)
+
+A fresh GitHubHealthWorker import initialized `core.routing.ApiSchemaHelper`,
+which imported the request-schema code generator even though recovery does not
+create request models. A local Python import profile attributed 769,859 µs to
+the parser subtree, including 704,247 µs to `inflect`. The existing parser import
+now occurs only inside `ApiSchemaHelper.__parse_model`, at its actual point of
+use. No models, recovery schedules, queue behavior, locking or broker-down
+fallback are removed; the normal Python module cache retains the parser after
+its first use by API schema generation.
+
+Fresh-process tests reproduce the unwanted parser/inflect imports for GitHub
+health, execution outbox and app-event recovery against the original source
+(three failures). A real route with path/query/form fields still generates an
+executable request model and retains enum and numeric validation. After the
+change, these tests plus the existing execution import-order and unprivileged
+cron suites pass 14 tests. One local import-time sample changed from 2.169815 s
+to 1.249372 s for GitHubHealthWorker. These are import profiles, not matched
+request-load benchmarks or a production latency improvement claim.
+
+Read-only operating samples at 08:26–08:31 UTC showed approximately 878 MiB API
+container memory, no container OOM/throttle events, a 13.318 ms database connection
+and two other idle database sessions. About 86% of accumulated container CPU was
+nice time; several minute recovery subprocesses had each accumulated 10–15 CPU
+seconds. These observations motivate reducing repeated initialization, but do
+not establish causality for any particular slow board request or rule out host
+constraints. A bounded deployed cold-import probe timed out after 45 seconds;
+its failure is retained rather than represented as a completed profile. No
+service restart or production data modification was performed.
+
+Evidence: `.verification/github-health-import-{before,after}-20261018.log`,
+`.verification/schema-import-{before,after}-20261018.log` and the read-only
+`dokploy-api-resource-baseline`, `dokploy-api-processes` and
+`dokploy-cold-import-profile` JSON receipts. Authenticated browser acceptance is
+separately blocked by a real `ERR_ECH_FALLBACK_CERTIFICATE_INVALID` on the login
+API's preflight and XHR; rendering the login HTML is insufficient proof of
+recovery. DNS repair remains with the central platform owner.
