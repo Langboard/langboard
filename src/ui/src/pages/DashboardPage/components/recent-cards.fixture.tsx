@@ -6,6 +6,8 @@ import { getUserSettingsStore } from "@/core/stores/UserSettingsStore";
 import { focusCard, useOpenCards } from "./OpenCardsStore";
 import { recentOpenCards } from "./OpenCardsData";
 import RecentCardsSection from "./RecentCardsSection";
+import CardFlipTray from "@/pages/BoardPage/components/card/CardFlipTray";
+import { useCardFlipStore } from "@/pages/BoardPage/components/card/CardFlipStore";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const count = Number(new URLSearchParams(location.search).get("count") || 14);
@@ -19,14 +21,19 @@ getUserSettingsStore().updateSettingsByKey("open_cards", {
         lastFocusedAt: `2026-10-02T00:00:${String(index).padStart(2, "0")}Z`,
     })),
 });
+if (new URLSearchParams(location.search).has("tray")) useCardFlipStore.getState().flip("fixture", "fixture", { uid: "tray", title: "Tray card" });
 function Fixture() {
-    const cards = recentOpenCards(useOpenCards("fixture"));
+    const [userUID, setUserUID] = useState("fixture");
+    const cards = recentOpenCards(useOpenCards(userUID));
     const [expanded, setExpanded] = useState(false);
     const [collapsed, setCollapsed] = useState(false);
     const [active, setActive] = useState(!new URLSearchParams(window.location.search).has("hidden"));
     const location = useLocation();
     return (
         <div className="h-screen w-full max-w-lg p-2">
+            {new URLSearchParams(window.location.search).has("tray") && <CardFlipTray userUID={userUID} projectUID="fixture" />}
+            <button onClick={() => setUserUID((value) => (value === "fixture" ? "other" : "fixture"))}>Switch account</button>
+            <button onClick={() => focusCard(userUID, { projectUID: "fixture", cardUID: "new", title: "New card" })}>Open new card</button>
             <p data-testid="route">{location.pathname}</p>
             <button onClick={() => setActive((value) => !value)}>Toggle explorer visibility</button>
             <button onClick={() => focusCard("fixture", { projectUID: "fixture", cardUID: "0", title: "Card 0" })}>Read oldest again</button>
@@ -42,7 +49,7 @@ function Fixture() {
                     </section>
                     <RecentCardsSection
                         active={active}
-                        userUID="fixture"
+                        userUID={userUID}
                         cards={cards}
                         collapsed={collapsed}
                         expanded={expanded}

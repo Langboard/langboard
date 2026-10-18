@@ -1,6 +1,6 @@
 from hashlib import sha256
 from typing import Any, Sequence
-from sqlalchemy import JSON, Text, case, cast, false, func, or_, select, update
+from sqlalchemy import JSON, Text, case, cast, false, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
@@ -70,18 +70,39 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             return []
         if len(card_uids) > 200:
             raise ValueError("At most 200 recent cards may be checked")
-        project_id = InfraHelper.convert_id(project)
-        card_ids = [InfraHelper.convert_id(uid) for uid in card_uids]
+        project_uid = InfraHelper.convert_uid(InfraHelper.convert_id(project))
+        return [uid for _, uid in self.get_existing_pairs(
+            [(project_uid, uid) for uid in card_uids],
+            contexts={int(InfraHelper.convert_id(project)): context},
+        )]
+
+    def get_existing_pairs(
+        self, pairs: Sequence[tuple[str, str]], *, contexts: dict[int, CardVisibilityContext]
+    ) -> list[tuple[str, str]]:
+        if len(pairs) > 200:
+            raise ValueError("At most 200 recent cards may be checked")
+        requested = {
+            (InfraHelper.convert_id(project_uid), InfraHelper.convert_id(card_uid))
+            for project_uid, card_uid in pairs
+            if int(InfraHelper.convert_id(project_uid)) in contexts
+        }
+        if not requested:
+            return []
+        # One bounded projection; no content, unread state or member metadata loaded.
         with DbSession.use(readonly=False) as db:
-            card_ids = db.exec(
-                SqlBuilder.select.column(Card.id)
-                .join(Project, Project.column("id") == Card.column("project_id"))
-                .where(Project.column("deleted_at") == None)  # noqa: E711
-                .where(Card.column("project_id") == project_id)
-                .where(Card.column("id").in_(card_ids))
-                .where(card_visibility_scope(context))
+            rows = db.exec(
+                SqlBuilder.select.columns(Card.project_id, Card.id)
+                .join(Project, Project.id == Card.project_id)
+                .where(Project.deleted_at.is_(None), Card.archived_at.is_(None))
+                .where(select(ProjectColumn.id).where(
+                    ProjectColumn.id == Card.project_column_id, ProjectColumn.project_id == Card.project_id,
+                    ProjectColumn.deleted_at.is_(None),
+                ).exists())
+                .where(tuple_(Card.project_id, Card.id).in_(requested))
+                .where(card_visibility_scope_by_project(contexts))
+                .limit(200)
             ).all()
-        return [InfraHelper.convert_uid(card_id) for card_id in card_ids]
+        return [(InfraHelper.convert_uid(project_id), InfraHelper.convert_uid(card_id)) for project_id, card_id in rows]
 
     def update_description_if_current(self, card: Card, expected_content: str) -> bool:
         """Lock and compare the primary row before updating only its description."""

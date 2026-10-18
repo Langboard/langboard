@@ -206,11 +206,36 @@ class CardService(BaseDomainService):
             raise ValueError("At most 200 recent cards may be checked")
         if not card_uids or not isinstance(user, User):
             return []
-        resolved = self.resolve_visibility_context(project, user, channel)
-        if resolved is None:
+        project_uid = InfraHelper.convert_uid(InfraHelper.convert_id(project))
+        return [card_uid for _, card_uid in self.get_existing_pairs(
+            [(project_uid, uid) for uid in card_uids], user=user, channel=channel,
+        )]
+
+    def get_existing_pairs(
+        self,
+        pairs: list[tuple[str, str]],
+        *,
+        user: User,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> list[tuple[str, str]]:
+        """Validate only explicitly requested board/card pairs using current authority."""
+        if len(pairs) > 200:
+            raise ValueError("At most 200 recent cards may be checked")
+        pairs = list(dict.fromkeys(pairs))
+        # Invalid/unknown external identifiers fail closed before SQL conversion.
+        valid_pairs = []
+        for project_uid, card_uid in pairs:
+            try:
+                if InfraHelper.convert_id(project_uid) > 0 and InfraHelper.convert_id(card_uid) > 0:
+                    valid_pairs.append((project_uid, card_uid))
+            except ValueError:
+                continue
+        pairs = valid_pairs
+        if not pairs or not isinstance(user, User):
             return []
-        project, context = resolved
-        return self.repo.card.get_existing_uids(project, card_uids, context=context)
+        project_ids = {InfraHelper.convert_id(project_uid) for project_uid, _ in pairs}
+        contexts = self.resolve_work_visibility_contexts(user, channel, project_ids=project_ids)
+        return self.repo.card.get_existing_pairs(pairs, contexts=contexts)
 
     def resolve_visibility_context(
         self,
@@ -255,9 +280,11 @@ class CardService(BaseDomainService):
         self,
         user: User,
         channel: CollaborationChannel,
+        *,
+        project_ids: set[int] | None = None,
     ) -> dict[int, CardVisibilityContext]:
         """Resolve current cross-board membership in two primary reads, not N reads."""
-        if not isinstance(user, User):
+        if not isinstance(user, User) or project_ids == set():
             return {}
         with DbSession.use(readonly=False) as db:
             current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
@@ -281,14 +308,15 @@ class CardService(BaseDomainService):
                 )
                 .exists()
             )
-            projects = db.exec(
-                SqlBuilder.select.table(Project).where(
-                    or_(Project.owner_id == current.id, membership & read_grant),
-                )
-            ).all()
+            query = SqlBuilder.select.column(Project.id).where(
+                or_(Project.owner_id == current.id, membership & read_grant),
+            )
+            if project_ids is not None:
+                query = query.where(Project.id.in_(project_ids))
+            projects = db.exec(query).all()
         internal = self._resolve_internal_access(current)
         context = CardVisibilityContext(channel, True, True, internal, actor_user_id=int(current.id))
-        return {int(project.id): context for project in projects}
+        return {int(project_id): context for project_id in projects}
 
     def _resolve_internal_access(self, user: User) -> bool | None:
         """Resolve card access independently of employee classification.

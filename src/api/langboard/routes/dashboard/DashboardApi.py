@@ -9,7 +9,7 @@ from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.security import Auth
-from .DashboardForm import DashboardPagination, DashboardProjectCreateForm
+from .DashboardForm import DashboardPagination, DashboardProjectCreateForm, RecentCardPairsAvailabilityForm
 
 
 @AppRouter.api.get(
@@ -344,3 +344,22 @@ def track_checkitems(
     checkitems, cards, projects = service.checkitem.get_tracking_list(user, pagination)
 
     return JsonResponse(content={"checkitems": checkitems, "cards": cards, "projects": projects})
+
+
+@AppRouter.api.post(
+    "/dashboard/cards/available",
+    tags=["Dashboard"],
+    responses=OpenApiSchema().suc({"cards": [{"project_uid": "string", "card_uid": "string"}]}).auth().get(),
+)
+@AuthFilter.add("user")
+def get_available_recent_card_pairs(
+    form: RecentCardPairsAvailabilityForm,
+    request: Request,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    pairs = service.card.get_existing_pairs(
+        [(card.project_uid, card.card_uid) for card in form.cards], user=user,
+        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
+    return JsonResponse(content={"cards": [{"project_uid": project, "card_uid": card} for project, card in pairs]})
