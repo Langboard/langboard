@@ -32,6 +32,7 @@ import BoardWorkIsland from "@/pages/BoardPage/components/board/BoardWorkIsland"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { Project, ProjectCard } from "@/core/models";
+import type { IWorkState } from "@/core/models/ProjectCard";
 import BoardOutlineSidebar from "@/pages/BoardPage/components/board/BoardOutlineSidebar";
 import { api } from "@/core/helpers/Api";
 import { useState } from "react";
@@ -309,6 +310,51 @@ function Fixture() {
             </output>
             <output data-testid="file-size">{formatFileSize(1536, language.language, 1)}</output>
             <div data-testid="board-comment-count" className="max-w-80">
+                <select
+                    aria-label="Fixture work state"
+                    defaultValue="missing"
+                    onChange={(event) => {
+                        const scenario = event.target.value;
+                        const card = ProjectCard.Model.getModel("locale-outline")!;
+                        const reason = { code: "dependency_unavailable", message: "SECRET prerequisite title", source_ref: "card:secret-uid" };
+                        const state: IWorkState = {
+                            version: 1,
+                            workflow_stage: "active",
+                            completed: false,
+                            verification_state: "unverified",
+                            verification_source_change_seq: 0,
+                            verification: null,
+                            execution_state: null,
+                            blocker_state: null,
+                            material_kind: "work",
+                            lifecycle: "active",
+                            active_queue_eligible: null,
+                            checklist_progress: { total: 2, completed: 2 },
+                            reasons: [],
+                            state_inconsistency: [],
+                        };
+                        if (scenario === "blocked") {
+                            state.blocker_state = "blocked";
+                            state.reasons = [reason];
+                        }
+                        if (scenario === "approval") {
+                            state.blocker_state = "needs_approval";
+                            state.reasons = [{ ...reason, code: "approval_pending" }];
+                        }
+                        if (scenario === "closed") {
+                            state.completed = true;
+                            state.checklist_progress.completed = 1;
+                            state.workflow_stage = "closed";
+                            state.state_inconsistency = [{ ...reason, code: "closed_with_open_checkitems" }];
+                        }
+                        if (scenario === "unknown") state.reasons = [{ ...reason, code: "future_reason" }];
+                        card.work_state = scenario === "missing" ? undefined : state;
+                    }}
+                >
+                    {["missing", "blocked", "approval", "closed", "active", "unknown"].map((scenario) => (
+                        <option key={scenario}>{scenario}</option>
+                    ))}
+                </select>
                 <BoardProvider project={fixtureProject} currentUser={documentUser}>
                     <ModelRegistry.ProjectCard.Provider model={ProjectCard.Model.getModel("locale-outline")!} params={{ setFilters: () => {} }}>
                         <BoardColumnCardCollapsible isDragging={false} />

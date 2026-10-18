@@ -30,3 +30,28 @@ workbench Playwright profile. Test dependencies must resolve the current
 
 Source checks do not constitute deployed acceptance. Verify both states after
 navigation and reload on the actual canary before closing the product card.
+
+## Board-card state reasons
+
+The existing board card now presents one line from its subscribed `work_state`
+projection below the title. It does not fetch description, comments, evidence or
+prerequisite cards. Current model updates replace the displayed state without a
+new store, timer or query. Cards without a projection retain their previous UI.
+
+Completion, blockers and execution labels come from server axes. Unchecked
+items on a completed workflow remain a diagnostic; checklist completion never
+becomes approval. Known reason codes are translated in English, Korean,
+Japanese and Chinese. Unknown codes use a neutral fallback. Raw messages and
+source references are not rendered, so an inaccessible prerequisite cannot
+expose its title or identity through this summary. The single-line text includes
+a screen-reader label and a full hover title, using existing theme tokens.
+
+The actual-card browser regression first failed because the reason was absent,
+then passed after the change. It exercises model updates, missing projection,
+blocked/approval/completed/active/unknown states, hidden prerequisite values,
+four languages and 320/390/1920px widths. It observes no additional HTTP requests
+during state or language changes. The containing locale fixture passed 24
+browser checks; deadline/checklist status checks passed 15 cases. These local
+fixtures do not prove Phoenix transport delivery, deployed accessibility or
+canary performance. Execution/review/history lenses and separate worker/agent
+indicators remain independent unfinished work.

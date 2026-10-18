@@ -1,5 +1,48 @@
 import { expect, test } from "@playwright/test";
 
+test("board work state uses current server reasons without private prerequisite details or extra requests", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("lang", "en-US"));
+    await page.goto("/src/core/utils/LocaleFormat.fixture.html");
+    const card = page.getByTestId("board-comment-count");
+    const summary = card.locator("[data-board-card-work-state]");
+    await expect(card.getByRole("button", { name: "User card title", exact: true })).toBeVisible();
+    await expect(summary).toHaveCount(0);
+    const requests: string[] = [];
+    page.on("request", (request) => {
+        if (request.resourceType() === "fetch" || request.resourceType() === "xhr") requests.push(request.url());
+    });
+    for (const [scenario, text] of [
+        ["blocked", "Blocked · Prerequisite unavailable"],
+        ["approval", "Awaiting approval · Decision required"],
+        ["closed", "Completed · Unfinished checklist"],
+        ["active", "In progress"],
+        ["unknown", "In progress · Status details unavailable"],
+    ]) {
+        await page.getByRole("combobox", { name: "Fixture work state" }).selectOption(scenario);
+        await expect(summary).toContainText(text);
+        await expect(summary).not.toContainText(/SECRET|secret-uid/);
+    }
+    for (const width of [320, 390, 1920]) {
+        await page.setViewportSize({ width, height: 844 });
+        const bounds = await summary.boundingBox();
+        expect(bounds).not.toBeNull();
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        expect(await summary.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+    }
+    await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("blocked");
+    for (const [locale, text] of [
+        ["ko-KR", "차단됨 · 선행 작업 조회 불가"],
+        ["ja-JP", "ブロック中 · 前提作業を参照できません"],
+        ["zh-CN", "已阻塞 · 无法查看前置任务"],
+    ]) {
+        await page.getByRole("button", { name: locale, exact: true }).click();
+        await expect(summary).toContainText(text);
+    }
+    await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("missing");
+    await expect(summary).toHaveCount(0);
+    expect(requests).toEqual([]);
+});
+
 test("document transcription pages and progress follow account language", async ({ page }) => {
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
     for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {

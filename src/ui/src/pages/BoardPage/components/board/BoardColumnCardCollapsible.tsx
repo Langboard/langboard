@@ -44,6 +44,7 @@ import useSetCardCompleted from "@/controllers/api/board/useSetCardCompleted";
 import { captureCardOrigin } from "@/pages/BoardPage/components/board/CardAnimation";
 import CardTimestamps from "@/pages/BoardPage/components/card/CardTimestamps";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
+import BoardCardWorkState from "@/pages/BoardPage/components/board/BoardCardWorkState";
 
 export interface IBoardColumnCardCollapsibleProps {
     isDragging: bool;
@@ -383,6 +384,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                 {title}
                             </button>
                         </Card.Title>
+                        <BoardCardWorkState state={workState} />
                         {isCheckCard && !compact && (
                             <Button
                                 variant="ghost"
