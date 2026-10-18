@@ -22,6 +22,7 @@ from langboard_shared.domain.models import (
     ProjectColumn,
     ProjectRole,
     User,
+    UserNotification,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
@@ -60,6 +61,7 @@ def counts_db(request, monkeypatch):
                     db.execute(text(f'CREATE TABLE "{table}" (id BIGINT PRIMARY KEY)'))
         for model in (
             User,
+            UserNotification,
             Project,
             ProjectColumn,
             ProjectRole,
@@ -272,3 +274,66 @@ def test_assigned_work_does_not_load_dashboard_summaries_or_repeat_authority(
     with DomainService.use() as service:
         assert service.card.list_assigned_work(actor, limit=1, channel=channel) == {"items": [], "next_cursor": None}
     assert len(statements) == 1  # current inactive account stops before membership or card reads
+
+
+@pytest.mark.parametrize("project_count", [1, 20])
+@pytest.mark.parametrize("surface,expected_queries", [("rest", 4), ("mcp_assigned", 3), ("mcp_mentioned", 4)])
+def test_multipurpose_work_skips_dashboard_queries_and_reuses_current_scope(
+    counts_db, monkeypatch, project_count, surface, expected_queries
+):
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+    with DbSession.use(readonly=False) as db:
+        actor = User(
+            firstname="Multipurpose",
+            lastname="Viewer",
+            email="multipurpose@example.invalid",
+            password="test-only",
+            activated_at=SafeDateTime.now(),
+            is_admin=True,
+        )
+        db.insert(actor)
+        for number in range(project_count):
+            project = Project(owner_id=actor.id, title=f"Multipurpose {number}")
+            db.insert(project)
+            db.insert(ProjectAssignedUser(project_id=project.id, user_id=actor.id))
+    statements = []
+    event.listen(
+        counts_db,
+        "before_cursor_execute",
+        lambda *args: statements.append(args[2]) if args[2].lstrip().upper().startswith("SELECT") else None,
+    )
+    with DomainService.use() as service:
+        if surface == "rest":
+            response = import_module("langboard.routes.dashboard.DashboardApi").get_my_work(
+                Request({"type": "http", "collaboration_channel": CollaborationChannel.HumanUI}),
+                user=actor,
+                service=service,
+                limit=1,
+            )
+            assert json.loads(response.body) == {"cards": []}
+        else:
+            result = import_module("langboard.mcp_tools.UserMcp").get_my_work_cards(
+                actor, service, purposes=["assigned" if surface == "mcp_assigned" else "mentioned"], limit=1
+            )
+            assert result == {"cards": [], "returned_count": 0}
+    assert len(statements) == expected_queries
+    assert not any("project_activity" in query or "max(card.last_change_seq)" in query for query in statements)
+    with DbSession.use(readonly=False) as db:
+        actor.activated_at = None
+        db.update(actor)
+    statements.clear()
+    with DomainService.use() as service:
+        if surface == "rest":
+            response = import_module("langboard.routes.dashboard.DashboardApi").get_my_work(
+                Request({"type": "http", "collaboration_channel": CollaborationChannel.HumanUI}),
+                user=actor,
+                service=service,
+                limit=1,
+            )
+            assert json.loads(response.body) == {"cards": []}
+        else:
+            result = import_module("langboard.mcp_tools.UserMcp").get_my_work_cards(
+                actor, service, purposes=["mentioned"], limit=1
+            )
+            assert result == {"cards": [], "returned_count": 0}
+    assert len(statements) == 1  # no stale-account notification or card lookup

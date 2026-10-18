@@ -5,7 +5,7 @@ from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.security import Auth
@@ -223,11 +223,16 @@ def get_my_work(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    projects, _ = service.project.get_api_list(user)
+    channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    contexts = service.card.resolve_work_visibility_contexts(user, channel)
+    projects = [{"uid": SnowflakeID(project_id).to_short_code()} for project_id in contexts]
     if project_uid is not None:
         projects = [project for project in projects if project["uid"] == project_uid]
         if not projects:
             raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+
+    if not projects:
+        return JsonResponse(content={"cards": []})
 
     cards = service.card.get_my_work_cards(
         user,
@@ -239,7 +244,8 @@ def get_my_work(
         None,
         None,
         limit,
-        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        channel=channel,
+        contexts=contexts,
     )
     return JsonResponse(content={"cards": cards})
 

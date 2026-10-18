@@ -1160,10 +1160,12 @@ class CardService(BaseDomainService):
         limit: int,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> list[dict[str, Any]]:
         """Return a token-efficient cross-project work queue with match reasons."""
 
-        contexts = self.resolve_work_visibility_contexts(user, channel)
+        if contexts is None:
+            contexts = self.resolve_work_visibility_contexts(user, channel)
         records = self.repo.card.get_my_work_page(
             user,
             [project["uid"] for project in projects],

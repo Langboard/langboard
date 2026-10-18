@@ -960,3 +960,31 @@ pages still perform their existing bounded work-state enrichment; three is not
 a claim about every My Work request or deployed latency. Existing live-DB tests
 retain private-card filtering before pagination, and the native cursor regression
 now exercises the repository boundary rather than mocking the removed wrapper.
+
+### Multi-purpose REST and MCP queues
+
+The same unnecessary dashboard summary remained in REST `/dashboard/work/my` and
+the native multi-purpose `get_my_work_cards` tool. They now obtain current work
+contexts once, derive only the permitted project references, reject an explicit
+unreadable board before notification access, and pass that same request-local
+snapshot into the existing card projection. Direct internal service callers can
+still omit the snapshot and resolve it through the same canonical owner. There
+is no persistent authorization cache or new facade. No current scope returns an
+empty result before notification/card reads.
+
+Real `DomainService` empty queues on SQLite/PostgreSQL with1/20 boards reproduced
+8→4 SELECTs for REST and mention-sensitive MCP, and7→3 for assigned-only MCP.
+The fourth statement retrieves mention candidates without marking notifications
+read. Once the account is deactivated, all three surfaces stop after one current
+account SELECT. Existing purposes, date filters, scope rejection, reason fields,
+private-card filtering and result shapes remain covered. The combined native
+regression passed64cases with no skips. Initial original failures are preserved.
+Nonempty queues still perform their existing bounded work-state enrichment.
+
+At14:04:22–24UTC, a fresh existing external-QA login read the deployed REST
+multi-purpose queue three times. All returned200, one own-created QA card and
+client durations782.075/665.421/596.474ms. Request-ID/Server-Timing headers were
+absent. This is a deployed availability/ownership baseline, not acceptance of the
+candidate code, a latency percentile, proof of all hidden-card exclusions or a
+controlled before/after comparison. No card, assignment or notification state
+was changed for this probe.
