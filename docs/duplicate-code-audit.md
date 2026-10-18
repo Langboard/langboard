@@ -346,3 +346,28 @@ tests. The native run retains six existing test-key warnings. Both runs are loca
 source evidence, not company CI or deployed IdP acceptance. Temporary PostgreSQL
 used one CPU,256MiB and tmpfs only; fixture schemas and the owned container were
 removed. Changed-file Ruff, formatting, shell syntax and diff checks pass.
+
+## Ollama store selectors and layer restart progress
+
+Three manually subscribed hooks duplicated Zustand's selector ownership. They
+copied store data into local React state, subscribed again after every changed
+snapshot and did not refresh the selected value when the model name changed
+without another store event. A real Chromium tracker regression reproduced the
+old target remaining after selecting an already populated target. Replace all
+three with existing Zustand selectors; no custom equality implementation, hook
+factory or additional store is needed. Production store code loses66net lines.
+
+A separate existing event callback ignored a valid zero percent through a truthy
+check, retaining the previous download layer's progress. Accept a present percent
+including zero. Terminal success/error still clear tracking, forward the original
+diagnostic to the existing callback and preserve prior immutable snapshots.
+Original node regression failed, followed by2passing store tests; the original
+browser switch test failed, followed by2passing Chromium checks including
+four-language percent formatting. Application TypeScript, focused ESLint,
+Prettier and the unchanged UI-string baseline pass. The existing localization
+workflow selects store changes and reuses its existing store-test command and
+locale browser profile; no new job/runner/ref is introduced.
+
+These are local source/component checks. Actual model download, reconnect and
+selector switching on a new canary image remain unverified. No installed model,
+provider, credential or server-side pull state was changed for this regression.

@@ -14,7 +14,7 @@ import { EditorDataProvider } from "@/core/providers/EditorDataProvider";
 import { ImageProgress, PlaceholderElement } from "@/components/plate-ui/media-placeholder-node";
 import { UNITS } from "@/components/Cron/constants";
 import OllamaModelTracker from "@/pages/SettingsPage/components/ollama/OllamaModelTracker";
-import { getOllamaModelStore } from "@/core/stores/OllamaModelStore";
+import { getOllamaModelStore, updateProgressCallback } from "@/core/stores/OllamaModelStore";
 import { DescriptionOverviewRail } from "@/pages/BoardPage/components/card/description/DescriptionOverviewRail";
 import DataTablePagination from "@/components/base/DataTable/Pagination";
 import { DataTableProvider } from "@/components/base/DataTable/Provider";
@@ -132,6 +132,7 @@ function PlaceholderFixture() {
 
 function Fixture() {
     const [t, language] = useTranslation();
+    const [pullName, setPullName] = useState("locale-progress");
     const [dragging, setDragging] = useState(false);
     const [editor] = useState(() =>
         createPlateEditor({
@@ -244,7 +245,22 @@ function Fixture() {
                 />
             </div>
             <div data-testid="ollama-progress">
-                <OllamaModelTracker name="locale-progress" />
+                <OllamaModelTracker name={pullName} />
+                <button
+                    onClick={() => {
+                        getOllamaModelStore().upsertPullingModel({ name: "other-progress", progress: 67, isTracking: true });
+                        setPullName("other-progress");
+                    }}
+                >
+                    Switch pull target
+                </button>
+                <button
+                    onClick={() =>
+                        updateProgressCallback({ onSuccess: () => {}, onError: () => {} })({ model: pullName, status: "downloading", percent: 0 })
+                    }
+                >
+                    Reset pull progress
+                </button>
             </div>
             <output data-testid="duration">{formatTimerDuration({ hours: 1, minutes: 2, seconds: 3 }, language.language)}</output>
             <output data-testid="count">{formatNumber(12345, language.language)}</output>

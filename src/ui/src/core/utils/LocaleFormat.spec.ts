@@ -317,3 +317,15 @@ test("actual media placeholders render translated picker prompts without runtime
     }
     expect(errors).toEqual([]);
 });
+
+test("Ollama tracker switches model without a store event and accepts zero progress", async ({ page }) => {
+    await page.goto("/src/core/utils/LocaleFormat.fixture.html");
+    await page.getByRole("button", { name: "en-US", exact: true }).click();
+    const tracker = page.getByTestId("ollama-progress");
+    await expect(tracker).toContainText("locale-progress");
+    await page.getByRole("button", { name: "Switch pull target", exact: true }).click();
+    await expect(tracker).toContainText("other-progress");
+    await expect(tracker).toContainText("67.00%");
+    await page.getByRole("button", { name: "Reset pull progress", exact: true }).click();
+    await expect(tracker).toContainText("0.00%");
+});
