@@ -95,6 +95,10 @@ services:
     init: true
     profiles: [application]
     image: ${LANGBOARD_UI_IMAGE:?Set the verified UI image digest}
+    environment:
+      LANGBOARD_UI_API_URL: ${LANGBOARD_UI_API_URL:-}
+      LANGBOARD_UI_PUBLIC_UI_URL: ${LANGBOARD_UI_PUBLIC_UI_URL:-}
+      LANGBOARD_UI_SOCKET_URL: ${LANGBOARD_UI_SOCKET_URL:-}
     restart: unless-stopped
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

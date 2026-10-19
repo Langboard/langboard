@@ -41,5 +41,6 @@ USER root
 RUN apk add --no-cache 'tiff>=4.7.2-r0'
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /work/src/ui/dist /usr/share/nginx/html
+COPY --chmod=755 docker/ui-runtime-config.sh /docker-entrypoint.d/40-ui-runtime-config.sh
 USER 101:101
 EXPOSE 8080

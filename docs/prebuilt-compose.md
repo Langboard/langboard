@@ -22,7 +22,7 @@ Set these inputs through the deployment platform's protected environment UI:
 | `LANGBOARD_API_IMAGE` | Verified API image, including `@sha256:...` |
 | `LANGBOARD_WORKER_IMAGE` | Verified document-processing worker image digest |
 | `LANGBOARD_GRAPH_IMAGE` | Verified Graph image digest |
-| `LANGBOARD_UI_IMAGE` | Verified UI image digest with the intended public API/realtime URLs compiled in |
+| `LANGBOARD_UI_IMAGE` | Verified UI image digest; optional public endpoint overrides below |
 | `LANGBOARD_API_ENV_FILE` | Protected native API runtime environment file |
 | `LANGBOARD_WORKER_ENV_FILE` | Protected worker runtime environment file |
 | `LANGBOARD_GRAPH_ENV_FILE` | Protected Graph runtime environment file |
@@ -59,36 +59,46 @@ copies/restores data. Never point a new volume at an empty directory and call it
 a migration. Verify access as the image's UID/GID `10001:10001`; do not apply broad
 recursive ownership changes to shared storage.
 
-## Isolated UI build inputs
+## Portable UI public endpoints
 
-The UI profile uses `docker/ui-production.Dockerfile`, target `runtime`. Supply
-`API_URL`, `PUBLIC_UI_URL` and `SOCKET_URL` as build arguments for the intended
-environment. The production Vite build requires all three and compiles them into
-the static assets; setting container environment variables later does not change
-them. The runtime stage serves those assets with nginx and has no URL rewrite
-entrypoint.
+The UI profile uses `docker/ui-production.Dockerfile`, target `runtime`. Build
+arguments `API_URL`, `PUBLIC_UI_URL` and `SOCKET_URL` remain required and provide
+backward-compatible defaults. Development continues using the existing local
+Vite URLs. Promote the same immutable production UI image by setting optional
+Compose inputs `LANGBOARD_UI_API_URL`, `LANGBOARD_UI_PUBLIC_UI_URL` and
+`LANGBOARD_UI_SOCKET_URL` to the target environment's public API, UI and realtime
+URLs. Each omitted or empty input retains that endpoint's compiled default;
+set all three explicitly when isolating staging/canary from production.
 
-Production builds reject relative or malformed URLs, unsupported protocols,
-embedded credentials, query strings, fragments and surrounding whitespace.
-API/UI endpoints accept HTTP(S); realtime also accepts WS(S). Localhost HTTP
-remains supported for self-hosted installations. Errors name the input without
-printing its value. This validates URL syntax, not the destination's isolation,
-reachability or authorization; those still require deployment acceptance.
+The native nginx-unprivileged entrypoint runs `40-ui-runtime-config.sh` as UID
+101 before nginx starts. It atomically writes only those three public values to
+`/tmp/langboard-runtime-config.js`; no root filesystem ownership change, secret,
+additional service or dependency is needed. `/runtime-config.js` is a blocking
+same-origin script before the application's module bootstrap. An inline sentinel
+rejects missing/broken assets before dependent clients initialize. Existing CSP
+policies must permit this fixed inline bootstrap (with its matching hash/nonce).
+Legacy SDK module entries without runtime configuration retain build defaults. Its exact nginx
+route sends `Cache-Control: no-store, no-cache, must-revalidate`, including error
+responses. Hashed assets keep their existing immutable policy. A missing or
+invalid configuration stops production client initialization; supplied invalid
+endpoints never silently fall back to compiled endpoints. Container startup does
+not validate URL syntax; the browser validates before initializing clients.
 
-Before building, check that all three URLs identify the intended deployment and
-use compatible API, UI and Phoenix releases. For prebuilt images, obtain the
-release build inputs from the publisher and confirm they match your public
-origins. After deployment, inspect the browser network requests to verify the
-compiled API and realtime destinations, CORS access and successful realtime
-connection through your ingress.
+API/UI accept absolute HTTP(S); realtime also accepts WS(S). Localhost HTTP
+remains supported. Overrides reject malformed URLs, credentials, queries,
+fragments, whitespace, control characters, backslashes and raw quotes/angle
+brackets. Percent-encode path characters when needed. Values are byte-encoded
+before inclusion in JavaScript, so operator input cannot execute script. Error
+messages name inputs without exposing their values. Empty Compose inputs mean
+no override; do not use empty inputs to disable an endpoint.
 
-For staging, use the actual routed staging API, UI and compatible Langboard
-Phoenix URLs. Match the API's public URL/CORS configuration to those origins and
-keep the internal realtime/editor endpoints isolated too. `SOCKET_URL` accepts
-HTTP(S) or WS(S); the browser transport converts HTTP(S) to WS(S). Do not reuse a
-production UI image for isolated acceptance merely because it loads at a staging
-hostname. Verify the release's build inputs and the browser's actual API/realtime
-requests before writing test data. Public URL inputs are not credentials.
+Match public API/CORS settings and compatible Phoenix releases to the target
+origins; isolate internal realtime/editor endpoints and application state too.
+Public inputs are not credentials and do not prove isolation, reachability or
+authorization. After deployment inspect actual browser API, public-origin and
+realtime destinations, CORS, and authenticated realtime/editor behavior through
+your ingress. The same image digest with different runtime values requires no
+rebuild. Existing external volumes, profiles and owner handoff still apply.
 
 ## Optional native overlays
 
