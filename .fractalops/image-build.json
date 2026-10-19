@@ -75,6 +75,7 @@
       "context": ".",
       "dockerfile": "docker/ui-production.Dockerfile",
       "buildTarget": "runtime",
+      "buildArgs": {"NODE_BUILD_HEAP_MB": "6144"},
       "validation": {
         "target": "validation-ui-results",
         "cachePolicy": "fresh",
