@@ -68,12 +68,15 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 text(
                     "CREATE TABLE project (id bigint PRIMARY KEY, created_at timestamptz, updated_at timestamptz, "
                     "deleted_at timestamptz, owner_id bigint, organization_id bigint, title text, description text, "
-                    "ai_description text, project_type text, archive_visible_days integer, dock_revision integer)"
+                    "ai_description text, project_type text, archive_visible_days integer, dock_revision integer, "
+                    "avatar json, previous_avatar json, avatar_revision integer NOT NULL DEFAULT 0)"
                 )
             )
             connection.execute(
                 text(
-                    "INSERT INTO project VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
+                    "INSERT INTO project (id, created_at, updated_at, deleted_at, owner_id, organization_id, title, "
+                    "description, ai_description, project_type, archive_visible_days, dock_revision) "
+                    "VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
                 )
             )
             WorkflowStageDefinition.__table__.create(connection)

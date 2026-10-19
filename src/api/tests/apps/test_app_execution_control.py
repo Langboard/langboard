@@ -273,6 +273,8 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
     connection, card, token, request, ack_id = permit_scope(board, monkeypatch)
     assert request.app_key == app_key
     engine = DbEngine.get_main_engine()
+    # Human HTTP authentication reads the fixture identity from its own store.
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     EmployeeMembershipPolicy.__table__.create(engine)
     tables = set()
     def include(table):
