@@ -112,7 +112,7 @@ export const BoardAddCardProvider = ({
                 scrollToBottom();
             }, 0);
         },
-        save: (value, endCallback) => {
+        save: (value, _endCallback) => {
             setIsValidating(true);
 
             const promise = createCardMutateAsync({
