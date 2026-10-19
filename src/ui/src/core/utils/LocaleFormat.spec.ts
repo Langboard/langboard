@@ -269,8 +269,8 @@ test("large description rail formats grouped ranges and accessible totals", asyn
         const lastMarker = page.getByTestId("description-rail").getByRole("button").last();
         await expect(lastMarker).toHaveAttribute("aria-label", /1,234/);
         await lastMarker.focus();
-        await expect(page.getByText("1,223–1,234", { exact: true })).toBeVisible();
-        await expect(page.getByText("User block 1222", { exact: true })).toBeVisible();
+        await expect(page.getByText("1,171–1,234", { exact: true })).toBeVisible();
+        await expect(page.getByText("User block 1170", { exact: true })).toBeVisible();
         await page.getByRole("button", { name: locale, exact: true }).focus();
     }
 });

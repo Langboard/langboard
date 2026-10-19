@@ -21,6 +21,11 @@ use Cancel to leave without saving changes.
 
 ## Attachments and upload failures
 
+Image previews are rendered in a body portal so transformed card panels cannot
+trap the overlay. Protected attachment images retain authenticated loading.
+The preview fits the viewport on narrow screens and closes with its labeled
+close button, Escape, or the backdrop without closing the underlying card.
+
 Select a file from the card's attachment action. A successful upload adds the
 saved attachment to the card; reload the card to retrieve its persisted list.
 File selection alone does not confirm upload. Check that the named attachment

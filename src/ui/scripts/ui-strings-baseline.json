@@ -125,5 +125,26 @@
     "kind": "attribute:label",
     "text": "PR",
     "reason": "Technical pull request abbreviation, retained in every locale."
+  },
+  {
+    "file": "src/components/AvatarGeneration/index.tsx",
+    "line": 295,
+    "kind": "jsx-text",
+    "text": "px",
+    "reason": "Pixel unit suffix rendered after a numeric size; retained in every locale."
+  },
+  {
+    "file": "src/pages/SettingsPage/KeywordSearchPage.tsx",
+    "line": 131,
+    "kind": "attribute:placeholder",
+    "text": "secret://ref/…",
+    "reason": "Technical secret-reference syntax example, not translatable prose."
+  },
+  {
+    "file": "src/pages/SettingsPage/components/internalBots/ImageGenerationSettings.tsx",
+    "line": 200,
+    "kind": "jsx-text",
+    "text": "px",
+    "reason": "Pixel unit suffix rendered after a numeric size; retained in every locale."
   }
 ]

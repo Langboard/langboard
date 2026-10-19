@@ -35,7 +35,7 @@ import { Project, ProjectCard } from "@/core/models";
 import type { IWorkState } from "@/core/models/ProjectCard";
 import BoardOutlineSidebar from "@/pages/BoardPage/components/board/BoardOutlineSidebar";
 import { api } from "@/core/helpers/Api";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Breadcrumb from "@/components/base/Breadcrumb";
 import Dialog from "@/components/base/Dialog";
 import MarkdownThinkBlock from "@/components/Markdown/ThinkBlock";
@@ -163,6 +163,7 @@ function StoreSelectionFixture() {
 
 function Fixture() {
     const [t, language] = useTranslation();
+    const railViewport = useRef<HTMLDivElement>(null);
     const [pullName, setPullName] = useState("locale-progress");
     const [dragging, setDragging] = useState(false);
     const [editor] = useState(() =>
@@ -237,7 +238,16 @@ function Fixture() {
             <output data-testid="numeric-activity">{t("activity.{count} New Activities", { count: 1234 })}</output>
             <output data-testid="numeric-approval">{t("bot.{count} pending approvals", { count: 1234 })}</output>
             <div data-testid="description-rail" className="relative h-96">
-                <DescriptionOverviewRail chunks={railChunks} activeIndex={1233} onNavigate={() => {}} viewportHeight={320} />
+                <div ref={railViewport} style={{ height: 320, overflowY: "auto" }}>
+                    <div style={{ height: railChunks.length * 20 }} />
+                </div>
+                <DescriptionOverviewRail
+                    chunks={railChunks}
+                    activeIndex={1233}
+                    onNavigate={() => {}}
+                    viewportHeight={320}
+                    scrollParentRef={railViewport}
+                />
             </div>
             <output data-testid="relative">{distance}</output>
             <output data-testid="remaining-counts">
