@@ -19,7 +19,7 @@ import useToggleEditingByClickOutside from "@/core/hooks/useToggleEditingByClick
 import { isModel, TUserLikeModel } from "@/core/models/ModelRegistry";
 import { BotModel, ProjectCard } from "@/core/models";
 import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
-import { getCardCommentDraftStore } from "@/core/stores/CardCommentDraftStore";
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { TEditor } from "@/components/Editor/editor-kit";
 import { EEditorType } from "@langboard/core/constants";
 import { getMentionOnSelectItem } from "@platejs/mention";
@@ -83,18 +83,22 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         }
     });
 
+    const commentNewDraftScope = useMemo(
+        () => ({ userUID: currentUser.uid, projectUID, kind: "comment-new" as const, scopeUID: card.uid }),
+        [currentUser, projectUID, card]
+    );
     const saveDraftToStorage = useCallback(
         (content: string) => {
-            getCardCommentDraftStore().saveDraft(currentUser.uid, projectUID, card.uid, sanitizeEditorContent(content));
+            getCardDraftStore().saveDraft(commentNewDraftScope, sanitizeEditorContent(content));
         },
-        [currentUser.uid, projectUID, card]
+        [commentNewDraftScope]
     );
     const readDraftFromStorage = useCallback((): string => {
-        return getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid);
-    }, [currentUser.uid, projectUID, card]);
+        return getCardDraftStore().getDraft(commentNewDraftScope)?.content ?? "";
+    }, [commentNewDraftScope]);
     const clearDraftFromStorage = useCallback(() => {
-        getCardCommentDraftStore().clearDraft(currentUser.uid, projectUID, card.uid);
-    }, [currentUser.uid, projectUID, card]);
+        getCardDraftStore().clearDraft(commentNewDraftScope);
+    }, [commentNewDraftScope]);
     const openEditor = useCallback(() => {
         if (getEditorStore().currentEditor !== editorName) setValue({ content: readDraftFromStorage() });
         getEditorStore().setCurrentEditor(editorName);

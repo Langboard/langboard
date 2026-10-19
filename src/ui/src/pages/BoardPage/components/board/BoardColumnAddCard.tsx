@@ -6,7 +6,8 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const BoardColumnAddCard = memo(() => {
-    const { isEditing, isValidating, changeMode, scrollToBottom, canWrite, textareaRef, disableChangeModeAttr } = useBoardAddCard();
+    const { isEditing, isValidating, changeMode, scrollToBottom, canWrite, textareaRef, disableChangeModeAttr, saveTitleDraft } =
+        useBoardAddCard();
     const [t] = useTranslation();
     const [height, setHeight] = useState(0);
 
@@ -40,7 +41,8 @@ const BoardColumnAddCard = memo(() => {
                         style={{ height }}
                         placeholder={t("board.Enter a title")}
                         disabled={isValidating}
-                        onChange={() => {
+                        onChange={(e) => {
+                            saveTitleDraft(e.target.value);
                             setHeight(measureTextAreaHeight(textareaRef.current!));
                             setTimeout(() => {
                                 scrollToBottom();
