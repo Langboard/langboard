@@ -333,14 +333,14 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
     monkeypatch.setattr(service.card, "dispatch_created", lambda *args, **kwargs: None)
     # Unrelated aggregate/workflow projection is outside this mutation proof.
     monkeypatch.setattr(service.project_column, "get_api_list_by_project", lambda *args: [column.api_response()])
-    inject = McpServer._inject_kwargs
+    from langboard.mcp_integration import Dependencies
 
-    def fixture_factory(param_name, param, principal, kwargs):
-        if param_name == "service":
-            return {**kwargs, "service": service}, None
-        return inject(param_name, param, principal, kwargs)
-
-    monkeypatch.setattr(McpServer, "_inject_kwargs", fixture_factory)
+    resource_factory = Dependencies._factory_dependency
+    monkeypatch.setattr(
+        Dependencies,
+        "_factory_dependency",
+        lambda factory: resource_factory(lambda: service) if factory is DomainService else resource_factory(factory),
+    )
     with DbSession.atomic() as db:
         if principal == "bot":
             actor = models.Bot(

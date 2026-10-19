@@ -84,7 +84,7 @@ FROM validation-dependencies AS validation-source
 COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
 COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
-COPY conftest.py Makefile ./
+COPY conftest.py Makefile .dockerignore ./
 COPY ./scripts/utils ./scripts/utils
 COPY ./scripts/check-external-phoenix-ingress.py ./scripts/check-external-phoenix-ingress.py
 COPY ./docker/*.yaml ./docker/

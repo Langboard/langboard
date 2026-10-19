@@ -466,6 +466,7 @@ def test_card_details_projects_only_current_human_whisper_capability(
 ):
     import json
     from langboard.routes.board import BoardCardApi
+    from starlette.requests import Request
 
     actor, project, card, native = discussion
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: mode))
@@ -490,7 +491,11 @@ def test_card_details_projects_only_current_human_whisper_capability(
     monkeypatch.setattr(BoardCardApi, "visible_linked_wikis", lambda *args: [])
     monkeypatch.setattr(BoardCardApi, "receipt_history", lambda *args: [])
     response = BoardCardApi.get_card_details(
-        project.get_uid(), card.get_uid(), SimpleNamespace(scope={"collaboration_channel": channel}), actor, service
+        project.get_uid(),
+        card.get_uid(),
+        Request({"type": "http", "query_string": b"", "collaboration_channel": channel}),
+        actor,
+        service,
     )
     assert json.loads(response.body)["whispers_allowed"] is allowed
 

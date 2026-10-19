@@ -12,7 +12,8 @@
 !src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py
 !src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py
 !src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py
-# API cleanup regressions import its deterministic embedding fixture.
+# API cleanup regressions import deterministic embedding/vector fixtures.
+!src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingTask_test.py
 !src/shared/py/langboard_shared/tasks/docling/DocumentSqliteVectorStore_test.py
 # The full Phoenix validation target executes these colocated tests.
 !scripts/sdk/verify_python_artifact_test.py
