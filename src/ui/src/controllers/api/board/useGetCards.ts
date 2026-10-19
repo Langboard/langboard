@@ -2,15 +2,7 @@ import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { deleteCardModel } from "@/core/helpers/ModelHelper";
 import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
-import {
-    ProjectColumn,
-    ProjectCard,
-    GlobalRelationshipType,
-    MetadataModel,
-    ProjectChecklist,
-    ProjectColumnBotScope,
-    ProjectColumnBotSchedule,
-} from "@/core/models";
+import { ProjectColumn, ProjectCard, GlobalRelationshipType, MetadataModel, ProjectChecklist } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import { mergeLinkedResourceProjection } from "@/controllers/api/board/mergeLinkedResourceProjection";
 import type { QueryFunctionContext } from "@tanstack/react-query";
@@ -38,6 +30,7 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         const url = Utils.String.format(Routing.API.BOARD.GET_CARDS, { uid: params.project_uid });
         const res = await api.get(url, {
             signal,
+            params: { include_automation: false },
             env: {
                 interceptToast: options?.interceptToast,
             } as never,
@@ -71,8 +64,6 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
             (model) => model.project_uid === params.project_uid && existingColumnUIDs.has(model.uid) && !columnUIDs.has(model.uid)
         );
 
-        ProjectColumnBotScope.Model.fromArray(res.data.column_bot_scopes, true);
-        ProjectColumnBotSchedule.Model.fromArray(res.data.column_bot_schedules, true);
         return { isUpdated: true };
     };
 

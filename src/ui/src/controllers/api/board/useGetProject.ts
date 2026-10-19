@@ -1,7 +1,7 @@
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
-import { Project, ProjectBotSchedule, ProjectBotScope } from "@/core/models";
+import { Project } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import refreshProjectColumnDock from "@/controllers/api/board/refreshProjectColumnDock";
@@ -22,6 +22,7 @@ const useGetProject = (form: IGetProjectForm, options?: TQueryOptions<unknown, I
         const url = Utils.String.format(Routing.API.BOARD.GET, { uid: form.uid });
         const res = await api.get(url, {
             signal,
+            params: { include_automation: false },
             timeout: 15_000,
             env: {
                 interceptToast: options?.interceptToast,
@@ -31,8 +32,6 @@ const useGetProject = (form: IGetProjectForm, options?: TQueryOptions<unknown, I
         const project = Project.Model.fromOne(res.data.project);
         project.last_viewed_at = new Date();
 
-        ProjectBotScope.Model.fromArray(res.data.project_bot_scopes, true);
-        ProjectBotSchedule.Model.fromArray(res.data.project_bot_schedules, true);
         // Dock enrichment must not delay the authorized board or turn its failure into a board failure.
         void refreshProjectColumnDock(form.uid).catch((error) => setupApiErrorHandler({}).handle(error));
 

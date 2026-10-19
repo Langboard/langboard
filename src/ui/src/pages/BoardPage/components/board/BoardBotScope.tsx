@@ -1,3 +1,4 @@
+import useGetBoardAutomation from "@/controllers/api/board/useGetBoardAutomation";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Badge from "@/components/base/Badge";
 import Box from "@/components/base/Box";
@@ -119,7 +120,25 @@ function BoardBotScopeDisplay({ project, isOpened, setIsOpened }: IBoardBotScope
 }
 BoardBotScopeDisplay.displayName = "Board.BotScopeDisplay";
 
-export function BoardBotScopeList({ target, className }: IBoardBotScopeListProps) {
+export function BoardBotScopeList(props: IBoardBotScopeListProps) {
+    const [t] = useTranslation();
+    const automation = useGetBoardAutomation(getBoardBotScopeTargetProjectUID(props.target));
+    if (!automation.isSuccess || automation.isFetching) {
+        return (
+            <Box className="p-3" role={automation.isError ? "alert" : "status"}>
+                {t(automation.isError ? "board.Could not load board" : "common.Loading...")}
+                {automation.isError && (
+                    <Button variant="outline" onClick={() => void automation.refetch()}>
+                        {t("common.Retry")}
+                    </Button>
+                )}
+            </Box>
+        );
+    }
+    return <BoardBotScopeLoadedList {...props} />;
+}
+
+function BoardBotScopeLoadedList({ target, className }: IBoardBotScopeListProps) {
     const [t] = useTranslation();
     const socket = useSocket();
     const bots = BotModel.Model.useModels(() => true);
