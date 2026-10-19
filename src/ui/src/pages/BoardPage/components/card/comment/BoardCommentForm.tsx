@@ -61,7 +61,8 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         (model) => model.uid !== card.uid && model.project_uid === projectUID,
         [currentUser.uid, projectUID, card]
     );
-    const valueRef = useRef<IEditorContent>({ content: getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid) });
+    const initialDraftScope = { userUID: currentUser.uid, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
+    const valueRef = useRef<IEditorContent>({ content: getCardDraftStore().getDraft(initialDraftScope)?.content ?? "" });
     const setValue = useCallback((value: IEditorContent) => {
         valueRef.current = value;
     }, []);

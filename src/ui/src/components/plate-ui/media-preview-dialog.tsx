@@ -6,7 +6,11 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { cva } from "class-variance-authority";
 import { ArrowLeft, ArrowRight, Download, Minus, Plus, X } from "lucide-react";
 import { useEditorRef } from "platejs/react";
+<<<<<<< HEAD
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+=======
+import { createPortal } from "react-dom";
+>>>>>>> 5a41068b0 (fix(media): portal the image preview dialog to document.body)
 
 const buttonVariants = cva("rounded bg-[rgba(0,0,0,0.5)] px-1", {
     defaultVariants: {
@@ -42,6 +46,7 @@ export function MediaPreviewDialog() {
         zoomOutDisabled,
     } = useImagePreview({ scrollSpeed: SCROLL_SPEED });
 
+<<<<<<< HEAD
     if (!isOpen) return null;
 
     return (
@@ -52,6 +57,13 @@ export function MediaPreviewDialog() {
                 event.stopPropagation();
                 closeProps.onClick();
             }}
+=======
+    const dialog = (
+        <div
+            className={cn("fixed left-0 top-0 z-50 h-screen w-screen select-none", !isOpen && "hidden")}
+            onContextMenu={(e) => e.stopPropagation()}
+            {...maskLayerProps}
+>>>>>>> 5a41068b0 (fix(media): portal the image preview dialog to document.body)
         >
             <div className="fixed left-0 top-0 z-50 h-screen w-screen select-none" onContextMenu={(e) => e.stopPropagation()} {...maskLayerProps}>
                 <div className="absolute inset-0 size-full bg-black opacity-30"></div>
@@ -134,6 +146,12 @@ export function MediaPreviewDialog() {
             </div>
         </DismissableLayer>
     );
+
+    // afterEditable renders inside the editor DOM; a transformed ancestor
+    // (card panel/carousel) would turn the fixed overlay into its containing
+    // block and trap the preview inside the card layout. Portaling to body
+    // keeps the overlay viewport-anchored regardless of ancestors.
+    return createPortal(dialog, document.body);
 }
 
 function ScaleInput(props: React.ComponentProps<"input">) {
