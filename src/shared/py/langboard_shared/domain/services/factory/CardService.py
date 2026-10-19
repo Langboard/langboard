@@ -207,9 +207,14 @@ class CardService(BaseDomainService):
         if not card_uids or not isinstance(user, User):
             return []
         project_uid = InfraHelper.convert_uid(InfraHelper.convert_id(project))
-        return [card_uid for _, card_uid in self.get_existing_pairs(
-            [(project_uid, uid) for uid in card_uids], user=user, channel=channel,
-        )]
+        return [
+            card_uid
+            for _, card_uid in self.get_existing_pairs(
+                [(project_uid, uid) for uid in card_uids],
+                user=user,
+                channel=channel,
+            )
+        ]
 
     def get_existing_pairs(
         self,
@@ -707,7 +712,9 @@ class CardService(BaseDomainService):
                 members[card_assigned_user.card_id] = []
             members[card_assigned_user.card_id].append(member.get_uid())
 
-        raw_relationships = self.repo.card_relationship.get_all_by_project(project, archive_visible_since, context=context)
+        raw_relationships = self.repo.card_relationship.get_all_by_project(
+            project, archive_visible_since, context=context
+        )
         relationships: dict[int, list[dict[str, Any]]] = {}
         for relationship, relation_type in raw_relationships:
             parent = visible_cards.get(relationship.card_id_parent)
@@ -731,7 +738,9 @@ class CardService(BaseDomainService):
             relationships[relationship.card_id_parent].append(projection)
             relationships[relationship.card_id_child].append(projection)
 
-        raw_labels = self.repo.project_label.get_all_card_labels_by_project(project, archive_visible_since, context=context)
+        raw_labels = self.repo.project_label.get_all_card_labels_by_project(
+            project, archive_visible_since, context=context
+        )
         labels: dict[int, list[dict[str, Any]]] = {}
         for label, card_label in raw_labels:
             if card_label.card_id not in labels:
@@ -810,7 +819,9 @@ class CardService(BaseDomainService):
         """Project one avatar per timer owner without changing card assignment."""
         grouped: dict[int, dict[str, dict[str, Any]]] = {}
         now = SafeDateTime.now()
-        for checkitem, checklist, started_at in self.repo.checkitem.get_active_workers_by_project(project, card, context=context):
+        for checkitem, checklist, started_at in self.repo.checkitem.get_active_workers_by_project(
+            project, card, context=context
+        ):
             if checkitem.user_id is None:
                 continue
             user_uid = checkitem.user_id.to_short_code()
@@ -1176,7 +1187,9 @@ class CardService(BaseDomainService):
                 continue
             matches = document_matches.setdefault(card.id, [])
             existing = {match["attachment_uid"] for match in matches}
-            matches.extend(match for match in external_matches.get(card.id, []) if match["attachment_uid"] not in existing)
+            matches.extend(
+                match for match in external_matches.get(card.id, []) if match["attachment_uid"] not in existing
+            )
             document_matches[card.id] = matches[:2]
         states = self.get_work_states([card for card, _ in records], context=context) if include_work_state else {}
         for card, column in records:
