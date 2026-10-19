@@ -57,6 +57,51 @@ billing quota. Provider rate limits still apply.
 Stopping the browser wait does not prove that provider work was cancelled or
 that a charge was reversed. A timeout has the same billing uncertainty.
 
-Board-context selection, user-reviewed outbound summaries, board avatar storage,
-explicit apply and durable avatar restoration are separate acceptance work.
-This provider setup and test preview do not establish those capabilities.
+## Personal and board avatars
+
+The profile page and board basic settings reuse one avatar generation dialog.
+Opening it reads the current avatar, its revision and enabled profiles. It does
+not send a prompt. Profile discovery exposes the approved model name and display
+name, never provider endpoints or credentials. Board operations require current
+read and update permission; personal operations target the authenticated user.
+
+Edit the prompt, select a profile and confirm external transmission for each
+generation. A preview remains local until **Apply** explicitly uploads it. Apply
+checks the current avatar revision under a row lock; a stale revision returns a
+conflict rather than replacing a newer image. The server normalizes the uploaded
+raster using the same image boundary as previews. A failed database commit
+cleans up only that request's newly created asset.
+
+Current and previous avatars are persisted together. **Restore** swaps them
+under the same revision check, including restoration to the original empty
+avatar. This retains one previous state, not an unlimited asset history. Failed
+generation, cancellation and closing a preview do not change the saved avatar.
+Existing direct profile uploads remain available and advance the same history
+and revision. Updated clients include the revision captured when selecting or
+deleting a file; older clients without it retain their previous behavior.
+
+These fields require additive migration `a28196e32054` after `f17085d21943`.
+Source and disposable-database checks do not prove that migration has run on an
+installation. Back up operational data and use the existing deployment migration
+lane before deploying consumers of the new fields.
+
+### Board context review
+
+Preparing context is a separate, local-only action. It aggregates readable
+**Shared** work-card counts by built-in workflow stage. It excludes Internal
+(whisper), Private, archived and deleted cards, linked reference resources and
+raw identifying text. No individual card title, body, attachment, board name,
+person or secret is included in this prepared prompt. The response explicitly
+records `external_request: false`.
+
+Review and edit the prepared prompt before separately consenting to generation.
+The aggregate counts alone do not identify a board's domain or purpose; add
+public domain instructions explicitly. A semantic context agent that produces
+distinctive development, marketing or documentation icons still needs its own
+privacy and quality acceptance. This initial structural context does not
+establish that broader requirement.
+
+Authenticated canary migration, real provider generation, cross-user runtime
+updates, durable restore after deployment and artistic readability remain
+separate acceptance gates. Controlled component previews or source tests do not
+prove them.

@@ -8,6 +8,7 @@ from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.domain.models import User, UserGroup
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.factory.AvatarService import AvatarError
 from langboard_shared.domain.services.UserAppPreferences import PreferenceConflict, app_preferences
 from langboard_shared.Env import UI_QUERY_NAMES
 from langboard_shared.security import Auth
@@ -60,7 +61,16 @@ def update_profile(
     if file_model:
         form_dict["avatar"] = file_model
 
-    service.user.update(user, form_dict)
+    try:
+        service.user.update(user, form_dict)
+    except AvatarError as error:
+        if file_model:
+            Storage.delete(file_model)
+        return JsonResponse(content={"error": error.code}, status_code=error.status)
+    except Exception:
+        if file_model:
+            Storage.delete(file_model)
+        raise
 
     return JsonResponse()
 

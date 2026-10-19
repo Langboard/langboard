@@ -159,7 +159,7 @@ async def _generate_preview_bytes(binding, prompt: str) -> bytes:
     target = await provider_target(config.base_url)
     headers = {"Accept": "application/json"}
     if binding.api_key:
-        headers["Authorization"] = "Bearer " + KeyVault.get_key(binding.api_key)
+        headers["Authorization"] = "Bearer " + await to_thread.run_sync(KeyVault.get_key, binding.api_key)
     payload = {"model": config.model_name, "prompt": prompt, "n": 1, "size": config.size}
     for key in ("quality", "response_format"):
         option = getattr(config, key)

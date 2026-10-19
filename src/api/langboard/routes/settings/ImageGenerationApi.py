@@ -1,6 +1,7 @@
 """Administrator-only image binding diagnostics. Reads never invoke generation."""
 
 from asyncio import timeout
+from anyio import to_thread
 from httpx import TimeoutException
 from langboard_shared.ai.image_generation import (
     SUPPORTED_PROVIDERS,
@@ -22,6 +23,11 @@ from langboard_shared.filter import RoleFilter
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.security import RoleFinder
 from pydantic import Field
+
+
+def image_binding_snapshot(service, uid):
+    binding = image_binding(service, uid)
+    return binding, binding_signature(binding)
 
 
 def image_binding(service, uid):
@@ -80,12 +86,11 @@ async def preview_image(
     if form.confirmed is not True or not form.prompt.strip():
         return JsonResponse(content={"error": "image_generation_confirmation_required"}, status_code=400)
     try:
-        binding = image_binding(service, internal_bot_uid)
-        signature = binding_signature(binding)
+        binding, signature = await to_thread.run_sync(image_binding_snapshot, service, internal_bot_uid)
         async with timeout(60):
             preview = await generate_preview(binding, form.prompt.strip())
-        current = image_binding(service, internal_bot_uid)
-        if signature != binding_signature(current):
+        _, current_signature = await to_thread.run_sync(image_binding_snapshot, service, internal_bot_uid)
+        if signature != current_signature:
             raise ImageGenerationError("image_generation_binding_changed", 409)
         return JsonResponse(content={"preview_data_url": preview, "width": 512, "height": 512})
     except ImageGenerationError as error:
@@ -108,8 +113,7 @@ async def get_image_models(internal_bot_uid: str, service: DomainService = Domai
     from langboard_shared.tasks.webhooks.utils import ResolvedWebhookTarget
 
     try:
-        binding = image_binding(service, internal_bot_uid)
-        signature = binding_signature(binding)
+        binding, signature = await to_thread.run_sync(image_binding_snapshot, service, internal_bot_uid)
         config = validate_image_config(binding.value)
         target = await provider_target(config.base_url)
         target = ResolvedWebhookTarget(
@@ -117,7 +121,7 @@ async def get_image_models(internal_bot_uid: str, service: DomainService = Domai
         )
         headers = {"Accept": "application/json"}
         if binding.api_key:
-            headers["Authorization"] = "Bearer " + KeyVault.get_key(binding.api_key)
+            headers["Authorization"] = "Bearer " + await to_thread.run_sync(KeyVault.get_key, binding.api_key)
         async with AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:
             response = loads(await bounded_response(client, "GET", target, headers=headers, limit=1024 * 1024))
         records = response.get("data")
@@ -130,7 +134,8 @@ async def get_image_models(internal_bot_uid: str, service: DomainService = Domai
                 if isinstance(row, dict) and isinstance(row.get("id"), str) and 0 < len(row["id"]) <= 256
             }
         )[:1000]
-        if signature != binding_signature(image_binding(service, internal_bot_uid)):
+        _, current_signature = await to_thread.run_sync(image_binding_snapshot, service, internal_bot_uid)
+        if signature != current_signature:
             raise ImageGenerationError("image_generation_binding_changed", 409)
         return JsonResponse(content={"models": models})
     except ImageGenerationError as error:
