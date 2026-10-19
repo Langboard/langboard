@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
 import { AuthUser, Project } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import BoardPage from "./BoardPage";
 import "@/i18n";
 import "@/assets/styles/main.css";
@@ -26,6 +27,7 @@ api.defaults.adapter = async (config) => {
 };
 const date = new Date();
 const currentUser = AuthUser.Model.fromOne({ uid: "fixture-user", created_at: date, updated_at: date });
+useAuthStore.setState({ currentUser, state: "loaded" });
 const project = Project.Model.fromOne({ uid: "fixture-project", title: "Fixture", created_at: date, updated_at: date });
 createRoot(document.getElementById("root")!).render(
     <Suspense>
