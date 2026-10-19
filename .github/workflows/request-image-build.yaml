@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: image-build-request-${{ github.ref }}
+  group: image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}
   cancel-in-progress: false
 
 jobs:
@@ -48,7 +48,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
       IMAGE_BUILD_COMMIT: ${{ vars.IMAGE_BUILD_COMMIT }}
       IMAGE_BUILD_PROFILE: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
