@@ -3,7 +3,7 @@ import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
 import { Reorder } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import useCardCommentDraftStore from "@/core/stores/CardCommentDraftStore";
+import useCardDraftStore, { buildDraftScopeKey, getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { captureCardOrigin } from "../board/CardAnimation";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
@@ -105,12 +105,16 @@ export default function CardFlipTray({
 }) {
     const cards = useFlippedCards(userUID, projectUID);
     const suspendedDrafts = useCardFlipDraftStore((state) => state.drafts);
-    const drafts = useCardCommentDraftStore((state) => state.draftMap);
-    const hasDraft = (card: IFlippedCard) =>
-        !!Object.keys(suspendedDrafts[flipDraftKey(userUID, projectUID, card.uid)] ?? {}).length ||
-        !!(
-            drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
-        ).trim();
+    const commentDraftCache = useCardDraftStore((state) => state.cache);
+    const hasDraft = (card: IFlippedCard) => {
+        if (Object.keys(suspendedDrafts[flipDraftKey(userUID, projectUID, card.uid)] ?? {}).length) {
+            return true;
+        }
+        const draftScope = { userUID, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
+        const cached = commentDraftCache[buildDraftScopeKey(draftScope)];
+        const content = cached ? cached.content : getCardDraftStore().getDraft(draftScope)?.content ?? "";
+        return content.trim().length > 0;
+    };
     const navigate = usePageNavigateRef();
     const [t, i18n] = useTranslation();
     const didDrag = useRef(false);

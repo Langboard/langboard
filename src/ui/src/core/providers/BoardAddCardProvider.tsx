@@ -62,36 +62,80 @@ export const BoardAddCardProvider = ({
     const { mutateAsync: createCardMutateAsync } = useCreateCard({ interceptToast: true });
     const editorName = `${column.uid}-add-card`;
     const titleDraftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const titleDraftScopeRef = useRef<IDraftScope | null>(null);
-    titleDraftScopeRef.current = (() => {
+    const pendingTitleDraftRef = useRef<{ scope: IDraftScope; content: string } | null>(null);
+
+    const buildTitleDraftScope = (): IDraftScope | null => {
         const userUID = useAuthStore.getState().currentUser?.uid;
         if (!userUID) {
             return null;
         }
         return { userUID, projectUID: project.uid, kind: "card-new" as const, scopeUID: column.uid };
-    })();
-    const saveTitleDraft = (content: string) => {
-        const scope = titleDraftScopeRef.current;
-        if (!scope) {
-            return;
-        }
-        if (titleDraftSaveTimerRef.current) {
-            clearTimeout(titleDraftSaveTimerRef.current);
-        }
-        titleDraftSaveTimerRef.current = setTimeout(() => {
-            getCardDraftStore().saveDraft(scope, content);
-        }, 600);
     };
-    const clearTitleDraft = () => {
-        const scope = titleDraftScopeRef.current;
+
+    const flushTitleDraft = () => {
+        const pending = pendingTitleDraftRef.current;
+        pendingTitleDraftRef.current = null;
         if (titleDraftSaveTimerRef.current) {
             clearTimeout(titleDraftSaveTimerRef.current);
             titleDraftSaveTimerRef.current = null;
         }
+        if (!pending) {
+            return;
+        }
+        // Fence against account changes since the input was captured: never
+        // flush a previous account's keystrokes into a changed session.
+        if (useAuthStore.getState().currentUser?.uid !== pending.scope.userUID) {
+            return;
+        }
+        getCardDraftStore().saveDraft(pending.scope, pending.content);
+    };
+
+    const saveTitleDraft = (content: string) => {
+        const scope = buildTitleDraftScope();
+        if (!scope) {
+            return;
+        }
+        pendingTitleDraftRef.current = { scope, content };
+        if (titleDraftSaveTimerRef.current) {
+            clearTimeout(titleDraftSaveTimerRef.current);
+        }
+        titleDraftSaveTimerRef.current = setTimeout(flushTitleDraft, 600);
+    };
+    const clearTitleDraft = () => {
+        pendingTitleDraftRef.current = null;
+        if (titleDraftSaveTimerRef.current) {
+            clearTimeout(titleDraftSaveTimerRef.current);
+            titleDraftSaveTimerRef.current = null;
+        }
+        const scope = buildTitleDraftScope();
         if (scope) {
             getCardDraftStore().clearDraft(scope);
         }
     };
+
+    useEffect(() => {
+        const onPageHide = () => flushTitleDraft();
+        window.addEventListener("pagehide", onPageHide);
+        return () => {
+            window.removeEventListener("pagehide", onPageHide);
+            flushTitleDraft();
+        };
+        // Flush logic reads refs only; the effect must be mounted once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Card creation stays lightweight: insert into the board without opening the viewer.
+    // The user opens the viewer only through an explicit card or widget interaction.
+    const scrollToCreatedCard = (cardUID: string, attemptsLeft = 40) => {
+        if (document.getElementById(`board-card-${cardUID}`)) {
+            scrollToBottom();
+            return;
+        }
+        if (attemptsLeft > 0) {
+            window.setTimeout(() => scrollToCreatedCard(cardUID, attemptsLeft - 1), 50);
+        }
+    };
+
     const { valueRef, isEditing, setIsEditing, changeMode } = useChangeEditMode({
         canEdit: () => hasRoleAction(ProjectRole.EAction.CardWrite) && !column.is_archive,
         valueType: "textarea",
@@ -102,7 +146,7 @@ export const BoardAddCardProvider = ({
 
             setTimeout(() => {
                 if (valueRef.current) {
-                    const scope = titleDraftScopeRef.current;
+                    const scope = buildTitleDraftScope();
                     const draft = scope ? getCardDraftStore().getDraft(scope) : null;
                     if (draft && draft.content && !valueRef.current.value) {
                         valueRef.current.value = draft.content;
@@ -112,7 +156,7 @@ export const BoardAddCardProvider = ({
                 scrollToBottom();
             }, 0);
         },
-        save: (value, _endCallback) => {
+        save: (value, endCallback) => {
             setIsValidating(true);
 
             const promise = createCardMutateAsync({
@@ -130,19 +174,12 @@ export const BoardAddCardProvider = ({
                     handle(error);
                     return messageRef.message;
                 },
-                success: (data) => {
+                success: ({ uid }) => {
                     clearTitleDraft();
-                    const openCard = () => {
-                        const card = document.getElementById(`board-card-${data.uid}`);
-                        if (!card) {
-                            return setTimeout(openCard, 50);
-                        }
-
-                        toLastPage();
-                        scrollToBottom();
-                        card.click();
-                    };
-                    openCard();
+                    toLastPage();
+                    scrollToCreatedCard(uid);
+                    setIsEditing(() => false);
+                    endCallback();
                     return t("successes.Card added successfully.");
                 },
                 finally: () => {

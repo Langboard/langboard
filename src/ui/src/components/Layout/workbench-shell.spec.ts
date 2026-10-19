@@ -1324,36 +1324,6 @@ test("one comment composer retains its draft while the card changes available wi
     expect((await submitted).postDataJSON().content).toContain("Retained narrow comment draft");
 });
 
-for (const denyStorage of [false, true]) {
-    test(`comment drafts remain account scoped with unavailable storage=${denyStorage}`, async ({ page }) => {
-        const fixture = await prepareDelayedLens(page);
-        await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
-        await page.getByRole("tab", { name: "History", exact: true }).click();
-        fixture.release();
-        const result = await page.evaluate(async (deny) => {
-            const { getCardCommentDraftStore } = await import(String("/src/core/stores/CardCommentDraftStore.ts"));
-            const { default: auth } = await import(String("/src/core/stores/AuthStore.ts"));
-            const first = auth.getState().currentUser!;
-            if (deny) {
-                for (const method of ["getItem", "setItem", "removeItem"] as const)
-                    Storage.prototype[method] = () => {
-                        throw new DOMException("Denied", "SecurityError");
-                    };
-            }
-            const store = getCardCommentDraftStore();
-            store.saveDraft(first.uid, "fixture", "fixture-card", "Private first-account draft");
-            auth.setState({ currentUser: { ...first, uid: "second-comment-user" } });
-            const second = store.getDraft("second-comment-user", "fixture", "fixture-card");
-            store.saveDraft("second-comment-user", "fixture", "fixture-card", "Second-account draft");
-            auth.setState({ currentUser: first });
-            const restored = store.getDraft(first.uid, "fixture", "fixture-card");
-            store.clearDraft(first.uid, "fixture", "fixture-card");
-            return { second, restored, cleared: store.getDraft(first.uid, "fixture", "fixture-card") };
-        }, denyStorage);
-        expect(result).toEqual({ second: "", restored: "Private first-account draft", cleared: "" });
-    });
-}
-
 test("switching accounts while composing cannot save the previous account draft into the next account", async ({ page }) => {
     const fixture = await prepareDelayedLens(page);
     await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");

@@ -34,7 +34,6 @@ interface ICardDraftStore {
     saveDraft: (scope: IDraftScope, content: string) => void;
     getDraft: (scope: IDraftScope) => IDraftPayload | null;
     clearDraft: (scope: IDraftScope) => void;
-    clearAllDraftsForUser: (userUID: string) => void;
 }
 
 const DRAFT_PREFIX = "lb-draft-v1";
@@ -43,6 +42,9 @@ export const DRAFT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 const buildScopeKey = (scope: IDraftScope) =>
     `${DRAFT_PREFIX}:${scope.userUID}:${scope.projectUID}:${scope.kind}:${scope.scopeUID}`;
+
+/** Compose the exact storage/cache key for a draft scope (for reactive cache subscriptions). */
+export const buildDraftScopeKey = buildScopeKey;
 
 const readStoredDraft = (key: string): IDraftPayload | null => {
     try {
@@ -95,39 +97,17 @@ const useCardDraftStore = create(
         },
         clearDraft: (scope) => {
             const key = buildScopeKey(scope);
-            set((state) => {
-                delete state.cache[key];
-            });
             try {
                 localStorage.removeItem(key);
+                set((state) => {
+                    delete state.cache[key];
+                });
             } catch {
-                // Best effort only.
-            }
-        },
-        clearAllDraftsForUser: (userUID) => {
-            // Keep only this user's drafts; discard drafts left by other accounts.
-            set((state) => {
-                for (const key of Object.keys(state.cache)) {
-                    if (!key.startsWith(`${DRAFT_PREFIX}:${userUID}:`)) {
-                        delete state.cache[key];
-                    }
-                }
-            });
-            try {
-                const stale: string[] = [];
-                for (let i = 0; i < localStorage.length; i += 1) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith(`${DRAFT_PREFIX}:`)) {
-                        stale.push(key);
-                    }
-                }
-                for (const key of stale) {
-                    if (!key.startsWith(`${DRAFT_PREFIX}:${userUID}:`)) {
-                        localStorage.removeItem(key);
-                    }
-                }
-            } catch {
-                // Best effort only.
+                // Persisted removal failed: keep an in-memory cleared tombstone so
+                // getDraft() cannot re-read and resurrect the old persisted value.
+                set((state) => {
+                    state.cache[key] = { content: "", savedAt: Date.now() };
+                });
             }
         },
     }))

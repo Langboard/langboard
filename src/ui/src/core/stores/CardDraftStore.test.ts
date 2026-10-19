@@ -110,12 +110,53 @@ describe("CardDraftStore", () => {
         assert.equal(getCardDraftStore().getDraft(scope()), null);
     });
 
-    it("clearAllDraftsForUser removes only other users' drafts", () => {
+    it("leaves an in-memory tombstone when persisted removal fails, so a cleared draft cannot resurrect", () => {
         const store = getCardDraftStore();
-        store.saveDraft(scope(), "user A draft");
-        store.saveDraft(scope({ userUID: userB }), "user B draft");
-        store.clearAllDraftsForUser(userA);
-        assert.equal(getCardDraftStore().getDraft(scope())?.content, "user A draft");
-        assert.equal(getCardDraftStore().getDraft(scope({ userUID: userB })), null);
+        store.saveDraft(scope(), "submitted draft");
+        const key = "lb-draft-v1:user-a:project-1:comment-new:card-1";
+        const originalRemove = storage.removeItem.bind(storage);
+        storage.removeItem = () => {
+            throw new DOMException("Denied", "SecurityError");
+        };
+        try {
+            store.clearDraft(scope());
+            // The persisted value is still there, but reads must observe the cleared tombstone.
+            assert.ok(storage.getItem(key));
+            assert.equal(getCardDraftStore().getDraft(scope())?.content, "");
+        } finally {
+            storage.removeItem = originalRemove;
+        }
+        // Once removal succeeds the draft is gone for good.
+        store.clearDraft(scope());
+        assert.equal(getCardDraftStore().getDraft(scope()), null);
+    });
+
+    it("keeps typing unblocked and account-scoped when storage is fully unavailable", () => {
+        const store = getCardDraftStore();
+        const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage")!;
+        Object.defineProperty(globalThis, "localStorage", {
+            configurable: true,
+            value: {
+                getItem: () => {
+                    throw new DOMException("Denied", "SecurityError");
+                },
+                setItem: () => {
+                    throw new DOMException("Denied", "SecurityError");
+                },
+                removeItem: () => {
+                    throw new DOMException("Denied", "SecurityError");
+                },
+            },
+        });
+        try {
+            store.saveDraft(scope(), "offline draft");
+            assert.equal(getCardDraftStore().getDraft(scope())?.content, "offline draft");
+            store.clearDraft(scope());
+            assert.equal(getCardDraftStore().getDraft(scope())?.content, "");
+            // A different account never sees this scope's draft.
+            assert.equal(getCardDraftStore().getDraft(scope({ userUID: userB })), null);
+        } finally {
+            Object.defineProperty(globalThis, "localStorage", originalStorage);
+        }
     });
 });
