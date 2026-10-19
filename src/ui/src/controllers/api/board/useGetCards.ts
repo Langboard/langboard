@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import useAuthStore from "@/core/stores/AuthStore";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { deleteCardModel } from "@/core/helpers/ModelHelper";
@@ -21,6 +23,17 @@ interface IGetProjectCardMetadataResponse {
 
 const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGetCardsResponse>) => {
     const { query } = useQueryMutation();
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    const session = useAuthStore((state) => state.getSessionVersion());
+    const currentBoard = useRef(params.project_uid);
+    currentBoard.current = params.project_uid;
+    const assertCurrent = (signal: AbortSignal) => {
+        signal.throwIfAborted();
+        const auth = useAuthStore.getState();
+        if (!actorUID || auth.currentUser?.uid !== actorUID || auth.getSessionVersion() !== session || currentBoard.current !== params.project_uid) {
+            throw new Error("Board cards request no longer authorized");
+        }
+    };
 
     const getCards = async ({ signal }: QueryFunctionContext): Promise<IGetCardsResponse> => {
         const existingCardUIDs = new Set(ProjectCard.Model.getModels((model) => model.project_uid === params.project_uid).map((model) => model.uid));
@@ -35,6 +48,42 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
                 interceptToast: options?.interceptToast,
             } as never,
         });
+        assertCurrent(signal);
+        const data = res.data;
+        if (!data || ![data.cards, data.columns, data.checklists, data.global_relationships].every(Array.isArray)) {
+            throw new Error("Incomplete board cards response");
+        }
+        if (
+            [...data.cards, ...data.columns, ...data.checklists, ...data.global_relationships].some(
+                (model) => !model || typeof model.uid !== "string" || !model.uid
+            )
+        ) {
+            throw new Error("Invalid board cards response");
+        }
+        const responseCardUIDs = new Set<string>(data.cards.map((card: ProjectCard.Interface) => card.uid));
+        if (
+            data.columns.some((column: ProjectColumn.Interface) => !column || column.project_uid !== params.project_uid) ||
+            data.cards.some(
+                (card: ProjectCard.IStore) =>
+                    !card ||
+                    card.project_uid !== params.project_uid ||
+                    card.labels?.some((label) => label.project_uid !== params.project_uid) ||
+                    card.relationships?.some((relationship) => relationship.parent_card_uid !== card.uid && relationship.child_card_uid !== card.uid)
+            ) ||
+            data.checklists.some(
+                (checklist: ProjectChecklist.IStore) =>
+                    !checklist ||
+                    !responseCardUIDs.has(checklist.card_uid) ||
+                    checklist.checkitems?.some(
+                        (item) =>
+                            item.checklist_uid !== checklist.uid ||
+                            item.card_uid !== checklist.card_uid ||
+                            (item.cardified_card && item.cardified_card.project_uid !== params.project_uid)
+                    )
+            )
+        ) {
+            throw new Error("Board cards response belongs to another board");
+        }
         const cards = res.data.cards.map((card: ProjectCard.Interface) => {
             if (!card.linked_resource) {
                 return card;
@@ -67,19 +116,26 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         return { isUpdated: true };
     };
 
-    const result = query([`get-cards-${params.project_uid}`, params], getCards, {
+    const result = query([`get-cards-${params.project_uid}`, params, actorUID, session], getCards, {
         ...options,
+        enabled: (request) => !!actorUID && (typeof options?.enabled === "function" ? options.enabled(request) : (options?.enabled ?? true)),
         retry: 0,
         refetchInterval: Infinity,
         refetchOnWindowFocus: false,
     });
 
+    const currentSnapshot = useRef(result.dataUpdatedAt);
+    currentSnapshot.current = result.dataUpdatedAt;
+    const snapshotUpdatedAt = result.dataUpdatedAt;
+
     // Optional enrichment must never delay or reject the authorized board snapshot.
     query(
-        ["get-board-card-metadata", params.project_uid, result.dataUpdatedAt],
+        ["get-board-card-metadata", params.project_uid, actorUID, session, result.dataUpdatedAt],
         async ({ signal }) => {
             const url = Utils.String.format(Routing.API.METADATA.PROJECT_CARDS, { uid: params.project_uid });
             const res = await api.get<IGetProjectCardMetadataResponse>(url, { signal, env: { interceptToast: false } as never });
+            assertCurrent(signal);
+            if (currentSnapshot.current !== snapshotUpdatedAt) throw new Error("Board metadata snapshot was replaced");
             const models: MetadataModel.Interface[] = Object.entries(res.data.metadata ?? {})
                 .filter(([uid]) => ProjectCard.Model.getModel(uid)?.project_uid === params.project_uid)
                 .map(([uid, metadata]) => ({ uid, type: "card", metadata, created_at: new Date(), updated_at: new Date() }));
