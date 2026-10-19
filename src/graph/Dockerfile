@@ -16,7 +16,7 @@ COPY ./sdk/vendor /app/src/sdk/vendor
 COPY ./shared/py/pyproject.toml /app/src/shared/py/pyproject.toml
 COPY ./graph/pyproject.toml ./graph/uv.lock ./
 RUN --mount=type=cache,id=langboard-graph-python-packages,target=/root/.cache/uv \
-    uv sync --frozen --no-dev \
+    uv sync --locked --no-dev \
     --no-install-project --no-install-package langboard-shared
 
 FROM dependencies AS runtime
@@ -24,7 +24,7 @@ FROM dependencies AS runtime
 COPY ./graph /app/src/graph
 COPY ./shared/py /app/src/shared/py
 RUN --mount=type=cache,id=langboard-graph-python-packages,target=/root/.cache/uv \
-    uv sync --frozen --no-dev \
+    uv sync --locked --no-dev \
     && groupadd --gid 10001 langboard \
     && useradd --uid 10001 --gid 10001 --create-home langboard \
     && mkdir -p /app/local \
@@ -48,7 +48,7 @@ FROM runtime AS validation
 
 USER root
 RUN --mount=type=cache,id=langboard-graph-python-packages,target=/root/.cache/uv \
-    UV_CACHE_DIR=/root/.cache/uv uv sync --frozen \
+    UV_CACHE_DIR=/root/.cache/uv uv sync --locked \
     && mkdir -p /result/artifacts \
     && chown -R langboard:langboard /result
 
