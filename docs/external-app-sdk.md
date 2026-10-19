@@ -73,6 +73,14 @@ its stage invalidates it. Create or assign a replacement stage/column, then
 explicitly select and save that destination with current revisions. Repairing a
 column alone does not redirect the app or enable transitions.
 
+The mapping editor also offers **Manage stage columns** for a resolved stage.
+An administrator can assign the stage to an existing unclassified column, then
+explicitly select and save its UID as the app destination. Existing destinations
+remain unchanged until that save. Names are never used to infer completion, and
+this flow neither creates duplicate columns nor moves cards. Assigning a stage
+changes the meaning and counts of every card in that column; review and approval
+evidence remains independent.
+
 Enabling transitions with a missing, ambiguous, deleted or changed required
 destination fails atomically, preserving both the previous mapping and transition
 setting. Save valid explicit destinations before opting into automatic transitions.

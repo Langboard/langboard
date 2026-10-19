@@ -1,6 +1,44 @@
 import { test, expect } from "@playwright/test";
 const path = "/src/pages/BoardPage/components/settings/AppWorkflow.fixture.html";
 for (const width of [1440, 390]) {
+    test(`resolved stage can reuse a legacy column explicitly at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?legacyclosed`);
+        await expect(page.getByRole("combobox").first()).toHaveValue("one");
+        await expect(page.getByRole("combobox", { name: "Existing column for stage" })).toHaveCount(0);
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+        await page.getByRole("button", { name: "Manage stage columns", exact: true }).click();
+        await page.getByRole("combobox", { name: "Existing column for stage" }).selectOption("legacy");
+        await expect(page.getByRole("button", { name: "Create column with stage" })).toHaveCount(0);
+        if (width === 390) await page.screenshot({ path: test.info().outputPath("resolved-existing-column-390.png"), fullPage: true });
+        await page.getByRole("button", { name: "Assign stage to column", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+        await expect(page.getByRole("combobox").first().getByRole("option", { name: "완료", exact: true })).toHaveCount(1);
+        await expect(page.getByRole("combobox").first()).toHaveValue("one");
+        await page.getByRole("combobox").first().selectOption("legacy");
+        await page.getByRole("button", { name: "Save workflow mapping", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(2);
+        await expect(page.getByRole("combobox").first()).toHaveValue("legacy");
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([
+            { workflow_stage: "closed", expected_workflow_stage: null, url: "/board/fixture/column/legacy/workflow-stage" },
+            {
+                binding_uid: "binding",
+                workflow_mapping: { closed: "legacy" },
+                expected_revision: "a".repeat(64),
+                enable_transitions: false,
+                url: "/board/fixture/settings/apps/github/workflow",
+            },
+        ]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+}
+test("read-only users cannot reassign resolved stage columns", async ({ page }) => {
+    await page.goto(`${path}?legacyclosed&readonly`);
+    await expect(page.getByRole("button", { name: "Manage stage columns", exact: true })).toBeDisabled();
+    await expect(page.getByRole("combobox", { name: "Existing column for stage" })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+});
+for (const width of [1440, 390]) {
     test(`explicit composition groups tiles but preserves module targets at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external&panel&consent&retainedsignal&grouped`);

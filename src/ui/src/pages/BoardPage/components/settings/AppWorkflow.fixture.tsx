@@ -21,8 +21,9 @@ const inboundReads: string[] = [];
 Object.assign(window, { inboundReads });
 const missing = new URLSearchParams(location.search).has("missing");
 const invalid = new URLSearchParams(location.search).has("invalid");
-let workflowMapping = { active: invalid ? "deleted" : "one" };
+let workflowMapping: Record<string, string> = { active: invalid ? "deleted" : "one" };
 let repaired = false;
+let legacyAssigned = false;
 let disabled = false;
 Object.assign(window, { workflowWrites: writes });
 api.defaults.adapter = async (config) => {
@@ -110,6 +111,7 @@ api.defaults.adapter = async (config) => {
     }
     if (config.method === "put" || config.method === "post") {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
+        if (config.url?.endsWith("/column/legacy/workflow-stage")) legacyAssigned = true;
         if (!config.url?.endsWith("/workflow")) repaired = true;
         else workflowMapping = JSON.parse(config.data ?? "{}").workflow_mapping ?? workflowMapping;
         if (config.url?.endsWith("/disable")) disabled = true;
@@ -180,6 +182,32 @@ api.defaults.adapter = async (config) => {
                         workflow_requirements: key === "dokploy" ? null : { required: ["active", "review", "closed"], optional: [] },
                     })
                 ),
+            },
+        };
+    if (config.url?.endsWith("/workflow") && new URLSearchParams(location.search).has("legacyclosed"))
+        return {
+            config,
+            status: 200,
+            statusText: "OK",
+            headers: {},
+            data: {
+                workflow_stages: { closed: { name: "Closed", description: "Operationally completed work", translations: {} } },
+                binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: { closed: workflowMapping.closed ?? "one" } },
+                column_names: { one: "Done", legacy: "완료" },
+                available_columns: [
+                    { uid: "one", name: "Done", workflow_stage: "closed" },
+                    { uid: "legacy", name: "완료", workflow_stage: legacyAssigned ? "closed" : null },
+                ],
+                choices: [
+                    {
+                        stage: "closed",
+                        required: true,
+                        stage_active: true,
+                        status: "resolved",
+                        column_uid: workflowMapping.closed ?? "one",
+                        candidates: legacyAssigned ? ["one", "legacy"] : ["one"],
+                    },
+                ],
             },
         };
     return {

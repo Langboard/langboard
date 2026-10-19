@@ -136,6 +136,8 @@
     "Apps workflow": "应用工作流",
     "App": "应用",
     "App workflow draft help": "配置工作流目标。连接需要单独设置。保存会关闭自动转换。",
+    "Manage stage columns": "管理阶段列",
+    "Reuse stage column help": "创建新列之前请先复用现有列。指定阶段会改变该列所有卡片的含义和统计；审核和批准凭据仍单独保留。之后请选择并保存应用的目标列。",
     "App workflow unavailable": "无法加载设置",
     "App workflow save failed": "保存失败。请刷新设置后重试。",
     "In progress": "进行中",
