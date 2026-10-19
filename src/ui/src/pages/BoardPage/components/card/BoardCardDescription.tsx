@@ -10,6 +10,7 @@ import { sanitizeEditorContent } from "@/components/Editor/utils";
 import { BotModel, ProjectCard, ProjectCardComment } from "@/core/models";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
+import { getCardDraftStore, type IDraftScope } from "@/core/stores/CardDraftStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import { useBoardCardSectionSaveActions } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
 import useGetCardComments from "@/controllers/api/card/comment/useGetCardComments";
@@ -89,8 +90,85 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
     const comments = commentsData?.comments ?? modelComments;
     const description = card.useField("description");
     const restoredDraft = useCardFlipDraftStore.getState().drafts[flipDraftKey(currentUser.uid, projectUID, card.uid)];
+    const cardEditDraftScope = useMemo<IDraftScope>(
+        () => ({ userUID: currentUser.uid, projectUID, kind: "card-edit", scopeUID: card.uid }),
+        [currentUser.uid, projectUID, card.uid]
+    );
+    const originalContentRef = useRef("");
+    originalContentRef.current = sanitizeEditorContent(description?.content ?? "");
+    const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingDraftRef = useRef<{ scope: IDraftScope; content: string } | null>(null);
+    const currentUserUIDRef = useRef(currentUser.uid);
+    currentUserUIDRef.current = currentUser.uid;
+
+    const flushDescriptionDraft = useCallback(() => {
+        const pending = pendingDraftRef.current;
+        pendingDraftRef.current = null;
+        if (draftSaveTimerRef.current) {
+            clearTimeout(draftSaveTimerRef.current);
+            draftSaveTimerRef.current = null;
+        }
+        if (!pending) {
+            return;
+        }
+        // Fence against account changes since the edit was captured.
+        if (currentUserUIDRef.current !== pending.scope.userUID) {
+            return;
+        }
+        if (pending.content === originalContentRef.current) {
+            getCardDraftStore().clearDraft(pending.scope);
+            return;
+        }
+        getCardDraftStore().saveDraft(pending.scope, pending.content);
+    }, []);
+
+    const cancelDescriptionDraft = useCallback(() => {
+        pendingDraftRef.current = null;
+        if (draftSaveTimerRef.current) {
+            clearTimeout(draftSaveTimerRef.current);
+            draftSaveTimerRef.current = null;
+        }
+        getCardDraftStore().clearDraft(cardEditDraftScope);
+    }, [cardEditDraftScope]);
+
+    const handleEditorChangeForDraft = useCallback(
+        (changedEditor: TEditor) => {
+            const scope = { ...cardEditDraftScope };
+            // Fenced at flush time by userUID; capture against the scope's own user.
+            if (currentUserUIDRef.current !== scope.userUID) {
+                return;
+            }
+            pendingDraftRef.current = { scope, content: sanitizeEditorContent(changedEditor.api.markdown.serialize()) };
+            if (draftSaveTimerRef.current) {
+                clearTimeout(draftSaveTimerRef.current);
+            }
+            draftSaveTimerRef.current = setTimeout(flushDescriptionDraft, 600);
+        },
+        [cardEditDraftScope, flushDescriptionDraft]
+    );
+
+    useEffect(() => {
+        const onPageHide = () => flushDescriptionDraft();
+        window.addEventListener("pagehide", onPageHide);
+        return () => {
+            window.removeEventListener("pagehide", onPageHide);
+            flushDescriptionDraft();
+        };
+        // Flush logic reads refs only; the effect must be mounted once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const contentBlocks = (card as unknown as { content_blocks?: import("@/core/models/ProjectCard").IContentBlock[] }).content_blocks ?? [];
     const [isEditing, setIsEditing] = useState(false);
+    // Seed the editor from the localStorage draft when one exists for this card;
+    // it survives refresh/tab close and is at least as fresh as the flip snapshot.
+    const cardEditDraftContent = useMemo(() => {
+        if (!isEditing) {
+            return null;
+        }
+        return getCardDraftStore().getDraft(cardEditDraftScope)?.content ?? null;
+        // Seed is intentionally evaluated once per edit session.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isEditing, cardEditDraftScope]);
     const [anchorComposer, setAnchorComposer] = useState<IAnchorComposerPosition | null>(null);
     const [anchorMarkers, setAnchorMarkers] = useState<IAnchorMarkerPosition[]>([]);
     const [anchorCommentSnapshots, setAnchorCommentSnapshots] = useState<Record<string, IAnchorCommentSnapshot>>({});
@@ -146,11 +224,16 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
             throw new Error("Description collaboration is not ready");
         }
 
+        // Persist any debounce-pending edit before serializing, so a failed
+        // submit still leaves the latest content recoverable.
+        flushDescriptionDraft();
+
         const nextContent = sanitizeEditorContent(editorRef.current?.api.markdown.serialize() ?? description?.content ?? "");
         const originalContent = sanitizeEditorContent(description?.content ?? "");
 
         if (nextContent === originalContent) {
             resetCollaborativeDescriptionRef.current?.(description?.content ?? "");
+            cancelDescriptionDraft();
             setIsEditing(false);
             return null;
         }
@@ -161,13 +244,14 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                 content: nextContent,
             },
         };
-    }, [description, isEditing]);
+    }, [description, isEditing, flushDescriptionDraft, cancelDescriptionDraft]);
 
     const handleCancel = useCallback(() => {
         resetCollaborativeDescriptionRef.current?.(description?.content ?? "");
         stopEditing();
+        cancelDescriptionDraft();
         setIsEditing(false);
-    }, [description, stopEditing]);
+    }, [description, stopEditing, cancelDescriptionDraft]);
 
     useEffect(() => {
         if (!isCardEditing && isEditing) {
@@ -380,7 +464,11 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                     <CardContentBlockList blocks={contentBlocks} />
                 ) : isEditing ? (
                     <PlateEditor
-                        value={restoredDraft?.description ?? description}
+                        value={
+                            cardEditDraftContent !== null
+                                ? { ...(restoredDraft?.description ?? description ?? {}), content: cardEditDraftContent }
+                                : (restoredDraft?.description ?? description)
+                        }
                         mentionables={mentionables}
                         linkables={cards}
                         currentUser={currentUser}
@@ -394,10 +482,11 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                         }}
                         placeholder={t("card.No description")}
                         setValue={() => {}}
-                        authoritativeCollaborativeValue={restoredDraft?.description?.content ?? description?.content ?? ""}
+                        authoritativeCollaborativeValue={cardEditDraftContent ?? restoredDraft?.description?.content ?? description?.content ?? ""}
                         onCollaborativeValueReady={handleCollaborativeValueReady}
                         onCollaborativeValueResetReady={handleCollaborativeValueResetReady}
                         serializeOnChange={false}
+                        onEditorChange={handleEditorChangeForDraft}
                         focusOnReady
                         focusOnReadyEdge="startEditor"
                         editorRef={editorRef}

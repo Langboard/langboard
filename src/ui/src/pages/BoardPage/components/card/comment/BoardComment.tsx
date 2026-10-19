@@ -11,12 +11,13 @@ import { BotModel, ProjectCard, ProjectCardComment, User } from "@/core/models";
 import { IEditorContent } from "@/core/models/Base";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import { getCardDraftStore, type IDraftScope } from "@/core/stores/CardDraftStore";
 import { useIsCurrentEditor } from "@/core/stores/EditorStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import BoardCommentFooter from "@/pages/BoardPage/components/card/comment/BoardCommentFooter";
 import { IBoardCommentContextParams } from "@/pages/BoardPage/components/card/comment/types";
 import { EEditorType } from "@langboard/core/constants";
-import { memo, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { resolveCardCommentAnchorElement } from "@/pages/BoardPage/components/card/comment/commentAnchor";
 
@@ -56,15 +57,80 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
     const commentBot = comment.useForeignFieldOne("bot");
     const commentAuthor = commentUser || commentBot;
     const valueRef = useRef<IEditorContent>(content);
+    const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingDraftRef = useRef<{ scope: IDraftScope; content: string } | null>(null);
+    const currentUserUIDRef = useRef(currentUser.uid);
+    currentUserUIDRef.current = currentUser.uid;
+    const commentEditDraftScope = (): IDraftScope | null =>
+        currentUserUIDRef.current ? { userUID: currentUserUIDRef.current, projectUID, kind: "comment-edit", scopeUID: comment.uid } : null;
+
+    const flushDraftAutosave = () => {
+        const pending = pendingDraftRef.current;
+        pendingDraftRef.current = null;
+        if (draftSaveTimerRef.current) {
+            clearTimeout(draftSaveTimerRef.current);
+            draftSaveTimerRef.current = null;
+        }
+        if (!pending) {
+            return;
+        }
+        // Fence against account changes since the edit was captured.
+        if (currentUserUIDRef.current !== pending.scope.userUID) {
+            return;
+        }
+        getCardDraftStore().saveDraft(pending.scope, pending.content);
+    };
+
+    const cancelDraftAutosave = () => {
+        pendingDraftRef.current = null;
+        if (draftSaveTimerRef.current) {
+            clearTimeout(draftSaveTimerRef.current);
+            draftSaveTimerRef.current = null;
+        }
+        const scope = commentEditDraftScope();
+        if (scope) {
+            getCardDraftStore().clearDraft(scope);
+        }
+    };
+
     const setValue = (value: IEditorContent) => {
         valueRef.current = value;
+        const scope = commentEditDraftScope();
+        if (!scope || !isCurrentEditor) {
+            return;
+        }
+        pendingDraftRef.current = { scope, content: value.content };
+        if (draftSaveTimerRef.current) {
+            clearTimeout(draftSaveTimerRef.current);
+        }
+        draftSaveTimerRef.current = setTimeout(flushDraftAutosave, 600);
     };
     const editorValue = isCurrentEditor ? valueRef.current : content;
+
+    useEffect(() => {
+        const onPageHide = () => flushDraftAutosave();
+        window.addEventListener("pagehide", onPageHide);
+        return () => {
+            window.removeEventListener("pagehide", onPageHide);
+            flushDraftAutosave();
+        };
+        // Flush/cancel logic reads refs only; the effect must be mounted once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return (
         <ModelRegistry.ProjectCardComment.Provider
             model={comment}
-            params={{ author: commentAuthor, deletedComment, valueRef, editorName, isCurrentEditor, editorRef }}
+            params={{
+                author: commentAuthor,
+                deletedComment,
+                valueRef,
+                editorName,
+                isCurrentEditor,
+                editorRef,
+                flushDraftAutosave,
+                cancelDraftAutosave,
+            }}
         >
             <Box data-card-comment-uid={comment.uid} display="grid" gap="2" className="grid-cols-[theme(spacing.8),minmax(0,1fr)]">
                 <Box>

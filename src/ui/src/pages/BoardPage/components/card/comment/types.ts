@@ -9,4 +9,8 @@ export interface IBoardCommentContextParams {
     editorName: string;
     isCurrentEditor: bool;
     editorRef: React.RefObject<TEditor>;
+    /** Flush the pending comment-edit draft autosave immediately (pre-submit). */
+    flushDraftAutosave: () => void;
+    /** Cancel the pending draft autosave timer and clear the stored draft (discard). */
+    cancelDraftAutosave: () => void;
 }

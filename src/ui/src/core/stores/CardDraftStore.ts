@@ -40,8 +40,7 @@ const DRAFT_PREFIX = "lb-draft-v1";
 /** Drafts older than this are treated as stale and not restored. */
 export const DRAFT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
-const buildScopeKey = (scope: IDraftScope) =>
-    `${DRAFT_PREFIX}:${scope.userUID}:${scope.projectUID}:${scope.kind}:${scope.scopeUID}`;
+const buildScopeKey = (scope: IDraftScope) => `${DRAFT_PREFIX}:${scope.userUID}:${scope.projectUID}:${scope.kind}:${scope.scopeUID}`;
 
 /** Compose the exact storage/cache key for a draft scope (for reactive cache subscriptions). */
 export const buildDraftScopeKey = buildScopeKey;

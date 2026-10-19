@@ -112,7 +112,7 @@ export default function CardFlipTray({
         }
         const draftScope = { userUID, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
         const cached = commentDraftCache[buildDraftScopeKey(draftScope)];
-        const content = cached ? cached.content : getCardDraftStore().getDraft(draftScope)?.content ?? "";
+        const content = cached ? cached.content : (getCardDraftStore().getDraft(draftScope)?.content ?? "");
         return content.trim().length > 0;
     };
     const navigate = usePageNavigateRef();

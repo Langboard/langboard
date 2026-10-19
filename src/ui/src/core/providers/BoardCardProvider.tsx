@@ -1,4 +1,5 @@
 import { flipDraftKey, useCardFlipDraftStore } from "@/pages/BoardPage/components/card/CardFlipDraftStore";
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AuthUser, ProjectCard } from "@/core/models";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
@@ -128,6 +129,7 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
     }, [canEditCard]);
     const leaveCardEditMode = useCallback(() => {
         useCardFlipDraftStore.getState().clear(flipDraftKey(currentUser.uid, projectUID, card.uid));
+        getCardDraftStore().clearDraft({ userUID: currentUser.uid, projectUID, kind: "card-edit", scopeUID: card.uid });
         setCardEditMode("view");
     }, [currentUser.uid, projectUID, card.uid]);
     const toggleCardEditMode = useCallback(() => {

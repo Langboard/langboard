@@ -70,10 +70,7 @@ describe("CardDraftStore", () => {
         assert.equal(getCardDraftStore().getDraft(scope())?.content, "base");
         assert.equal(getCardDraftStore().getDraft(scope({ userUID: userB }))?.content, "other user");
         assert.equal(getCardDraftStore().getDraft(scope({ projectUID: project2 }))?.content, "other project");
-        assert.equal(
-            getCardDraftStore().getDraft(scope({ kind: "comment-edit", scopeUID: comment1 }))?.content,
-            "edit draft"
-        );
+        assert.equal(getCardDraftStore().getDraft(scope({ kind: "comment-edit", scopeUID: comment1 }))?.content, "edit draft");
         assert.equal(getCardDraftStore().getDraft(scope({ kind: "card-new", scopeUID: "new" }))?.content, "new card draft");
     });
 
