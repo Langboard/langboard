@@ -12,7 +12,7 @@ class DocumentRetrievalSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     enabled: bool = False
-    store: Literal["sqlite", "qdrant"] = "sqlite"
+    store: Literal["postgres", "sqlite", "qdrant"] = "postgres"
     external_url: HttpUrl | None = None
     external_api_key: SecretStr | None = Field(default=None, exclude=True)
     collection_prefix: str = Field(default=DEFAULT_COLLECTION_PREFIX, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
@@ -28,15 +28,17 @@ class DocumentRetrievalSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_capabilities(self) -> "DocumentRetrievalSettings":
-        if self.store == "sqlite":
+        if self.store in {"sqlite", "postgres"}:
             if self.collection_prefix != DEFAULT_COLLECTION_PREFIX:
                 raise ValueError("the built-in store has no external collection prefix")
             if self.external_url is not None or self.external_api_key is not None:
                 raise ValueError("the built-in store has no external endpoint or credential")
             if self.search_type != "similarity":
-                raise ValueError("the official SQLite store supports similarity search only")
+                raise ValueError("the official built-in stores support similarity search only")
         elif self.external_url is None:
             raise ValueError("Qdrant requires an explicit external endpoint")
+        if self.store == "postgres" and self.dimensions > 16000:
+            raise ValueError("PostgreSQL vector dimensions cannot exceed 16000")
         if self.external_url is not None and (self.external_url.username or self.external_url.password):
             raise ValueError("endpoint credentials must use the separate secret field")
         if self.external_url is not None and (self.external_url.query or self.external_url.fragment):

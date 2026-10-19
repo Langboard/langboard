@@ -12,7 +12,7 @@ interface ICardFlipStore {
     swap: (userUID: string, projectUID: string, selectedUID: string, current?: IFlippedCard) => void;
     remove: (userUID: string, projectUID: string, cardUID: string) => void;
     reorder: (userUID: string, projectUID: string, orderedUIDs: string[]) => void;
-    retain: (userUID: string, projectUID: string, available: Set<string>) => void;
+    retain: (userUID: string, projectUID: string, available: Set<string>, checked: Set<string>) => void;
     removeCard: (cardUID: string) => void;
     removeProject: (projectUID: string) => void;
 }
@@ -48,10 +48,15 @@ export const useCardFlipStore = create<ICardFlipStore>()(
                         return state;
                     return { trays: { ...state.trays, [scope]: orderedUIDs.map((uid) => cards.find((card) => card.uid === uid)!) } };
                 }),
-            retain: (userUID, projectUID, available) =>
+            retain: (userUID, projectUID, available, checked) =>
                 set((state) => {
                     const scope = key(userUID, projectUID);
-                    return { trays: { ...state.trays, [scope]: (state.trays[scope] ?? []).filter((card) => available.has(card.uid)) } };
+                    return {
+                        trays: {
+                            ...state.trays,
+                            [scope]: (state.trays[scope] ?? []).filter((card) => !checked.has(card.uid) || available.has(card.uid)),
+                        },
+                    };
                 }),
             removeCard: (cardUID) =>
                 set((state) => ({

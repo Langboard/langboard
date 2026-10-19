@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
@@ -206,11 +206,15 @@ def get_my_work_cards(
     if lower is not None and upper is not None and lower >= upper:
         raise ValueError("since must be earlier than until")
 
-    accessible_projects, _ = service.project.get_api_list(user)
+    contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Mcp)
+    accessible_projects = [{"uid": SnowflakeID(project_id).to_short_code()} for project_id in contexts]
     if project_uid is not None:
         accessible_projects = [project for project in accessible_projects if project["uid"] == project_uid]
         if not accessible_projects:
             raise ValueError("Project not found or not readable")
+
+    if not accessible_projects:
+        return {"cards": [], "returned_count": 0}
 
     mention_sensitive = {"mentioned", "due_soon", "overdue"}
     mentioned_card_ids = service.notification.get_mentioned_card_ids(user) if selected & mention_sensitive else []
@@ -226,6 +230,7 @@ def get_my_work_cards(
         upper,
         limit,
         channel=CollaborationChannel.Mcp,
+        contexts=contexts,
     )
     return {
         "cards": cards,

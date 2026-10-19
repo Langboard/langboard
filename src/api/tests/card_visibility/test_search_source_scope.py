@@ -1,14 +1,75 @@
 # ruff: noqa: F811
 """Bounded search must not disclose foreign or removed workflow sources."""
 
+import json
 import pytest
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.storage import FileModel
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, Card, CardAttachment, CardComment, ProjectColumn
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
+from sqlalchemy import text
+
+
+@pytest.mark.parametrize("source", ["body", "comment"])
+@pytest.mark.parametrize("encoding", ["model-string", "json-object"])
+def test_search_matches_editor_text_without_json_keys_or_escape_syntax(board, source, encoding):
+    _, user, project, _, _, columns, _ = board
+    engine = DbEngine.get_main_engine()
+    for model in (Bot, Card, CardAttachment, CardComment):
+        model.__table__.create(engine)
+    body = 'alpha\nbeta\tשלום\\path "quoted" 100%_done 日本語 中文'
+    with DbSession.use(readonly=False) as db:
+        plain = Card(project_id=project.id, project_column_id=columns[0].id, title="Plain", visibility="SHARED")
+        actual_word = Card(
+            project_id=project.id, project_column_id=columns[0].id, title="Real word", visibility="SHARED"
+        )
+        for card in (plain, actual_word):
+            db.insert(card)
+        if source == "body":
+            plain.description = EditorContentModel(content=body)
+            actual_word.description = EditorContentModel(content="content is a real word here")
+            db.update(plain)
+            db.update(actual_word)
+            table, field, identifier = "card", "description", int(plain.id)
+        else:
+            comment = CardComment(card_id=plain.id, user_id=user.id, content=EditorContentModel(content=body))
+            db.insert(comment)
+            db.insert(
+                CardComment(
+                    card_id=actual_word.id,
+                    user_id=user.id,
+                    content=EditorContentModel(content="content is a real word here"),
+                )
+            )
+            table, field, identifier = "card_comment", "content", int(comment.id)
+    payload = {"content": body, "audit": "private-json-marker"}
+    stored = json.dumps(json.dumps(payload)) if encoding == "model-string" else json.dumps(payload)
+    assignment = "CAST(:body AS JSON)" if engine.dialect.name == "postgresql" else ":body"
+    with engine.begin() as connection:
+        # Fixture covers both persisted formats accepted by ModelColumnType.
+        connection.execute(
+            text(f"UPDATE {table} SET {field}={assignment} WHERE id=:id"), {"body": stored, "id": identifier}
+        )
+    repository = CardRepository(None, None)
+    context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=user.id)
+
+    def matches(query):
+        return {card.id for card, _ in repository.search_context_by_project(project, query, context=context)}
+
+    assert matches("content") == {actual_word.id}
+    assert matches("private-json-marker") == set()
+    for query in ("alpha\nbeta", "beta\tשלום", '"quoted"', "שלום\\path", "100%_done", "日本語 中文"):
+        assert matches(query) == {plain.id}, query
+    payload["content"] = "prefix\x00suffix"
+    stored = json.dumps(json.dumps(payload)) if encoding == "model-string" else json.dumps(payload)
+    with engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE {table} SET {field}={assignment} WHERE id=:id"), {"body": stored, "id": identifier}
+        )
+    assert matches("suffix") == {plain.id}
 
 
 @pytest.mark.parametrize("projection", ["cards", "documents"])

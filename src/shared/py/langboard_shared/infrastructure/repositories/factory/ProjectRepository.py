@@ -7,6 +7,11 @@ from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TProjectParam, TUserParam
 from ....domain.models import Card, CardAssignedUser, Project, ProjectActivity, ProjectAssignedUser
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope_by_project,
+    project_activity_visibility_scope,
+)
 from ....helpers import InfraHelper
 
 
@@ -22,18 +27,19 @@ class ProjectRepository(BaseRepository[Project]):
     def get_by_id_like(self, project: TProjectParam | None) -> Project | None:
         return InfraHelper.get_by_id_like(Project, project)
 
-    def get_max_card_change_seq(self, project_ids: list[SnowflakeID]) -> dict[int, int]:
-        """Newest card change cursor per project (indexed top row per project)."""
+    def get_max_card_change_seq(
+        self, project_ids: list[SnowflakeID], *, contexts: dict[int, CardVisibilityContext] | None = None,
+    ) -> dict[int, int]:
+        """Newest visible card change cursor per project."""
 
         if not project_ids:
             return {}
         rows = []
-        with DbSession.use(readonly=True) as db:
-            rows = db.exec(
-                select(Card.project_id, func.max(Card.last_change_seq))
-                .where(Card.project_id.in_(project_ids))
-                .group_by(Card.project_id)
-            ).all()
+        query = select(Card.project_id, func.max(Card.last_change_seq)).where(Card.project_id.in_(project_ids))
+        if contexts is not None:
+            query = query.where(Card.deleted_at.is_(None), card_visibility_scope_by_project(contexts))
+        with DbSession.use(readonly=contexts is None) as db:
+            rows = db.exec(query.group_by(Card.project_id)).all()
         return {int(row[0]): int(row[1] or 0) for row in rows}
 
     def get_all_by_organization(self, organization_id: SnowflakeID, limit: int | None = None) -> list[Project]:
@@ -51,12 +57,12 @@ class ProjectRepository(BaseRepository[Project]):
             return db.exec(query).all()
 
     def get_all_by_user(
-        self, user: TUserParam, limit: int | None = None
+        self, user: TUserParam, limit: int | None = None, *, contexts: dict[int, CardVisibilityContext] | None = None
     ) -> list[tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]]:
         user_id = InfraHelper.convert_id(user)
-        last_activity_at = self._last_activity_at()
-        related_to_current_user = self._related_to_user(user_id)
-        related_activity = self._related_activity_by_project(user_id)
+        last_activity_at = self._last_activity_at(contexts)
+        related_to_current_user = self._related_to_user(user_id, contexts)
+        related_activity = self._related_activity_by_project(user_id, contexts)
         query = (
             SqlBuilder.select.tables(Project, ProjectAssignedUser)
             .add_columns(last_activity_at, related_to_current_user, related_activity.c.related_activity_at)
@@ -76,18 +82,18 @@ class ProjectRepository(BaseRepository[Project]):
             query = query.limit(limit)
 
         projects = []
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=contexts is None) as db:
             result = db.exec(query)
             projects = result.all()
         return projects
 
     def get_all_starred(
-        self, user: TUserParam, limit: int | None = None
+        self, user: TUserParam, limit: int | None = None, *, contexts: dict[int, CardVisibilityContext] | None = None
     ) -> list[tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]]:
         user_id = InfraHelper.convert_id(user)
-        last_activity_at = self._last_activity_at()
-        related_to_current_user = self._related_to_user(user_id)
-        related_activity = self._related_activity_by_project(user_id)
+        last_activity_at = self._last_activity_at(contexts)
+        related_to_current_user = self._related_to_user(user_id, contexts)
+        related_activity = self._related_activity_by_project(user_id, contexts)
         query = (
             SqlBuilder.select.tables(Project, ProjectAssignedUser)
             .add_columns(last_activity_at, related_to_current_user, related_activity.c.related_activity_at)
@@ -107,36 +113,36 @@ class ProjectRepository(BaseRepository[Project]):
             query = query.limit(limit)
 
         projects = []
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=contexts is None) as db:
             result = db.exec(query)
             projects = result.all()
         return projects
 
     @staticmethod
-    def _last_activity_at():
-        return (
-            SqlBuilder.select.column(func.max(ProjectActivity.column("created_at")))
-            .where(ProjectActivity.column("project_id") == Project.column("id"))
-            .correlate(Project)
-            .scalar_subquery()
-            .label("last_activity_at")
+    def _last_activity_at(contexts: dict[int, CardVisibilityContext] | None = None):
+        query = SqlBuilder.select.column(func.max(ProjectActivity.column("created_at"))).where(
+            ProjectActivity.column("project_id") == Project.column("id")
         )
+        if contexts is not None:
+            query = query.where(project_activity_visibility_scope(contexts))
+        return query.correlate(Project).scalar_subquery().label("last_activity_at")
 
     @staticmethod
-    def _related_to_user(user_id: SnowflakeID):
-        return (
+    def _related_to_user(user_id: SnowflakeID, contexts: dict[int, CardVisibilityContext] | None = None):
+        query = (
             exists()
             .where(Card.column("project_id") == Project.column("id"))
             .where(Card.column("archived_at").is_(None))
             .where(Card.column("deleted_at").is_(None))
             .where(CardAssignedUser.column("card_id") == Card.column("id"))
             .where(CardAssignedUser.column("user_id") == user_id)
-            .correlate(Project)
-            .label("related_to_current_user")
         )
+        if contexts is not None:
+            query = query.where(card_visibility_scope_by_project(contexts))
+        return query.correlate(Project).label("related_to_current_user")
 
     @staticmethod
-    def _related_activity_by_project(user_id: SnowflakeID):
+    def _related_activity_by_project(user_id: SnowflakeID, contexts: dict[int, CardVisibilityContext] | None = None):
         # Read the indexed latest activity per assigned card instead of joining
         # every historical event before grouping the user's related projects.
         last_card_activity = (
@@ -145,7 +151,7 @@ class ProjectRepository(BaseRepository[Project]):
             .correlate(Card)
             .scalar_subquery()
         )
-        return (
+        query = (
             SqlBuilder.select.columns(
                 Card.column("project_id").label("project_id"),
                 func.max(last_card_activity).label("related_activity_at"),
@@ -154,9 +160,10 @@ class ProjectRepository(BaseRepository[Project]):
             .where(Card.column("archived_at").is_(None))
             .where(Card.column("deleted_at").is_(None))
             .where(CardAssignedUser.column("user_id") == user_id)
-            .group_by(Card.column("project_id"))
-            .subquery()
         )
+        if contexts is not None:
+            query = query.where(card_visibility_scope_by_project(contexts))
+        return query.group_by(Card.column("project_id")).subquery()
 
     def are_users_related(
         self, user: TUserParam, target_user: TUserParam, project: TProjectParam | None = None

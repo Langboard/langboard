@@ -34,3 +34,22 @@ def purge_terminal_email_deliveries() -> int:
             service.notification.purge_terminal_email_deliveries()
             + service.project_email_notification.purge_terminal_deliveries()
         )
+
+
+def recover_notifications() -> None:
+    from langboard_shared.tasks.notifications.NotificationWorkEventTask import publish_pending_work_events
+
+    try:
+        publish_pending_work_events()
+    finally:
+        try:
+            recover_pending_web_fanout()
+        finally:
+            try:
+                recover_pending_email_delivery()
+            finally:
+                purge_terminal_email_deliveries()
+
+
+if __name__ == "__main__":
+    recover_notifications()

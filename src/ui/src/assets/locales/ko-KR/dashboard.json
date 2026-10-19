@@ -111,5 +111,16 @@
   "Unfinished cards count_one": "미완료 카드 {{count, number}}개",
   "Unfinished cards count_other": "미완료 카드 {{count, number}}개",
   "Unfinished in status_one": "{{status}}: 미완료 카드 {{count, number}}개",
-  "Unfinished in status_other": "{{status}}: 미완료 카드 {{count, number}}개"
+  "Unfinished in status_other": "{{status}}: 미완료 카드 {{count, number}}개",
+  "Clear search": "검색어 지우기",
+  "Unread changes": "미열람 변경",
+  "Unfinished work": "미완료 업무",
+  "Default order": "기본 순서",
+  "Recent activity": "최근 업무 활동",
+  "Recently viewed": "최근 열람",
+  "Name": "이름순",
+  "Unread first": "미열람 우선",
+  "Project filters": "프로젝트 필터",
+  "Sort projects": "프로젝트 정렬",
+  "Reset filters": "필터 초기화"
 }

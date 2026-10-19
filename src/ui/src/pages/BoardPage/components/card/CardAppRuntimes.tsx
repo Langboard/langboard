@@ -23,6 +23,7 @@ export default function CardAppRuntimes({
     canRespond,
     panelContext,
     onAuthorityDenied,
+    embedded = false,
 }: {
     projectUID: string;
     cardUID: string;
@@ -30,9 +31,11 @@ export default function CardAppRuntimes({
     canRespond: boolean;
     panelContext?: { appKey: string; app_revision: string; binding_revision: string };
     onAuthorityDenied?: () => void;
+    embedded?: boolean;
 }) {
     const [t] = useTranslation();
-    const [open, setOpen] = useState(!!panelContext);
+    const [expanded, setOpen] = useState(!!panelContext);
+    const open = embedded || expanded;
     const [sending, setSending] = useState(false);
     const writing = useRef(false);
     const [unresolved, setUnresolved] = useState(false);
@@ -105,7 +108,7 @@ export default function CardAppRuntimes({
     }
     return (
         <div className="space-y-2">
-            {!panelContext && (
+            {!panelContext && !embedded && (
                 <Button size="sm" variant="ghost" aria-expanded={open} disabled={sending} onClick={() => setOpen(!open)}>
                     {t("card.appRuntimes.title")}
                 </Button>

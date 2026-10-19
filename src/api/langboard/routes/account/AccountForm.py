@@ -29,6 +29,7 @@ class UpdateProfileForm(BaseFormModel):
     affiliation: str | None = None
     position: str | None = None
     delete_avatar: bool = False
+    expected_avatar_revision: int | None = Field(default=None, ge=0)
 
 
 @form_model

@@ -19,6 +19,7 @@ function BoardCardAttachmentMoreMenu({ attachment, isValidating, setIsValidating
                 <BoardCardAttachmentMoreMenuDownload />
                 <BoardCardAttachmentDocumentAction />
                 <BoardCardAttachmentDocumentAction mode="embedding" />
+                <BoardCardAttachmentDocumentAction mode="keyword" />
                 <BoardCardAttachmentMoreMenuRename />
                 <BoardCardAttachmentMoreMenuDelete />
             </MoreMenu.Root>

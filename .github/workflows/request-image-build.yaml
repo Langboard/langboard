@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: image-build-request-${{ github.ref }}
+  group: image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}
   cancel-in-progress: false
 
 jobs:
@@ -42,12 +42,13 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # Transport only; validation and image builds run in the central executor.
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
       run:
         shell: bash
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
       IMAGE_BUILD_COMMIT: ${{ vars.IMAGE_BUILD_COMMIT }}
       IMAGE_BUILD_PROFILE: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
@@ -60,12 +61,12 @@ jobs:
       IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Prepare standard job tools
+      - name: Prepare standard request tools
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils python3
+          apt-get install -y --no-install-recommends ca-certificates git python3
       - name: Checkout federated request client
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

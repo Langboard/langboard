@@ -10,7 +10,9 @@ import SecretCopyForm from "./SecretCopyForm";
 interface HistoryItem {
     uid: string;
     created_at: string;
-    actor_uid: string;
+    actor_uid: string | null;
+    actor_kind?: "user" | "workload";
+    principal_id?: string | null;
     action: string;
     revision_before: number | null;
     revision_after: number;
@@ -105,7 +107,10 @@ export default function SecretHistoryPage() {
                                             </time>
                                         </div>
                                         <p className="break-all text-xs text-muted-foreground">
-                                            {t("myAccount.secretHistory.actor")} {item.actor_uid} · {item.source_kind}
+                                            {item.actor_kind === "workload"
+                                                ? t("myAccount.secretHistory.keywordWorkload")
+                                                : `${t("myAccount.secretHistory.actor")} ${item.actor_uid ?? ""}`}{" "}
+                                            · {item.source_kind}
                                             {" · "}
                                             {item.revision_before === null
                                                 ? `v${item.revision_after}`

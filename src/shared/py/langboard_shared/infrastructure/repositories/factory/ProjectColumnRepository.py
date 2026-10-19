@@ -16,9 +16,12 @@ from ....domain.models import (
     WorkflowStageDefinition,
 )
 from ....domain.models.ProjectColumn import ProjectColumnDockConflict
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    card_visibility_scope_by_project,
+)
 from ....helpers import InfraHelper
-from .CardRepository import card_visibility_scope
 
 
 class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
@@ -164,7 +167,9 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
         limit: int | None = None,
         *,
         context: CardVisibilityContext | None = None,
+        contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> list[tuple[ProjectColumn, int]]:
+        """Read existing columns only; archive creation belongs to explicit write paths."""
         if not isinstance(projects, list):
             projects = [projects]
         project_ids = [InfraHelper.convert_id(project) for project in projects]
@@ -172,7 +177,10 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
             Card,
             (Card.column("project_column_id") == ProjectColumn.column("id"))
             & Card.column("deleted_at").is_(None)
-            & (card_visibility_scope(context) if context is not None else True)
+            & (
+                card_visibility_scope_by_project(contexts) if contexts is not None
+                else card_visibility_scope(context) if context is not None else True
+            )
             & or_(
                 Card.column("source_type").is_(None), Card.column("source_type") != Card.LINKED_RESOURCE_PROJECT_WIKI
             ),
@@ -188,28 +196,16 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
             query = query.limit(limit)
 
         raw_columns = []
-        with DbSession.use(readonly=context is None) as db:
+        with DbSession.use(readonly=context is None and contexts is None) as db:
             result = db.exec(query)
             raw_columns = result.all()
-
-        has_archive_column = {}
-        for raw_column in raw_columns:
-            column, _ = raw_column
-            if column.is_archive:
-                has_archive_column[column.project_id] = True
-
-        for project_id in project_ids:
-            if project_id in has_archive_column and has_archive_column[project_id]:
-                continue
-            archive_column = self.get_or_create_archive_if_not_exists(project_id)
-            raw_columns.append((archive_column, 0))
 
         return raw_columns
 
     def get_incomplete_work_counts(self, projects: TProjectParam | list[TProjectParam]) -> dict[SnowflakeID, int]:
         return {column_id: counts["incomplete_count"] for column_id, counts in self.get_work_counts(projects).items()}
 
-    def get_work_counts(self, projects: TProjectParam | list[TProjectParam], *, context: CardVisibilityContext | None = None) -> dict[SnowflakeID, dict[str, int]]:
+    def get_work_counts(self, projects: TProjectParam | list[TProjectParam], *, context: CardVisibilityContext | None = None, contexts: dict[int, CardVisibilityContext] | None = None) -> dict[SnowflakeID, dict[str, int]]:
         """Batch open and unfinished work counts without loading card bodies or changing physical counts."""
         if not isinstance(projects, list):
             projects = [projects]
@@ -233,7 +229,9 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
             & or_(WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.counts_as_completed.is_(False))
             & or_(WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.key != "reference")
         )
-        if context is not None:
+        if contexts is not None:
+            eligible &= card_visibility_scope_by_project(contexts)
+        elif context is not None:
             eligible &= card_visibility_scope(context)
         query = (
             select(ProjectColumn.id, func.count(Card.id), func.count(case((~all_items_complete, Card.id))))

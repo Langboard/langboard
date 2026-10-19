@@ -29,6 +29,26 @@ For detailed instructions on setting up your local development environment, see 
 - Run `make unit_tests`
 - Update relevant documentation when behavior or configuration changes
 
+## GitHub collaboration language
+
+Use English for pull request titles, descriptions, review comments and replies.
+Automation-generated receipts and review messages follow the same rule. Product
+localization, user-provided text and external quotations may retain their original
+language when clearly identified as examples or quotations. This rule does not
+change the language of your Langboard boards or user content.
+
+Keep pull request titles in English even when they include code identifiers.
+In Markdown descriptions and comments, use inline code, fenced code or block
+quotations for localized examples. Longer examples can use the paired markers
+below; close the example before resuming ordinary prose. Unclosed, unmatched or
+nested markers are invalid.
+
+```text
+<!-- langboard:localized-example:start -->
+Localized product example
+<!-- langboard:localized-example:end -->
+```
+
 ## Schema migrations and default data
 
 Define schema changes in the shared model and `AppSchema` owners, then generate

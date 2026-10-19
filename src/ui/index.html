@@ -9,6 +9,10 @@
 
     <body>
         <div id="root" style="overflow-y: hidden"></div>
+        <script>
+            globalThis.__LANGBOARD_RUNTIME_CONFIG__ = { invalid: true };
+        </script>
+        <script src="/runtime-config.js"></script>
         <script type="module" src="/src/main.tsx"></script>
     </body>
 </html>

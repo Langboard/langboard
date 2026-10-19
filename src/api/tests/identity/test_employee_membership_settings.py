@@ -127,3 +127,64 @@ def test_avatar_projection_uses_verified_identity_and_bounded_reads(membership, 
     assert len(reads) == 4
     service.save_employee_membership_settings([])
     assert service.classify_members([staff.id])[staff.get_uid()] == "external"
+
+
+@pytest.mark.parametrize("size", [1, 25])
+@pytest.mark.parametrize("mode,expected_reads", [("unknown", 2), ("oidc", 3), ("disabled-oidc", 2), ("empty-scim", 4)])
+def test_avatar_projection_skips_unused_identity_sources(membership, monkeypatch, size, mode, expected_reads):
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import IdentityProvider, ScimGroupMember, User, UserIdentityLink
+    from sqlalchemy import event
+
+    service, _, _, _ = membership
+    engine = DbEngine.get_main_engine()
+    for model in (User, UserIdentityLink, ScimGroupMember):
+        model.__table__.create(engine)
+    monkeypatch.setattr(
+        type(Env),
+        "CARD_INTERNAL_ACCESS_MODE",
+        property(lambda _: "account" if mode == "disabled-oidc" else "oidc_issuers"),
+    )
+    monkeypatch.setattr(
+        type(Env),
+        "CARD_INTERNAL_OIDC_ISSUERS",
+        property(lambda _: [] if mode == "unknown" else ["https://identity.example"]),
+    )
+    users = []
+    with DbSession.use(readonly=False) as db:
+        for index in range(size):
+            user = User(
+                firstname="Avatar",
+                lastname=str(index),
+                email=f"avatar{index}@example.invalid",
+                password="fixture",
+                activated_at=SafeDateTime.now() if index == 0 else None,
+            )
+            db.insert(user)
+            db.insert(
+                UserIdentityLink(
+                    user_id=user.id,
+                    provider=IdentityProvider.Oidc,
+                    issuer="https://identity.example/",
+                    external_id=f"avatar{index}",
+                )
+            )
+            users.append(user)
+    if mode == "empty-scim":
+        service.save_employee_membership_settings([])
+    reads = []
+
+    def record(connection, cursor, statement, params, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            reads.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        result = service.classify_members([user.id for user in users])
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert len(reads) == expected_reads
+    if mode != "empty-scim":
+        assert not any("scim_group" in sql for sql in reads)
+    expected_active = "internal" if mode == "oidc" else "external" if mode == "empty-scim" else "unknown"
+    assert result == {user.get_uid(): expected_active if index == 0 else "unknown" for index, user in enumerate(users)}

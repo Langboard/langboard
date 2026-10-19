@@ -3,6 +3,7 @@ import { KEYS } from "platejs";
 import type { SlateElementProps } from "platejs/static";
 import { SlateElement } from "platejs/static";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import type { TInternalLinkElement, TInternalLinkableModel } from "@/components/Editor/plugins/customs/internal-link/InternalLinkPlugin";
 import IconComponent from "@/components/base/IconComponent";
@@ -58,6 +59,7 @@ export function InternalLinkInputElementStatic(props: SlateElementProps<TCombobo
 }
 
 const InternalLinkLabelStatic = ({ linkable, toLink }: { linkable: TInternalLinkElement | TInternalLinkableModel; toLink: () => void }) => {
+    const [t] = useTranslation();
     if (isModel(linkable, "ProjectCard")) {
         return <InternalLinkCardLabel linkable={linkable} toLink={toLink} />;
     }
@@ -66,7 +68,7 @@ const InternalLinkLabelStatic = ({ linkable, toLink }: { linkable: TInternalLink
         return <InternalLinkWikiLabel linkable={linkable} toLink={toLink} />;
     }
 
-    return <>{(linkable as TInternalLinkElement).uid || "Unknown"}</>;
+    return <>{(linkable as TInternalLinkElement).uid || t("common.Unknown")}</>;
 };
 
 const InternalLinkCardLabel = ({ linkable, toLink }: { linkable: ProjectCard.TModel; toLink: () => void }) => {

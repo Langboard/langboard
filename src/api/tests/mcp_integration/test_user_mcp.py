@@ -8,6 +8,7 @@ os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard.mcp_integration import McpTool  # noqa: E402
 from langboard.mcp_tools import UserMcp  # noqa: E402
+from langboard_shared.core.types import SnowflakeID  # noqa: E402
 from langboard_shared.domain.services.factory.NotificationService import NotificationService  # noqa: E402
 from langboard_shared.helpers import InfraHelper  # noqa: E402
 
@@ -136,21 +137,20 @@ def test_my_work_lookup_is_governed_read_only_and_notified_read_state_independen
         return [{"uid": "c1"}]
 
     service = SimpleNamespace(
-        project=SimpleNamespace(get_api_list=lambda _user: ([{"uid": "allowed"}, {"uid": "revoked"}], [])),
         notification=SimpleNamespace(get_mentioned_card_ids=lambda _user: [101]),
-        card=SimpleNamespace(get_my_work_cards=get_my_work_cards),
+        card=SimpleNamespace(resolve_work_visibility_contexts=lambda *_: {12: object()}, get_my_work_cards=get_my_work_cards),
     )
 
     result = UserMcp.get_my_work_cards(
         user,
         service,
         purposes=["mentioned"],
-        project_uid="allowed",
+        project_uid=SnowflakeID(12).to_short_code(),
         limit=10,
     )
 
     assert result == {"cards": [{"uid": "c1"}], "returned_count": 1}
-    assert calls == [[{"uid": "allowed"}]]
+    assert calls == [[{"uid": SnowflakeID(12).to_short_code()}]]
 
 
 def test_my_work_due_filters_include_mentioned_cards_and_normalize_bounds() -> None:
@@ -165,9 +165,8 @@ def test_my_work_due_filters_include_mentioned_cards_and_normalize_bounds() -> N
 
     mention_calls: list[object] = []
     service = SimpleNamespace(
-        project=SimpleNamespace(get_api_list=lambda _user: ([{"uid": "allowed"}], [])),
         notification=SimpleNamespace(get_mentioned_card_ids=lambda actor: mention_calls.append(actor) or [101]),
-        card=SimpleNamespace(get_my_work_cards=get_my_work_cards),
+        card=SimpleNamespace(resolve_work_visibility_contexts=lambda *_: {12: object()}, get_my_work_cards=get_my_work_cards),
     )
 
     UserMcp.get_my_work_cards(
@@ -240,9 +239,10 @@ async def test_legacy_card_list_preserves_schema_and_column_names():
         return ProjectCardIndexResponse(project_uid="p", cards=BoundedItemsDto(items=[{"uid": "x", "project_column_uid": "c"}], total_count=1, next_cursor=None, limit=20), columns={"c": {"name": "Custom"}})
 
     result = await with_legacy_card_list(handler)()
-    assert isinstance(result, dict)
-    parsed = ProjectCardListResponse.model_validate(result)
-    assert "columns" not in result
+    assert isinstance(result, ProjectCardListResponse)
+    payload = result.model_dump(mode="json")
+    parsed = ProjectCardListResponse.model_validate(payload)
+    assert "columns" not in payload
     assert parsed.cards.items[0]["project_column_name"] == "Custom"
 
 

@@ -3,7 +3,6 @@
 import { getMentionOnSelectItem } from "@platejs/mention";
 import { InlineComboboxItem } from "@/components/plate-ui/inline-combobox";
 import { BotModel, User } from "@/core/models";
-import { Utils } from "@langboard/core/utils";
 import { PlateEditor } from "platejs/react";
 import type { TMentionableUser } from "@/components/plate-ui/mention-node";
 import UserLikeComponent from "@/components/UserLikeComponent";
@@ -83,12 +82,7 @@ const MentionInputComboboxItemInner = ({
     editor,
 }: Omit<IMentionInputComboboxItemInnerProps, "value"> & { value: string; username: string; names: string }) => {
     return (
-        <InlineComboboxItem
-            key={Utils.String.Token.shortUUID()}
-            value={value}
-            onClick={() => onSelectItem(editor, userOrBot.value, search)}
-            className="h-auto p-0"
-        >
+        <InlineComboboxItem value={value} onClick={() => onSelectItem(editor, userOrBot.value, search)} className="h-auto p-0">
             <UserAvatarTrigger
                 userOrBot={userOrBot.raw}
                 withNameProps={{

@@ -10,6 +10,7 @@ import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import Button from "@/components/base/Button";
 import DateDistance from "@/components/DateDistance";
 import { cn } from "@/core/utils/ComponentUtils";
+import useAuthStore from "@/core/stores/AuthStore";
 
 interface IMyWorkCard {
     uid: string;
@@ -63,14 +64,21 @@ export default function MyWorkPage({
     }, [contextProjectUID]);
     const projectUID = compact ? panelProjectUID : searchParams.get("project_uid");
     const projectScope = !!projectUID && (compact ? !panelAll : searchParams.get("scope") !== "all");
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const { data: projectsData } = useGetProjects();
     const { data, isPending, isFetching, isError, refetch } = useQuery({
-        queryKey: ["dashboard-my-work", projectScope ? projectUID : null],
-        queryFn: async () => {
+        queryKey: ["dashboard-my-work", actorUID, projectScope ? projectUID : null],
+        enabled: !!actorUID,
+        queryFn: async ({ signal }) => {
             const response = await api.get<{ cards: IMyWorkCard[] }>(Routing.API.DASHBOARD.MY_WORK, {
+                signal,
                 params: projectScope ? { project_uid: projectUID } : undefined,
                 env: { interceptToast: true } as never,
             });
+            signal.throwIfAborted();
+            if (!actorUID || actorUID !== useAuthStore.getState().currentUser?.uid) {
+                throw new Error("My Work request no longer belongs to the current actor");
+            }
             return response.data.cards;
         },
         retry: false,

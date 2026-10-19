@@ -685,7 +685,7 @@ for (const width of [1920, 390]) {
             });
         });
         await page.goto(FIXTURE);
-        const comments = page.locator('[data-card-comment-uid="single-comment"]');
+        const comments = page.locator("[data-card-comment-uid=single-comment]");
         const toggle = page.getByRole("button", { name: "Comments", exact: true });
         await expect(toggle).toBeVisible();
         await expect(comments).toHaveCount(0);
@@ -696,5 +696,68 @@ for (const width of [1920, 390]) {
         await expect(comments).toHaveCount(0);
         await toggle.click();
         await expect(comments).toHaveCount(1);
+    });
+}
+
+test("unsynchronized restored description cannot submit a card details patch", async ({ page }) => {
+    await mockBoardApi(page);
+    let writes = 0;
+    await page.route("**/board/fixture-project/card/fixture-card/details", async (route) => {
+        if (route.request().method() !== "OPTIONS") writes++;
+        await fulfillWithCors(route, {});
+    });
+    await page.addInitScript(() => {
+        sessionStorage.setItem(
+            "langboard-card-flip-drafts",
+            JSON.stringify({
+                state: { drafts: { "fixture-user:fixture-project:fixture-card": { description: { content: "Retained unsaved description" } } } },
+                version: 0,
+            })
+        );
+    });
+    await page.goto(FIXTURE);
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    expect(writes).toBe(0);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+});
+
+for (const width of [360, 390]) {
+    test(`mobile viewer uses one fullscreen mode at ${width}px and follows available width`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await mockBoardApi(page);
+        await page.goto(FIXTURE);
+        const viewer = page.locator("[data-card-viewer]");
+        await expect(page.getByText("Fixture card", { exact: true }).first()).toBeVisible();
+        const expectFullScreen = async (expectedWidth: number, expectedHeight: number) => {
+            await expect
+                .poll(async () =>
+                    viewer.evaluate((element) => {
+                        const r = element.getBoundingClientRect();
+                        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+                    })
+                )
+                .toEqual([0, 0, expectedWidth, expectedHeight]);
+            await expect(page.getByRole("button", { name: /^(Expand|Collapse)$/ })).toHaveCount(0);
+        };
+        await expectFullScreen(width, 844);
+        await page.locator("body").dispatchEvent("pointerdown", { pointerType: "touch", button: 0 });
+        await expect(viewer).toBeVisible();
+        await page.setViewportSize({ width: 720, height: 540 });
+        await expectFullScreen(720, 540);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await expect(page.getByRole("button", { name: "Expand", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Expand", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+        await page.setViewportSize({ width, height: 600 });
+        await expectFullScreen(width, 600);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await expect(page.getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(viewer).toHaveCount(0);
     });
 }

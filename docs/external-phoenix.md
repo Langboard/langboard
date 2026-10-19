@@ -74,22 +74,4 @@ do not prove compatible versions, authenticated channel access or successful edi
 Acceptance additionally requires authenticated join, editor save and API callback,
 reconnect/resync, access denial across instances and unchanged UI/API behavior.
 Exercise unreachable endpoints, invalid CA/auth and version mismatch, then verify
-rollback and no duplicate delivery. Current source/configuration tests do not
-claim a remote deployment or canary E2E has passed.
-
-## Reproduction
-
-```sh
-python3 src/socket/test/integration/test-phoenix-config.py "$(command -v bash)"
-PROJECT_NAME=langboard ENVIRONMENT=development PYTHONPATH=src/shared/py:src/api \
-  python3 -m pytest -q \
-  src/api/tests/runtime/test_external_phoenix_compose.py \
-  src/api/tests/runtime/test_external_phoenix_ingress.py \
-  src/socket/test/unit/test_phoenix_owner_preflight.py
-```
-
-Use Bash 4 or newer. The generator regression executes real templates with
-disposable files; Compose tests render both modes without starting services or
-altering volumes. HTTP readiness tests use temporary loopback servers. PowerShell
-selection runs only when its executable is installed; skipped tests are not
-runtime proof. No operating application database is used by these tests.
+rollback and no duplicate delivery before completing the handoff.

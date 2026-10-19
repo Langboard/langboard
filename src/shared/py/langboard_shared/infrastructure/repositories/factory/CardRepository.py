@@ -1,12 +1,13 @@
+from hashlib import sha256
 from typing import Any, Sequence
-from sqlalchemy import Text, cast, false, func, or_, select, update
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import JSON, Text, case, cast, false, func, or_, select, tuple_, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseOrderRepository
 from ....core.schema import TimeBasedPagination
-from ....core.types import SafeDateTime
+from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, TUserParam
 from ....domain.models import (
     Bot,
@@ -20,18 +21,29 @@ from ....domain.models import (
     User,
     WorkflowStageDefinition,
 )
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    card_visibility_scope_by_project,
+)
 from ....helpers import InfraHelper
 
 
 def _editor_search_text(column, dialect: str):
-    """Decode the existing JSON string representation before literal text matching."""
+    """Search editor content, excluding model keys and JSON escape syntax."""
     if dialect == "postgresql":
-        return cast(column, JSONB).op("#>>")(cast([], ARRAY(Text)))
+        encoded = cast(column, JSON).op("#>>")(cast([], ARRAY(Text)))
+        value = cast(encoded, JSON)
+        # PostgreSQL text cannot contain NUL. Retain the prior encoded-text
+        # matching semantics for legacy values before any JSON unescaping.
+        raw = cast(column, Text)
+        return case((raw.contains(r"\u0000", autoescape=True), raw), else_=value.op("->>")("content"))
     if dialect == "sqlite":
-        return func.json_extract(column, "$")
+        content = func.json_extract(func.json_extract(column, "$"), "$.content")
+        # SQLite LIKE stops at NUL; JSON encoding preserves suffix searches.
+        return case((func.instr(content, "\x00") > 0, func.json_quote(content)), else_=content)
     if dialect in {"mysql", "mariadb"}:
-        return func.json_unquote(column)
+        return func.json_unquote(func.json_extract(func.json_unquote(column), "$.content"))
     raise ValueError("Unsupported database dialect for editor content search")
 
 
@@ -58,18 +70,39 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             return []
         if len(card_uids) > 200:
             raise ValueError("At most 200 recent cards may be checked")
-        project_id = InfraHelper.convert_id(project)
-        card_ids = [InfraHelper.convert_id(uid) for uid in card_uids]
+        project_uid = InfraHelper.convert_uid(InfraHelper.convert_id(project))
+        return [uid for _, uid in self.get_existing_pairs(
+            [(project_uid, uid) for uid in card_uids],
+            contexts={int(InfraHelper.convert_id(project)): context},
+        )]
+
+    def get_existing_pairs(
+        self, pairs: Sequence[tuple[str, str]], *, contexts: dict[int, CardVisibilityContext]
+    ) -> list[tuple[str, str]]:
+        if len(pairs) > 200:
+            raise ValueError("At most 200 recent cards may be checked")
+        requested = {
+            (InfraHelper.convert_id(project_uid), InfraHelper.convert_id(card_uid))
+            for project_uid, card_uid in pairs
+            if int(InfraHelper.convert_id(project_uid)) in contexts
+        }
+        if not requested:
+            return []
+        # One bounded projection; no content, unread state or member metadata loaded.
         with DbSession.use(readonly=False) as db:
-            card_ids = db.exec(
-                SqlBuilder.select.column(Card.id)
-                .join(Project, Project.column("id") == Card.column("project_id"))
-                .where(Project.column("deleted_at") == None)  # noqa: E711
-                .where(Card.column("project_id") == project_id)
-                .where(Card.column("id").in_(card_ids))
-                .where(card_visibility_scope(context))
+            rows = db.exec(
+                SqlBuilder.select.columns(Card.project_id, Card.id)
+                .join(Project, Project.id == Card.project_id)
+                .where(Project.deleted_at.is_(None), Card.archived_at.is_(None))
+                .where(select(ProjectColumn.id).where(
+                    ProjectColumn.id == Card.project_column_id, ProjectColumn.project_id == Card.project_id,
+                    ProjectColumn.deleted_at.is_(None),
+                ).exists())
+                .where(tuple_(Card.project_id, Card.id).in_(requested))
+                .where(card_visibility_scope_by_project(contexts))
+                .limit(200)
             ).all()
-        return [InfraHelper.convert_uid(card_id) for card_id in card_ids]
+        return [(InfraHelper.convert_uid(project_id), InfraHelper.convert_uid(card_id)) for project_id, card_id in rows]
 
     def update_description_if_current(self, card: Card, expected_content: str) -> bool:
         """Lock and compare the primary row before updating only its description."""
@@ -173,6 +206,8 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         self,
         project: TProjectParam,
         archive_visible_since: SafeDateTime,
+        *,
+        context: CardVisibilityContext | None = None,
     ) -> dict[int, User | Bot]:
         """Resolve immutable card authors with one query instead of per-card lookups."""
 
@@ -193,6 +228,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 | (Card.column("archived_at") >= archive_visible_since)
             )
         )
+
+        if context is not None:
+            query = query.where(card_visibility_scope(context))
 
         creators: dict[int, User | Bot] = {}
         with DbSession.use(readonly=True) as db:
@@ -259,16 +297,6 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         with DbSession.use(readonly=True) as db:
             return db.exec(query).first() or 0
 
-    @staticmethod
-    def _work_visibility_scope(contexts: dict[int, CardVisibilityContext]):
-        grouped: dict[CardVisibilityContext, list[int]] = {}
-        for project_id, context in contexts.items():
-            grouped.setdefault(context, []).append(project_id)
-        return or_(false(), *(
-            Card.project_id.in_(project_ids) & card_visibility_scope(context)
-            for context, project_ids in grouped.items()
-        ))
-
     def get_dashboard_list_scroller(
         self, user: TUserParam, pagination: TimeBasedPagination, *, contexts: dict[int, CardVisibilityContext],
     ):
@@ -301,7 +329,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     | ((ProjectRole.column("actions") != "*") & (CardAssignedUser.column("user_id") == user_id))
                 )
             )
-            .where(self._work_visibility_scope(contexts))
+            .where(card_visibility_scope_by_project(contexts))
             .where(Card.column("created_at") <= pagination.refer_time)
             .order_by(Card.column("created_at").desc(), Card.column("id").desc())
         )
@@ -345,6 +373,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         context: CardVisibilityContext,
         include_closed: bool = True,
         workflow_stages: list[str] | None = None,
+        additional_card_ids: Sequence[int] = (),
     ) -> list[tuple[Card, ProjectColumn]]:
         project_id = InfraHelper.convert_id(project)
         escaped_input = input_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -383,6 +412,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .where(Card.column("source_type") == None)  # noqa: E711
             .where(
                 or_(
+                    Card.id.in_(additional_card_ids[:20]) if additional_card_ids else false(),
                     title.ilike(pattern, escape="\\"),
                     _editor_search_text(Card.column("description"), dialect).ilike(pattern, escape="\\"),
                     comments,
@@ -404,6 +434,41 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             query = query.where(date_column < until)
         with DbSession.use(readonly=False) as db:
             return db.exec(query).all()
+
+    def validate_document_candidates(
+        self, project: TProjectParam, candidates: list[dict[str, str]], *, context: CardVisibilityContext
+    ) -> dict[int, list[dict[str, str]]]:
+        """Materialize bounded external candidates only from current authorized sources."""
+        sources: dict[int, list[dict[str, str]]] = {}
+        for source in candidates[:20]:
+            try:
+                attachment_id = InfraHelper.convert_id(source["attachment_uid"])
+                if 0 < attachment_id <= SnowflakeID.MAX_VALUE:
+                    sources.setdefault(attachment_id, []).append(source)
+            except (ValueError, TypeError, KeyError):
+                continue
+        if not sources:
+            return {}
+        statement = (
+            select(CardAttachment.id, Card.id, CardAttachment.filename, CardAttachment.document_text)
+            .join(Card, Card.id == CardAttachment.card_id)
+            .join(ProjectColumn, (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id))
+            .where(Card.project_id == InfraHelper.convert_id(project), card_visibility_scope(context))
+            .where(Card.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None), Card.source_type.is_(None))
+            .where(CardAttachment.id.in_(sources), CardAttachment.deleted_at.is_(None))
+            .where(CardAttachment.document_text != "", func.length(CardAttachment.document_text) <= 131072)
+            .order_by(CardAttachment.id).limit(20)
+        )
+        result: dict[int, list[dict[str, str]]] = {}
+        with DbSession.use(readonly=False) as db:
+            for attachment_id, card_id, filename, body in db.exec(statement).all():
+                fingerprint = sha256(body.encode("utf-8")).hexdigest()
+                if not any(source.get("card_uid") == card_id.to_short_code() and source.get("projection_hash") == fingerprint for source in sources[attachment_id]):
+                    continue
+                matches = result.setdefault(card_id, [])
+                if len(matches) < 2:
+                    matches.append({"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": body[:500]})
+        return result
 
     def search_document_matches(
         self, project: TProjectParam, card_ids: list[int], query: str, *, context: CardVisibilityContext
@@ -525,7 +590,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .join(Project, Card.column("project_id") == Project.column("id"))
             .join(ProjectColumn, Card.column("project_column_id") == ProjectColumn.column("id"))
             .where(Project.column("id").in_([InfraHelper.convert_id(project) for project in project_uids]))
-            .where(self._work_visibility_scope(contexts))
+            .where(card_visibility_scope_by_project(contexts))
             .where(Project.column("deleted_at") == None)  # noqa: E711
             .where(Card.column("archived_at") == None)  # noqa: E711
             .where(ProjectColumn.column("is_archive").is_(False))

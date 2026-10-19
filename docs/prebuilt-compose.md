@@ -22,7 +22,7 @@ Set these inputs through the deployment platform's protected environment UI:
 | `LANGBOARD_API_IMAGE` | Verified API image, including `@sha256:...` |
 | `LANGBOARD_WORKER_IMAGE` | Verified document-processing worker image digest |
 | `LANGBOARD_GRAPH_IMAGE` | Verified Graph image digest |
-| `LANGBOARD_UI_IMAGE` | Verified UI image digest with the intended public API/realtime URLs compiled in |
+| `LANGBOARD_UI_IMAGE` | Verified UI image digest; optional public endpoint overrides below |
 | `LANGBOARD_API_ENV_FILE` | Protected native API runtime environment file |
 | `LANGBOARD_WORKER_ENV_FILE` | Protected worker runtime environment file |
 | `LANGBOARD_GRAPH_ENV_FILE` | Protected Graph runtime environment file |
@@ -58,6 +58,47 @@ permissions and backup. This definition neither creates that directory nor
 copies/restores data. Never point a new volume at an empty directory and call it
 a migration. Verify access as the image's UID/GID `10001:10001`; do not apply broad
 recursive ownership changes to shared storage.
+
+## Portable UI public endpoints
+
+The UI profile uses `docker/ui-production.Dockerfile`, target `runtime`. Build
+arguments `API_URL`, `PUBLIC_UI_URL` and `SOCKET_URL` remain required and provide
+backward-compatible defaults. Development continues using the existing local
+Vite URLs. Promote the same immutable production UI image by setting optional
+Compose inputs `LANGBOARD_UI_API_URL`, `LANGBOARD_UI_PUBLIC_UI_URL` and
+`LANGBOARD_UI_SOCKET_URL` to the target environment's public API, UI and realtime
+URLs. Each omitted or empty input retains that endpoint's compiled default;
+set all three explicitly when isolating staging/canary from production.
+
+The native nginx-unprivileged entrypoint runs `40-ui-runtime-config.sh` as UID
+101 before nginx starts. It atomically writes only those three public values to
+`/tmp/langboard-runtime-config.js`; no root filesystem ownership change, secret,
+additional service or dependency is needed. `/runtime-config.js` is a blocking
+same-origin script before the application's module bootstrap. An inline sentinel
+rejects missing/broken assets before dependent clients initialize. Existing CSP
+policies must permit this fixed inline bootstrap (with its matching hash/nonce).
+Legacy SDK module entries without runtime configuration retain build defaults. Its exact nginx
+route sends `Cache-Control: no-store, no-cache, must-revalidate`, including error
+responses. Hashed assets keep their existing immutable policy. A missing or
+invalid configuration stops production client initialization; supplied invalid
+endpoints never silently fall back to compiled endpoints. Container startup does
+not validate URL syntax; the browser validates before initializing clients.
+
+API/UI accept absolute HTTP(S); realtime also accepts WS(S). Localhost HTTP
+remains supported. Overrides reject malformed URLs, credentials, queries,
+fragments, whitespace, control characters, backslashes and raw quotes/angle
+brackets. Percent-encode path characters when needed. Values are byte-encoded
+before inclusion in JavaScript, so operator input cannot execute script. Error
+messages name inputs without exposing their values. Empty Compose inputs mean
+no override; do not use empty inputs to disable an endpoint.
+
+Match public API/CORS settings and compatible Phoenix releases to the target
+origins; isolate internal realtime/editor endpoints and application state too.
+Public inputs are not credentials and do not prove isolation, reachability or
+authorization. After deployment inspect actual browser API, public-origin and
+realtime destinations, CORS, and authenticated realtime/editor behavior through
+your ingress. The same image digest with different runtime values requires no
+rebuild. Existing external volumes, profiles and owner handoff still apply.
 
 ## Optional native overlays
 
@@ -126,6 +167,27 @@ API against the live writable DB, broker, OAuth store or application directory.
 Use restored isolated state and separate queues/keys/remote editor ownership.
 Graph can initiate external model/tool effects when called; isolate those too.
 
+A database restore can retain pending deliveries, schedules and external
+destinations even with a separate broker. There is currently no instance-wide
+supported pause/disable flag for all recovery jobs. `NOTIFICATION_EMAIL_OUTBOX_ENABLED`
+only controls its email path. `run --lifespan off` does not prevent the scheduler:
+`ServerRunner.run()` registers and reloads cron before Uvicorn starts. Do not use
+`ENVIRONMENT=development` to alter authentication/security behavior for staging.
+
+When restored integrations cannot be safely isolated, preserve the restore for
+migration/data checks without starting the normal API against it. Start functional
+staging with a separate clean database, clean application/OAuth directories and
+isolated dependencies and credentials instead. The normal production-mode
+`run` command with `WORKER=main` upgrades the schema, bootstraps common workflow
+and relationship definitions, initializes default internal bots and creates an
+initial administrator when none exists. Supply staging-only `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` through protected runtime configuration; then create test boards
+through the existing UI/API. This is the existing CLI bootstrap, not an additional
+seed service. `db:seed` is marked as a development command, can be omitted from
+executable distributions and requires an actual registered seed; do not assume
+it provides a production test tenant. A clean staging instance does not prove
+restored credentials, attachments or OAuth continuity; verify those separately.
+
 Before production activation:
 
 1. Record all current image digests, database revision, data mounts, OAuth/signing
@@ -136,10 +198,14 @@ Before production activation:
    `docker compose config --images` to the immutable release receipts. Avoid
    printing a fully resolved config because it contains runtime secrets.
 4. Rehearse the intended API image's migration against the isolated restored DB.
-   An explicit `compose run --rm --no-deps api uv run --no-sync langboard
-   db:upgrade` runs the upgrade command without starting the API scheduler; this
-   is a write and must target the isolated DB during rehearsal. It does not
-   validate the full API bootstrap by itself.
+   An explicit `docker compose run --rm --no-deps -e IS_CLI=true api uv run
+   --no-sync langboard db:up` runs the upgrade command without starting the API
+   scheduler. Set `IS_CLI` before process import because CLI dependencies can
+   initialize KeyVault before the command dispatcher sets the CLI flag. This
+   selects the existing local CLI vault under `DATA_DIR/vault-data`; use disposable
+   isolated application data and do not pass this flag to the API runtime.
+   The upgrade writes to the database and must target the isolated DB during
+   rehearsal. It does not validate full API bootstrap or production key access.
 5. Drain writes and document jobs, stop old API/scheduler and broker consumers,
    finish the final state synchronization, and verify no competing editor owner.
    Then explicitly activate `application` and `workers` on the final state.
@@ -162,18 +228,8 @@ environment, file mounts and volume handling. Inspect the installed version's
 server onboarding and cleanup behavior before adopting a live Docker host;
 registration and Docker/Swarm/proxy installation have different effects.
 
-## Source verification
-
-The focused regression renders the actual files with Docker Compose, without
-starting containers or touching deployment data:
-
-```sh
-PROJECT_NAME=langboard ENVIRONMENT=development PYTHONPATH=src/shared/py:src/api \
-  python -m pytest -q src/api/tests/runtime/test_prebuilt_compose.py
-```
-
-It checks the standalone service set, absence of builds/source binds/dependency
-services, preserved external volume/network identities, opt-in file secrets and
-existing ingress ports, missing-input failures and inactive default profiles.
-Rendering does not prove that the target image, credentials, file permissions,
-network, restore or live migration work. Those remain deployment acceptance gates.
+Before rollout, verify the selected immutable image, injected credentials, file
+permissions, external network reachability and retained volume identities on the
+target host. Validate backup restoration and owner handoff before retiring the
+previous deployment. Rendering Compose configuration alone does not validate
+those runtime conditions.

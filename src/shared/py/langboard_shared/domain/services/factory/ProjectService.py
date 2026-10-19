@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -27,8 +27,9 @@ from ...models.bases import ALL_GRANTED
 from ...models.Checkitem import CheckitemStatus
 from ...models.InternalBot import InternalBotType
 from ...models.ProjectRole import ProjectRoleAction
+from ..CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from .CheckitemService import CheckitemService
-from .ProjectColumnService import ProjectColumnService
+from .DoclingMetadataService import DoclingMetadataService
 from .ProjectLabelService import ProjectLabelService
 from .ScimProvisioningService import ScimProvisioningService
 
@@ -47,9 +48,14 @@ class ProjectService(BaseDomainService):
         project = InfraHelper.get_by_id_like(Project, project)
         return project
 
-    def get_api_list(self, user: User, limit: int | None = None) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
-        raw_projects = self.repo.project.get_all_by_user(user, limit=limit)
-        board_change = self.repo.project.get_max_card_change_seq([project.id for project, *_ in raw_projects])
+    def get_api_list(
+        self, user: User, limit: int | None = None, *, channel: CollaborationChannel = CollaborationChannel.Api,
+        contexts: dict[int, CardVisibilityContext] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
+        if contexts is None:
+            contexts = self._get_service_by_name("card").resolve_work_visibility_contexts(user, channel)
+        raw_projects = self.repo.project.get_all_by_user(user, limit=limit, contexts=contexts)
+        board_change = self.repo.project.get_max_card_change_seq([project.id for project, *_ in raw_projects], contexts=contexts)
         return self.__convert_project_list(user, raw_projects, board_change)
 
     def get_api_assigned_user_list(
@@ -182,19 +188,14 @@ class ProjectService(BaseDomainService):
 
         return schedules
 
-    def get_api_list_with_columns(self, user: User) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        projects, project_ids = self.get_api_list(user)
-
-        column_service = self._get_service(ProjectColumnService)
-        columns = column_service.get_api_list_by_project(cast(list, project_ids))
-
-        return projects, columns
-
-    def get_api_starred_project_list(self, user: User, limit: int | None = None) -> list[dict[str, Any]]:
+    def get_api_starred_project_list(
+        self, user: User, limit: int | None = None, *, channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> list[dict[str, Any]]:
         if not user or user.is_new():
             return []
 
-        raw_projects = self.repo.project.get_all_starred(user, limit=limit)
+        contexts = self._get_service_by_name("card").resolve_work_visibility_contexts(user, channel)
+        raw_projects = self.repo.project.get_all_starred(user, limit=limit, contexts=contexts)
         projects, _ = self.__convert_project_list(user, raw_projects)
         return projects
 
@@ -615,7 +616,7 @@ class ProjectService(BaseDomainService):
         if not internal_bot:
             return False
 
-        if internal_bot.bot_type in (InternalBotType.DocumentVision, InternalBotType.DocumentEmbedding):
+        if internal_bot.bot_type not in InternalBotType.executable_types():
             return False
 
         result = self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(
@@ -688,7 +689,9 @@ class ProjectService(BaseDomainService):
                 should_publish=False,
             )
 
-        self.repo.project.delete(project)
+        with DbSession.atomic():
+            self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project)
+            self.repo.project.delete(project)
 
         ProjectPublisher.deleted(project)
         ProjectActivityTask.project_deleted(user, project)

@@ -13,6 +13,7 @@ import Box from "@/components/base/Box";
 import { Utils } from "@langboard/core/utils";
 import Floating from "@/components/base/Floating";
 import { ICollaborativeTextCursor } from "@/components/Collaborative/useCollaborativeText";
+import { useTranslation } from "react-i18next";
 
 export interface IAutorCompleteProps {
     selectedValue?: string;
@@ -41,6 +42,7 @@ function AutoComplete({
     collaborativeCursors = [],
     onSelectionChange,
 }: IAutorCompleteProps) {
+    const [t] = useTranslation();
     const id = useRef(Utils.String.Token.shortUUID());
     const inputRef = useRef<HTMLInputElement>(null);
     const [open, setOpen] = useState(false);
@@ -169,7 +171,7 @@ function AutoComplete({
                                     ))}
                                 </Command.Group>
                             ) : null}
-                            {!isLoading ? <Command.Empty>{emptyMessage ?? "No items."}</Command.Empty> : null}
+                            {!isLoading ? <Command.Empty>{emptyMessage ?? t("editor.No results")}</Command.Empty> : null}
                         </Command.List>
                     </Popover.Content>
                 </Command.Root>

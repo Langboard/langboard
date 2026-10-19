@@ -18,7 +18,7 @@ function styleHighlight(): void {
     document.head.appendChild(style);
 }
 
-function highlightElement(element: Element): void {
+export function highlightUnreadTarget(element: Element): void {
     styleHighlight();
     element.classList.add(HIGHLIGHT_CLASS);
     window.setTimeout(() => element.classList.remove(HIGHLIGHT_CLASS), HIGHLIGHT_DURATION_MS);
@@ -63,7 +63,7 @@ async function scrollIntoViewStable(element: Element): Promise<void> {
  * Navigation is best-effort; the read cursor advances as soon as the
  * card detail has mounted.
  */
-export function useUnreadChangeNavigation(): void {
+export function useUnreadChangeNavigation(onNavigate?: (section: "comments" | "description", commentUID?: string) => void): void {
     const { card, projectUID } = useBoardCard();
     const { setIsCommentPanelOpen } = useBoardCardPanel();
     const { mutate: markSeen } = useMarkCardSeen();
@@ -86,22 +86,28 @@ export function useUnreadChangeNavigation(): void {
                 const element = await waitForElement(`[data-card-comment-uid="${targetUID}"]`);
                 if (element) {
                     await scrollIntoViewStable(element);
-                    highlightElement(element);
+                    highlightUnreadTarget(element);
                     return;
                 }
             }
             const element = await waitForElement("[data-card-description]");
             if (element) {
                 await scrollIntoViewStable(element);
-                highlightElement(element);
+                highlightUnreadTarget(element);
             }
         };
 
-        if (hasUnreadChange) void focus();
+        if (hasUnreadChange) {
+            if (onNavigate) {
+                onNavigate(targetType === "comment" && targetUID ? "comments" : "description", targetType === "comment" ? targetUID : undefined);
+            } else {
+                void focus();
+            }
+        }
         markSeen({ project_uid: projectUID, card_uid: card.uid });
         // Keep an explicit unread click intact for the rest of this visit.
         // The server response invalidates the board and reader projections.
-    }, [card, hasUnreadChange, markSeen, projectUID, setIsCommentPanelOpen]);
+    }, [card, hasUnreadChange, markSeen, onNavigate, projectUID, setIsCommentPanelOpen]);
 }
 
 export default useUnreadChangeNavigation;

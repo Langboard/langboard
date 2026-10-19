@@ -102,3 +102,10 @@ def test_route_forwards_only_requested_ids_and_authenticated_context_to_scoped_s
     )
     assert calls == [("project", ["one", "missing"], {"user": actor, "channel": channel or CollaborationChannel.Api})]
     assert response.body == b'{"card_uids":["one"]}'
+
+
+@pytest.mark.parametrize("cards", [[{"project_uid": "", "card_uid": "a"}], [{"project_uid": "a", "card_uid": "b"}] * 201])
+def test_batch_input_bound(cards):
+    from langboard.routes.dashboard.DashboardForm import RecentCardPairsAvailabilityForm
+    with pytest.raises(ValidationError):
+        RecentCardPairsAvailabilityForm(cards=cards)

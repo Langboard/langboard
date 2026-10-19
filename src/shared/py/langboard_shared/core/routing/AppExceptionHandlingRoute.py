@@ -1,7 +1,8 @@
 from typing import Callable
-from fastapi import HTTPException, Request, Response, status
+from fastapi import Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
+from starlette.exceptions import HTTPException
 from ..logger import Logger
 from .ApiErrorCode import ApiErrorCode
 from .ApiException import ApiErrorCodeException

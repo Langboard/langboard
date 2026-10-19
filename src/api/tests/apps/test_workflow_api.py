@@ -207,7 +207,8 @@ def test_catalog_reads_board_owned_state_and_denies_revoked_membership(board, bi
     assert items[0]["binding"]["granted_capabilities"] == ["signals.read"]
     assert items[1]["binding"] is None
     assert items[2]["workflow_requirements"] is None
-    assert not any(item["connection_setup_available"] for item in items)
+    # Implementation availability does not expand the retained board grant above.
+    assert all(item["connection_setup_available"] for item in items)
     assert "credential_reference" not in json.dumps(items)
     with DbSession.use(readonly=False) as db:
         db.delete(board[3])

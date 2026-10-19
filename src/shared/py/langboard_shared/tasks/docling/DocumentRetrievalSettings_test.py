@@ -18,6 +18,7 @@ class FixtureEmbeddings(Embeddings):
 
 def test_settings_reject_unsupported_modes_endpoints_and_unbounded_requests():
     assert DocumentRetrievalSettings().enabled is False
+    assert DocumentRetrievalSettings().store == "postgres"
     for values in [
         {"store": "sqlite", "search_type": "mmr"},
         {"store": "sqlite", "external_url": "https://example.com"},
@@ -25,6 +26,9 @@ def test_settings_reject_unsupported_modes_endpoints_and_unbounded_requests():
         {"store": "qdrant", "external_url": "https://user:secret@example.com"},
         {"store": "qdrant", "external_url": "https://example.com?key=secret"},
         {"store": "qdrant", "external_url": "https://example.com", "search_type": "mmr", "k": 25, "fetch_k": 20},
+        {"store": "postgres", "dimensions": 16001},
+        {"store": "postgres", "external_url": "https://example.com"},
+        {"store": "postgres", "search_type": "mmr"},
         {"dimensions": True},
         {"dimensions": 65537},
         {"k": 26},

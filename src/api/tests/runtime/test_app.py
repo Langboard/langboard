@@ -164,6 +164,9 @@ async def test_api_key_usage_preserves_stream_status_without_blocking_requests(r
     "route",
     [
         "/board/{project_uid}/cards",
+        "/dashboard/work/my",
+        "/dashboard/work/assigned",
+        "/dashboard/user/projects/starred",
         "/notifications",
         "/settings/notification-schedule",
         "/metadata/project/{project_uid}/cards",
@@ -216,19 +219,20 @@ async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(capl
 
 
 @pytest.mark.parametrize("status", [403, 503])
-async def test_read_telemetry_keeps_error_status(status, caplog) -> None:
+@pytest.mark.parametrize("path", ["/dashboard/projects", "/dashboard/work/my", "/dashboard/work/assigned", "/dashboard/user/projects/starred"])
+async def test_read_telemetry_keeps_error_status(status, caplog, path) -> None:
     from fastapi.responses import Response
 
     api = FastAPI()
     api.add_middleware(ReadTelemetryMiddleware)
 
-    @api.get("/dashboard/projects")
+    @api.get(path)
     async def projects():
         return Response(status_code=status)
 
     caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
     async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
-        response = await client.get("/dashboard/projects")
+        response = await client.get(path)
     record = json.loads([r.message for r in caplog.records if r.name == "langboard.http.telemetry"][-1])
     assert response.status_code == record["status"] == status
     assert record["completed"] is True
@@ -261,6 +265,8 @@ async def test_read_telemetry_records_unhandled_failure_without_exception_payloa
         {"type": "websocket", "path": "/board/test"},
         {"type": "http", "method": "POST", "path": "/board/test/cards"},
         {"type": "http", "method": "POST", "path": "/notifications"},
+        {"type": "http", "method": "POST", "path": "/dashboard/work/my"},
+        {"type": "http", "method": "GET", "path": "/dashboard/work/unknown"},
         {"type": "http", "method": "POST", "path": "/settings/notification-schedule"},
         {"type": "http", "method": "GET", "path": "/mcp/agent"},
     ],

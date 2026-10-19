@@ -111,5 +111,16 @@
   "Unfinished cards count_one": "{{count, number}} unfinished card",
   "Unfinished cards count_other": "{{count, number}} unfinished cards",
   "Unfinished in status_one": "{{status}}: {{count, number}} unfinished card",
-  "Unfinished in status_other": "{{status}}: {{count, number}} unfinished cards"
+  "Unfinished in status_other": "{{status}}: {{count, number}} unfinished cards",
+  "Clear search": "Clear search",
+  "Unread changes": "Unread changes",
+  "Unfinished work": "Unfinished work",
+  "Default order": "Default order",
+  "Recent activity": "Recent activity",
+  "Recently viewed": "Recently viewed",
+  "Name": "Name",
+  "Unread first": "Unread first",
+  "Project filters": "Project filters",
+  "Sort projects": "Sort projects",
+  "Reset filters": "Reset filters"
 }

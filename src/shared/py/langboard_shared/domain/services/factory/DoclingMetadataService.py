@@ -9,7 +9,7 @@ from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.routing import SocketTopic
 from ....core.types import SafeDateTime
-from ....domain.models import CardAttachment, CardDocumentArtifact, CardMetadata, Project
+from ....domain.models import Card, CardAttachment, CardDocumentArtifact, CardMetadata, Project
 from ....domain.models.bases import BaseMetadataModel
 from ....Env import Env
 from ....helpers import InfraHelper
@@ -97,6 +97,19 @@ class DoclingMetadataService(BaseDomainService):
                 "vision_config": vision_config,
                 "embedding_config": embedding_config,
             }
+            document.pop("keyword_index_error", None)
+            from ..KeywordSearchSettings import enabled as keyword_enabled
+
+            if model_cls is CardMetadata and keyword_enabled("index"):
+                from ....tasks.docling.DocumentKeywordTask import prepare_index
+                from .SecretReferenceService import SecretReferenceUnavailable
+
+                try:
+                    document["keyword_index_job_uid"] = prepare_index(
+                        db, foreign_model, attachment_uid, document["generation"]
+                    )
+                except (ValueError, SecretReferenceUnavailable):
+                    document["keyword_index_error"] = "keyword_connection_unavailable"
             self.upsert_document(model_cls, foreign_model, document)
             return True
 
@@ -254,8 +267,9 @@ class DoclingMetadataService(BaseDomainService):
                 if not result:
                     return False
                 artifact = db.exec(
-                    SqlBuilder.select.table(CardDocumentArtifact)
-                    .where(CardDocumentArtifact.attachment_id == attachment_id)
+                    SqlBuilder.select.table(CardDocumentArtifact).where(
+                        CardDocumentArtifact.attachment_id == attachment_id
+                    )
                 ).first()
                 if structural is not None:
                     if not isinstance(structural, dict) or structural.get("schema_name") != "DoclingDocument":
@@ -269,6 +283,12 @@ class DoclingMetadataService(BaseDomainService):
                 elif artifact:
                     db.delete(artifact)
             self.upsert_document(model_cls, foreign_model, document)
+            if model_cls is CardMetadata and document.get("keyword_index_job_uid"):
+                from ....tasks.docling.DocumentKeywordTask import activate_index
+
+                activate_index(
+                    db, foreign_model, attachment_uid, document.get("generation", ""), document["keyword_index_job_uid"]
+                )
         return True
 
     def mark_document_failed(
@@ -345,9 +365,7 @@ class DoclingMetadataService(BaseDomainService):
     ) -> dict[str, Any] | None:
         """Read private structure only for the current live attachment generation."""
         with DbSession.atomic() as db:
-            db.exec(
-                SqlBuilder.select.table(type(card)).where(type(card).column("id") == card.id).with_for_update()
-            )
+            db.exec(SqlBuilder.select.table(type(card)).where(type(card).column("id") == card.id).with_for_update())
             current = self.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
             if not current or current.get("generation") != generation or current.get("content_hash") != content_hash:
                 return None
@@ -460,20 +478,75 @@ class DoclingMetadataService(BaseDomainService):
             documents = [document for document in current if document.get("attachment_uid") != attachment_uid]
             self.save_documents(model_cls, foreign_model, documents)
             if model_cls is CardMetadata:
+                # Metadata may already be missing. Clear the selected derived
+                # search projection without deleting or rewriting its attachment.
+                attachment_scope = (
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
+                    CardAttachment.card_id == foreign_model.id,
+                )
+                db.exec(update(CardAttachment).where(*attachment_scope).values(document_text=""))
                 db.exec(
                     delete(CardDocumentArtifact).where(
-                        CardDocumentArtifact.attachment_id.in_(
-                            select(CardAttachment.id)
-                            .where(CardAttachment.id == InfraHelper.convert_id(attachment_uid))
-                            .where(CardAttachment.card_id == foreign_model.id)
-                        )
+                        CardDocumentArtifact.attachment_id.in_(select(CardAttachment.id).where(*attachment_scope))
                     )
                 )
+                from ....tasks.docling.DocumentKeywordTask import record_removal
+
+                record_removal(db, foreign_model, attachment_uid)
             if model_cls is CardMetadata and removed:
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
 
                 record_cleanup(db, (removed.get("embedding") or {}).get("pointer"))
             return removed
+
+    def record_scope_embedding_cleanup(self, project: Project, card: Card | None = None) -> None:
+        """Record derived-index deletion inside the caller's source deletion transaction."""
+        from ....tasks.docling.DocumentCleanupTask import record_cleanup
+
+        with DbSession.atomic() as db:
+            # Match embedding publication's project -> card lock order. A late
+            # inference result must not publish after this source is deleted.
+            current_project = db.exec(
+                SqlBuilder.select.column(Project.id)
+                .where(Project.id == project.id, Project.deleted_at.is_(None))
+                .with_for_update()
+            ).first()
+            if current_project is None:
+                return
+            if card is not None:
+                current_card = db.exec(
+                    SqlBuilder.select.column(Card.id)
+                    .where(Card.id == card.id, Card.project_id == project.id, Card.deleted_at.is_(None))
+                    .with_for_update()
+                ).first()
+                if current_card is None:
+                    return
+            from ....tasks.docling.DocumentKeywordTask import record_scope_removal
+
+            record_scope_removal(db, project, card)
+            cards = select(Card.id).where(Card.project_id == project.id)
+            if card is not None:
+                cards = cards.where(Card.id == card.id)
+            after_id = 0
+            while True:
+                rows = db.exec(
+                    SqlBuilder.select.columns(CardMetadata.id, CardMetadata.value)
+                    .where(
+                        CardMetadata.card_id.in_(cards),
+                        CardMetadata.key == DOCLING_DOCUMENTS_METADATA_KEY,
+                        CardMetadata.id > after_id,
+                    )
+                    .order_by(CardMetadata.id)
+                    .limit(100)
+                ).all()
+                for _, value in rows:
+                    for document in self.parse_documents({DOCLING_DOCUMENTS_METADATA_KEY: value}):
+                        # Bulk deletion uses the existing bounded recovery cron,
+                        # avoiding one synchronous broker call per document.
+                        record_cleanup(db, (document.get("embedding") or {}).get("pointer"), dispatch=card is not None)
+                if len(rows) < 100:
+                    break
+                after_id = rows[-1][0]
 
     def publish_update(
         self, model_cls: type[BaseMetadataModel], foreign_model: BaseDbModel, topic: SocketTopic

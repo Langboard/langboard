@@ -13,6 +13,7 @@ from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrie
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
 from .DocumentVectorStore import (
+    VectorGenerationCleanupError,
     delete_vector_generation,
     open_document_vector_store,
     open_qdrant_store,
@@ -46,6 +47,15 @@ def remove_recorded_embedding(pointer: dict) -> None:
     storage = pointer.get("storage") or {}
     if storage.get("type", "sqlite") == "sqlite":
         remove_document_generation(Env.DATA_DIR / "document-retrieval", pointer)
+        return
+    if storage.get("type") == "postgres":
+        from .DocumentPostgresStore import open_postgres_vector_store
+
+        with open_postgres_vector_store(
+            None, pointer["embedding_fingerprint"], dimensions=storage["dimensions"], create=False
+        ) as store:
+            if store is not None:
+                delete_vector_generation(store, pointer)
         return
     if storage.get("type") != "qdrant":
         raise ValueError("Unsupported recorded vector storage")
@@ -113,7 +123,7 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             and (old.get("pointer") or {}).get("embedding_fingerprint") == fingerprint
             and ((old.get("pointer") or {}).get("storage") or {}).get("type", "sqlite") == settings.store
             and (
-                settings.store == "sqlite"
+                settings.store in {"sqlite", "postgres"}
                 or (
                     ((old.get("pointer") or {}).get("storage") or {}).get("endpoint")
                     == str(settings.external_url).rstrip("/")
@@ -138,6 +148,8 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
                 embedding_fingerprint=fingerprint,
             )
             storage = {"type": settings.store}
+            if settings.store == "postgres":
+                storage["dimensions"] = settings.dimensions
             if settings.store == "qdrant":
                 storage.update(
                     endpoint=str(settings.external_url).rstrip("/"),
@@ -177,7 +189,13 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             if not committed:
                 remove(store, pointer)
                 return
-    except Exception:
+    except Exception as error:
+        if isinstance(error, VectorGenerationCleanupError):
+            from ...core.db import DbSession
+            from .DocumentCleanupTask import record_cleanup
+
+            with DbSession.atomic() as db:
+                record_cleanup(db, error.pointer)
         # Provider exceptions may contain credentials or document text. Never publish raw errors.
         service.docling_metadata.publish_document_embedding(
             card,

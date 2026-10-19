@@ -3,11 +3,17 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
-import { ProjectCard, MetadataModel } from "@/core/models";
+import { AuthUser, ProjectCard, MetadataModel } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import useGetCards from "./useGetCards";
 import "@/i18n";
 
 const projectUID = "enrichment-fixture";
+const actorDate = new Date();
+useAuthStore.setState({
+    currentUser: AuthUser.Model.fromOne({ uid: "fixture-reader", created_at: actorDate, updated_at: actorDate }),
+    state: "loaded",
+});
 const deny = new URLSearchParams(location.search).has("deny");
 let resolveMetadata: () => void = () => {};
 let rejectMetadata: () => void = () => {};

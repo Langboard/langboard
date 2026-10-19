@@ -90,15 +90,32 @@ def run(read=False, product=False):
             "User-Agent": "Langboard-NativeBuild/1.0",
         },
     )
-    try:
-        with opener.open(request, timeout=30) as response:
-            receipt = json.loads(response.read(16385))
-    except urllib.error.HTTPError as error:
-        if error.code == 429 or error.code >= 500:
-            raise SystemExit(f"{label} outcome unknown; inspect the same request ID before retrying") from None
-        raise SystemExit(f"{label} broker rejected request: HTTP {error.code}") from None
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        raise SystemExit(f"{label} outcome unknown; inspect the same request ID before retrying") from None
+    for attempt in range(2):
+        receipt = None
+        try:
+            with opener.open(request, timeout=30) as response:
+                receipt = json.loads(response.read(16385))
+        except urllib.error.HTTPError as error:
+            error.close()
+            if error.code != 429 and error.code < 500:
+                raise SystemExit(f"{label} broker rejected request: HTTP {error.code}") from None
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            pass
+        if receipt is not None:
+            validate_receipt(receipt, request_id, executor_commit, label)
+            if receipt["status"] not in {"dispatching", "outcome_unknown"} or attempt or read:
+                print(json.dumps(receipt))
+                return 0 if receipt["status"] in {"dispatching", "dispatched"} else 1
+        if attempt or read:
+            raise SystemExit(f"{label} outcome unknown; inspect the same request ID before retrying")
+        # Reconcile admission only. Never repeat an ambiguous POST.
+        request = urllib.request.Request(
+            endpoint if read else endpoint + "/" + request_id,
+            headers={"Authorization": "Bearer " + assertion, "User-Agent": "Langboard-NativeBuild/1.0"},
+        )
+
+
+def validate_receipt(receipt, request_id, executor_commit, label):
     keys = {"schemaVersion", "requestId", "status", "executorCommit", "workflowRunId", "workflowRunUrl"}
     if (
         not isinstance(receipt, dict)
@@ -127,8 +144,6 @@ def run(read=False, product=False):
         )
     ):
         raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
-    print(json.dumps(receipt))
-    return 0 if receipt["status"] in {"dispatching", "dispatched"} else 1
 
 
 if __name__ == "__main__":

@@ -57,6 +57,24 @@ def diagnostic_event(event: dict[str, Any], _hint: dict[str, Any]) -> dict[str, 
     return safe
 
 
+def diagnostic_transaction(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:
+    """Retain timing and correlation without query text or application content."""
+    safe = diagnostic_event(event, hint)
+    safe.pop("logentry", None)
+    safe.update(type="transaction", transaction="Application request", start_timestamp=event["start_timestamp"])
+    safe["spans"] = []
+    for span in event.get("spans", []):
+        timing = {
+            key: span[key]
+            for key in ("trace_id", "span_id", "parent_span_id", "start_timestamp", "timestamp")
+            if key in span
+        }
+        category = str(span.get("op", "")).split(".")[0]
+        timing["op"] = category if category in {"db", "http", "cache", "middleware", "queue", "function"} else "other"
+        safe["spans"].append(timing)
+    return safe
+
+
 class _LoggerWrapper(LoggingLogger):
     def __init__(self, name, level=NOTSET):
         if not name.startswith(Env.PROJECT_NAME) and not name.startswith("sqlalchemy"):
@@ -121,6 +139,9 @@ class Logger:
                 send_default_pii=False,
                 include_local_variables=False,
                 before_send=diagnostic_event,
+                # Apply the local opt-in even when an incoming trace was sampled.
+                traces_sampler=lambda _context: Env.SENTRY_TRACES_SAMPLE_RATE,
+                before_send_transaction=diagnostic_transaction,
             )
 
     def get_config(self) -> dict[str, Any]:

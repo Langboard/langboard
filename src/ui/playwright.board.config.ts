@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
     testDir: "./src/pages/BoardPage/components/board",
-    testMatch: "BoardTouchDnd.spec.ts",
+    testMatch: ["BoardTouchDnd.spec.ts", "mobile-drag.spec.ts"],
     fullyParallel: true,
     retries: 0,
     reporter: "line",

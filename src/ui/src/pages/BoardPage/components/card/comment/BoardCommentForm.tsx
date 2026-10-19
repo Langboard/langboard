@@ -57,8 +57,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     const visibility = card.useField("visibility");
     const bots = BotModel.Model.useModels(() => true);
     const mentionables = useMemo(() => (visibility === "PRIVATE" ? [] : [...projectMembers, ...bots]), [visibility, projectMembers, bots]);
-    const cards = ProjectCard.Model.useModels((model) => model.uid !== card.uid && model.project_uid === projectUID, [projectUID, card]);
-    const valueRef = useRef<IEditorContent>({ content: "" });
+    const cards = ProjectCard.Model.useModels(
+        (model) => model.uid !== card.uid && model.project_uid === projectUID,
+        [currentUser.uid, projectUID, card]
+    );
+    const valueRef = useRef<IEditorContent>({ content: getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid) });
     const setValue = useCallback((value: IEditorContent) => {
         valueRef.current = value;
     }, []);
@@ -82,18 +85,18 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
     const saveDraftToStorage = useCallback(
         (content: string) => {
-            getCardCommentDraftStore().saveDraft(projectUID, card.uid, sanitizeEditorContent(content));
+            getCardCommentDraftStore().saveDraft(currentUser.uid, projectUID, card.uid, sanitizeEditorContent(content));
         },
-        [projectUID, card]
+        [currentUser.uid, projectUID, card]
     );
     const readDraftFromStorage = useCallback((): string => {
-        return getCardCommentDraftStore().getDraft(projectUID, card.uid);
-    }, [projectUID, card]);
+        return getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid);
+    }, [currentUser.uid, projectUID, card]);
     const clearDraftFromStorage = useCallback(() => {
-        getCardCommentDraftStore().clearDraft(projectUID, card.uid);
-    }, [projectUID, card]);
+        getCardCommentDraftStore().clearDraft(currentUser.uid, projectUID, card.uid);
+    }, [currentUser.uid, projectUID, card]);
     const openEditor = useCallback(() => {
-        setValue({ content: readDraftFromStorage() });
+        if (getEditorStore().currentEditor !== editorName) setValue({ content: readDraftFromStorage() });
         getEditorStore().setCurrentEditor(editorName);
     }, [editorName, readDraftFromStorage, setValue]);
     const openMobileDrawer = useCallback(() => {
@@ -107,6 +110,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         setIsMobileDrawerOpen(true);
         openEditor();
     }, [openEditor]);
+    useEffect(() => {
+        if (!isCurrentEditor || !isVisible) return;
+        // A single composer changes placement without losing its draft or reply context.
+        setIsPanelEditorOpen(variant === "panel");
+        setIsMobileDrawerOpen(variant === "mobile");
+    }, [isCurrentEditor, isVisible, variant]);
+
     const clearEditor = useCallback(() => {
         setValue({ content: "" });
         setPendingReplyMention(null);

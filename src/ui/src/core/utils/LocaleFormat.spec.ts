@@ -1,5 +1,48 @@
 import { expect, test } from "@playwright/test";
 
+test("board work state uses current server reasons without private prerequisite details or extra requests", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("lang", "en-US"));
+    await page.goto("/src/core/utils/LocaleFormat.fixture.html");
+    const card = page.getByTestId("board-comment-count");
+    const summary = card.locator("[data-board-card-work-state]");
+    await expect(card.getByRole("button", { name: "User card title", exact: true })).toBeVisible();
+    await expect(summary).toHaveCount(0);
+    const requests: string[] = [];
+    page.on("request", (request) => {
+        if (request.resourceType() === "fetch" || request.resourceType() === "xhr") requests.push(request.url());
+    });
+    for (const [scenario, text] of [
+        ["blocked", "Blocked · Prerequisite unavailable"],
+        ["approval", "Awaiting approval · Decision required"],
+        ["closed", "Completed · Unfinished checklist"],
+        ["active", "In progress"],
+        ["unknown", "In progress · Status details unavailable"],
+    ]) {
+        await page.getByRole("combobox", { name: "Fixture work state" }).selectOption(scenario);
+        await expect(summary).toContainText(text);
+        await expect(summary).not.toContainText(/SECRET|secret-uid/);
+    }
+    for (const width of [320, 390, 1920]) {
+        await page.setViewportSize({ width, height: 844 });
+        const bounds = await summary.boundingBox();
+        expect(bounds).not.toBeNull();
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        expect(await summary.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+    }
+    await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("blocked");
+    for (const [locale, text] of [
+        ["ko-KR", "차단됨 · 선행 작업 조회 불가"],
+        ["ja-JP", "ブロック中 · 前提作業を参照できません"],
+        ["zh-CN", "已阻塞 · 无法查看前置任务"],
+    ]) {
+        await page.getByRole("button", { name: locale, exact: true }).click();
+        await expect(summary).toContainText(text);
+    }
+    await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("missing");
+    await expect(summary).toHaveCount(0);
+    expect(requests).toEqual([]);
+});
+
 test("document transcription pages and progress follow account language", async ({ page }) => {
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
     for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
@@ -226,8 +269,8 @@ test("large description rail formats grouped ranges and accessible totals", asyn
         const lastMarker = page.getByTestId("description-rail").getByRole("button").last();
         await expect(lastMarker).toHaveAttribute("aria-label", /1,234/);
         await lastMarker.focus();
-        await expect(page.getByText("1,223–1,234", { exact: true })).toBeVisible();
-        await expect(page.getByText("User block 1222", { exact: true })).toBeVisible();
+        await expect(page.getByText("1,171–1,234", { exact: true })).toBeVisible();
+        await expect(page.getByText("User block 1170", { exact: true })).toBeVisible();
         await page.getByRole("button", { name: locale, exact: true }).focus();
     }
 });
@@ -316,4 +359,29 @@ test("actual media placeholders render translated picker prompts without runtime
         for (const text of texts) await expect(page.getByTestId("media-placeholders")).toContainText(text);
     }
     expect(errors).toEqual([]);
+});
+
+test("Ollama tracker switches model without a store event and accepts zero progress", async ({ page }) => {
+    await page.goto("/src/core/utils/LocaleFormat.fixture.html");
+    await page.getByRole("button", { name: "en-US", exact: true }).click();
+    const tracker = page.getByTestId("ollama-progress");
+    await expect(tracker).toContainText("locale-progress");
+    await page.getByRole("button", { name: "Switch pull target", exact: true }).click();
+    await expect(tracker).toContainText("other-progress");
+    await expect(tracker).toContainText("67.00%");
+    await page.getByRole("button", { name: "Reset pull progress", exact: true }).click();
+    await expect(tracker).toContainText("0.00%");
+});
+
+test("store selectors follow changed targets without waiting for unrelated events", async ({ page }) => {
+    await page.goto("/src/core/utils/LocaleFormat.fixture.html");
+    await expect(page.getByTestId("selected-tool")).toHaveText("First tool");
+    await expect(page.getByTestId("selected-running")).toHaveText("true");
+    await expect(page.getByTestId("selected-editor")).toHaveText("false");
+    await expect(page.getByTestId("selected-setting")).toHaveText(JSON.stringify("7d"));
+    await page.getByRole("button", { name: "Switch stored target", exact: true }).click();
+    await expect(page.getByTestId("selected-tool")).toHaveText("Second tool");
+    await expect(page.getByTestId("selected-running")).toHaveText("false");
+    await expect(page.getByTestId("selected-editor")).toHaveText("true");
+    await expect(page.getByTestId("selected-setting")).toContainText("network");
 });

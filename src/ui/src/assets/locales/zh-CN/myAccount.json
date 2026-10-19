@@ -85,7 +85,8 @@
       "reference_copied": "在相同权限范围内显式复制密钥"
     },
     "openSource": "打开来源卡片",
-    "openSourceWiki": "打开来源 Wiki"
+    "openSourceWiki": "打开来源 Wiki",
+    "keywordWorkload": "原生关键词服务"
   },
   "secretCopy": {
     "title": "复制密钥",

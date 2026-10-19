@@ -21,7 +21,7 @@ class Response(io.BytesIO):
 
 
 class BrokerClientTest(unittest.TestCase):
-    def invoke(self, receipt=None, changes=None, read=False, failure=None, product=False):
+    def invoke(self, receipt=None, changes=None, read=False, failure=None, product=False, responses=None):
         env = dict(
             IMAGE_BUILD_BROKER_URL="https://broker.example.invalid",
             IMAGE_BUILD_COMMIT="b" * 40,
@@ -50,7 +50,9 @@ class BrokerClientTest(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()) as output,
         ):
             opener = factory.return_value
-            opener.open.side_effect = [Response({"value": "private-assertion"}), failure or Response(receipt)]
+            opener.open.side_effect = [Response({"value": "private-assertion"})] + (
+                responses if responses is not None else [failure, Response(receipt)] if failure else [Response(receipt)]
+            )
             try:
                 status = client.run(read=read, product=product)
                 outcome = str(status)
@@ -109,12 +111,14 @@ class BrokerClientTest(unittest.TestCase):
                 self.assertNotEqual(outcome, "0")
                 self.assertEqual(calls, [])
 
-    def test_ambiguous_dispatch_never_retries(self):
+    def test_ambiguous_dispatch_recovers_with_same_id_get_only(self):
         for failure in [TimeoutError(), urllib.error.HTTPError("https://example.invalid", 503, "private", {}, None)]:
             outcome, calls, output = self.invoke(failure=failure)
-            self.assertIn("outcome unknown", outcome)
-            self.assertEqual(len(calls), 2)
-            self.assertEqual(output, "")
+            self.assertEqual(outcome, "0")
+            self.assertEqual([call.args[0].get_method() for call in calls[1:]], ["POST", "GET"])
+            self.assertTrue(calls[2].args[0].full_url.endswith("/1-2-1"))
+            self.assertIsNone(calls[2].args[0].data)
+            self.assertNotIn("private", output)
 
     def test_unexpected_or_mismatched_receipt_is_not_printed(self):
         for receipt in [
@@ -138,6 +142,12 @@ class BrokerClientTest(unittest.TestCase):
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
+        self.assertEqual(job["runs-on"], "${{ fromJSON(vars.CI_RUNNER || '\"unconfigured\"') }}")
+        self.assertIn("vars.CI_RUNNER != '' && (", job["if"])
+        self.assertEqual(job["container"], "ubuntu:24.04")
+        self.assertEqual(job["defaults"]["run"]["shell"], "bash")
+        bootstrap = steps["Prepare standard request tools"]
+        self.assertIn("ca-certificates git python3", bootstrap["run"])
         checkout = steps["Checkout federated request client"]
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
@@ -200,9 +210,50 @@ class BrokerClientTest(unittest.TestCase):
             urllib.error.HTTPError("https://example.invalid", 503, "private", {}, None),
         ]:
             outcome, calls, output = self.invoke(changes=changes, product=True, failure=failure)
-            self.assertIn("outcome unknown", outcome)
-            self.assertEqual(len(calls), 2)
-            self.assertEqual(output, "")
+            self.assertEqual(outcome, "0")
+            self.assertEqual([call.args[0].get_method() for call in calls[1:]], ["POST", "GET"])
+            self.assertTrue(calls[2].args[0].full_url.endswith("/project-images/1-2-1"))
+            self.assertNotIn("private", output)
+
+    def test_unresolved_dispatch_stops_after_one_read(self):
+        outcome, calls, output = self.invoke(responses=[TimeoutError(), TimeoutError()])
+        self.assertIn("outcome unknown", outcome)
+        self.assertEqual([call.args[0].get_method() for call in calls[1:]], ["POST", "GET"])
+        self.assertEqual(output, "")
+
+    def test_explicit_rejection_does_not_reconcile(self):
+        for code in [400, 401, 403, 404, 409]:
+            with self.subTest(code=code):
+                outcome, calls, output = self.invoke(
+                    failure=urllib.error.HTTPError("https://example.invalid", code, "private", {}, None)
+                )
+                self.assertIn(f"HTTP {code}", outcome)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(output, "")
+
+    def test_pending_receipt_is_read_once_without_reposting(self):
+        for status in ["dispatching", "outcome_unknown"]:
+            receipt = dict(
+                schemaVersion=1,
+                requestId="1-2-1",
+                status=status,
+                executorCommit="b" * 40,
+                workflowRunId=None,
+                workflowRunUrl=None,
+            )
+            outcome, calls, _ = self.invoke(responses=[Response(receipt), Response(receipt)])
+            self.assertEqual(outcome, "0" if status == "dispatching" else "1")
+            self.assertEqual([call.args[0].get_method() for call in calls[1:]], ["POST", "GET"])
+
+    def test_invalid_recovery_receipt_is_not_accepted(self):
+        outcome, calls, output = self.invoke(responses=[TimeoutError(), Response({"token": "private"})])
+        self.assertIn("receipt invalid", outcome)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(output, "")
+
+    def test_cancellation_is_not_reconciled(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.invoke(responses=[KeyboardInterrupt()])
 
     def test_unapproved_executor_receipt_is_rejected(self):
         receipt = dict(

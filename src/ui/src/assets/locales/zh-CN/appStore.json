@@ -26,5 +26,13 @@
   "Unpin from rail": "从侧栏取消固定",
   "Pin to rail": "固定到侧栏",
   "Shortcut limit": "最多可固定{{count}}个快捷方式。",
-  "Shortcut sync unavailable": "无法同步快捷方式。请先读取当前账户设置，然后再尝试更改。"
+  "Shortcut sync unavailable": "无法同步快捷方式。请先读取当前账户设置，然后再尝试更改。",
+  "Logical app": "应用",
+  "Modules": "{{count}}个组件",
+  "App modules": "应用组件",
+  "Module consent": "每个模块独立保留版本、权限和看板授权。所请求的权限不代表已授予访问权限。打开单独模块以保存快捷方式。",
+  "Built-in module": "内置模块",
+  "Module enabled": "需单独授权后使用",
+  "Module disabled": "管理员已禁用",
+  "View module": "查看{{name}}"
 }

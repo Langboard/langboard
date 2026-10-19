@@ -43,3 +43,7 @@ class RunInternalBotRunRecoveryCommand(BaseCommand[RunInternalBotRunRecoveryComm
             for run in recovered:
                 if run.kind == InternalBotRunKind.BoardChat:
                     schedule_board_chat_attachment_reconciliation(run.get_uid())
+
+
+if __name__ == "__main__":
+    RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())

@@ -125,7 +125,12 @@ def check_legacy_consumers_drained() -> None:
 
 
 def check_required_celery_tasks() -> None:
-    workers = Broker.require_registered_tasks(REQUIRED_CELERY_TASKS, timeout=10)
+    required_tasks = REQUIRED_CELERY_TASKS
+    if Env.get_from_env("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false") == "true":
+        from langboard_shared.tasks.docling.DocumentKeywordTask import TASK_NAME
+
+        required_tasks += (TASK_NAME,)
+    workers = Broker.require_registered_tasks(required_tasks, timeout=10)
     print(f"Required Celery tasks are registered on {len(workers)} worker(s)")
 
 

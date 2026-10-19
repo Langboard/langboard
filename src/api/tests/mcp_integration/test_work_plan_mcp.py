@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock
 import pytest
+from fastmcp.exceptions import ValidationError
 from langboard.card_workspace.application.work_plan import WorkPlan
 from langboard.mcp_integration import McpRoleFilter, McpTool
 from langboard.mcp_integration.Annotations import tool_annotations
@@ -22,7 +23,7 @@ def test_plan_mcp_project_binding_and_native_owner(monkeypatch, apply):
     actor, service = object(), object()
     handler = CardMcp.apply_card_work_plan if apply else CardMcp.preview_card_work_plan
     args = (plan, "a" * 64, "request") if apply else (plan,)
-    with pytest.raises(ValueError, match="authorized project"):
+    with pytest.raises(ValueError if apply else ValidationError, match="authorized project"):
         handler("other-board", *args, actor, service)
     constructor.assert_not_called()
     result = handler("board", *args, actor, service)

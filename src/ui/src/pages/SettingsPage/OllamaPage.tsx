@@ -19,7 +19,8 @@ import { useTranslation } from "react-i18next";
 function OllamaPage() {
     const socket = useSocket();
     const { setPageAliasRef } = usePageHeader();
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
+    const showPullFailure = () => Toast.Add.error(i18n.t("settings.Model pull could not be completed"));
     const { mutateAsync: getOllamaModelListMutateAsync } = useGetOllamaModelList();
     const { mutateAsync: refreshOllamaModelListMutateAsync } = useGetOllamaModelList({ interceptToast: true });
     const { mutateAsync: getOllamaModelPullsMutateAsync } = useGetOllamaModelPulls();
@@ -29,7 +30,7 @@ function OllamaPage() {
             onSuccess: () => {
                 void getOllamaModelListMutateAsync({});
             },
-            onError: (message) => Toast.Add.error(message),
+            onError: showPullFailure,
         }),
     });
     useSwitchSocketHandlers({ socket, handlers });
@@ -59,7 +60,7 @@ function OllamaPage() {
                     if (pull.status === EOllamaModelPullStatus.Success) {
                         await getOllamaModelListMutateAsync({});
                     } else if (pull.status === EOllamaModelPullStatus.Failed || pull.status === EOllamaModelPullStatus.Uncertain) {
-                        Toast.Add.error(pull.error || "Model pull could not be completed");
+                        showPullFailure();
                     }
                 }
             } catch {

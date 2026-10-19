@@ -42,7 +42,8 @@ def test_accessible_type_rejects_wrong_actor(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize("conflict", [True, False])
-async def test_native_http_dispatch_distinguishes_review_conflict_from_unknown_write(monkeypatch, conflict):
+@pytest.mark.parametrize("name", ["apply_card_work_plan", "preview_card_work_plan"])
+async def test_native_http_dispatch_distinguishes_review_conflict_from_unknown_write(monkeypatch, conflict, name):
     import importlib
     from fastapi import FastAPI, Request
     from fastmcp import FastMCP
@@ -51,7 +52,6 @@ async def test_native_http_dispatch_distinguishes_review_conflict_from_unknown_w
     from langboard_shared.core.security import AuthSecurity
 
     route = importlib.import_module("langboard.routes.mcp.McpApi")
-    name = "apply_card_work_plan"
     group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
     closed = []
     service = SimpleNamespace(

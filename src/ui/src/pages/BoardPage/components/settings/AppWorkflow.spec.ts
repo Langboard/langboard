@@ -1,6 +1,44 @@
 import { test, expect } from "@playwright/test";
 const path = "/src/pages/BoardPage/components/settings/AppWorkflow.fixture.html";
 for (const width of [1440, 390]) {
+    test(`resolved stage can reuse a legacy column explicitly at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?legacyclosed`);
+        await expect(page.getByRole("combobox").first()).toHaveValue("one");
+        await expect(page.getByRole("combobox", { name: "Existing column for stage" })).toHaveCount(0);
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+        await page.getByRole("button", { name: "Manage stage columns", exact: true }).click();
+        await page.getByRole("combobox", { name: "Existing column for stage" }).selectOption("legacy");
+        await expect(page.getByRole("button", { name: "Create column with stage" })).toHaveCount(0);
+        if (width === 390) await page.screenshot({ path: test.info().outputPath("resolved-existing-column-390.png"), fullPage: true });
+        await page.getByRole("button", { name: "Assign stage to column", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+        await expect(page.getByRole("combobox").first().getByRole("option", { name: "완료", exact: true })).toHaveCount(1);
+        await expect(page.getByRole("combobox").first()).toHaveValue("one");
+        await page.getByRole("combobox").first().selectOption("legacy");
+        await page.getByRole("button", { name: "Save workflow mapping", exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(2);
+        await expect(page.getByRole("combobox").first()).toHaveValue("legacy");
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([
+            { workflow_stage: "closed", expected_workflow_stage: null, url: "/board/fixture/column/legacy/workflow-stage" },
+            {
+                binding_uid: "binding",
+                workflow_mapping: { closed: "legacy" },
+                expected_revision: "a".repeat(64),
+                enable_transitions: false,
+                url: "/board/fixture/settings/apps/github/workflow",
+            },
+        ]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+}
+test("read-only users cannot reassign resolved stage columns", async ({ page }) => {
+    await page.goto(`${path}?legacyclosed&readonly`);
+    await expect(page.getByRole("button", { name: "Manage stage columns", exact: true })).toBeDisabled();
+    await expect(page.getByRole("combobox", { name: "Existing column for stage" })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+});
+for (const width of [1440, 390]) {
     test(`explicit composition groups tiles but preserves module targets at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external&panel&consent&retainedsignal&grouped`);
@@ -8,18 +46,22 @@ for (const width of [1440, 390]) {
         await expect(page.getByRole("article")).toHaveCount(3);
         await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toHaveCount(0);
         await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
-        await expect(page.getByRole("article")).toHaveCount(2);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button", { name: "Manage App", exact: true }).click();
+        await expect(page.getByRole("article")).toHaveCount(1);
+        await page.getByRole("button", { name: "Example ERP", exact: true }).click();
         await page.getByRole("button", { name: "Panel", exact: true }).click();
         const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
         await app.getByRole("button", { name: "Review App panel", exact: true }).click();
         await expect(app.getByRole("checkbox")).toBeChecked();
         await app.getByRole("button", { name: "Confirm App panel", exact: true }).click();
         await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
-        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toMatchObject({
-            url: "/board/fixture/settings/apps/example-erp/panel", enabled: true, read_signals: true,
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toEqual({
+            url: "/board/fixture/settings/apps/example-erp/panel",
+            binding_uid: "binding",
+            expected_revision: "a".repeat(64),
+            app_revision: "a".repeat(64),
+            enabled: true,
+            read_signals: true,
         });
-        await page.getByRole("button", { name: "Back to App overview", exact: true }).click();
         await page.getByRole("button", { name: "Back to App Store", exact: true }).click();
         await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toHaveCount(0);
         await expect(page.getByRole("article")).toHaveCount(3);
@@ -37,7 +79,12 @@ for (const width of [1440, 390]) {
     test(`panel review retains signal consent at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external&panel&consent&retainedsignal`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         await page.getByRole("button", { name: "Panel", exact: true }).click();
         const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
         await app.getByRole("button", { name: "Review App panel", exact: true }).click();
@@ -47,14 +94,21 @@ for (const width of [1440, 390]) {
         await app.getByRole("button", { name: "Confirm App panel", exact: true }).click();
         await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
         expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toMatchObject({
-            url: "/board/fixture/settings/apps/example-erp/panel", enabled: true, read_signals: false,
+            url: "/board/fixture/settings/apps/example-erp/panel",
+            enabled: true,
+            read_signals: false,
         });
     });
 }
 for (const panel of [false, true]) {
     test(`independent app workflow is configurable ${panel ? "with" : "without"} a panel`, async ({ page }) => {
         await page.goto(`${path}?store&external${panel ? "&panel" : ""}`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         await page.getByRole("button", { name: "Workflow", exact: true }).click();
         const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
         await app.getByRole("button", { name: "Configure workflow", exact: true }).click();
@@ -146,7 +200,12 @@ for (const width of [1440, 390]) {
     test(`App Store entry and draft preservation at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         await expect(page.getByRole("heading", { name: "App Store" })).toBeVisible();
         await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
         await page.getByText("Selected resources: 2", { exact: true }).click();
@@ -172,8 +231,13 @@ for (const width of [1440, 390]) {
 
 test("board App disable confirms and refreshes the stored state", async ({ page }) => {
     await page.goto(`${path}?store&enabled`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) }).getByRole("button").first().click();
-        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
     await page.getByRole("button", { name: "Disable App", exact: true }).click();
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(0);
     await page.getByRole("button", { name: "Confirm disable App" }).click();
@@ -185,7 +249,12 @@ test("board App disable confirms and refreshes the stored state", async ({ page 
 for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
     test(`App resource counts use account locale ${locale}`, async ({ page }) => {
         await page.goto(`${path}?store&large&lang=${locale}`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         const app = page.locator("article").filter({ has: page.getByRole("heading", { name: "GitHub", exact: true }) });
         await expect(app.locator("summary")).toContainText("2,468");
         await app.locator("summary").click();
@@ -197,7 +266,12 @@ for (const width of [1440, 390]) {
     test(`inbound connections register and disconnect at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         expect(await page.evaluate(() => (window as unknown as { inboundReads: string[] }).inboundReads.length)).toBe(0);
         await page.getByRole("button", { name: "Manage service connections" }).click();
         await expect(page.getByText("connection1 · Connected", { exact: true })).toBeVisible();
@@ -219,7 +293,12 @@ for (const width of [1440, 390]) {
 
 test("inbound failure blocks another mutation until explicit refresh", async ({ page }) => {
     await page.goto(`${path}?store&external&connectionfail`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Disconnect", exact: true }).click();
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
@@ -232,8 +311,13 @@ test("inbound failure blocks another mutation until explicit refresh", async ({ 
 
 test("independent board consent requires explicit selection and save", async ({ page }) => {
     await page.goto(`${path}?store&external&consent`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
-        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await app.getByRole("checkbox", { name: "panels.render", exact: true }).click();
@@ -241,28 +325,43 @@ test("independent board consent requires explicit selection and save", async ({ 
     await app.getByRole("button", { name: "Save reviewed permissions", exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[0])).toEqual({
-        url: "/board/fixture/settings/apps/example-erp/consent", app_revision: "a".repeat(64),
-        binding_uid: "binding", expected_revision: "a".repeat(64), capabilities: ["panels.render"],
+        url: "/board/fixture/settings/apps/example-erp/consent",
+        app_revision: "a".repeat(64),
+        binding_uid: "binding",
+        expected_revision: "a".repeat(64),
+        capabilities: ["panels.render"],
     });
 });
 
 test("disabled app consent can be revoked while new grants remain blocked", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&consentdisabled`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
-        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await expect(app.getByRole("button", { name: "Save reviewed permissions", exact: true })).toBeDisabled();
     await app.getByRole("button", { name: "Clear selection", exact: true }).click();
     await app.getByRole("button", { name: "Save reviewed permissions", exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
-    expect(await page.evaluate(() => (window as unknown as { workflowWrites: { capabilities: string[] }[] }).workflowWrites[0].capabilities)).toEqual([]);
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: { capabilities: string[] }[] }).workflowWrites[0].capabilities)).toEqual(
+        []
+    );
 });
 
 test("consent failure requires explicit catalog refresh before another save", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&consentfail`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
-        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await app.getByRole("checkbox", { name: "panels.render", exact: true }).click();
@@ -278,8 +377,13 @@ test("consent failure requires explicit catalog refresh before another save", as
 
 test("read-only board member can review but cannot consent", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&readonly`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
-        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
     await app.getByRole("button", { name: "Review permissions", exact: true }).click();
     await expect(app.getByRole("checkbox", { name: "panels.render", exact: true })).toBeDisabled();
@@ -288,12 +392,16 @@ test("read-only board member can review but cannot consent", async ({ page }) =>
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(0);
 });
 
-
 for (const width of [1440, 390]) {
     test(`service resource selection and removal at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external&consent`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         await page.getByRole("button", { name: "Manage service connections" }).click();
         await page.getByRole("button", { name: "Manage service resources" }).click();
         await page.getByRole("combobox", { name: "Resource type", exact: true }).selectOption("project");
@@ -305,12 +413,26 @@ for (const width of [1440, 390]) {
         await page.getByRole("button", { name: "Remove selection", exact: true }).click();
         await page.getByRole("button", { name: "Confirm", exact: true }).click();
         expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([
-            { url: "/board/fixture/settings/apps/example-erp/inbound-connections/connection1/resources", app_revision: "a".repeat(64),
-                binding_uid: "binding", expected_revision: "b".repeat(64), resource_type: "project", external_resource_id: "erp-project",
-                selected: true, expected_access_revision: null },
-            { url: "/board/fixture/settings/apps/example-erp/inbound-connections/connection1/resources", app_revision: "a".repeat(64),
-                binding_uid: "binding", expected_revision: "b".repeat(64), resource_type: "project", external_resource_id: "erp-project",
-                selected: false, expected_access_revision: 1 },
+            {
+                url: "/board/fixture/settings/apps/example-erp/inbound-connections/connection1/resources",
+                app_revision: "a".repeat(64),
+                binding_uid: "binding",
+                expected_revision: "b".repeat(64),
+                resource_type: "project",
+                external_resource_id: "erp-project",
+                selected: true,
+                expected_access_revision: null,
+            },
+            {
+                url: "/board/fixture/settings/apps/example-erp/inbound-connections/connection1/resources",
+                app_revision: "a".repeat(64),
+                binding_uid: "binding",
+                expected_revision: "b".repeat(64),
+                resource_type: "project",
+                external_resource_id: "erp-project",
+                selected: false,
+                expected_access_revision: 1,
+            },
         ]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
@@ -318,7 +440,12 @@ for (const width of [1440, 390]) {
 
 test("service resource failure requires refresh", async ({ page }) => {
     await page.goto(`${path}?store&external&consent&resourcefail`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Manage service resources" }).click();
     await page.getByRole("combobox", { name: "Resource type", exact: true }).selectOption("project");
@@ -332,12 +459,16 @@ test("service resource failure requires refresh", async ({ page }) => {
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
 });
 
-
 for (const width of [1440, 390]) {
     test(`service credential is displayed once and revoked at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(`${path}?store&external`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+            .getByRole("button")
+            .first()
+            .click();
         await page.getByRole("button", { name: "Manage service connections" }).click();
         await page.getByRole("button", { name: "Manage credentials" }).click();
         await page.getByRole("button", { name: "Issue credential", exact: true }).click();
@@ -353,14 +484,23 @@ for (const width of [1440, 390]) {
             { url: "/settings/apps/connections/connection1/credentials", expires_in_seconds: 3600 },
             { url: "/settings/apps/connections/connection1/credentials/credential1/revoke" },
         ]);
-        expect(await page.evaluate(() => JSON.stringify(localStorage).includes("synthetic-once-value") || JSON.stringify(sessionStorage).includes("synthetic-once-value"))).toBe(false);
+        expect(
+            await page.evaluate(
+                () => JSON.stringify(localStorage).includes("synthetic-once-value") || JSON.stringify(sessionStorage).includes("synthetic-once-value")
+            )
+        ).toBe(false);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 }
 
 test("lost credential response requires receipt recovery without automatic issuance", async ({ page }) => {
     await page.goto(`${path}?store&external&credentialfail`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Manage credentials" }).click();
     await page.getByRole("button", { name: "Issue credential", exact: true }).click();
@@ -375,7 +515,12 @@ test("lost credential response requires receipt recovery without automatic issua
 
 test("disabled app exposes credential cleanup but prevents issuance", async ({ page }) => {
     await page.goto(`${path}?store&external&consentdisabled`);
-        await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) }).getByRole("button").first().click();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) })
+        .getByRole("button")
+        .first()
+        .click();
     await page.getByRole("button", { name: "Manage service connections" }).click();
     await page.getByRole("button", { name: "Manage credentials" }).click();
     await expect(page.getByRole("button", { name: "Issue credential", exact: true })).toBeDisabled();
@@ -413,7 +558,7 @@ for (const width of [1440, 390]) {
             expected_revision: "c".repeat(64),
             binding_revisions: { github: "a".repeat(64), "example-erp": "a".repeat(64) },
         });
-        await expect(page.getByRole("article")).toHaveCount(2);
+        await expect(page.getByRole("article")).toHaveCount(1);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 }
@@ -461,16 +606,28 @@ test("module write failure requires fresh snapshot before another mutation", asy
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
 });
 
-
 test("empty app descriptions provide setup guidance for third-party apps", async ({ page }) => {
     await page.goto(`${path}?store&external&panel&blankdescription`);
     const app = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Example ERP", exact: true }) });
-    await expect(app.getByText("Connect a service, choose its resources and configure optional features for this board.", { exact: true })).toBeVisible();
-    await page.getByRole("article").filter({ has: page.getByRole("heading", { name: "GlitchTip", exact: true }) }).getByText("Projects, issues and resolution workflows.", { exact: true }).waitFor();
+    await expect(
+        app.getByText("Connect a service, choose its resources and configure optional features for this board.", { exact: true })
+    ).toBeVisible();
+    await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("heading", { name: "GlitchTip", exact: true }) })
+        .getByText("Projects, issues and resolution workflows.", { exact: true })
+        .waitFor();
     await app.getByRole("button", { name: "Manage App", exact: true }).click();
-    await expect(app.getByText("Connect your service account and select only the resources this board needs. Connection and permission approval are separate.", { exact: true })).toBeVisible();
+    await expect(
+        app.getByText(
+            "Connect your service account and select only the resources this board needs. Connection and permission approval are separate.",
+            { exact: true }
+        )
+    ).toBeVisible();
     await page.getByRole("button", { name: "Panel", exact: true }).click();
-    await expect(app.getByText("Choose whether this app appears in the side rail. Panel visibility does not grant service permissions.", { exact: true })).toBeVisible();
+    await expect(
+        app.getByText("Choose whether this app appears in the side rail. Panel visibility does not grant service permissions.", { exact: true })
+    ).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
 });
 
@@ -481,3 +638,114 @@ test("inactive optional stages explain availability without impossible repair ac
     await expect(page.getByRole("textbox", { name: "New workflow column name" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Assign stage to column", exact: true })).toHaveCount(0);
 });
+
+for (const width of [1440, 390]) {
+    for (const create of [false, true]) {
+        test(`repair invalid destination ${create ? "create" : "assign"} at ${width}px`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 850 });
+            await page.goto(`${path}?invalid`);
+            await expect(page.getByRole("option", { name: "Previous column unavailable" })).toHaveCount(1);
+            if (width === 390 && create) {
+                await expect(page.getByRole("textbox", { name: "New workflow column name" })).toBeVisible();
+                await page.screenshot({ path: ".verification/workflow-invalid-mobile-20261018.png" });
+            }
+            if (create) {
+                await page.getByRole("textbox", { name: "New workflow column name" }).fill("In progress");
+                await page.getByRole("button", { name: "Create column with stage" }).click();
+            } else {
+                await page.getByRole("combobox", { name: "Existing column for stage" }).selectOption("two");
+                await page.getByRole("button", { name: "Assign stage to column" }).click();
+            }
+            await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+            const destination = page.getByRole("combobox").first();
+            await expect(destination).toHaveValue("deleted");
+            await expect(destination.locator("option[value=two]")).toHaveCount(1);
+            await destination.selectOption("two");
+            await page.getByRole("button", { name: "Save workflow mapping" }).click();
+            await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(2);
+            expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites[1])).toMatchObject({
+                workflow_mapping: { active: "two" },
+                expected_revision: "a".repeat(64),
+                enable_transitions: false,
+            });
+            await expect(destination).toHaveValue("two");
+            await expect(page.getByRole("option", { name: "Previous column unavailable" })).toHaveCount(0);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        });
+    }
+}
+
+// Existing component fixture uses controlled HTTP transport. These are local regressions, not deployed E2E.
+for (const width of [1440, 390]) {
+    test(`composition keeps module navigation and guards workflow draft at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store&external&panel&consent&grouped`);
+        await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+        await page.getByRole("button", { name: "Example ERP", exact: true }).click();
+        await page.getByRole("button", { name: "Workflow", exact: true }).click();
+        await page.getByRole("button", { name: "Configure workflow", exact: true }).click();
+        await page.getByRole("combobox").selectOption("two");
+        await expect(page.getByRole("button", { name: "GitHub", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Permissions", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Disable App group", exact: true })).toBeDisabled();
+        await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+        await page.getByRole("button", { name: "GitHub", exact: true }).click();
+        await expect(page.getByRole("article")).toHaveCount(1);
+        await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Review Suite", exact: true })).toBeVisible();
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+    });
+
+    test(`unvisited connection editors do not request and module draft survives at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        await page.goto(`${path}?store&external&grouped`);
+        await expect(page.getByRole("heading", { name: "Review Suite", exact: true })).toBeVisible();
+        const reads = () => page.evaluate(() => (window as unknown as { workflowReads: string[] }).workflowReads);
+        expect((await reads()).filter((url) => url.endsWith("/connections"))).toEqual([]);
+        await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
+        expect((await reads()).filter((url) => url.includes("glitchtip") || url.includes("dokploy") || url.includes("example-erp"))).toEqual([]);
+        await page.getByRole("button", { name: "Back to App Store", exact: true }).click();
+        await page
+            .getByRole("article")
+            .filter({ has: page.getByRole("heading", { name: "GlitchTip", exact: true }) })
+            .getByRole("button")
+            .click();
+        await page.getByLabel("Instance URL", { exact: true }).fill("https://errors.example.test");
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+        await page.getByRole("button", { name: "Connections", exact: true }).click();
+        await expect(page.getByLabel("Instance URL", { exact: true })).toHaveValue("https://errors.example.test");
+    });
+}
+
+test("composition consent failure remains locked after section and module navigation", async ({ page }) => {
+    await page.goto(`${path}?store&external&panel&consent&grouped&consentfail`);
+    await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+    await page.getByRole("button", { name: "Example ERP", exact: true }).click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page.getByRole("button", { name: "Review permissions", exact: true }).click();
+    await page.getByRole("button", { name: "Save reviewed permissions", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.getByRole("button", { name: "Panel", exact: true }).click();
+    await page.getByRole("button", { name: "GitHub", exact: true }).click();
+    await page.getByRole("button", { name: "Example ERP", exact: true }).click();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save reviewed permissions", exact: true })).toBeDisabled();
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
+});
+
+for (const readonly of [false, true]) {
+    test(`composition panel cannot promote policy-disabled or read-only grants: ${readonly}`, async ({ page }) => {
+        await page.goto(`${path}?store&external&panel&consent&grouped&consentdisabled${readonly ? "&readonly" : ""}`);
+        await page.getByRole("button", { name: "Manage App modules", exact: true }).click();
+        await page.getByRole("button", { name: "Example ERP", exact: true }).click();
+        await page.getByRole("button", { name: "Panel", exact: true }).click();
+        const disable = page.getByRole("button", { name: "Disable App panel", exact: true });
+        if (readonly) await expect(disable).toBeDisabled();
+        else await expect(disable).toBeEnabled();
+        await page.getByRole("button", { name: "Permissions", exact: true }).click();
+        await page.getByRole("button", { name: "Review permissions", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Save reviewed permissions", exact: true })).toBeDisabled();
+        expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+    });
+}

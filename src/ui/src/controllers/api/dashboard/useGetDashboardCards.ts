@@ -18,32 +18,34 @@ const useGetDashboardCards = (limit: number = 30, options?: TMutationOptions) =>
         }
 
         isFetchingRef.current = true;
+        try {
+            const nextPage = pageRef.current + 1;
 
-        ++pageRef.current;
+            const res = await api.get(Routing.API.DASHBOARD.CARDS, {
+                params: {
+                    refer_time: lastCurrentDateRef.current,
+                    page: nextPage,
+                    limit,
+                },
+                env: {
+                    interceptToast: options?.interceptToast,
+                } as never,
+            });
 
-        const res = await api.get(Routing.API.DASHBOARD.CARDS, {
-            params: {
-                refer_time: lastCurrentDateRef.current,
-                page: pageRef.current,
-                limit,
-            },
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
-        });
+            Project.Model.fromArray(res.data.projects, true);
+            ProjectCard.Model.fromArray(res.data.cards, true);
+            setCardUIDs((prev) => [
+                ...prev.filter((uid) => !(res.data.cards as ProjectCard.Interface[]).some((card) => card.uid === uid)),
+                ...(res.data.cards as ProjectCard.Interface[]).map((card) => card.uid),
+            ]);
 
-        Project.Model.fromArray(res.data.projects, true);
-        ProjectCard.Model.fromArray(res.data.cards, true);
-        setCardUIDs((prev) => [
-            ...prev.filter((uid) => !(res.data.cards as ProjectCard.Interface[]).some((card) => card.uid === uid)),
-            ...(res.data.cards as ProjectCard.Interface[]).map((card) => card.uid),
-        ]);
+            setIsLastPage(res.data.cards.length < limit);
 
-        setIsLastPage(res.data.cards.length < limit);
-
-        isFetchingRef.current = false;
-
-        return {};
+            pageRef.current = nextPage;
+            return {};
+        } finally {
+            isFetchingRef.current = false;
+        }
     };
 
     useEffect(() => {
@@ -52,11 +54,12 @@ const useGetDashboardCards = (limit: number = 30, options?: TMutationOptions) =>
         }
 
         lastCurrentDateRef.current = new Date();
-        setTimeout(() => {
-            getDashboardCards();
+        const initialLoad = setTimeout(() => {
+            void getDashboardCards().catch(() => {});
         }, 0);
 
         return () => {
+            clearTimeout(initialLoad);
             pageRef.current = 0;
         };
     }, []);

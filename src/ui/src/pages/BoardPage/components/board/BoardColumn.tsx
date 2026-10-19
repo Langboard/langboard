@@ -57,8 +57,8 @@ export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
             <Card.Content className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3">
                 <Box pb="2.5" className="overflow-hidden">
                     <Flex direction="col" gap="3">
-                        {Array.from({ length: cardCount }).map(() => (
-                            <SkeletonBoardColumnCard key={Utils.String.Token.shortUUID()} />
+                        {Array.from({ length: cardCount }).map((_, index) => (
+                            <SkeletonBoardColumnCard key={index} />
                         ))}
                     </Flex>
                 </Box>

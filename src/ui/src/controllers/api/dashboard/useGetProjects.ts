@@ -9,6 +9,7 @@ import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Project, ProjectColumn } from "@/core/models";
 import { deleteProjectModel } from "@/core/helpers/ModelHelper";
 import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
+import useAuthStore from "@/core/stores/AuthStore";
 
 export interface IGetProjectsResponse {
     projects: Project.TModel[];
@@ -18,6 +19,7 @@ export interface IGetProjectsResponse {
 const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) => {
     const { query, queryClient } = useQueryMutation();
     const subscriber = useId();
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
 
     const getProjects = async ({ signal }: { signal: AbortSignal }): Promise<IGetProjectsResponse | undefined> => {
         try {
@@ -29,6 +31,9 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
             });
 
             signal.throwIfAborted();
+            if (!actorUID || actorUID !== useAuthStore.getState().currentUser?.uid) {
+                throw new Error("Dashboard request no longer belongs to the current actor");
+            }
             const projects = Project.Model.fromArray(res.data.projects, true);
             const columns = ProjectColumn.Model.fromArray(res.data.columns, true);
             const projectUIDs = new Set<string>(projects.map((project) => project.uid));
@@ -56,7 +61,7 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
         }
     };
 
-    const result = query(["get-dashboard-projects"], getProjects, {
+    const result = query(["get-dashboard-projects", actorUID], getProjects, {
         ...options,
         retry: 0,
         staleTime: options?.staleTime ?? 30_000,
@@ -90,7 +95,7 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
                 return () => socket.off(props);
             },
         });
-    }, [projectUIDs, queryClient, subscriber]);
+    }, [actorUID, projectUIDs, queryClient, subscriber]);
     return result;
 };
 

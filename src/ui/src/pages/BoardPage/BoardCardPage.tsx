@@ -1,3 +1,4 @@
+import { useIsMobile } from "@/core/hooks/useIsMobile";
 import Dialog from "@/components/base/Dialog";
 import { isNotificationInteraction } from "@/components/Header/useNotificationNavigation";
 import { CARD_WINDOW_EMBEDDED_OVERLAY_CLASS, CARD_WINDOW_HEIGHT_CLASS, CARD_WINDOW_OVERLAY_CLASS } from "./cardWindowLayout";
@@ -60,7 +61,8 @@ const BoardCardPageComponent = ({
     const cancelCardEditRef = useRef<(() => void) | null>(null);
     const [isComposing, setIsComposing] = useState(false);
     const [localIsExpanded, setLocalIsExpanded] = useState(false);
-    const isExpanded = controlledIsExpanded ?? localIsExpanded;
+    const isMobile = useIsMobile();
+    const isExpanded = isMobile || (controlledIsExpanded ?? localIsExpanded);
     const setIsExpanded = controlledSetIsExpanded ?? setLocalIsExpanded;
     const { selectCardViewType } = useBoardController();
     const shouldHideForCardSelection = !!selectCardViewType;
@@ -299,18 +301,23 @@ const BoardCardPageComponent = ({
                             }}
                             className={cn(
                                 "border-0 p-0 shadow-none",
-                                isExpanded &&
-                                    (embedded
-                                        ? cn(
-                                              "pointer-events-auto absolute inset-0 z-[1]",
-                                              "h-full w-full max-w-none overflow-hidden",
-                                              "rounded-none bg-background"
-                                          )
-                                        : cn(
-                                              "pointer-events-auto fixed bottom-0 left-0 right-0 top-16",
-                                              "w-auto max-w-none overflow-hidden rounded-none bg-background",
-                                              "md:left-[var(--board-chat-sidebar-width,0px)]"
-                                          )),
+                                isMobile
+                                    ? cn(
+                                          "pointer-events-auto fixed inset-0 z-[110] h-dvh max-h-dvh",
+                                          "w-screen max-w-none overflow-hidden rounded-none bg-background"
+                                      )
+                                    : isExpanded &&
+                                          (embedded
+                                              ? cn(
+                                                    "pointer-events-auto absolute inset-0 z-[1]",
+                                                    "h-full w-full max-w-none overflow-hidden",
+                                                    "rounded-none bg-background"
+                                                )
+                                              : cn(
+                                                    "pointer-events-auto fixed bottom-0 left-0 right-0 top-16",
+                                                    "w-auto max-w-none overflow-hidden rounded-none bg-background",
+                                                    "md:left-[var(--board-chat-sidebar-width,0px)]"
+                                                )),
                                 !isExpanded &&
                                     cn(
                                         "h-[calc(100dvh-theme(spacing.6))] max-h-[calc(100dvh-theme(spacing.6))]",
@@ -361,6 +368,10 @@ const BoardCardPageComponent = ({
                             disablePortal={embedded}
                             viewportRef={viewportRef}
                             onInteractOutside={(event) => {
+                                if (isMobile) {
+                                    event.preventDefault();
+                                    return;
+                                }
                                 if (isNotificationInteraction(event.detail.originalEvent.target)) {
                                     event.preventDefault();
                                     return;
@@ -414,7 +425,7 @@ const BoardCardPageComponent = ({
                                 currentUser={currentUser}
                                 viewportRef={viewportRef}
                                 isExpanded={isExpanded}
-                                setIsExpanded={setIsExpanded}
+                                setIsExpanded={isMobile ? undefined : setIsExpanded}
                                 onClose={handleCloseRequest}
                                 onFlip={async (card) => {
                                     if (isComposing || !currentUser || closingRef.current) return;

@@ -1,5 +1,6 @@
 "use client";
 
+import { startBoardTouchAutoScroll } from "./BoardTouchAutoScroll";
 import { applyOptimisticOrder } from "@/core/helpers/dnd/applyOptimisticOrder";
 import { RefObject, useEffect } from "react";
 import { reorder } from "@atlaskit/pragmatic-drag-and-drop/reorder";
@@ -39,8 +40,6 @@ type TActiveTouchDrag = {
 const TOUCH_DRAG_DELAY_MS = 300;
 const TOUCH_MOVE_CANCEL_PX = 8;
 
-const interactiveSelector = "button,a,input,textarea,select,[contenteditable='true'],[role='button']";
-
 function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, changeRowOrder }: IUseBoardTouchCardDndProps) {
     useEffect(() => {
         if (!enabled) {
@@ -53,6 +52,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
         }
 
         let active: TActiveTouchDrag | null = null;
+        let stopAutoScroll: (() => void) | null = null;
 
         const getRowsByColumnUID = (columnUID: string): ProjectCard.TModel[] => {
             return Object.values(rowsMap)
@@ -109,7 +109,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
             targetIndex: number | "last";
         }) => {
             const updatedCards: Record<string, [number, string | null]> = {};
-            let lastIndex = 0;
+            let lastIndex = -1;
 
             Object.values(rowsMap).forEach((row) => {
                 if (row.project_column_uid === sourceColumn.uid && row.order > draggingRow.order) {
@@ -163,6 +163,12 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 window.clearTimeout(active.timer);
             }
 
+            active.sourceElement.removeEventListener("touchmove", handleTouchMove);
+            active.sourceElement.removeEventListener("touchend", handleTouchEnd);
+            active.sourceElement.removeEventListener("touchcancel", handleTouchCancel);
+            stopAutoScroll?.();
+            stopAutoScroll = null;
+            active.sourceElement.removeAttribute("data-touch-drag-state");
             active.previewElement?.remove();
             active.sourceElement.style.opacity = active.sourceOpacity;
             active = null;
@@ -181,6 +187,20 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
             }
 
             active.isDragging = true;
+            active.sourceElement.setAttribute("data-touch-drag-state", "dragging");
+            stopAutoScroll = startBoardTouchAutoScroll(
+                scrollable,
+                () => active?.currentX ?? 0,
+                () => {
+                    if (!active?.isDragging) return null;
+                    const target = document.elementFromPoint(active.currentX, active.currentY);
+                    const column = target?.closest(`[${BOARD_COLUMN_TOUCH_DND_ATTR}]`);
+                    if (!(column instanceof HTMLElement) || !scrollable.contains(column) || column.dataset.boardColumnSort !== "manual") return null;
+                    // Native columns own vertical scrolling in their ScrollArea viewport, never the page or card body.
+                    const viewport = column.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+                    return viewport ? { scrollable: viewport, pointerY: active.currentY } : null;
+                }
+            );
             active.sourceRect = rect;
             active.previewElement = preview;
             active.sourceElement.style.opacity = "0.35";
@@ -322,6 +342,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
 
         const handleTouchStart = (event: TouchEvent) => {
             if (event.touches.length !== 1) {
+                cleanupActive();
                 return;
             }
 
@@ -330,7 +351,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 return;
             }
 
-            if (target.closest(interactiveSelector) && !target.closest(`[${BOARD_CARD_TOUCH_HANDLE_ATTR}]`)) {
+            if (!target.closest(`[${BOARD_CARD_TOUCH_HANDLE_ATTR}]`)) {
                 return;
             }
 
@@ -349,6 +370,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
 
             cleanupActive();
 
+            sourceElement.setAttribute("data-touch-drag-state", "pending");
             active = {
                 touchId: touch.identifier,
                 cardUID,
@@ -363,9 +385,17 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 timer: window.setTimeout(beginDrag, TOUCH_DRAG_DELAY_MS),
                 isDragging: false,
             };
+            // A virtualized source can leave the board DOM while its native touch still targets this subtree.
+            sourceElement.addEventListener("touchmove", handleTouchMove, { passive: false });
+            sourceElement.addEventListener("touchend", handleTouchEnd, { passive: false });
+            sourceElement.addEventListener("touchcancel", handleTouchCancel, { passive: true });
         };
 
         const handleTouchMove = (event: TouchEvent) => {
+            if (event.touches.length !== 1) {
+                cleanupActive();
+                return;
+            }
             const touch = getChangedTouch(event);
             if (!active || !touch) {
                 return;
@@ -407,16 +437,15 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
             cleanupActive();
         };
 
+        const handleAdditionalTouch = (event: TouchEvent) => {
+            if (event.touches.length > 1) cleanupActive();
+        };
+        window.addEventListener("touchstart", handleAdditionalTouch, { capture: true, passive: true });
         scrollable.addEventListener("touchstart", handleTouchStart, { passive: true });
-        scrollable.addEventListener("touchmove", handleTouchMove, { passive: false });
-        scrollable.addEventListener("touchend", handleTouchEnd, { passive: false });
-        scrollable.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
         return () => {
+            window.removeEventListener("touchstart", handleAdditionalTouch, { capture: true });
             scrollable.removeEventListener("touchstart", handleTouchStart);
-            scrollable.removeEventListener("touchmove", handleTouchMove);
-            scrollable.removeEventListener("touchend", handleTouchEnd);
-            scrollable.removeEventListener("touchcancel", handleTouchCancel);
             cleanupActive();
         };
     }, [changeRowOrder, columns, enabled, rowsMap, scrollableRef]);

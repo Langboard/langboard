@@ -418,6 +418,7 @@ def test_explicit_splitter_reindex_applies_snapshot_in_persistent_store(monkeypa
             "model_name": "frozen-model",
             "api_key": "original-secret",
             "retrieval": {
+                "store": "sqlite",
                 "enabled": False,
                 "dimensions": 3,
                 "splitter": {"chunk_size": chunk_size, "chunk_overlap": 0},

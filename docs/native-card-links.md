@@ -9,6 +9,6 @@ Links use the deployment's public UI URL and encoded project/card path segments.
 They are generated only after the existing authorized read succeeds. A URL does
 not grant access. Compatibility providers retain their previous output schema.
 
-This removes the plugin dependency for card-read shortcuts. Project and creation
-shortcuts, embedded Apps and authenticated native OAuth deployment parity remain
-separate acceptance work.
+For transport configuration and discovered result schemas, see
+[native MCP profiles](native-mcp-profiles.md) and
+[native MCP OAuth](native-mcp-oauth.md).

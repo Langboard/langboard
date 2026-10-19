@@ -1,176 +1,104 @@
 # Native MCP profiles
 
-The compatibility transport remains `/mcp/stream` with all 118 existing tool
-contracts. Two additional transports reuse the same registered domain wrappers:
+Choose the transport supported by your client and configured by your operator.
+Tool availability also depends on the authenticated account and its grants.
 
-- `/mcp/agent/stream`: 30 canonical work, project, card, wiki, people, notification
-  and media entry points.
-- `/mcp/raw/stream`: `search_raw_tools` and `call_raw_tool` discover and invoke
-  the remaining primitive and compatibility actions on demand. FastMCP's
-  `RegexSearchTransform` returns at most five full tool schemas per search.
+| Endpoint | Discovery |
+| --- | --- |
+| `/mcp/stream` | Compatibility catalog with legacy input and output schemas |
+| `/mcp/agent/stream` | Compact catalog of canonical work, project, card, wiki, people, notification and media tools |
+| `/mcp/raw/stream` | `search_raw_tools` and `call_raw_tool` for tools outside the compact catalog |
+| `/mcp/oauth/stream` | Optional OAuth transport with canonical tools plus search and invocation of additional tools; available only when configured |
 
-`create_native_domain_provider` adapts the existing registry. Compatibility,
-Agent/Core and Raw providers compose that adapter with FastMCP's native
-`Visibility` transform. They do not copy domain commands, rename tools, infer
-authorization from a profile, or change existing group grants.
+Raw search returns at most five full tool schemas per search. The Raw transport
+requires an active, validated ToolGroup and filters results by current grants.
+Invocation rechecks availability and permission; a search result does not reserve
+access. Canonical core tools and recursive discovery calls cannot be invoked
+through the separate Raw transport's proxy.
 
-Both new transports retain `McpAuthMiddleware`, `ToolGroupMiddleware`, current
-board/card role validation, transport host checks, strict arguments and masked
-errors. Profile visibility and authorization are independent restrictions.
-The underlying Agent/Core and Raw schemas equal the compatibility catalog.
-Raw discovery exposes only the two synthetic tools initially. Those tools
-require an active validated ToolGroup; search results are filtered by its
-current grants. The proxy rechecks the current discoverable catalog and then
-invokes the target through normal middleware and domain authorization. Revoked
-grants are not cached between search and execution. Core tools and recursive
-synthetic calls cannot be invoked through the Raw proxy.
+## Authorization and compatibility
 
-Modern profiles declare standard read-only, destructive, idempotent and
-open-world hints. Reviewed query entry points are explicitly listed as reads;
-names are not classified by prefixes. Unreviewed commands and the generic Raw
-call proxy remain potentially destructive and non-idempotent. Open-world is
-kept true because attachments and user-authored content may cross trust
-boundaries. Compatibility retains its original annotations. These hints never
-replace authorization, approval or mutation outcome receipts.
+Profiles control discovery, not permission. Authentication, current board/card
+roles and tool grants apply on every call. The OAuth transport additionally
+requires the `mcp:access` scope. Revoked access is checked again on later calls,
+including replay of an existing work-plan receipt. A successful earlier read
+or mutation does not authorize another operation. Domain responses are not
+cached by these transports; stored OAuth credentials do not grant domain access.
 
-## Response cache and revocation policy
+Modern profiles expose standard read-only, destructive, idempotent and open-world
+hints. Unreviewed commands and the generic invocation proxy may be destructive
+and non-idempotent. Treat attachments and user-authored content as untrusted.
+Annotations do not replace permission checks, approval or mutation receipts.
+Compatibility retains its legacy annotations.
 
-The native transports do not install response caching. User/board data, role
-decisions and tool grants are recomputed for each invocation; neither a prior
-successful read nor an idempotent mutation receipt grants permission to replay.
-OAuth persistence stores credentials and protocol state, not authorized domain
-responses. Disabling a user, revoking a grant or changing a board role must be
-checked before entering the domain operation, including a receipt replay.
+Modern and compatibility schemas can differ. In modern profiles,
+`list_project_cards` defaults to a relationship tree; use `format="normal"` for
+the flat index. Relationship coverage is limited to the current page. Follow its
+cursor with identical filters. The compatibility endpoint accepts no `format`
+parameter, retains its flat list with repeated `project_column_name` fields, and
+omits modern column-map and relationship fields. Modern tools can also expose
+additional parameters and stricter page bounds. Read each endpoint's discovered
+schema before changing an existing connector's endpoint.
 
-Keep this boundary while optimizing projections and blocking I/O. Do not add a
-shared response cache to solve latency without measured benefit and an explicit
-actor/board/visibility key plus invalidation on role, membership, grant and
-resource changes. A TTL alone does not satisfy revocation. There is currently no
-response-cache invalidation job or cache-hit performance claim.
+## Typed results
 
-Regression coverage lives in `test_work_plan_roles.py`,
-`test_execution_receipts_mcp.py`, `test_providers.py`,
-`test_native_oauth_http.py` and `test_role_checker.py`. These exercise actual
-role changes across sequential FastMCP calls, denied cross-board access, Raw
-grant removal and deactivation, and signed HTTP identity/scope checks. They do
-not replace authenticated canary acceptance of the deployed transport.
+Modern profiles publish output schemas for reviewed operations, including card
+creation and edits, descriptions, comments, checklists, timers, notifications,
+labels, membership, relationships, content blocks, attachments, wikis, templates,
+columns, bot schedules and Hooks, graph patches, work plans, verification evidence
+and project details. This is not a claim that every query or command has a strict
+output model. Use the schema returned for the selected tool and endpoint. Strict
+boolean fields reject integer and string substitutes.
 
-Modern command results include `_meta.mutation_receipt`, a typed envelope with
-`request_id`, `tool`, `outcome`, `revision_conflict`, `retryable` and `next_action`.
-Domain payload fields remain unchanged. Normal command completion is
-`applied`; this acknowledges the command and is not workflow approval or proof
-of checklist completion. Known pre-save card/wiki revision conflicts return
-`not_applied` with `read_and_review`. Other failures, including a failure after
-a side effect, return `unknown` with `read_resource`. No automatic retry is
-authorized. Existing authorization errors remain errors. Raw invocation keeps
-the target receipt and does not overwrite it with a proxy receipt.
+Typed results retain pagination, continuation cursors, truncation, omitted fields
+and explicit nulls where the operation distinguishes them. Typed output does not
+expand access: attachment metadata remains privacy-filtered, membership counts
+do not disclose recipient identities, and recording verification evidence does
+not approve a workflow or release. Label creation still requires explicit local
+creation intent; global label creation is unavailable through these tools.
+Label catalogs list local matches first and retain offset pagination. Reusing a
+global label may return an existing local name match without global identity or
+emoji fields. Partial replacements preserve sections omitted from the request;
+unchanged checklist reconciliation can retain its existing content receipt,
+separate from the transport request ID.
 
-Transport loss/cancellation can prevent any receipt from reaching a client.
-Such absence is not evidence that a write failed. Durable receipt lookup,
-idempotency keys and full typed command payloads remain separate work.
+Output validation happens after command execution. A malformed result can
+therefore produce an unknown outcome even when a write occurred. Read the
+resource before deciding what to do next.
 
-Modern profiles use strict Pydantic output models for 31 reviewed commands:
-description patch/replace, self-assignment, notification read, project creation,
-wiki creation/revision/deletion, column naming, comment reactions, content-block
-movement, fixed deletion acknowledgements and message acknowledgements.
-FastMCP derives their output
-schemas from native return annotations; Raw search includes the same schemas.
-Compatibility retains its original return annotations and schema. Validation
-runs after the domain command, so a validation failure returns an unknown
-mutation receipt rather than claiming a rollback. No defaults or coercion hide
-missing or malformed domain fields. Remaining outputs are not yet typed.
-Boolean fields reject integers and strings explicitly, including `Literal[True]`
-fields that Pydantic otherwise accepts as `1` in strict mode.
+## Mutation receipts
 
-Eight additional work commands declare typed nested outputs for comment
-creation/editing, checklist and checkitem creation/update, work timer transitions,
-and public metadata writes. Nested projections preserve omitted fields separately
-from explicit nulls, bounded titles, cardified references and continuation cursors.
-Native datetime objects retain their existing JSON serialization. Domain DTOs
-are validated without replacing their pagination semantics. Malformed nested
-output after execution still produces an unknown receipt. The 39 reviewed
-command contracts do not establish coverage of all domain/query responses.
+Modern command results include `_meta.mutation_receipt` alongside the domain
+payload. It contains `request_id`, `tool`, `outcome`, `revision_conflict`,
+`retryable` and `next_action`.
 
-Label catalog reads and local creation, global-label reuse, and card attach/detach
-also declare typed outputs. Local-first ordering, offset pagination, truncation
-metadata and optional emoji/global source fields retain their domain meaning.
-An existing local name match can satisfy global-label reuse without receiving
-global identity or emoji fields. Output contracts never authorize creation;
-the explicit local-creation instruction guard and global-creation prohibition
-remain in force. Coverage is now 42 reviewed commands and one additional query.
+| Outcome | Client action |
+| --- | --- |
+| `applied` | Command completed. This is not workflow approval or proof that user checklists are complete. |
+| `not_applied` | A recognized conflict occurred before saving. With `revision_conflict: true` and `next_action: read_and_review`, read current state and review a new request. |
+| `unknown` | A failure may have followed a side effect. With `next_action: read_resource`, read the resource before deciding whether to retry. |
 
-Membership additions/invitations, partial card people/label replacement,
-relationship replacement and checklist reconciliation also have typed outputs.
-Partial replacement preserves absent sections; an unchanged reconciliation
-retains its domain content receipt independently of the transport request ID.
-Membership counts do not expose recipient identities. Coverage is now 47
-reviewed commands and one additional query; 23 remaining commands still use
-their existing untyped output annotations.
+Receipts do not authorize automatic retry. Authorization failures remain errors.
+Raw invocation preserves the target tool's receipt. Transport loss or cancellation
+may prevent receipt delivery; an absent receipt does not prove a write failed.
+The transport receipt request ID is not a general idempotency key or a durable
+receipt-lookup API. Operation-specific receipts, such as bot and work-plan
+receipts, retain their own semantics.
 
-Structured content creation/update now uses a discriminated output union for
-code, diagram and rich-text blocks. Normalized literal payloads, block revision
-and timestamps remain unchanged. Verification recording declares typed evidence,
-reviewer identity and source cursor fields; recording evidence never approves a
-workflow or release. Dedicated pre-save content-block and verification conflicts
-also return not_applied revision-conflict receipts. Other failures remain unknown.
-Coverage is now 50 reviewed commands and one additional query; 20 commands and
-remaining query contracts still need output models.
+### Work plans
 
-Six bot mutation commands now declare native schedule and Hook output models.
-Schedule scope identities, date windows and omitted change fields remain intact;
-Hook operations retain their events and active state. These domain operation
-receipts remain separate from transport mutation receipts. Bot author, target
-project and ToolGroup checks are unchanged. Reviewed coverage is now 56 commands
-and one additional query; 14 commands and remaining query outputs are pending.
+A stale `apply_card_work_plan` preview returns `not_applied` with a revision
+conflict and `read_and_review`. The REST endpoint returns HTTP 409 with
+`code: REVISION_CONFLICT`. Preview and review again. Repeating an accepted plan
+with its original request ID, revision and unchanged plan returns its saved
+receipt without duplicating changes, subject to current access checks. Other
+failures can have an unknown outcome.
 
-Board template creation, column creation/order and card title/deadline changes
-also declare typed outputs. Column translations, per-column counts and combined
-workflow guidance remain intact. Template results retain their existing omitted
-guidance fields; partial card edits retain omissions and explicit nulls. Coverage
-is now 60 commands and one additional query; ten commands and remaining queries
-still require reviewed output contracts.
+### Card completion
 
-Attachment upload/update and wiki link/card-to-wiki creation now have typed
-outputs. Upload retains its native URL; public attachment updates retain
-privacy-filtered metadata, truncation and pagination without adding URLs or
-emails. Wiki links retain the visibility-filtered result and archive flag.
-Coverage is now 64 commands and one additional query; six commands and remaining
-query contracts still require reviewed output models.
-
-Native card creation and its leftmost-column compatibility entry now retain
-their full typed card result, including creator, completion-checklist flags and
-source revision. Checkitem cardification keeps its smaller public card summary;
-provisioning reuses the typed template-board result. Coverage is now 68 commands
-and one additional query. Graph patch and legacy project-detail results remain
-untyped, alongside the remaining query contracts.
-
-Graph patch results now declare created native cards, created relationship
-identities and removed relationship IDs. Domain transaction/validation ownership
-is unchanged. Coverage is now 69 reviewed commands and one additional query;
-legacy project details still need a contract covering their member/label/bot
-projections and initialization/view side effects.
-
-This delivery separates existing canonical entry points. It does not yet supply
-all planned action facades, atomic Work Plan handling,
-OAuth profile access, deprecation telemetry or representative installed-client
-parity. Do not switch a connector automatically or remove its legacy tools.
-Native OAuth remains a separate opt-in delivery.
-
-The native `update_card` action `completion` accepts a strict boolean `completed`
-for a card's own completion checkbox. Read `core.is_check_card` and
-`core.completed` from `get_card_bundle` first. This action calls the same
-`CardService.set_card_completed` operation as REST and requires CardUpdate
-permission. Linked Wiki references and cards without that checkbox are rejected.
-It does not move the card, complete user checklists or grant workflow approval.
-The hidden backing checklist remains absent from ordinary checklist pages.
-
-### Reviewed Work Plan conflicts
-
-`apply_card_work_plan` rejects a stale preview before any plan writes using
-`WorkPlanConflict`. Modern MCP mutation receipts report `not_applied`,
-`revision_conflict: true` and `next_action: read_and_review`. The REST compatibility
-endpoint returns HTTP 409 with `code: REVISION_CONFLICT` and the same outcome;
-clients must preview and review again instead of automatically retrying it.
-An ordinary exception, including one with identical wording after persistence,
-still has an unknown outcome. Repeating an accepted plan with its original
-request ID and revision returns the saved receipt without duplicating changes.
+The modern `update_card` action `completion` accepts a strict boolean `completed`
+for the card's own completion checkbox. First read `core.is_check_card` and
+`core.completed` from `get_card_bundle`. This requires `card_update` permission
+and rejects linked Wiki references and cards without the checkbox. It does not
+move a card, complete user checklists or grant workflow approval. The backing
+checklist is absent from ordinary checklist pages.

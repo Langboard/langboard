@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import AvatarGeneration from "@/components/AvatarGeneration";
 import AvatarUploader from "@/components/AvatarUploader";
 import Button from "@/components/base/Button";
 import FormErrorMessage from "@/components/FormErrorMessage";
@@ -24,6 +25,10 @@ function ProfilePage(): React.JSX.Element {
     const [t] = useTranslation();
     const { mutate } = useUpdateProfile();
     const { data: authProvider } = useGetAuthProvider();
+    const avatar = currentUser.useField("avatar");
+    const avatarRevision = currentUser.useField("avatar_revision") ?? 0;
+    const avatarRevisionRef = useRef(String(avatarRevision));
+    const [avatarVersion, setAvatarVersion] = useState(0);
     const [isLinkingOidc, setIsLinkingOidc] = useState(false);
     const dataTransferRef = useRef(new DataTransfer());
     const isAvatarDeletedRef = useRef(false);
@@ -40,13 +45,18 @@ function ProfilePage(): React.JSX.Element {
             position: {},
             avatar: { mimeType: "image/*" },
             delete_avatar: {},
+            expected_avatar_revision: {},
         },
         inputRefs: {
             avatar: dataTransferRef,
             delete_avatar: isAvatarDeletedRef,
+            expected_avatar_revision: avatarRevisionRef,
         },
         mutate,
         mutateOnSuccess: () => {
+            dataTransferRef.current.items.clear();
+            isAvatarDeletedRef.current = false;
+            avatarRevisionRef.current = String(currentUser.avatar_revision);
             updatedUser();
             Toast.Add.success(t("successes.Profile updated successfully."));
         },
@@ -77,11 +87,18 @@ function ProfilePage(): React.JSX.Element {
                 <Flex justify="center" mt="11">
                     <AvatarUploader
                         userInitials={Utils.String.getInitials(currentUser.firstname, currentUser.lastname)}
-                        initialAvatarUrl={currentUser.avatar}
+                        key={avatarVersion}
+                        initialAvatarUrl={avatar}
                         dataTransferRef={dataTransferRef}
                         isDeletedRef={isAvatarDeletedRef}
                         isValidating={isValidating}
                         canRevertUrl
+                        onChange={() => {
+                            avatarRevisionRef.current = String(currentUser.avatar_revision);
+                        }}
+                        onDeleted={() => {
+                            avatarRevisionRef.current = String(currentUser.avatar_revision);
+                        }}
                         rootClassName="max-w-screen-xs"
                         avatarSize={{
                             initial: "3xl",
@@ -155,6 +172,23 @@ function ProfilePage(): React.JSX.Element {
                     </SubmitButton>
                 </Flex>
             </Form.Root>
+            <Flex justify="center" mt="4">
+                <AvatarGeneration
+                    base="/account/avatar"
+                    revisionKey={`${avatar}:${avatarRevision}`}
+                    canUpdate
+                    disabled={isValidating}
+                    onPersisted={(snapshot) => {
+                        dataTransferRef.current.items.clear();
+                        isAvatarDeletedRef.current = false;
+                        currentUser.avatar = snapshot.avatar ?? undefined;
+                        currentUser.avatar_revision = snapshot.avatar_revision;
+                        avatarRevisionRef.current = String(snapshot.avatar_revision);
+                        setAvatarVersion((value) => value + 1);
+                        updatedUser();
+                    }}
+                />
+            </Flex>
             {authProvider?.oidc_enabled && (
                 <Flex justify="center" mt="8">
                     <Button

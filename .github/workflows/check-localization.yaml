@@ -12,6 +12,22 @@ on:
       - src/ui/src/core/utils/LocaleRuntime*
       - src/ui/src/core/utils/LocaleFormat*
       - src/ui/src/core/hooks/useUpdateDateDistance.ts
+      - src/ui/src/core/stores/McpToolStore.ts
+      - src/ui/src/core/stores/BotStatusStore.ts
+      - src/ui/src/core/stores/EditorStore.ts
+      - src/ui/src/core/stores/UserSettingsStore.ts
+      - src/ui/src/core/stores/StoreSnapshot.test.ts
+      - src/ui/src/core/stores/OllamaModelStore*
+      - src/ui/src/pages/SettingsPage/components/ollama/OllamaModelTracker.tsx
+      - src/ui/src/core/hooks/useTimerDuration.ts
+      - src/ui/src/core/hooks/TimerDuration.*
+      - src/ui/src/pages/BoardPage/components/card/label/**
+      - src/ui/src/pages/BoardPage/components/card/action/label/**
+      - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitemTimer.tsx
+      - src/ui/src/pages/DashboardPage/components/TrackingRow.tsx
+      - src/ui/playwright.attachment-upload.config.ts
+      - src/ui/src/pages/BoardPage/components/card/action/file/**
+      - src/ui/playwright.timer-duration.config.ts
       - src/ui/src/core/injection/StringExtensions.ts
       - src/ui/src/core/providers/AuthProvider.tsx
       - src/ui/src/core/providers/AuthLanguage*
@@ -25,7 +41,13 @@ on:
       - src/ui/playwright.locale-runtime.config.ts
       - src/ui/playwright.locale-format.config.ts
       - src/ui/playwright.error-locale.config.ts
+      - src/ui/src/pages/SettingsPage/ProjectTemplates*
+      - src/ui/playwright.template-editor.config.ts
+      - src/ui/playwright.retrieval.config.ts
+      - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
+      - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.workbench.config.ts
+      - src/ui/src/components/Layout/workbench-shell.spec.ts
       - src/ui/playwright.explorer-recovery.config.ts
       - src/ui/playwright.card-description-static.config.ts
       - src/ui/playwright.table-selection.config.ts
@@ -38,6 +60,10 @@ on:
       - src/ui/playwright.default-language.config.ts
       - src/ui/playwright.auth-language.config.ts
       - src/ui/playwright.filter.config.ts
+      - src/ui/playwright.project-load.config.ts
+      - src/ui/src/controllers/api/board/useGetProject*
+      - src/ui/src/controllers/api/board/project-membership.fixture.*
+      - src/ui/src/controllers/socket/dashboard/project/useDashboardProjectAssignedUsersUpdatedHandlers.ts
       - src/ui/vite.card-load.config.ts
       - src/ui/package.json
       - src/ui/yarn.lock
@@ -56,8 +82,24 @@ jobs:
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
+      - name: Prepare Node.js for Yarn cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Prepare Corepack for Yarn cache
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -82,6 +124,12 @@ jobs:
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts
         working-directory: src/ui
+      - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
+        working-directory: src/ui
+      - run: yarn test:store-snapshots
+        working-directory: src/ui
+      - run: yarn test:ollama-model-store
+        working-directory: src/ui
       - run: yarn playwright install --with-deps chrome
         working-directory: src/ui
       - run: yarn playwright test -c playwright.card-deeplink.config.ts
@@ -94,7 +142,13 @@ jobs:
         working-directory: src/ui
       - run: yarn playwright test -c playwright.auth-language.config.ts
         working-directory: src/ui
+      - run: yarn playwright test -c playwright.timer-duration.config.ts
+        working-directory: src/ui
       - run: yarn playwright test -c playwright.locale-format.config.ts
+        working-directory: src/ui
+      - run: yarn playwright test -c playwright.template-editor.config.ts --workers=1
+        working-directory: src/ui
+      - run: yarn playwright test -c playwright.retrieval.config.ts --workers=1
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.filter.config.ts
@@ -132,6 +186,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui
 
+      - run: yarn playwright test -c playwright.workbench.config.ts -g 'settings storage|explicit sidebar preference|sidebar preference belongs'
+        if: github.event_name != 'workflow_dispatch'
+        working-directory: src/ui
       - run: yarn playwright test -c playwright.workbench.config.ts
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui
@@ -162,5 +219,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.board-chat-stability.config.ts
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: src/ui
+
+      - run: yarn playwright test -c playwright.attachment-upload.config.ts
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui

@@ -10,5 +10,8 @@ AGENT_POLICY = (
     "Create local labels only on explicit user instruction; never create global labels through MCP. "
     "Use exact revisions for body edits; reread on conflict. After timeout or 5xx, inspect state before retrying mutations. "
     "Resolve people through the board directory, not email-based authority. Mark notifications read only when requested. "
-    "Tool visibility does not grant permission; diagnose_connection reports connection capabilities."
+    "Tool visibility does not grant permission; diagnose_connection reports connection capabilities. "
+    "Card Actions contain optional app evidence, resources, requests and execution managers. Use their available MCP tools; "
+    "bind existing evidence or replace resource selections only for requested changes with current revisions. "
+    "App requests are not approval; requesting an execution stop does not prove remote termination."
 )

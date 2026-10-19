@@ -7,7 +7,7 @@ this context. A User reached through MCP or an API key is not a human UI actor.
 from collections.abc import Collection
 from dataclasses import dataclass
 from enum import Enum
-from sqlalchemy import and_, false, or_
+from sqlalchemy import and_, false, or_, select
 from ...core.security.CollaborationChannel import CollaborationChannel as CollaborationChannel
 
 
@@ -131,3 +131,36 @@ def card_visibility_scope(context: CardVisibilityContext, *, columns=None):
             columns["owner_user_id"] == context.actor_user_id,
         ))
     return or_(*allowed)
+
+
+def card_visibility_scope_by_project(contexts: dict[int, CardVisibilityContext]):
+    """Batch current audiences without one predicate per board sharing the same policy."""
+    from ..models import Card
+
+    grouped: dict[CardVisibilityContext, list[int]] = {}
+    for project_id, context in contexts.items():
+        grouped.setdefault(context, []).append(project_id)
+    return or_(false(), *(
+        Card.project_id.in_(project_ids) & card_visibility_scope(context)
+        for context, project_ids in grouped.items()
+    ))
+
+
+def project_activity_visibility_scope(contexts: dict[int, CardVisibilityContext]):
+    """Use the existing activity-feed audience for summary timestamps too."""
+    from ..models import Card, ProjectActivity
+
+    grouped: dict[CardVisibilityContext, list[int]] = {}
+    for project_id, context in contexts.items():
+        grouped.setdefault(context, []).append(project_id)
+    scopes = []
+    for context, project_ids in grouped.items():
+        card_visible = select(Card.id).where(
+            Card.id == ProjectActivity.card_id, Card.project_id == ProjectActivity.project_id,
+            Card.deleted_at.is_(None), card_visibility_scope(context),
+        ).correlate(ProjectActivity).exists()
+        scopes.append(and_(
+            ProjectActivity.project_id.in_(project_ids),
+            or_(ProjectActivity.card_id.is_(None), card_visible),
+        ))
+    return or_(false(), *scopes)

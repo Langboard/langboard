@@ -2,10 +2,21 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import pytest
 from test_external_redis_compose import ROOT
+
+
+def test_colocated_profile_tests_survive_container_context_exclusions():
+    targets = set(
+        re.findall(r"(?:src|scripts)/[\w/.-]+_test\.py", (ROOT / "scripts/run-profile-validation.sh").read_text())
+    )
+    patterns = set((ROOT / ".dockerignore").read_text().splitlines())
+    assert all((ROOT / target).is_file() for target in targets)
+    if "**/*_test.py" in patterns:
+        assert not {target for target in targets if f"!{target}" not in patterns}
 
 
 def render(tmp_path, *, overlays=(), profiles=("application", "workers"), missing=None):

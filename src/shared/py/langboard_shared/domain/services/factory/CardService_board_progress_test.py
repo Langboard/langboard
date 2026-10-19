@@ -68,11 +68,11 @@ def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
     monkeypatch.setattr(module.CardRelationshipService, "public_relationship", lambda rel, _: {"edge": (rel.card_id_parent, rel.card_id_child)})
     repository = SimpleNamespace(
         card=SimpleNamespace(
-            get_board_list=lambda *args, **kwargs: [(card, 0) for card in cards], get_board_creators=lambda *args: {}
+            get_board_list=lambda *args, **kwargs: [(card, 0) for card in cards], get_board_creators=lambda *args, **kwargs: {}
         ),
-        card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args: []),
-        card_relationship=SimpleNamespace(get_all_by_project=lambda *args: [(rel, None) for rel in relations]),
-        project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *args: []),
+        card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: []),
+        card_relationship=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: [(rel, None) for rel in relations]),
+        project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *args, **kwargs: []),
         checklist=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: lists),
         checkitem=CheckitemRepository(None, None),
         card_verification=SimpleNamespace(get_latest_by_card_ids=lambda ids, **kwargs: {}),

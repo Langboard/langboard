@@ -12,10 +12,8 @@ function useInfiniteScrollPager<T>({ allItems, size, updater }: IUseInfiniteScro
     const items = useMemo<T[]>(() => {
         return allItems.slice(0, page * size);
     }, [allItems, page, updated]);
-    const lastPageRef = useRef(Math.ceil(allItems.length / size));
-    if (lastPageRef.current < 1) {
-        lastPageRef.current = 1;
-    }
+    const lastPageRef = useRef(1);
+    lastPageRef.current = Math.max(1, Math.ceil(allItems.length / size));
     const hasMore = page < lastPageRef.current && allItems.length > size;
 
     const nextPage = (next: number) => {

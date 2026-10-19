@@ -33,10 +33,6 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
     const activeCommentId = usePluginOption({ key: KEYS.comment }, "activeId");
     const activeSuggestionId = usePluginOption({ key: KEYS.suggestion }, "activeId");
 
-    if (readOnly) {
-        return null;
-    }
-
     const floatingOptions: UseVirtualFloatingOptions = React.useMemo(() => {
         return {
             middleware: [
@@ -71,7 +67,7 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
         preventDefaultOnEnterKeydown: true,
     });
 
-    if (hidden) return null;
+    if (readOnly || hidden) return null;
 
     const input = (
         <div className="flex w-[330px] flex-col" {...inputProps}>

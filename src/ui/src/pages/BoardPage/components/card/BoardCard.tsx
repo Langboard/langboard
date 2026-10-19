@@ -1,8 +1,7 @@
-import CardAppResources from "./CardAppResources";
-import CardAppInteractions from "./CardAppInteractions";
+import CardWorkbenchLenses, { CardLensTabs, CARD_LENS_SECTIONS, CardWorkbenchLens } from "./CardWorkbenchLenses";
+import useAuthStore from "@/core/stores/AuthStore";
+import BoardCardWhispers from "./BoardCardWhispers";
 import CardAppArchiveReceipts from "./CardAppArchiveReceipts";
-import { ProjectRole } from "@/core/models/roles";
-import CardSignalEvidence from "./CardSignalEvidence";
 import CardFlipTray from "./CardFlipTray";
 import { useCardFlipStore } from "./CardFlipStore";
 import Box from "@/components/base/Box";
@@ -18,7 +17,7 @@ import Toast from "@/components/base/Toast";
 import useChangeCardDetails from "@/controllers/api/card/useChangeCardDetails";
 import useSetCardCompleted from "@/controllers/api/board/useSetCardCompleted";
 import useGetCardDetails, { IGetCardDetailsResponse } from "@/controllers/api/card/useGetCardDetails";
-import useUnreadChangeNavigation from "@/pages/BoardPage/components/card/useUnreadChangeNavigation";
+import useUnreadChangeNavigation, { highlightUnreadTarget } from "@/pages/BoardPage/components/card/useUnreadChangeNavigation";
 import { WORKBENCH_OUTLINE_EVENT } from "@/pages/DashboardPage/components/WorkbenchCommands";
 
 import useReplaceCardContentBlocks from "@/controllers/api/board/useReplaceCardContentBlocks";
@@ -27,25 +26,24 @@ import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { BoardCardProvider, useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
 import { ROUTES } from "@/core/routing/constants";
-import BoardCardActionList, { SkeletonBoardCardActionList } from "@/pages/BoardPage/components/card/action/BoardCardActionList";
+import BoardCardActionList from "@/pages/BoardPage/components/card/action/BoardCardActionList";
 import BoardCardActionRelationship from "@/pages/BoardPage/components/card/action/relationship/BoardCardActionRelationship";
-import BoardCardChecklistGroup, { SkeletonBoardCardChecklistGroup } from "@/pages/BoardPage/components/card/checklist/BoardCardChecklistGroup";
+import BoardCardChecklistGroup from "@/pages/BoardPage/components/card/checklist/BoardCardChecklistGroup";
 import { useBoardCardSectionSaveActions } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
-import BoardCardColumnName, { SkeletonBoardCardColumnName } from "@/pages/BoardPage/components/card/BoardCardColumnName";
-import BoardCardDeadline, { SkeletonBoardCardDeadline } from "@/pages/BoardPage/components/card/BoardCardDeadline";
-import BoardCardDescription, { SkeletonBoardCardDescription } from "@/pages/BoardPage/components/card/BoardCardDescription";
+import BoardCardColumnName from "@/pages/BoardPage/components/card/BoardCardColumnName";
+import BoardCardDeadline from "@/pages/BoardPage/components/card/BoardCardDeadline";
+import BoardCardDescription from "@/pages/BoardPage/components/card/BoardCardDescription";
 import BoardCardCheckBody from "@/pages/BoardPage/components/card/BoardCardCheckBody";
-import BoardCardAttachmentList, { SkeletonBoardCardAttachmentList } from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
-import BoardCardTitle, { SkeletonBoardCardTitle } from "@/pages/BoardPage/components/card/BoardCardTitle";
+import BoardCardAttachmentList from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
+import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
-import BoardCommentList, { SkeletonBoardCommentList } from "@/pages/BoardPage/components/card/comment/BoardCommentList";
-import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { useTranslation } from "react-i18next";
 import BoardCardMemberList from "@/pages/BoardPage/components/card/BoardCardMemberList";
 import BoardCardVisibility from "./BoardCardVisibility";
 import CardTypeBadges from "@/components/CardTypeBadges";
 import { cardVisibilityPresentation } from "@/core/cards/CardPresentation";
-import { SkeletonUserAvatarList } from "@/components/UserAvatarList";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useSocket } from "@/core/providers/SocketProvider";
@@ -119,7 +117,31 @@ const BoardCard = memo(
         onEditModeStateChange,
     }: IBoardCardProps): React.JSX.Element => {
         const { setPageAliasRef } = usePageHeader();
-        const { data: cardData, isFetching, error, refetch } = useGetCardDetails({ project_uid: projectUID, card_uid: cardUID });
+        const identity = `${currentUser.uid}:${projectUID}:${cardUID}`;
+        const [selection, setSelection] = useState<{ identity: string; lens: CardWorkbenchLens }>({ identity, lens: "execution" });
+        const lens = selection.identity === identity ? selection.lens : "execution";
+        const setLens = (value: CardWorkbenchLens) => setSelection({ identity, lens: value });
+        const cachedCard = ProjectCard.Model.useModel(cardUID);
+        const {
+            data: cardData,
+            isFetching,
+            error,
+            refetch,
+        } = useGetCardDetails(
+            {
+                project_uid: projectUID,
+                card_uid: cardUID,
+                sections: cachedCard?.source_type === "project_wiki" ? CARD_LENS_SECTIONS.history : CARD_LENS_SECTIONS[lens],
+            },
+            {
+                placeholderData: (previous, previousQuery) =>
+                    previousQuery?.queryKey[0] === `get-card-details-${projectUID}-${cardUID}` &&
+                    previousQuery.queryKey[1] === currentUser.uid &&
+                    previousQuery.queryKey[2] === useAuthStore.getState().getSessionVersion()
+                        ? previous
+                        : undefined,
+            }
+        );
         const focusedCardRef = useRef("");
         useEffect(() => {
             if (cardData?.card) useCardFlipStore.getState().remove(currentUser.uid, projectUID, cardUID);
@@ -258,15 +280,31 @@ const BoardCard = memo(
                     </Box>
                 )}
                 {!cardData && (
-                    <Button type="button" size="sm" variant="outline" className="shrink-0 self-end" onClick={onClose}>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={cn("shrink-0 self-end", !error && "absolute right-4 top-4 z-[101]")}
+                        onClick={onClose}
+                    >
                         {t("common.Close")}
                     </Button>
                 )}
                 {!cardData ? (
-                    !error && <SkeletonBoardCard />
+                    !error && <SkeletonBoardCard isExpanded={isExpanded} />
                 ) : (
-                    <BoardCardProvider key={cardUID} projectUID={projectUID} card={cardData.card} currentUser={currentUser} viewportRef={viewportRef}>
+                    <BoardCardProvider
+                        key={identity}
+                        projectUID={projectUID}
+                        card={cardData.card}
+                        currentUser={currentUser}
+                        viewportRef={viewportRef}
+                    >
                         <BoardCardResult
+                            lens={lens}
+                            setLens={setLens}
+                            sectionLoading={!CARD_LENS_SECTIONS[lens].every((section) => cardData.loaded_sections?.includes(section))}
+                            whispersAllowed={cardData.whispers_allowed === true}
                             executionReceipts={cardData.execution_receipts}
                             linkedWikis={cardData.linked_wikis}
                             isExpanded={isExpanded}
@@ -282,71 +320,60 @@ const BoardCard = memo(
     }
 );
 
-export function SkeletonBoardCard(): React.JSX.Element {
+export function SkeletonBoardCard({ isExpanded = false }: { isExpanded?: boolean }): React.JSX.Element {
+    const [t] = useTranslation();
     return (
-        <Flex direction="col" className="h-full min-h-0 gap-4">
-            <Box data-card-surface="" className="relative min-h-0 flex-1 rounded-2xl border bg-background px-4 py-4 shadow-2xl sm:px-6 sm:py-6">
-                <Flex
-                    direction="col"
-                    mb="3"
-                    position="sticky"
-                    top={{ initial: "0", sm: "-2" }}
-                    pb="3"
-                    className="z-[100] space-y-1.5 border-b-2 bg-background text-left"
-                >
-                    <SkeletonBoardCardTitle />
-                    <Flex gap="3">
-                        <Dialog.Description asChild>
-                            <SkeletonBoardCardColumnName />
-                        </Dialog.Description>
+        <Flex
+            direction="col"
+            className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2"
+            data-card-loading=""
+        >
+            <Dialog.Title role="status" className="sr-only">
+                {t("common.Loading...")}
+            </Dialog.Title>
+            <Box
+                data-card-surface=""
+                aria-hidden="true"
+                className={cn(
+                    "relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden border bg-background px-4 py-4 sm:px-6 sm:py-6",
+                    isExpanded ? "border-0 shadow-none" : "rounded-2xl shadow-2xl"
+                )}
+            >
+                <Flex direction="col" className="mb-3 shrink-0 gap-2 border-b-2 pb-3">
+                    <Skeleton className="h-7 w-3/5 max-w-96" />
+                    <Flex gap="2" wrap>
+                        <Skeleton className="h-5 w-16" />
+                        <Skeleton className="h-5 w-24" />
                     </Flex>
-                    <Skeleton position="absolute" right="0" size="6" rounded="sm" className="opacity-70" />
+                    <Dialog.Description asChild>
+                        <Skeleton className="h-3 w-40 max-w-full" />
+                    </Dialog.Description>
                 </Flex>
-                <Flex gap="3" direction={{ initial: "col-reverse", sm: "row" }} className="min-h-0">
-                    <Flex direction="col" gap="4" className="min-h-0 sm:w-[calc(100%_-_theme(spacing.40)_-_theme(spacing.3))]">
-                        <Flex direction={{ initial: "col", sm: "row" }} gap="4">
-                            <BoardCardSection title="card.Members" className="sm:w-1/2" contentClassName="flex gap-1">
-                                <SkeletonUserAvatarList count={6} size={{ initial: "sm", lg: "default" }} spacing="none" className="space-x-1" />
-                            </BoardCardSection>
-                            <BoardCardSection title="card.Deadline" className="sm:w-1/2">
-                                <SkeletonBoardCardDeadline />
-                            </BoardCardSection>
+                <Flex gap="1" className="w-fit max-w-full rounded-lg bg-muted p-1">
+                    {[0, 1, 2].map((index) => (
+                        <Skeleton key={index} className="h-7 w-16 sm:w-20" />
+                    ))}
+                </Flex>
+                <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
+                    <Box className="space-y-3 rounded-md border p-3">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Flex gap="2" wrap>
+                            <Skeleton className="h-5 w-20" />
+                            <Skeleton className="h-5 w-24" />
                         </Flex>
-                        <BoardCardSection title="card.Description" className="relative min-h-56">
-                            <SkeletonBoardCardDescription />
-                        </BoardCardSection>
-                        <BoardCardSection title="card.Checklists">
-                            <SkeletonBoardCardChecklistGroup />
-                        </BoardCardSection>
-                        <BoardCardSection title="card.Attached files">
-                            <SkeletonBoardCardAttachmentList />
-                        </BoardCardSection>
-                        <Box className="lg:hidden">
-                            <BoardCardSection title="card.Comments">
-                                <SkeletonBoardCommentList />
-                            </BoardCardSection>
-                        </Box>
-                        <Box className="sm:hidden">
-                            <BoardCardSection title="card.Actions" titleClassName="mb-2">
-                                <SkeletonBoardCardActionList />
-                            </BoardCardSection>
-                        </Box>
-                    </Flex>
-                    <Box w="full" maxW={{ sm: "40" }} className="hidden shrink-0 sm:block">
-                        <Box z="10" display="inline-block" w="full">
-                            <BoardCardSection title="card.Actions" titleClassName="mb-2">
-                                <SkeletonBoardCardActionList />
-                            </BoardCardSection>
-                        </Box>
                     </Box>
+                    <Skeleton className="h-4 w-3/4 max-w-96" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-4 w-2/5" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-3 w-5/6" />
+                    <Skeleton className="mt-2 h-8 w-full" />
                 </Flex>
             </Box>
-            <Flex justify="center" className="pointer-events-none z-[110] shrink-0">
-                <Box className="pointer-events-auto mb-3 rounded-full border bg-background px-3 py-2 shadow-lg sm:mb-4">
-                    <Flex gap="2">
-                        <Skeleton className="h-9 w-28 rounded-full" />
-                        <Skeleton className="h-9 w-28 rounded-full" />
-                    </Flex>
+            <Flex justify="center" aria-hidden="true" className="shrink-0">
+                <Box className="flex w-full max-w-full gap-1 rounded-2xl border bg-background p-1 shadow-lg md:w-auto md:rounded-full">
+                    <Skeleton className="h-10 w-20 flex-1 rounded-xl md:flex-none md:rounded-full" />
+                    <Skeleton className="h-10 w-20 flex-1 rounded-xl md:flex-none md:rounded-full" />
                 </Box>
             </Flex>
         </Flex>
@@ -354,6 +381,10 @@ export function SkeletonBoardCard(): React.JSX.Element {
 }
 
 interface IBoardCardResultProps {
+    lens: CardWorkbenchLens;
+    setLens: (lens: CardWorkbenchLens) => void;
+    sectionLoading: boolean;
+    whispersAllowed?: boolean;
     executionReceipts?: IGetCardDetailsResponse["execution_receipts"];
     linkedWikis?: IGetCardDetailsResponse["linked_wikis"];
     isExpanded: bool;
@@ -374,11 +405,15 @@ function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
 }
 
 function BoardTaskCardResult({
+    lens,
+    setLens,
+    sectionLoading,
     isExpanded,
     setIsExpanded,
     onClose,
     onFlip,
     onEditModeStateChange,
+    whispersAllowed = false,
     executionReceipts = [],
     linkedWikis = [],
 }: IBoardCardResultProps): React.JSX.Element {
@@ -387,6 +422,7 @@ function BoardTaskCardResult({
     const { boardChat } = useBoardController();
     const { cancelSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
+    const lensID = useId();
     const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const title = card.useField("title");
@@ -412,44 +448,68 @@ function BoardTaskCardResult({
     const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
     const contentViewportRef = useRef<HTMLDivElement | null>(null);
 
-    useUnreadChangeNavigation();
+    useEffect(() => {
+        if (isCardEditing && lens !== "history") setLens("history");
+    }, [isCardEditing, lens, setLens]);
 
+    type NavigationIntent = { cardUID: string; section: string; blockUID?: string; commentUID?: string; unread?: boolean };
+    const [navigationIntent, setNavigationIntent] = useState<NavigationIntent | null>(null);
+    const navigateUnread = useCallback(
+        (section: "comments" | "description", commentUID?: string) => {
+            setLens("history");
+            setNavigationIntent({ cardUID: card.uid, section, commentUID, unread: true });
+        },
+        [card, setLens]
+    );
+    useUnreadChangeNavigation(navigateUnread);
     useEffect(() => {
         const openOutlineSection = (event: Event) => {
-            const { cardUID, section, blockUID, commentUID } = (
-                event as CustomEvent<{ cardUID: string; section: string; blockUID?: string; commentUID?: string }>
-            ).detail;
-            if (cardUID !== card.uid) return;
-            if (section === "comments") setIsCommentPanelOpen(true);
-            requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
-                    const target = commentUID
-                        ? ([...document.querySelectorAll<HTMLElement>("[data-card-comment-uid]")].find(
-                              (element) => element.dataset.cardCommentUid === commentUID && element.getBoundingClientRect().width > 0
-                          ) ??
-                          [...document.querySelectorAll<HTMLElement>("[data-card-outline-section=comments]")].find(
-                              (element) => element.getBoundingClientRect().width > 0
-                          ))
-                        : blockUID
-                          ? [...document.querySelectorAll<HTMLElement>("[data-card-block-uid]")].find(
-                                (element) => element.dataset.cardBlockUid === blockUID && element.getBoundingClientRect().width > 0
-                            )
-                          : [...document.querySelectorAll<HTMLElement>(`[data-card-outline-section="${section}"]`)].find(
-                                (element) => element.getBoundingClientRect().width > 0
-                            );
-                    const viewport = target?.closest<HTMLElement>("[data-card-content-viewport]");
-                    if (target && viewport) {
-                        viewport.scrollTop += target.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
-                    } else {
-                        target?.scrollIntoView({ behavior: "auto", block: "start" });
-                    }
-                    target?.focus({ preventScroll: true });
-                })
-            );
+            const intent = (event as CustomEvent<NavigationIntent>).detail;
+            if (intent.cardUID !== card.uid) return;
+            setLens("history");
+            setNavigationIntent(intent);
         };
         window.addEventListener(WORKBENCH_OUTLINE_EVENT, openOutlineSection);
         return () => window.removeEventListener(WORKBENCH_OUTLINE_EVENT, openOutlineSection);
-    }, [card, setIsCommentPanelOpen]);
+    }, [card, setLens]);
+    useEffect(() => {
+        if (!navigationIntent || navigationIntent.cardUID !== card.uid || lens !== "history" || sectionLoading) return;
+        if (navigationIntent.section === "comments") setIsCommentPanelOpen(true);
+        const surface = commentSurfaceRef.current;
+        if (!surface) return;
+        const focusTarget = () => {
+            const candidates = navigationIntent.commentUID
+                ? surface.querySelectorAll<HTMLElement>("[data-card-comment-uid]")
+                : navigationIntent.blockUID
+                  ? surface.querySelectorAll<HTMLElement>("[data-card-block-uid]")
+                  : surface.querySelectorAll<HTMLElement>("[data-card-outline-section]");
+            const target = [...candidates].find(
+                (element) =>
+                    element.getBoundingClientRect().width > 0 &&
+                    (navigationIntent.commentUID
+                        ? element.dataset.cardCommentUid === navigationIntent.commentUID
+                        : navigationIntent.blockUID
+                          ? element.dataset.cardBlockUid === navigationIntent.blockUID
+                          : element.dataset.cardOutlineSection === navigationIntent.section)
+            );
+            if (!target) return;
+            const viewport = target.closest<HTMLElement>("[data-card-content-viewport]");
+            if (viewport) viewport.scrollTop += target.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+            else target.scrollIntoView({ behavior: "auto", block: "start" });
+            target.focus({ preventScroll: true });
+            if (navigationIntent.unread) highlightUnreadTarget(target);
+            setNavigationIntent(null);
+        };
+        const observer = new MutationObserver(focusTarget);
+        observer.observe(surface, { childList: true, subtree: true });
+        const frame = requestAnimationFrame(focusTarget);
+        const timeout = window.setTimeout(() => setNavigationIntent(null), 4000);
+        return () => {
+            observer.disconnect();
+            cancelAnimationFrame(frame);
+            window.clearTimeout(timeout);
+        };
+    }, [navigationIntent, card, lens, sectionLoading, setIsCommentPanelOpen, commentSurfaceRef]);
 
     useEffect(() => {
         return () => {
@@ -478,7 +538,7 @@ function BoardTaskCardResult({
     return (
         <>
             {hasRunningBot && <ShineBorder className="z-[999999]" />}
-            <Flex direction="col" className="h-full min-h-0 gap-2">
+            <Flex direction="col" className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2">
                 <Flex className={cn("min-h-0 min-w-0 flex-1", isExpanded ? "overflow-hidden" : "overflow-visible")}>
                     <Box
                         ref={commentSurfaceRef}
@@ -538,7 +598,6 @@ function BoardTaskCardResult({
                                 </Flex>
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <CardTimestamps card={card} />
-                                    <CardColumnHistory card={card} />
                                 </div>
                                 <Flex items="start" gap="1" className="absolute right-0 top-0 !mt-0 pl-3">
                                     {isExpanded && (
@@ -589,148 +648,131 @@ function BoardTaskCardResult({
                                     )}
                                 </Flex>
                             </Dialog.Header>
-                            <Flex gap="3" direction={{ initial: "col-reverse", sm: "row" }} className="min-h-0 flex-1">
-                                <Box data-card-content-frame="" className="relative min-h-0 min-w-0 flex-1 pl-10">
+                            <CardLensTabs idPrefix={lensID} lens={lens} onChange={setLens} disabled={isCardEditing} />
+                            <Flex gap="3" direction={commentLayoutMode === "panel" ? "row" : "col"} className="min-h-0 flex-1">
+                                <Box data-card-content-frame="" className={cn("relative min-h-0 min-w-0 flex-1", lens === "history" && "pl-10")}>
                                     <Box
                                         ref={contentViewportRef}
                                         data-card-content-viewport=""
-                                        role="region"
+                                        role="tabpanel"
+                                        id={`${lensID}-panel`}
+                                        aria-labelledby={`${lensID}-${lens}`}
+                                        aria-busy={sectionLoading}
                                         aria-label={title}
                                         tabIndex={0}
                                         className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                                     >
                                         <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
-                                            {visibility !== "PRIVATE" && <BoardCardSignalSection />}
-                                            <BoardCardAppResourceSection />
-                                            {isCheckCardView ? (
-                                                <BoardCardCheckBody key={`board-card-check-body-${card.uid}`} scrollParentRef={contentViewportRef} />
-                                            ) : (
+                                            <BoardCardMobileActions />
+                                            <CardWorkbenchLenses card={card} lens={lens} receipts={executionReceipts} />
+                                            {sectionLoading && <p role="status">{t("common.Loading...")}</p>}
+                                            {!sectionLoading && lens === "execution" && (
                                                 <>
-                                                    <Flex direction={{ initial: "col", sm: "row" }} gap="4">
-                                                        {visibility !== "PRIVATE" && (
-                                                            <BoardCardSection title="card.Members" className="sm:w-1/2" contentClassName="flex gap-1">
-                                                                <BoardCardMemberList key={`board-card-member-list-${card.uid}`} />
-                                                            </BoardCardSection>
-                                                        )}
-                                                        <BoardCardSection title="card.Deadline" className="sm:w-1/2">
-                                                            <BoardCardDeadline key={`board-card-deadline-${card.uid}`} />
-                                                        </BoardCardSection>
-                                                    </Flex>
-                                                    <BoardTaskMetadataSection cardUID={card.uid} />
-                                                    {linkedWikis.length > 0 && (
-                                                        <BoardCardSection title="wiki.Linked wiki">
-                                                            <ul className="space-y-1 text-sm">
-                                                                {linkedWikis.map((wiki) => (
-                                                                    <li key={wiki.wiki_uid}>
-                                                                        <a
-                                                                            className="text-primary hover:underline"
-                                                                            href={ROUTES.BOARD.WIKI_PAGE(projectUID, wiki.wiki_uid)}
-                                                                        >
-                                                                            {wiki.title}
-                                                                        </a>
-                                                                    </li>
-                                                                ))}
-                                                            </ul>
-                                                        </BoardCardSection>
-                                                    )}
-                                                    <BoardCardMobileActions />
-                                                    <BoardCardSection
-                                                        title="card.Description"
-                                                        className="relative min-h-56"
-                                                        data-card-outline-section="description"
-                                                        tabIndex={-1}
-                                                    >
-                                                        <BoardCardDescription
-                                                            key={`board-card-description-${card.uid}`}
-                                                            scrollParentRef={contentViewportRef}
-                                                        />
-                                                    </BoardCardSection>
-                                                    <CardAppInteractions
-                                                        projectUID={projectUID}
-                                                        cardUID={card.uid}
-                                                        userUID={currentUser.uid}
-                                                        canRespond={canEditCard && !card.archived_at}
-                                                    />
-                                                    <CardAppArchiveReceipts projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} />
-                                                    {executionReceipts.length > 0 && (
-                                                        <BoardCardSection title="card.Execution records">
-                                                            <div className="space-y-3">
-                                                                {executionReceipts.map(({ generation, receipt, checklist_projection }) => (
-                                                                    <div key={generation} className="rounded-md border p-3 text-sm">
-                                                                        <div className="font-medium">
-                                                                            #{generation} · {receipt.status}
-                                                                        </div>
-                                                                        <p className="mt-1 whitespace-pre-wrap">{receipt.summary}</p>
-                                                                        {receipt.artifacts.map((artifact) => (
-                                                                            <a
-                                                                                key={artifact.url}
-                                                                                href={artifact.url}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="mt-1 block break-all underline"
-                                                                            >
-                                                                                {artifact.type}: {artifact.url}
-                                                                            </a>
-                                                                        ))}
-                                                                        {checklist_projection?.length > 0 && (
-                                                                            <ul
-                                                                                className="mt-2 space-y-1"
-                                                                                aria-label={t("card.Execution evidence checklist")}
-                                                                            >
-                                                                                {checklist_projection.map((item) => (
-                                                                                    <li key={item.item_uid}>
-                                                                                        {item.is_checked ? "☑" : "☐"} {item.item_uid}: {item.kind}
-                                                                                        {item.refs.length > 0 && ` · ${item.refs.join(", ")}`}
-                                                                                    </li>
-                                                                                ))}
-                                                                            </ul>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </BoardCardSection>
-                                                    )}
-                                                    {checklists.length > 0 && (
-                                                        <BoardCardSection
-                                                            title="card.Checklists"
-                                                            data-card-outline-section="checklists"
-                                                            tabIndex={-1}
-                                                        >
-                                                            <BoardCardChecklistGroup key={`board-card-checklist-${card.uid}`} />
-                                                        </BoardCardSection>
-                                                    )}
-                                                    {attachments.length > 0 && (
-                                                        <BoardCardSection
-                                                            title="card.Attached files"
-                                                            data-card-outline-section="attachments"
-                                                            tabIndex={-1}
-                                                        >
-                                                            <BoardCardAttachmentList key={`board-card-attachment-list-${card.uid}`} />
-                                                        </BoardCardSection>
-                                                    )}
+                                                    <BoardCardDeadline key={`board-card-deadline-${card.uid}`} />
+                                                    {visibility !== "PRIVATE" && <BoardCardMemberList key={`board-card-member-list-${card.uid}`} />}
+                                                    {checklists.length > 0 && <BoardCardChecklistGroup key={`board-card-checklist-${card.uid}`} />}
                                                 </>
                                             )}
-                                            <BoardCardMobileComments scrollableRef={contentViewportRef} />
+                                            {!sectionLoading && lens === "history" && (
+                                                <>
+                                                    <CardColumnHistory card={card} />
+                                                    {isCheckCardView ? (
+                                                        <BoardCardCheckBody
+                                                            key={`board-card-check-body-${card.uid}`}
+                                                            scrollParentRef={contentViewportRef}
+                                                        />
+                                                    ) : (
+                                                        <>
+                                                            <Flex direction={{ initial: "col", sm: "row" }} gap="4">
+                                                                {visibility !== "PRIVATE" && (
+                                                                    <BoardCardSection
+                                                                        title="card.Members"
+                                                                        className="sm:w-1/2"
+                                                                        contentClassName="flex gap-1"
+                                                                    >
+                                                                        <BoardCardMemberList key={`board-card-member-list-${card.uid}`} />
+                                                                    </BoardCardSection>
+                                                                )}
+                                                                <BoardCardSection title="card.Deadline" className="sm:w-1/2">
+                                                                    <BoardCardDeadline key={`board-card-deadline-${card.uid}`} />
+                                                                </BoardCardSection>
+                                                            </Flex>
+                                                            <BoardTaskMetadataSection cardUID={card.uid} />
+                                                            {linkedWikis.length > 0 && (
+                                                                <BoardCardSection title="wiki.Linked wiki">
+                                                                    <ul className="space-y-1 text-sm">
+                                                                        {linkedWikis.map((wiki) => (
+                                                                            <li key={wiki.wiki_uid}>
+                                                                                <a
+                                                                                    className="text-primary hover:underline"
+                                                                                    href={ROUTES.BOARD.WIKI_PAGE(projectUID, wiki.wiki_uid)}
+                                                                                >
+                                                                                    {wiki.title}
+                                                                                </a>
+                                                                            </li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </BoardCardSection>
+                                                            )}
+                                                            <BoardCardSection
+                                                                title="card.Description"
+                                                                className="relative min-h-56"
+                                                                data-card-outline-section="description"
+                                                                tabIndex={-1}
+                                                            >
+                                                                <BoardCardDescription
+                                                                    key={`board-card-description-${card.uid}`}
+                                                                    scrollParentRef={contentViewportRef}
+                                                                />
+                                                            </BoardCardSection>
+                                                            <CardAppArchiveReceipts
+                                                                projectUID={projectUID}
+                                                                cardUID={card.uid}
+                                                                userUID={currentUser.uid}
+                                                            />
+                                                            {checklists.length > 0 && (
+                                                                <BoardCardSection
+                                                                    title="card.Checklists"
+                                                                    data-card-outline-section="checklists"
+                                                                    tabIndex={-1}
+                                                                >
+                                                                    <BoardCardChecklistGroup key={`board-card-checklist-${card.uid}`} />
+                                                                </BoardCardSection>
+                                                            )}
+                                                            {attachments.length > 0 && (
+                                                                <BoardCardSection
+                                                                    title="card.Attached files"
+                                                                    data-card-outline-section="attachments"
+                                                                    tabIndex={-1}
+                                                                >
+                                                                    <BoardCardAttachmentList key={`board-card-attachment-list-${card.uid}`} />
+                                                                </BoardCardSection>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    {whispersAllowed && visibility !== "PRIVATE" && <BoardCardWhispers />}
+                                                    <BoardCardMobileComments scrollableRef={contentViewportRef} />
+                                                </>
+                                            )}
                                         </Flex>
                                     </Box>
                                 </Box>
-                                <BoardCardCommentPanel />
+                                <BoardCardCommentPanel enabled={lens === "history"} />
                                 {visibility !== "PRIVATE" && !!boardChat && <BoardCardExpandedChatScope isExpanded={isExpanded} />}
-                                <Box w="full" maxW={{ sm: "40" }} className={cn("hidden shrink-0 sm:block", !isActionPanelOpen && "sm:hidden")}>
+                                <Box
+                                    w="full"
+                                    maxW={{ sm: "40" }}
+                                    className={cn("shrink-0", (commentLayoutMode !== "panel" || !isActionPanelOpen) && "hidden")}
+                                >
                                     <BoardCardSection title="card.Actions" titleClassName="mb-2">
                                         <BoardCardActionList key={`board-card-action-list-${card.uid}`} />
                                     </BoardCardSection>
                                 </Box>
                             </Flex>
-                            {commentLayoutMode === "mobile" && (
-                                <Box className="pt-3">
-                                    <BoardCommentForm variant="mobile" />
-                                </Box>
-                            )}
                         </Box>
                     </Box>
                 </Flex>
-                <BoardCardFloatingNav isExpanded={isExpanded} />
+                <BoardCardFloatingNav isExpanded={isExpanded} lens={lens} setLens={setLens} sectionLoading={sectionLoading} />
             </Flex>
         </>
     );
@@ -738,14 +780,14 @@ function BoardTaskCardResult({
 
 function BoardCardMobileActions(): React.JSX.Element | null {
     const { card } = useBoardCard();
-    const { isActionPanelOpen } = useBoardCardPanel();
+    const { isActionPanelOpen, commentLayoutMode } = useBoardCardPanel();
 
-    if (!isActionPanelOpen) {
+    if (!isActionPanelOpen || commentLayoutMode === "panel") {
         return null;
     }
 
     return (
-        <Box className="sm:hidden">
+        <Box>
             <BoardCardSection title="card.Actions" titleClassName="mb-2">
                 <BoardCardActionList key={`board-card-action-list-mobile-${card.uid}`} />
             </BoardCardSection>
@@ -770,13 +812,14 @@ function BoardCardMobileComments({ scrollableRef }: { scrollableRef?: React.RefO
     );
 }
 
-function BoardCardCommentPanel(): React.JSX.Element {
+function BoardCardCommentPanel({ enabled }: { enabled: boolean }): React.JSX.Element {
     const { card } = useBoardCard();
     const { isCommentPanelOpen, commentLayoutMode } = useBoardCardPanel();
     const commentViewportRef = useRef<HTMLDivElement | null>(null);
     const [t] = useTranslation();
     const isPanelLayout = commentLayoutMode === "panel";
-    const isOpen = isPanelLayout && isCommentPanelOpen;
+    const showComposer = enabled && isCommentPanelOpen;
+    const isOpen = showComposer && isPanelLayout;
     const panelRef = useRef<HTMLDivElement | null>(null);
     const dragRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
     const [width, setWidth] = useState(readCommentPanelWidth);
@@ -872,11 +915,11 @@ function BoardCardCommentPanel(): React.JSX.Element {
             tabIndex={-1}
             className={cn(
                 "relative min-h-0 shrink-0 overflow-hidden",
-                !isPanelLayout && "hidden",
+                !isPanelLayout && "w-full",
                 isResizing ? "transition-none" : "transition-[width,min-width] duration-300 motion-reduce:transition-none"
             )}
-            style={{ width: isOpen ? width : 0, minWidth: isOpen ? width : 0 }}
-            aria-hidden={!isOpen}
+            style={isPanelLayout ? { width: isOpen ? width : 0, minWidth: isOpen ? width : 0 } : undefined}
+            aria-hidden={!showComposer}
         >
             {isOpen && (
                 <div
@@ -911,15 +954,15 @@ function BoardCardCommentPanel(): React.JSX.Element {
             )}
             <Box
                 className={cn(
-                    "h-full",
-                    "overflow-hidden bg-background transition-opacity duration-200",
-                    isOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                    isPanelLayout && "h-full",
+                    "overflow-hidden bg-background transition-opacity duration-200 motion-reduce:transition-none",
+                    showComposer ? "opacity-100" : "pointer-events-none h-0 opacity-0"
                 )}
             >
                 <Flex direction="col" className="h-full min-h-0">
-                    <Box>{t("card.Comments")}</Box>
-                    <Box className="px-4 py-3">
-                        <BoardCommentForm variant="panel" />
+                    {isPanelLayout && <Box>{t("card.Comments")}</Box>}
+                    <Box className={isPanelLayout ? "px-4 py-3" : undefined}>
+                        {showComposer && <BoardCommentForm variant={isPanelLayout ? "panel" : "mobile"} />}
                     </Box>
                     <ScrollArea.Root className="min-h-0 flex-1" viewportRef={commentViewportRef}>
                         {isOpen && (
@@ -960,9 +1003,19 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
     return null;
 }
 
-function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.Element {
+function BoardCardFloatingNav({
+    isExpanded,
+    lens,
+    setLens,
+    sectionLoading,
+}: {
+    isExpanded: bool;
+    lens: CardWorkbenchLens;
+    setLens: (lens: CardWorkbenchLens) => void;
+    sectionLoading: boolean;
+}): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
-    const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel, commentLayoutMode } = useBoardCardPanel();
+    const { isCommentPanelOpen, setIsCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
     const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
     const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
@@ -971,7 +1024,7 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
     const { mutateAsync: replaceContentBlocksAsync } = useReplaceCardContentBlocks({ interceptToast: true });
 
     const handleSaveEditing = useCallback(async () => {
-        if (isSaving) {
+        if (isSaving || sectionLoading) {
             return;
         }
 
@@ -1029,7 +1082,7 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
         } finally {
             setIsSaving(false);
         }
-    }, [card, changeCardDetailsMutateAsync, isSaving, leaveCardEditMode, projectUID, replaceContentBlocksAsync, saveSections]);
+    }, [card, changeCardDetailsMutateAsync, isSaving, leaveCardEditMode, projectUID, replaceContentBlocksAsync, saveSections, sectionLoading]);
 
     const handleCancelEditing = useCallback(() => {
         try {
@@ -1079,7 +1132,7 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
                                     label: t("common.Save"),
                                     icon: "save",
                                     variant: "default" as const,
-                                    disabled: isSaving,
+                                    disabled: isSaving || sectionLoading,
                                     onClick: handleSaveEditing,
                                 },
                             ]),
@@ -1094,10 +1147,13 @@ function BoardCardFloatingNav({ isExpanded }: { isExpanded: bool }): React.JSX.E
                         key: "comments",
                         label: t("card.Comments"),
                         icon: "message-square",
-                        active: isCommentPanelOpen,
+                        active: lens === "history" && isCommentPanelOpen,
                         onClick: () => {
-                            toggleCommentPanel();
-                            if (!isCommentPanelOpen && commentLayoutMode === "mobile") {
+                            if (lens !== "history") {
+                                setLens("history");
+                                setIsCommentPanelOpen(true);
+                            } else toggleCommentPanel();
+                            if (lens !== "history" || !isCommentPanelOpen) {
                                 window.dispatchEvent(
                                     new CustomEvent(WORKBENCH_OUTLINE_EVENT, { detail: { cardUID: card.uid, section: "comments" } })
                                 );
@@ -1131,27 +1187,3 @@ const BoardCardSection = forwardRef<HTMLDivElement, IBoardCardSectionProps>(
 );
 
 export default BoardCard;
-
-function BoardCardSignalSection() {
-    const { projectUID, card, canEditCard, socket } = useBoardCard();
-    const client = useQueryClient();
-    const cardRevision = card.useField("last_change_seq");
-    return (
-        <CardSignalEvidence
-            cardRevision={cardRevision}
-            socket={socket}
-            projectUID={projectUID}
-            cardUID={card.uid}
-            canEdit={canEditCard}
-            onChanged={() => {
-                void client.invalidateQueries({ queryKey: [`get-card-details-${projectUID}-${card.uid}`] });
-            }}
-        />
-    );
-}
-
-function BoardCardAppResourceSection() {
-    const { projectUID, card, currentUser, hasRoleAction } = useBoardCard();
-    if (!hasRoleAction(ProjectRole.EAction.Update)) return null;
-    return <CardAppResources projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} />;
-}

@@ -105,12 +105,15 @@ class Auth:
             user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
             if not user:
                 return InvalidTokenError("Invalid token")
-
-            Cache.set(cache_key, user, 60 * 5)
-
-            return user
         except Exception:
             return None
+
+        try:
+            Cache.set(cache_key, user, 60 * 5)
+        except Exception:
+            pass
+
+        return user
 
     @staticmethod
     def get_bot_by_api_token(api_token: str) -> Bot | None:
@@ -137,12 +140,15 @@ class Auth:
             bot = Auth.__get_model_by_columns(Bot, Bot.column("app_api_token") == api_token)
             if not bot:
                 return None
-
-            Cache.set(cache_key, bot, 60 * 5)
-
-            return bot
         except Exception:
             return None
+
+        try:
+            Cache.set(cache_key, bot, 60 * 5)
+        except Exception:
+            pass
+
+        return bot
 
     @staticmethod
     def reset_user(user: User) -> None:

@@ -243,3 +243,15 @@ def test_execution_rejects_resource_approved_for_a_prior_connection_identity(boa
     token = issue_connection_credential(board[1], connection.id)["token"]
     with pytest.raises(AppGovernanceDenied):
         evaluate_current_execution_grant(token, board[2].id, card.id, 3)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_completed_workflow_policy_revokes_execution_authority(board):
+    _, _, _, _, card, token = grant_scope(board)
+    assert evaluate_current_execution_grant(token, board[2].id, card.id, 3)["generation"] == 3
+    with DbSession.atomic() as db:
+        stage = board[6][0]
+        stage.counts_as_completed = True
+        db.update(stage)
+    with pytest.raises(AppGovernanceDenied):
+        evaluate_current_execution_grant(token, board[2].id, card.id, 3)

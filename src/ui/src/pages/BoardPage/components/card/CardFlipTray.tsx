@@ -1,7 +1,6 @@
 import { flipDraftKey, useCardFlipDraftStore } from "./CardFlipDraftStore";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
-import { isAxiosError } from "axios";
 import { Reorder } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import useCardCommentDraftStore from "@/core/stores/CardCommentDraftStore";
@@ -9,7 +8,7 @@ import { captureCardOrigin } from "../board/CardAnimation";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
 import Popover from "@/components/base/Popover";
-import { api } from "@/core/helpers/Api";
+import { getAvailableCards } from "@/pages/DashboardPage/components/CardAvailability";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { useCardFlipStore, useFlippedCards, type IFlippedCard } from "./CardFlipStore";
@@ -109,7 +108,9 @@ export default function CardFlipTray({
     const drafts = useCardCommentDraftStore((state) => state.draftMap);
     const hasDraft = (card: IFlippedCard) =>
         !!Object.keys(suspendedDrafts[flipDraftKey(userUID, projectUID, card.uid)] ?? {}).length ||
-        !!(drafts[`comment-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(projectUID, card.uid)).trim();
+        !!(
+            drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
+        ).trim();
     const navigate = usePageNavigateRef();
     const [t, i18n] = useTranslation();
     const didDrag = useRef(false);
@@ -141,21 +142,15 @@ export default function CardFlipTray({
             if (running || controller.signal.aborted) return;
             running = true;
             try {
-                const available = new Set<string>();
-                for (let offset = 0; offset < uids.length; offset += 200) {
-                    const response = await api.post<{ card_uids: string[] }>(
-                        `/board/${encodeURIComponent(projectUID)}/cards/available`,
-                        { card_uids: uids.slice(offset, offset + 200) },
-                        { signal: controller.signal, env: { interceptToast: true } as never }
-                    );
-                    if (!Array.isArray(response.data.card_uids) || !response.data.card_uids.every((uid) => typeof uid === "string")) return;
-                    response.data.card_uids.forEach((uid) => available.add(uid));
+                const result = await getAvailableCards(
+                    uids.map((card_uid) => ({ project_uid: projectUID, card_uid })),
+                    controller.signal
+                );
+                if (!controller.signal.aborted && result !== null) {
+                    const checked = new Set(uids.filter((uid) => result.checked.has(`${projectUID}:${uid}`)));
+                    const available = new Set(uids.filter((uid) => result.available.has(`${projectUID}:${uid}`)));
+                    if ([...checked].some((uid) => !available.has(uid))) useCardFlipStore.getState().retain(userUID, projectUID, available, checked);
                 }
-                if (!controller.signal.aborted && uids.some((uid) => !available.has(uid)))
-                    useCardFlipStore.getState().retain(userUID, projectUID, available);
-            } catch (error) {
-                if (!controller.signal.aborted && isAxiosError(error) && error.response?.status === 403)
-                    useCardFlipStore.getState().retain(userUID, projectUID, new Set());
             } finally {
                 running = false;
             }

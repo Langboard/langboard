@@ -8,6 +8,7 @@
   "Server has been temporarily disabled. Please try again later.": "Server has been temporarily disabled. Please try again later.",
   "Download failed.": "Download failed.",
   "Failed to upload attachment. File size may be too large (Max size is {size}MB).": "Failed to upload attachment. File size may be too large (Max size is {{size, number}}MB).",
+  "{num} files could not be uploaded.": "{{num, number}} files could not be uploaded.",
   "{num} files could not be uploaded. File size may be too large (Max size is {size}MB).": "{{num, number}} files could not be uploaded. File size may be too large (Max size is {{size, number}}MB).",
   "requests": {
     "AU1001": "You are not authorized to access this feature.",
@@ -81,5 +82,16 @@
     "OP1002": "Upload failed. Please try again.",
     "OP1003": "You can't delete yourself."
   },
-  "This section failed to render.": "This section failed to render."
+  "This section failed to render.": "This section failed to render.",
+  "form": {
+    "invalid": "This value is not valid",
+    "patternMismatch": "This value does not match the required pattern",
+    "rangeOverflow": "This value is too large",
+    "rangeUnderflow": "This value is too small",
+    "stepMismatch": "This value does not match the required step",
+    "tooLong": "This value is too long",
+    "tooShort": "This value is too short",
+    "typeMismatch": "This value does not match the required type",
+    "valueMissing": "This value is missing"
+  }
 }

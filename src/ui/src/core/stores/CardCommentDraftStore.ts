@@ -3,42 +3,50 @@ import { immer } from "zustand/middleware/immer";
 
 interface ICardCommentDraftStore {
     draftMap: Record<string, string | undefined>;
-    getDraft: (projectUID: string, cardUID: string) => string;
-    saveDraft: (projectUID: string, cardUID: string, content: string) => void;
-    clearDraft: (projectUID: string, cardUID: string) => void;
+    getDraft: (userUID: string, projectUID: string, cardUID: string) => string;
+    saveDraft: (userUID: string, projectUID: string, cardUID: string, content: string) => void;
+    clearDraft: (userUID: string, projectUID: string, cardUID: string) => void;
 }
 
-const getCommentDraftStorageKey = (projectUID: string, cardUID: string) => `comment-${projectUID}-${cardUID}`;
+const getCommentDraftStorageKey = (userUID: string, projectUID: string, cardUID: string) => `comment-${userUID}-${projectUID}-${cardUID}`;
 
 const useCardCommentDraftStore = create(
     immer<ICardCommentDraftStore>((set, get) => ({
         draftMap: {},
-        getDraft: (projectUID, cardUID) => {
-            const key = getCommentDraftStorageKey(projectUID, cardUID);
+        getDraft: (userUID, projectUID, cardUID) => {
+            const key = getCommentDraftStorageKey(userUID, projectUID, cardUID);
             if (key in get().draftMap) {
                 return get().draftMap[key] ?? "";
             }
-            return sessionStorage.getItem(key) ?? "";
+            try {
+                return sessionStorage.getItem(key) ?? "";
+            } catch {
+                return "";
+            }
         },
-        saveDraft: (projectUID, cardUID, content) => {
-            const key = getCommentDraftStorageKey(projectUID, cardUID);
+        saveDraft: (userUID, projectUID, cardUID, content) => {
+            const key = getCommentDraftStorageKey(userUID, projectUID, cardUID);
             set((state) => {
                 state.draftMap[key] = content;
             });
 
-            if (content.length > 0) {
-                sessionStorage.setItem(key, content);
-                return;
+            try {
+                if (content.length > 0) sessionStorage.setItem(key, content);
+                else sessionStorage.removeItem(key);
+            } catch {
+                // Keep the account-scoped in-memory draft when storage is unavailable.
             }
-
-            sessionStorage.removeItem(key);
         },
-        clearDraft: (projectUID, cardUID) => {
-            const key = getCommentDraftStorageKey(projectUID, cardUID);
+        clearDraft: (userUID, projectUID, cardUID) => {
+            const key = getCommentDraftStorageKey(userUID, projectUID, cardUID);
             set((state) => {
-                delete state.draftMap[key];
+                state.draftMap[key] = "";
             });
-            sessionStorage.removeItem(key);
+            try {
+                sessionStorage.removeItem(key);
+            } catch {
+                // The in-memory draft is already cleared.
+            }
         },
     }))
 );

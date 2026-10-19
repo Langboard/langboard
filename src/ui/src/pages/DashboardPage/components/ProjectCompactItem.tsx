@@ -1,15 +1,15 @@
+import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/core/utils/ComponentUtils";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
-import IconComponent from "@/components/base/IconComponent";
 import { Project } from "@/core/models";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
-import { Utils } from "@langboard/core/utils";
+import { formatDateDistance } from "@/core/utils/LocaleFormat";
 import ProjectItemStarButton from "@/pages/DashboardPage/components/ProjectItemStarButton";
 import ContextMenu from "@/components/base/ContextMenu";
 import { projectTypeLabel } from "@/pages/DashboardPage/components/ProjectTypeCopy";
@@ -19,10 +19,11 @@ import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
 interface IProjectCompactItemProps {
     project: Project.TModel;
     dense?: boolean;
+    showRelatedBadge?: boolean;
     updateStarredProjects: React.DispatchWithoutAction;
 }
 
-const ProjectCompactItem = memo(({ project, updateStarredProjects, dense }: IProjectCompactItemProps): React.JSX.Element => {
+const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRelatedBadge }: IProjectCompactItemProps): React.JSX.Element => {
     const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
     const [isUpdating, setIsUpdating] = useState(false);
@@ -36,6 +37,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense }: IPro
             <ContextMenu.Root>
                 <ContextMenu.Trigger asChild>
                     <Flex
+                        data-project-uid={project.uid}
                         items="center"
                         style={{ containerType: "inline-size", containerName: "project-workload" }}
                         className="group min-w-0 rounded-xl border border-transparent pr-2 hover:border-border hover:bg-accent/70"
@@ -53,7 +55,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense }: IPro
                                 justify="center"
                                 className={cn("relative shrink-0 rounded-lg bg-secondary text-secondary-foreground", dense ? "size-7" : "size-9")}
                             >
-                                <IconComponent icon="folder-kanban" size="4" />
+                                <ProjectAvatar project={project} className="size-full rounded-lg object-cover" />
                                 {boardHasUnread ? (
                                     <span
                                         aria-label={t("board.Unread changes")}
@@ -66,10 +68,13 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense }: IPro
                                 <Box className="truncate text-sm font-semibold" title={title}>
                                     {title}
                                 </Box>
+                                {showRelatedBadge && project.starred && project.related_to_current_user && (
+                                    <span className="text-xs text-muted-foreground">{t("dashboard.Related to me")}</span>
+                                )}
                                 <Flex items="center" gap="1.5" className="mt-0.5 min-w-0 text-xs text-muted-foreground">
                                     <span className="truncate">{projectTypeLabel(t, projectType)}</span>
                                     <span aria-hidden="true">·</span>
-                                    <span className="min-w-0 truncate">{Utils.String.formatDateDistance(i18n, t, activityAt)}</span>
+                                    <span className="min-w-0 truncate">{formatDateDistance(activityAt, i18n.language)}</span>
                                 </Flex>
                             </Box>
                         </Button>
