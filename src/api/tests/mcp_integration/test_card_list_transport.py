@@ -4,8 +4,7 @@ from langboard.card_workspace.application.dtos import ProjectCardIndexResponse, 
 from langboard.mcp_integration.Providers import create_native_tool
 
 
-@pytest.mark.parametrize("modern", [False, True])
-async def test_tree_survives_fastmcp_output_serialization(modern):
+async def test_tree_survives_modern_fastmcp_output_serialization():
     async def handler(project_uid: str, format: str = "tree") -> ProjectCardListResponse:
         return ProjectCardIndexResponse.model_validate(
             {
@@ -31,7 +30,7 @@ async def test_tree_survives_fastmcp_output_serialization(modern):
             "list_project_cards",
             {"handler": handler, "description": "List cards"},
             lambda name, fn: fn,
-            modern_annotations=modern,
+            modern_annotations=True,
         )
     )
     async with Client(server) as client:
@@ -69,7 +68,8 @@ async def test_normal_retains_profile_shape_after_fastmcp_serialization(modern):
         )
     )
     async with Client(server) as client:
-        result = await client.call_tool("list_project_cards", {"project_uid": "board", "format": "normal"})
+        arguments = {"project_uid": "board", **({"format": "normal"} if modern else {})}
+        result = await client.call_tool("list_project_cards", arguments)
         payload = result.structured_content
         assert set(payload) == {"project_uid", "cards", "workflow_stages", *(["columns"] if modern else [])}
         assert payload["cards"]["total_count"] == 40

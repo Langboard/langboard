@@ -239,9 +239,10 @@ async def test_legacy_card_list_preserves_schema_and_column_names():
         return ProjectCardIndexResponse(project_uid="p", cards=BoundedItemsDto(items=[{"uid": "x", "project_column_uid": "c"}], total_count=1, next_cursor=None, limit=20), columns={"c": {"name": "Custom"}})
 
     result = await with_legacy_card_list(handler)()
-    assert isinstance(result, dict)
-    parsed = ProjectCardListResponse.model_validate(result)
-    assert "columns" not in result
+    assert isinstance(result, ProjectCardListResponse)
+    payload = result.model_dump(mode="json")
+    parsed = ProjectCardListResponse.model_validate(payload)
+    assert "columns" not in payload
     assert parsed.cards.items[0]["project_column_name"] == "Custom"
 
 
