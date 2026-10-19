@@ -88,5 +88,25 @@
     "cancelled": "Stopped waiting. This does not cancel provider work or reverse a charge.",
     "required": "Enter a valid endpoint URL and image model ID.",
     "base_url": "Base URL"
+  },
+  "avatar": {
+    "generate": "Generate with AI",
+    "title": "Generate avatar",
+    "unavailable": "No enabled image profile is available. Your current avatar and direct upload remain available.",
+    "settings": "Image profile settings",
+    "profile": "Image profile",
+    "choose": "Choose a profile",
+    "context": "Prepare board summary",
+    "aggregate": "Local aggregate summary for your review. No external request made. Included fields:",
+    "prompt": "Prompt sent to the selected model",
+    "apply": "Apply generated avatar",
+    "square": "Square preview",
+    "restore_confirm": "Restore the previous saved avatar.",
+    "restore": "Restore previous avatar",
+    "failed": "Could not complete the request. Your current avatar is unchanged.",
+    "conflict": "The saved avatar or model changed. Current state was refreshed; review and try again.",
+    "quota": "Provider quota or rate limit reached. No automatic retry was made.",
+    "current": "Current board avatar",
+    "readback": "The request completed, but the saved avatar could not be verified. Reopen to check the current state before retrying."
   }
 }

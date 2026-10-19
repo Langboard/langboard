@@ -19,6 +19,7 @@ export interface Interface extends IBaseModel {
     email: string;
     username: string;
     avatar?: string;
+    avatar_revision?: number;
     api_key_role_actions: ApiKeyRole.TActions[];
 
     // In settings
@@ -212,6 +213,13 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
     }
     public set username(value) {
         this.update({ username: value });
+    }
+
+    public get avatar_revision() {
+        return this.getValue("avatar_revision") ?? 0;
+    }
+    public set avatar_revision(value: number) {
+        this.update({ avatar_revision: value });
     }
 
     public get avatar() {

@@ -1,10 +1,10 @@
+import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/core/utils/ComponentUtils";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
-import IconComponent from "@/components/base/IconComponent";
 import { Project } from "@/core/models";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -55,7 +55,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 justify="center"
                                 className={cn("relative shrink-0 rounded-lg bg-secondary text-secondary-foreground", dense ? "size-7" : "size-9")}
                             >
-                                <IconComponent icon="folder-kanban" size="4" />
+                                <ProjectAvatar project={project} className="size-full rounded-lg object-cover" />
                                 {boardHasUnread ? (
                                     <span
                                         aria-label={t("board.Unread changes")}

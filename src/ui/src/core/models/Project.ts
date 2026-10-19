@@ -50,6 +50,8 @@ import { ProjectRole } from "@/core/models/roles";
 export const TYPES = ["SI", "SW", "Other"];
 
 export interface Interface extends IBaseModel {
+    avatar?: string;
+    avatar_revision?: number;
     owner_uid: string;
     title: string;
     project_type: string;
@@ -158,6 +160,7 @@ class Project extends BaseModel<IStore> {
     }
 
     public static convertModel(model: IStore): Interface {
+        if (model.avatar) model.avatar = Utils.String.convertServerFileURL(model.avatar);
         if (Utils.Type.isString(model.last_viewed_at)) {
             model.last_viewed_at = new Date(model.last_viewed_at);
         }
@@ -184,6 +187,20 @@ class Project extends BaseModel<IStore> {
     }
     public set owner_uid(value) {
         this.update({ owner_uid: value });
+    }
+
+    public get avatar_revision() {
+        return this.getValue("avatar_revision") ?? 0;
+    }
+    public set avatar_revision(value: number) {
+        this.update({ avatar_revision: value });
+    }
+
+    public get avatar() {
+        return this.getValue("avatar");
+    }
+    public set avatar(value: string | undefined) {
+        this.update({ avatar: value });
     }
 
     public get title() {
