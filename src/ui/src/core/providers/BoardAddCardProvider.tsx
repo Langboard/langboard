@@ -5,6 +5,8 @@ import useChangeEditMode from "@/core/hooks/useChangeEditMode";
 import { ProjectColumn } from "@/core/models";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoard } from "@/core/providers/BoardProvider";
+import useAuthStore from "@/core/stores/AuthStore";
+import { getCardDraftStore, type IDraftScope } from "@/core/stores/CardDraftStore";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
@@ -18,6 +20,7 @@ export interface IBoardAddCardContext {
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     disableChangeModeAttr: string;
     canWrite: bool;
+    saveTitleDraft: (content: string) => void;
 }
 
 interface IBoardAddCardProviderProps {
@@ -37,6 +40,7 @@ const initialContext = {
     textareaRef: { current: null! },
     disableChangeModeAttr: "data-disable-change-mode",
     canWrite: false,
+    saveTitleDraft: () => {},
 };
 
 const BoardAddCardContext = createContext<IBoardAddCardContext>(initialContext);
@@ -57,17 +61,37 @@ export const BoardAddCardProvider = ({
     const canWrite = hasRoleAction(ProjectRole.EAction.CardWrite) && !column.is_archive;
     const { mutateAsync: createCardMutateAsync } = useCreateCard({ interceptToast: true });
     const editorName = `${column.uid}-add-card`;
-
-    const scrollToCreatedCard = (cardUID: string, attemptsLeft = 40) => {
-        if (document.getElementById(`board-card-${cardUID}`)) {
-            scrollToBottom();
+    const titleDraftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const titleDraftScopeRef = useRef<IDraftScope | null>(null);
+    titleDraftScopeRef.current = (() => {
+        const userUID = useAuthStore.getState().currentUser?.uid;
+        if (!userUID) {
+            return null;
+        }
+        return { userUID, projectUID: project.uid, kind: "card-new" as const, scopeUID: column.uid };
+    })();
+    const saveTitleDraft = (content: string) => {
+        const scope = titleDraftScopeRef.current;
+        if (!scope) {
             return;
         }
-        if (attemptsLeft > 0) {
-            window.setTimeout(() => scrollToCreatedCard(cardUID, attemptsLeft - 1), 50);
+        if (titleDraftSaveTimerRef.current) {
+            clearTimeout(titleDraftSaveTimerRef.current);
+        }
+        titleDraftSaveTimerRef.current = setTimeout(() => {
+            getCardDraftStore().saveDraft(scope, content);
+        }, 600);
+    };
+    const clearTitleDraft = () => {
+        const scope = titleDraftScopeRef.current;
+        if (titleDraftSaveTimerRef.current) {
+            clearTimeout(titleDraftSaveTimerRef.current);
+            titleDraftSaveTimerRef.current = null;
+        }
+        if (scope) {
+            getCardDraftStore().clearDraft(scope);
         }
     };
-
     const { valueRef, isEditing, setIsEditing, changeMode } = useChangeEditMode({
         canEdit: () => hasRoleAction(ProjectRole.EAction.CardWrite) && !column.is_archive,
         valueType: "textarea",
@@ -78,12 +102,17 @@ export const BoardAddCardProvider = ({
 
             setTimeout(() => {
                 if (valueRef.current) {
+                    const scope = titleDraftScopeRef.current;
+                    const draft = scope ? getCardDraftStore().getDraft(scope) : null;
+                    if (draft && draft.content && !valueRef.current.value) {
+                        valueRef.current.value = draft.content;
+                    }
                     valueRef.current.focus();
                 }
                 scrollToBottom();
             }, 0);
         },
-        save: (value, endCallback) => {
+        save: (value, _endCallback) => {
             setIsValidating(true);
 
             const promise = createCardMutateAsync({
@@ -101,13 +130,19 @@ export const BoardAddCardProvider = ({
                     handle(error);
                     return messageRef.message;
                 },
-                success: ({ uid }) => {
-                    // Card creation stays lightweight: insert into the board without opening the viewer.
-                    // The user opens the viewer only through an explicit card or widget interaction.
-                    toLastPage();
-                    scrollToCreatedCard(uid);
-                    setIsEditing(() => false);
-                    endCallback();
+                success: (data) => {
+                    clearTitleDraft();
+                    const openCard = () => {
+                        const card = document.getElementById(`board-card-${data.uid}`);
+                        if (!card) {
+                            return setTimeout(openCard, 50);
+                        }
+
+                        toLastPage();
+                        scrollToBottom();
+                        card.click();
+                    };
+                    openCard();
                     return t("successes.Card added successfully.");
                 },
                 finally: () => {
@@ -170,6 +205,7 @@ export const BoardAddCardProvider = ({
                 textareaRef: valueRef,
                 disableChangeModeAttr,
                 canWrite,
+                saveTitleDraft,
             }}
         >
             {children}

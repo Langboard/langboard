@@ -1,5 +1,12 @@
 [
   {
+    "file": "src/components/AvatarGeneration/index.tsx",
+    "line": 295,
+    "kind": "jsx-text",
+    "text": "px",
+    "reason": "Pixel unit suffix rendered after a numeric size; retained in every locale."
+  },
+  {
     "file": "src/components/Header/index.tsx",
     "line": 82,
     "kind": "jsx-text",
@@ -36,22 +43,34 @@
     "text": "x"
   },
   {
-    "file": "src/pages/DashboardPage/components/ProjectQuickSwitcher.tsx",
-    "line": 345,
-    "kind": "jsx-text",
-    "text": "⌘K / Ctrl K"
+    "file": "src/pages/AccountPage/SecretHistoryPage.tsx",
+    "line": 111,
+    "kind": "jsx-expression",
+    "text": "v"
   },
   {
-    "file": "src/pages/SettingsPage/GlobalLabelsPage.tsx",
-    "line": 220,
-    "kind": "attribute:placeholder",
-    "text": "fr, de, zh-TW…"
+    "file": "src/pages/AccountPage/SecretHistoryPage.tsx",
+    "line": 112,
+    "kind": "jsx-expression",
+    "text": "v → v"
   },
   {
-    "file": "src/pages/SettingsPage/WorkflowStagesPage.tsx",
-    "line": 247,
-    "kind": "attribute:placeholder",
-    "text": "fr"
+    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
+    "line": 255,
+    "kind": "jsx-expression",
+    "text": "GitHub · # ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
+    "line": 257,
+    "kind": "jsx-expression",
+    "text": "Dokploy ·"
+  },
+  {
+    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
+    "line": 259,
+    "kind": "jsx-expression",
+    "text": "GlitchTip · ·"
   },
   {
     "file": "src/pages/BoardPage/components/card/CardSignalEvidence.tsx",
@@ -84,46 +103,48 @@
     "text": "secret://ref/"
   },
   {
+    "file": "src/pages/BoardPage/components/task/BoardTaskMetadataSection.tsx",
+    "line": 98,
+    "kind": "attribute:label",
+    "text": "PR",
+    "reason": "Technical pull request abbreviation, retained in every locale."
+  },
+  {
+    "file": "src/pages/DashboardPage/components/ProjectQuickSwitcher.tsx",
+    "line": 345,
+    "kind": "jsx-text",
+    "text": "⌘K / Ctrl K"
+  },
+  {
     "file": "src/pages/SettingsPage/AppPackagesPage.tsx",
     "line": 208,
     "kind": "jsx-text",
     "text": "Langboard"
   },
   {
-    "file": "src/pages/AccountPage/SecretHistoryPage.tsx",
-    "line": 111,
-    "kind": "jsx-expression",
-    "text": "v"
+    "file": "src/pages/SettingsPage/GlobalLabelsPage.tsx",
+    "line": 220,
+    "kind": "attribute:placeholder",
+    "text": "fr, de, zh-TW…"
   },
   {
-    "file": "src/pages/AccountPage/SecretHistoryPage.tsx",
-    "line": 112,
-    "kind": "jsx-expression",
-    "text": "v → v"
+    "file": "src/pages/SettingsPage/KeywordSearchPage.tsx",
+    "line": 131,
+    "kind": "attribute:placeholder",
+    "text": "secret://ref/…",
+    "reason": "Technical secret-reference syntax example, not translatable prose."
   },
   {
-    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
-    "line": 255,
-    "kind": "jsx-expression",
-    "text": "GitHub · # ·"
+    "file": "src/pages/SettingsPage/WorkflowStagesPage.tsx",
+    "line": 247,
+    "kind": "attribute:placeholder",
+    "text": "fr"
   },
   {
-    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
-    "line": 257,
-    "kind": "jsx-expression",
-    "text": "Dokploy ·"
-  },
-  {
-    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
-    "line": 259,
-    "kind": "jsx-expression",
-    "text": "GlitchTip · ·"
-  },
-  {
-    "file": "src/pages/BoardPage/components/task/BoardTaskMetadataSection.tsx",
-    "line": 98,
-    "kind": "attribute:label",
-    "text": "PR",
-    "reason": "Technical pull request abbreviation, retained in every locale."
+    "file": "src/pages/SettingsPage/components/internalBots/ImageGenerationSettings.tsx",
+    "line": 200,
+    "kind": "jsx-text",
+    "text": "px",
+    "reason": "Pixel unit suffix rendered after a numeric size; retained in every locale."
   }
 ]
