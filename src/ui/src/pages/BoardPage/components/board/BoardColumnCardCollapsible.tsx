@@ -44,7 +44,6 @@ import useSetCardCompleted from "@/controllers/api/board/useSetCardCompleted";
 import { captureCardOrigin } from "@/pages/BoardPage/components/board/CardAnimation";
 import CardTimestamps from "@/pages/BoardPage/components/card/CardTimestamps";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
-import BoardCardWorkState from "@/pages/BoardPage/components/board/BoardCardWorkState";
 
 export interface IBoardColumnCardCollapsibleProps {
     isDragging: bool;
@@ -364,45 +363,46 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                             />
                         )}
                         <CardTypeBadges card={card} />
-                        <Card.Title
-                            className={cn(
-                                "break-all leading-tight",
-                                compact && "text-sm font-medium text-muted-foreground",
-                                isCheckCard && !compact && "pl-7",
-                                completed && "line-through opacity-60"
+                        <div className="flex items-start gap-1">
+                            {isCheckCard && !compact && (
+                                <Button
+                                    variant="ghost"
+                                    className={cn(
+                                        "shrink-0 transition-opacity",
+                                        deadlineAt ? "opacity-100" : "opacity-0 group-hover/card:opacity-100"
+                                    )}
+                                    size="icon-sm"
+                                    aria-label={t(completed ? "card.Mark as not done" : "card.Mark as done")}
+                                    title={t(completed ? "card.Mark as not done" : "card.Mark as done")}
+                                    titleSide="top"
+                                    disabled={isCompletionPending}
+                                    aria-pressed={completed}
+                                    onClick={handleToggleCompleted}
+                                    {...attributes}
+                                >
+                                    <IconComponent icon={completed ? "check" : "circle"} size="4" className="text-muted-foreground" />
+                                </Button>
                             )}
-                        >
-                            <button
-                                type="button"
-                                data-board-card-open=""
+                            <Card.Title
                                 className={cn(
-                                    "w-full rounded-sm text-left [font:inherit]",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    "min-w-0 flex-1 break-all leading-tight",
+                                    compact && "text-sm font-medium text-muted-foreground",
+                                    completed && "line-through opacity-60"
                                 )}
-                                disabled={!!selectCardViewType && isDisabledCard(card.uid)}
                             >
-                                {title}
-                            </button>
-                        </Card.Title>
-                        <BoardCardWorkState state={workState} />
-                        {isCheckCard && !compact && (
-                            <Button
-                                variant="ghost"
-                                className={cn(
-                                    "absolute left-1.5 top-1/2 z-10 -translate-y-1/2 transition-opacity",
-                                    deadlineAt ? "opacity-100" : "opacity-0 group-hover/card:opacity-100"
-                                )}
-                                size="icon-sm"
-                                title={t(completed ? "card.Mark as not done" : "card.Mark as done")}
-                                titleSide="top"
-                                disabled={isCompletionPending}
-                                aria-pressed={completed}
-                                onClick={handleToggleCompleted}
-                                {...attributes}
-                            >
-                                <IconComponent icon={completed ? "check" : "circle"} size="4" className="text-muted-foreground" />
-                            </Button>
-                        )}
+                                <button
+                                    type="button"
+                                    data-board-card-open=""
+                                    className={cn(
+                                        "w-full rounded-sm text-left [font:inherit]",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    )}
+                                    disabled={!!selectCardViewType && isDisabledCard(card.uid)}
+                                >
+                                    {title}
+                                </button>
+                            </Card.Title>
+                        </div>
                     </Card.Header>
                     <Collapsible.Content
                         className={cn(

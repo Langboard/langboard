@@ -144,7 +144,7 @@ function Trigger({
                     aria-label={t(`user.${membership === "internal" ? "Internal member" : "External member"}`)}
                     data-member-classification={membership}
                     className={cn(
-                        "pointer-events-none absolute -right-0.5 -top-0.5 z-20 flex size-3.5 items-center justify-center rounded-full border border-background bg-background",
+                        "pointer-events-none absolute -left-0.5 -top-0.5 z-20 flex size-3.5 items-center justify-center rounded-full border border-background bg-background",
                         membership === "internal" ? "text-primary" : "text-amber-500"
                     )}
                 >

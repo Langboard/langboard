@@ -233,6 +233,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                     variant="ghost"
                     className="relative p-2"
                     data-notification-surface="trigger"
+                    aria-label={t("notification.Notifications")}
                     title={t(unreadCount > 0 ? "notification.{count} notifications received" : "notification.Notifications", {
                         count: unreadCount,
                     })}
@@ -258,11 +259,11 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                 onCloseAutoFocus={onCloseAutoFocus}
                 className="min-w-[min(theme(screens.xs),100vw)] max-w-[min(theme(screens.xs),100vw)] p-0"
             >
-                <Flex items="center" justify="between" py="2.5" px="3" className="border-b">
-                    <Flex items="center" gap="1.5" textSize="base" weight="semibold">
-                        {t("notification.Notifications")}
+                <Flex items="center" justify="between" py="2.5" px="3" className="flex-wrap gap-x-3 gap-y-2 border-b">
+                    <Flex items="center" gap="1.5" textSize="base" weight="semibold" className="shrink-0">
+                        <span className="whitespace-nowrap">{t("notification.Notifications")}</span>
                         <Select.Root value={timeRange || "3d"} onValueChange={updateTimeRange as any}>
-                            <Select.Trigger className="h-8 gap-1 px-1.5 py-0.5 text-xs">
+                            <Select.Trigger className="h-8 w-auto min-w-20 gap-1 px-1.5 py-0.5 text-xs">
                                 <Select.Value />
                             </Select.Trigger>
                             <Select.Content
@@ -279,7 +280,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                             </Select.Content>
                         </Select.Root>
                     </Flex>
-                    <Flex gap="1.5" items="center">
+                    <Flex gap="1.5" items="center" className="ml-auto shrink-0">
                         <Label display="inline-flex" cursor="pointer" items="center" gap="2" textSize="xs">
                             <Switch checked={isOnlyUnread} onCheckedChange={setIsOnlyUnread} />
                             <Box as="span">{t("notification.Only show unread")}</Box>

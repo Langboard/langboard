@@ -162,3 +162,20 @@ test("early handle movement cancels the pending drag", async ({ page }) => {
     await touch(page, "touchEnd", 0, 0);
     await expect(page.locator("#receipts")).toHaveText("[]");
 });
+
+for (const width of [390, 1457]) {
+    test(`completion checkbox aligns with the first title line at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 879 });
+        await open(page, "?checkbox=1");
+        const target = card(page);
+        const checkbox = target.getByRole("button", { name: "Mark as done", exact: true });
+        await expect(checkbox).toBeVisible();
+        const title = target.locator("h3");
+        const checkBounds = await checkbox.boundingBox();
+        const titleBounds = await title.boundingBox();
+        expect(Math.abs(checkBounds!.y - titleBounds!.y)).toBeLessThanOrEqual(1);
+        expect(checkBounds!.x + checkBounds!.width).toBeLessThanOrEqual(titleBounds!.x);
+        expect(titleBounds!.height).toBeGreaterThan(checkBounds!.height);
+        await target.screenshot({ path: `../../.verification/ui-feedback-20261020/checkbox-${width}.png` });
+    });
+}
