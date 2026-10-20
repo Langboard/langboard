@@ -328,6 +328,7 @@ class ActivityService(BaseDomainService):
                 "uid": activity.get_uid(),
                 "activity_type": activity.activity_type.value,
                 "created_at": activity.api_response()["created_at"],
+                "from_column": activity.activity_history.get("from_column"),
                 "column": activity.activity_history.get("column"),
                 "recorder": activity.activity_history.get("recorder"),
             }
