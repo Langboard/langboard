@@ -23,6 +23,8 @@ case "$profile" in
       src/api/tests/identity/test_employee_membership_settings.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_graph_creation_authority.py \
+      src/api/tests/card_visibility/test_card_timeline.py \
+      src/api/tests/card_visibility/test_card_activity_visibility.py \
       src/api/tests/card_workspace/test_board_enrichment_visibility.py \
       src/api/tests/card_workspace/timers/test_timer_batch.py \
       src/api/tests/card_workspace/test_card_board_summary.py \
@@ -117,6 +119,8 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_scope_cleanup.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_graph_creation_authority.py \
+      src/api/tests/card_visibility/test_card_timeline.py \
+      src/api/tests/card_visibility/test_card_activity_visibility.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \

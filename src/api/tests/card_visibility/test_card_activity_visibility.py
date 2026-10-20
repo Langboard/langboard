@@ -72,7 +72,7 @@ def test_change_feed_filters_before_limit_and_uses_only_visible_cursor(current_c
     assert service.get_change_feed(project, user=user, channel=channel) is None
 
 
-@pytest.mark.parametrize("name", ("get_card_activities", "get_card_column_history"))
+@pytest.mark.parametrize("name", ("get_card_activities", "get_card_column_history", "get_card_timeline"))
 @pytest.mark.parametrize("channel", list(CollaborationChannel))
 def test_hidden_direct_card_activity_denied_before_assignee_or_history_lookup(current_card, name, channel):
     user, project, card, card_service = current_card

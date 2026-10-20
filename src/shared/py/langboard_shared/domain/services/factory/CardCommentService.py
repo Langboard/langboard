@@ -34,11 +34,11 @@ class CardCommentService(BaseDomainService):
             return comment.user_id == user_or_bot.id or user_or_bot.is_admin
         return isinstance(user_or_bot, Bot) and comment.bot_id == user_or_bot.id
 
-    def get_api_list_by_card(self, card: TCardParam | None) -> list[dict[str, Any]]:
+    def get_api_list_by_card(self, card: TCardParam | None, *, comment_ids: list[int] | None = None) -> list[dict[str, Any]]:
         card = InfraHelper.get_by_id_like(Card, card)
         if not card:
             return []
-        raw_comments = self.repo.card_comment.get_list_by_card(card)
+        raw_comments = self.repo.card_comment.get_list_by_card(card, comment_ids=comment_ids)
 
         reaction_service = self._get_service(ReactionService)
         reactions = reaction_service.get_api_map(CardCommentReaction, [comment.id for comment, _, _ in raw_comments])

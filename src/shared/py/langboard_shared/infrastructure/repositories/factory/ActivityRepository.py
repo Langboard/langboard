@@ -10,6 +10,7 @@ from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, T
 from ....domain.models import (
     Bot,
     Card,
+    CardComment,
     Project,
     ProjectActivity,
     ProjectAssignedUser,
@@ -111,6 +112,47 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
             return list(db.exec(query.order_by(
                 ProjectActivity.created_at.desc(), ProjectActivity.id.desc(),
             ).limit(limit + 1)).all())
+
+    def get_card_timeline_page(
+        self, project: Project, card: Card, *, before: str | None = None,
+    ) -> list[tuple[str, int, datetime]]:
+        """One shared order for comments and committed moves, with a scoped cursor and sentinel."""
+        comments = select(
+            literal("comment").label("kind"), CardComment.id.label("id"), CardComment.created_at.label("created_at"),
+            CardComment.deleted_at.is_(None).label("active"),
+        ).where(CardComment.card_id == card.id)
+        moves = select(
+            literal("activity").label("kind"), ProjectActivity.id.label("id"), ProjectActivity.created_at.label("created_at"),
+            literal(True).label("active"),
+        ).where(
+            ProjectActivity.project_id == project.id, ProjectActivity.card_id == card.id,
+            ProjectActivity.activity_type == ProjectActivityType.CardMoved,
+        )
+        events = union_all(comments, moves).subquery()
+        with DbSession.use(readonly=True) as db:
+            query = select(events.c.kind, events.c.id, events.c.created_at).where(events.c.active)
+            if before:
+                kind, separator, uid = before.partition(":")
+                if not separator or kind not in {"comment", "activity"} or not uid or len(uid) > 32:
+                    return []
+                try:
+                    cursor_id = InfraHelper.convert_id(uid)
+                except (ValueError, TypeError):
+                    return []
+                cursor = db.exec(select(events.c.kind, events.c.id, events.c.created_at).where(
+                    events.c.kind == kind, events.c.id == cursor_id,
+                )).first()
+                if cursor is None:
+                    return []
+                # Deleted comments remain valid position anchors, never returned as content.
+                query = query.where(or_(
+                    events.c.created_at < cursor[2],
+                    and_(events.c.created_at == cursor[2], events.c.id < cursor[1]),
+                    and_(events.c.created_at == cursor[2], events.c.id == cursor[1], events.c.kind < cursor[0]),
+                ))
+            return list(db.exec(query.order_by(
+                events.c.created_at.desc(), events.c.id.desc(), events.c.kind.desc(),
+            ).limit(21)).all())
 
     def get_card_column_history(
         self, project: Project, card: Card, *, before_activity_uid: str | None = None,

@@ -15,11 +15,14 @@ class CardCommentRepository(BaseRepository[CardComment]):
     def name() -> str:
         return "card_comment"
 
-    def get_list_by_card(self, card: TCardParam):
+    def get_list_by_card(self, card: TCardParam, *, comment_ids: list[int] | None = None):
         card_id = InfraHelper.convert_id(card)
         comments = []
         with DbSession.use(readonly=True) as db:
-            result = db.exec(self.__get_board_comment_api_query(card_id))
+            query = self.__get_board_comment_api_query(card_id)
+            if comment_ids is not None:
+                query = query.where(CardComment.column("id").in_(comment_ids))
+            result = db.exec(query)
             comments = result.all()
 
         return comments

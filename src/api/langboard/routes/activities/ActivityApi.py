@@ -226,6 +226,22 @@ def get_card_activities(
     )
 
 
+@AppRouter.api.get("/activity/project/{project_uid}/card/{card_uid}/timeline", tags=["Activity"])
+@AppRouter.schema(permission=ApiPermission.Read)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_card_timeline(
+    project_uid: str,
+    card_uid: str,
+    request: Request,
+    before: str | None = Query(None, max_length=64),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    require_visible_card(project_uid, card_uid, request, user, service)
+    return JsonResponse(content=service.activity.get_card_timeline(project_uid, card_uid, before=before))
+
+
 @AppRouter.api.get("/activity/project/{project_uid}/card/{card_uid}/column-history", tags=["Activity"])
 @AppRouter.schema(permission=ApiPermission.Read)
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
