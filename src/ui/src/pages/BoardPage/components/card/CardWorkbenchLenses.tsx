@@ -1,6 +1,5 @@
 import BoardCardWorkState from "../board/BoardCardWorkState";
 import { useTranslation } from "react-i18next";
-import Tabs from "@/components/base/Tabs";
 import { ProjectCard } from "@/core/models";
 import type { CardDetailSection, IGetCardDetailsResponse } from "@/controllers/api/card/useGetCardDetails";
 
@@ -20,59 +19,7 @@ export const CARD_LENS_SECTIONS: Record<CardWorkbenchLens, CardDetailSection[]> 
         "bot_scopes",
     ],
 };
-const lenses: CardWorkbenchLens[] = ["execution", "review", "history"];
-
-export function CardLensTabs({
-    lens,
-    onChange,
-    disabled = false,
-    idPrefix,
-}: {
-    lens: CardWorkbenchLens;
-    onChange: (lens: CardWorkbenchLens) => void;
-    disabled?: boolean;
-    idPrefix: string;
-}) {
-    const [t] = useTranslation();
-    return (
-        <Tabs.Provider value={lens} onValueChange={(value) => onChange(value as CardWorkbenchLens)}>
-            <Tabs.List role="tablist" aria-label={t("card.lenses.Views")} size="sm">
-                {lenses.map((value, index) => (
-                    <Tabs.Trigger
-                        key={value}
-                        value={value}
-                        size="sm"
-                        role="tab"
-                        id={`${idPrefix}-${value}`}
-                        aria-controls={`${idPrefix}-panel`}
-                        aria-selected={lens === value}
-                        tabIndex={lens === value ? 0 : -1}
-                        disabled={disabled}
-                        onKeyDown={(event) => {
-                            const next =
-                                event.key === "Home"
-                                    ? 0
-                                    : event.key === "End"
-                                      ? 2
-                                      : event.key === "ArrowRight"
-                                        ? (index + 1) % 3
-                                        : event.key === "ArrowLeft"
-                                          ? (index + 2) % 3
-                                          : undefined;
-                            if (next === undefined || disabled) return;
-                            event.preventDefault();
-                            onChange(lenses[next]);
-                            event.currentTarget.closest("[role=tablist]")?.querySelectorAll<HTMLButtonElement>("[role=tab]")[next]?.focus();
-                        }}
-                    >
-                        {t(`card.lenses.${value}`)}
-                    </Tabs.Trigger>
-                ))}
-            </Tabs.List>
-        </Tabs.Provider>
-    );
-}
-
+export const CARD_BODY_SECTIONS = CARD_LENS_SECTIONS.history.filter((section) => section !== "execution_receipts");
 export default function CardWorkbenchLenses({
     card,
     lens,

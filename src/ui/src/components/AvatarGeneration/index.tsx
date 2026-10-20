@@ -56,7 +56,7 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
     const selectedModels = InternalBotModel.Model.useModels((model) => model.uid === profileUID, [profileUID]);
     const canConfigure =
         actor?.is_admin &&
-        actor.setting_role_actions.some((action) => action === ROLE_ALL_GRANTED || action === SettingRole.EAction.InternalBotUpdate);
+        actor.setting_role_actions?.some((action) => action === ROLE_ALL_GRANTED || action === SettingRole.EAction.InternalBotUpdate);
     const selected = profiles.find((profile) => profile.uid === profileUID);
     const safe = (controller: AbortController, started: string) =>
         !controller.signal.aborted && current.current === started && useAuthStore.getState().currentUser === actor;

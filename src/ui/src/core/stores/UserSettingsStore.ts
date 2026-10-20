@@ -15,6 +15,7 @@ export interface IUserSettings {
     graph_view_modes?: Record<string, "columns" | "network">;
     open_cards?: TOpenCardsByUser;
     explorer_open_cards_collapsed?: Record<string, boolean>;
+    explorer_section_order?: Record<string, string[]>;
     wiki_hint_dismissed?: Record<string, boolean>;
     workbench_context_open?: Record<string, boolean>;
     workbench_sidebar_collapsed?: Record<string, boolean>;
@@ -100,10 +101,11 @@ export const useWorkbenchContextOpen = (userUID?: string) => {
             const store = getUserSettingsStore();
             const current = store.settings.workbench_context_open ?? {};
             const previous = current[userUID] ?? true;
-            store.updateSettingsByKey("workbench_context_open", {
-                ...current,
-                [userUID]: typeof value === "function" ? value(previous) : value,
-            });
+            const next = typeof value === "function" ? value(previous) : value;
+            store.updateSettingsByKey("workbench_context_open", { ...current, [userUID]: next });
+            if (next && store.settings.workbench_sidebar_collapsed?.[userUID]) {
+                store.updateSettingsByKey("workbench_sidebar_collapsed", { ...store.settings.workbench_sidebar_collapsed, [userUID]: false });
+            }
         },
         [userUID]
     );

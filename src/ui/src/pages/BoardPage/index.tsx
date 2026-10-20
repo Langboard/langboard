@@ -63,7 +63,7 @@ import useBoardBotCronUnscheduledHandlers from "@/controllers/socket/board/botSc
 import useBoardGraphApprovalDeletedHandlers from "@/controllers/socket/board/graphApprovals/useBoardGraphApprovalDeletedHandlers";
 import useBoardGraphApprovalRequestedHandlers from "@/controllers/socket/board/graphApprovals/useBoardGraphApprovalRequestedHandlers";
 import useBoardGraphApprovalUpdatedHandlers from "@/controllers/socket/board/graphApprovals/useBoardGraphApprovalUpdatedHandlers";
-import { useWorkbenchContextOpen } from "@/core/stores/UserSettingsStore";
+import { useWorkbenchContextOpen, useUserSettings } from "@/core/stores/UserSettingsStore";
 import ProjectExplorerSidebar from "@/pages/DashboardPage/components/ProjectExplorerSidebar";
 import {
     WORKBENCH_OPEN_CHANGES_EVENT,
@@ -237,7 +237,9 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     const [isContextOpen, setIsContextOpen] = useWorkbenchContextOpen(currentUser?.uid);
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
     const isBotScopeOpened = activeSidePanel === "botScope";
-    const isWorkbenchContextVisible = !isBotScopeOpened && (isMobile ? activeSidePanel === "switchProject" : isContextOpen);
+    const collapsedPanels = useUserSettings("workbench_sidebar_collapsed");
+    const isWorkbenchContextVisible =
+        !isBotScopeOpened && (isMobile ? activeSidePanel === "switchProject" : isContextOpen && !collapsedPanels?.[currentUser?.uid ?? ""]);
     const toggleBotScope = useCallback(() => {
         setActiveSidePanel((value) => (value === "botScope" ? undefined : "botScope"));
         if (!isMobile) setIsContextOpen(true);
@@ -261,6 +263,12 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         },
         [isMobile, setIsContextOpen]
     );
+    const toggleWorkbenchContext = (mode: TWorkbenchContext) => {
+        if (isWorkbenchContextVisible && workbenchContextMode === mode) {
+            if (isMobile) setActiveSidePanel(undefined);
+            else setIsContextOpen(false);
+        } else showWorkbenchContext(mode);
+    };
     const pinnedApps = usePinnedAppRail({
         userUID: currentUser?.uid,
         projectUID: project.uid,
@@ -670,56 +678,56 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         icon: "panel-left",
                         label: t("common.Explorer"),
                         mobile: "primary",
-                        onClick: () => showWorkbenchContext("explorer"),
+                        onClick: () => toggleWorkbenchContext("explorer"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "explorer",
                     },
                     {
                         icon: "list-checks",
                         label: t("dashboard.My Work"),
                         mobile: "primary",
-                        onClick: () => showWorkbenchContext("my-work"),
+                        onClick: () => toggleWorkbenchContext("my-work"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "my-work",
                     },
                     {
                         icon: "inbox",
                         label: t("card.inbox.title"),
-                        onClick: () => showWorkbenchContext("inbox"),
+                        onClick: () => toggleWorkbenchContext("inbox"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "inbox",
                     },
                     {
                         icon: "circle-dot",
                         label: t("dashboard.Changes"),
-                        onClick: () => showWorkbenchContext("changes"),
+                        onClick: () => toggleWorkbenchContext("changes"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "changes",
                     },
                     {
                         icon: "network",
                         label: t("dashboard.Relations"),
-                        onClick: () => showWorkbenchContext("relations"),
+                        onClick: () => toggleWorkbenchContext("relations"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "relations",
                     },
                     {
                         icon: "list-tree",
                         label: t("dashboard.Outline"),
-                        onClick: () => showWorkbenchContext("outline"),
+                        onClick: () => toggleWorkbenchContext("outline"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "outline",
                     },
                     {
                         icon: "notebook-pen",
                         label: t("board.Wiki"),
-                        onClick: () => showWorkbenchContext("wiki"),
+                        onClick: () => toggleWorkbenchContext("wiki"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "wiki",
                     },
                     {
                         label: t("project.Chat with AI"),
                         icon: "message-circle",
-                        onClick: () => showWorkbenchContext("chat"),
+                        onClick: () => toggleWorkbenchContext("chat"),
                         active: workbenchContextMode === "chat" && isWorkbenchContextVisible,
                         hidden: !!selectCardViewType,
                     },
                     ...pinnedApps.items.map((item) => ({ ...item, hidden: !!selectCardViewType })),
                     {
-                        icon: "plus",
+                        icon: "store",
                         label: t("settings.App store"),
                         mobile: "add",
                         onClick: () => navigate(`${ROUTES.APPS.ROUTE}?project_uid=${project.uid}`),
@@ -809,7 +817,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                             />
                                         </div>
                                     ) : workbenchContextMode === "inbox" ? (
-                                        <BoardSignalInbox projectUID={project.uid} />
+                                        <BoardSignalInbox project={project} />
                                     ) : workbenchContextMode === "changes" ? (
                                         <BoardChangesSidebar projectUID={project.uid} onNavigate={() => isMobile && setActiveSidePanel(undefined)} />
                                     ) : workbenchContextMode === "activity" && currentUser ? (

@@ -127,12 +127,15 @@ async function mockBoardApi(page: Page, options: IMockOptions = {}): Promise<voi
     });
     await page.route("**/board/fixture-project/column/dock", (route) => fulfillWithCors(route, { column_uids: [] }));
     await page.route("**/board/fixture-project/columns", (route) => fulfillWithCors(route, { columns: [] }));
-    await page.route("**/board/fixture-project", async (route) => {
-        if (options.projectDelay) {
-            await new Promise((resolve) => setTimeout(resolve, options.projectDelay));
+    await page.route(
+        (url) => url.port === "5381" && url.pathname === "/board/fixture-project",
+        async (route) => {
+            if (options.projectDelay) {
+                await new Promise((resolve) => setTimeout(resolve, options.projectDelay));
+            }
+            await fulfillWithCors(route, projectPayload);
         }
-        await fulfillWithCors(route, projectPayload);
-    });
+    );
     await page.route("**/activity/project/fixture-project/card/*/column-history", (route) =>
         fulfillWithCors(route, { records: [], next_cursor: null })
     );
@@ -761,3 +764,115 @@ for (const width of [360, 390]) {
         await expect(viewer).toHaveCount(0);
     });
 }
+
+for (const dismissal of ["button", "background"]) {
+    test(`${dismissal} dismissal plays the same return animation before unmount`, async ({ page }) => {
+        await mockBoardApi(page);
+        await page.goto(FIXTURE);
+        const viewer = page.locator("[data-card-viewer]");
+        await expect(page.locator("[data-card-surface]")).toBeVisible();
+        await expect(viewer).toHaveAttribute("data-card-viewer-opened", "true");
+        await expect
+            .poll(() => viewer.evaluate((element) => element.getAnimations().some((animation) => animation.playState === "running")))
+            .toBe(false);
+        if (dismissal === "button") await page.getByRole("button", { name: "Close", exact: true }).click();
+        else {
+            const surface = await page.locator("[data-card-surface]").boundingBox();
+            const nav = await page.locator("[data-floating-nav-content]").locator("button").first().boundingBox();
+            await page.mouse.click(surface!.x + 8, (surface!.y + surface!.height + nav!.y) / 2);
+        }
+        await expect
+            .poll(
+                () =>
+                    viewer.evaluate((element) =>
+                        element.getAnimations().some((animation) => {
+                            const frames = (animation.effect as KeyframeEffect)?.getKeyframes();
+                            return frames?.length && Number(frames[0].opacity) === 1 && Number(frames.at(-1)?.opacity) === 0;
+                        })
+                    ),
+                { intervals: [10, 20, 30] }
+            )
+            .toBeTruthy();
+        await expect(viewer).toHaveCount(0);
+    });
+}
+
+test("board rail toggles the active panel and reopens a manually collapsed context", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route(
+        (url) => url.port === "5381" && !url.pathname.startsWith("/board/fixture-project") && !url.pathname.startsWith("/auth"),
+        (route) => fulfillWithCors(route, { metadata: {}, projects: [], labels: [], approvals: [], count: 0, active_work: [] })
+    );
+    await page.route("**/board/fixture-project/cards", (route) =>
+        fulfillWithCors(route, {
+            cards: [FIXTURE_CARD],
+            columns: [],
+            checklists: [],
+            global_relationships: [],
+            column_bot_scopes: [],
+            column_bot_schedules: [],
+        })
+    );
+    await page.setViewportSize({ width: 1457, height: 954 });
+    await page.goto(`${FIXTURE}?fullBoard`);
+    await expect(page.locator("[data-workbench-explorer]")).toBeVisible();
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const explorer = rail.getByRole("button", { name: "Explorer", exact: true });
+    const sidebar = page.locator("[data-workbench-sidebar]").filter({ has: page.locator("[data-workbench-explorer]") });
+    await explorer.click();
+    await expect(sidebar).toBeHidden();
+    await explorer.click();
+    await expect(sidebar).toBeVisible();
+    await sidebar.getByRole("button", { name: "Collapse", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await explorer.click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await expect(page.locator("[data-workbench-explorer]")).toBeVisible();
+});
+
+test("dashboard owns home first, omits quick switcher and toggles its context", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route(
+        (url) => url.port === "5381" && !url.pathname.startsWith("/auth"),
+        (route) => fulfillWithCors(route, { projects: [], columns: [], metadata: {}, pinned_apps: [], revision: 0 })
+    );
+    await page.setViewportSize({ width: 1457, height: 954 });
+    await page.addInitScript(() => history.replaceState({}, "", "/dashboard/projects/all?fullDashboard"));
+    await page.goto(`${FIXTURE}?fullDashboard`);
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const home = rail.getByRole("button").first();
+    await expect(home).toHaveAccessibleName("Projects");
+    await expect(home.locator("svg")).toHaveClass(/lucide-house/);
+    await expect(rail.getByRole("button", { name: "Quick switcher", exact: true })).toHaveCount(0);
+    const explorer = rail.getByRole("button", { name: "Explorer", exact: true });
+    const sidebar = page.locator("[data-workbench-sidebar]").filter({ has: page.locator("[data-workbench-explorer]") });
+    await expect(sidebar).toBeVisible();
+    await explorer.click();
+    await expect(sidebar).toBeHidden();
+    await explorer.click();
+    await expect(sidebar).toBeVisible();
+    await sidebar.getByRole("button", { name: "Collapse", exact: true }).click();
+    await explorer.click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+});
+
+test("mobile board rail closes its active Explorer on a second press", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route(
+        (url) => url.port === "5381" && !url.pathname.startsWith("/board/fixture-project") && !url.pathname.startsWith("/auth"),
+        (route) => fulfillWithCors(route, { metadata: {}, projects: [], labels: [], approvals: [], count: 0, active_work: [] })
+    );
+    await page.route("**/board/fixture-project/cards", (route) =>
+        fulfillWithCors(route, { cards: [], columns: [], checklists: [], global_relationships: [], column_bot_scopes: [], column_bot_schedules: [] })
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${FIXTURE}?fullBoard`);
+    const explorer = page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true });
+    const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
+    await explorer.press("Enter");
+    await expect(panel).toBeVisible();
+    await explorer.press("Enter");
+    await expect(panel).toHaveCount(0);
+    await explorer.press("Enter");
+    await expect(panel).toBeVisible();
+});

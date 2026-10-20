@@ -14,6 +14,7 @@ export interface ICreateDndRowEventsProps<TRowModel extends TOrderableModel<TOrd
     symbolSet: TColumnRowSymbolSet;
     draggable: HTMLElement;
     dropTarget: HTMLElement;
+    canDropRow?: (row: TRowModel) => boolean;
     setState: React.Dispatch<React.SetStateAction<TRowState>>;
     renderPreview: Parameters<typeof setCustomNativeDragPreview>[0]["render"];
 }
@@ -41,7 +42,7 @@ const createDndRowEvents = <TRowModel extends TOrderableModel<TOrderableModelNam
         };
     };
 
-    const { isRowData, isDraggingARow, shouldHideIndicator } = createDndColumnRowDataHelper<TOrderableModel<TOrderableModelName>, TRowModel>({
+    const { isRowData, shouldHideIndicator } = createDndColumnRowDataHelper<TOrderableModel<TOrderableModelName>, TRowModel>({
         symbolSet,
     });
 
@@ -68,7 +69,7 @@ const createDndRowEvents = <TRowModel extends TOrderableModel<TOrderableModelNam
         dropTargetForElements({
             element: dropTarget,
             getIsSticky: () => true,
-            canDrop: isDraggingARow,
+            canDrop: ({ source }) => isRowData(source.data) && (props.canDropRow?.(source.data.row) ?? true),
             getData: ({ element, input }) => {
                 const data = getRowDroppableTargetData({ row });
                 return attachClosestEdge(data, { element, input, allowedEdges: ["top", "bottom"] });

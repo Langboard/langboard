@@ -1,5 +1,7 @@
 import { Suspense, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { DndProvider } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
@@ -9,7 +11,7 @@ import useAuthStore from "@/core/stores/AuthStore";
 import Dialog from "@/components/base/Dialog";
 import BoardCard from "./BoardCard";
 import { BoardCardSectionSaveProvider } from "./BoardCardSectionSaveProvider";
-import { CARD_LENS_SECTIONS } from "./CardWorkbenchLenses";
+import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
 import { SkeletonBoard } from "../board/Board";
 import "@/core/injection/StringExtensions";
 import "@/i18n";
@@ -35,17 +37,17 @@ const queryKey = [
     "get-card-details-loading-project-loading-card",
     currentUser.uid,
     useAuthStore.getState().getSessionVersion(),
-    [...CARD_LENS_SECTIONS.execution].sort().join(","),
+    [...CARD_BODY_SECTIONS].sort().join(","),
 ];
 if (mode === "cache")
     client.setQueryData(queryKey, {
         card: ProjectCard.Model.fromOne(cardData),
-        loaded_sections: CARD_LENS_SECTIONS.execution,
+        loaded_sections: CARD_BODY_SECTIONS,
     });
 let reads = 0;
 let release: ((fail?: boolean) => void) | undefined;
 api.defaults.adapter = async (config) => {
-    if (!config.url?.endsWith("/card/loading-card")) return { data: {}, status: 200, statusText: "OK", config, headers: {} };
+    if (!config.url?.endsWith("/card/loading-card")) return { data: { records: [], items: [] }, status: 200, statusText: "OK", config, headers: {} };
     document.querySelector("output")!.textContent = String(++reads);
     const fail =
         mode === "fast"
@@ -105,7 +107,9 @@ createRoot(document.getElementById("root")!).render(
     <Suspense>
         <MemoryRouter>
             <QueryClientProvider client={client}>
-                <Fixture />
+                <DndProvider backend={HTML5Backend}>
+                    <Fixture />
+                </DndProvider>
             </QueryClientProvider>
         </MemoryRouter>
     </Suspense>

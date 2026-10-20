@@ -61,7 +61,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
     useBoardMemberDrop(innerRef, card);
 
     useEffect(() => {
-        if (!canDragCards || mode !== "manual") {
+        if (!canDragCards) {
             return;
         }
 
@@ -71,6 +71,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
 
         return columnRowDndHelpers.row({
             row: card,
+            canDropRow: (row) => mode === "manual" || row.project_column_uid !== columnUID,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: inner,
             dropTarget: outer,
@@ -97,7 +98,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
                 card={card}
                 hierarchyDepth={hierarchyDepth}
                 grouped={grouped}
-                canTouchDrag={canDragCards && mode === "manual"}
+                canTouchDrag={canDragCards}
             />
             {state.type === "preview"
                 ? createPortal(

@@ -1,4 +1,3 @@
-import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect } from "react";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -13,6 +12,7 @@ import { ESocketTopic } from "@langboard/core/enums";
 import { closeCard, toggleCardPin } from "./OpenCardsStore";
 import useValidateRecentCards from "./useValidateRecentCards";
 import type { IOpenCard } from "./OpenCardsData";
+import ExplorerSection, { EXPLORER_SECTION_LIMIT, IExplorerSectionProps } from "./ExplorerSection";
 
 export default function RecentCardsSection({
     userUID,
@@ -23,6 +23,7 @@ export default function RecentCardsSection({
     onExpand,
     onNavigate,
     active = true,
+    headerProps,
 }: {
     userUID: string;
     cards: IOpenCard[];
@@ -32,11 +33,12 @@ export default function RecentCardsSection({
     onExpand: () => void;
     onNavigate?: () => void;
     active?: boolean;
+    headerProps?: IExplorerSectionProps["headerProps"];
 }) {
-    const [t, i18n] = useTranslation();
+    const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const location = useLocation();
-    const displayedCards = showOlderCards ? visibleOpenCards : visibleOpenCards.slice(0, 10);
+    const displayedCards = showOlderCards ? visibleOpenCards : visibleOpenCards.slice(0, EXPLORER_SECTION_LIMIT);
     useValidateRecentCards(userUID, displayedCards, active && !openCardsCollapsed);
     const projectUIDs = [...new Set(visibleOpenCards.map((card) => card.projectUID))].sort().join(",");
     useEffect(() => {
@@ -58,77 +60,60 @@ export default function RecentCardsSection({
         return () => listeners.forEach((props) => socket.off(props));
     }, [userUID, projectUIDs]);
     return (
-        <section className="mb-2 flex max-h-[40%] min-h-0 shrink-0 flex-col" aria-label={t("dashboard.Recent cards")}>
-            <button
-                type="button"
-                aria-expanded={!openCardsCollapsed}
-                className="flex w-full shrink-0 items-center gap-1 px-2 py-1 text-left text-xs font-medium text-muted-foreground"
-                onClick={onToggle}
-            >
-                <IconComponent icon={openCardsCollapsed ? "chevron-right" : "chevron-down"} size="3" />
-                {t("dashboard.Recent cards")}
-                {visibleOpenCards.length > 0 && <span className="ml-auto">{formatNumber(visibleOpenCards.length, i18n.language)}</span>}
-            </button>
-            {!openCardsCollapsed && (
-                <div className="min-h-0 overflow-y-auto" data-recent-card-list="">
-                    {displayedCards.map((card) => {
-                        const active = location.pathname === ROUTES.BOARD.CARD(card.projectUID, card.cardUID);
-                        return (
-                            <div key={`${card.projectUID}:${card.cardUID}`} className="group flex min-h-8 items-center rounded-md hover:bg-muted">
-                                <button
-                                    type="button"
-                                    aria-current={active ? "page" : undefined}
-                                    title={card.title}
-                                    className={cn(
-                                        "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-sm",
-                                        active && "bg-muted text-primary"
-                                    )}
-                                    onClick={() => {
-                                        navigate(ROUTES.BOARD.CARD(card.projectUID, card.cardUID));
-                                        onNavigate?.();
-                                    }}
-                                >
-                                    <IconComponent icon="file-text" size="3" className="shrink-0" />
-                                    <span className="truncate">{card.title}</span>
-                                    <OpenCardUnreadDot cardUID={card.cardUID} />
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-label={t(card.pinned ? "dashboard.Unpin card" : "dashboard.Pin card")}
-                                    title={t(card.pinned ? "dashboard.Unpin card" : "dashboard.Pin card")}
-                                    className={cn(
-                                        "rounded p-1 hover:bg-accent",
-                                        !card.pinned && "opacity-0 focus:opacity-100 group-hover:opacity-100"
-                                    )}
-                                    onClick={() => toggleCardPin(userUID, card.projectUID, card.cardUID)}
-                                >
-                                    <IconComponent icon="pin" size="3" className={card.pinned ? "text-primary" : undefined} />
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-label={t("dashboard.Close card from list")}
-                                    title={t("dashboard.Close card from list")}
-                                    className="mr-1 rounded p-1 opacity-0 hover:bg-accent focus:opacity-100 group-hover:opacity-100"
-                                    onClick={() => closeCard(userUID, card.projectUID, card.cardUID)}
-                                >
-                                    <IconComponent icon="x" size="3" />
-                                </button>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-            {!openCardsCollapsed && visibleOpenCards.length > 10 && (
-                <button
-                    type="button"
-                    aria-expanded={showOlderCards}
-                    className="shrink-0 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted"
-                    onClick={onExpand}
-                >
-                    {showOlderCards ? t("dashboard.Show fewer cards") : t("dashboard.Show older cards", { count: visibleOpenCards.length - 10 })}
-                </button>
-            )}
-        </section>
+        <ExplorerSection
+            title={t("dashboard.Recent cards")}
+            count={visibleOpenCards.length}
+            collapsed={openCardsCollapsed}
+            expanded={showOlderCards}
+            onToggle={onToggle}
+            onExpand={onExpand}
+            headerProps={headerProps}
+        >
+            <div data-recent-card-list="">
+                {displayedCards.map((card) => {
+                    const active = location.pathname === ROUTES.BOARD.CARD(card.projectUID, card.cardUID);
+                    return (
+                        <div key={`${card.projectUID}:${card.cardUID}`} className="group flex min-h-8 items-center rounded-md hover:bg-muted">
+                            <button
+                                type="button"
+                                aria-current={active ? "page" : undefined}
+                                title={card.title}
+                                className={cn(
+                                    "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-sm",
+                                    active && "bg-muted text-primary"
+                                )}
+                                onClick={() => {
+                                    navigate(ROUTES.BOARD.CARD(card.projectUID, card.cardUID));
+                                    onNavigate?.();
+                                }}
+                            >
+                                <IconComponent icon="file-text" size="3" className="shrink-0" />
+                                <span className="truncate">{card.title}</span>
+                                <OpenCardUnreadDot cardUID={card.cardUID} />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label={t(card.pinned ? "dashboard.Unpin card" : "dashboard.Pin card")}
+                                title={t(card.pinned ? "dashboard.Unpin card" : "dashboard.Pin card")}
+                                className={cn("rounded p-1 hover:bg-accent", !card.pinned && "opacity-0 focus:opacity-100 group-hover:opacity-100")}
+                                onClick={() => toggleCardPin(userUID, card.projectUID, card.cardUID)}
+                            >
+                                <IconComponent icon="pin" size="3" className={card.pinned ? "text-primary" : undefined} />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label={t("dashboard.Close card from list")}
+                                title={t("dashboard.Close card from list")}
+                                className="mr-1 rounded p-1 opacity-0 hover:bg-accent focus:opacity-100 group-hover:opacity-100"
+                                onClick={() => closeCard(userUID, card.projectUID, card.cardUID)}
+                            >
+                                <IconComponent icon="x" size="3" />
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+        </ExplorerSection>
     );
 }
 

@@ -152,7 +152,7 @@ function ChatSidebarSessionListButton() {
             titleSide="bottom"
             onClick={handleClick}
         >
-            <IconComponent icon="panel-left" size="5" />
+            <IconComponent icon="history" size="5" />
         </Button>
     );
 }

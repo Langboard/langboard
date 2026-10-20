@@ -1,3 +1,4 @@
+import "@/core/injection";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createBrowserRouter, RouterProvider } from "react-router";
@@ -63,6 +64,8 @@ const cards = ProjectCard.Model.fromArray(
         labels: [label],
         relationships: [],
         member_uids: [],
+        is_check_card: params.has("checkbox") && order === 0,
+        deadline_at: params.has("checkbox") && order === 0 ? "2099-12-31T00:00:00Z" : null,
     }))
 );
 getUserSettingsStore().updateSettingsByKey(
@@ -108,7 +111,11 @@ function NativeBoard() {
                             .sort((a, b) => a.order - b.order)
                             .map((card) => (
                                 <div key={card.uid} style={{ marginBottom: 16 }}>
-                                    <BoardColumnCard card={card} hierarchyDepth={2} grouped={card.uid === "mobile-card-0"} />
+                                    <BoardColumnCard
+                                        card={card}
+                                        hierarchyDepth={2}
+                                        grouped={card.uid === "mobile-card-0" && !params.has("checkbox")}
+                                    />
                                 </div>
                             ))}
                     </section>

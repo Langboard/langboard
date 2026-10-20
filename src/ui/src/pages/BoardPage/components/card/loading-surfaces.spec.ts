@@ -55,22 +55,22 @@ test("slow load settles, explicit retry settles, cached refresh preserves conten
     await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(page.locator("output")).toHaveText("2");
     await control(page, "Resolve load");
-    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Current execution card", exact: true })).toBeVisible();
     await expect(page.locator("[data-card-loading]")).toHaveCount(0);
     await control(page, "Refresh cache");
     await expect(page.locator("output")).toHaveText("3");
-    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Current execution card", exact: true })).toBeVisible();
     await expect(page.locator("[data-card-loading]")).toHaveCount(0);
     await control(page, "Reject load");
     await expect(page.getByRole("alert")).toContainText("Could not refresh card");
-    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Current execution card", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
 });
 
 for (const mode of ["fast", "cache"])
-    test(`${mode} response shows current execution shell`, async ({ page }) => {
+    test(`${mode} response shows the card body`, async ({ page }) => {
         await openFixture(page, mode);
-        await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+        await expect(page.getByRole("region", { name: "Current execution card", exact: true })).toBeVisible();
         await expect(page.locator("[data-card-loading]")).toHaveCount(0);
     });
 
@@ -94,7 +94,7 @@ for (const width of [320, 390, 1440])
             expect(box!.x + box!.width).toBeLessThanOrEqual(width);
             await page.screenshot({ path: `test-results/loading-surfaces/card-${width}-${dark ? "dark" : "light"}.png` });
             await control(page, "Resolve load");
-            await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+            await expect(page.getByRole("region", { name: "Current execution card", exact: true })).toBeVisible();
             const loaded = await page.locator("[data-card-surface]").boundingBox();
             expect(Math.abs(loaded!.x - box!.x)).toBeLessThanOrEqual(1);
             expect(Math.abs(loaded!.width - box!.width)).toBeLessThanOrEqual(1);

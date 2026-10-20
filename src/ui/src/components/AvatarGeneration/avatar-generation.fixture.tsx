@@ -10,13 +10,15 @@ import BoardSettingsBasic from "@/pages/BoardPage/components/settings/BoardSetti
 import { BoardSettingsProvider } from "@/core/providers/BoardSettingsProvider";
 import "@/i18n";
 import "@/assets/styles/main.css";
+const params = new URLSearchParams(location.search);
 const baseUser = {
     uid: "avatar-user",
     type: "user",
     username: "avatar-user",
     firstname: "Avatar",
     lastname: "User",
-    is_admin: false,
+    is_admin: params.has("admin"),
+    setting_role_actions: params.get("roles") === "granted" ? ["*"] : undefined,
     preferred_lang: "en-US",
     created_at: new Date(),
     updated_at: new Date(),

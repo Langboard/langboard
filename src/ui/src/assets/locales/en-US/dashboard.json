@@ -103,8 +103,6 @@
   "Unfinished by status": "Unfinished by status",
   "Unfinished in status": "{{status}}: {{count, number}} unfinished cards",
   "Recent cards": "Recent cards",
-  "Show older cards": "Show older cards ({{count, number}})",
-  "Show fewer cards": "Show fewer cards",
   "Show more projects": "Show more (+{{count, number}})",
   "Open cards count_one": "{{count, number}} open card",
   "Open cards count_other": "{{count, number}} open cards",
@@ -122,5 +120,8 @@
   "Unread first": "Unread first",
   "Project filters": "Project filters",
   "Sort projects": "Sort projects",
-  "Reset filters": "Reset filters"
+  "Reset filters": "Reset filters",
+  "Show more items": "Show more ({{count, number}})",
+  "Show fewer items": "Show fewer",
+  "Reorder section": "Drag to reorder; Alt+Up or Alt+Down to move"
 }

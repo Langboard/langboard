@@ -195,7 +195,7 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                     if (!active?.isDragging) return null;
                     const target = document.elementFromPoint(active.currentX, active.currentY);
                     const column = target?.closest(`[${BOARD_COLUMN_TOUCH_DND_ATTR}]`);
-                    if (!(column instanceof HTMLElement) || !scrollable.contains(column) || column.dataset.boardColumnSort !== "manual") return null;
+                    if (!(column instanceof HTMLElement) || !scrollable.contains(column)) return null;
                     // Native columns own vertical scrolling in their ScrollArea viewport, never the page or card body.
                     const viewport = column.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
                     return viewport ? { scrollable: viewport, pointerY: active.currentY } : null;
@@ -252,7 +252,12 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 return;
             }
 
-            if (dropTarget.closest("[data-board-column-sort]")?.getAttribute("data-board-column-sort") !== "manual") return;
+            const targetColumn = dropTarget.closest(`[${BOARD_COLUMN_TOUCH_DND_ATTR}]`);
+            if (
+                targetColumn?.getAttribute("data-board-column-sort") !== "manual" &&
+                targetColumn?.getAttribute(BOARD_COLUMN_TOUCH_DND_ATTR) === sourceColumn.uid
+            )
+                return;
             const targetCardElement = dropTarget.closest(`[${BOARD_CARD_TOUCH_DND_ATTR}]`);
 
             if (targetCardElement instanceof HTMLElement) {
@@ -355,7 +360,6 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 return;
             }
 
-            if (target.closest("[data-board-column-sort]")?.getAttribute("data-board-column-sort") !== "manual") return;
             const sourceElement = target.closest(`[${BOARD_CARD_TOUCH_DND_ATTR}]`);
             if (!(sourceElement instanceof HTMLElement)) {
                 return;

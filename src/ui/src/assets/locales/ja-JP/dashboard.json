@@ -103,8 +103,6 @@
   "Unfinished by status": "状態別の未完了カード",
   "Unfinished in status": "{{status}}：未完了のカード {{count, number}} 件",
   "Recent cards": "最近のカード",
-  "Show older cards": "以前のカードを表示（{{count, number}} 件）",
-  "Show fewer cards": "カードの表示を減らす",
   "Show more projects": "もっと見る (+{{count, number}})",
   "Open cards count_one": "オープンなカード {{count, number}} 件",
   "Open cards count_other": "オープンなカード {{count, number}} 件",
@@ -122,5 +120,8 @@
   "Unread first": "未読を優先",
   "Project filters": "プロジェクトフィルター",
   "Sort projects": "プロジェクトの並べ替え",
-  "Reset filters": "フィルターをリセット"
+  "Reset filters": "フィルターをリセット",
+  "Show more items": "さらに表示（{{count, number}} 件）",
+  "Show fewer items": "表示を減らす",
+  "Reorder section": "ドラッグで並べ替え、Alt+上下キーで移動"
 }

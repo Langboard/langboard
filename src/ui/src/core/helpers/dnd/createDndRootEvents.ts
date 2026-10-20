@@ -94,7 +94,7 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
         targetIndex: number | "last";
     }) => {
         const updatedCards: Record<string, [number, string | null]> = {};
-        let lastIndex = 0;
+        let lastIndex = -1;
         Object.values(rowsMap).forEach((row) => {
             if (row[columnKeyInRow] === sourceColumn.uid && row.order > draggingRow.order) {
                 updatedCards[row.uid] = [row.order, null];
