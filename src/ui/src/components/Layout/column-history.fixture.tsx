@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { AuthUser, ProjectCard } from "@/core/models";
 import { BoardCardProvider } from "@/core/providers/BoardCardProvider";
 import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
+import CardColumnEvent, { ColumnEvent } from "@/pages/BoardPage/components/card/CardColumnEvent";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const now = new Date();
@@ -26,6 +27,38 @@ function Fixture() {
         <BoardCardProvider projectUID="fixture" card={card} currentUser={user} viewportRef={ref}>
             <button onClick={() => setIndex((value) => 1 - value)}>Switch history card</button>
             <CardColumnHistory card={card} />
+            {new URLSearchParams(location.search).has("transitions") && (
+                <section aria-label="Comment event examples" className="flex min-w-0 flex-col gap-4 p-4 text-xs">
+                    {(
+                        [
+                            {
+                                uid: "user-move",
+                                activity_type: "card_moved",
+                                from_column: { name: "Review" },
+                                column: { name: "Doing" },
+                                recorder: { type: "user", firstname: "History", lastname: "Worker" },
+                            },
+                            {
+                                uid: "bot-move",
+                                activity_type: "card_moved",
+                                from_column: { name: "Doing" },
+                                column: { name: "Review" },
+                                recorder: { type: "bot", name: "검토 봇" },
+                            },
+                            { uid: "old-move", activity_type: "card_moved", column: { name: "Archived stage" } },
+                            {
+                                uid: "created",
+                                activity_type: "card_created",
+                                from_column: { name: "Not a source" },
+                                column: { name: "Created stage" },
+                            },
+                            { uid: "invalid-time", activity_type: "card_moved", column: { name: "Invalid timestamp" }, created_at: "invalid" },
+                        ] as (Omit<ColumnEvent, "created_at"> & { created_at?: string })[]
+                    ).map((event) => (
+                        <CardColumnEvent key={event.uid} event={{ created_at: "2026-10-01T12:00:00Z", ...event }} showTransition />
+                    ))}
+                </section>
+            )}
         </BoardCardProvider>
     );
 }

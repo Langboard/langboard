@@ -491,6 +491,29 @@ test.describe("mobile context label preview", () => {
 });
 
 for (const width of [1440, 390]) {
+    test(`column event preserves source snapshots and keyboard evidence at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.route(/\/column-history(?:\?|$)/, (route) => route.fulfill({ json: { records: [] } }));
+        await page.goto("/src/components/Layout/column-history.fixture.html?transitions");
+        const timeline = page.getByRole("region", { name: "Comment event examples" });
+        await expect(timeline.locator("time")).toHaveText([
+            "History Worker · Review › Doing",
+            "검토 봇 · Doing › Review",
+            "Unknown User · Archived stage",
+            "Unknown User · Created stage",
+        ]);
+        const entry = timeline.locator("time").filter({ hasText: /^History Worker/ });
+        await expect(entry).toHaveAttribute("data-card-activity-uid", "user-move");
+        await expect(entry).toHaveAttribute("datetime", "2026-10-01T12:00:00.000Z");
+        await entry.focus();
+        await expect(entry).toBeFocused();
+        await expect(page.getByRole("tooltip")).toContainText("Review › Doing");
+        await expect(page.getByRole("tooltip")).toContainText("History Worker");
+        await expect(timeline.getByText("Not a source", { exact: false })).toHaveCount(0);
+        await expect(timeline.getByText("Invalid timestamp", { exact: false })).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+
     test(`column history hides the previous card while the next request is pending at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         let pending: Route | undefined;
