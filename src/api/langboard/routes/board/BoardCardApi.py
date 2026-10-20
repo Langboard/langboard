@@ -1,6 +1,6 @@
 from dataclasses import replace
 from datetime import datetime
-from fastapi import Request, status
+from fastapi import Body, Request, status
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
@@ -1067,13 +1067,10 @@ def replace_card_content_blocks(
     project_uid: str,
     card_uid: str,
     request: Request,
-    blocks: list[dict] = None,
+    blocks: list[dict] = Body(embed=True),
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card_content_block.replace_blocks(user_or_bot, project_uid, card_uid, blocks or [])
-    if result is None and blocks is None:
-        raise ApiException.NotFound_404(ApiErrorCode.NF2004)
-
+    result = service.card_content_block.replace_blocks(user_or_bot, project_uid, card_uid, blocks)
     return JsonResponse(content={"blocks": result})
