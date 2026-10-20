@@ -48,7 +48,7 @@ const createDndColumnEvents = <TColumnModel extends TOrderableModel<TOrderableMo
         };
     };
 
-    const { isColumnData, isDraggingAColumn, isRowData, setIsRowOver, shouldHideIndicator } = createDndColumnRowDataHelper<
+    const { isColumnData, isDraggingAColumn, isRowData, isDraggingARow, setIsRowOver, shouldHideIndicator } = createDndColumnRowDataHelper<
         TColumnModel,
         TOrderableModel<TOrderableModelName>
     >({

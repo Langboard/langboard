@@ -29,7 +29,7 @@ const useCreateInternalBot = (options?: TMutationOptions<ICreateInternalBotForm>
         const allowed = () =>
             !!actor &&
             getAuthStore().currentUser === actor &&
-            actor.setting_role_actions.some((action) => action === ROLE_ALL_GRANTED || action === SettingRole.EAction.InternalBotCreate);
+            actor.setting_role_actions?.some((action) => action === ROLE_ALL_GRANTED || action === SettingRole.EAction.InternalBotCreate);
         if (image && !allowed()) throw new CanceledError("Image profile permission changed");
 
         const formData = new FormData();

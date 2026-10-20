@@ -221,3 +221,44 @@ test("ordinary direct upload keeps the revision captured at selection", async ({
     await expect.poll(() => submitted).toContain("direct.png");
     expect(submitted).toMatch(/name="expected_avatar_revision"[\s\S]*?0/);
 });
+
+for (const roles of ["missing", "granted"]) {
+    test(`partial admin identity preserves board and profile settings with roles=${roles}`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.route("**/avatar-role-regression.html*", (route) =>
+            route.fulfill({
+                contentType: "text/html",
+                body: `<!doctype html><html>
+                    <head><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+                    <body><div id="root"></div><script type="module">
+                    import RefreshRuntime from "/@react-refresh";
+                    RefreshRuntime.injectIntoGlobalHook(window);
+                    window.$RefreshReg$=()=>{}; window.$RefreshSig$=()=>type=>type;
+                    window.__vite_plugin_react_preamble_installed__=true;
+                    </script><script type="module" src="/src/components/AvatarGeneration/avatar-generation.fixture.tsx"></script>
+                    </body></html>`,
+            })
+        );
+        await page.route(/\/avatar(?:\/|$)/, (route) => {
+            if (!["fetch", "xhr"].includes(route.request().resourceType())) return route.continue();
+            return route.fulfill({
+                json: route.request().url().includes("image-profiles")
+                    ? { configured: false, profiles: [] }
+                    : { avatar: null, previous_avatar: null, avatar_revision: 0, can_restore: false },
+            });
+        });
+        await page.goto(`/avatar-role-regression.html?admin=1&roles=${roles}`);
+        for (const board of [false, true]) {
+            if (board) await page.getByRole("button", { name: "Toggle target", exact: true }).click();
+            await page.getByRole("button", { name: "Generate with AI", exact: true }).click();
+            const dialog = page.getByRole("dialog");
+            await expect(dialog).toBeVisible();
+            const settings = dialog.getByRole("link");
+            if (roles === "granted") await expect(settings).toBeVisible();
+            else await expect(settings).toHaveCount(0);
+            await dialog.getByRole("button", { name: "Close", exact: true }).click();
+        }
+        expect(errors).toEqual([]);
+    });
+}
