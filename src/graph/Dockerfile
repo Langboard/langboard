@@ -64,6 +64,7 @@ with (root / "artifacts/graph-validation.log").open("w") as log:
     result = subprocess.run([
         "python", "-m", "pytest", "-p", "no:tach", "-q", "--junitxml=/result/graph.xml",
         "tests/test_graph_service_auth.py", "tests/test_bot_status_map.py",
+        "tests/test_comment_compaction_draft.py",
         "tests/test_app_lifespan.py",
     ], stdout=log, stderr=subprocess.STDOUT)
 (root / "result.json").write_text(json.dumps({
