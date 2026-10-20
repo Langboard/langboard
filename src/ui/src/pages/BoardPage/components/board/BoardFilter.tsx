@@ -16,8 +16,16 @@ import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
 import BoardLabelListItem from "@/pages/BoardPage/components/board/BoardLabelListItem";
 import { CheckedState } from "@radix-ui/react-checkbox";
-import { useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import useBoardFilterPreferences from "./useBoardFilterPreferences";
+
+const FavoriteFiltersContext = createContext<
+    | (ReturnType<typeof useBoardFilterPreferences> & {
+          title: (name: keyof IFilterMap, value: string) => string;
+      })
+    | undefined
+>(undefined);
 
 export function SkeletonBoardFilter() {
     return <Skeleton h="9" w={{ initial: "7", xs: "14" }} px={{ xs: "4" }} />;
@@ -27,7 +35,11 @@ function BoardFilter() {
     const { project, columns, cards, currentUser, filters, filterCard, filterMember, filterLabel, navigateWithFilters } = useBoard();
     const [t, i18n] = useTranslation();
     const [open, setOpen] = useState(false);
-    const stages = useProjectWorkflowStages(project.uid, open || Boolean(filters.workflow_stages?.length));
+    const favorites = useBoardFilterPreferences(currentUser.uid, project.uid);
+    const stages = useProjectWorkflowStages(
+        project.uid,
+        open || Boolean(filters.workflow_stages?.length) || favorites.pins.some((pin) => pin.key === "workflow_stages")
+    );
     const stageName = (key: string) => {
         const stage = stages.data?.find((item) => item.key === key);
         return stage ? metadataDisplay(stage, stage.translations, i18n.resolvedLanguage ?? i18n.language).name : key;
@@ -121,7 +133,24 @@ function BoardFilter() {
         return `${t(`board.filters.relationships.${name}`)}: ${cards.find((item) => item.uid === value)?.title ?? t("common.Unknown")}`;
     };
 
-    return (
+    const available = (name: keyof IFilterMap, value: string) => {
+        if (name === "columns") return columns.some((column) => column.uid === value && !column.is_archive);
+        if (name === "workflow_stages") return stages.data?.some((stage) => stage.key === value) ?? false;
+        if (name === "members") return ["none", "me"].includes(value) || project.all_members.some((member) => member.email === value);
+        if (name === "creators") return value === "me" || creators.some(([key]) => key === value);
+        if (name === "labels") return labels.some((label) => label.uid === value);
+        if (name === "parents" || name === "children") return cards.some((card) => card.uid === value);
+        return name === "keyword" || (name === "unfinished" && value === "yes");
+    };
+    const toggleCondition = (name: keyof IFilterMap, value: string) => {
+        if (filters[name]?.includes(value)) removeFilter(name, value);
+        else {
+            filters[name] = [...(filters[name] ?? []), value];
+            navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
+        }
+    };
+
+    const content = (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
             <Popover.Root
                 onOpenChange={(open) => {
@@ -347,24 +376,77 @@ function BoardFilter() {
                     <p className="border-t px-3 py-2 text-xs text-muted-foreground">{t("board.filters.Combination guidance")}</p>
                 </Popover.Content>
             </Popover.Root>
+            {favorites.error && (
+                <Button variant="ghost" size="sm" onClick={favorites.retry}>
+                    {t("board.filters.Retry favorites")}
+                </Button>
+            )}
+            {favorites.pins.length > 0 && (
+                <div role="group" aria-label={t("board.filters.Favorite filters")} className="flex max-w-full flex-wrap gap-1">
+                    {favorites.pins.map((pin) => {
+                        const ready = available(pin.key, pin.value);
+                        const title = ready ? filterTitle(pin.key, pin.value) : t("board.filters.Unavailable saved filter");
+                        return (
+                            <div key={JSON.stringify([pin.key, pin.value])} className="inline-flex max-w-52 items-center rounded-full border">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={!ready}
+                                    aria-label={`${t("board.filters.Toggle favorite")}: ${title}`}
+                                    aria-pressed={!!filters[pin.key]?.includes(pin.value)}
+                                    title={title}
+                                    onClick={() => toggleCondition(pin.key, pin.value)}
+                                    className="h-7 min-w-0 gap-1 rounded-full px-2 text-xs aria-pressed:bg-accent"
+                                >
+                                    <IconComponent icon="star" className="size-3 shrink-0 fill-current" />
+                                    <span className="truncate">{title}</span>
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={favorites.busy}
+                                    aria-label={`${t("board.filters.Remove favorite")}: ${title}`}
+                                    className="size-7 shrink-0 rounded-full p-0"
+                                    onClick={() => favorites.toggle(pin.key, pin.value)}
+                                >
+                                    <IconComponent icon="x" className="size-3" />
+                                </Button>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
             {countAppliedFilters > 0 && (
                 <>
                     <div aria-label={t("board.filters.Applied filters")} className="flex max-w-full flex-wrap gap-1">
                         {(Object.keys(filters) as (keyof IFilterMap)[]).flatMap((name) =>
-                            (filters[name] ?? []).map((value) => (
-                                <Button
-                                    key={`${name}:${value}`}
-                                    variant="ghost"
-                                    size="sm"
-                                    title={filterTitle(name, value)}
-                                    aria-label={`${t("board.filters.Remove filter")}: ${filterTitle(name, value)}`}
-                                    className="h-7 max-w-44 gap-1 rounded-full bg-accent/55 px-2 text-xs"
-                                    onClick={() => removeFilter(name, value)}
-                                >
-                                    <span className="truncate">{filterTitle(name, value)}</span>
-                                    <IconComponent icon="x" className="size-3 shrink-0" />
-                                </Button>
-                            ))
+                            (filters[name] ?? [])
+                                .filter((value) => !favorites.isPinned(name, value))
+                                .map((value) => (
+                                    <div key={`${name}:${value}`} className="inline-flex max-w-full items-center">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            title={filterTitle(name, value)}
+                                            aria-label={`${t("board.filters.Remove filter")}: ${filterTitle(name, value)}`}
+                                            className="h-7 max-w-44 gap-1 rounded-full bg-accent/55 px-2 text-xs"
+                                            onClick={() => removeFilter(name, value)}
+                                        >
+                                            <span className="truncate">{filterTitle(name, value)}</span>
+                                            <IconComponent icon="x" className="size-3 shrink-0" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={favorites.busy || favorites.pins.length >= 32}
+                                            aria-label={`${t("board.filters.Add favorite")}: ${filterTitle(name, value)}`}
+                                            className="size-7 shrink-0 p-0"
+                                            onClick={() => favorites.toggle(name, value)}
+                                        >
+                                            <IconComponent icon="star" className="size-3" />
+                                        </Button>
+                                    </div>
+                                ))
                         )}
                     </div>
                     <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearFilters}>
@@ -374,6 +456,7 @@ function BoardFilter() {
             )}
         </div>
     );
+    return <FavoriteFiltersContext.Provider value={{ ...favorites, title: filterTitle }}>{content}</FavoriteFiltersContext.Provider>;
 }
 BoardFilter.displayName = "Board.Filter";
 
@@ -439,6 +522,9 @@ interface IBoardFilterItemProps {
 
 function BoardFilterItem({ name, value, children }: IBoardFilterItemProps) {
     const { project, filters, navigateWithFilters } = useBoard();
+    const favorites = useContext(FavoriteFiltersContext);
+    const [t] = useTranslation();
+    const favoriteAction = favorites?.isPinned(name, value) ? "board.filters.Remove favorite" : "board.filters.Add favorite";
     const checked = useMemo(() => !!filters[name] && filters[name].includes(value), [filters, filters[name]]);
 
     const setFilterCards = (checked: CheckedState) => {
@@ -456,10 +542,25 @@ function BoardFilterItem({ name, value, children }: IBoardFilterItemProps) {
     };
 
     return (
-        <Label display="flex" cursor="pointer" items="center" gap="2" p="3" className="hover:bg-accent/80">
-            <Checkbox name={name as string} checked={checked} onCheckedChange={setFilterCards} />
-            {children}
-        </Label>
+        <div className="flex min-w-0 items-center hover:bg-accent/80">
+            <Label display="flex" cursor="pointer" items="center" gap="2" p="3" className="min-w-0 flex-1">
+                <Checkbox name={name as string} checked={checked} onCheckedChange={setFilterCards} />
+                {children}
+            </Label>
+            {favorites && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={favorites.busy || (favorites.pins.length >= 32 && !favorites.isPinned(name, value))}
+                    aria-label={`${t(favoriteAction)}: ${favorites.title(name, value)}`}
+                    aria-pressed={favorites.isPinned(name, value)}
+                    className="mr-1 size-7 shrink-0 p-0"
+                    onClick={() => favorites.toggle(name, value)}
+                >
+                    <IconComponent icon="star" className={cn("size-4", favorites.isPinned(name, value) && "fill-current text-primary")} />
+                </Button>
+            )}
+        </div>
     );
 }
 BoardFilterItem.displayName = "Board.FilterItem";

@@ -1,14 +1,141 @@
 import { test, expect } from "@playwright/test";
+test.beforeEach(async ({ page }) => {
+    await page.route("**/board/*/filter-preferences", (route) => route.fulfill({ json: { revision: 0, pinned_filters: [] } }));
+});
+
+for (const width of [1280, 390])
+    test(`favorite filter toggles, persists and removes independently at ${width}px`, async ({ page }) => {
+        let stored = { revision: 0, pinned_filters: [] as { key: string; value: string }[] };
+        let writes = 0;
+        await page.route("**/board/fixture/filter-preferences", async (route) => {
+            if (route.request().method() === "PUT") {
+                const body = route.request().postDataJSON();
+                expect(body.expected_revision).toBe(stored.revision);
+                stored = {
+                    revision: stored.revision + 1,
+                    pinned_filters: body.pinned_filters.map(({ key, value }: { key: string; value: string }) => ({ value, key })),
+                };
+                writes++;
+            }
+            await route.fulfill({ json: stored });
+        });
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html");
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await dialog.getByRole("button", { name: "Status", exact: true }).click();
+        const condition = dialog.getByRole("checkbox", { name: "ready", exact: true });
+        await dialog.getByRole("button", { name: "Add favorite: Status: ready", exact: true }).click();
+        await expect(condition).not.toBeChecked();
+        await expect(dialog.getByRole("button", { name: "Remove favorite: Status: ready", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await page.keyboard.press("Escape");
+        await expect(dialog).not.toBeVisible();
+        const pin = page.getByRole("button", { name: "Toggle favorite filter: Status: ready", exact: true });
+        await expect(pin).toHaveAttribute("aria-pressed", "false");
+        await pin.click();
+        await expect(pin).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByRole("region", { name: "Results" })).not.toContainText("Active mine");
+        await pin.focus();
+        await expect(pin).toBeFocused();
+        await page.keyboard.press("Space");
+        await expect(page.getByRole("region", { name: "Results" })).toContainText("Active mine");
+        await pin.click();
+        await page.getByRole("button", { name: "Clear", exact: true }).click();
+        await expect(pin).toHaveAttribute("aria-pressed", "false");
+        expect(writes).toBe(1);
+        await page.goto(`/src/pages/BoardPage/components/board/BoardFilter.fixture.html${new URL(page.url()).search}`);
+        await expect(pin).toHaveAttribute("aria-pressed", "false");
+        await pin.click();
+        await page.screenshot({ path: `.verification/filter-favorites-${width}.png` });
+        await page.getByRole("button", { name: "Remove favorite: Status: ready", exact: true }).click();
+        await expect(pin).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Remove filter: Status: ready", exact: true })).toBeVisible();
+        expect(writes).toBe(2);
+        await page.goto(`/src/pages/BoardPage/components/board/BoardFilter.fixture.html${new URL(page.url()).search}`);
+        await expect(pin).toHaveCount(0);
+        await expect(page.getByRole("region", { name: "Results" })).not.toContainText("Active mine");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+
+test("favorite filter write conflict requires readback and explicit retry", async ({ page }) => {
+    let writes = 0;
+    await page.route("**/board/fixture/filter-preferences", async (route) => {
+        if (route.request().method() === "PUT") {
+            writes++;
+            await route.fulfill({ status: 409, json: { code: "EX1003" } });
+        } else await route.fulfill({ json: { revision: 2, pinned_filters: [{ key: "columns", value: "deleted" }] } });
+    });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html");
+    const unavailable = page.getByRole("button", { name: "Toggle favorite filter: Unavailable saved filter", exact: true });
+    await expect(unavailable).toBeDisabled();
+    const remove = page.getByRole("button", { name: "Remove favorite: Unavailable saved filter", exact: true });
+    await remove.click();
+    await expect(page.getByRole("button", { name: "Retry favorite filters", exact: true })).toBeVisible();
+    await expect(remove).toBeDisabled();
+    expect(writes).toBe(1);
+    await page.getByRole("button", { name: "Retry favorite filters", exact: true }).click();
+    await expect(remove).toBeEnabled();
+    expect(writes).toBe(1);
+    await expect(unavailable).toBeDisabled();
+});
+
+test("late favorite write stays with the original account and board", async ({ page }) => {
+    let account = "me";
+    const saved = new Map<string, { revision: number; pinned_filters: { key: string; value: string }[] }>();
+    const reads: string[] = [];
+    let release: (() => void) | undefined;
+    let committed = false;
+    await page.route("**/board/*/filter-preferences", async (route) => {
+        const board = new URL(route.request().url()).pathname.split("/").at(-2);
+        const scope = `${account}/${board}`;
+        if (route.request().method() === "PUT") {
+            const body = route.request().postDataJSON();
+            await new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            saved.set(scope, { revision: body.expected_revision + 1, pinned_filters: body.pinned_filters });
+            committed = true;
+        } else reads.push(scope);
+        await route.fulfill({ json: saved.get(scope) ?? { revision: 0, pinned_filters: [] } });
+    });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html");
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Status", exact: true }).click();
+    await page.getByRole("button", { name: "Add favorite: Status: ready", exact: true }).click();
+    await expect.poll(() => !!release).toBe(true);
+    await page.keyboard.press("Escape");
+    account = "other";
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await expect(page.getByTestId("preference-scope")).toHaveText("other:fixture");
+    await expect.poll(() => reads.includes("other/fixture")).toBe(true);
+    release!();
+    await expect.poll(() => committed).toBe(true);
+    const chip = page.getByRole("button", { name: "Toggle favorite filter: Status: ready", exact: true });
+    await expect(chip).toHaveCount(0);
+    await page.getByRole("button", { name: "Switch board", exact: true }).click();
+    await expect.poll(() => reads.includes("other/otherboard")).toBe(true);
+    await expect(chip).toHaveCount(0);
+    account = "me";
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await expect.poll(() => reads.includes("me/otherboard")).toBe(true);
+    await expect(chip).toHaveCount(0);
+    await page.getByRole("button", { name: "Switch board", exact: true }).click();
+    await expect(chip).toHaveAttribute("aria-pressed", "false");
+});
 for (const width of [1280, 390])
     test(`registry stage filters preserve OR, column AND and URL at ${width}px`, async ({ page }) => {
         let requests = 0;
         await page.route("**/auth/token/refresh", (route) => route.fulfill({ json: { access_token: "synthetic-fixture-token" } }));
         await page.route("**/board/fixture/workflow-stages", async (route) => {
             requests++;
-            await route.fulfill({ json: { stages: [
-                { key: "custom_ready", name: "Custom queue", color: "#123456", is_active: true, translations: {} },
-                { key: "custom_active", name: "Custom execution", color: "#654321", is_active: true, translations: {} },
-            ] } });
+            await route.fulfill({
+                json: {
+                    stages: [
+                        { key: "custom_ready", name: "Custom queue", color: "#123456", is_active: true, translations: {} },
+                        { key: "custom_active", name: "Custom execution", color: "#654321", is_active: true, translations: {} },
+                    ],
+                },
+            });
         });
         await page.setViewportSize({ width, height: 844 });
         await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html");

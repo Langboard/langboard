@@ -1,5 +1,5 @@
 import "@/core/injection";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Toast from "@/components/base/Toast";
 import { BoardAddCardProvider } from "@/core/providers/BoardAddCardProvider";
 import BoardColumnAddCard from "./BoardColumnAddCard";
@@ -34,6 +34,30 @@ const project = Project.Model.fromOne({
     uid: "fixture",
     title: "Fixture",
     all_members: [user],
+    labels: [],
+    invited_member_uids: [],
+    current_auth_role_actions: ["*"],
+});
+const otherUser = AuthUser.Model.fromOne({
+    ...base,
+    uid: "other",
+    type: "user",
+    email: "other@example.test",
+    firstname: "Other",
+    lastname: "User",
+    username: "other",
+    is_admin: true,
+    user_groups: [],
+    subemails: [],
+    api_key_role_actions: [],
+    setting_role_actions: [],
+    mcp_role_actions: [],
+});
+const otherProject = Project.Model.fromOne({
+    ...base,
+    uid: "otherboard",
+    title: "Other board",
+    all_members: [user, otherUser],
     labels: [],
     invited_member_uids: [],
     current_auth_role_actions: ["*"],
@@ -131,14 +155,26 @@ function Result() {
         </>
     );
 }
+function ScopeFixture() {
+    const [actor, setActor] = useState(user);
+    const [board, setBoard] = useState(project);
+    return (
+        <>
+            <button onClick={() => setActor(actor === user ? otherUser : user)}>Switch account</button>
+            <button onClick={() => setBoard(board === project ? otherProject : project)}>Switch board</button>
+            <output data-testid="preference-scope">
+                {actor.uid}:{board.uid}
+            </output>
+            <BoardProvider project={board} currentUser={actor}>
+                <Result />
+            </BoardProvider>
+        </>
+    );
+}
 const router = createBrowserRouter([
     {
         path: "*",
-        element: (
-            <BoardProvider project={project} currentUser={user}>
-                <Result />
-            </BoardProvider>
-        ),
+        element: <ScopeFixture />,
     },
 ]);
 createRoot(document.getElementById("root")!).render(

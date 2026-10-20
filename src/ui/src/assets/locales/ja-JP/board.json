@@ -67,7 +67,13 @@
     "Back to categories": "カテゴリーに戻る",
     "Applied filters": "適用中のフィルター",
     "Remove filter": "フィルターを削除",
-    "Combination guidance": "同じカテゴリー内はいずれかの条件に一致し、異なるカテゴリー間はすべての条件に一致する必要があります。親と子の関係はいずれかに一致すれば対象になります。"
+    "Combination guidance": "同じカテゴリー内はいずれかの条件に一致し、異なるカテゴリー間はすべての条件に一致する必要があります。親と子の関係はいずれかに一致すれば対象になります。",
+    "Add favorite": "お気に入りに追加",
+    "Remove favorite": "お気に入りから削除",
+    "Favorite filters": "お気に入りのフィルター",
+    "Toggle favorite": "お気に入りのフィルターを切り替え",
+    "Unavailable saved filter": "利用できない保存済みフィルター",
+    "Retry favorites": "お気に入りを再読み込み"
   },
   "Add column": "列を追加",
   "Add a card": "カードを追加",

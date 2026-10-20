@@ -67,7 +67,13 @@
     "Back to categories": "返回类别",
     "Applied filters": "已应用的筛选",
     "Remove filter": "移除筛选",
-    "Combination guidance": "同一类别中匹配任一选项即可，不同类别之间需同时匹配。父子关联匹配其中一种即可。"
+    "Combination guidance": "同一类别中匹配任一选项即可，不同类别之间需同时匹配。父子关联匹配其中一种即可。",
+    "Add favorite": "添加收藏",
+    "Remove favorite": "移除收藏",
+    "Favorite filters": "收藏的筛选条件",
+    "Toggle favorite": "切换收藏的筛选条件",
+    "Unavailable saved filter": "不可用的已保存筛选条件",
+    "Retry favorites": "重新加载收藏"
   },
   "Add column": "添加列",
   "Add a card": "添加卡片",
