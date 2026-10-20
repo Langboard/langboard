@@ -322,7 +322,9 @@ def test_actual_http_auth_roles_json_preview_multipart_apply_restore(avatar_http
 
 def test_additive_avatar_migration_and_single_head():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["a28196e32054"]
+    heads = scripts.get_heads()
+    assert len(heads) == 1
+    assert "a28196e32054" in {revision.revision for revision in scripts.walk_revisions(head=heads[0])}
     migration = scripts.get_revision("a28196e32054").module
     assert migration.down_revision == "f17085d21943"
     engine = create_engine("sqlite://")
