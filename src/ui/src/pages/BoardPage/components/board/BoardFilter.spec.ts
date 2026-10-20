@@ -10,6 +10,12 @@ async function pullLeft(page: Page, { x = 12, y = 120, dx = 130, dy = 0 } = {}) 
 }
 
 test("left boundary pull reuses first-column composer, focus and glow", async ({ page }) => {
+    let posts = 0;
+    await page.route("**/board/fixture/**", (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        posts++;
+        return route.fulfill({ json: { card: { uid: "unexpected-submit" } } });
+    });
     await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
     await expect(page.getByPlaceholder("Enter a title")).toHaveCount(0);
     await pullLeft(page);
@@ -17,6 +23,11 @@ test("left boundary pull reuses first-column composer, focus and glow", async ({
     await expect(title).toBeFocused();
     await expect.poll(() => title.evaluate((e) => e.getAnimations().some((a) => a.effect?.getTiming().duration === 700))).toBe(true);
     expect(new URL(page.url()).searchParams.has("new-card")).toBe(false);
+    await title.fill("Existing first-column draft");
+    await pullLeft(page);
+    await expect(title).toBeFocused();
+    await expect(title).toHaveValue("Existing first-column draft");
+    expect(posts).toBe(0);
 });
 
 test("short, vertical, central and protected drags do not compose; background still pans", async ({ page }) => {

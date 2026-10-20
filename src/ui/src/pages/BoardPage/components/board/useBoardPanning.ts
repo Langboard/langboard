@@ -24,6 +24,8 @@ export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivEl
                         scrollable.scrollLeft <= 1 &&
                         start.clientX - scrollable.getBoundingClientRect().left <= 32 &&
                         !start.target.closest("button, a, input, textarea, select, [contenteditable], [role=button]");
+                    // A compose gesture must not submit an existing draft as an outside click.
+                    if (pull) start.stopPropagation();
                     const cleanupEvents = bindAll(
                         window,
                         [
