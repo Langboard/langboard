@@ -13,6 +13,7 @@ import { EHttpStatus } from "@langboard/core/enums";
 import BoardComment, { SkeletonBoardComment } from "@/pages/BoardPage/components/card/comment/BoardComment";
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { newestCommentsFirst } from "./commentChronology";
 
 export function SkeletonBoardCommentList() {
     return (
@@ -71,7 +72,7 @@ function BoardCommentListResult({ scrollableRef, className }: IBoardCommentListP
     const [t] = useTranslation();
     const PAGE_SIZE = 10;
     const flatComments = ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid, [card]);
-    const sortedComments = useMemo(() => flatComments.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime()), [flatComments]);
+    const sortedComments = useMemo(() => newestCommentsFirst(flatComments), [flatComments]);
     const { items: comments, nextPage, forceUpdate, hasMore } = useInfiniteScrollPager({ allItems: sortedComments, size: PAGE_SIZE });
 
     const deletedComment = (commentUID: string) => {
