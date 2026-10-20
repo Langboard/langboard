@@ -768,6 +768,10 @@ for (const dismissal of ["button", "background"]) {
         await page.goto(FIXTURE);
         const viewer = page.locator("[data-card-viewer]");
         await expect(page.locator("[data-card-surface]")).toBeVisible();
+        await expect(viewer).toHaveAttribute("data-card-viewer-opened", "true");
+        await expect
+            .poll(() => viewer.evaluate((element) => element.getAnimations().some((animation) => animation.playState === "running")))
+            .toBe(false);
         if (dismissal === "button") await page.getByRole("button", { name: "Close", exact: true }).click();
         else {
             const surface = await page.locator("[data-card-surface]").boundingBox();
