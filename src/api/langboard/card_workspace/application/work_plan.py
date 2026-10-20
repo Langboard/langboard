@@ -272,7 +272,12 @@ class WorkPlanService:
                 ).all()
             types = service.card_relationship.repo.card_relationship.get_global_relationship_types_map(type_uids)
         if plan.new_cards or plan.add_edges or plan.remove_relationship_uids:
-            service.card_relationship.preview_graph_patch(self.actor, *graph)
+            try:
+                service.card_relationship.preview_graph_patch(self.actor, *graph)
+            except ValueError as error:
+                raise WorkPlanRejected(
+                    "WORK_PLAN_INVALID", "Work plan relationships conflict with the current graph.", "read_and_review"
+                ) from error
         snapshot = {
             "relationship_types": [t.api_response() for _, t in sorted(types.items())],
             "cardification_items": cardification_items,

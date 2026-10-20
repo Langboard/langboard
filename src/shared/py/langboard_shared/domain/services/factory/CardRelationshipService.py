@@ -10,7 +10,7 @@ from ....publishers import CardPublisher, CardRelationshipPublisher
 from ....tasks.activities import CardActivityTask, CardRelationshipActivityTask
 from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...models import Card, CardRelationship, Project, ProjectColumn
+from ...models import Bot, Card, CardRelationship, Project, ProjectColumn, User
 from ..CardAppMutation import require_card_app_mutation
 from ..CardVisibilityPolicy import CardVisibilityContext
 
@@ -338,8 +338,13 @@ class CardRelationshipService(BaseDomainService):
                 return {"new_cards": len(new_cards), "added_edges": len(add_edges), "removed_edges": len(remove_relationships)}
 
             next_order = self.repo.card.get_next_order(column, {"project_id": project.id}) if new_cards else 0
+            creation_anchor = existing_cards[anchor_card.get_uid()]
             cards_to_create = {
                 client_ref: Card(
+                    visibility=creation_anchor.visibility,
+                    owner_user_id=creation_anchor.owner_user_id if creation_anchor.visibility == "PRIVATE" else None,
+                    created_by_user_id=user_or_bot.id if isinstance(user_or_bot, User) else None,
+                    created_by_bot_id=user_or_bot.id if isinstance(user_or_bot, Bot) else None,
                     project_id=project.id,
                     project_column_id=column.id,
                     title=title,

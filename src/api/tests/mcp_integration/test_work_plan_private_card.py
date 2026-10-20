@@ -106,7 +106,7 @@ async def test_private_card_preview_and_apply_use_current_actor_through_mcp(boar
 
 
 @pytest.mark.parametrize(
-    "case", ["active", "new", "archive_anchor", "archive_endpoint", "hidden", "deleted", "foreign", "invalid_ref"]
+    "case", ["active", "new", "archive_anchor", "archive_endpoint", "hidden", "deleted", "foreign", "invalid_ref", "duplicate"]
 )
 async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, case):
     engine = DbEngine.get_main_engine()
@@ -132,6 +132,9 @@ async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, c
         db.insert(endpoint)
         relation_type = GlobalCardRelationshipType(parent_name="Contains", child_name="Part of")
         db.insert(relation_type)
+        if case == "duplicate":
+            db.insert(CardRelationship(relationship_type_id=relation_type.id,
+                                       card_id_parent=anchor.id, card_id_child=endpoint.id))
     name = "preview_card_work_plan"
     metadata = {name: McpTool.get_tool(name)}
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
@@ -175,7 +178,7 @@ async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, c
             "CARD_ARCHIVED"
             if case.startswith("archive")
             else "WORK_PLAN_INVALID"
-            if case == "invalid_ref"
+            if case in {"invalid_ref", "duplicate"}
             else "CARD_UNAVAILABLE"
         )
         assert code in text, text
@@ -227,5 +230,5 @@ async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, c
             assert correlated.json()["request_id"] == safe_id.replace("-", "")
             assert correlated.headers["X-Request-ID"] == safe_id.replace("-", "")
     with engine.connect() as connection:
-        for model, expected in ((Card, 2), (Checklist, 0), (Checkitem, 0), (CardRelationship, 0)):
+        for model, expected in ((Card, 2), (Checklist, 0), (Checkitem, 0), (CardRelationship, int(case == "duplicate"))):
             assert connection.execute(select(func.count()).select_from(model.__table__)).scalar_one() == expected
