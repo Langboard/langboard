@@ -5,7 +5,8 @@
     "editor_copilot": "편집기 Copilot",
     "document_vision": "문서 비전 · document-vision",
     "document_embedding": "문서 임베딩 · document-embedding",
-    "image_generation": "이미지 생성"
+    "image_generation": "이미지 생성",
+    "comment_compaction": "댓글 압축"
   },
   "Process new uploads": "새 문서 업로드 자동 처리",
   "Existing attachments require explicit processing": "업로드 시점에 적용합니다. 기존 첨부는 카드에서 직접 처리하세요. 설정을 바꿔도 이전 파일은 재처리하지 않습니다.",

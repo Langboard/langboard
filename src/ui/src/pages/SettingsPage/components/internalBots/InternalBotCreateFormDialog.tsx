@@ -47,6 +47,7 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
     };
     const [selectedType, setSelectedType] = useState<InternalBotModel.EInternalBotType>(InternalBotModel.EInternalBotType.ProjectChat);
     const isImageGeneration = selectedType === InternalBotModel.EInternalBotType.ImageGeneration;
+    const isNativeOnly = isImageGeneration || selectedType === InternalBotModel.EInternalBotType.CommentCompaction;
     const [imageConfig, setImageConfig] = useState(defaultImageGenerationConfig);
     const [imageApiKey, setImageApiKey] = useState("");
     const [selectedPlatform, setSelectedPlatform] = useState<EBotPlatform>(EBotPlatform.Default);
@@ -127,8 +128,8 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
             {
                 bot_type: selectedType,
                 display_name: values.displayName,
-                platform: isImageGeneration ? EBotPlatform.Default : selectedPlatform,
-                platform_running_type: isImageGeneration ? EBotPlatformRunningType.Default : selectedPlatformRunningType,
+                platform: isNativeOnly ? EBotPlatform.Default : selectedPlatform,
+                platform_running_type: isNativeOnly ? EBotPlatformRunningType.Default : selectedPlatformRunningType,
                 api_url: values.url,
                 api_key: isImageGeneration ? imageApiKey : values.apiKey,
                 value: isImageGeneration ? JSON.stringify(imageConfig) : valueRef.current,
@@ -186,6 +187,13 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
             setErrors({});
         }
     }, [opened, selectedType, actor]);
+
+    useEffect(() => {
+        if (selectedType === InternalBotModel.EInternalBotType.CommentCompaction) {
+            setSelectedPlatform(EBotPlatform.Default);
+            setSelectedPlatformRunningType(EBotPlatformRunningType.Default);
+        }
+    }, [selectedType]);
 
     useEffect(() => {
         if (AVAILABLE_RUNNING_TYPES_BY_PLATFORM[selectedPlatform].includes(selectedPlatformRunningType)) {
@@ -256,12 +264,12 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                             })}
                         />
                     </Box>
-                    {!isImageGeneration && (
+                    {!isNativeOnly && (
                         <Box mt="4">
                             <BotPlatformSelect state={[selectedPlatform, setSelectedPlatform]} isValidating={isValidating} />
                         </Box>
                     )}
-                    {!isImageGeneration && (
+                    {!isNativeOnly && (
                         <Box mt="4">
                             <BotPlatformRunningTypeSelect
                                 state={[selectedPlatformRunningType, setSelectedPlatformRunningType]}
@@ -309,7 +317,13 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                     {formRequirements.includes("value") && (
                         <Box mt="4">
                             <BotValueInput
-                                purpose={selectedType === InternalBotModel.EInternalBotType.DocumentEmbedding ? "embedding" : "chat"}
+                                purpose={
+                                    selectedType === InternalBotModel.EInternalBotType.DocumentEmbedding
+                                        ? "embedding"
+                                        : selectedType === InternalBotModel.EInternalBotType.CommentCompaction
+                                          ? "compaction"
+                                          : "chat"
+                                }
                                 currentUser={currentUser}
                                 platform={selectedPlatform}
                                 platformRunningType={selectedPlatformRunningType}

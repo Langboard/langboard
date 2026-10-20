@@ -12,6 +12,7 @@ class InternalBotType(Enum):
     DocumentVision = "document_vision"
     DocumentEmbedding = "document_embedding"
     ImageGeneration = "image_generation"
+    CommentCompaction = "comment_compaction"
 
     @classmethod
     def executable_types(cls) -> tuple["InternalBotType", ...]:

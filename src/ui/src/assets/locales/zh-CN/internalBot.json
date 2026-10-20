@@ -5,7 +5,8 @@
     "editor_copilot": "编辑器Copilot",
     "document_vision": "文档视觉 · document-vision",
     "document_embedding": "文档嵌入 · document-embedding",
-    "image_generation": "图像生成"
+    "image_generation": "图像生成",
+    "comment_compaction": "评论压缩"
   },
   "Process new uploads": "自动处理新上传的文档",
   "Existing attachments require explicit processing": "仅在上传时应用。请在卡片中手动处理现有附件。更改此设置不会重新处理旧文件。",
