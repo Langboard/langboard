@@ -103,7 +103,7 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
         return columnRowDndHelpers.column({
             canDrag: canDragAndDrop,
-            canDropRows: mode === "manual",
+            canDropRows: (row) => mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid),
             column,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: header,

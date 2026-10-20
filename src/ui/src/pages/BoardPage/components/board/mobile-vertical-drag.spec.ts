@@ -14,7 +14,7 @@ async function touch(page: Page, type: "touchStart" | "touchMove" | "touchEnd" |
         touchPoints: ["touchEnd", "touchCancel"].includes(type) ? [] : [{ x, y, id: 1 }, ...(extra ? [{ x: x + 20, y: y + 20, id: 2 }] : [])],
     });
 }
-async function open(page: Page) {
+async function open(page: Page, query = "") {
     await page.route("**/vertical-drag.html*", (route) =>
         route.fulfill({
             contentType: "text/html",
@@ -25,7 +25,7 @@ async function open(page: Page) {
         <script type="module" src="/src/pages/BoardPage/components/board/mobile-vertical-drag.fixture.tsx"></script></body></html>`,
         })
     );
-    await page.goto("/vertical-drag.html");
+    await page.goto(`/vertical-drag.html${query}`);
     await expect(card(page)).toBeVisible();
 }
 async function start(page: Page) {
@@ -105,9 +105,12 @@ test("ordinary body swipe keeps native vertical scroll and unmount stops an acti
     await touch(page, "touchEnd");
     await expect.poll(() => owner(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(20);
     expect(await receipt(page)).toEqual([]);
+    // Let native inertial scrolling settle before beginning a separate held-handle gesture.
+    await page.waitForTimeout(250);
     await owner(page).evaluate((element) => {
         element.scrollTop = 0;
     });
+    await card(page).scrollIntoViewIfNeeded();
     await start(page);
     await touch(page, "touchMove", 100, rect!.y + rect!.height - 3);
     await page.getByRole("button", { name: "Unmount board", exact: true }).evaluate((button) => (button as HTMLButtonElement).click());
@@ -136,4 +139,17 @@ test("a second touch stops both axes without a drop", async ({ page }) => {
     await expect(page.locator("body > [data-board-card-touch-dnd-uid]")).toHaveCount(0);
     await touch(page, "touchCancel");
     expect(await receipt(page)).toEqual([]);
+});
+
+test("automatic columns reject local mouse reorder and accept a drop into an empty column", async ({ browser }) => {
+    const context = await browser.newContext({ hasTouch: false, viewport: { width: 1500, height: 900 } });
+    const page = await context.newPage();
+    await open(page, "?sort=created_newest");
+    const source = card(page).locator("[draggable=true]");
+    await source.dragTo(card(page, 1));
+    expect(await receipt(page)).toEqual([]);
+    const empty = page.locator("[data-board-column-touch-dnd-uid=automatic]");
+    await source.dragTo(empty, { targetPosition: { x: 110, y: 160 } });
+    expect(await receipt(page)).toContainEqual(expect.objectContaining({ rowUID: "mobile-card-0", parentUID: "automatic", order: 0 }));
+    await context.close();
 });

@@ -92,14 +92,14 @@ test("native handle reaches another column and empty column at zero order", asyn
     expect(await receipts(page)).toContainEqual(expect.objectContaining({ parentUID: "empty" }));
     expect(await receipts(page)).toContainEqual(expect.objectContaining({ order: 0 }));
 });
-for (const query of ["?permission=denied", "?sort=created_newest"])
+for (const query of ["?permission=denied"])
     test(`native restrictions preserve ${query}`, async ({ page }) => {
         await open(page, query);
         await expect(handle(page)).toHaveCount(0);
         await expect(card(page).locator("[draggable=true]")).toHaveCount(0);
     });
 
-test("native populated-column movement and nonmanual target rejection", async ({ page }) => {
+test("native populated-column movement and automatic target movement", async ({ page }) => {
     await open(page);
     let start = await point(handle(page));
     await touch(page, "touchStart", start.x, start.y);
@@ -120,7 +120,8 @@ test("native populated-column movement and nonmanual target rejection", async ({
     });
     await touch(page, "touchMove", 250, 450);
     await touch(page, "touchEnd", 0, 0);
-    expect(JSON.parse(await page.locator("#receipts").innerText())).toHaveLength(1);
+    expect(JSON.parse(await page.locator("#receipts").innerText())).toHaveLength(2);
+    expect(await receipts(page)).toContainEqual(expect.objectContaining({ parentUID: "automatic" }));
 });
 test("desktop retains native mouse dragging and hides the touch handle", async ({ browser }) => {
     const context = await browser.newContext({ hasTouch: false, isMobile: false, viewport: { width: 1200, height: 900 } });
@@ -179,3 +180,34 @@ for (const width of [390, 1457]) {
         await target.screenshot({ path: `../../.verification/ui-feedback-20261020/checkbox-${width}.png` });
     });
 }
+
+test("automatic sort permits touch column changes but blocks same-column ordering", async ({ page }) => {
+    await open(page, "?sort=created_newest");
+    let source = await point(handle(page));
+    const target = await card(page, 1).boundingBox();
+    await touch(page, "touchStart", source.x, source.y);
+    await expect(card(page)).toHaveAttribute("data-touch-drag-state", "dragging");
+    await touch(page, "touchMove", target!.x + 80, target!.y + target!.height - 10);
+    await touch(page, "touchEnd", 0, 0);
+    expect(await receipts(page)).toEqual([]);
+    source = await point(handle(page));
+    await touch(page, "touchStart", source.x, source.y);
+    await expect(card(page)).toHaveAttribute("data-touch-drag-state", "dragging");
+    await page.locator("#mobile-board").evaluate((node) => {
+        node.scrollLeft = 302;
+    });
+    const destination = await card(page, 4).boundingBox();
+    await touch(page, "touchMove", destination!.x + 80, destination!.y + 10);
+    await touch(page, "touchEnd", 0, 0);
+    expect(await receipts(page)).toContainEqual(expect.objectContaining({ parentUID: "destination" }));
+});
+test("automatic sort permits desktop column changes but blocks same-column ordering", async ({ browser }) => {
+    const context = await browser.newContext({ hasTouch: false, isMobile: false, viewport: { width: 1200, height: 900 } });
+    const page = await context.newPage();
+    await open(page, "?sort=created_newest");
+    await card(page).locator("[draggable=true]").dragTo(card(page, 1));
+    expect(await receipts(page)).toEqual([]);
+    await card(page).locator("[draggable=true]").dragTo(card(page, 4));
+    expect(await receipts(page)).toContainEqual(expect.objectContaining({ parentUID: "destination" }));
+    await context.close();
+});
