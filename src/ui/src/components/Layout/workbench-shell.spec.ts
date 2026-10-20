@@ -1373,3 +1373,23 @@ test("switching accounts while composing cannot save the previous account draft 
     await prompt.click();
     await expect(editor).toContainText("Private retained first account comment");
 });
+
+test("compose dock opens the first column editor and preserves a draft without submitting", async ({ page }) => {
+    let writes = 0;
+    await page.route("http://127.0.0.1:5381/**", async (route) => {
+        if (route.request().method() === "POST") writes++;
+        await route.fulfill({ json: { active_work: [], columns: [], pinned_apps: [], revision: 0 } });
+    });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+    const compose = page.getByRole("button", { name: "Compose", exact: true });
+    await expect(compose).toBeVisible();
+    await compose.click();
+    const input = page.locator("textarea");
+    await expect(input).toBeFocused();
+    await input.fill("Keep this card draft");
+    await compose.click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("Keep this card draft");
+    expect(writes).toBe(0);
+    await expect(page).not.toHaveURL(/new-card/);
+});

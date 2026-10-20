@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, Project, ProjectCard, ProjectColumn } from "@/core/models";
 import { BoardProvider, useBoard } from "@/core/providers/BoardProvider";
 import BoardFilter from "./BoardFilter";
+import BoardFloatingNavigation from "./BoardFloatingNavigation";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const base = { created_at: new Date(), updated_at: new Date() };
@@ -93,16 +94,12 @@ ProjectCard.Model.fromArray(
 function AddCardFixture() {
     const viewportRef = useRef<HTMLDivElement>(null);
     return (
-        <BoardAddCardProvider
-            column={ProjectColumn.Model.getModel("ready")!}
-            viewportRef={viewportRef}
-            toLastPage={() => {}}
-            isDefaultCardColumn={false}
-        >
+        <BoardAddCardProvider column={ProjectColumn.Model.getModel("ready")!} viewportRef={viewportRef} toLastPage={() => {}} isDefaultCardColumn>
             <div ref={viewportRef}>
                 <BoardColumnAddCard />
                 <BoardColumnAddCardButton />
             </div>
+            <BoardFloatingNavigation project={project} currentUser={user} items={[]} dockEnabled />
             <Toast.Area />
         </BoardAddCardProvider>
     );

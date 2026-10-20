@@ -1,4 +1,5 @@
 {
+  "Compose": "作成",
   "Board": "ボード",
   "Shared dock": "共有ドック",
   "Dock shared description": "固定した列のショートカットはこのボードの全員に共有されます。変更してもボードの列順は変わりません。",
