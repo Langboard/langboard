@@ -1,0 +1,63 @@
+<svg id="logo" xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="374 104 790 790" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Langboard Orbit — 1.8-second depth-aware hover</title>
+  <desc id="desc">Vector reconstruction of the supplied reference: aligned glossy violet task boards, mint and lavender cards, a cyan to violet orbital ribbon, and a gold sparkle.</desc>
+  <defs>
+    <linearGradient id="tile" x1="428" y1="134" x2="1100" y2="885" gradientUnits="userSpaceOnUse"><stop stop-color="#492294"/><stop offset=".43" stop-color="#2A1467"/><stop offset="1" stop-color="#241057"/></linearGradient>
+    <radialGradient id="tile-light" cx="0" cy="0" r="1" gradientTransform="translate(472 178) rotate(48) scale(787 656)" gradientUnits="userSpaceOnUse"><stop stop-color="#8153E6" stop-opacity=".3"/><stop offset=".58" stop-color="#7143E4" stop-opacity="0"/><stop offset="1" stop-color="#5927D4" stop-opacity=".18"/></radialGradient>
+    <linearGradient id="tile-edge" x1="430" y1="120" x2="1053" y2="833" gradientUnits="userSpaceOnUse"><stop stop-color="#9849FF"/><stop offset=".4" stop-color="#5420BE" stop-opacity=".22"/><stop offset="1" stop-color="#6C2EE6" stop-opacity=".08"/></linearGradient>
+    <linearGradient id="board" x1="490" y1="243" x2="795" y2="756" gradientUnits="userSpaceOnUse"><stop stop-color="#9C70FF"/><stop offset=".22" stop-color="#7050E7"/><stop offset=".62" stop-color="#5140CC"/><stop offset="1" stop-color="#4D2AB9"/></linearGradient>
+    <linearGradient id="small-board" x1="799" y1="473" x2="1063" y2="796" gradientUnits="userSpaceOnUse"><stop stop-color="#8052E4"/><stop offset=".5" stop-color="#6036CF"/><stop offset="1" stop-color="#4D2BBE"/></linearGradient>
+    <linearGradient id="board-edge" x1="489" y1="240" x2="751" y2="600" gradientUnits="userSpaceOnUse"><stop stop-color="#DDACFF" stop-opacity=".85"/><stop offset=".35" stop-color="#BC9FFF" stop-opacity=".25"/><stop offset="1" stop-color="#9E78FF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="mint" x1="529" y1="287" x2="729" y2="383" gradientUnits="userSpaceOnUse"><stop stop-color="#79FFCB"/><stop offset="1" stop-color="#00EBC6"/></linearGradient>
+    <linearGradient id="lavender" x1="529" y1="400" x2="731" y2="500" gradientUnits="userSpaceOnUse"><stop stop-color="#D6A7FF"/><stop offset="1" stop-color="#A56CF5"/></linearGradient>
+    <linearGradient id="white" x1="540" y1="514" x2="691" y2="686" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF"/><stop offset="1" stop-color="#E5D9FF"/></linearGradient>
+    <linearGradient id="white-right" x1="831" y1="525" x2="1038" y2="733" gradientUnits="userSpaceOnUse"><stop stop-color="#FCF8FF"/><stop offset="1" stop-color="#E3D4FF"/></linearGradient>
+    <linearGradient id="orbit-back" x1="446" y1="580" x2="1106" y2="416" gradientUnits="userSpaceOnUse"><stop stop-color="#3CEBEF"/><stop offset=".25" stop-color="#3278FF"/><stop offset=".58" stop-color="#6561FF"/><stop offset=".83" stop-color="#A572FF"/><stop offset="1" stop-color="#ED9CEB"/></linearGradient>
+    <linearGradient id="orbit-front-paint" x1="425" y1="616" x2="862" y2="627" gradientUnits="userSpaceOnUse"><stop stop-color="#88FFE5"/><stop offset=".24" stop-color="#4DE6FC"/><stop offset=".55" stop-color="#8084FF"/><stop offset="1" stop-color="#914EFF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="star" x1="901" y1="250" x2="993" y2="436" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF78A"/><stop offset=".45" stop-color="#FFDC4C"/><stop offset="1" stop-color="#FFB51B"/></linearGradient>
+    <filter id="shadow" x="-25%" y="-20%" width="160%" height="160%" color-interpolation-filters="sRGB"><feDropShadow dx="3" dy="7" stdDeviation="8" flood-color="#13082F" flood-opacity=".22"/></filter>
+    <filter id="card-shadow" x="-20%" y="-20%" width="150%" height="160%" color-interpolation-filters="sRGB"><feDropShadow dx="1" dy="3" stdDeviation="3" flood-color="#25105F" flood-opacity=".1"/></filter>
+    <filter id="ribbon-glow" x="-20%" y="-30%" width="140%" height="160%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="9"/></filter>
+    <linearGradient id="orbit-spectrum" x1="412" y1="610" x2="1110" y2="414" gradientUnits="userSpaceOnUse"><stop stop-color="#81FFE1"/><stop offset=".24" stop-color="#4BDDFC"/><stop offset=".55" stop-color="#7776FF"/><stop offset=".8" stop-color="#9E69FF"/><stop offset="1" stop-color="#E9A0F0"/></linearGradient>
+    <ellipse id="orbit-geometry" cx="770" cy="530" rx="358" ry="132" transform="rotate(-18 770 530)" stroke="url(#orbit-spectrum)" stroke-width="31"/>
+    <clipPath id="orbit-front-half"><rect x="350" y="530" width="850" height="400" transform="rotate(-18 770 530)"/></clipPath>
+    <clipPath id="orbit-rear-half"><rect x="350" y="130" width="850" height="400" transform="rotate(-18 770 530)"/></clipPath>
+<mask id="star-depth-mask" maskUnits="userSpaceOnUse" x="374" y="104" width="790" height="790"><rect x="374" y="104" width="790" height="790" fill="white"/><g clip-path="url(#orbit-rear-half)"><rect x="487" y="238" width="279" height="538" rx="44" fill="black"/><rect x="787" y="474" width="288" height="302" rx="42" fill="black"/></g></mask>
+  </defs>
+  <g id="background"><rect x="375" y="105" width="788" height="786" rx="157" fill="url(#tile)"/><rect x="375" y="105" width="788" height="786" rx="157" fill="url(#tile-light)"/><rect x="376" y="106" width="786" height="784" rx="156" stroke="url(#tile-edge)" stroke-width="3"/></g>
+  <g id="orbit-rear" opacity=".45" clip-path="url(#orbit-rear-half)"><use href="#orbit-geometry"/></g>
+  <g id="left-board" filter="url(#shadow)">
+    <rect id="left-panel" x="487" y="238" width="279" height="538" rx="44" fill="url(#board)"/>
+    <path d="M488 732 V282 Q488 239 532 239 H722" stroke="url(#board-edge)" stroke-width="3"/>
+    <g id="left-cards" filter="url(#card-shadow)">
+      <rect id="card-mint" x="522" y="286" width="212" height="86" rx="20" fill="url(#mint)"/>
+      <rect id="card-lavender" x="522" y="399" width="212" height="86" rx="20" fill="url(#lavender)"/>
+      <rect id="card-left-white" x="522" y="512" width="212" height="86" rx="20" fill="url(#white)"/>
+    </g>
+  </g>
+  <g id="right-board" filter="url(#shadow)">
+    <rect id="right-panel" x="787" y="474" width="288" height="302" rx="42" fill="url(#small-board)"/>
+    <path d="M788 734 V516 Q788 475 830 475 H1033" stroke="url(#board-edge)" stroke-width="2"/>
+    <rect id="card-right-top" x="822" y="523" width="218" height="80" rx="20" fill="url(#white-right)"/>
+    <rect id="card-right-bottom" x="822" y="629" width="218" height="80" rx="20" fill="url(#white-right)"/>
+  </g>
+  <g id="orbit-front" opacity=".45" clip-path="url(#orbit-front-half)"><use href="#orbit-geometry"/></g>
+  <style>@media(prefers-reduced-motion:reduce){#animated-star{display:none}}@media(prefers-reduced-motion:no-preference){#reduced-star{display:none}}</style>
+  <g id="reduced-star">  <g id="reduced-sparkle" filter="url(#card-shadow)">
+    <path id="reduced-star-shape" d="M940 249 Q952 225 965 249 L984 296 Q990 310 1003 317 L1043 337 Q1063 349 1042 362 L1002 381 Q989 388 982 404 L962 445 Q950 464 939 443 L920 400 Q914 386 899 380 L858 361 Q837 350 857 338 L899 316 Q913 309 919 295 Z" fill="url(#star)"/>
+    <path d="M945 246 Q953 235 959 249 L979 298 Q985 313 999 320 L1042 341" stroke="#FFF6A0" stroke-opacity=".58" stroke-width="3" stroke-linecap="round"/>
+  </g></g>
+  <g mask="url(#star-depth-mask)"><g id="animated-star" transform="translate(950 350)">
+    <g>
+      <animateMotion id="orbit-motion" begin="0s" dur="1.8s" repeatCount="indefinite" restart="whenNotActive" fill="remove" calcMode="paced" path="M 0 0 L -30.3626 14.5896 A 358 132 -18 1 1 -329.6374 345.4104 A 358 132 -18 1 1 -30.3626 14.5896 L 0 0"/>
+      <g>
+        <animateTransform attributeName="transform" type="scale" values="1;.48;.48;1" keyTimes="0;.14;.86;1" begin="orbit-motion.begin" dur="1.8s" repeatCount="indefinite" fill="remove"/>
+        <g transform="translate(-950 -350)">  <g id="sparkle-artwork" filter="url(#card-shadow)">
+    <path id="animated-star-shape" d="M940 249 Q952 225 965 249 L984 296 Q990 310 1003 317 L1043 337 Q1063 349 1042 362 L1002 381 Q989 388 982 404 L962 445 Q950 464 939 443 L920 400 Q914 386 899 380 L858 361 Q837 350 857 338 L899 316 Q913 309 919 295 Z" fill="url(#star)"/>
+    <path d="M945 246 Q953 235 959 249 L979 298 Q985 313 999 320 L1042 341" stroke="#FFF6A0" stroke-opacity=".58" stroke-width="3" stroke-linecap="round"/>
+  </g></g>
+      </g>
+    </g>
+  </g>
+  </g>
+</svg>

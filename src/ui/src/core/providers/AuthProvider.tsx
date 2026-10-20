@@ -1,3 +1,4 @@
+import BrandLoading from "@/components/BrandLoading";
 import { normalizeLocale } from "@/core/utils/LocalePolicy";
 import { createContext, useContext, useEffect, useRef } from "react";
 import { Routing } from "@langboard/core/constants";
@@ -111,7 +112,7 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
                 currentUser,
             }}
         >
-            {(!pageLoaded || state !== "loaded") && <Progress indeterminate height="1" className="fixed top-0 z-[9999999]" />}
+            {state !== "loaded" ? <BrandLoading /> : !pageLoaded && <Progress indeterminate height="1" className="fixed top-0 z-[9999999]" />}
             {state === "loaded" ? children : null}
         </AuthContext.Provider>
     );
