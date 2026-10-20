@@ -15,7 +15,8 @@ import Dialog from "@/components/base/Dialog";
 import { BoardCardSectionSaveProvider } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
 import BoardCard from "@/pages/BoardPage/components/card/BoardCard";
 import i18n from "@/i18n";
-import { AuthUser } from "@/core/models";
+import { AuthUser, GlobalRelationshipType, ProjectCard } from "@/core/models";
+import { BoardController, useBoardController } from "@/core/providers/BoardController";
 import "@/i18n";
 import "@/assets/styles/main.css";
 import "@/core/injection";
@@ -110,6 +111,52 @@ const router = createMemoryRouter(
     ],
     { initialEntries: ["/dashboard/projects/all"] }
 );
+function RelationshipFixtureController({ children }: { children: React.ReactNode }) {
+    if (!new URLSearchParams(location.search).has("relations")) return children;
+    return (
+        <BoardController projectUID="fixture">
+            <RelationshipSelectionProbe />
+            {children}
+        </BoardController>
+    );
+}
+function RelationshipSelectionProbe() {
+    const { selectCardViewType, selectedRelationshipUIDs, saveCardSelection, cancelCardSelection } = useBoardController();
+    return (
+        <aside aria-label="Relationship selection fixture">
+            <output data-testid="relationship-selection">
+                {JSON.stringify({ type: selectCardViewType ?? null, selections: selectedRelationshipUIDs })}
+            </output>
+            {!!selectCardViewType && (
+                <>
+                    <button onClick={saveCardSelection}>Save relationship selection</button>
+                    <button onClick={cancelCardSelection}>Cancel relationship selection</button>
+                </>
+            )}
+        </aside>
+    );
+}
+if (new URLSearchParams(location.search).has("relations")) {
+    GlobalRelationshipType.Model.fromOne({
+        uid: "relationship-type",
+        parent_name: "Includes",
+        child_name: "Belongs to",
+        created_at: new Date(),
+        updated_at: new Date(),
+    });
+    for (const uid of ["parent-card", "child-card"]) {
+        ProjectCard.Model.fromOne({
+            uid,
+            project_uid: "fixture",
+            project_column_uid: "column",
+            title: uid,
+            created_at: new Date(),
+            updated_at: new Date(),
+            order: 0,
+            visibility: "SHARED",
+        });
+    }
+}
 function LensFixture() {
     const viewportRef = useRef<HTMLDivElement>(null);
     const [cardUID, setCardUID] = useState("fixture-card");
@@ -118,30 +165,32 @@ function LensFixture() {
     return (
         <MemoryRouter>
             <AuthProvider>
-                <DndProvider backend={HTML5Backend}>
-                    <main className="h-screen p-2" ref={viewportRef}>
-                        <output data-testid="flipped-card">{flippedUID}</output>
-                        <button onClick={() => setCardUID((uid) => (uid === "fixture-card" ? "other-card" : "fixture-card"))}>Switch card</button>
-                        <button onClick={() => selectFixtureUser(currentUser.uid === "sidebar-user-a" ? "sidebar-user-b" : "sidebar-user-a")}>
-                            Switch account
-                        </button>
-                        <Dialog.Root open modal={false}>
-                            <div role="dialog" className="flex h-[90vh] max-w-6xl flex-col p-1">
-                                <BoardCardSectionSaveProvider>
-                                    <BoardCard
-                                        projectUID="fixture"
-                                        cardUID={cardUID}
-                                        currentUser={currentUser}
-                                        viewportRef={viewportRef}
-                                        isExpanded
-                                        onClose={() => {}}
-                                        onFlip={(card) => setFlippedUID(card.uid)}
-                                    />
-                                </BoardCardSectionSaveProvider>
-                            </div>
-                        </Dialog.Root>
-                    </main>
-                </DndProvider>
+                <RelationshipFixtureController>
+                    <DndProvider backend={HTML5Backend}>
+                        <main className="h-screen p-2" ref={viewportRef}>
+                            <output data-testid="flipped-card">{flippedUID}</output>
+                            <button onClick={() => setCardUID((uid) => (uid === "fixture-card" ? "other-card" : "fixture-card"))}>Switch card</button>
+                            <button onClick={() => selectFixtureUser(currentUser.uid === "sidebar-user-a" ? "sidebar-user-b" : "sidebar-user-a")}>
+                                Switch account
+                            </button>
+                            <Dialog.Root open modal={false}>
+                                <div role="dialog" className="flex h-[90vh] max-w-6xl flex-col p-1">
+                                    <BoardCardSectionSaveProvider>
+                                        <BoardCard
+                                            projectUID="fixture"
+                                            cardUID={cardUID}
+                                            currentUser={currentUser}
+                                            viewportRef={viewportRef}
+                                            isExpanded
+                                            onClose={() => {}}
+                                            onFlip={(card) => setFlippedUID(card.uid)}
+                                        />
+                                    </BoardCardSectionSaveProvider>
+                                </div>
+                            </Dialog.Root>
+                        </main>
+                    </DndProvider>
+                </RelationshipFixtureController>
             </AuthProvider>
         </MemoryRouter>
     );
