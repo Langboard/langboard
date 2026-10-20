@@ -1,3 +1,7 @@
+import "@/core/injection";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Project } from "@/core/models";
+import BoardSignalInbox from "./BoardSignalInbox";
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import SignalInboxPanel from "./SignalInboxPanel";
@@ -5,6 +9,17 @@ import { api } from "@/core/helpers/Api";
 import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 const params = new URLSearchParams(location.search);
+const fixtureProject = Project.Model.fromOne({
+    uid: "project",
+    title: "Rail fixture",
+    created_at: new Date(),
+    updated_at: new Date(),
+    all_members: [],
+    labels: [],
+    invited_member_uids: [],
+    current_auth_role_actions: params.has("readonly") ? ["read"] : ["*"],
+});
+const client = new QueryClient();
 const calls: { url?: string; method?: string; data: unknown }[] = [];
 const creationCallbacks: string[] = [];
 Object.assign(window, { inboxCalls: calls, creationCallbacks });
@@ -121,19 +136,29 @@ function Fixture() {
             >
                 Signal burst
             </button>
-            <SignalInboxPanel
-                projectUID={board}
-                socket={socket}
-                canEdit={canEdit}
-                cards={[{ uid: "card", title: "Sample card" }]}
-                columns={[
-                    { uid: "ready", name: "Ready", is_archive: archiveReady },
-                    { uid: "progress", name: "In progress" },
-                    { uid: "archive", name: "Archive", is_archive: true },
-                ]}
-                onCreated={(uid) => creationCallbacks.push(uid)}
-            />
+            {params.has("board-shell") ? (
+                <BoardSignalInbox project={fixtureProject} />
+            ) : (
+                <SignalInboxPanel
+                    projectUID={board}
+                    socket={socket}
+                    canEdit={canEdit}
+                    cards={[{ uid: "card", title: "Sample card" }]}
+                    columns={[
+                        { uid: "ready", name: "Ready", is_archive: archiveReady },
+                        { uid: "progress", name: "In progress" },
+                        { uid: "archive", name: "Archive", is_archive: true },
+                    ]}
+                    onCreated={(uid) => creationCallbacks.push(uid)}
+                />
+            )}
         </main>
     );
 }
-void i18n.changeLanguage(params.get("lang") ?? "en-US").then(() => createRoot(document.getElementById("root")!).render(<Fixture />));
+void i18n.changeLanguage(params.get("lang") ?? "en-US").then(() =>
+    createRoot(document.getElementById("root")!).render(
+        <QueryClientProvider client={client}>
+            <Fixture />
+        </QueryClientProvider>
+    )
+);

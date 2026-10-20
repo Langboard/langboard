@@ -809,7 +809,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                             />
                                         </div>
                                     ) : workbenchContextMode === "inbox" ? (
-                                        <BoardSignalInbox projectUID={project.uid} />
+                                        <BoardSignalInbox project={project} />
                                     ) : workbenchContextMode === "changes" ? (
                                         <BoardChangesSidebar projectUID={project.uid} onNavigate={() => isMobile && setActiveSidePanel(undefined)} />
                                     ) : workbenchContextMode === "activity" && currentUser ? (

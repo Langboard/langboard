@@ -1,11 +1,16 @@
-import { ProjectCard } from "@/core/models";
+import { Project, ProjectCard, ProjectColumn } from "@/core/models";
 import { ProjectRole } from "@/core/models/roles";
-import { useBoard } from "@/core/providers/BoardProvider";
+import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
+import { useSocket } from "@/core/providers/SocketProvider";
 import { useQueryClient } from "@tanstack/react-query";
 import SignalInboxPanel from "./SignalInboxPanel";
 
-export default function BoardSignalInbox({ projectUID }: { projectUID: string }) {
-    const { socket, hasRoleAction, columns } = useBoard();
+export default function BoardSignalInbox({ project }: { project: Project.TModel }) {
+    const projectUID = project.uid;
+    const socket = useSocket();
+    const roleActions = project.useField("current_auth_role_actions");
+    const { hasRoleAction } = useRoleActionFilter(roleActions);
+    const columns = ProjectColumn.Model.useModels((column) => column.project_uid === projectUID, [projectUID]);
     const client = useQueryClient();
     const cards = ProjectCard.Model.useModels(
         (card) => card.project_uid === projectUID && !card.archived_at && card.source_type !== "project_wiki",
