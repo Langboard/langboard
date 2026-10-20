@@ -1,19 +1,19 @@
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
-import InfiniteScroller from "@/components/InfiniteScroller";
-import useGetCardComments from "@/controllers/api/card/comment/useGetCardComments";
+import Button from "@/components/base/Button";
+import IconComponent from "@/components/base/IconComponent";
+import useGetCardTimeline from "@/controllers/api/card/comment/useGetCardTimeline";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
-import useInfiniteScrollPager from "@/core/hooks/useInfiniteScrollPager";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ProjectCardComment } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { ROUTES } from "@/core/routing/constants";
-import { Utils } from "@langboard/core/utils";
 import { EHttpStatus } from "@langboard/core/enums";
 import BoardComment, { SkeletonBoardComment } from "@/pages/BoardPage/components/card/comment/BoardComment";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { newestCommentsFirst } from "./commentChronology";
+import CardColumnEvent from "../CardColumnEvent";
+import { isAxiosError } from "axios";
 
 export function SkeletonBoardCommentList() {
     return (
@@ -34,10 +34,12 @@ export interface IBoardCommentListProps {
     className?: string;
 }
 
-function BoardCommentList({ scrollableRef, className }: IBoardCommentListProps): React.JSX.Element {
-    const { projectUID, card } = useBoardCard();
-    const { data: commentsData, error, isFetching } = useGetCardComments({ project_uid: projectUID, card_uid: card.uid });
+function BoardCommentList({ className }: IBoardCommentListProps): React.JSX.Element | null {
+    const { card } = useBoardCard();
+    const { entries, error, isPending, isFetching, hasNextPage, fetchNextPage, refresh, editing } = useGetCardTimeline();
+    ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const navigate = usePageNavigateRef();
+    const [t] = useTranslation();
 
     useEffect(() => {
         if (!error) {
@@ -56,54 +58,41 @@ function BoardCommentList({ scrollableRef, className }: IBoardCommentListProps):
         handle(error);
     }, [error]);
 
+    if (isAxiosError(error) && [403, 404].includes(error.response?.status ?? 0)) return null;
+    if (error && !entries.length) return null;
+    if (isPending) return <SkeletonBoardCommentList />;
     return (
-        <>
-            {!commentsData || isFetching ? (
-                <SkeletonBoardCommentList />
-            ) : (
-                <BoardCommentListResult scrollableRef={scrollableRef} className={className} />
-            )}
-        </>
-    );
-}
-
-function BoardCommentListResult({ scrollableRef, className }: IBoardCommentListProps): React.JSX.Element {
-    const { card, viewportRef } = useBoardCard();
-    const [t] = useTranslation();
-    const PAGE_SIZE = 10;
-    const flatComments = ProjectCardComment.Model.useModels((model) => model.card_uid === card.uid, [card]);
-    const sortedComments = useMemo(() => newestCommentsFirst(flatComments), [flatComments]);
-    const { items: comments, nextPage, forceUpdate, hasMore } = useInfiniteScrollPager({ allItems: sortedComments, size: PAGE_SIZE });
-
-    const deletedComment = (commentUID: string) => {
-        const index = flatComments.findIndex((c) => c.uid === commentUID);
-        if (index === -1) {
-            return;
-        }
-
-        flatComments.splice(index, 1);
-        forceUpdate();
-    };
-
-    return (
-        <InfiniteScroller.NoVirtual
-            scrollable={() => scrollableRef?.current || viewportRef.current}
-            loadMore={nextPage}
-            loader={<SkeletonBoardComment key={Utils.String.Token.shortUUID()} />}
-            hasMore={hasMore}
-            className={className || "pb-2.5"}
-        >
-            {comments.length === 0 && (
+        <Box className={className || "pb-2.5"}>
+            {entries.length === 0 && (
                 <Box textSize="sm" className="text-accent-foreground/50">
                     {t("card.No comments")}
                 </Box>
             )}
             <Flex direction="col" gap="4">
-                {comments.map((comment) => {
-                    return <BoardComment key={`${card.uid}-${comment.uid}`} comment={comment} deletedComment={deletedComment} />;
+                {entries.map((entry) => {
+                    if (entry.kind === "activity")
+                        return (
+                            <Flex key={entry.evidence_ref} items="center" gap="1" className="min-w-0 text-[11px] text-muted-foreground/80">
+                                <IconComponent icon="history" size="3" aria-hidden="true" />
+                                <CardColumnEvent event={entry.data} showTransition />
+                            </Flex>
+                        );
+                    const comment = ProjectCardComment.Model.getModel(entry.uid);
+                    return comment ? <BoardComment key={entry.evidence_ref} comment={comment} deletedComment={refresh} /> : null;
                 })}
             </Flex>
-        </InfiniteScroller.NoVirtual>
+            {hasNextPage && (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    className="mt-3 w-full"
+                    disabled={isFetching || editing}
+                    onClick={() => void fetchNextPage({ cancelRefetch: false })}
+                >
+                    {t("card.Older history")}
+                </Button>
+            )}
+        </Box>
     );
 }
 
