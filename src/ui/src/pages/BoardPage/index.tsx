@@ -727,7 +727,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                     },
                     ...pinnedApps.items.map((item) => ({ ...item, hidden: !!selectCardViewType })),
                     {
-                        icon: "plus",
+                        icon: "store",
                         label: t("settings.App store"),
                         mobile: "add",
                         onClick: () => navigate(`${ROUTES.APPS.ROUTE}?project_uid=${project.uid}`),

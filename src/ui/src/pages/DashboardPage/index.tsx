@@ -185,7 +185,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
         },
         { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
         ...pinnedApps.items,
-        { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
+        { icon: "store", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
         {
             icon: "plus",
             label: t("dashboard.Create New Project"),
