@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router";
+import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
-import CachedImage from "@/components/CachedImage";
+import BrandLink from "@/components/Header/BrandLink";
 import HedaerNavItems from "@/components/Header/HedaerNavItems";
 import { IHeaderProps } from "@/components/Header/types";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
@@ -12,7 +12,6 @@ import NavigationMenu from "@/components/base/NavigationMenu";
 import Separator from "@/components/base/Separator";
 import Sheet from "@/components/base/Sheet";
 import { useAuth } from "@/core/providers/AuthProvider";
-import { ROUTES } from "@/core/routing/constants";
 import HeaderUserMenu from "@/components/Header/HeaderUserMenu";
 import HeaderUserNotification from "@/components/Header/HeaderUserNotification";
 import { PROJECT_QUICK_SWITCHER_EVENT } from "@/pages/DashboardPage/components/ProjectDiscovery";
@@ -45,14 +44,7 @@ const Header = memo(({ navs, title, compact, navigationReady = true, mobileNavig
         >
             {!navs.length && (
                 <Flex className="flex md:hidden">
-                    <Link
-                        to={ROUTES.DASHBOARD.PROJECTS.ALL}
-                        viewTransition
-                        aria-label={t("common.Go to Dashboard")}
-                        className="flex size-6 cursor-pointer items-center gap-2 text-lg font-semibold md:text-base"
-                    >
-                        <CachedImage src="/images/logo.png" alt={t("common.Logo")} size="full" />
-                    </Link>
+                    <BrandLink className="text-sm" />
                 </Flex>
             )}
             <Flex
@@ -69,17 +61,9 @@ const Header = memo(({ navs, title, compact, navigationReady = true, mobileNavig
                 weight="medium"
                 className={compact ? "min-w-0 flex-1" : "hidden md:flex"}
             >
-                <Link
-                    to={ROUTES.DASHBOARD.PROJECTS.ALL}
-                    viewTransition
-                    aria-label={t("common.Go to Dashboard")}
-                    className={compact ? "hidden size-6 shrink-0 cursor-pointer items-center md:flex" : "flex size-6 cursor-pointer items-center"}
-                >
-                    <CachedImage src="/images/logo.png" alt={t("common.Logo")} size="full" />
-                </Link>
+                <BrandLink className={compact ? "hidden md:inline-flex" : "inline-flex"} />
                 {compact ? (
                     <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                        <span className="hidden shrink-0 font-semibold md:inline">Langboard</span>
                         {!!title && <IconComponent icon="chevron-right" size="3.5" className="hidden shrink-0 text-muted-foreground md:inline" />}
                         {!!title && <span className="min-w-0 truncate">{title}</span>}
                     </span>
@@ -143,15 +127,7 @@ const Header = memo(({ navs, title, compact, navigationReady = true, mobileNavig
                             w="full"
                             className="max-w-[calc(100%_-_theme(spacing.16))] truncate sm:max-w-[calc(24rem_-_theme(spacing.16))]"
                         >
-                            <Link
-                                to={ROUTES.DASHBOARD.PROJECTS.ALL}
-                                viewTransition
-                                aria-label={t("common.Go to Dashboard")}
-                                className="flex cursor-pointer items-center gap-2 text-lg font-semibold"
-                                onClick={() => setIsOpen(false)}
-                            >
-                                <CachedImage src="/images/logo.png" alt={t("common.Logo")} size="6" />
-                            </Link>
+                            <BrandLink onClick={() => setIsOpen(false)} />
                             {!!title && (
                                 <>
                                     <IconComponent icon="chevron-right" size="5" />

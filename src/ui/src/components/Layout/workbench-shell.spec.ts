@@ -1043,3 +1043,25 @@ test("resizing across the minimum threshold collapses and reverse dragging expan
     expect(width).toBeLessThanOrEqual(420);
     expect(await page.evaluate(() => document.documentElement.style.userSelect)).toBe("");
 });
+
+
+test("approved header orbit plays once on hover and respects reduced motion", async ({ page }) => {
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const home = page.getByRole("link", { name: "Go to Dashboard", exact: true });
+    await expect(home.getByText("Langboard", { exact: true })).toBeVisible();
+    await expect(home.locator("svg")).toHaveCount(1);
+    const star = home.locator('g[id$="animated-star"] > g');
+    const position = () => star.evaluate((element) => {
+        const matrix = (element as SVGGraphicsElement).getCTM()!;
+        return [matrix.e, matrix.f];
+    });
+    const resting = await position();
+    await home.hover();
+    await expect.poll(position).not.toEqual(resting);
+    await expect.poll(position, { timeout: 3500 }).toEqual(resting);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await home.focus();
+    await expect(home).toBeFocused();
+    await expect(home.locator('g[id$="animated-star"]')).toBeHidden();
+    await expect(home.locator('g[id$="reduced-star"]')).toBeVisible();
+});
