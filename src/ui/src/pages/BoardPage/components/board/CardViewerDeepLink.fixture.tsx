@@ -18,6 +18,8 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser } from "@/core/models";
 import ResizableSidebar from "@/components/ResizableSidebar";
 import Floating from "@/components/base/Floating";
+import ActivityRail from "@/components/Layout/ActivityRail";
+import { cn } from "@/core/utils/ComponentUtils";
 import CardFlipTray from "@/pages/BoardPage/components/card/CardFlipTray";
 import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
 
@@ -193,7 +195,21 @@ function BoardRouteFixture(): React.JSX.Element {
     }
 
     const content = (
-        <div className="flex h-[100dvh] w-full flex-col">
+        <div
+            className={cn(
+                "flex h-[100dvh] w-full flex-col",
+                query.has("workspaceRail") &&
+                    "[--workbench-bottom-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))] md:[--workbench-bottom-inset:0px]"
+            )}
+        >
+            {query.has("workspaceRail") && (
+                <ActivityRail
+                    items={[
+                        { id: "explorer", icon: "panel-left", label: "Explorer", mobile: "primary", onClick: () => {} },
+                        { id: "work", icon: "list-checks", label: "My Work", mobile: "primary", onClick: () => {} },
+                    ]}
+                />
+            )}
             {query.has("compactSummary") && <CompactSummaryRefresh />}
             {hasUser ? (
                 <div className="relative min-w-0 flex-1">

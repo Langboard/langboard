@@ -142,6 +142,24 @@ async function mockBoardApi(page: Page, options: IMockOptions = {}): Promise<voi
     await page.route("**/auth/**", (route) => fulfillWithCors(route, { access_token: "fixture-token", user: FIXTURE_USER, bots: [] }));
 }
 
+for (const width of [320, 390]) {
+    test(`mobile card actions stay above the actual workspace rail at ${width}px`, async ({ page }) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize({ width, height: 844 });
+        await mockBoardApi(page);
+        await page.goto(`${FIXTURE}?workspaceRail`);
+        await expect(page.getByRole("heading", { name: "Fixture card", exact: true })).toBeVisible({ timeout: 45_000 });
+        const actions = page.getByRole("button", { name: "Actions", exact: true });
+        const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+        const actionBounds = await actions.boundingBox();
+        const railBounds = await rail.boundingBox();
+        expect(actionBounds!.y + actionBounds!.height).toBeLessThanOrEqual(railBounds!.y);
+        await actions.click();
+        await expect(page.getByRole("button", { name: "History", exact: true })).toBeVisible();
+        await rail.getByRole("button", { name: "Explorer", exact: true }).click({ trial: true });
+    });
+}
+
 async function collectResults(page: Page): Promise<{ viewerMounted: number; openAnimationStarts: number; events: { type: string; t: number }[] }> {
     return page.evaluate(() => {
         const globals = window as unknown as Record<string, unknown>;

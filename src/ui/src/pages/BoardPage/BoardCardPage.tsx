@@ -294,7 +294,10 @@ const BoardCardPageComponent = ({
                                 "border-0 p-0 shadow-none",
                                 isMobile
                                     ? cn(
-                                          "pointer-events-auto fixed inset-0 z-[110] h-dvh max-h-dvh",
+                                          "pointer-events-auto inset-0 z-[110]",
+                                          embedded
+                                              ? "absolute bottom-[var(--workbench-bottom-inset,0px)] h-auto max-h-full"
+                                              : "fixed h-dvh max-h-dvh",
                                           "w-screen max-w-none overflow-hidden rounded-none bg-background"
                                       )
                                     : isExpanded &&
