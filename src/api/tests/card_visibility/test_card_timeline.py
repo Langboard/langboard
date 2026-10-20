@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+from fastmcp.exceptions import ValidationError
+from langboard.mcp_tools import CardMcp
 from langboard.routes.activities import ActivityApi
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -138,3 +140,33 @@ def test_comment_payload_batch_never_loads_other_cards_or_the_unrequested_page(t
     assert [comment["uid"] for comment in result] == [target.get_uid()]
     assert result[0]["user"]["firstname"] == "Fixture"
     assert service.get_api_list_by_card(card, comment_ids=[]) == []
+
+
+def test_mcp_timeline_uses_current_visibility_and_public_snapshots(timeline, current_card):
+    project, card, _, _, _ = timeline
+    user, _, _, card_service = current_card
+    page = {"records": [
+        {"kind": "activity", "uid": "source", "evidence_ref": "activity:source", "created_at": "2026-10-21T00:00:00Z",
+         "data": {"recorder": {"uid": "actor", "firstname": "Original", "email": "private@example.invalid", "token": "secret"},
+                  "from_column": {"name": "Before", "private": "secret"}, "column": {"name": "After"}}},
+        {"kind": "comment", "uid": "comment", "evidence_ref": "comment:comment", "created_at": "2026-10-21T00:00:00Z",
+         "data": {"uid": "comment", "content": {"content": "bounded comment"},
+                  "user": {"uid": "actor", "firstname": "Original", "email": "private@example.invalid"}}},
+    ], "next_cursor": "activity:next"}
+    activity = SimpleNamespace(get_card_timeline=Mock(return_value=page))
+    service = SimpleNamespace(card=card_service, activity=activity)
+    result = CardMcp.get_card_timeline(project.get_uid(), card.get_uid(), user, service, "activity:before")
+    assert result["next_cursor"] == "activity:next"
+    move = result["records"][0]
+    assert move["actor"] == {"uid": "actor", "firstname": "Original"}
+    assert move["from_column"] == {"name": "Before"} and move["to_column"] == {"name": "After"}
+    assert move["evidence_ref"] == "activity:source"
+    assert "secret" not in str(result) and "private@example.invalid" not in str(result)
+    activity.get_card_timeline.assert_called_once()
+    with DbSession.use(readonly=False) as db:
+        card.owner_user_id = user.id + 1
+        card.created_by_user_id = card.owner_user_id
+        db.update(card)
+    with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
+        CardMcp.get_card_timeline(project.get_uid(), card.get_uid(), user, service)
+    assert activity.get_card_timeline.call_count == 1

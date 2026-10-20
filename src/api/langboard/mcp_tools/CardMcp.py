@@ -45,6 +45,8 @@ from ..card_workspace.application.context_profiles import ContextProfile
 from ..card_workspace.application.dtos import BoundedItemsDto
 from ..card_workspace.application.projections import (
     bounded_items,
+    pick,
+    public_actor,
     public_attachment,
     public_card_summary,
     public_checkitem,
@@ -865,6 +867,38 @@ def apply_card_work_plan(
 ) -> dict[str, Any]:
     _require_work_plan_project(project_uid, plan)
     return WorkPlanService(user_or_bot, service).apply(plan, expected_revision, request_id)
+
+
+@McpTool.add(description=(
+    "Read one bounded card timeline of comments and committed moves in creation order. "
+    "Moves expose the original actor, source and destination column, time, and evidence_ref. "
+    "Follow next_cursor unchanged. Missing historical source columns are not inferred. This never marks the card read."
+))
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def get_card_timeline(
+    project_uid: str,
+    card_uid: str,
+    user_or_bot: User | Bot,
+    service: DomainService,
+    before: Annotated[str | None, Field(max_length=64)] = None,
+) -> dict[str, Any]:
+    resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+    if resolved is None:
+        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.")
+    project, card, _ = resolved
+    page = service.activity.get_card_timeline(project, card, before=before)
+    records = []
+    for event in page["records"]:
+        item = pick(event, ("kind", "uid", "evidence_ref", "created_at"))
+        if event["kind"] == "comment":
+            item["comment"] = public_comment(event["data"])
+        else:
+            data = event["data"]
+            item.update({"actor": public_actor(data.get("recorder")),
+                         "from_column": pick(data.get("from_column") or {}, ("name",)),
+                         "to_column": pick(data.get("column") or {}, ("name",))})
+        records.append(item)
+    return {"records": records, "next_cursor": page["next_cursor"]}
 
 
 @McpTool.add(
