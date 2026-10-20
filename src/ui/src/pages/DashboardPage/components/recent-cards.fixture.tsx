@@ -6,6 +6,7 @@ import { getUserSettingsStore } from "@/core/stores/UserSettingsStore";
 import { focusCard, useOpenCards } from "./OpenCardsStore";
 import { recentOpenCards } from "./OpenCardsData";
 import RecentCardsSection from "./RecentCardsSection";
+import ExplorerSection from "./ExplorerSection";
 import CardFlipTray from "@/pages/BoardPage/components/card/CardFlipTray";
 import { useCardFlipStore } from "@/pages/BoardPage/components/card/CardFlipStore";
 import "@/i18n";
@@ -26,6 +27,8 @@ function Fixture() {
     const [userUID, setUserUID] = useState("fixture");
     const cards = recentOpenCards(useOpenCards(userUID));
     const [expanded, setExpanded] = useState(false);
+    const [projectsExpanded, setProjectsExpanded] = useState(false);
+    const [projectsCollapsed, setProjectsCollapsed] = useState(false);
     const [collapsed, setCollapsed] = useState(false);
     const [active, setActive] = useState(!new URLSearchParams(window.location.search).has("hidden"));
     const location = useLocation();
@@ -39,7 +42,7 @@ function Fixture() {
             <button onClick={() => focusCard("fixture", { projectUID: "fixture", cardUID: "0", title: "Card 0" })}>Read oldest again</button>
             <nav className="flex h-[65vh] min-h-0 flex-col overflow-hidden" aria-label="Explorer">
                 <div className="shrink-0 p-2">Explorer</div>
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
+                <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" data-explorer-section-list="">
                     <section className="mb-3 shrink-0">
                         Current project
                         <br />
@@ -56,12 +59,18 @@ function Fixture() {
                         onExpand={() => setExpanded((shown) => !shown)}
                         onToggle={() => setCollapsed((shown) => !shown)}
                     />
-                    <div className="min-h-24 flex-1 overflow-y-auto" data-explorer-project-list="">
-                        <h2>Favorites</h2>
-                        {Array.from({ length: 20 }, (_, index) => (
+                    <ExplorerSection
+                        title="Favorites"
+                        count={20}
+                        expanded={projectsExpanded}
+                        collapsed={projectsCollapsed}
+                        onToggle={() => setProjectsCollapsed((value) => !value)}
+                        onExpand={() => setProjectsExpanded((value) => !value)}
+                    >
+                        {Array.from({ length: projectsExpanded ? 20 : 10 }, (_, index) => (
                             <p key={index}>Project {index}</p>
                         ))}
-                    </div>
+                    </ExplorerSection>
                 </div>
             </nav>
         </div>

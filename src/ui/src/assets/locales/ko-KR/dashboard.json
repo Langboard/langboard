@@ -103,8 +103,6 @@
   "Unfinished by status": "상태별 미완료 카드",
   "Unfinished in status": "{{status}}: 미완료 카드 {{count, number}}개",
   "Recent cards": "최근 카드",
-  "Show older cards": "이전 카드 표시 ({{count, number}}개)",
-  "Show fewer cards": "카드 간략히 표시",
   "Show more projects": "더 보기 (+{{count, number}})",
   "Open cards count_one": "열린 카드 {{count, number}}개",
   "Open cards count_other": "열린 카드 {{count, number}}개",
@@ -122,5 +120,8 @@
   "Unread first": "미열람 우선",
   "Project filters": "프로젝트 필터",
   "Sort projects": "프로젝트 정렬",
-  "Reset filters": "필터 초기화"
+  "Reset filters": "필터 초기화",
+  "Show more items": "더보기 ({{count, number}}개)",
+  "Show fewer items": "간략히 표시",
+  "Reorder section": "드래그로 순서 변경; Alt+위 또는 Alt+아래로 이동"
 }

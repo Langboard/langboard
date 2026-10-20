@@ -103,8 +103,6 @@
   "Unfinished by status": "按状态查看未完成卡片",
   "Unfinished in status": "{{status}}：{{count, number}} 张未完成卡片",
   "Recent cards": "最近卡片",
-  "Show older cards": "显示更早的卡片（{{count, number}} 张）",
-  "Show fewer cards": "收起卡片",
   "Show more projects": "显示更多 (+{{count, number}})",
   "Open cards count_one": "{{count, number}} 张开放卡片",
   "Open cards count_other": "{{count, number}} 张开放卡片",
@@ -122,5 +120,8 @@
   "Unread first": "未读优先",
   "Project filters": "项目筛选",
   "Sort projects": "项目排序",
-  "Reset filters": "重置筛选"
+  "Reset filters": "重置筛选",
+  "Show more items": "显示更多（{{count, number}} 项）",
+  "Show fewer items": "收起",
+  "Reorder section": "拖动排序；Alt+上或Alt+下移动"
 }

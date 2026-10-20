@@ -6,6 +6,7 @@ import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSetting
 import { retainProjects, useOpenCards } from "./OpenCardsStore";
 import { recentOpenCards } from "./OpenCardsData";
 import RecentCardsSection from "./RecentCardsSection";
+import ExplorerSection, { EXPLORER_SECTION_LIMIT } from "./ExplorerSection";
 import Input from "@/components/base/Input";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
@@ -17,6 +18,10 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/DashboardPage/components/ProjectDiscovery";
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
+
+const SECTION_IDS = ["cards", "favorites", "recent", "projects"] as const;
+type TSectionID = (typeof SECTION_IDS)[number];
+const SECTION_DRAG_TYPE = "application/x-langboard-explorer-section";
 
 export default function ProjectExplorerSidebar({
     currentProject,
@@ -33,14 +38,61 @@ export default function ProjectExplorerSidebar({
     const openCards = useOpenCards(userUID);
     const wikiHintDismissed = useUserSettings("wiki_hint_dismissed");
     const collapsedByUser = useUserSettings("explorer_open_cards_collapsed");
+    const [query, setQuery] = useState("");
+    const savedSectionOrders = useUserSettings("explorer_section_order");
+    const storedOrder = userUID ? savedSectionOrders?.[userUID] : undefined;
+    const sectionOrder = [...new Set([...(Array.isArray(storedOrder) ? storedOrder : []), ...SECTION_IDS])].filter((id): id is TSectionID =>
+        SECTION_IDS.includes(id as TSectionID)
+    );
+    const [collapsedSections, setCollapsedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
+    const [expandedSections, setExpandedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
+    const reorderSection = (from: TSectionID, to: TSectionID) => {
+        if (!userUID || from === to) return;
+        const next = sectionOrder.filter((id) => id !== from);
+        next.splice(sectionOrder.indexOf(to), 0, from);
+        const store = getUserSettingsStore();
+        store.updateSettingsByKey("explorer_section_order", { ...store.settings.explorer_section_order, [userUID]: next });
+    };
+    const sectionHeaderProps = (id: TSectionID): React.ButtonHTMLAttributes<HTMLButtonElement> => ({
+        draggable: !!userUID && !query.trim(),
+        title: t("dashboard.Reorder section"),
+        "aria-keyshortcuts": "Alt+ArrowUp Alt+ArrowDown",
+        onDragStart: (event) => {
+            event.stopPropagation();
+            event.dataTransfer.setData(SECTION_DRAG_TYPE, id);
+            event.dataTransfer.effectAllowed = "move";
+        },
+        onDragOver: (event) => {
+            if (!event.dataTransfer.types.includes(SECTION_DRAG_TYPE)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = "move";
+        },
+        onDrop: (event) => {
+            const from = event.dataTransfer.getData(SECTION_DRAG_TYPE);
+            if (!SECTION_IDS.includes(from as TSectionID)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            reorderSection(from as TSectionID, id);
+        },
+        onKeyDown: (event) => {
+            if (!event.altKey || query.trim() || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+            event.preventDefault();
+            const target = sectionOrder[sectionOrder.indexOf(id) + (event.key === "ArrowUp" ? -1 : 1)];
+            if (target) reorderSection(id, target);
+        },
+    });
     const openCardsCollapsed = !!(userUID && collapsedByUser?.[userUID]);
     const navigate = usePageNavigateRef();
     const location = useLocation();
-    const [query, setQuery] = useState("");
     const { data, isPending, isError, isFetching, refetch } = useGetProjects({ refetchOnWindowFocus: true });
     const authorizedProjectUIDs = useMemo(() => new Set(data?.projects.map((project) => project.uid) ?? []), [data]);
     const [showOlderCards, setShowOlderCards] = useState(false);
-    useEffect(() => setShowOlderCards(false), [userUID]);
+    useEffect(() => {
+        setShowOlderCards(false);
+        setCollapsedSections({});
+        setExpandedSections({});
+    }, [userUID]);
     const visibleOpenCards = recentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
     const projects = useMemo(() => {
         const all = data?.projects ?? [];
@@ -55,11 +107,11 @@ export default function ProjectExplorerSidebar({
     const sections = useMemo(() => buildProjectQuickSwitcherSections(projects), [projects]);
     const currentProjectUID = location.pathname.startsWith("/board/") ? location.pathname.split("/")[2] : undefined;
     const groups = query.trim()
-        ? [{ title: t("dashboard.Projects"), projects: searchProjects(projects, query) }]
+        ? [{ id: "projects" as const, title: t("dashboard.Projects"), projects: searchProjects(projects, query) }]
         : [
-              { title: t("dashboard.Favorites"), projects: sections.favorites },
-              { title: t("dashboard.Recent work"), projects: sections.recent },
-              { title: t("dashboard.Projects"), projects: [...sections.related, ...sections.other] },
+              { id: "favorites" as const, title: t("dashboard.Favorites"), projects: sections.favorites },
+              { id: "recent" as const, title: t("dashboard.Recent work"), projects: sections.recent },
+              { id: "projects" as const, title: t("dashboard.Projects"), projects: [...sections.related, ...sections.other] },
           ];
 
     return (
@@ -77,7 +129,7 @@ export default function ProjectExplorerSidebar({
                     clearable
                 />
             </div>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" data-explorer-section-list="">
                 {currentProject && !query.trim() && (
                     <section className="mb-3 shrink-0" aria-label={currentProject.title}>
                         <h2 className="px-2 py-1 text-xs font-medium text-muted-foreground">{currentProject.title}</h2>
@@ -129,57 +181,70 @@ export default function ProjectExplorerSidebar({
                         ))}
                     </section>
                 )}
-                {!query.trim() && userUID && (
-                    <RecentCardsSection
-                        active={active}
-                        userUID={userUID}
-                        cards={visibleOpenCards}
-                        collapsed={openCardsCollapsed}
-                        expanded={showOlderCards}
-                        onExpand={() => setShowOlderCards((shown) => !shown)}
-                        onToggle={() =>
-                            getUserSettingsStore().updateSettingsByKey("explorer_open_cards_collapsed", {
-                                ...collapsedByUser,
-                                [userUID]: !openCardsCollapsed,
-                            })
-                        }
-                        onNavigate={onNavigate}
-                    />
+                {isPending && (
+                    <p role="status" className="px-2 py-3 text-xs text-muted-foreground">
+                        {t("common.Loading...")}
+                    </p>
                 )}
-                <div className="min-h-24 flex-1 overflow-y-auto" data-explorer-project-list="">
-                    {isPending && (
-                        <p role="status" className="px-2 py-3 text-xs text-muted-foreground">
-                            {t("common.Loading...")}
-                        </p>
-                    )}
-                    {isError && (
-                        <div role="alert" className="flex flex-wrap items-center gap-2 px-2 py-3">
-                            <span className="text-xs text-muted-foreground">{t("dashboard.Could not load projects")}</span>
-                            <Button type="button" size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
-                                {t("dashboard.Retry")}
-                            </Button>
-                        </div>
-                    )}
-                    {groups.map((group) =>
-                        group.projects.length ? (
-                            <section key={group.title} className="mb-3">
-                                <h2 className="px-2 py-1 text-xs font-medium text-muted-foreground">{group.title}</h2>
-                                {group.projects.map((project) => (
-                                    <ProjectExplorerItem
-                                        key={project.uid}
-                                        project={project}
-                                        active={currentProjectUID === project.uid}
-                                        onNavigate={onNavigate}
-                                        onClick={() => {
-                                            navigate(ROUTES.BOARD.MAIN(project.uid), { state: { commandPaletteFocus: true } });
-                                            onNavigate?.();
-                                        }}
-                                    />
-                                ))}
-                            </section>
-                        ) : null
-                    )}
-                </div>
+                {isError && (
+                    <div role="alert" className="flex flex-wrap items-center gap-2 px-2 py-3">
+                        <span className="text-xs text-muted-foreground">{t("dashboard.Could not load projects")}</span>
+                        <Button type="button" size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
+                            {t("dashboard.Retry")}
+                        </Button>
+                    </div>
+                )}
+                {(query.trim() ? ["projects" as const] : sectionOrder).map((id) => {
+                    if (id === "cards")
+                        return !query.trim() && userUID ? (
+                            <RecentCardsSection
+                                key={id}
+                                headerProps={sectionHeaderProps("cards")}
+                                active={active}
+                                userUID={userUID}
+                                cards={visibleOpenCards}
+                                collapsed={openCardsCollapsed}
+                                expanded={showOlderCards}
+                                onExpand={() => setShowOlderCards((shown) => !shown)}
+                                onToggle={() =>
+                                    getUserSettingsStore().updateSettingsByKey("explorer_open_cards_collapsed", {
+                                        ...collapsedByUser,
+                                        [userUID]: !openCardsCollapsed,
+                                    })
+                                }
+                                onNavigate={onNavigate}
+                            />
+                        ) : null;
+                    const group = groups.find((group) => group.id === id);
+                    if (!group?.projects.length) return null;
+                    const expanded = !!expandedSections[id];
+                    const displayed = expanded ? group.projects : group.projects.slice(0, EXPLORER_SECTION_LIMIT);
+                    return (
+                        <ExplorerSection
+                            key={id}
+                            title={group.title}
+                            count={group.projects.length}
+                            collapsed={!!collapsedSections[id]}
+                            expanded={expanded}
+                            onToggle={() => setCollapsedSections((state) => ({ ...state, [id]: !state[id] }))}
+                            onExpand={() => setExpandedSections((state) => ({ ...state, [id]: !state[id] }))}
+                            headerProps={query.trim() ? undefined : sectionHeaderProps(id)}
+                        >
+                            {displayed.map((project) => (
+                                <ProjectExplorerItem
+                                    key={project.uid}
+                                    project={project}
+                                    active={currentProjectUID === project.uid}
+                                    onNavigate={onNavigate}
+                                    onClick={() => {
+                                        navigate(ROUTES.BOARD.MAIN(project.uid), { state: { commandPaletteFocus: true } });
+                                        onNavigate?.();
+                                    }}
+                                />
+                            ))}
+                        </ExplorerSection>
+                    );
+                })}
             </div>
         </nav>
     );

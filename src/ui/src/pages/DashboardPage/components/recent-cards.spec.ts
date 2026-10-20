@@ -6,23 +6,23 @@ for (const width of [1280, 700, 390]) {
         const recent = page.getByRole("region", { name: "Recent cards", exact: true });
         await expect(recent.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(10);
         await expect(recent.getByRole("button", { name: "Card 0", exact: true })).toHaveCount(0);
-        const projects = page.locator("[data-explorer-project-list]");
+        const projects = page.locator("[data-explorer-section-list]");
         const measure = () => projects.evaluate((e) => ({ height: e.clientHeight, bottom: e.getBoundingClientRect().bottom }));
         expect((await measure()).height).toBeGreaterThanOrEqual(96);
         expect((await measure()).bottom).toBeLessThanOrEqual(844);
-        await recent.getByRole("button", { name: "Show older cards (4)", exact: true }).press("Enter");
+        await recent.getByRole("button", { name: "Show more (4)", exact: true }).press("Enter");
         await expect(recent.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(14);
         expect((await measure()).height).toBeGreaterThanOrEqual(96);
         await recent.getByRole("button", { name: "Card 0", exact: true }).click();
         await expect(page.getByTestId("route")).toHaveText("/board/fixture/0");
         await page.getByRole("button", { name: "Read oldest again", exact: true }).click();
-        await recent.getByRole("button", { name: "Show fewer cards", exact: true }).click();
+        await recent.getByRole("button", { name: "Show fewer", exact: true }).click();
         await expect(recent.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(10);
         await expect(recent.getByRole("button", { name: /^Card \d+$/ }).first()).toHaveText("Card 0");
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
         expect(await page.locator("button button").count()).toBe(0);
         await page.goto("/src/pages/DashboardPage/components/recent-cards.fixture.html?count=10");
-        await expect(recent.getByRole("button", { name: /Show older|Show fewer/ })).toHaveCount(0);
+        await expect(recent.getByRole("button", { name: /Show more|Show fewer/ })).toHaveCount(0);
         await expect(recent.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(10);
     });
 }
@@ -57,7 +57,7 @@ test("offline deletion and permission loss remove only confirmed unavailable his
     await expect.poll(() => calls).toBeGreaterThan(0);
     await expect(recent.getByRole("button", { name: "Card 13", exact: true })).toHaveCount(0);
     await expect(recent.getByRole("button", { name: "Card 12", exact: true })).toBeVisible();
-    await expect(recent.getByRole("button", { name: "Show older cards (3)", exact: true })).toBeVisible();
+    await expect(recent.getByRole("button", { name: "Show more (3)", exact: true })).toBeVisible();
     status = 503;
     const previous = calls;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -101,7 +101,7 @@ test("online recovery prunes inaccessible cards while preserving pins and close 
     await expect.poll(() => calls).toBeGreaterThan(previous);
     await expect(recent.getByRole("button", { name: "Card 13", exact: true })).toHaveCount(0);
     await expect(recent.getByRole("button", { name: "Card 12", exact: true })).toBeVisible();
-    await recent.getByRole("button", { name: "Show older cards (3)", exact: true }).click();
+    await recent.getByRole("button", { name: "Show more (3)", exact: true }).click();
     const oldest = recent.locator(".group").filter({ has: page.getByRole("button", { name: "Card 0", exact: true }) });
     await expect(oldest.getByRole("button", { name: "Unpin card", exact: true })).toBeVisible();
     await oldest.getByRole("button", { name: "Unpin card", exact: true }).click();
@@ -136,7 +136,7 @@ test("hidden or collapsed explorer performs no history scan and expansion valida
     await page.getByRole("button", { name: "Toggle explorer visibility", exact: true }).click();
     await expect.poll(() => checked.size).toBe(10);
     expect(checked.has("0")).toBe(false);
-    await recent.getByRole("button", { name: "Show older cards (4)", exact: true }).click();
+    await recent.getByRole("button", { name: "Show more (4)", exact: true }).click();
     await expect.poll(() => checked.size).toBe(14);
     await recent.getByRole("button", { name: /^Recent cards/ }).click();
     const beforeFocus = calls;
