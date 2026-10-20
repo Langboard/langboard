@@ -28,6 +28,9 @@ from langboard_shared.security import RoleSecurity
         ("PUT", "/board/project-a/card/card-a/details", ["card_update"], 200),
         ("PUT", "/board/project-a/card/card-a/details", ["card_write"], 403),
         ("PUT", "/board/project-a/card/card-a/details", ["read"], 403),
+        ("PUT", "/board/project-a/card/card-a/content-blocks", ["card_update"], 200),
+        ("PUT", "/board/project-a/card/card-a/content-blocks", ["card_write"], 403),
+        ("PUT", "/board/project-a/card/card-a/content-blocks", ["read"], 403),
     ],
 )
 def test_http_card_authority(monkeypatch, method, path, actions, expected):
