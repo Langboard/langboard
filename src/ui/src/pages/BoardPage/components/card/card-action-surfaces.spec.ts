@@ -13,7 +13,7 @@ async function fixture(page: Page, query = "") {
         })
     );
     await page.goto(`/card-action-surfaces-test.html${query}`);
-    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Native action card", exact: true })).toBeVisible();
 }
 async function managerCalls(page: Page) {
     return page.evaluate(() =>
@@ -32,12 +32,10 @@ for (const width of [390, 1440])
     test(`native managers only enter through Actions at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await fixture(page);
-        for (const lens of ["Execution", "Review", "History"]) {
-            await page.getByRole("tab", { name: lens, exact: true }).click();
-            for (const title of titles) await expect(page.getByRole("button", { name: title, exact: true })).toHaveCount(0);
-        }
+        await expect(page.getByRole("tablist")).toHaveCount(0);
+        await expect(page.getByText("Past execution summaries", { exact: true })).toHaveCount(0);
+        for (const title of titles) await expect(page.getByRole("button", { name: title, exact: true })).toHaveCount(0);
         expect(await managerCalls(page)).toEqual([]);
-        await page.getByRole("tab", { name: "Execution", exact: true }).click();
         await actions(page);
         for (const title of titles) await expect(page.getByRole("button", { name: title, exact: true })).toBeVisible();
         expect(await managerCalls(page)).toEqual([]);
@@ -123,5 +121,35 @@ test("manager failure recovers and identity switch closes manager", async ({ pag
         .getByRole("button", { name: "Switch identity", exact: true, includeHidden: true })
         .evaluate((button) => (button as HTMLButtonElement).click());
     await expect(page.getByRole("dialog", { name: "Signal evidence", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: "Execution", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Native action card", exact: true })).toBeVisible();
 });
+
+for (const width of [390, 1440])
+    test(`card context is lazy and only accessible through Actions at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await fixture(page);
+        await expect(page.getByRole("tablist")).toHaveCount(0);
+        await expect(page.getByText("Past execution summaries", { exact: true })).toHaveCount(0);
+        const receiptReads = () =>
+            page.evaluate(
+                () =>
+                    (window as unknown as { managerCalls: { sections?: string }[] }).managerCalls.filter((call) =>
+                        call.sections?.includes("execution_receipts")
+                    ).length
+            );
+        expect(await receiptReads()).toBe(0);
+        await actions(page);
+        expect(await receiptReads()).toBe(0);
+        for (const title of ["Execution", "Review", "History"]) {
+            await page.getByRole("button", { name: title, exact: true }).click();
+            const dialog = page.getByRole("dialog", { name: title, exact: true });
+            await expect(dialog).toBeVisible();
+            await expect(dialog.getByRole("status")).toBeVisible();
+            if (title === "History") await expect(dialog.getByText("Preserved execution receipt", { exact: true })).toBeVisible();
+            await close(page, title);
+            await expect(page.getByRole("region", { name: "Native action card", exact: true })).toBeVisible();
+        }
+        expect(await receiptReads()).toBeGreaterThan(0);
+        await expect(page.getByText("Preserved execution receipt", { exact: true })).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });

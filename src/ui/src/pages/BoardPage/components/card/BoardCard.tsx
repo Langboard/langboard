@@ -1,4 +1,4 @@
-import CardWorkbenchLenses, { CardLensTabs, CARD_LENS_SECTIONS, CardWorkbenchLens } from "./CardWorkbenchLenses";
+import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
 import useAuthStore from "@/core/stores/AuthStore";
 import BoardCardWhispers from "./BoardCardWhispers";
 import CardAppArchiveReceipts from "./CardAppArchiveReceipts";
@@ -38,7 +38,7 @@ import BoardCardAttachmentList from "@/pages/BoardPage/components/card/attachmen
 import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
-import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import BoardCardMemberList from "@/pages/BoardPage/components/card/BoardCardMemberList";
 import BoardCardVisibility from "./BoardCardVisibility";
@@ -118,10 +118,6 @@ const BoardCard = memo(
     }: IBoardCardProps): React.JSX.Element => {
         const { setPageAliasRef } = usePageHeader();
         const identity = `${currentUser.uid}:${projectUID}:${cardUID}`;
-        const [selection, setSelection] = useState<{ identity: string; lens: CardWorkbenchLens }>({ identity, lens: "execution" });
-        const lens = selection.identity === identity ? selection.lens : "execution";
-        const setLens = (value: CardWorkbenchLens) => setSelection({ identity, lens: value });
-        const cachedCard = ProjectCard.Model.useModel(cardUID);
         const {
             data: cardData,
             isFetching,
@@ -131,7 +127,7 @@ const BoardCard = memo(
             {
                 project_uid: projectUID,
                 card_uid: cardUID,
-                sections: cachedCard?.source_type === "project_wiki" ? CARD_LENS_SECTIONS.history : CARD_LENS_SECTIONS[lens],
+                sections: CARD_BODY_SECTIONS,
             },
             {
                 placeholderData: (previous, previousQuery) =>
@@ -301,11 +297,8 @@ const BoardCard = memo(
                         viewportRef={viewportRef}
                     >
                         <BoardCardResult
-                            lens={lens}
-                            setLens={setLens}
-                            sectionLoading={!CARD_LENS_SECTIONS[lens].every((section) => cardData.loaded_sections?.includes(section))}
+                            sectionLoading={!CARD_BODY_SECTIONS.every((section) => cardData.loaded_sections?.includes(section))}
                             whispersAllowed={cardData.whispers_allowed === true}
-                            executionReceipts={cardData.execution_receipts}
                             linkedWikis={cardData.linked_wikis}
                             isExpanded={isExpanded}
                             setIsExpanded={setIsExpanded}
@@ -349,11 +342,6 @@ export function SkeletonBoardCard({ isExpanded = false }: { isExpanded?: boolean
                         <Skeleton className="h-3 w-40 max-w-full" />
                     </Dialog.Description>
                 </Flex>
-                <Flex gap="1" className="w-fit max-w-full rounded-lg bg-muted p-1">
-                    {[0, 1, 2].map((index) => (
-                        <Skeleton key={index} className="h-7 w-16 sm:w-20" />
-                    ))}
-                </Flex>
                 <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
                     <Box className="space-y-3 rounded-md border p-3">
                         <Skeleton className="h-4 w-1/3" />
@@ -381,11 +369,8 @@ export function SkeletonBoardCard({ isExpanded = false }: { isExpanded?: boolean
 }
 
 interface IBoardCardResultProps {
-    lens: CardWorkbenchLens;
-    setLens: (lens: CardWorkbenchLens) => void;
     sectionLoading: boolean;
     whispersAllowed?: boolean;
-    executionReceipts?: IGetCardDetailsResponse["execution_receipts"];
     linkedWikis?: IGetCardDetailsResponse["linked_wikis"];
     isExpanded: bool;
     setIsExpanded?: React.Dispatch<React.SetStateAction<bool>>;
@@ -405,8 +390,6 @@ function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
 }
 
 function BoardTaskCardResult({
-    lens,
-    setLens,
     sectionLoading,
     isExpanded,
     setIsExpanded,
@@ -414,7 +397,6 @@ function BoardTaskCardResult({
     onFlip,
     onEditModeStateChange,
     whispersAllowed = false,
-    executionReceipts = [],
     linkedWikis = [],
 }: IBoardCardResultProps): React.JSX.Element {
     const { card, projectUID, currentUser, canEditCard, isCardEditing, leaveCardEditMode } = useBoardCard();
@@ -422,7 +404,6 @@ function BoardTaskCardResult({
     const { boardChat } = useBoardController();
     const { cancelSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
-    const lensID = useId();
     const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const checklists = ProjectChecklist.Model.useModels((model) => model.card_uid === card.uid, [card]);
     const title = card.useField("title");
@@ -448,32 +429,26 @@ function BoardTaskCardResult({
     const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
     const contentViewportRef = useRef<HTMLDivElement | null>(null);
 
-    useEffect(() => {
-        if (isCardEditing && lens !== "history") setLens("history");
-    }, [isCardEditing, lens, setLens]);
-
     type NavigationIntent = { cardUID: string; section: string; blockUID?: string; commentUID?: string; unread?: boolean };
     const [navigationIntent, setNavigationIntent] = useState<NavigationIntent | null>(null);
     const navigateUnread = useCallback(
         (section: "comments" | "description", commentUID?: string) => {
-            setLens("history");
             setNavigationIntent({ cardUID: card.uid, section, commentUID, unread: true });
         },
-        [card, setLens]
+        [card]
     );
     useUnreadChangeNavigation(navigateUnread);
     useEffect(() => {
         const openOutlineSection = (event: Event) => {
             const intent = (event as CustomEvent<NavigationIntent>).detail;
             if (intent.cardUID !== card.uid) return;
-            setLens("history");
             setNavigationIntent(intent);
         };
         window.addEventListener(WORKBENCH_OUTLINE_EVENT, openOutlineSection);
         return () => window.removeEventListener(WORKBENCH_OUTLINE_EVENT, openOutlineSection);
-    }, [card, setLens]);
+    }, [card]);
     useEffect(() => {
-        if (!navigationIntent || navigationIntent.cardUID !== card.uid || lens !== "history" || sectionLoading) return;
+        if (!navigationIntent || navigationIntent.cardUID !== card.uid || sectionLoading) return;
         if (navigationIntent.section === "comments") setIsCommentPanelOpen(true);
         const surface = commentSurfaceRef.current;
         if (!surface) return;
@@ -509,7 +484,7 @@ function BoardTaskCardResult({
             cancelAnimationFrame(frame);
             window.clearTimeout(timeout);
         };
-    }, [navigationIntent, card, lens, sectionLoading, setIsCommentPanelOpen, commentSurfaceRef]);
+    }, [navigationIntent, card, sectionLoading, setIsCommentPanelOpen, commentSurfaceRef]);
 
     useEffect(() => {
         return () => {
@@ -648,15 +623,12 @@ function BoardTaskCardResult({
                                     )}
                                 </Flex>
                             </Dialog.Header>
-                            <CardLensTabs idPrefix={lensID} lens={lens} onChange={setLens} disabled={isCardEditing} />
                             <Flex gap="3" direction={commentLayoutMode === "panel" ? "row" : "col"} className="min-h-0 flex-1">
-                                <Box data-card-content-frame="" className={cn("relative min-h-0 min-w-0 flex-1", lens === "history" && "pl-10")}>
+                                <Box data-card-content-frame="" className="relative min-h-0 min-w-0 flex-1 pl-10">
                                     <Box
                                         ref={contentViewportRef}
                                         data-card-content-viewport=""
-                                        role="tabpanel"
-                                        id={`${lensID}-panel`}
-                                        aria-labelledby={`${lensID}-${lens}`}
+                                        role="region"
                                         aria-busy={sectionLoading}
                                         aria-label={title}
                                         tabIndex={0}
@@ -664,16 +636,8 @@ function BoardTaskCardResult({
                                     >
                                         <Flex direction="col" gap="4" className="min-w-0 py-6 pr-1">
                                             <BoardCardMobileActions />
-                                            <CardWorkbenchLenses card={card} lens={lens} receipts={executionReceipts} />
                                             {sectionLoading && <p role="status">{t("common.Loading...")}</p>}
-                                            {!sectionLoading && lens === "execution" && (
-                                                <>
-                                                    <BoardCardDeadline key={`board-card-deadline-${card.uid}`} />
-                                                    {visibility !== "PRIVATE" && <BoardCardMemberList key={`board-card-member-list-${card.uid}`} />}
-                                                    {checklists.length > 0 && <BoardCardChecklistGroup key={`board-card-checklist-${card.uid}`} />}
-                                                </>
-                                            )}
-                                            {!sectionLoading && lens === "history" && (
+                                            {!sectionLoading && (
                                                 <>
                                                     <CardColumnHistory card={card} />
                                                     {isCheckCardView ? (
@@ -757,7 +721,7 @@ function BoardTaskCardResult({
                                         </Flex>
                                     </Box>
                                 </Box>
-                                <BoardCardCommentPanel enabled={lens === "history"} />
+                                <BoardCardCommentPanel enabled />
                                 {visibility !== "PRIVATE" && !!boardChat && <BoardCardExpandedChatScope isExpanded={isExpanded} />}
                                 <Box
                                     w="full"
@@ -772,7 +736,7 @@ function BoardTaskCardResult({
                         </Box>
                     </Box>
                 </Flex>
-                <BoardCardFloatingNav isExpanded={isExpanded} lens={lens} setLens={setLens} sectionLoading={sectionLoading} />
+                <BoardCardFloatingNav isExpanded={isExpanded} sectionLoading={sectionLoading} />
             </Flex>
         </>
     );
@@ -1003,19 +967,9 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
     return null;
 }
 
-function BoardCardFloatingNav({
-    isExpanded,
-    lens,
-    setLens,
-    sectionLoading,
-}: {
-    isExpanded: bool;
-    lens: CardWorkbenchLens;
-    setLens: (lens: CardWorkbenchLens) => void;
-    sectionLoading: boolean;
-}): React.JSX.Element {
+function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
-    const { isCommentPanelOpen, setIsCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
+    const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
     const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
     const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
@@ -1147,13 +1101,10 @@ function BoardCardFloatingNav({
                         key: "comments",
                         label: t("card.Comments"),
                         icon: "message-square",
-                        active: lens === "history" && isCommentPanelOpen,
+                        active: isCommentPanelOpen,
                         onClick: () => {
-                            if (lens !== "history") {
-                                setLens("history");
-                                setIsCommentPanelOpen(true);
-                            } else toggleCommentPanel();
-                            if (lens !== "history" || !isCommentPanelOpen) {
+                            toggleCommentPanel();
+                            if (!isCommentPanelOpen) {
                                 window.dispatchEvent(
                                     new CustomEvent(WORKBENCH_OUTLINE_EVENT, { detail: { cardUID: card.uid, section: "comments" } })
                                 );

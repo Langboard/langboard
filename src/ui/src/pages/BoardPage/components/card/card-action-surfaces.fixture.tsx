@@ -15,7 +15,7 @@ import "@/core/injection";
 import "@/assets/styles/main.css";
 
 const params = new URLSearchParams(location.search);
-const calls: { url?: string; method?: string; data: unknown }[] = [];
+const calls: { url?: string; method?: string; data: unknown; sections?: string }[] = [];
 Object.assign(window, { managerCalls: calls });
 const now = new Date();
 const user = AuthUser.Model.fromOne({ uid: "action-user", created_at: now, updated_at: now });
@@ -28,7 +28,7 @@ let runtimeState = "authorized";
 api.defaults.adapter = async (config) => {
     const url = config.url ?? "";
     const data = config.data ? JSON.parse(config.data) : null;
-    calls.push({ url, method: config.method, data });
+    calls.push({ url, method: config.method, data, sections: config.params?.sections });
     if (params.has("error") && config.method !== "get") throw new Error("Synthetic manager write failure");
     let result: unknown = { records: [], items: [], next_cursor: null };
     if (url.endsWith("/unlink")) {
@@ -56,6 +56,16 @@ api.defaults.adapter = async (config) => {
                 last_change_seq: 7,
                 description: { content: "" },
             },
+            execution_receipts: config.params?.sections?.includes("execution_receipts")
+                ? [
+                      {
+                          generation: 7,
+                          created_at: now.toISOString(),
+                          checklist_projection: [],
+                          receipt: { status: "success", summary: "Preserved execution receipt", artifacts: [], checklist_evidence: [] },
+                      },
+                  ]
+                : undefined,
         };
     else if (url.endsWith("/signals/resources"))
         result = { items: [{ uid: "resource", connection_uid: "connection", name: "example/repository" }], next_cursor: null };
