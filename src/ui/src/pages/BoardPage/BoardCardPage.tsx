@@ -56,7 +56,6 @@ const BoardCardPageComponent = ({
     const motionRef = useRef<{ stop: () => void } | null>(null);
     const closingRef = useRef(false);
     const finishedCloseRef = useRef(false);
-    const [isClosing, setIsClosing] = useState(false);
     const isCardEditingRef = useRef(false);
     const cancelCardEditRef = useRef<(() => void) | null>(null);
     const [isComposing, setIsComposing] = useState(false);
@@ -174,7 +173,7 @@ const BoardCardPageComponent = ({
         } else {
             content?.style.removeProperty("--card-origin-transform");
         }
-        if (toTray && content) {
+        if (content) {
             motionRef.current?.stop();
             motionRef.current = animate(
                 content,
@@ -184,8 +183,6 @@ const BoardCardPageComponent = ({
                 },
                 { duration: CARD_ANIMATION_DURATION_MS / 1000, ease: [0.2, 0.8, 0.2, 1], onComplete: finishClose }
             );
-        } else {
-            setIsClosing(true);
         }
         closeTimerRef.current = window.setTimeout(finishClose, CARD_ANIMATION_DURATION_MS + 50);
     };
@@ -284,7 +281,6 @@ const BoardCardPageComponent = ({
                                 const opener = visible ? source?.querySelector<HTMLButtonElement>("[data-board-card-open]") : undefined;
                                 (opener ?? fallback)?.focus({ preventScroll: true });
                             }}
-                            data-card-viewer-closing={isClosing ? "true" : undefined}
                             disableMotionAnimation
                             onAnimationStart={(event) => {
                                 if (event.target === event.currentTarget && event.animationName === "card-viewer-open") {
@@ -292,11 +288,6 @@ const BoardCardPageComponent = ({
                                     // Suspense fallback swap hides the subtree and CSS restarts
                                     // animations when visibility is restored.
                                     event.currentTarget.dataset.cardViewerOpened = "true";
-                                }
-                            }}
-                            onAnimationEnd={(event) => {
-                                if (isClosing && event.target === event.currentTarget && event.animationName === "card-viewer-close") {
-                                    finishClose();
                                 }
                             }}
                             className={cn(
@@ -416,7 +407,12 @@ const BoardCardPageComponent = ({
                                     event.stopPropagation();
 
                                     getEditorStore().setCurrentEditor(null);
+                                    return;
                                 }
+                                // Keep the viewer mounted until the shared return animation finishes.
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleCloseRequest();
                             }}
                         >
                             <BoardCard

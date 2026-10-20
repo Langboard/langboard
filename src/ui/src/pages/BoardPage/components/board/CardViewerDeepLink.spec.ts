@@ -761,3 +761,31 @@ for (const width of [360, 390]) {
         await expect(viewer).toHaveCount(0);
     });
 }
+
+for (const dismissal of ["button", "background"]) {
+    test(`${dismissal} dismissal plays the same return animation before unmount`, async ({ page }) => {
+        await mockBoardApi(page);
+        await page.goto(FIXTURE);
+        const viewer = page.locator("[data-card-viewer]");
+        await expect(page.locator("[data-card-surface]")).toBeVisible();
+        if (dismissal === "button") await page.getByRole("button", { name: "Close", exact: true }).click();
+        else {
+            const surface = await page.locator("[data-card-surface]").boundingBox();
+            const nav = await page.locator("[data-floating-nav-content]").locator("button").first().boundingBox();
+            await page.mouse.click(surface!.x + 8, (surface!.y + surface!.height + nav!.y) / 2);
+        }
+        await expect
+            .poll(
+                () =>
+                    viewer.evaluate((element) =>
+                        element.getAnimations().some((animation) => {
+                            const frames = (animation.effect as KeyframeEffect)?.getKeyframes();
+                            return frames?.length && Number(frames[0].opacity) === 1 && Number(frames.at(-1)?.opacity) === 0;
+                        })
+                    ),
+                { intervals: [10, 20, 30] }
+            )
+            .toBeTruthy();
+        await expect(viewer).toHaveCount(0);
+    });
+}
