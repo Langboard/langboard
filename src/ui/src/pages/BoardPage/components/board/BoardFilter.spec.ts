@@ -1,4 +1,64 @@
 import { test, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+async function pullLeft(page: Page, { x = 12, y = 120, dx = 130, dy = 0 } = {}) {
+    const box = (await page.getByTestId("pan").boundingBox())!;
+    await page.mouse.move(box.x + x, box.y + y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + x + dx, box.y + y + dy, { steps: 8 });
+    await page.mouse.up();
+}
+
+test("left boundary pull reuses first-column composer, focus and glow", async ({ page }) => {
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+    await expect(page.getByPlaceholder("Enter a title")).toHaveCount(0);
+    await pullLeft(page);
+    const title = page.getByPlaceholder("Enter a title");
+    await expect(title).toBeFocused();
+    await expect.poll(() => title.evaluate((e) => e.getAnimations().some((a) => a.effect?.getTiming().duration === 700))).toBe(true);
+    expect(new URL(page.url()).searchParams.has("new-card")).toBe(false);
+});
+
+test("short, vertical, central and protected drags do not compose; background still pans", async ({ page }) => {
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+    await pullLeft(page, { dx: 50 });
+    await pullLeft(page, { dy: 60 });
+    await pullLeft(page, { x: 180 });
+    await pullLeft(page, { y: 10 });
+    await expect(page.getByPlaceholder("Enter a title")).toHaveCount(0);
+    await pullLeft(page, { x: 220, dx: -150 });
+    await expect.poll(() => page.getByTestId("pan").evaluate((e) => e.scrollLeft)).toBeGreaterThan(100);
+    await pullLeft(page);
+    await expect(page.getByPlaceholder("Enter a title")).toHaveCount(0);
+});
+
+for (const mode of ["denied", "mobile", "touch"])
+    test(`left pull does not create for ${mode}`, async ({ page }) => {
+        if (mode === "mobile") await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto(`/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1${mode === "denied" ? "&pull-denied=1" : ""}`);
+        if (mode === "touch") {
+            const pan = page.getByTestId("pan");
+            await pan.dispatchEvent("pointerdown", { pointerId: 2, pointerType: "touch", isPrimary: true, button: 0, clientX: 12, clientY: 120 });
+            await pan.dispatchEvent("pointerup", { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 142, clientY: 120 });
+        } else await pullLeft(page);
+        await expect(page.getByPlaceholder("Enter a title")).toHaveCount(0);
+    });
+
+test("cancelled pull stays closed and reduced-motion pull focuses without glow", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+    const box = (await page.getByTestId("pan").boundingBox())!;
+    await page.mouse.move(box.x + 12, box.y + 120);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 150, box.y + 120);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(page.getByPlaceholder("Enter a title")).toHaveCount(0);
+    await pullLeft(page);
+    const title = page.getByPlaceholder("Enter a title");
+    await expect(title).toBeFocused();
+    expect(await title.evaluate((e) => e.getAnimations().length)).toBe(0);
+});
 test.beforeEach(async ({ page }) => {
     await page.route("**/board/*/filter-preferences", (route) => route.fulfill({ json: { revision: 0, pinned_filters: [] } }));
 });
