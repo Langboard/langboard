@@ -101,10 +101,11 @@ export const useWorkbenchContextOpen = (userUID?: string) => {
             const store = getUserSettingsStore();
             const current = store.settings.workbench_context_open ?? {};
             const previous = current[userUID] ?? true;
-            store.updateSettingsByKey("workbench_context_open", {
-                ...current,
-                [userUID]: typeof value === "function" ? value(previous) : value,
-            });
+            const next = typeof value === "function" ? value(previous) : value;
+            store.updateSettingsByKey("workbench_context_open", { ...current, [userUID]: next });
+            if (next && store.settings.workbench_sidebar_collapsed?.[userUID]) {
+                store.updateSettingsByKey("workbench_sidebar_collapsed", { ...store.settings.workbench_sidebar_collapsed, [userUID]: false });
+            }
         },
         [userUID]
     );

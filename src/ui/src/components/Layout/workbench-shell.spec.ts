@@ -1393,3 +1393,29 @@ test("compose dock opens the first column editor and preserves a draft without s
     expect(writes).toBe(0);
     await expect(page).not.toHaveURL(/new-card/);
 });
+
+test("resizing across the minimum threshold collapses and reverse dragging expands", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const sidebar = page.locator("[data-workbench-sidebar]").filter({ has: page.getByText("Sidebar Dashboard", { exact: true }) });
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    const resize = sidebar.locator(".resizer");
+    const handle = await resize.boundingBox();
+    await page.mouse.move(handle!.x + 1, handle!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(handle!.x - 220, handle!.y + 100, { steps: 12 });
+    await page.mouse.up();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(52);
+    const collapsed = await resize.boundingBox();
+    await page.mouse.move(collapsed!.x + 1, collapsed!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(collapsed!.x + 240, collapsed!.y + 100, { steps: 12 });
+    await page.mouse.up();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await expect(page.getByText("Sidebar Dashboard", { exact: true })).toBeVisible();
+    const width = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+    expect(width).toBeGreaterThanOrEqual(220);
+    expect(width).toBeLessThanOrEqual(420);
+    expect(await page.evaluate(() => document.documentElement.style.userSelect)).toBe("");
+});

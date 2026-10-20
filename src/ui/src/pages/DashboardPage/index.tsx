@@ -19,7 +19,7 @@ import { SkeletonProjectDiscoveryPage } from "@/pages/DashboardPage/components/P
 import ProjectExplorerSidebar from "@/pages/DashboardPage/components/ProjectExplorerSidebar";
 import { WORKBENCH_OPEN_MY_WORK_EVENT, WORKBENCH_TOGGLE_CONTEXT_EVENT } from "@/pages/DashboardPage/components/WorkbenchCommands";
 import { useEffect } from "react";
-import { useWorkbenchContextOpen } from "@/core/stores/UserSettingsStore";
+import { useWorkbenchContextOpen, useUserSettings } from "@/core/stores/UserSettingsStore";
 import useResizeEvent from "@/core/hooks/useResizeEvent";
 import { ScreenMap } from "@/core/utils/VariantUtils";
 
@@ -27,6 +27,8 @@ const DashboardProxy = memo((): React.JSX.Element => {
     const [t] = useTranslation();
     const { currentUser } = useAuth();
     const [isExplorerOpen, setIsExplorerOpen] = useWorkbenchContextOpen(currentUser?.uid);
+    const collapsedPanels = useUserSettings("workbench_sidebar_collapsed");
+    const desktopContextVisible = isExplorerOpen && !collapsedPanels?.[currentUser?.uid ?? ""];
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
     const [isMobileExplorerOpen, setIsMobileExplorerOpen] = useState(false);
     const [contextMode, setContextMode] = useState<"explorer" | "my-work">("explorer");
@@ -38,6 +40,12 @@ const DashboardProxy = memo((): React.JSX.Element => {
         },
         [isMobile, setIsExplorerOpen]
     );
+    const toggleContext = (mode: "explorer" | "my-work") => {
+        if (contextMode === mode && (isMobile ? isMobileExplorerOpen : desktopContextVisible)) {
+            if (isMobile) setIsMobileExplorerOpen(false);
+            else setIsExplorerOpen(false);
+        } else showContext(mode);
+    };
     useResizeEvent({ doneCallback: () => setIsMobile(window.innerWidth < ScreenMap.size.md) }, []);
     const toggleExplorer = useCallback(() => {
         if (isMobile) setIsMobileExplorerOpen((open) => !open);
@@ -152,16 +160,16 @@ const DashboardProxy = memo((): React.JSX.Element => {
         {
             icon: "panel-left",
             label: t("common.Explorer"),
-            onClick: () => showContext("explorer"),
-            active: contextMode === "explorer" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
+            onClick: () => toggleContext("explorer"),
+            active: contextMode === "explorer" && (isMobile ? isMobileExplorerOpen : desktopContextVisible),
         },
         { icon: "layout-dashboard", label: t("dashboard.Cards"), onClick: headerNavs[1].onClick!, active: pageType === "cards" },
         {
             icon: "list-checks",
             label: t("dashboard.My Work"),
             mobile: "primary",
-            onClick: () => showContext("my-work"),
-            active: contextMode === "my-work" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
+            onClick: () => toggleContext("my-work"),
+            active: contextMode === "my-work" && (isMobile ? isMobileExplorerOpen : desktopContextVisible),
         },
         {
             icon: "star",
