@@ -27,6 +27,7 @@ from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotLog import BotLog
 from .BotSchedule import BotSchedule
+from .BotScheduleRun import BotScheduleRun
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
@@ -175,6 +176,7 @@ __all__ = [
     'ProjectBotDefaultScope',
     'ProjectColumnBotDefaultScope',
     'BotSchedule',
+    'BotScheduleRun',
     'Card',
     'CardAppSignalBinding',
     'CardSignalCreation',
