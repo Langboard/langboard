@@ -10,6 +10,16 @@ from typing import Annotated, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
+DEFAULT_COMPACTION_CHARACTERS = 12_000
+
+
+def compaction_character_threshold(effects: dict) -> int:
+    value = effects.get("compact_after_characters", DEFAULT_COMPACTION_CHARACTERS)
+    if type(value) is not int or not 1_000 <= value <= 500_000:
+        raise ValueError("Invalid compaction character threshold")
+    return value
+
+
 EvidenceRef = Annotated[str, Field(pattern=r"^(comment|activity):[A-Za-z0-9]{1,64}$")]
 
 

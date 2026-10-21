@@ -445,5 +445,7 @@
   "Manual": "手動",
   "Execution profile": "実行プロフィール",
   "Error code": "エラーコード",
-  "Compact comments": "コメントを圧縮"
+  "Compact comments": "コメントを圧縮",
+  "Compact after characters": "圧縮する文字数",
+  "Compaction threshold counts only new uncompressed comment bodies.": "新しい未圧縮コメント本文の文字数です。既存の要約と列の移動イベントは除外します。"
 }

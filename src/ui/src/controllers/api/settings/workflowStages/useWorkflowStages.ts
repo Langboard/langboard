@@ -6,6 +6,7 @@ export const CONTINUOUS_EFFECT_DEFAULTS = {
     auto_archive: false,
     interval_seconds: 300,
     archive_after_seconds: 86400,
+    compact_after_characters: 12000,
 };
 export interface IWorkflowStage {
     revision: string;

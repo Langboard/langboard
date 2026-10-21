@@ -136,8 +136,8 @@ def test_native_bundle_and_project_columns_share_registry_guidance(registry, mon
 def test_continuous_workflow_guidance_excludes_unrecognized_storage_fields():
     from langboard.card_workspace.application.projections import public_workflow_stages
     source = {"active": {"key": "active", "continuous_effects": {"auto_compact": True, "auto_archive": False,
-        "interval_seconds": 300, "archive_after_seconds": 86400, "credential": "private-fixture"}, "storage": "private-fixture"}}
+        "interval_seconds": 300, "archive_after_seconds": 86400, "compact_after_characters": 24000, "credential": "private-fixture"}, "storage": "private-fixture"}}
     result = public_workflow_stages(source)
     assert result["active"]["continuous_effects"] == {"auto_compact": True, "auto_archive": False,
-        "interval_seconds": 300, "archive_after_seconds": 86400}
+        "interval_seconds": 300, "archive_after_seconds": 86400, "compact_after_characters": 24000}
     assert "private-fixture" not in str(result)

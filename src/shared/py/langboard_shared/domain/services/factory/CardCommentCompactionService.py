@@ -3,8 +3,8 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from sqlalchemy import Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
-from ....ai.comment_compaction import CommentCompactionSnapshot
+from sqlalchemy import ARRAY, JSON, Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
+from ....ai.comment_compaction import CommentCompactionSnapshot, compaction_character_threshold
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
@@ -214,6 +214,29 @@ class CardCommentCompactionService(BaseDomainService):
                 "source_revision": record.source_revision, "has_more_sources": has_more,
                 "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
 
+    @staticmethod
+    def _comment_characters(events):
+        # Count stored comment bodies in Unicode characters, not JSON escaping,
+        # author metadata, previous summaries or card-movement event payloads.
+        body = (cast(cast(events.c.payload, JSON).op("#>>")(literal([], type_=ARRAY(Text))), JSON).op("->>")("content")
+                if DbEngine.get_main_engine().dialect.name == "postgresql"
+                else func.json_extract(func.json_extract(events.c.payload, "$"), "$.content"))
+        return case((events.c.kind == "comment", func.coalesce(func.length(body), 0)), else_=0)
+
+    @staticmethod
+    def _configured_threshold(db, card):
+        stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition)
+            .join(ProjectColumn, ProjectColumn.workflow_stage == WorkflowStageDefinition.key)
+            .where(ProjectColumn.id == card.project_column_id, ProjectColumn.project_id == card.project_id,
+                   ProjectColumn.deleted_at.is_(None), WorkflowStageDefinition.is_active.is_(True))
+            .execution_options(populate_existing=True)).first()
+        if stage is None or stage.continuous_effects.get("auto_compact") is not True:
+            return None
+        try:
+            return compaction_character_threshold(stage.continuous_effects)
+        except ValueError:
+            raise CommentCompactionError("policy_changed") from None
+
     def _eligibility(self, user, project, card, can_generate, blocks):
         """Request-local volume projection over blocks already verified by this caller."""
         with DbSession.use(readonly=False) as db:
@@ -221,14 +244,17 @@ class CardCommentCompactionService(BaseDomainService):
             covered = {ref for block in blocks for ref in block["evidence_refs"]}
             uncovered = (tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered])
                          if covered else literal(True))
-            volume = select(events.c.payload, uncovered.label("uncovered")).where(events.c.active).subquery()
+            volume = select(events.c.payload, uncovered.label("uncovered"),
+                            self._comment_characters(events).label("characters")).where(events.c.active).subquery()
             count, characters, remaining_count, remaining_characters = db.exec(select(
-                func.count(), func.coalesce(func.sum(func.length(volume.c.payload)), 0),
+                func.count(), func.coalesce(func.sum(volume.c.characters), 0),
                 func.coalesce(func.sum(case((volume.c.uncovered, 1), else_=0)), 0),
-                func.coalesce(func.sum(case((volume.c.uncovered, func.length(volume.c.payload)), else_=0)), 0),
+                func.coalesce(func.sum(case((volume.c.uncovered, volume.c.characters), else_=0)), 0),
             ).select_from(volume)).first()
             binding = self._get_service(InternalBotService).get_comment_compaction_binding()
-            needs_compaction = remaining_count >= 20 or remaining_characters >= 12_000
+            threshold = self._configured_threshold(db, card)
+            needs_compaction = (remaining_characters >= threshold if threshold is not None
+                                else remaining_count >= 20 or remaining_characters >= 12_000)
             next_key = None
             if needs_compaction and can_generate and binding:
                 try:
@@ -239,7 +265,8 @@ class CardCommentCompactionService(BaseDomainService):
         return {"can_generate": can_generate, "provider_configured": binding is not None,
                 "event_count": count, "source_characters": characters,
                 "uncompacted_event_count": remaining_count, "uncompacted_characters": remaining_characters,
-                "needs_compaction": needs_compaction, "next_request_key": next_key}
+                "needs_compaction": needs_compaction, "next_request_key": next_key,
+                "compact_after_characters": threshold}
 
     def get_page(self, user, project, card, *, before=None, request_key_filter=None, channel=CollaborationChannel.Api):
         """Expose bounded verified blocks and the caller's in-flight request IDs."""
@@ -479,13 +506,15 @@ class CardCommentCompactionService(BaseDomainService):
                 if block["status"] == "completed" and not covered.intersection(block["evidence_refs"]):
                     covered.update(block["evidence_refs"])
             events = self._events(project, card)
-            remaining = select(events.c.payload).where(events.c.active)
+            remaining = select(self._comment_characters(events).label("characters")).where(events.c.active)
             if covered:
                 remaining = remaining.where(tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered]))
             volume = remaining.subquery()
-            count, characters = db.exec(select(func.count(), func.coalesce(func.sum(func.length(volume.c.payload)), 0))
-                                       .select_from(volume)).first()
-            if count < 20 and characters < 12_000:
+            characters, = db.exec(select(func.coalesce(func.sum(volume.c.characters), 0)).select_from(volume)).first()
+            threshold = self._configured_threshold(db, card)
+            if threshold is None:
+                raise CommentCompactionError("policy_changed")
+            if characters < threshold:
                 return {"status": "skipped", "reason": "below_threshold"}
             snapshot, has_more = self._snapshot(project, card, omit_refs=covered)
             record = self.repo.card_comment_compaction.reserve_automatic(card, binding, snapshot)

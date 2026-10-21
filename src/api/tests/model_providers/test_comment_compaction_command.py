@@ -102,11 +102,11 @@ def automatic_command(compact_command):
         column.workflow_stage = "active"
         db.update(column)
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == "active")).first()
-        stage.continuous_effects = {"auto_compact": True}
+        stage.continuous_effects = {"auto_compact": True, "compact_after_characters": 1000}
         db.update(stage)
         for index in range(18):
             db.insert(CardComment(card_id=card.id, user_id=actor.id,
-                                  content=EditorContentModel(content=f"Additional evidence {index}")))
+                                  content=EditorContentModel(content=f"Additional evidence {index} " + "x" * 60)))
     set_compactor_board_grant(actor, project.id, binding.id, can_read=True, can_compact=True, can_archive=False)
     return compact_command, column, stage
 
@@ -1109,3 +1109,36 @@ def test_mcp_compactor_attribution_never_forwards_profile_configuration():
     assert not any(value in str(result) for value in ("secret", "private@example.invalid", "private-tool", "private-request-key"))
     del event["data"]["generated_by"]
     assert "generated_by" not in public_card_timeline_entry(event)["summary"]
+
+
+async def test_automatic_threshold_counts_only_uncompressed_comment_bodies(automatic_command, monkeypatch):
+    (service, actor, project, card, binding, comment, *_), _, stage = automatic_command
+    provider = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.card_id == card.id, CardComment.id != comment.id)
+                .values(deleted_at=SafeDateTime.now()))
+        comment.content = EditorContentModel(content="한" * 999)
+        db.update(comment)
+    eligibility = service.get_view(actor, project, card)["eligibility"]
+    assert eligibility["uncompacted_characters"] == 999
+    assert eligibility["compact_after_characters"] == 1000
+    assert eligibility["needs_compaction"] is False
+    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    provider.assert_not_awaited()
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="한" * 1000)
+        db.update(comment)
+    assert service.get_view(actor, project, card)["eligibility"]["needs_compaction"] is True
+    receipt = await service.generate_automatic(project, binding, card)
+    assert receipt["status"] == "completed"
+    eligibility = service.get_view(actor, project, card)["eligibility"]
+    assert eligibility["uncompacted_characters"] == 0 and eligibility["needs_compaction"] is False
+    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert provider.await_count == 1
+    with DbSession.atomic() as db:
+        db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="새" * 1100)))
+        stage.continuous_effects = {"auto_compact": True, "compact_after_characters": 2000}
+        db.update(stage)
+    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert service.get_view(actor, project, card)["eligibility"]["compact_after_characters"] == 2000

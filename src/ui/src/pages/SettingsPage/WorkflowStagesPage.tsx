@@ -477,6 +477,32 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                             {t(`settings.${label}`)}
                                         </label>
                                     ))}
+                                    {continuous.auto_compact && (
+                                        <div className="space-y-1 text-sm">
+                                            <label className="block space-y-1">
+                                                {t("settings.Compact after characters")}
+                                                <Input
+                                                    type="number"
+                                                    required
+                                                    min="1000"
+                                                    max="500000"
+                                                    step="1"
+                                                    value={continuous.compact_after_characters}
+                                                    onChange={(event) =>
+                                                        edit({
+                                                            continuous_effects: {
+                                                                ...continuous,
+                                                                compact_after_characters: Number(event.target.value),
+                                                            },
+                                                        })
+                                                    }
+                                                />
+                                            </label>
+                                            <p className="text-xs text-muted-foreground">
+                                                {t("settings.Compaction threshold counts only new uncompressed comment bodies.")}
+                                            </p>
+                                        </div>
+                                    )}
                                     {(continuous.auto_compact || continuous.auto_archive) && (
                                         <label className="block space-y-1 text-sm">
                                             {t("settings.Effect check interval minutes")}

@@ -445,5 +445,7 @@
   "Manual": "수동",
   "Execution profile": "실행 프로필",
   "Error code": "오류 코드",
-  "Compact comments": "댓글 압축"
+  "Compact comments": "댓글 압축",
+  "Compact after characters": "압축 기준 글자 수",
+  "Compaction threshold counts only new uncompressed comment bodies.": "새로 쌓인 미압축 댓글 본문의 글자 수입니다. 기존 요약과 칼럼 이동 이벤트는 제외합니다."
 }

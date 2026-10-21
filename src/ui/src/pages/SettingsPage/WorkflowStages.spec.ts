@@ -434,6 +434,7 @@ for (const width of [1440, 390]) {
                 auto_archive: true,
                 interval_seconds: 120,
                 archive_after_seconds: 7200,
+                compact_after_characters: 24000,
             });
             saved = { ...saved, ...payload, revision: "b".repeat(64) };
             await route.fulfill({ json: { stage: saved } });
@@ -441,6 +442,8 @@ for (const width of [1440, 390]) {
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
         await page.getByLabel("Auto compact comments", { exact: true }).check();
+        await expect(page.getByLabel("Compact after characters", { exact: true })).toHaveValue("12000");
+        await page.getByLabel("Compact after characters", { exact: true }).fill("24000");
         await page.getByLabel("Auto archive cards", { exact: true }).check();
         await page.getByLabel("Check interval (minutes)", { exact: true }).fill("2");
         await page.getByLabel("Archive after (hours)", { exact: true }).fill("2");
@@ -450,6 +453,7 @@ for (const width of [1440, 390]) {
         await page.getByRole("button", { name: /^Closed/ }).click();
         await expect(page.getByLabel("Auto compact comments", { exact: true })).toBeChecked();
         await expect(page.getByLabel("Auto archive cards", { exact: true })).toBeChecked();
+        await expect(page.getByLabel("Compact after characters", { exact: true })).toHaveValue("24000");
         await expect(page.getByLabel("Check interval (minutes)", { exact: true })).toHaveValue("2");
         await expect(page.getByLabel("Archive after (hours)", { exact: true })).toHaveValue("2");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
