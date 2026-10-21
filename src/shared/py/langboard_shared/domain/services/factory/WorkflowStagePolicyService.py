@@ -1,6 +1,8 @@
+from time import monotonic_ns
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
-from ...models import Card, Project, ProjectColumn, WorkflowStageDefinition
+from ....core.types import SafeDateTime
+from ...models import Card, Project, ProjectColumn, User, WorkflowEffectRun, WorkflowStageDefinition
 from .CheckitemService import CheckitemService
 
 
@@ -25,7 +27,7 @@ class WorkflowStagePolicyService(BaseDomainService):
             stage = db.exec(
                 SqlBuilder.select.table(WorkflowStageDefinition).where(
                     WorkflowStageDefinition.column("key") == new_column.workflow_stage
-                )
+                ).execution_options(populate_existing=True)
             ).first()
             if stage is None:
                 raise ValueError("Workflow stage definition is missing")
@@ -35,9 +37,27 @@ class WorkflowStagePolicyService(BaseDomainService):
                 raise ValueError("Unsupported native workflow effect")
             if not effects:
                 return empty
-            return self._get_service(CheckitemService).complete_unchecked_by_card(
+            started_at = SafeDateTime.now()
+            started_clock = monotonic_ns()
+            result = self._get_service(CheckitemService).complete_unchecked_by_card(
                 actor,
                 project,
                 card,
                 complete="complete_checkitems" in effects,
             )
+            db.insert(WorkflowEffectRun(
+                stage_id=stage.id,
+                stage_key=stage.key,
+                stage_revision=stage.edit_revision(),
+                project_id=project.id,
+                card_id=card.id,
+                actor_id=actor.id,
+                actor_type="user" if isinstance(actor, User) else "bot",
+                source="entry",
+                effects=sorted(effects),
+                started_at=started_at,
+                finished_at=SafeDateTime.now(),
+                duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000),
+                result=result,
+            ))
+            return result

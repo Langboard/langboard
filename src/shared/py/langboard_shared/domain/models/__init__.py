@@ -42,6 +42,7 @@ from .CardBotSchedule import CardBotSchedule
 from .CardBotScope import CardBotScope
 from .CardComment import CardComment
 from .CardCommentCompaction import CardCommentCompaction
+from .WorkflowEffectRun import WorkflowEffectRun
 from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact

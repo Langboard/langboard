@@ -35,6 +35,7 @@ from langboard_shared.domain.models import (
     ProjectLabel,
     User,
     WebhookSetting,
+    WorkflowEffectRun,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -87,6 +88,7 @@ def flow(monkeypatch, request):
         connection.execute(text('INSERT INTO "user" VALUES (1)'))
     for model in (
         WorkflowStageDefinition,
+        WorkflowEffectRun,
         ProjectColumn,
         Card,
         CardAppOwnership,
@@ -360,12 +362,24 @@ def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):
     assert not items[4][1] and items[4][3] == 9
     f.summary.assert_called_once()
     assert len(f.summary.call_args.args[2]) == 3
+    with DbSession.use(readonly=False) as db:
+        runs = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()
+        assert len(runs) == 1
+        run = runs[0]
+        assert (run.stage_id, run.stage_key, run.stage_revision) == (f.stage.id, "released", f.stage.edit_revision())
+        assert (run.project_id, run.card_id, run.actor_id, run.actor_type, run.source) == (1, f.card.id, 1, "user", "entry")
+        assert run.effects == ["complete_checkitems"]
+        assert run.status == "succeeded"
+        assert run.result == {"completed": 3, "stopped": 2}
+        assert run.duration_ms >= 0 and run.finished_at >= run.started_at
     assert f.notifications[0] == (column, items, timers)
     assert f.service.change_order(f.actor, f.project, f.card, 0, f.same) is True
     assert snapshot(f.engine, f.card.id)[2] == 4
     f.summary.assert_called_once()
     assert f.bulk.complete_unchecked_by_card(f.actor, f.project, f.card) == {"completed": 0, "stopped": 0}
     f.summary.assert_called_once()
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()) == 1
 
 
 def test_stop_only_keeps_unchecked_and_inactive_definition_applies(flow):
@@ -400,6 +414,8 @@ def test_missing_timer_fact_rolls_back_movement_and_every_item(flow):
     assert snapshot(f.engine, f.card.id) == before
     f.summary.assert_not_called()
     assert f.notifications == []
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all() == []
 
 
 def test_outer_rollback_suppresses_summary_and_movement_notifications(flow):
@@ -414,6 +430,8 @@ def test_outer_rollback_suppresses_summary_and_movement_notifications(flow):
     assert snapshot(f.engine, f.card.id) == before
     f.summary.assert_not_called()
     assert f.notifications == []
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all() == []
 
 
 def test_same_stage_does_not_complete_new_unchecked_item(flow):

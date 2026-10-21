@@ -1,11 +1,14 @@
+from typing import Annotated
+from fastapi import Path, Query, Request
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
-from langboard_shared.domain.models import SettingRole
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+from langboard_shared.domain.models import SettingRole, User
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageEditConflict
 from langboard_shared.filter import RoleFilter
-from langboard_shared.security import RoleFinder
+from langboard_shared.security import Auth, RoleFinder
 from sqlalchemy.exc import IntegrityError
 from .Form import DeactivateWorkflowStageForm, SaveWorkflowStageForm
 
@@ -15,6 +18,27 @@ from .Form import DeactivateWorkflowStageForm, SaveWorkflowStageForm
 @AuthFilter.add("admin")
 def get_workflow_stages(service: DomainService = DomainService.scope()) -> JsonResponse:
     return JsonResponse(content={"stages": service.workflow_stage.get_api_list()})
+
+
+@AppRouter.api.get("/settings/workflow-stages/{stage_uid}/history", tags=["AppSettings.WorkflowStage"])
+@RoleFilter.add(SettingRole, [SettingRoleAction.WorkflowStageRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_workflow_effect_history(
+    request: Request,
+    stage_uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")],
+    before: Annotated[str | None, Query(pattern=r"^[a-zA-Z0-9]{11}$")] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.workflow_stage.get_effect_history(user, stage_uid, before=before, limit=limit,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+    except (TypeError, ValueError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF3003)
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 def _save(form: SaveWorkflowStageForm, service: DomainService, uid: str | None = None) -> JsonResponse:

@@ -13,11 +13,13 @@ from ...models import (
     AppDefinition,
     AppResourceBinding,
     BoardAppBinding,
+    Card,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
     User,
+    WorkflowEffectRun,
     WorkflowStageDefinition,
 )
 from ...models.ProjectRole import ProjectRoleAction
@@ -30,6 +32,7 @@ from ..AppWorkflowPolicy import (
     WorkflowRequirements,
     resolve_app_workflow,
 )
+from ..CardVisibilityPolicy import CollaborationChannel, card_visibility_scope_by_project
 from .CardService import CardService
 
 
@@ -405,6 +408,43 @@ class WorkflowStageService(BaseDomainService):
             {**stage.api_response(), "used_column_count": usage.get(stage.key, 0)}
             for stage in sorted(InfraHelper.get_all(WorkflowStageDefinition), key=lambda s: (s.order, s.key))
         ]
+
+    def get_effect_history(self, user: User, stage_uid: str, *, before: str | None = None, limit: int = 20,
+                           channel: CollaborationChannel = CollaborationChannel.Api) -> dict | None:
+        """Apply current card audiences in SQL before paging committed effect receipts."""
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("Workflow history limit must be between 1 and 50")
+        if not isinstance(user, User):
+            return None
+        with DbSession.atomic() as db:
+            stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
+                WorkflowStageDefinition.id == InfraHelper.convert_id(stage_uid),
+            ).execution_options(populate_existing=True)).first()
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)
+                              .execution_options(populate_existing=True)).first()
+            if stage is None or current is None or current.deleted_at is not None or not current.activated_at:
+                return None
+            contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+            query = (SqlBuilder.select.table(WorkflowEffectRun)
+                     .join(Card, and_(Card.id == WorkflowEffectRun.card_id, Card.project_id == WorkflowEffectRun.project_id))
+                     .join(Project, Project.id == Card.project_id)
+                     .where(WorkflowEffectRun.stage_id == stage.id, Card.deleted_at.is_(None),
+                            Project.deleted_at.is_(None), card_visibility_scope_by_project(contexts)))
+            if before is not None:
+                anchor_id = InfraHelper.convert_id(before)
+                if db.exec(query.where(WorkflowEffectRun.id == anchor_id)).first() is None:
+                    raise ValueError("Workflow history cursor is unavailable")
+                query = query.where(WorkflowEffectRun.id < anchor_id)
+            rows = db.exec(query.order_by(WorkflowEffectRun.id.desc()).limit(limit + 1)).all()
+            items = [{
+                "uid": row.get_uid(), "source": row.source, "status": row.status,
+                "effects": row.effects, "started_at": row.started_at, "finished_at": row.finished_at,
+                "duration_ms": row.duration_ms, "result": row.result,
+                "project_uid": InfraHelper.convert_uid(row.project_id),
+                "card_uid": InfraHelper.convert_uid(row.card_id),
+                "actor_uid": InfraHelper.convert_uid(row.actor_id), "actor_type": row.actor_type,
+            } for row in rows[:limit]]
+            return {"items": items, "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None}
 
     def get_api_by_keys(self, keys: set[str]) -> dict[str, dict]:
         """Resolve only workflow definitions used by an authorized result page."""
