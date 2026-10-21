@@ -18,13 +18,17 @@ class WorkflowStagePolicyService(BaseDomainService):
         empty = {"completed": 0, "stopped": 0}
         if (
             new_column is None
-            or new_column.is_archive
             or card.is_linked_resource
-            or not new_column.workflow_stage
-            or old_column.workflow_stage == new_column.workflow_stage
         ):
             return empty
         with DbSession.atomic() as db:
+            if new_column.is_archive or not new_column.workflow_stage:
+                card.workflow_stage_entered_key = None
+                card.workflow_stage_entered_at = None
+                db.update(card)
+                return empty
+            if old_column.workflow_stage == new_column.workflow_stage:
+                return empty
             stage = db.exec(
                 SqlBuilder.select.table(WorkflowStageDefinition).where(
                     WorkflowStageDefinition.column("key") == new_column.workflow_stage
@@ -36,9 +40,12 @@ class WorkflowStagePolicyService(BaseDomainService):
             effects = set(stage.entry_effects)
             if effects - {"complete_checkitems", "stop_running_timers", "notify_author_on_entry"}:
                 raise ValueError("Unsupported native workflow effect")
+            started_at = SafeDateTime.now()
+            card.workflow_stage_entered_key = stage.key
+            card.workflow_stage_entered_at = started_at
+            db.update(card)
             if not effects:
                 return empty
-            started_at = SafeDateTime.now()
             started_clock = monotonic_ns()
             result = dict(empty)
             if effects & {"complete_checkitems", "stop_running_timers"}:

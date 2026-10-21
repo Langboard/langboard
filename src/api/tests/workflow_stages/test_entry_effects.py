@@ -351,6 +351,64 @@ def test_concurrent_card_reorders_do_not_deadlock(flow, monkeypatch, native_read
         assert len(enqueued) == 2 and len(set(enqueued)) == 2
 
 
+def test_column_rebinding_invalidates_residency_without_reapplying_effects(flow, monkeypatch):
+    from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
+    from langboard_shared.infrastructure.repositories.factory.ProjectColumnRepository import ProjectColumnRepository
+    from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
+
+    f = flow
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
+
+    @contextmanager
+    def readiness():
+        with DbSession.atomic() as db:
+            yield SimpleNamespace(db=db, before={}, watch_project=lambda *_: None)
+
+    monkeypatch.setattr(import_module(ProjectColumnService.__module__), "execution_readiness_uow", readiness)
+    monkeypatch.setattr("langboard_shared.publishers.ProjectColumnPublisher.workflow_stage_changed", lambda *_: None)
+    columns = ProjectColumnService(lambda _: SimpleNamespace(publish_work_states=lambda *_: None), None,
+                                   SimpleNamespace(project_column=ProjectColumnRepository(None, None),
+                                                   workflow_stage=WorkflowStageRepository(None, None)))
+    assert columns.change_workflow_stage(f.project, f.new, None)
+    with f.engine.connect() as db:
+        assert db.execute(select(Card.__table__.c.workflow_stage_entered_key,
+                                 Card.__table__.c.workflow_stage_entered_at)
+                          .where(Card.__table__.c.id == f.card.id)).one() == (None, None)
+
+
+def test_stage_residency_tracks_observed_entries_without_backfill(flow):
+    f = flow
+
+    def residency():
+        with f.engine.connect() as db:
+            return db.execute(select(Card.__table__.c.workflow_stage_entered_key,
+                                     Card.__table__.c.workflow_stage_entered_at)
+                              .where(Card.__table__.c.id == f.card.id)).one()
+
+    assert residency() == (None, None)
+    with DbSession.atomic() as db:
+        f.stage.entry_effects = []
+        db.update(f.stage)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
+    first = residency()
+    assert first[0] == "released" and first[1] is not None
+    # A same-stage column move or reorder does not restart the stage clock.
+    f.service.change_order(f.actor, f.project, f.card, 0, f.same)
+    assert residency() == first
+    f.service.change_order(f.actor, f.project, f.card, 0, None)
+    assert residency() == first
+    f.service.change_order(f.actor, f.project, f.card, 0, f.old)
+    assert residency() == (None, None)
+    with pytest.raises(RuntimeError, match="rollback"), DbSession.atomic():
+        f.service.change_order(f.actor, f.project, f.card, 0, f.new)
+        raise RuntimeError("rollback")
+    assert residency() == (None, None)
+    f.service.change_order(f.actor, f.project, f.card, 0, f.new)
+    assert residency()[0] == "released"
+    f.service.change_order(f.actor, f.project, f.card, 0, f.archive)
+    assert residency() == (None, None)
+
+
 def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):
     f = flow
     assert f.service.change_order(f.actor, f.project, f.card, 0, f.new) is True

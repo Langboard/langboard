@@ -37,6 +37,9 @@ class Card(BaseNotificationScheduleModel, table=True):
     deadline_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     archived_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
+    # No legacy backfill: only a committed workflow transition proves residency.
+    workflow_stage_entered_key: str | None = Field(default=None, nullable=True)
+    workflow_stage_entered_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
     source_type: str | None = Field(
         default=None,
         nullable=True,

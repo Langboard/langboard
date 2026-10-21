@@ -2,6 +2,7 @@ import logging
 import re
 from collections.abc import Sequence
 from typing import Any
+from sqlalchemy import update
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import SqlBuilder
 from ....core.domain import BaseDomainService
@@ -12,7 +13,7 @@ from ....publishers import ProjectColumnPublisher
 from ....tasks.activities import ProjectColumnActivityTask
 from ....tasks.bots import ProjectColumnBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...models import Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
+from ...models import Card, Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
 from ...models.ProjectColumn import ProjectColumnWorkflowConflict
 from ..CardVisibilityPolicy import CardVisibilityContext
 from ..WorkflowGuidance import column_workflow_contexts
@@ -262,6 +263,10 @@ class ProjectColumnService(BaseDomainService):
             execution.watch_project(project.id)
             column.workflow_stage = workflow_stage
             self.repo.project_column.update(column)
+            # Rebinding a column is not evidence of cards entering the new stage.
+            execution.db.exec(update(Card).where(
+                Card.project_id == project.id, Card.project_column_id == column.id,
+            ).values(workflow_stage_entered_key=None, workflow_stage_entered_at=None))
             affected_ids = list(execution.before)
         ProjectColumnPublisher.workflow_stage_changed(
             project, column, self.get_workflow_guidance([column])[column.id]["workflow_counts_as_completed"]
