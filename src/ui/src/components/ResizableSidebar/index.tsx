@@ -220,7 +220,8 @@ function ResizableSidebar({
 
                     {showCollapseButton && (
                         <Button
-                            variant="secondary"
+                            type="button"
+                            variant="ghost"
                             aria-label={t(isCollapsed ? "common.Expand" : "common.Collapse")}
                             onClick={() => {
                                 setCollapsedAttr(!isCollapsed);
@@ -228,11 +229,12 @@ function ResizableSidebar({
                                 onCollapsedChange?.(!isCollapsed, "user");
                             }}
                             className={cn(
-                                "absolute right-1 top-1/2 z-50 size-10 -translate-y-1/2 rounded-md p-0",
+                                "absolute right-1 top-1/2 z-50 size-7 -translate-y-1/2 bg-transparent p-0",
+                                "text-muted-foreground hover:bg-transparent hover:text-foreground",
                                 "group-data-[resizing=true]/sidebar:hidden"
                             )}
                         >
-                            <IconComponent icon={isCollapsed ? "chevron-right" : "chevron-left"} size="8" />
+                            <IconComponent icon={isCollapsed ? "chevron-right" : "chevron-left"} size="4" />
                         </Button>
                     )}
                 </Box>
