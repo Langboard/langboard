@@ -510,3 +510,68 @@ def test_large_checklist_emits_one_summary_and_batches_timer_reads(flow):
     assert len(timer_reads) <= 3
     _, items, timers = snapshot(f.engine, f.card.id)
     assert sum(row[1] for row in items) == 1004 and timers == 4
+
+
+@pytest.mark.parametrize("case", ["other", "self", "no_author", "disabled", "same_stage", "denied", "unsubscribed", "rollback"])
+def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flow, monkeypatch, case):
+    from langboard_shared.domain.models import UserNotification
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import (
+        UserNotificationRepository,
+    )
+
+    f = flow
+    UserNotification.__table__.create(f.engine)
+    notification_service = f.service._get_service(NotificationService)
+    notification_service.repo.user_notification = UserNotificationRepository(None, None)
+    settings = Mock()
+    settings.has_unsubscription.return_value = case == "unsubscribed"
+    monkeypatch.setattr(notification_service, "_get_service", lambda *_: settings)
+    recipient = f.actor
+    monkeypatch.setattr(notification_service, "_resolve_notification_recipient", lambda user, kind, refs:
+                        None if case == "denied" else (recipient, refs))
+    fanout = Mock()
+    work = Mock()
+    monkeypatch.setattr(notification_service, "_publish_web_notification", fanout)
+    monkeypatch.setattr(notification_service, "convert_to_api_response", lambda *_: {})
+    monkeypatch.setattr(import_module(NotificationService.__module__), "publish_pending_work_events", work)
+    with DbSession.atomic() as db:
+        f.stage.entry_effects = [] if case == "disabled" else ["notify_author_on_entry"]
+        f.card.created_by_user_id = None if case == "no_author" else recipient.id
+        db.update(f.stage)
+        db.update(f.card)
+        if case == "same_stage":
+            f.old.workflow_stage = f.new.workflow_stage
+            db.update(f.old)
+    actor = recipient.model_copy(update={"id": recipient.id if case == "self" else 2})
+    def move():
+        with DbSession.atomic():
+            assert f.service.change_order(actor, f.project, f.card, 0, f.new) is True
+            fanout.assert_not_called()
+            work.assert_not_called()
+            if case == "rollback":
+                raise RuntimeError("rollback notification")
+    if case == "rollback":
+        with pytest.raises(RuntimeError, match="rollback notification"):
+            move()
+    else:
+        move()
+    expected = case in {"other", "unsubscribed"}
+    with DbSession.use(readonly=False) as db:
+        notes = db.exec(SqlBuilder.select.table(UserNotification)).all()
+        assert len(notes) == int(expected)
+        if expected:
+            note = notes[0]
+            assert note.notification_type == NotificationType.WorkflowStageEntered
+            assert note.receiver_id == recipient.id and note.notifier_id == actor.id
+            assert note.message_vars == {"stage_key": "released", "column_name": "Released"}
+            assert note.web_visible is (case != "unsubscribed")
+            assert note in notification_service.repo.user_notification.get_pending_work_events()
+            run = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).first()
+            assert run.result == {"completed": 0, "stopped": 0, "notified": 1}
+    assert fanout.call_count == int(case == "other")
+    assert work.call_count == int(expected)
+    # A notify-only effect must never finish checkitems or stop timers.
+    assert snapshot(f.engine, f.card.id)[2] == 2
+    f.summary.assert_not_called()

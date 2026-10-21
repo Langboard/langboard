@@ -436,5 +436,7 @@
   "Unknown effect": "効果不明",
   "Unknown time": "日時不明",
   "User": "ユーザー",
-  "Bot": "ボット"
+  "Bot": "ボット",
+  "Notify the author when someone else enters this stage": "他の人がこの段階に移動したら作成者に通知",
+  "Notifications created": "作成された通知"
 }

@@ -4,6 +4,7 @@ from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
 from ...models import Card, Project, ProjectColumn, User, WorkflowEffectRun, WorkflowStageDefinition
 from .CheckitemService import CheckitemService
+from .NotificationService import NotificationService
 
 
 class WorkflowStagePolicyService(BaseDomainService):
@@ -33,18 +34,25 @@ class WorkflowStagePolicyService(BaseDomainService):
                 raise ValueError("Workflow stage definition is missing")
             # Inactive definitions keep existing bindings and their meaning.
             effects = set(stage.entry_effects)
-            if effects - {"complete_checkitems", "stop_running_timers"}:
+            if effects - {"complete_checkitems", "stop_running_timers", "notify_author_on_entry"}:
                 raise ValueError("Unsupported native workflow effect")
             if not effects:
                 return empty
             started_at = SafeDateTime.now()
             started_clock = monotonic_ns()
-            result = self._get_service(CheckitemService).complete_unchecked_by_card(
-                actor,
-                project,
-                card,
-                complete="complete_checkitems" in effects,
-            )
+            result = dict(empty)
+            if effects & {"complete_checkitems", "stop_running_timers"}:
+                result = self._get_service(CheckitemService).complete_unchecked_by_card(
+                    actor,
+                    project,
+                    card,
+                    complete="complete_checkitems" in effects,
+                )
+            if "notify_author_on_entry" in effects:
+                notified = self._get_service(NotificationService).notify_workflow_stage_entered(
+                    actor, project, card, new_column, stage.key,
+                )
+                result["notified"] = int(notified)
             db.insert(WorkflowEffectRun(
                 stage_id=stage.id,
                 stage_key=stage.key,

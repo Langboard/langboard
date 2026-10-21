@@ -15,6 +15,7 @@ class NotificationType(Enum):
     ReactedToComment = "reacted_to_comment"
     NotifiedFromChecklist = "notified_from_checklist"
     ScheduledRule = "scheduled_rule"
+    WorkflowStageEntered = "workflow_stage_entered"
 
 
 class UserNotification(BaseDbModel, table=True):

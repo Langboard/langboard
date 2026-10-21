@@ -14,7 +14,7 @@ interface IEffectRun {
     started_at: string;
     finished_at: string;
     duration_ms: number;
-    result: { completed?: number; stopped?: number };
+    result: { completed?: number; stopped?: number; notified?: number };
     project_uid: string;
     card_uid: string;
     actor_uid: string;
@@ -60,6 +60,7 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
     const effectLabel = (key: string) => {
         if (key === "complete_checkitems") return t("settings.Complete unchecked items");
         if (key === "stop_running_timers") return t("settings.Stop running timers");
+        if (key === "notify_author_on_entry") return t("settings.Notify the author when someone else enters this stage");
         return t("settings.Unknown effect");
     };
     const date = (value: string) => {
@@ -130,6 +131,11 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                         <p>
                                             {t("settings.Stopped timers")}: {formatNumber(row.result.stopped ?? 0, i18n.language)}
                                         </p>
+                                        {row.result.notified !== undefined && (
+                                            <p>
+                                                {t("settings.Notifications created")}: {formatNumber(row.result.notified, i18n.language)}
+                                            </p>
+                                        )}
                                         <p>
                                             {t("settings.Finished")}: {date(row.finished_at)}
                                         </p>

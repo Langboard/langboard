@@ -224,7 +224,7 @@ def test_policy_update_publishes_after_commit_without_replaying_effects(registry
     from langboard_shared.core.db import DbSession
 
     service, _ = registry
-    fields = form(entry_effects=["complete_checkitems"])
+    fields = form(entry_effects=["complete_checkitems", "notify_author_on_entry"])
     stage = service.save(fields)
     service._publish_work_states.assert_not_called()
     with DbSession.atomic():

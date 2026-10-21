@@ -436,5 +436,7 @@
   "Unknown effect": "效果未知",
   "Unknown time": "时间未知",
   "User": "用户",
-  "Bot": "机器人"
+  "Bot": "机器人",
+  "Notify the author when someone else enters this stage": "其他人移入此阶段时通知作者",
+  "Notifications created": "已创建通知"
 }

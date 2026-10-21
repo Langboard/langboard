@@ -18,6 +18,7 @@ ACTION_REQUIRED_NOTIFICATION_TYPES = frozenset(
         "notified_from_checklist",
         "project_invited",
         "scheduled_rule",
+        "workflow_stage_entered",
     }
 )
 

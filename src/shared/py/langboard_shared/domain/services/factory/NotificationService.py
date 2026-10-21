@@ -500,6 +500,20 @@ class NotificationService(BaseDomainService):
             },
         )
 
+    def notify_workflow_stage_entered(
+        self, notifier: TUserOrBot, project: Project, card: Card, column: ProjectColumn, stage_key: str,
+    ) -> bool:
+        if card.created_by_user_id is None or (
+            isinstance(notifier, User) and notifier.id == card.created_by_user_id
+        ):
+            return False
+        return self.__notify(
+            notifier, card.created_by_user_id, NotificationType.WorkflowStageEntered,
+            [project, column, card], [project, card],
+            {"stage_key": stage_key, "column_name": column.name},
+            defer_delivery=True,
+        )
+
     def notify_reacted_to_comment(
         self,
         notifier: TUserOrBot,
@@ -795,12 +809,13 @@ class NotificationService(BaseDomainService):
         email_template_name: TEmailTemplateName | None = None,
         email_formats: dict[str, str] | None = None,
         allow_self: bool = False,
+        defer_delivery: bool = False,
     ) -> bool:
         resolved = self._resolve_notification_recipient(target_user, notification_type, references)
         if resolved is None:
             return False
         target_user, references = resolved
-        if target_user.id == notifier.id and not allow_self:
+        if isinstance(notifier, User) and target_user.id == notifier.id and not allow_self:
             return False
 
         raw_record_list = self.create_record_list(references)
@@ -860,10 +875,17 @@ class NotificationService(BaseDomainService):
         else:
             self.repo.user_notification.insert(notification)
 
-        publish_pending_work_events()
-        if web_enabled:
-            api_notification = self.convert_to_api_response(notification, references, notifier)
-            self._publish_web_notification(notification, target_user, api_notification)
+        def deliver():
+            publish_pending_work_events()
+            if web_enabled:
+                api_notification = self.convert_to_api_response(notification, references, notifier)
+                self._publish_web_notification(notification, target_user, api_notification)
+
+        if defer_delivery:
+            with DbSession.atomic() as db:
+                db.after_commit(deliver)
+        else:
+            deliver()
         return True
 
     def __create_redirect_url(self, project: Project, card_or_wiki: ProjectWiki | Card | None = None):

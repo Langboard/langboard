@@ -436,5 +436,7 @@
   "Unknown effect": "Unknown effect",
   "Unknown time": "Unknown time",
   "User": "User",
-  "Bot": "Bot"
+  "Bot": "Bot",
+  "Notify the author when someone else enters this stage": "Notify the author when someone else enters this stage",
+  "Notifications created": "Notifications created"
 }

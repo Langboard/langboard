@@ -436,5 +436,7 @@
   "Unknown effect": "효과 확인 불가",
   "Unknown time": "시각 확인 불가",
   "User": "사용자",
-  "Bot": "봇"
+  "Bot": "봇",
+  "Notify the author when someone else enters this stage": "다른 사람이 이 단계로 이동하면 작성자에게 알림",
+  "Notifications created": "생성된 알림"
 }

@@ -27,11 +27,11 @@ const effectRun = (uid: string, started = "2026-10-21T03:00:00Z") => ({
     uid,
     source: "entry",
     status: "succeeded",
-    effects: ["complete_checkitems", "stop_running_timers"],
+    effects: ["complete_checkitems", "stop_running_timers", "notify_author_on_entry"],
     started_at: started,
     finished_at: started,
     duration_ms: 1234,
-    result: { completed: 3, stopped: 2 },
+    result: { completed: 3, stopped: 2, notified: 1 },
     project_uid: "board-source",
     card_uid: "card-source",
     actor_uid: "qa",
@@ -68,6 +68,7 @@ for (const width of [1440, 390]) {
         await expect(history.getByText("Succeeded", { exact: true })).toHaveCount(1);
         await history.getByText("Effect details", { exact: true }).click();
         await expect(history.getByText("Completed items: 3", { exact: true })).toBeVisible();
+        await expect(history.getByText("Notifications created: 1", { exact: true })).toBeVisible();
         await expect(history.getByRole("link", { name: "Open card" })).toHaveAttribute("href", "/board/board-source/card-source");
         await expect(history.getByRole("link", { name: "Open card" })).toHaveAttribute("target", "_blank");
         await history.getByRole("button", { name: "More history" }).click();
@@ -452,5 +453,30 @@ for (const width of [1440, 390]) {
         await expect(page.getByLabel("Check interval (minutes)", { exact: true })).toHaveValue("2");
         await expect(page.getByLabel("Archive after (hours)", { exact: true })).toHaveValue("2");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+for (const width of [1440, 390]) {
+    test(`author entry notification saves and reloads at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let saved = existing();
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [saved] } }));
+        await page.route("**/settings/workflow-stages/existing", async (route) => {
+            const payload = route.request().postDataJSON();
+            expect(payload.entry_effects).toEqual(["notify_author_on_entry"]);
+            saved = { ...saved, ...payload, revision: "b".repeat(64) };
+            await route.fulfill({ json: { stage: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByLabel("Notify the author when someone else enters this stage", { exact: true }).check();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => saved.entry_effects).toEqual(["notify_author_on_entry"]);
+        await page.reload();
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(page.getByLabel("Notify the author when someone else enters this stage", { exact: true })).toBeChecked();
+        await expect(page.getByLabel("Complete unchecked items", { exact: true })).not.toBeChecked();
+        await expect(page.getByLabel("Stop running timers", { exact: true })).not.toBeChecked();
+        await page.getByRole("dialog").screenshot({ path: `.verification/author-entry-notification-${width}.png` });
     });
 }
