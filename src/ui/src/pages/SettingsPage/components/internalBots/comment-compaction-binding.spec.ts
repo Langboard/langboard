@@ -21,11 +21,14 @@ for (const width of [1440, 390]) {
         await page.getByRole("option", { name: "Comment compaction", exact: true }).click();
         await expect(dialog.getByRole("combobox").filter({ hasText: "Select a platform" })).toHaveCount(0);
         await expect(dialog.getByRole("combobox").filter({ hasText: "Select a running type" })).toHaveCount(0);
-        await expect(dialog.getByText("OpenAI", { exact: true }).first()).toBeVisible();
-        await expect(dialog.getByRole("textbox", { name: "Model*", exact: true })).toBeVisible();
+        await expect(dialog.getByText("Z.ai Coding Plan", { exact: true }).first()).toBeVisible();
+        await expect(dialog.getByRole("textbox", { name: "Internal bot display name*", exact: true })).toHaveValue("컴팩터");
+        await expect(dialog.getByRole("textbox", { name: "Base URL*", exact: true })).toHaveValue("https://api.z.ai/api/coding/paas/v4");
+        await expect(dialog.getByRole("textbox", { name: "Model*", exact: true })).toHaveValue("glm-5.3");
         await expect(dialog.getByText("Comfort tools", { exact: true })).toHaveCount(0);
         await expect(dialog.getByText("System prompt", { exact: true })).toHaveCount(0);
         expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+        await page.screenshot({ path: `.verification/compactor-profile-${width}.png`, fullPage: true });
         let submitted: Record<string, string> | undefined;
         await page.route("**/settings/internal-bot", async (route) => {
             const body = new Uint8Array(route.request().postDataBuffer()!);
@@ -33,13 +36,15 @@ for (const width of [1440, 390]) {
             submitted = Object.fromEntries([...fields.entries()].filter((entry): entry is [string, string] => typeof entry[1] === "string"));
             await route.fulfill({ status: 201, json: { internal_bot: { uid: "created-compaction-profile" } } });
         });
-        await dialog.getByRole("textbox", { name: "Internal bot display name*", exact: true }).fill("Compaction provider");
         await dialog.getByRole("textbox", { name: "API key*", exact: true }).fill("local-fixture-provider-key");
         await dialog.getByRole("textbox", { name: "Model*", exact: true }).fill("compact-fixture-model");
         await dialog.getByRole("button", { name: "Create", exact: true }).click();
         await expect.poll(() => submitted?.bot_type).toBe("comment_compaction");
         expect(submitted?.platform).toBe("default");
         expect(submitted?.platform_running_type).toBe("default");
+        expect(submitted?.display_name).toBe("컴팩터");
+        expect(JSON.parse(submitted!.value).agent_llm).toBe("Z.ai Coding Plan");
+        expect(JSON.parse(submitted!.value).api_names ?? []).toEqual([]);
         expect(JSON.parse(submitted!.value).model_name).toBe("compact-fixture-model");
         await expect(dialog).toHaveCount(0);
     });

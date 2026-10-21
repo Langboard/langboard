@@ -29,6 +29,12 @@ import { ISharedSettingsModalProps } from "@/pages/SettingsPage/types";
 import useAuthStore from "@/core/stores/AuthStore";
 import ImageGenerationFields, { defaultImageGenerationConfig } from "./ImageGenerationFields";
 
+const compactorProviderPreset = JSON.stringify({
+    agent_llm: "Z.ai Coding Plan",
+    base_url: "https://api.z.ai/api/coding/paas/v4",
+    model_name: "glm-5.3",
+});
+
 function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettingsModalProps): React.JSX.Element {
     const [t] = useTranslation();
     const actor = useAuthStore((state) => state.currentUser);
@@ -192,6 +198,9 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
         if (selectedType === InternalBotModel.EInternalBotType.CommentCompaction) {
             setSelectedPlatform(EBotPlatform.Default);
             setSelectedPlatformRunningType(EBotPlatformRunningType.Default);
+            if (inputsRef.current.displayName && !inputsRef.current.displayName.value.trim()) {
+                inputsRef.current.displayName.value = "컴팩터";
+            }
         }
     }, [selectedType]);
 
@@ -317,6 +326,7 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                     {formRequirements.includes("value") && (
                         <Box mt="4">
                             <BotValueInput
+                                key={selectedType}
                                 purpose={
                                     selectedType === InternalBotModel.EInternalBotType.DocumentEmbedding
                                         ? "embedding"
@@ -327,7 +337,7 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                                 currentUser={currentUser}
                                 platform={selectedPlatform}
                                 platformRunningType={selectedPlatformRunningType}
-                                value=""
+                                value={selectedType === InternalBotModel.EInternalBotType.CommentCompaction ? compactorProviderPreset : ""}
                                 label={t(`bot.platformRunningTypes.${selectedPlatformRunningType}`)}
                                 valueType={valueType}
                                 newValueRef={valueRef}
