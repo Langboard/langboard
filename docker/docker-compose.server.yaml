@@ -69,7 +69,6 @@ services:
       - ../scripts/run_bot_cron.sh:/app/scripts/run_bot_cron.sh:x
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      - db-bouncer
       - kafka0
       - kafka1
       - kafka2
@@ -104,7 +103,6 @@ services:
       - ../.env:/app/.env
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      - db-bouncer
       - kafka0
       - kafka1
       - kafka2
@@ -132,7 +130,6 @@ services:
       - ../local:/app/local
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      - db-bouncer
       - kafka0
       - kafka1
       - kafka2
