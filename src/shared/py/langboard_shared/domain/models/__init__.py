@@ -121,6 +121,7 @@ from .SettingRole import SettingRole
 from .User import User
 from .UserActivity import UserActivity
 from .UserAppPreference import UserAppPreference
+from .UserProjectCollection import UserProjectCollection
 from .UserBoardFilterPreference import UserBoardFilterPreference
 from .UserCardReadState import UserCardReadState
 from .UserEmail import UserEmail
@@ -271,6 +272,7 @@ __all__ = [
     'UserNotificationUnsubscription',
     'UserProfile',
     'UserAppPreference',
+    'UserProjectCollection',
     'UserBoardFilterPreference',
     'WebhookSetting',
     'AppCardInteraction',
