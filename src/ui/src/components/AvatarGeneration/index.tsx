@@ -22,18 +22,22 @@ interface Profile {
     display_name: string;
     model_name: string;
 }
-interface Props {
+interface BaseProps {
     base: string;
     canUpdate: boolean;
     disabled?: boolean;
     revisionKey?: string;
-    onPersisted: (snapshot: AvatarSnapshot) => void;
 }
+type Props = BaseProps &
+    (
+        | { onPersisted: (snapshot: AvatarSnapshot) => void; onDraftApplied?: never; generationRequest?: never }
+        | { onPersisted?: never; onDraftApplied: (file: File) => void; generationRequest?: { id: number; prompt: string } }
+    );
 const instruction = [
     "Create a single symbolic icon. Flat vector style, strong silhouette, simple geometry, high contrast at 32–48px.",
     "Center with generous crop-safe margins. Use one or two motifs. No small text, photographic texture, trademarks or identifiable faces.",
 ].join(" ");
-export default function AvatarGeneration({ base, canUpdate, disabled, onPersisted, revisionKey }: Props) {
+export default function AvatarGeneration({ base, canUpdate, disabled, onPersisted, onDraftApplied, generationRequest, revisionKey }: Props) {
     const [t] = useTranslation();
     const actor = useAuthStore((state) => state.currentUser);
     const [open, setOpen] = useState(false);
@@ -51,6 +55,9 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
     const identity = `${actor?.uid}:${base}:${canUpdate}:${disabled}:${open}:${profileUID}:${revisionKey}`;
     const current = useRef(identity);
     current.current = identity;
+    const draft = !!onDraftApplied;
+    const draftCallback = useRef(onDraftApplied);
+    draftCallback.current = onDraftApplied;
     const callbacks = useRef(onPersisted);
     callbacks.current = onPersisted;
     const selectedModels = InternalBotModel.Model.useModels((model) => model.uid === profileUID, [profileUID]);
@@ -76,6 +83,17 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
         setProfileUID("");
         setFields([]);
     }, [actor, base]);
+    const handledRequest = useRef<number | undefined>(undefined);
+    useEffect(() => {
+        if (!generationRequest) {
+            handledRequest.current = undefined;
+            return;
+        }
+        if (handledRequest.current === generationRequest.id || !actor || !canUpdate || disabled) return;
+        handledRequest.current = generationRequest.id;
+        setPrompt(`${instruction} ${generationRequest.prompt}`.slice(0, 2000));
+        setOpen(true);
+    }, [generationRequest, actor, canUpdate, disabled]);
     const options = (signal: AbortSignal) => ({ signal, env: { secretInput: true, interceptToast: true } as never, validateStatus: () => true });
     const initialize = async () => {
         if (!actor || !canUpdate || disabled) return;
@@ -86,7 +104,9 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
         setError("");
         try {
             const [avatar, catalog] = await Promise.all([
-                api.get(base, options(controller.signal)),
+                draft
+                    ? Promise.resolve({ status: 200, data: { avatar: null, previous_avatar: null, avatar_revision: 0, can_restore: false } })
+                    : api.get(base, options(controller.signal)),
                 api.get(`${base}/image-profiles`, options(controller.signal)),
             ]);
             if (!safe(controller, started)) return;
@@ -128,15 +148,25 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
             } else if (action === "apply") {
                 const encoded = preview.split(",")[1];
                 const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+                const file = new File([bytes], "generated-avatar.png", { type: "image/png" });
+                if (draft) {
+                    if (safe(controller, started)) {
+                        draftCallback.current?.(file);
+                        setOpen(false);
+                    }
+                    return;
+                }
                 const form = new FormData();
-                form.append("avatar", new File([bytes], "generated-avatar.png", { type: "image/png" }));
+                form.append("avatar", file);
                 form.append("expected_revision", String(snapshot.avatar_revision));
                 response = await api.put(base, form, options(controller.signal));
             } else response = await api.post(`${base}/restore`, { expected_revision: snapshot.avatar_revision }, options(controller.signal));
             if (!safe(controller, started)) return;
             if (response.status === 409) {
                 const [fresh, catalog] = await Promise.all([
-                    api.get(base, options(controller.signal)),
+                    draft
+                        ? Promise.resolve({ status: 200, data: { avatar: null, previous_avatar: null, avatar_revision: 0, can_restore: false } })
+                        : api.get(base, options(controller.signal)),
                     api.get(`${base}/image-profiles`, options(controller.signal)),
                 ]);
                 if (!safe(controller, started)) return;
@@ -173,7 +203,7 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
                 }
                 setSnapshot(fresh.data);
                 setPreview("");
-                callbacks.current({ ...fresh.data, avatar: fresh.data.avatar ? Utils.String.convertServerFileURL(fresh.data.avatar) : null });
+                callbacks.current?.({ ...fresh.data, avatar: fresh.data.avatar ? Utils.String.convertServerFileURL(fresh.data.avatar) : null });
             }
         } catch {
             if (safe(controller, started)) setError("failed");

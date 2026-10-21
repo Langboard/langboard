@@ -16,6 +16,7 @@ import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ROUTES } from "@/core/routing/constants";
 import FormErrorMessage from "@/components/FormErrorMessage";
 import AvatarUploader from "@/components/AvatarUploader";
+import AvatarGeneration from "@/components/AvatarGeneration";
 import { BotModel } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import { EHttpStatus } from "@langboard/core/enums";
@@ -39,6 +40,8 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
     const navigate = usePageNavigateRef();
     const [isValidating, setIsValidating] = useState(false);
     const [revealedToken, setRevealedToken] = useState<string>();
+    const [generatedAvatar, setGeneratedAvatar] = useState<File>();
+    const [avatarRequest, setAvatarRequest] = useState<{ id: number; prompt: string }>();
     const [draftActionSuggestions, setDraftActionSuggestions] = useState<IBotActionSuggestion[]>([]);
     const dialogContentRef = useRef<HTMLDivElement | null>(null);
     const dataTransferRef = useRef(new DataTransfer());
@@ -72,6 +75,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         return JSON.parse(valueRef.current) as Record<string, unknown>;
     };
     const applyBotDraft = (draft: IBotDraft) => {
+        setAvatarRequest((previous) => ({ id: (previous?.id ?? 0) + 1, prompt: draft.bot_name.slice(0, 200) }));
         setDraftActionSuggestions(draft.suggestions);
         if (inputsRef.current.name) {
             inputsRef.current.name.value = draft.bot_name;
@@ -201,6 +205,8 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         }
 
         setRevealedToken(undefined);
+        setGeneratedAvatar(undefined);
+        setAvatarRequest(undefined);
         setDraftActionSuggestions([]);
         setOpened(opened);
     };
@@ -241,7 +247,17 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                             isValidating={isValidating}
                             errorMessage={errors.avatar}
                             avatarSize="3xl"
+                            selectedFile={generatedAvatar}
                         />
+                        <Flex justify="center" mt="3">
+                            <AvatarGeneration
+                                base="/settings/bot/avatar"
+                                canUpdate={opened}
+                                disabled={isValidating}
+                                onDraftApplied={setGeneratedAvatar}
+                                generationRequest={avatarRequest}
+                            />
+                        </Flex>
                         <Box mt="10">
                             <Floating.LabelInput
                                 label={t("settings.Bot name")}

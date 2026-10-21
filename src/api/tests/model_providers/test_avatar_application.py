@@ -16,6 +16,7 @@ from langboard.routes.account import AvatarApi as account
 from langboard.routes.account.AccountApi import update_profile
 from langboard.routes.account.AccountForm import UpdateProfileForm
 from langboard.routes.board import BoardAvatarApi as boards
+from langboard.routes.settings import BotSettingsApi as bots
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
@@ -23,9 +24,10 @@ from langboard_shared.core.security import KeyVault
 from langboard_shared.core.security.vault.LocalDevVaultProvider import LocalDevVaultProvider
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
-from langboard_shared.domain.models import Card, InternalBot, UserProfile
+from langboard_shared.domain.models import Card, InternalBot, SettingRole, UserProfile
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.InternalBot import InternalBotType
+from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.AvatarService import AvatarError, AvatarService
 from langboard_shared.Env import Env
@@ -274,6 +276,8 @@ def avatar_http(avatars, monkeypatch):
         boards.board_avatar_profiles,
         boards.board_avatar_context,
         boards.preview_board_avatar,
+        bots.bot_avatar_profiles,
+        bots.preview_bot_avatar,
     }
     for route in AppRouter.api.routes:
         if getattr(route, "endpoint", None) in handlers:
@@ -474,3 +478,94 @@ async def test_native_authority_slow_vault_preparation_and_readback_keep_eventlo
     else:
         assert result.status_code == 200
     assert counter == 3 and len(requests) == 1
+
+
+@pytest.fixture
+def bot_creator(avatars, monkeypatch):
+    avatar, service, actor, project, _, binding, folder, published = avatars
+    SettingRole.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+        role = SettingRole(user_id=actor.id, actions=[SettingRoleAction.BotCreate])
+        db.insert(role)
+    return avatar, service, actor, project, binding, role, folder, published
+
+
+@pytest.mark.asyncio
+async def test_bot_draft_avatar_uses_image_profile_without_persisting_any_target(bot_creator, monkeypatch):
+    avatar, _, actor, project, binding, role, folder, published = bot_creator
+    calls = []
+
+    async def generate(profile, prompt):
+        calls.append((profile.get_uid(), prompt))
+        return "data:image/png;base64,fixture"
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    assert avatar.profiles(actor, bot_draft=True)["configured"]
+    before = avatar.get(actor), avatar.get(actor, project.get_uid())
+    with pytest.raises(AvatarError) as denied:
+        await avatar.preview(actor, binding.get_uid(), "Tag bot", False, bot_draft=True)
+    assert denied.value.status == 400 and not calls
+    result = await avatar.preview(actor, binding.get_uid(), "Tag bot", True, bot_draft=True)
+    assert result["preview_data_url"] == "data:image/png;base64,fixture"
+    assert calls == [(binding.get_uid(), "Tag bot")]
+    assert (avatar.get(actor), avatar.get(actor, project.get_uid())) == before
+    assert not published and not (folder / "files").exists()
+    with DbSession.atomic() as db:
+        role.actions = []
+        db.update(role)
+    with pytest.raises(AvatarError) as denied:
+        avatar.profiles(actor, bot_draft=True)
+    assert denied.value.status == 403
+
+
+@pytest.mark.parametrize("change", ["role", "admin"])
+@pytest.mark.asyncio
+async def test_bot_draft_preview_rechecks_creator_authority_after_model_await(bot_creator, monkeypatch, change):
+    avatar, _, actor, _, binding, role, folder, published = bot_creator
+    calls = []
+
+    async def generate(profile, prompt):
+        calls.append(prompt)
+        with DbSession.atomic() as db:
+            if change == "role":
+                role.actions = []
+                db.update(role)
+            else:
+                actor.is_admin = False
+                db.update(actor)
+        return "data:image/png;base64,fixture"
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    with pytest.raises(AvatarError) as denied:
+        await avatar.preview(actor, binding.get_uid(), "Tag bot", True, bot_draft=True)
+    assert denied.value.status == 403 and calls == ["Tag bot"]
+    assert not published and not (folder / "files").exists()
+
+
+def test_bot_draft_avatar_http_routes_enforce_creator_role(avatar_http, monkeypatch):
+    client, identity, _, avatars = avatar_http
+    avatar, _, actor, _, _, binding, _, published = avatars
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+    generated = []
+
+    async def generate(profile, prompt):
+        generated.append(prompt)
+        return "data:image/png;base64,fixture"
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    base = "/settings/bot/avatar"
+    assert client.get(base + "/image-profiles").status_code == 200
+    payload = {"profile_uid": binding.get_uid(), "prompt": "Tag bot", "confirmed": False}
+    assert client.post(base + "/preview", json=payload).status_code == 400
+    payload["confirmed"] = True
+    assert client.post(base + "/preview", json=payload).status_code == 200
+    assert generated == ["Tag bot"] and not published
+    identity["allowed"] = False
+    assert client.get(base + "/image-profiles").status_code == 403
+    assert client.post(base + "/preview", json=payload).status_code == 403
+    assert generated == ["Tag bot"]
