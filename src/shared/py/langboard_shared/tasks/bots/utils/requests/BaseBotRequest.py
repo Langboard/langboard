@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, TypedDict
-from httpx import TimeoutException, post
+from httpx import AsyncClient, TimeoutException
 from .....core.db import BaseDbModel, DbSession
 from .....core.logger import Logger
 from .....core.security.GraphServiceAuth import graph_service_headers
@@ -74,12 +74,12 @@ class BaseBotRequest(ABC):
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 
         try:
-            res = post(
-                url=request_data["url"],
-                headers=headers,
-                json=request_data["data"],
-                timeout=Env.AI_REQUEST_TIMEOUT,
-            )
+            async with AsyncClient(timeout=Env.AI_REQUEST_TIMEOUT) as client:
+                res = await client.post(
+                    url=request_data["url"],
+                    headers=headers,
+                    json=request_data["data"],
+                )
             res.raise_for_status()
             text = res.text
             logger.info("Successfully requested bot: %s(@%s)", self._bot.name, self._bot.bot_uname)

@@ -71,12 +71,12 @@ async def test_direct_request_and_retry_recheck_private_scope(current_card, monk
     log = Mock(side_effect=AssertionError('private scope must not create logs'))
     monkeypatch.setattr(request, '_create_log', log)
     module = importlib.import_module('langboard_shared.tasks.bots.utils.requests.BaseBotRequest')
-    post = Mock(side_effect=AssertionError('private scope must not post'))
-    monkeypatch.setattr(module, 'post', post)
+    client = Mock(side_effect=AssertionError('private scope must not create an HTTP client'))
+    monkeypatch.setattr(module, 'AsyncClient', client)
     await request.execute()
     await request.request({'url': 'http://example.invalid', 'data': {}}, {}, (None, None), retried=1)
     log.assert_not_called()
-    post.assert_not_called()
+    client.assert_not_called()
 
 
 def test_deleted_project_blocks_current_card_scope(current_card):
