@@ -54,3 +54,11 @@ fixture fails before tests instead of accepting skipped PostgreSQL cases.
 The stage preserves the child exit code in both its process status and result
 report. This requires a separate diagnostic image and the central ephemeral
 database, never an application database or a product-image publication.
+
+The `default` profile runs the Phoenix integration image with disposable
+PostgreSQL services. Its `compactor-contracts.xml` report exercises the dedicated
+profile, explicit board grants, source snapshots, compaction persistence and
+commands, automatic archive scheduling, and their migrations. This report is
+separate from the workflow, graph and app reports. All declared commands must
+succeed for the integration result to pass; a prior image signature alone does
+not establish these tests or an application rollout.
