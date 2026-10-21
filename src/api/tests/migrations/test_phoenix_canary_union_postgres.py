@@ -239,6 +239,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             "app_resource_binding": {"identity_hash": ""},
             "user": {"previous_avatar": None, "avatar_revision": 0},
             "project": {"avatar": None, "previous_avatar": None, "avatar_revision": 0},
+            "card": {"workflow_stage_entered_key": None, "workflow_stage_entered_at": None},
         }
         for table, defaults in additive_defaults.items():
             for row in after[table]:
