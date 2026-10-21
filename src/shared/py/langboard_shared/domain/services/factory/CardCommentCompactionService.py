@@ -16,9 +16,20 @@ from ....infrastructure.repositories.factory.CardCommentCompactionRepository imp
     provider_revision,
     request_key,
 )
-from ...models import Card, CardComment, CardCommentCompaction, InternalBot, ProjectActivity, ProjectRole, User
+from ...models import (
+    Card,
+    CardComment,
+    CardCommentCompaction,
+    InternalBot,
+    ProjectActivity,
+    ProjectColumn,
+    ProjectRole,
+    User,
+    WorkflowStageDefinition,
+)
 from ...models.ProjectActivity import ProjectActivityType
 from ...models.ProjectRole import ProjectRoleAction
+from ..CompactorBoardAuthority import CompactorAuthorityError, require_compactor_card
 from .CardService import CardService
 from .InternalBotService import InternalBotService
 
@@ -169,34 +180,38 @@ class CardCommentCompactionService(BaseDomainService):
                 return {**result, "status": "retry_required", "reason": "lease_expired"}
             if record.status != "completed":
                 return {**result, "error_code": record.error_code}
-            if record.policy_version != POLICY_VERSION:
-                return {**result, "status": "invalidated", "reason": "policy_changed"}
             binding = self._get_service(InternalBotService).get_comment_compaction_binding()
-            if not binding or binding.id != record.internal_bot_id or provider_revision(binding) != record.provider_revision:
-                return {**result, "status": "invalidated", "reason": "provider_changed"}
-            refs = [source["evidence_ref"] for source in record.source_manifest]
-            try:
-                snapshot, _ = self._snapshot(project, card, refs=refs)
-            except CommentCompactionError:
-                return {**result, "status": "invalidated", "reason": "source_changed"}
-            if snapshot.source_revision() != record.source_revision:
-                return {**result, "status": "invalidated", "reason": "source_changed"}
-            try:
-                draft = snapshot.validate_draft_json(json.dumps(record.draft)).model_dump(mode="json")
-            except (ValueError, TypeError):
-                return {**result, "status": "invalidated", "reason": "invalid_result"}
-            last = snapshot.sources[-1]
-            kind, uid = self._identity(last.evidence_ref)
-            events = self._events(project, card)
-            has_more = db.exec(select(events.c.id).where(events.c.active, or_(
-                events.c.created_at > last.created_at,
-                and_(events.c.created_at == last.created_at, events.c.id > uid),
-                and_(events.c.created_at == last.created_at, events.c.id == uid, events.c.kind > kind),
-            )).limit(1)).first() is not None
-            return {**result, "draft": draft, "evidence_refs": refs, "range_end": refs[-1],
-                    "generated_by": {"uid": binding.get_uid(), "display_name": binding.display_name},
-                    "source_revision": record.source_revision, "has_more_sources": has_more,
-                    "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
+            return self._completed_block(db, project, card, record, binding, result)
+
+    def _completed_block(self, db, project, card, record, binding, result):
+        """Internal projection; callers must first authorize the current reader or profile."""
+        if record.policy_version != POLICY_VERSION:
+            return {**result, "status": "invalidated", "reason": "policy_changed"}
+        if not binding or binding.id != record.internal_bot_id or provider_revision(binding) != record.provider_revision:
+            return {**result, "status": "invalidated", "reason": "provider_changed"}
+        refs = [source["evidence_ref"] for source in record.source_manifest]
+        try:
+            snapshot, _ = self._snapshot(project, card, refs=refs)
+        except CommentCompactionError:
+            return {**result, "status": "invalidated", "reason": "source_changed"}
+        if snapshot.source_revision() != record.source_revision:
+            return {**result, "status": "invalidated", "reason": "source_changed"}
+        try:
+            draft = snapshot.validate_draft_json(json.dumps(record.draft)).model_dump(mode="json")
+        except (ValueError, TypeError):
+            return {**result, "status": "invalidated", "reason": "invalid_result"}
+        last = snapshot.sources[-1]
+        kind, uid = self._identity(last.evidence_ref)
+        events = self._events(project, card)
+        has_more = db.exec(select(events.c.id).where(events.c.active, or_(
+            events.c.created_at > last.created_at,
+            and_(events.c.created_at == last.created_at, events.c.id > uid),
+            and_(events.c.created_at == last.created_at, events.c.id == uid, events.c.kind > kind),
+        )).limit(1)).first() is not None
+        return {**result, "draft": draft, "evidence_refs": refs, "range_end": refs[-1],
+                "generated_by": {"uid": binding.get_uid(), "display_name": binding.display_name},
+                "source_revision": record.source_revision, "has_more_sources": has_more,
+                "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
 
     def _eligibility(self, user, project, card, can_generate, blocks):
         """Request-local volume projection over blocks already verified by this caller."""
@@ -364,6 +379,89 @@ class CardCommentCompactionService(BaseDomainService):
                 raise CommentCompactionError("not_found", 404)
             self.repo.card_comment_compaction.cancel(record)
         return self.get(user, project, card, record_id, channel=channel)
+
+    def _automatic_context(self, db, project_id, profile_id, card_id):
+        try:
+            project, binding, card = require_compactor_card(db, project_id, profile_id, card_id, action="compact")
+        except CompactorAuthorityError as error:
+            raise CommentCompactionError(error.code, error.status) from None
+        current = self._get_service(InternalBotService).get_comment_compaction_binding()
+        if current is None or current.id != binding.id:
+            raise CommentCompactionError("provider_changed")
+        column = db.exec(SqlBuilder.select.table(ProjectColumn).where(
+            ProjectColumn.id == card.project_column_id, ProjectColumn.project_id == project.id,
+        ).execution_options(populate_existing=True).with_for_update()).first()
+        if card.archived_at is not None or column is None or column.deleted_at or column.is_archive or not column.workflow_stage:
+            raise CommentCompactionError("policy_changed")
+        stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
+            WorkflowStageDefinition.key == column.workflow_stage,
+        ).execution_options(populate_existing=True).with_for_update()).first()
+        if stage is None or not stage.is_active or stage.continuous_effects.get("auto_compact") is not True:
+            raise CommentCompactionError("policy_changed")
+        return project, binding, card, (column.id, stage.id, stage.edit_revision())
+
+    async def generate_automatic(self, project, profile, card, *, retry=False):
+        """Internal continuous command; no user impersonation or public draft."""
+        if DbSession.has_active_transaction():
+            raise CommentCompactionError("transaction_not_supported")
+        project_id, profile_id, card_id = map(InfraHelper.convert_id, (project, profile, card))
+        with DbSession.atomic() as db:
+            project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id)
+            binding_revision = provider_revision(binding)
+            covered = set()
+            rows = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
+                CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
+            ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
+            for row in rows:
+                block = self._completed_block(db, project, card, row, binding, {"status": "completed"})
+                if block["status"] == "completed" and not covered.intersection(block["evidence_refs"]):
+                    covered.update(block["evidence_refs"])
+            events = self._events(project, card)
+            remaining = select(events.c.payload).where(events.c.active)
+            if covered:
+                remaining = remaining.where(tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered]))
+            volume = remaining.subquery()
+            count, characters = db.exec(select(func.count(), func.coalesce(func.sum(func.length(volume.c.payload)), 0))
+                                       .select_from(volume)).first()
+            if count < 20 and characters < 12_000:
+                return {"status": "skipped", "reason": "below_threshold"}
+            snapshot, has_more = self._snapshot(project, card, omit_refs=covered)
+            record = self.repo.card_comment_compaction.reserve_automatic(card, binding, snapshot)
+            claimed = self.repo.card_comment_compaction.claim(record, retry=retry,
+                lease_seconds=min(3600, Env.AI_REQUEST_TIMEOUT + 30))
+        if claimed is not None:
+            try:
+                draft = await request_compaction_draft(binding, snapshot)
+            except asyncio.CancelledError:
+                self.repo.card_comment_compaction.fail(record, claimed.attempt, "cancelled")
+                raise
+            except CommentCompactionError:
+                self.repo.card_comment_compaction.fail(record, claimed.attempt, "invalid_result")
+            except Exception:
+                self.repo.card_comment_compaction.fail(record, claimed.attempt, "provider_error")
+            else:
+                try:
+                    with DbSession.atomic() as db:
+                        fresh_project, fresh_binding, fresh_card, fresh_policy = self._automatic_context(
+                            db, project_id, profile_id, card_id)
+                        if fresh_policy != policy:
+                            raise CommentCompactionError("policy_changed")
+                        if provider_revision(fresh_binding) != binding_revision:
+                            raise CommentCompactionError("provider_changed")
+                        fresh_snapshot, _ = self._snapshot(fresh_project, fresh_card,
+                            refs=[source.evidence_ref for source in snapshot.sources])
+                        if fresh_snapshot.source_revision() != snapshot.source_revision():
+                            raise CommentCompactionError("source_changed")
+                        self.repo.card_comment_compaction.complete(record, claimed.attempt, fresh_snapshot, fresh_binding, draft)
+                except CommentCompactionError as error:
+                    code = error.code if error.code in {"source_changed", "provider_changed"} else "permission_changed"
+                    self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
+        # Only a receipt leaves the worker. Readers use the existing authorized projection.
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(CardCommentCompaction.id == record.id)
+                              .execution_options(populate_existing=True)).first()
+            return {"uid": current.get_uid(), "status": current.status,
+                    "error_code": current.error_code, "has_more_sources": has_more}
 
     async def generate(self, user, project, card, *, after=None, retry=False, expected_request_key=None, channel=CollaborationChannel.Api):
         if DbSession.has_active_transaction():

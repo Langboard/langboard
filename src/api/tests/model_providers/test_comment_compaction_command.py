@@ -86,6 +86,155 @@ def draft(snapshot):
                                    "evidence_refs": [source.evidence_ref for source in snapshot.sources[:20]]}])
 
 
+@pytest.fixture
+def automatic_command(compact_command):
+    from langboard_shared.domain.models import ProjectColumn, WorkflowStageDefinition
+    from langboard_shared.domain.models.CompactorBoardGrant import CompactorBoardGrant
+    from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
+
+    service, actor, project, card, binding, *_ = compact_command
+    CompactorBoardGrant.__table__.create(DbEngine.get_main_engine())
+    with DbSession.atomic() as db:
+        project.owner_id = actor.id
+        db.update(project)
+        column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)).first()
+        column.workflow_stage = "active"
+        db.update(column)
+        stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == "active")).first()
+        stage.continuous_effects = {"auto_compact": True}
+        db.update(stage)
+        for index in range(18):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id,
+                                  content=EditorContentModel(content=f"Additional evidence {index}")))
+    set_compactor_board_grant(actor, project.id, binding.id, can_read=True, can_compact=True, can_archive=False)
+    return compact_command, column, stage
+
+
+async def test_automatic_command_uses_profile_and_reuses_valid_coverage(automatic_command, monkeypatch):
+    from langboard_shared.domain.models import WorkflowEffectRun
+
+    (service, actor, project, card, binding, *_), _, _ = automatic_command
+    generate = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    receipt = await service.generate_automatic(project, binding, card)
+    assert receipt["status"] == "completed" and "draft" not in receipt
+    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert generate.await_count == 1
+    block = service.get(actor, project, card, receipt["uid"])
+    assert block["status"] == "completed" and len(block["evidence_refs"]) == 20
+    with DbSession.use(readonly=False) as db:
+        record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+        run = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).first()
+    assert record.user_id is None and record.internal_bot_id == binding.id
+    assert (run.actor_type, run.actor_id, run.source, run.status) == ("profile", binding.id, "continuous", "succeeded")
+
+
+@pytest.mark.parametrize("mutation", ["revoke", "policy", "inactive", "column", "archive", "source", "provider"])
+async def test_automatic_command_rechecks_authority_policy_and_sources(automatic_command, monkeypatch, mutation):
+    from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
+
+    (service, actor, project, card, binding, comment, *_), column, stage = automatic_command
+
+    async def generate(_, snapshot):
+        assert not DbSession.has_active_transaction()
+        if mutation == "revoke":
+            set_compactor_board_grant(actor, project.id, binding.id, can_read=False, can_compact=False, can_archive=False)
+        else:
+            with DbSession.atomic() as db:
+                if mutation == "policy":
+                    stage.continuous_effects = {"auto_compact": False}
+                    db.update(stage)
+                elif mutation == "inactive":
+                    stage.is_active = False
+                    db.update(stage)
+                elif mutation == "column":
+                    column.workflow_stage = None
+                    db.update(column)
+                elif mutation == "archive":
+                    column.is_archive = True
+                    db.update(column)
+                elif mutation == "source":
+                    comment.content = EditorContentModel(content="Changed source")
+                    db.update(comment)
+                else:
+                    binding.is_default = False
+                    db.update(binding)
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    receipt = await service.generate_automatic(project, binding, card)
+    expected = "source_changed" if mutation == "source" else "provider_changed" if mutation == "provider" else "permission_changed"
+    assert receipt["status"] == "failed" and receipt["error_code"] == expected
+    with DbSession.use(readonly=False) as db:
+        record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+    assert record.draft is None
+
+
+async def test_automatic_command_requires_grant_before_sending_sources(automatic_command, monkeypatch):
+    from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
+
+    (service, actor, project, card, binding, *_), _, _ = automatic_command
+    set_compactor_board_grant(actor, project.id, binding.id, can_read=True, can_compact=False, can_archive=True)
+    generate = AsyncMock()
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    with pytest.raises(CommentCompactionError) as denied:
+        await service.generate_automatic(project, binding, card)
+    assert denied.value.status == 403
+    generate.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mutation", ["private", "policy", "inactive", "archive", "card_archive"])
+async def test_automatic_command_rejects_ineligible_cards_before_provider(automatic_command, monkeypatch, mutation):
+    (service, actor, project, card, binding, *_), column, stage = automatic_command
+    with DbSession.atomic() as db:
+        if mutation == "private":
+            # Visibility is immutable in the model, so create a private source rather than bypass it.
+            card = Card(project_id=project.id, project_column_id=column.id, title="Private", visibility="PRIVATE",
+                        owner_user_id=actor.id, created_by_user_id=actor.id)
+            db.insert(card)
+        elif mutation == "policy":
+            stage.continuous_effects = {"auto_compact": False}
+            db.update(stage)
+        elif mutation == "inactive":
+            stage.is_active = False
+            db.update(stage)
+        elif mutation == "card_archive":
+            card.archived_at = SafeDateTime.now()
+            db.update(card)
+        else:
+            column.is_archive = True
+            db.update(column)
+    generate = AsyncMock()
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    with pytest.raises(CommentCompactionError):
+        await service.generate_automatic(project, binding, card)
+    generate.assert_not_awaited()
+
+
+async def test_automatic_command_coalesces_concurrent_attempts_and_keeps_provider_outside_transaction(automatic_command, monkeypatch):
+    (service, _, project, card, binding, *_), _, _ = automatic_command
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def generate(_, snapshot):
+        assert not DbSession.has_active_transaction()
+        started.set()
+        await release.wait()
+        return draft(snapshot)
+
+    provider = AsyncMock(side_effect=generate)
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    first = asyncio.create_task(service.generate_automatic(project, binding, card))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        second = await service.generate_automatic(project, binding, card)
+        assert second["status"] == "running"
+    finally:
+        release.set()
+    completed = await first
+    assert completed["uid"] == second["uid"] and completed["status"] == "completed"
+    assert provider.await_count == 1
+
+
 async def test_server_collects_original_comments_and_moves_and_keeps_new_comments_visible(compact_command, monkeypatch):
     service, actor, project, card, binding, comment, move, _ = compact_command
     before = comment.model_dump(mode="json")
