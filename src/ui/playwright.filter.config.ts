@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/pages/BoardPage/components/board",
-    testMatch: ["BoardFilter.spec.ts", "SearchFilterPane.spec.ts"],
+    testMatch: ["BoardFilter.spec.ts", "SearchFilterPane.spec.ts", "BoardViewport.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4192", channel: "chrome", headless: true },

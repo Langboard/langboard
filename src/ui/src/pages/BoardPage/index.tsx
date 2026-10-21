@@ -1,3 +1,4 @@
+import { BoardViewportProvider } from "@/core/providers/BoardViewportProvider";
 import { hasPanelAccess } from "@/core/apps/PanelAccess";
 import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -880,44 +881,46 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                             pageRoute === "settings" ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden"
                         )}
                     >
-                        <Box className="relative min-w-0 flex-1">
-                            <Box
-                                className={cn(
-                                    "relative size-full",
-                                    isCardPage &&
-                                        isCardExpanded &&
-                                        !selectCardViewType &&
-                                        "pointer-events-none absolute inset-0 -z-[9999] overflow-hidden"
+                        <BoardViewportProvider>
+                            <Box className="relative min-w-0 flex-1">
+                                <Box
+                                    className={cn(
+                                        "relative size-full",
+                                        isCardPage &&
+                                            isCardExpanded &&
+                                            !selectCardViewType &&
+                                            "pointer-events-none absolute inset-0 -z-[9999] overflow-hidden"
+                                    )}
+                                >
+                                    <Suspense fallback={<SkeletonComponent />}>
+                                        <PageComponent key={project.uid} project={project} currentUser={currentUser} />
+                                    </Suspense>
+                                </Box>
+                                {isCardPage && (
+                                    <SuspenseComponent isPage>
+                                        <BoardCardPage
+                                            key={pageRoute}
+                                            projectUID={project.uid}
+                                            cardUID={pageRoute}
+                                            embedded
+                                            isExpanded={isCardExpanded}
+                                            setIsExpanded={setIsCardExpanded}
+                                        />
+                                    </SuspenseComponent>
                                 )}
-                            >
-                                <Suspense fallback={<SkeletonComponent />}>
-                                    <PageComponent key={project.uid} project={project} currentUser={currentUser} />
-                                </Suspense>
+                                {!isCardPage &&
+                                    !selectCardViewType &&
+                                    (isMobile || boardChat || renderedViewType === "board" || flippedCards.length > 0) && (
+                                        <BoardFloatingNavigation
+                                            key={project.uid}
+                                            project={project}
+                                            currentUser={currentUser}
+                                            dockEnabled={renderedViewType === "board"}
+                                            items={[]}
+                                        />
+                                    )}
                             </Box>
-                            {isCardPage && (
-                                <SuspenseComponent isPage>
-                                    <BoardCardPage
-                                        key={pageRoute}
-                                        projectUID={project.uid}
-                                        cardUID={pageRoute}
-                                        embedded
-                                        isExpanded={isCardExpanded}
-                                        setIsExpanded={setIsCardExpanded}
-                                    />
-                                </SuspenseComponent>
-                            )}
-                            {!isCardPage &&
-                                !selectCardViewType &&
-                                (isMobile || boardChat || renderedViewType === "board" || flippedCards.length > 0) && (
-                                    <BoardFloatingNavigation
-                                        key={project.uid}
-                                        project={project}
-                                        currentUser={currentUser}
-                                        dockEnabled={renderedViewType === "board"}
-                                        items={[]}
-                                    />
-                                )}
-                        </Box>
+                        </BoardViewportProvider>
                     </Flex>
                 ) : (
                     <SkeletonComponent />

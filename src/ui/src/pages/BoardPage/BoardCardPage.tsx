@@ -1,3 +1,4 @@
+import { useBoardViewportId } from "@/core/providers/BoardViewportProvider";
 import { useIsMobile } from "@/core/hooks/useIsMobile";
 import Dialog from "@/components/base/Dialog";
 import { isNotificationInteraction } from "@/components/Header/useNotificationNavigation";
@@ -43,6 +44,7 @@ const BoardCardPageComponent = ({
     isExpanded: controlledIsExpanded,
     setIsExpanded: controlledSetIsExpanded,
 }: IBoardCardPageProps) => {
+    const scrollportId = useBoardViewportId();
     const navigate = usePageNavigateRef();
     const { currentUser } = useAuth();
     const { saveSections } = useBoardCardSectionSaveActions();
@@ -147,8 +149,7 @@ const BoardCardPageComponent = ({
             : document.getElementById(`board-card-${cardUID}`);
         const content = contentRef.current;
         const dockRect = source?.getBoundingClientRect();
-        const workspace =
-            document.getElementById("board-scrollport")?.getBoundingClientRect() ?? document.querySelector("main")?.getBoundingClientRect();
+        const workspace = document.getElementById(scrollportId)?.getBoundingClientRect() ?? document.querySelector("main")?.getBoundingClientRect();
         const sourceRect =
             toTray && dockRect
                 ? {
@@ -160,7 +161,7 @@ const BoardCardPageComponent = ({
                 : dockRect;
         const targetRect = content?.getBoundingClientRect();
         const windowRect = { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-        const boardRect = document.getElementById("board-scrollport")?.getBoundingClientRect();
+        const boardRect = document.getElementById(scrollportId)?.getBoundingClientRect();
         if (
             sourceRect &&
             targetRect &&
@@ -272,7 +273,7 @@ const BoardCardPageComponent = ({
                                 if (document.querySelector("[data-card-viewer]")) return;
                                 const source = document.getElementById(`board-card-${cardUID}`);
                                 const sourceRect = source?.getBoundingClientRect();
-                                const boardRect = document.getElementById("board-scrollport")?.getBoundingClientRect();
+                                const boardRect = document.getElementById(scrollportId)?.getBoundingClientRect();
                                 const visible = sourceRect && boardRect && isRectCenterInside(sourceRect, boardRect);
                                 const mobileTrigger = document.querySelector<HTMLButtonElement>("[data-mobile-navigation-trigger]");
                                 const fallback = mobileTrigger?.getBoundingClientRect().width

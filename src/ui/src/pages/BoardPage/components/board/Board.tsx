@@ -1,5 +1,7 @@
 "use client";
 
+import { useBoardViewport } from "@/core/providers/BoardViewportProvider";
+
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import invariant from "tiny-invariant";
 import BoardColumn, { SkeletonBoardColumn } from "@/pages/BoardPage/components/board/BoardColumn";
@@ -58,13 +60,17 @@ export function SkeletonBoard() {
 }
 
 export function Board() {
+    const { scrollportId, registerViewport } = useBoardViewport();
     const scrollableRef = useRef<HTMLDivElement | null>(null);
     const [scrollable, setScrollable] = useState<HTMLDivElement | null>(null);
-    const setScrollableRef = useCallback((node: HTMLDivElement | null) => {
-        scrollableRef.current = node;
-        setScrollable(node);
-    }, []);
-    const scrollportId = "board-scrollport";
+    const setScrollableRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            scrollableRef.current = node;
+            setScrollable(node);
+            registerViewport(node);
+        },
+        [registerViewport]
+    );
 
     return (
         <>
