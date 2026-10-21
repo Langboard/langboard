@@ -406,5 +406,10 @@
     "versionUnverified": "서버 버전은 확인되지 않았습니다.",
     "diagnostics": "진단 결과",
     "referenceUnavailable": "비밀 참조에 관리자 검토가 필요합니다"
-  }
+  },
+  "Continuous effects": "지속효과",
+  "Auto compact comments": "댓글 자동 압축",
+  "Auto archive cards": "카드 자동 보관",
+  "Effect check interval minutes": "확인 간격(분)",
+  "Archive after hours": "보관 대기 시간(시간)"
 }

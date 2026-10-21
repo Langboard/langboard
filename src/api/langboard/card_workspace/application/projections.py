@@ -366,20 +366,12 @@ def _bounded_inline(value: Any, limit: int) -> tuple[str, str, int]:
 def public_workflow_stages(stages: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Publish each resolved workflow policy once, without translations or storage internals."""
     return {
-        key: pick(
-            stage,
-            (
-                "key",
-                "name",
-                "description",
-                "color",
-                "is_active",
-                "counts_as_completed",
-                "active_queue_policy",
-                "overdue_policy",
-                "entry_effects",
-            ),
-            4000,
-        )
+        key: {
+            **pick(stage, ("key", "name", "description", "color", "is_active", "counts_as_completed",
+                           "active_queue_policy", "overdue_policy", "entry_effects"), 4000),
+            **({"continuous_effects": pick(stage["continuous_effects"],
+                ("auto_compact", "auto_archive", "interval_seconds", "archive_after_seconds"))}
+               if isinstance(stage.get("continuous_effects"), dict) else {}),
+        }
         for key, stage in stages.items()
     }

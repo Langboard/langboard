@@ -280,3 +280,43 @@ test("discard confirmation preserves draft on cancel and closes without writes o
     await expect(page.getByRole("dialog")).not.toBeVisible();
     expect(writes).toBe(0);
 });
+
+for (const width of [1440, 390]) {
+    test(`continuous effects save and reload with human time units at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let saved = {
+            ...existing(),
+            continuous_effects: { auto_compact: false, auto_archive: false, interval_seconds: 300, archive_after_seconds: 86400 },
+        };
+        let writes = 0;
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [saved] } }));
+        await page.route("**/settings/workflow-stages/existing", async (route) => {
+            writes += 1;
+            const payload = route.request().postDataJSON();
+            expect(payload.expected_revision).toBe(saved.revision);
+            expect(payload.continuous_effects).toEqual({
+                auto_compact: true,
+                auto_archive: true,
+                interval_seconds: 120,
+                archive_after_seconds: 7200,
+            });
+            saved = { ...saved, ...payload, revision: "b".repeat(64) };
+            await route.fulfill({ json: { stage: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByLabel("Auto compact comments", { exact: true }).check();
+        await page.getByLabel("Auto archive cards", { exact: true }).check();
+        await page.getByLabel("Check interval (minutes)", { exact: true }).fill("2");
+        await page.getByLabel("Archive after (hours)", { exact: true }).fill("2");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => writes).toBe(1);
+        await page.reload();
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(page.getByLabel("Auto compact comments", { exact: true })).toBeChecked();
+        await expect(page.getByLabel("Auto archive cards", { exact: true })).toBeChecked();
+        await expect(page.getByLabel("Check interval (minutes)", { exact: true })).toHaveValue("2");
+        await expect(page.getByLabel("Archive after (hours)", { exact: true })).toHaveValue("2");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}

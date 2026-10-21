@@ -406,5 +406,10 @@
     "versionUnverified": "Server version has not been confirmed.",
     "diagnostics": "Diagnostic result",
     "referenceUnavailable": "Secret reference requires administrator review"
-  }
+  },
+  "Continuous effects": "Continuous effects",
+  "Auto compact comments": "Auto compact comments",
+  "Auto archive cards": "Auto archive cards",
+  "Effect check interval minutes": "Check interval (minutes)",
+  "Archive after hours": "Archive after (hours)"
 }

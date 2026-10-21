@@ -406,5 +406,10 @@
     "versionUnverified": "サーバーバージョンは未確認です。",
     "diagnostics": "診断結果",
     "referenceUnavailable": "シークレット参照は管理者の確認が必要です"
-  }
+  },
+  "Continuous effects": "継続効果",
+  "Auto compact comments": "コメントを自動圧縮",
+  "Auto archive cards": "カードを自動アーカイブ",
+  "Effect check interval minutes": "確認間隔（分）",
+  "Archive after hours": "アーカイブまでの待機時間（時間）"
 }

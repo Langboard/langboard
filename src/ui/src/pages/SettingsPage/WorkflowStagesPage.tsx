@@ -14,7 +14,12 @@ import { AuthUser } from "@/core/models";
 import { SettingRole } from "@/core/models/roles";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
-import { IWorkflowStage, TWorkflowInput, useWorkflowStages } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
+import {
+    CONTINUOUS_EFFECT_DEFAULTS,
+    IWorkflowStage,
+    TWorkflowInput,
+    useWorkflowStages,
+} from "@/controllers/api/settings/workflowStages/useWorkflowStages";
 
 const LANGUAGES: Record<string, string> = { en: "English", ko: "한국어", ja: "日本語", zh: "中文" };
 const blank = (): TWorkflowInput => ({
@@ -27,6 +32,7 @@ const blank = (): TWorkflowInput => ({
     active_queue_policy: "conditional",
     overdue_policy: "normal",
     entry_effects: [],
+    continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS },
     translations: Object.fromEntries(Object.keys(LANGUAGES).map((key) => [key, { name: "", description: "" }])),
 });
 
@@ -37,6 +43,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
     const { load, save, deactivate } = useWorkflowStages();
     const [stages, setStages] = useState<IWorkflowStage[]>([]);
     const [draft, setDraft] = useState<TWorkflowInput>(blank);
+    const continuous = { ...CONTINUOUS_EFFECT_DEFAULTS, ...draft.continuous_effects };
     const [opened, setOpened] = useState(false);
     const [pickerContainer, setPickerContainer] = useState<HTMLDivElement | null>(null);
     const [dirty, setDirty] = useState(false);
@@ -66,8 +73,20 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
         setError(load.isError);
     }, [load.data, load.isError]);
     const applySelection = (stage?: IWorkflowStage) => {
-        const { uid, key, name, description, color, order, counts_as_completed, active_queue_policy, overdue_policy, entry_effects, translations } =
-            stage ?? { ...blank(), uid: undefined };
+        const {
+            uid,
+            key,
+            name,
+            description,
+            color,
+            order,
+            counts_as_completed,
+            active_queue_policy,
+            overdue_policy,
+            entry_effects,
+            continuous_effects,
+            translations,
+        } = stage ?? { ...blank(), uid: undefined };
         setDraft({
             uid,
             expected_revision: stage?.revision,
@@ -80,6 +99,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             active_queue_policy,
             overdue_policy,
             entry_effects: [...entry_effects],
+            continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS, ...continuous_effects },
             translations: { ...blank().translations, ...translations, en: { name, description } },
         });
         setLanguage("en");
@@ -388,6 +408,63 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                 </label>
                             ))}
                             <p className="text-xs text-muted-foreground">{t("settings.Saving does not replay effects on existing cards.")}</p>
+                        </fieldset>
+                        <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
+                            <legend className="px-1 text-sm font-medium">{t("settings.Continuous effects")}</legend>
+                            {(
+                                [
+                                    ["auto_compact", "Auto compact comments"],
+                                    ["auto_archive", "Auto archive cards"],
+                                ] as const
+                            ).map(([key, label]) => (
+                                <label key={key} className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={continuous[key]}
+                                        onChange={(event) => edit({ continuous_effects: { ...continuous, [key]: event.target.checked } })}
+                                    />
+                                    {t(`settings.${label}`)}
+                                </label>
+                            ))}
+                            {(continuous.auto_compact || continuous.auto_archive) && (
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Effect check interval minutes")}
+                                    <Input
+                                        type="number"
+                                        required
+                                        min="1"
+                                        max="1440"
+                                        step="any"
+                                        value={continuous.interval_seconds / 60}
+                                        onChange={(event) =>
+                                            edit({
+                                                continuous_effects: { ...continuous, interval_seconds: Math.round(Number(event.target.value) * 60) },
+                                            })
+                                        }
+                                    />
+                                </label>
+                            )}
+                            {continuous.auto_archive && (
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Archive after hours")}
+                                    <Input
+                                        type="number"
+                                        required
+                                        min="0"
+                                        max="8760"
+                                        step="any"
+                                        value={continuous.archive_after_seconds / 3600}
+                                        onChange={(event) =>
+                                            edit({
+                                                continuous_effects: {
+                                                    ...continuous,
+                                                    archive_after_seconds: Math.round(Number(event.target.value) * 3600),
+                                                },
+                                            })
+                                        }
+                                    />
+                                </label>
+                            )}
                         </fieldset>
                         {conflict && (
                             <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">

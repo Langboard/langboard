@@ -410,6 +410,19 @@ class WorkflowStageService(BaseDomainService):
         """Resolve only workflow definitions used by an authorized result page."""
         return {key: stage.api_response() for key, stage in self.repo.workflow_stage.get_by_keys(keys).items()}
 
+    @staticmethod
+    def normalize_continuous_effects(value: dict) -> dict:
+        defaults = {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400}
+        if not isinstance(value, dict) or set(value) - set(defaults):
+            raise ValueError("Unsupported continuous workflow effect")
+        result = {**defaults, **value}
+        if any(type(result[key]) is not bool for key in ("auto_compact", "auto_archive")):
+            raise ValueError("Continuous workflow switches must be boolean")
+        for key, lower, upper in (("interval_seconds", 60, 86400), ("archive_after_seconds", 0, 31536000)):
+            if type(result[key]) is not int or not lower <= result[key] <= upper:
+                raise ValueError("Invalid continuous workflow interval")
+        return result
+
     def save(self, fields: dict, uid: str | None = None) -> WorkflowStageDefinition | None:
         fields = dict(fields)
         expected_revision = fields.pop("expected_revision", None)
@@ -423,12 +436,16 @@ class WorkflowStageService(BaseDomainService):
             "active_queue_policy",
             "overdue_policy",
             "entry_effects",
+            "continuous_effects",
             "translations",
         }:
             raise ValueError("Unsupported workflow fields")
         stage = InfraHelper.get_by_id_like(WorkflowStageDefinition, uid) if uid else None
         if uid and not stage:
             return None
+        continuous = fields.pop("continuous_effects", None)
+        if continuous is not None or stage is None:
+            fields["continuous_effects"] = self.normalize_continuous_effects(continuous if continuous is not None else {})
         key = fields["key"]
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", key) or (stage and stage.key != key):
             raise ValueError("Workflow key is invalid or immutable")
@@ -463,7 +480,7 @@ class WorkflowStageService(BaseDomainService):
                 stage = db.exec(
                     SqlBuilder.select.table(WorkflowStageDefinition)
                     .where(WorkflowStageDefinition.column("id") == stage.id)
-                    .with_for_update()
+                    .with_for_update().execution_options(populate_existing=True)
                 ).first()
                 if stage is None:
                     return None

@@ -406,5 +406,10 @@
     "versionUnverified": "尚未确认服务器版本。",
     "diagnostics": "诊断结果",
     "referenceUnavailable": "密钥引用需要管理员审核"
-  }
+  },
+  "Continuous effects": "持续效果",
+  "Auto compact comments": "自动压缩评论",
+  "Auto archive cards": "自动归档卡片",
+  "Effect check interval minutes": "检查间隔（分钟）",
+  "Archive after hours": "归档等待时间（小时）"
 }

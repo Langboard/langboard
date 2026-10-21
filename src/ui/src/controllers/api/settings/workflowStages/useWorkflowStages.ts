@@ -1,6 +1,12 @@
 import { api } from "@/core/helpers/Api";
 import { useQueryMutation } from "@/core/helpers/QueryMutation";
 
+export const CONTINUOUS_EFFECT_DEFAULTS = {
+    auto_compact: false,
+    auto_archive: false,
+    interval_seconds: 300,
+    archive_after_seconds: 86400,
+};
 export interface IWorkflowStage {
     revision: string;
     uid: string;
@@ -16,6 +22,7 @@ export interface IWorkflowStage {
     active_queue_policy: "include" | "exclude" | "conditional";
     overdue_policy: "normal" | "suppress";
     entry_effects: string[];
+    continuous_effects?: Partial<typeof CONTINUOUS_EFFECT_DEFAULTS>;
     translations: Record<string, { name: string; description: string }>;
 }
 export type TWorkflowInput = Omit<IWorkflowStage, "uid" | "is_builtin" | "is_active" | "used_column_count" | "revision"> & {

@@ -170,7 +170,8 @@ def test_migration_installs_six_translated_policies_without_entry_effects():
     with engine.begin() as connection:
         with Operations.context(MigrationContext.configure(connection)):
             module.upgrade()
-        rows = connection.execute(select(WorkflowStageDefinition.__table__)).mappings().all()
+        columns = [column for column in WorkflowStageDefinition.__table__.columns if column.name != "continuous_effects"]
+        rows = connection.execute(select(*columns)).mappings().all()
         assert len(rows) == 6
         assert {row["key"] for row in rows} == {"backlog", "ready", "active", "review", "closed", "reference"}
         for row in rows:
@@ -257,3 +258,32 @@ def test_policy_projection_targets_bound_cards_and_same_project_dependents(regis
         connection.execute(text("INSERT INTO card_relationship VALUES (1,2),(1,3),(1,2),(4,5)"))
     assert set(service.repo.workflow_stage.get_policy_affected_cards("released")) == {(10, 1), (10, 2)}
     assert service.repo.workflow_stage.get_policy_affected_cards("missing") == []
+
+
+def test_continuous_policy_roundtrip_preserves_legacy_omission_and_revision_conflict(registry):
+    service, _ = registry
+    settings = {"auto_compact": True, "auto_archive": True, "interval_seconds": 120, "archive_after_seconds": 3600}
+    stage = service.save(form(continuous_effects=settings))
+    original = stage.edit_revision()
+    assert stage.continuous_effects == settings
+    fresh = service.get_api_list()[0]
+    assert fresh["revision"] == original, {key: (repr(value), repr(fresh.get(key))) for key, value in stage.api_response().items() if key != "revision" and value != fresh.get(key)}
+    updated = service.save({**form(), "name": "Edited by legacy form", "expected_revision": original}, stage.get_uid())
+    assert updated.continuous_effects == settings
+    with pytest.raises(WorkflowStageEditConflict):
+        service.save({**form(continuous_effects={}), "expected_revision": original}, stage.get_uid())
+    assert service.get_api_list()[0]["continuous_effects"] == settings
+    cleared = service.save({**form(continuous_effects={}), "expected_revision": updated.edit_revision()}, stage.get_uid())
+    assert cleared.continuous_effects == {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400}
+
+
+@pytest.mark.parametrize("policy", [
+    {"auto_compact": "yes"}, {"auto_archive": 1}, {"interval_seconds": True}, {"interval_seconds": 59},
+    {"interval_seconds": 86401}, {"archive_after_seconds": -1}, {"archive_after_seconds": 31536001}, {"unknown": True},
+])
+def test_continuous_policy_rejects_coercion_unbounded_intervals_and_unknown_fields(registry, policy):
+    service, engine = registry
+    with pytest.raises(ValueError):
+        service.save(form(continuous_effects=policy))
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM workflow_stage_definition")).scalar_one() == 0
