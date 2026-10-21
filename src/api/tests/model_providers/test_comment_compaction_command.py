@@ -881,11 +881,12 @@ async def test_default_view_returns_blocks_instead_of_covered_originals_and_keep
     assert "fixture-private-model-key" not in json.dumps(current, default=str)
 
 
-async def test_compact_view_sql_budget_keeps_one_cumulative_block_and_new_original(compact_command, monkeypatch):
+@pytest.mark.parametrize("history_size", [2, 12])
+async def test_compact_view_sql_budget_keeps_one_cumulative_block_and_new_original(compact_command, monkeypatch, history_size):
     service, actor, project, card, *_ = compact_command
     monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
     result = await service.generate(actor, project, card)
-    for index in range(2):
+    for index in range(history_size):
         with DbSession.atomic() as db:
             db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content=f"Next source {index}")))
         result = await service.generate(actor, project, card, after=result["range_end"])
@@ -906,11 +907,10 @@ async def test_compact_view_sql_budget_keeps_one_cumulative_block_and_new_origin
     assert [row["uid"] for row in view["records"] if row["kind"] == "comment"] == [uncovered.get_uid()]
     assert view["total_count"] == 2 and view["eligibility"]["uncompacted_event_count"] == 1
     print(f"COMPACTION_VIEW_SQL_SELECTS={len(selects)}")
-    # Historical summaries stay persisted; only the latest cumulative block is visible.
-    # The old three-block projection issued 118 SELECTs by loading
-    # a redundant summary overview. Keep a material margin while retaining the
-    # final current-source and current-authority validation.
-    assert len(selects) <= 85
+    # Historical summaries remain persisted, but superseded originals need not
+    # be queried again. Three and thirteen cumulative summaries both use 32
+    # SELECTs, including final current-source and current-authority validation.
+    assert len(selects) <= 40
 
 
 @pytest.mark.parametrize("change", ["source", "read_permission", "provider"])
@@ -1183,6 +1183,23 @@ async def test_cumulative_summary_exceeds_one_original_batch_without_resending_o
     recovered = service.get_view(actor, project, card)
     assert not any(row["kind"] == "compaction" for row in recovered["records"])
     assert recovered["total_count"] == 103
+
+
+async def test_invalid_latest_summary_keeps_prior_valid_block_and_restores_new_original(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    first = await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        later = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="New evidence"))
+        db.insert(later)
+    latest = await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        later.content = EditorContentModel(content="Corrected new evidence")
+        db.update(later)
+    view = service.get_view(actor, project, card)
+    assert [row["uid"] for row in view["records"] if row["kind"] == "compaction"] == [first["uid"]]
+    assert [row["uid"] for row in view["records"] if row["kind"] == "comment"] == [later.get_uid()]
+    assert service.get(actor, project, card, latest["uid"])["status"] == "invalidated"
 
 
 async def test_prior_original_changed_during_cumulative_generation_never_publishes(compact_command, monkeypatch):

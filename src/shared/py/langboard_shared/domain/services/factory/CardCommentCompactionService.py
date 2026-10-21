@@ -366,6 +366,8 @@ class CardCommentCompactionService(BaseDomainService):
             ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
         blocks, covered = [], set()
         for record in rows:
+            if covered.intersection(source["evidence_ref"] for source in record.source_manifest):
+                continue
             block = self.get(user, project, card, record.id, channel=channel)
             if block["status"] != "completed" or covered.intersection(block["evidence_refs"]):
                 continue
@@ -564,6 +566,8 @@ class CardCommentCompactionService(BaseDomainService):
                 CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
             ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
             for row in rows:
+                if covered.intersection(source["evidence_ref"] for source in row.source_manifest):
+                    continue
                 block = self._completed_block(db, project, card, row, binding, {"status": "completed", "uid": row.get_uid()})
                 if block["status"] == "completed" and not covered.intersection(block["evidence_refs"]):
                     covered.update(block["evidence_refs"])
