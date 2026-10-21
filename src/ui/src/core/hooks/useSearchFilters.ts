@@ -3,6 +3,7 @@ import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { Utils } from "@langboard/core/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
+import { useLocation } from "react-router";
 import { immer } from "zustand/middleware/immer";
 
 export interface ISearchFilterMap {
@@ -30,6 +31,7 @@ const useSearchFilters = <TFilterMap extends ISearchFilterMap>(
     deps?: unknown[]
 ) => {
     const { locationPopped } = usePageHeader();
+    const location = useLocation();
     const [updated, setUpdated] = useState(updatedStore.getState().updated);
     const filters = useMemo(() => {
         const searchParams = new URLSearchParams(location.search);
