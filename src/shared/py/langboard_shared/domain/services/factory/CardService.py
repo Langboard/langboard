@@ -3,7 +3,8 @@ import json
 import logging
 from binascii import Error as Base64Error
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from time import monotonic_ns
 from typing import Any, Literal, Sequence, cast, overload
 from sqlalchemy import Text, func, or_, select
 from sqlalchemy import cast as sql_cast
@@ -49,22 +50,26 @@ from ...models import (
     Checklist,
     GlobalCardRelationshipType,
     IdentityProvider,
+    InternalBot,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
     ProjectWiki,
     User,
+    WorkflowEffectRun,
     WorkflowStageDefinition,
 )
 from ...models.Checkitem import CheckitemStatus
 from ...models.ProjectRole import ProjectRoleAction
 from ..AppSignalProjection import card_signal_projections
-from ..CardAppMutation import guard_card_app_mutation
+from ..CardAppMutation import guard_card_app_mutation, require_card_app_mutation
 from ..CardApprovalGate import pending_card_approvals
+from ..CardDependencyState import card_dependency_state
 from ..CardVerification import VerificationConflict, VerificationSubmission
 from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
 from ..CardWorkState import project_work_state
+from ..CompactorBoardAuthority import require_compactor_card
 from ..DependencyPolicy import dependency_blockers
 from ..ExecutionGeneration import execution_generations
 from .CardContentBlockService import CardContentBlockService
@@ -2148,6 +2153,9 @@ class CardService(BaseDomainService):
         order: int,
         new_column: TColumnParam | None,
     ) -> bool | None:
+        return self._change_order(user_or_bot, project, card, order, new_column)
+
+    def _change_order(self, user_or_bot, project, card, order, new_column):
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
             return None
@@ -2159,6 +2167,14 @@ class CardService(BaseDomainService):
             # different cards and then waiting for each other's neighbors.
             if execution.db.exec(select(Project.id).where(Project.id == project.id).with_for_update()).first() is None:
                 return None
+            if isinstance(user_or_bot, InternalBot):
+                project, user_or_bot, card = require_compactor_card(
+                    execution.db, project.id, user_or_bot.id, card.id, action="archive",
+                )
+                require_card_app_mutation(execution.db, user_or_bot, card, project)
+                target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
+                if target is None or not target.is_archive:
+                    raise ValueError("A compactor can only move cards into the archive")
             card = execution.db.exec(
                 SqlBuilder.select.table(Card)
                 .where(Card.column("id") == card.id)
@@ -2225,6 +2241,9 @@ class CardService(BaseDomainService):
         if new_column is not None:
             self.publish_work_states(project, [card.id, *self._dependency_children(card)])
 
+        if isinstance(user_or_bot, InternalBot):
+            # Profile effects have WorkflowEffectRun receipts, never User/Bot foreign keys.
+            return
         if new_column and not card.is_linked_resource:
             CardBotTask.enqueue_card_moved_webhook(
                 user_or_bot, project, card, old_column, cast(ProjectColumn, new_column)
@@ -2372,6 +2391,60 @@ class CardService(BaseDomainService):
             CardBotTask.card_labels_updated(user_or_bot, project, card)
 
         return True
+
+    def archive_automatically(self, project_id, profile_id, card_id, *, now=None) -> dict[str, str]:
+        """Archive verified work under explicit current profile authority; no model decision."""
+        started_at, started_clock = SafeDateTime.now(), monotonic_ns()
+        now = now or started_at
+        now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+        with DbSession.atomic() as db:
+            project, profile, card = require_compactor_card(db, project_id, profile_id, card_id, action="archive")
+            require_card_app_mutation(db, profile, card, project)
+            if card.archived_at:
+                return {"status": "skipped", "reason": "already_archived"}
+            column = db.exec(SqlBuilder.select.table(ProjectColumn).where(
+                ProjectColumn.id == card.project_column_id, ProjectColumn.project_id == project.id,
+                ProjectColumn.deleted_at.is_(None), ProjectColumn.is_archive.is_(False),
+            ).execution_options(populate_existing=True).with_for_update()).first()
+            stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
+                WorkflowStageDefinition.key == column.workflow_stage,
+            ).execution_options(populate_existing=True).with_for_update()).first() if column else None
+            if (stage is None or not stage.is_active or not stage.counts_as_completed
+                    or stage.continuous_effects.get("auto_archive") is not True):
+                return {"status": "skipped", "reason": "policy_changed"}
+            delay = stage.continuous_effects.get("archive_after_seconds", 86400)
+            if type(delay) is not int or not 0 <= delay <= 31_536_000:
+                return {"status": "skipped", "reason": "policy_changed"}
+            entered = card.workflow_stage_entered_at
+            if entered is None or card.workflow_stage_entered_key != stage.key:
+                return {"status": "skipped", "reason": "entry_evidence_missing"}
+            entered = entered.replace(tzinfo=timezone.utc) if entered.tzinfo is None else entered.astimezone(timezone.utc)
+            if now < entered + timedelta(seconds=delay):
+                return {"status": "skipped", "reason": "not_due"}
+            verification = db.exec(SqlBuilder.select.table(CardVerificationRecord).where(
+                CardVerificationRecord.card_id == card.id,
+            ).order_by(CardVerificationRecord.id.desc()).limit(1).with_for_update()).first()
+            if (verification is None or verification.decision != "verified" or not verification.evidence
+                    or verification.source_change_seq != card.last_change_seq):
+                return {"status": "skipped", "reason": "verification_required"}
+            total, completed, started, paused = self.repo.checkitem.get_work_state_counts([card.id]).get(card.id, (0, 0, 0, 0))
+            if total != completed or started or paused:
+                return {"status": "skipped", "reason": "unfinished_work"}
+            if pending_card_approvals([card.id]).get(int(card.id), 0):
+                return {"status": "skipped", "reason": "approval_pending"}
+            if card_dependency_state(db, project.id, card.id)["state"] != "clear":
+                return {"status": "skipped", "reason": "dependency_pending"}
+            archive = self.repo.project_column.get_or_create_archive_if_not_exists(project.id)
+            if not self._change_order(profile, project, card, 0, archive):
+                raise ValueError("Automatic archive movement failed")
+            db.insert(WorkflowEffectRun(
+                stage_id=stage.id, stage_key=stage.key, stage_revision=stage.edit_revision(),
+                project_id=project.id, card_id=card.id, actor_id=profile.id, actor_type="profile",
+                profile_id=profile.id, profile_name=profile.display_name, source="continuous",
+                status="succeeded", effects=["auto_archive"], started_at=started_at, finished_at=SafeDateTime.now(),
+                duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000), result={"archived": 1},
+            ))
+            return {"status": "completed"}
 
     @guard_card_app_mutation
     def archive(self, user_or_bot: TUserOrBot, project: TProjectParam | None, card: TCardParam | None) -> bool | None:

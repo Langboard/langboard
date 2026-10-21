@@ -64,6 +64,7 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
         if (key === "stop_running_timers") return t("settings.Stop running timers");
         if (key === "notify_author_on_entry") return t("settings.Notify the author when someone else enters this stage");
         if (key === "compact_comments") return t("settings.Compact comments");
+        if (key === "auto_archive") return t("settings.Auto archive cards");
         return t("settings.Unknown effect");
     };
     const statusLabel = (status: string) => {
