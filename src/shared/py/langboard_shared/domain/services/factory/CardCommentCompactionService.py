@@ -469,9 +469,11 @@ class CardCommentCompactionService(BaseDomainService):
             self.repo.card_comment_compaction.cancel(record)
         return self.get(user, project, card, record_id, channel=channel)
 
-    def _automatic_context(self, db, project_id, profile_id, card_id):
+    def _automatic_context(self, db, project_id, profile_id, card_id, *, effect="compact"):
+        if effect not in {"compact", "archive"}:
+            raise CommentCompactionError("policy_changed")
         try:
-            project, binding, card = require_compactor_card(db, project_id, profile_id, card_id, action="compact")
+            project, binding, card = require_compactor_card(db, project_id, profile_id, card_id, action=effect)
         except CompactorAuthorityError as error:
             raise CommentCompactionError(error.code, error.status) from None
         current = self._get_service(InternalBotService).get_comment_compaction_binding()
@@ -485,7 +487,8 @@ class CardCommentCompactionService(BaseDomainService):
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
             WorkflowStageDefinition.key == column.workflow_stage,
         ).execution_options(populate_existing=True).with_for_update()).first()
-        if stage is None or not stage.is_active or stage.continuous_effects.get("auto_compact") is not True:
+        if (stage is None or not stage.is_active or stage.continuous_effects.get(f"auto_{effect}") is not True
+                or (effect == "archive" and not stage.counts_as_completed)):
             raise CommentCompactionError("policy_changed")
         return project, binding, card, (column.id, stage.id, stage.edit_revision())
 

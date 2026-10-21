@@ -4,7 +4,7 @@ import importlib
 from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -94,6 +94,92 @@ def test_archive_uses_existing_move_and_one_profile_receipt(archive_command):
     f.published.assert_called_once()
     for task in f.tasks:
         task.assert_not_called()
+
+
+@pytest.fixture
+def scheduled_archive(archive_command):
+    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+
+    f = archive_command
+    WorkflowCompactionSchedule.__table__.create(DbEngine.get_main_engine())
+    with DbSession.atomic() as db:
+        f.profile.is_default = True
+        db.update(f.profile)
+    return f
+
+
+@pytest.mark.parametrize("compact", [False, True])
+async def test_worker_archives_with_or_without_compaction_and_stops_rescanning(scheduled_archive, monkeypatch, compact):
+    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+    from langboard_shared.domain.services.factory.CardCommentCompactionService import CardCommentCompactionService
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+
+    f = scheduled_archive
+    with DbSession.atomic() as db:
+        f.grant.can_compact = compact
+        f.stage.continuous_effects = {**f.stage.continuous_effects, "auto_compact": compact}
+        db.update(f.grant)
+        db.update(f.stage)
+    generate = AsyncMock(return_value={"status": "skipped", "reason": "below_threshold"})
+    monkeypatch.setattr(CardCommentCompactionService, "generate_automatic", generate)
+    assert await run_due_compactions(now=f.now) == 1
+    assert generate.await_count == int(compact)
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first().archived_at is not None
+        assert len(db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()) == 1
+        state = db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first()
+        assert state.last_status == "completed" and state.lease_token is None
+    assert await run_due_compactions(now=f.now + timedelta(hours=1)) == 0
+
+
+async def test_worker_rechecks_archive_grant_after_scan(scheduled_archive, monkeypatch):
+    from langboard_shared.tasks.bots import WorkflowCompactionTask as worker
+
+    f = scheduled_archive
+    original = worker._due
+
+    def due(*args):
+        rows = original(*args)
+        with DbSession.atomic() as db:
+            f.grant.can_archive = False
+            db.update(f.grant)
+        return rows
+
+    monkeypatch.setattr(worker, "_due", due)
+    assert await worker.run_due_compactions(now=f.now) == 0
+    f.published.assert_not_called()
+
+
+async def test_worker_preserves_interval_when_archive_is_not_verified(scheduled_archive):
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+
+    f = scheduled_archive
+    with DbSession.atomic() as db:
+        f.verification.decision = "partial"
+        db.update(f.verification)
+    assert await run_due_compactions(now=f.now) == 1
+    assert await run_due_compactions(now=f.now + timedelta(seconds=59)) == 0
+    f.published.assert_not_called()
+
+
+async def test_worker_does_not_hide_failed_compaction_by_archiving(scheduled_archive, monkeypatch):
+    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+    from langboard_shared.domain.services.factory.CardCommentCompactionService import CardCommentCompactionService
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+
+    f = scheduled_archive
+    with DbSession.atomic() as db:
+        f.grant.can_compact = True
+        f.stage.continuous_effects = {**f.stage.continuous_effects, "auto_compact": True}
+        db.update(f.grant)
+        db.update(f.stage)
+    generate = AsyncMock(return_value={"status": "failed", "error_code": "provider_unavailable"})
+    monkeypatch.setattr(CardCommentCompactionService, "generate_automatic", generate)
+    assert await run_due_compactions(now=f.now) == 1
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first().last_status == "failed"
+        assert db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first().archived_at is None
+    f.published.assert_not_called()
 
 
 @pytest.mark.parametrize("change,reason", [

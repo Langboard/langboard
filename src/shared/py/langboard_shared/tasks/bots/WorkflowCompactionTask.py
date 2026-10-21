@@ -10,6 +10,8 @@ from ...domain.models import Card, Project, ProjectColumn, WorkflowStageDefiniti
 from ...domain.models.CompactorBoardGrant import CompactorBoardGrant
 from ...domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
 from ...domain.services import DomainService
+from ...domain.services.AppGovernance import AppGovernanceDenied
+from ...domain.services.CompactorBoardAuthority import CompactorAuthorityError
 from ...domain.services.factory.CardCommentCompactionService import CommentCompactionError
 from ...Env import Env
 
@@ -35,16 +37,19 @@ def _due(profile_id, now, limit):
                    Card.source_type.is_(None), Project.deleted_at.is_(None),
                    ProjectColumn.deleted_at.is_(None), ProjectColumn.is_archive == False,  # noqa: E712
                    WorkflowStageDefinition.is_active == True,  # noqa: E712
-                   WorkflowStageDefinition.continuous_effects["auto_compact"].as_boolean() == True,  # noqa: E712
-                   CompactorBoardGrant.can_read == True, CompactorBoardGrant.can_compact == True,  # noqa: E712
+                   CompactorBoardGrant.can_read == True,  # noqa: E712
+                   or_(and_(WorkflowStageDefinition.continuous_effects["auto_compact"].as_boolean().is_(True),
+                            CompactorBoardGrant.can_compact.is_(True)),
+                       and_(WorkflowStageDefinition.continuous_effects["auto_archive"].as_boolean().is_(True),
+                            WorkflowStageDefinition.counts_as_completed.is_(True), CompactorBoardGrant.can_archive.is_(True))),
                    or_(state.id.is_(None), state.next_check_at <= now))
             .order_by(func.coalesce(state.next_check_at, Card.created_at), Card.id).limit(limit)).all()
 
 
-def _claim(service, project_id, profile_id, card_id, now):
+def _claim(service, project_id, profile_id, card_id, now, *, effect="compact"):
     # Reuse the authority lock order. The profile lock also serializes its capacity check.
     with DbSession.atomic() as db:
-        _, _, card, _ = service._automatic_context(db, project_id, profile_id, card_id)
+        _, _, card, _ = service._automatic_context(db, project_id, profile_id, card_id, effect=effect)
         column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)).first()
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == column.workflow_stage)).first()
         interval = stage.continuous_effects.get("interval_seconds", 300)
@@ -94,16 +99,31 @@ async def run_due_compactions(*, limit=5, now=None):
     processed = 0
     for project_id, card_id in _due(binding.id, now, limit):
         started = max(now, SafeDateTime.now())
+        effect = "compact"
         try:
             claim = _claim(service.card_comment_compaction, project_id, binding.id, card_id, started)
         except CommentCompactionError:
-            continue
+            effect = "archive"
+            try:
+                claim = _claim(service.card_comment_compaction, project_id, binding.id, card_id, started, effect=effect)
+            except CommentCompactionError:
+                continue
         if claim is None:
             continue
         status = "failed"
         try:
-            result = await service.card_comment_compaction.generate_automatic(project_id, binding.id, card_id, retry=True)
-            status = result["status"]
+            if effect == "compact":
+                result = await service.card_comment_compaction.generate_automatic(project_id, binding.id, card_id, retry=True)
+                status = result["status"]
+            if effect == "archive" or status in {"completed", "skipped"}:
+                try:
+                    result = service.card.archive_automatically(project_id, binding.id, card_id)
+                except (CompactorAuthorityError, AppGovernanceDenied):
+                    if effect == "archive":
+                        status = "ineligible"
+                else:
+                    if effect == "archive" or result["status"] == "completed":
+                        status = result["status"]
         except CommentCompactionError:
             status = "ineligible"
         except asyncio.CancelledError:
