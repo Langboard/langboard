@@ -50,6 +50,7 @@ if (sections) {
 let fail = !sections;
 api.defaults.adapter = async (config) => {
     const response = { status: 200, statusText: "OK", headers: {}, config };
+    if (config.url === "/account/project-collections") return { ...response, data: { revision: 0, collections: [] } };
     if (fail) throw new AxiosError("Unavailable", "ERR_BAD_RESPONSE", config, undefined, { ...response, status: 503, data: {} });
     if (config.url?.includes("cards/available")) return { ...response, data: JSON.parse(config.data) };
     return { ...response, data };

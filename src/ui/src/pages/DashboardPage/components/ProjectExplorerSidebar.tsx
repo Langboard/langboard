@@ -18,6 +18,8 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/DashboardPage/components/ProjectDiscovery";
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
+import ProjectCollectionDialog from "./ProjectCollectionDialog";
+import useProjectCollections from "./useProjectCollections";
 
 const SECTION_IDS = ["cards", "favorites", "recent", "projects"] as const;
 type TSectionID = (typeof SECTION_IDS)[number];
@@ -36,6 +38,8 @@ export default function ProjectExplorerSidebar({
     const { currentUser } = useAuth();
     const userUID = currentUser?.uid;
     const openCards = useOpenCards(userUID);
+    const collections = useProjectCollections(userUID ?? "");
+    const [collectionDialog, setCollectionDialog] = useState(false);
     const wikiHintDismissed = useUserSettings("wiki_hint_dismissed");
     const collapsedByUser = useUserSettings("explorer_open_cards_collapsed");
     const [query, setQuery] = useState("");
@@ -90,6 +94,7 @@ export default function ProjectExplorerSidebar({
     const [showOlderCards, setShowOlderCards] = useState(false);
     useEffect(() => {
         setShowOlderCards(false);
+        setCollectionDialog(false);
         setCollapsedSections({});
         setExpandedSections({});
     }, [userUID]);
@@ -216,20 +221,70 @@ export default function ProjectExplorerSidebar({
                             />
                         ) : null;
                     const group = groups.find((group) => group.id === id);
-                    if (!group?.projects.length) return null;
+                    if (!group || (!group.projects.length && id !== "projects")) return null;
                     const expanded = !!expandedSections[id];
                     const displayed = expanded ? group.projects : group.projects.slice(0, EXPLORER_SECTION_LIMIT);
                     return (
                         <ExplorerSection
                             key={id}
                             title={group.title}
-                            count={group.projects.length}
+                            count={group.projects.length + (id === "projects" ? collections.collections.length : 0)}
                             collapsed={!!collapsedSections[id]}
                             expanded={expanded}
                             onToggle={() => setCollapsedSections((state) => ({ ...state, [id]: !state[id] }))}
                             onExpand={() => setExpandedSections((state) => ({ ...state, [id]: !state[id] }))}
                             headerProps={query.trim() ? undefined : sectionHeaderProps(id)}
+                            actions={
+                                id === "projects" && userUID ? (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-6"
+                                        aria-label={t("dashboard.Add project collection")}
+                                        disabled={collections.busy || collections.error}
+                                        onClick={() => setCollectionDialog(true)}
+                                    >
+                                        <IconComponent icon="plus" size="3" />
+                                    </Button>
+                                ) : undefined
+                            }
                         >
+                            {id === "projects" && !query.trim() && (
+                                <>
+                                    {collections.error && (
+                                        <Button type="button" variant="ghost" size="sm" onClick={() => void collections.retry()}>
+                                            {t("dashboard.Reload project collections")}
+                                        </Button>
+                                    )}
+                                    {collections.collections.map((collection) => (
+                                        <details key={collection.uid} className="min-w-0 py-1">
+                                            <summary className="cursor-pointer truncate px-2 text-sm">{collection.name}</summary>
+                                            <div className="pl-3">
+                                                {collection.board_uids.map((uid) => {
+                                                    const project = projects.find((project) => project.uid === uid);
+                                                    return project ? (
+                                                        <ProjectExplorerItem
+                                                            key={uid}
+                                                            project={project}
+                                                            active={currentProjectUID === uid}
+                                                            onNavigate={onNavigate}
+                                                            onClick={() => {
+                                                                navigate(ROUTES.BOARD.MAIN(uid));
+                                                                onNavigate?.();
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <p key={uid} className="px-2 py-1 text-xs text-muted-foreground">
+                                                            {t("dashboard.Board unavailable")}
+                                                        </p>
+                                                    );
+                                                })}
+                                            </div>
+                                        </details>
+                                    ))}
+                                </>
+                            )}
                             {displayed.map((project) => (
                                 <ProjectExplorerItem
                                     key={project.uid}
@@ -246,6 +301,17 @@ export default function ProjectExplorerSidebar({
                     );
                 })}
             </div>
+            {collectionDialog && userUID && (
+                <ProjectCollectionDialog
+                    key={userUID}
+                    opened
+                    onOpenChange={setCollectionDialog}
+                    boards={projects.map((project) => ({ uid: project.uid, title: project.title }))}
+                    collections={collections.collections}
+                    save={collections.save}
+                    refreshBoards={() => void refetch()}
+                />
+            )}
         </nav>
     );
 }

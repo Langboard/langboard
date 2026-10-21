@@ -123,5 +123,16 @@
   "Reset filters": "フィルターをリセット",
   "Show more items": "さらに表示（{{count, number}} 件）",
   "Show fewer items": "表示を減らす",
-  "Reorder section": "ドラッグで並べ替え、Alt+上下キーで移動"
+  "Reorder section": "ドラッグで並べ替え、Alt+上下キーで移動",
+  "Add project collection": "プロジェクトグループを追加",
+  "Collection name": "プロジェクト名",
+  "Source boards": "ソースボード",
+  "Search source boards": "ソースボードを検索",
+  "No source boards": "一致するボードがありません",
+  "Create source board": "ソースボードを作成",
+  "New source board": "新しいソースボード",
+  "Created boards are kept if you cancel": "グループ追加を取り消しても作成済みボードは残ります。",
+  "Could not save collection": "保存できませんでした。選択内容は保持されています。グループの再取得後に再試行してください。",
+  "Board unavailable": "アクセスできないボード",
+  "Reload project collections": "プロジェクトグループを再取得"
 }

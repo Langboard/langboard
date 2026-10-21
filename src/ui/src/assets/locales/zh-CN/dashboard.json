@@ -123,5 +123,16 @@
   "Reset filters": "重置筛选",
   "Show more items": "显示更多（{{count, number}} 项）",
   "Show fewer items": "收起",
-  "Reorder section": "拖动排序；Alt+上或Alt+下移动"
+  "Reorder section": "拖动排序；Alt+上或Alt+下移动",
+  "Add project collection": "添加项目分组",
+  "Collection name": "项目名称",
+  "Source boards": "源看板",
+  "Search source boards": "搜索源看板",
+  "No source boards": "没有匹配的看板",
+  "Create source board": "新建源看板",
+  "New source board": "新源看板",
+  "Created boards are kept if you cancel": "取消分组时已创建的看板仍会保留。",
+  "Could not save collection": "保存失败，已保留您的选择。重新加载分组后重试。",
+  "Board unavailable": "无法访问的看板",
+  "Reload project collections": "重新加载项目分组"
 }

@@ -123,5 +123,16 @@
   "Reset filters": "Reset filters",
   "Show more items": "Show more ({{count, number}})",
   "Show fewer items": "Show fewer",
-  "Reorder section": "Drag to reorder; Alt+Up or Alt+Down to move"
+  "Reorder section": "Drag to reorder; Alt+Up or Alt+Down to move",
+  "Add project collection": "Add project collection",
+  "Collection name": "Project name",
+  "Source boards": "Source boards",
+  "Search source boards": "Search source boards",
+  "No source boards": "No matching boards",
+  "Create source board": "Create source board",
+  "New source board": "New source board",
+  "Created boards are kept if you cancel": "Created boards are kept if you cancel this group.",
+  "Could not save collection": "Could not save. Your selections are kept. Retry after reloading saved groups.",
+  "Board unavailable": "Board unavailable",
+  "Reload project collections": "Reload project collections"
 }
