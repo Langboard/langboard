@@ -747,7 +747,7 @@ def test_native_move_rejects_column_from_another_project(
     from langboard_shared.domain.models import User
 
     assert (
-        CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
+        CardService._change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
         is None
     )
     assert len(statements) == 2
@@ -883,7 +883,7 @@ def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(module, "execution_readiness_uow", readiness_uow)
     service = CardService(lambda _: MagicMock(), lambda _: None, repository)
-    assert service.change_order(User.model_construct(), project, card, 0, column) is True
+    assert service._change_order(User.model_construct(), project, card, 0, column) is True
 
     assert card.order == 0
     assert card.archived_at is None

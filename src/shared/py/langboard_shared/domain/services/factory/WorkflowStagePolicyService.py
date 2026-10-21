@@ -38,8 +38,9 @@ class WorkflowStagePolicyService(BaseDomainService):
                 raise ValueError("Workflow stage definition is missing")
             # Inactive definitions keep existing bindings and their meaning.
             effects = set(stage.entry_effects)
-            if effects - {"complete_checkitems", "stop_running_timers", "notify_author_on_entry"}:
+            if effects - {"complete_checkitems", "stop_running_timers", "notify_author_on_entry", "confirm_descendant_move"}:
                 raise ValueError("Unsupported native workflow effect")
+            effects.discard("confirm_descendant_move")
             started_at = SafeDateTime.now()
             card.workflow_stage_entered_key = stage.key
             card.workflow_stage_entered_at = started_at

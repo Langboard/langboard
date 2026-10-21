@@ -442,6 +442,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                         ["complete_checkitems", "Complete unchecked items"],
                                         ["stop_running_timers", "Stop running timers"],
                                         ["notify_author_on_entry", "Notify the author when someone else enters this stage"],
+                                        ["confirm_descendant_move", "Ask to move descendants when a root card enters this stage"],
                                     ].map(([key, label]) => (
                                         <label key={key} className="flex items-center gap-2 text-sm">
                                             <input

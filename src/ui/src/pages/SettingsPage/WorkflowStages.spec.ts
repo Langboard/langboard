@@ -533,3 +533,50 @@ for (const width of [1440, 390]) {
         await page.getByRole("dialog").screenshot({ path: `.verification/compaction-workflow-history-${width}.png` });
     });
 }
+
+for (const width of [1440, 390]) {
+    test(`root family confirmation saves and reloads at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let saved = existing();
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [saved] } }));
+        await page.route("**/settings/workflow-stages/existing", async (route) => {
+            const payload = route.request().postDataJSON();
+            expect(payload.entry_effects).toEqual(["confirm_descendant_move"]);
+            saved = { ...saved, ...payload, revision: "b".repeat(64) };
+            await route.fulfill({ json: { stage: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByLabel("Ask to move descendants when a root card enters this stage", { exact: true }).check();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => saved.entry_effects).toEqual(["confirm_descendant_move"]);
+        await page.reload();
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(page.getByLabel("Ask to move descendants when a root card enters this stage", { exact: true })).toBeChecked();
+        await expect(page.getByLabel("Complete unchecked items", { exact: true })).not.toBeChecked();
+        await expect(page.getByLabel("Stop running timers", { exact: true })).not.toBeChecked();
+        await page.getByRole("dialog").screenshot({ path: `.verification/root-family-confirmation-${width}.png` });
+    });
+}
+
+for (const choice of ["Move all descendants", "Move only this card", "Cancel"]) {
+    test(`family move confirmation ${choice}`, async ({ page }) => {
+        const requests: Record<string, unknown>[] = [];
+        await page.route("**/board/board/card/root/order", async (route) => {
+            requests.push(route.request().postDataJSON());
+            await route.fulfill({ json: requests.length === 1 ? { confirmation_required: true, confirmation_revision: "revision-one" } : {} });
+        });
+        await page.goto("/src/pages/SettingsPage/CardFamilyMove.fixture.html");
+        await page.getByRole("button", { name: "Move root", exact: true }).click();
+        await expect(page.getByRole("alertdialog")).toBeVisible();
+        expect(requests).toHaveLength(1);
+        await page.getByRole("button", { name: choice, exact: true }).click();
+        await expect(page.getByRole("alertdialog")).not.toBeVisible();
+        await expect(page.locator("output")).toHaveText(choice === "Cancel" ? "cancelled" : "moved");
+        expect(requests).toHaveLength(choice === "Cancel" ? 1 : 2);
+        if (choice !== "Cancel") {
+            expect(requests[1].move_descendants).toBe(choice === "Move all descendants");
+            expect(requests[1].confirmation_revision).toBe("revision-one");
+        }
+    });
+}

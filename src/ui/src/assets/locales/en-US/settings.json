@@ -447,5 +447,6 @@
   "Error code": "Error code",
   "Compact comments": "Compact comments",
   "Compact after characters": "Compact after characters",
-  "Compaction threshold counts only new uncompressed comment bodies.": "New uncompressed comment bodies count toward this limit. Existing summaries and movement events are excluded."
+  "Compaction threshold counts only new uncompressed comment bodies.": "New uncompressed comment bodies count toward this limit. Existing summaries and movement events are excluded.",
+  "Ask to move descendants when a root card enters this stage": "Ask to move descendants when a root card enters this stage"
 }

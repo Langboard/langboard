@@ -84,8 +84,8 @@ def flow(monkeypatch, request):
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY)"))
         connection.execute(text("INSERT INTO project VALUES (1)"))
-        connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY)'))
-        connection.execute(text('INSERT INTO "user" VALUES (1)'))
+        connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY, activated_at TIMESTAMP, deleted_at TIMESTAMP, is_admin BOOLEAN NOT NULL DEFAULT FALSE)'))
+        connection.execute(text('INSERT INTO "user"(id, activated_at) VALUES (1, CURRENT_TIMESTAMP)'))
     for model in (
         WorkflowStageDefinition,
         WorkflowEffectRun,

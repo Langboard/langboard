@@ -56,8 +56,8 @@ from .forms import (
     AssignUsersForm,
     CardifySelectionForm,
     ChangeCardDetailsForm,
+    ChangeCardOrderForm,
     ChangeCardVisibilityForm,
-    ChangeChildOrderForm,
     CopySelectionToWikiForm,
     CreateCardForm,
     PatchCardGraphForm,
@@ -553,7 +553,7 @@ def add_card_assignee(
     return JsonResponse(content=result)
 
 
-@AppRouter.schema(form=ChangeChildOrderForm, permission=ApiPermission.Edit)
+@AppRouter.schema(form=ChangeCardOrderForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/order",
     tags=["Board.Card"],
@@ -566,16 +566,23 @@ def change_card_order_or_move_column(
     project_uid: str,
     card_uid: str,
     request: Request,
-    form: ChangeChildOrderForm,
+    form: ChangeCardOrderForm,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card.change_order(user_or_bot, project_uid, card_uid, form.order, form.parent_uid)
+    try:
+        result = service.card.change_order(
+            user_or_bot, project_uid, card_uid, form.order, form.parent_uid,
+            move_descendants=form.move_descendants, confirmation_revision=form.confirmation_revision,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
-    return JsonResponse()
+    return JsonResponse(content=result if isinstance(result, dict) else {})
 
 
 @collaborative_edit(

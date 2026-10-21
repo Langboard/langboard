@@ -9,6 +9,7 @@ import Flex from "@/components/base/Flex";
 import ScrollArea from "@/components/base/ScrollArea";
 import BoardColumnAdd from "@/pages/BoardPage/components/board/BoardColumnAdd";
 import useChangeProjectColumnOrder from "@/controllers/api/board/useChangeProjectColumnOrder";
+import CardFamilyMoveConfirmation from "./CardFamilyMoveConfirmation";
 import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
 import { BOARD_DND_SETTINGS, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
 import { SkeletonUserAvatarList } from "@/components/UserAvatarList";
@@ -109,7 +110,7 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
         updater,
     });
     const { mutate: changeColumnOrderMutate } = useChangeProjectColumnOrder();
-    const { mutate: changeCardOrderMutate } = useChangeCardOrder();
+    const { mutate: changeCardOrderMutate, confirmation } = useChangeCardOrder();
 
     const setupApiErrors = useCallback((error: unknown, undo: () => void) => {
         const { handle } = setupApiErrorHandler({
@@ -176,6 +177,7 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
 
     return (
         <>
+            <CardFamilyMoveConfirmation {...confirmation} />
             <BoardCardRelationshipOverlay scrollable={scrollable} />
             {columns.map((column) => (
                 <BoardColumn

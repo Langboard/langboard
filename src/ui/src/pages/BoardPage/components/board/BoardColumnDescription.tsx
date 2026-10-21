@@ -136,7 +136,16 @@ function BoardColumnDescription({ column }: { column: ProjectColumn.TModel }) {
                                 </p>
                                 {selectedStage.entry_effects.map((effect) => (
                                     <p key={effect}>
-                                        {t(effect === "complete_checkitems" ? "settings.Complete unchecked items" : "settings.Stop running timers")}
+                                        {t(
+                                            `settings.${
+                                                {
+                                                    complete_checkitems: "Complete unchecked items",
+                                                    stop_running_timers: "Stop running timers",
+                                                    notify_author_on_entry: "Notify the author when someone else enters this stage",
+                                                    confirm_descendant_move: "Ask to move descendants when a root card enters this stage",
+                                                }[effect] ?? effect
+                                            }`
+                                        )}
                                     </p>
                                 ))}
                             </div>

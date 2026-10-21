@@ -123,5 +123,9 @@
   "References": "References",
   "Link designs, evidence and related work": "Link designs, evidence and related work",
   "Workflow stage display": "Workflow stage: {{stage}}",
-  "Could not load board": "Could not load board"
+  "Could not load board": "Could not load board",
+  "Move child cards too?": "Move child cards too?",
+  "All descendants will move to the same column. Relationships will be preserved.": "All descendants will move to the same column. Relationships will be preserved.",
+  "Move only this card": "Move only this card",
+  "Move all descendants": "Move all descendants"
 }

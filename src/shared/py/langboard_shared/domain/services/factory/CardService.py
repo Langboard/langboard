@@ -4,6 +4,7 @@ import logging
 from binascii import Error as Base64Error
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from time import monotonic_ns
 from typing import Any, Literal, Sequence, cast, overload
 from sqlalchemy import Text, func, or_, select
@@ -39,6 +40,7 @@ from ...contracts.title_labels import global_label_names, parse_title_labels
 from ...models import (
     Bot,
     Card,
+    CardAppOwnership,
     CardAssignedProjectLabel,
     CardAssignedUser,
     CardBotSchedule,
@@ -378,8 +380,11 @@ class CardService(BaseDomainService):
         if card is None:
             return None
         with DbSession.use(readonly=False) as db:
-            current = db.exec(SqlBuilder.select.table(Card).where(Card.id == InfraHelper.convert_id(card))
-                              .execution_options(populate_existing=True)).first()
+            current = db.exec(
+                SqlBuilder.select.table(Card)
+                .where(Card.id == InfraHelper.convert_id(card))
+                .execution_options(populate_existing=True)
+            ).first()
         if current is None or current.deleted_at is not None:
             return None
         resolved = self.resolve_visibility_context(
@@ -1178,7 +1183,8 @@ class CardService(BaseDomainService):
         from .CardCommentCompactionService import CardCommentCompactionService
 
         semantic_matches = self._get_service(CardCommentCompactionService).search_metadata_candidates(
-            user, project, context, input_value, channel=channel)
+            user, project, context, input_value, channel=channel
+        )
         records = self.repo.card.search_context_by_project(
             project,
             input_value,
@@ -1188,8 +1194,11 @@ class CardService(BaseDomainService):
             include_closed=include_closed,
             workflow_stages=workflow_stages,
             context=context,
-            **({"additional_card_ids": list(dict.fromkeys([*external_matches, *semantic_matches]))}
-               if external_matches or semantic_matches else {}),
+            **(
+                {"additional_card_ids": list(dict.fromkeys([*external_matches, *semantic_matches]))}
+                if external_matches or semantic_matches
+                else {}
+            ),
         )
         document_matches = self.repo.card.search_document_matches(
             project, [card.id for card, _ in records], input_value, context=context
@@ -2152,8 +2161,180 @@ class CardService(BaseDomainService):
         card: TCardParam | None,
         order: int,
         new_column: TColumnParam | None,
-    ) -> bool | None:
-        return self._change_order(user_or_bot, project, card, order, new_column)
+        *,
+        move_descendants: bool | None = None,
+        confirmation_revision: str | None = None,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> bool | dict[str, Any] | None:
+        with DbSession.atomic() as db:
+            params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
+            if not params:
+                return None
+            project, card = params
+            db.exec(select(Project.id).where(Project.id == project.id).with_for_update()).first()
+            card = db.exec(
+                SqlBuilder.select.table(Card)
+                .where(Card.id == card.id, Card.project_id == project.id, Card.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
+            ).first()
+            if card is None:
+                return None
+            family = self._root_move_family(db, project, card, new_column)
+            if family:
+                descendants, revision = family
+                # No count or names: the tree can contain cards the caller cannot read.
+                if move_descendants is None or confirmation_revision != revision:
+                    return {"confirmation_required": True, "confirmation_revision": revision}
+                if move_descendants:
+                    actor = (
+                        db.exec(
+                            select(User.id, User.activated_at, User.deleted_at, User.is_admin).where(
+                                User.id == user_or_bot.id
+                            )
+                        ).first()
+                        if isinstance(user_or_bot, User)
+                        else None
+                    )
+                    role = (
+                        db.exec(
+                            SqlBuilder.select.table(ProjectRole).where(
+                                ProjectRole.user_id == user_or_bot.id,
+                                ProjectRole.project_id == project.id,
+                            )
+                        ).first()
+                        if actor
+                        else None
+                    )
+                    actions = role.actions if role else []
+                    if (
+                        actor is None
+                        or actor[2]
+                        or not actor[1]
+                        or not (actor[3] or "*" in actions or ProjectRoleAction.CardUpdate.value in actions)
+                    ):
+                        raise ValueError("Current card update permission is required for a family move")
+                    for child in [card, *descendants]:
+                        if child.project_id != project.id or child.is_linked_resource:
+                            raise ValueError("The complete card family cannot be moved to this column")
+                        if self.resolve_readable_card(project, child, user_or_bot, channel) is None:
+                            raise ValueError("The complete card family cannot be moved to this column")
+                        owner = db.exec(
+                            SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == child.id)
+                        ).first()
+                        if owner is not None and owner.app_key is not None:
+                            raise ValueError("App-owned cards cannot join a family move")
+                        require_card_app_mutation(db, user_or_bot, child, project)
+                result = self._change_order(user_or_bot, project, card, order, new_column)
+                if not result:
+                    raise ValueError("Card movement failed")
+                if move_descendants:
+                    target_id = InfraHelper.convert_id(new_column)
+                    for child in descendants:
+                        if child.project_column_id == target_id:
+                            continue
+                        last = db.exec(
+                            select(func.max(Card.order)).where(
+                                Card.project_column_id == target_id,
+                                Card.deleted_at.is_(None),
+                            )
+                        ).first()
+                        last = last[0] if isinstance(last, tuple) else last
+                        if not self._change_order(user_or_bot, project, child, (last or 0) + 1, new_column):
+                            raise ValueError("Card family movement failed")
+                return result
+            return self._change_order(user_or_bot, project, card, order, new_column)
+
+    def _root_move_family(self, db, project, card, new_column):
+        target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
+        old = InfraHelper.get_by_id_like(ProjectColumn, card.project_column_id)
+        if (
+            target is None
+            or old is None
+            or target.project_id != project.id
+            or target.deleted_at is not None
+            or target.is_archive
+            or not target.workflow_stage
+            or old.workflow_stage == target.workflow_stage
+        ):
+            return None
+        stage = db.exec(
+            SqlBuilder.select.table(WorkflowStageDefinition).where(
+                WorkflowStageDefinition.key == target.workflow_stage,
+            )
+        ).first()
+        if stage is None or "confirm_descendant_move" not in stage.entry_effects:
+            return None
+        stage = db.exec(
+            SqlBuilder.select.table(WorkflowStageDefinition)
+            .where(
+                WorkflowStageDefinition.id == stage.id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).first()
+        if stage is None or "confirm_descendant_move" not in stage.entry_effects:
+            return None
+
+        # The board fence is also held by native relationship writers. Only the
+        # system containment semantic counts; references and prerequisites do not.
+        def edges_from(parent_ids=None, child_id=None):
+            query = (
+                SqlBuilder.select.table(CardRelationship)
+                .join(
+                    GlobalCardRelationshipType,
+                    GlobalCardRelationshipType.id == CardRelationship.relationship_type_id,
+                )
+                .where(
+                    GlobalCardRelationshipType.is_system_default.is_(True),
+                    GlobalCardRelationshipType.machine_semantic == "contains",
+                )
+            )
+            if parent_ids is not None:
+                query = query.where(CardRelationship.card_id_parent.in_(parent_ids))
+            if child_id is not None:
+                query = query.where(CardRelationship.card_id_child == child_id)
+            return db.exec(query).all()
+
+        if edges_from(child_id=card.id):
+            return None
+        children, descendants = {}, []
+        visited, frontier = {card.id}, [card.id]
+        while frontier:
+            edges = edges_from(parent_ids=frontier)
+            next_ids = set()
+            for edge in edges:
+                children.setdefault(edge.card_id_parent, set()).add(edge.card_id_child)
+                if edge.card_id_child not in visited:
+                    next_ids.add(edge.card_id_child)
+            frontier = []
+            visited.update(next_ids)
+            rows = (
+                db.exec(
+                    SqlBuilder.select.table(Card)
+                    .where(
+                        Card.id.in_(next_ids),
+                        Card.deleted_at.is_(None),
+                    )
+                    .order_by(Card.id)
+                ).all()
+                if next_ids
+                else []
+            )
+            for child in rows:
+                descendants.append(child)
+                # Cross-board relationships remain intact, but cannot be moved by
+                # a column-local command or used to acquire foreign board locks.
+                if child.project_id == project.id:
+                    frontier.append(child.id)
+        if not descendants:
+            return None
+        # Fence the user's decision against changed positions, hierarchy or policy.
+        payload = (
+            [str(stage.edit_revision()), str(target.id)]
+            + [f"{row.id}:{row.project_column_id}:{row.order}:{row.updated_at}" for row in [card, *descendants]]
+            + [f"{parent}:{child}" for parent in sorted(visited) for child in sorted(children.get(parent, ()))]
+        )
+        return descendants, sha256("|".join(payload).encode()).hexdigest()
 
     def _change_order(self, user_or_bot, project, card, order, new_column):
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
@@ -2169,7 +2350,11 @@ class CardService(BaseDomainService):
                 return None
             if isinstance(user_or_bot, InternalBot):
                 project, user_or_bot, card = require_compactor_card(
-                    execution.db, project.id, user_or_bot.id, card.id, action="archive",
+                    execution.db,
+                    project.id,
+                    user_or_bot.id,
+                    card.id,
+                    action="archive",
                 )
                 require_card_app_mutation(execution.db, user_or_bot, card, project)
                 target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
@@ -2402,15 +2587,35 @@ class CardService(BaseDomainService):
             require_card_app_mutation(db, profile, card, project)
             if card.archived_at:
                 return {"status": "skipped", "reason": "already_archived"}
-            column = db.exec(SqlBuilder.select.table(ProjectColumn).where(
-                ProjectColumn.id == card.project_column_id, ProjectColumn.project_id == project.id,
-                ProjectColumn.deleted_at.is_(None), ProjectColumn.is_archive.is_(False),
-            ).execution_options(populate_existing=True).with_for_update()).first()
-            stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
-                WorkflowStageDefinition.key == column.workflow_stage,
-            ).execution_options(populate_existing=True).with_for_update()).first() if column else None
-            if (stage is None or not stage.is_active or not stage.counts_as_completed
-                    or stage.continuous_effects.get("auto_archive") is not True):
+            column = db.exec(
+                SqlBuilder.select.table(ProjectColumn)
+                .where(
+                    ProjectColumn.id == card.project_column_id,
+                    ProjectColumn.project_id == project.id,
+                    ProjectColumn.deleted_at.is_(None),
+                    ProjectColumn.is_archive.is_(False),
+                )
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).first()
+            stage = (
+                db.exec(
+                    SqlBuilder.select.table(WorkflowStageDefinition)
+                    .where(
+                        WorkflowStageDefinition.key == column.workflow_stage,
+                    )
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                ).first()
+                if column
+                else None
+            )
+            if (
+                stage is None
+                or not stage.is_active
+                or not stage.counts_as_completed
+                or stage.continuous_effects.get("auto_archive") is not True
+            ):
                 return {"status": "skipped", "reason": "policy_changed"}
             delay = stage.continuous_effects.get("archive_after_seconds", 86400)
             if type(delay) is not int or not 0 <= delay <= 31_536_000:
@@ -2418,16 +2623,30 @@ class CardService(BaseDomainService):
             entered = card.workflow_stage_entered_at
             if entered is None or card.workflow_stage_entered_key != stage.key:
                 return {"status": "skipped", "reason": "entry_evidence_missing"}
-            entered = entered.replace(tzinfo=timezone.utc) if entered.tzinfo is None else entered.astimezone(timezone.utc)
+            entered = (
+                entered.replace(tzinfo=timezone.utc) if entered.tzinfo is None else entered.astimezone(timezone.utc)
+            )
             if now < entered + timedelta(seconds=delay):
                 return {"status": "skipped", "reason": "not_due"}
-            verification = db.exec(SqlBuilder.select.table(CardVerificationRecord).where(
-                CardVerificationRecord.card_id == card.id,
-            ).order_by(CardVerificationRecord.id.desc()).limit(1).with_for_update()).first()
-            if (verification is None or verification.decision != "verified" or not verification.evidence
-                    or verification.source_change_seq != card.last_change_seq):
+            verification = db.exec(
+                SqlBuilder.select.table(CardVerificationRecord)
+                .where(
+                    CardVerificationRecord.card_id == card.id,
+                )
+                .order_by(CardVerificationRecord.id.desc())
+                .limit(1)
+                .with_for_update()
+            ).first()
+            if (
+                verification is None
+                or verification.decision != "verified"
+                or not verification.evidence
+                or verification.source_change_seq != card.last_change_seq
+            ):
                 return {"status": "skipped", "reason": "verification_required"}
-            total, completed, started, paused = self.repo.checkitem.get_work_state_counts([card.id]).get(card.id, (0, 0, 0, 0))
+            total, completed, started, paused = self.repo.checkitem.get_work_state_counts([card.id]).get(
+                card.id, (0, 0, 0, 0)
+            )
             if total != completed or started or paused:
                 return {"status": "skipped", "reason": "unfinished_work"}
             if pending_card_approvals([card.id]).get(int(card.id), 0):
@@ -2437,13 +2656,26 @@ class CardService(BaseDomainService):
             archive = self.repo.project_column.get_or_create_archive_if_not_exists(project.id)
             if not self._change_order(profile, project, card, 0, archive):
                 raise ValueError("Automatic archive movement failed")
-            db.insert(WorkflowEffectRun(
-                stage_id=stage.id, stage_key=stage.key, stage_revision=stage.edit_revision(),
-                project_id=project.id, card_id=card.id, actor_id=profile.id, actor_type="profile",
-                profile_id=profile.id, profile_name=profile.display_name, source="continuous",
-                status="succeeded", effects=["auto_archive"], started_at=started_at, finished_at=SafeDateTime.now(),
-                duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000), result={"archived": 1},
-            ))
+            db.insert(
+                WorkflowEffectRun(
+                    stage_id=stage.id,
+                    stage_key=stage.key,
+                    stage_revision=stage.edit_revision(),
+                    project_id=project.id,
+                    card_id=card.id,
+                    actor_id=profile.id,
+                    actor_type="profile",
+                    profile_id=profile.id,
+                    profile_name=profile.display_name,
+                    source="continuous",
+                    status="succeeded",
+                    effects=["auto_archive"],
+                    started_at=started_at,
+                    finished_at=SafeDateTime.now(),
+                    duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000),
+                    result={"archived": 1},
+                )
+            )
             return {"status": "completed"}
 
     @guard_card_app_mutation

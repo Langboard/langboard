@@ -447,5 +447,6 @@
   "Error code": "错误代码",
   "Compact comments": "压缩评论",
   "Compact after characters": "压缩触发字数",
-  "Compaction threshold counts only new uncompressed comment bodies.": "仅计算新增未压缩评论正文的字数，不包含现有摘要和列移动事件。"
+  "Compaction threshold counts only new uncompressed comment bodies.": "仅计算新增未压缩评论正文的字数，不包含现有摘要和列移动事件。",
+  "Ask to move descendants when a root card enters this stage": "无父卡片进入阶段时询问是否移动所有后代"
 }

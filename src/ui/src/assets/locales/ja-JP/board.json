@@ -123,5 +123,9 @@
   "References": "参照",
   "Link designs, evidence and related work": "設計・根拠・関連作業を接続",
   "Workflow stage display": "ワークフローステージ: {{stage}}",
-  "Could not load board": "ボードを読み込めませんでした"
+  "Could not load board": "ボードを読み込めませんでした",
+  "Move child cards too?": "子カードも移動しますか？",
+  "All descendants will move to the same column. Relationships will be preserved.": "すべての子孫を同じ列へ移動します。関係は維持されます。",
+  "Move only this card": "このカードのみ移動",
+  "Move all descendants": "すべての子孫を移動"
 }

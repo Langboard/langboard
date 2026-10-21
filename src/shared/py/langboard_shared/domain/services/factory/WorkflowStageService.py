@@ -507,7 +507,7 @@ class WorkflowStageService(BaseDomainService):
             raise ValueError("Invalid workflow policy")
         effects = fields["entry_effects"]
         if len(effects) != len(set(effects)) or set(effects) - {
-            "complete_checkitems", "stop_running_timers", "notify_author_on_entry",
+            "complete_checkitems", "stop_running_timers", "notify_author_on_entry", "confirm_descendant_move",
         }:
             raise ValueError("Unsupported native workflow effect")
         translations = {lang: dict(text) for lang, text in fields["translations"].items()}
