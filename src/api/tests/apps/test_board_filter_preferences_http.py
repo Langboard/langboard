@@ -121,3 +121,28 @@ def test_filter_preferences_http_scope_revision_validation_and_revocation(board,
         monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
         with pytest.raises(RuntimeError, match="Cannot discard"):
             migration.downgrade()
+
+
+def test_filter_preference_metadata_compiles_for_postgres_and_matches_native_migration(monkeypatch):
+    from io import StringIO
+    from langboard_shared.domain.models import UserBoardFilterPreference
+    from sqlalchemy import UniqueConstraint
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    table = UserBoardFilterPreference.__table__
+    model_ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+    constraints = [item for item in table.constraints if isinstance(item, UniqueConstraint)]
+    assert len(constraints) == 1 and [column.name for column in constraints[0].columns] == ["user_id", "project_id"]
+    name = constraints[0].name
+    assert len(name.encode()) <= postgresql.dialect().max_identifier_length
+    path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021010000-b392a7f43165.py"
+    spec = importlib.util.spec_from_file_location("filter_preference_pg_ddl_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    output = StringIO()
+    context = MigrationContext.configure(dialect=postgresql.dialect(), opts={"as_sql": True, "output_buffer": output})
+    monkeypatch.setattr(migration, "op", Operations(context))
+    migration.upgrade()
+    expected = f"CONSTRAINT {name} UNIQUE (user_id, project_id)"
+    assert expected in model_ddl and expected in output.getvalue()
