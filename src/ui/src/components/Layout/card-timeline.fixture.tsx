@@ -1,3 +1,4 @@
+import axios from "axios";
 import { createRoot } from "react-dom/client";
 import { useRef, useState } from "react";
 import { MemoryRouter, useLocation } from "react-router";
@@ -18,7 +19,7 @@ import "@/assets/styles/main.css";
 
 const now = new Date();
 await i18n.changeLanguage("en-US");
-const user = AuthUser.Model.fromOne({
+const userData = {
     uid: "timeline-user",
     type: "user",
     firstname: "Timeline",
@@ -26,7 +27,8 @@ const user = AuthUser.Model.fromOne({
     email: "timeline@example.invalid",
     created_at: now,
     updated_at: now,
-});
+};
+const user = AuthUser.Model.fromOne(userData);
 useAuthStore.setState({ currentUser: user, state: "loaded", getToken: () => "card-timeline-local-fixture" });
 const cards = ["first-card", "second-card"].map((uid) =>
     ProjectCard.Model.fromOne({
@@ -60,11 +62,20 @@ function Fixture() {
             .flat()
             .forEach((callback) => callback({}));
     };
+    const rotateToken = (uid = userData.uid) =>
+        useAuthStore.getState().updateToken(
+            "rotated-local-fixture-token",
+            axios.create({
+                adapter: async (config) => ({ data: { user: { ...userData, uid }, bots: [] }, status: 200, statusText: "OK", headers: {}, config }),
+            })
+        );
     return (
         <>
             <button onClick={() => setIndex((value) => 1 - value)}>Switch timeline card</button>
             <button onClick={emitMove}>Committed activity</button>
             <button onClick={emitOpen}>Socket reopened</button>
+            <button onClick={() => void rotateToken()}>Rotate same user token</button>
+            <button onClick={() => void rotateToken("different-timeline-user")}>Change timeline account</button>
             <output aria-label="Current route">{location.pathname}</output>
             <div ref={ref} className="mx-auto max-w-xl p-4">
                 <BoardCardProvider key={cards[index].uid} projectUID="timeline-project" card={cards[index]} currentUser={user} viewportRef={ref}>

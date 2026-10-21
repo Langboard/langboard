@@ -39,6 +39,37 @@ for (const width of [1440, 390]) {
         await expect(page.getByText("Private doing", { exact: false })).toHaveCount(0);
     });
 
+    test(`comment timeline clears cached content on account change at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.route(/\/timeline(?:\?|$)/, (route) =>
+            route.fulfill({
+                json: {
+                    records: [
+                        {
+                            kind: "activity",
+                            uid: "old-account-event",
+                            evidence_ref: "activity:old-account-event",
+                            created_at: "2026-10-01T12:00:00Z",
+                            data: {
+                                uid: "old-account-event",
+                                activity_type: "card_moved",
+                                created_at: "2026-10-01T12:00:00Z",
+                                from_column: { name: "Old account review" },
+                                column: { name: "Old account doing" },
+                            },
+                        },
+                    ],
+                    next_cursor: null,
+                },
+            })
+        );
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await expect(page.locator("[data-card-activity-uid]")).toContainText("Old account review", { timeout: 45_000 });
+        await page.getByRole("button", { name: "Change timeline account", exact: true }).click();
+        await expect(page.locator("[data-card-activity-uid]")).toHaveCount(0);
+        await expect(page.getByText("Old account review", { exact: false })).toHaveCount(0);
+    });
+
     test(`comment timeline interleaves persisted moves and pages without duplicate comments at ${width}px`, async ({ page }) => {
         test.setTimeout(90_000);
         await page.setViewportSize({ width, height: 900 });
@@ -159,6 +190,10 @@ for (const width of [1440, 390]) {
         await page.keyboard.type(" unsaved draft");
         const beforeRefresh = requests;
         changed = true;
+        await page.getByRole("button", { name: "Rotate same user token", exact: true }).click();
+        await page.waitForTimeout(300);
+        await expect(editor).toContainText("unsaved draft");
+        expect(requests).toBe(beforeRefresh);
         await page.getByRole("button", { name: "Committed activity", exact: true }).click();
         await page.waitForTimeout(300);
         expect(requests).toBe(beforeRefresh);

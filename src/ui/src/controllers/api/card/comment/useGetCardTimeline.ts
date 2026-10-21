@@ -26,9 +26,10 @@ export default function useGetCardTimeline() {
     const client = useQueryClient();
     const subscriber = useId();
     const sessionVersion = useAuthStore((state) => state.getSessionVersion());
+    const identityVersion = useAuthStore((state) => state.getIdentityVersion());
     const queryKey = useMemo(
-        () => ["card-timeline", currentUser.uid, sessionVersion, projectUID, card.uid],
-        [currentUser.uid, sessionVersion, projectUID, card.uid]
+        () => ["card-timeline", currentUser.uid, identityVersion, projectUID, card.uid],
+        [currentUser.uid, identityVersion, projectUID, card.uid]
     );
     const editing = useEditorStore(
         (state) => !!state.currentEditor?.startsWith(`${card.uid}-comment-`) && state.currentEditor !== `${card.uid}-comment-form`
@@ -40,10 +41,16 @@ export default function useGetCardTimeline() {
         queryKey,
         initialPageParam: undefined as string | undefined,
         queryFn: async ({ pageParam, signal }) => {
+            const requestSession = useAuthStore.getState().getSessionVersion();
             const url = Utils.String.format(`${Routing.API.ACTIVITIY.CARD}/timeline`, { uid: projectUID, card_uid: card.uid });
             const { data } = await api.get<CardTimelinePage>(url, { params: { before: pageParam }, signal });
             const auth = useAuthStore.getState();
-            if (signal.aborted || auth.currentUser?.uid !== currentUser.uid || auth.getSessionVersion() !== sessionVersion) {
+            if (
+                signal.aborted ||
+                auth.currentUser?.uid !== currentUser.uid ||
+                auth.getSessionVersion() !== requestSession ||
+                auth.getIdentityVersion() !== identityVersion
+            ) {
                 throw new DOMException("Timeline request cancelled", "AbortError");
             }
             ProjectCardComment.Model.fromArray(data.records.flatMap((entry) => (entry.kind === "comment" ? [entry.data] : [])));
@@ -64,6 +71,14 @@ export default function useGetCardTimeline() {
         dirty.current = false;
         void client.invalidateQueries({ queryKey, exact: true });
     }, [client, queryKey]);
+
+    const previousSession = useRef(sessionVersion);
+    useEffect(() => {
+        if (previousSession.current === sessionVersion) return;
+        previousSession.current = sessionVersion;
+        // Same-user credential rotation must not unmount an unsaved editor.
+        refresh();
+    }, [sessionVersion, refresh]);
 
     useEffect(
         () =>
