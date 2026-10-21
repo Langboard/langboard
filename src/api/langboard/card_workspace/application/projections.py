@@ -113,6 +113,34 @@ def public_comment(comment: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+
+def public_card_timeline_entry(event: dict[str, Any], *, inline_comment: bool = False, full_comment_content: bool = False) -> dict[str, Any]:
+    """Project current source evidence without execution keys or model credentials."""
+    result = pick(event, ("kind", "uid", "evidence_ref", "created_at"))
+    data = event["data"]
+    if event["kind"] == "comment":
+        comment = public_comment(data)
+        if full_comment_content:
+            comment["content"] = data.get("content")
+            for key in ("content_format", "content_total_chars", "content_truncated"):
+                comment.pop(key, None)
+        if inline_comment:
+            result.update(comment)
+        else:
+            result["comment"] = comment
+    elif event["kind"] == "activity":
+        result.update({"actor": public_actor(data.get("recorder")),
+                       "from_column": pick(data.get("from_column") or {}, ("name",)),
+                       "to_column": pick(data.get("column") or {}, ("name",))})
+    elif event["kind"] == "compaction":
+        result["summary"] = {
+            **pick(data, ("source_revision", "covered_from", "covered_through", "evidence_refs")),
+            "claims": [pick(claim, ("kind", "text", "evidence_refs")) for claim in data["draft"]["claims"]],
+        }
+    else:
+        raise ValueError("Unsupported card timeline entry")
+    return result
+
 def public_attachment(attachment: dict[str, Any]) -> dict[str, Any]:
     """Project attachment metadata without bytes, storage paths, or user email."""
 

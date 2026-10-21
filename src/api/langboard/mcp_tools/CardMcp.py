@@ -45,10 +45,10 @@ from ..card_workspace.application.context_profiles import ContextProfile
 from ..card_workspace.application.dtos import BoundedItemsDto
 from ..card_workspace.application.projections import (
     bounded_items,
-    pick,
-    public_actor,
+    bounded_text,
     public_attachment,
     public_card_summary,
+    public_card_timeline_entry,
     public_checkitem,
     public_checklist,
     public_comment,
@@ -870,9 +870,10 @@ def apply_card_work_plan(
 
 
 @McpTool.add(description=(
-    "Read one bounded card timeline of comments and committed moves in creation order. "
-    "Moves expose the original actor, source and destination column, time, and evidence_ref. "
-    "Follow next_cursor unchanged. Missing historical source columns are not inferred. This never marks the card read."
+    "Read current compact card context: summaries, uncovered comments and committed moves. "
+    "For originals pass entry uid as compaction_uid and follow next_cursor. For full cited content also pass evidence_ref; "
+    "follow its source.next_cursor as content_cursor with the same scope. "
+    "Moves retain original actor and source/destination columns. No read mark or model generation."
 ))
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def get_card_timeline(
@@ -881,24 +882,37 @@ def get_card_timeline(
     user_or_bot: User | Bot,
     service: DomainService,
     before: Annotated[str | None, Field(max_length=64)] = None,
+    compaction_uid: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9]{1,64}$")] = None,
+    evidence_ref: Annotated[str | None, Field(pattern=r"^(comment|activity):[A-Za-z0-9]{1,32}$")] = None,
+    content_cursor: Annotated[str | None, Field(max_length=2048)] = None,
 ) -> dict[str, Any]:
+    from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
+    from ..card_workspace.domain import SectionCursor
+
+    if evidence_ref and (not compaction_uid or before) or content_cursor and not evidence_ref:
+        raise ValidationError("INVALID_EVIDENCE_REQUEST: Use compaction_uid and evidence_ref without before.")
     resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
     if resolved is None:
         raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.")
     project, card, _ = resolved
-    page = service.activity.get_card_timeline(project, card, before=before)
-    records = []
-    for event in page["records"]:
-        item = pick(event, ("kind", "uid", "evidence_ref", "created_at"))
-        if event["kind"] == "comment":
-            item["comment"] = public_comment(event["data"])
+    try:
+        if compaction_uid:
+            page = service.card_comment_compaction.get_evidence(user_or_bot, project, card, compaction_uid,
+                before=before, evidence_ref=evidence_ref, channel=CollaborationChannel.Mcp)
         else:
-            data = event["data"]
-            item.update({"actor": public_actor(data.get("recorder")),
-                         "from_column": pick(data.get("from_column") or {}, ("name",)),
-                         "to_column": pick(data.get("column") or {}, ("name",))})
-        records.append(item)
-    return {"records": records, "next_cursor": page["next_cursor"]}
+            page = service.card_comment_compaction.get_view(user_or_bot, project, card, before=before, channel=CollaborationChannel.Mcp)
+    except CommentCompactionError as error:
+        raise ValidationError(f"COMMENT_CONTEXT_UNAVAILABLE: {error.code}. Refresh current card context.") from error
+    if evidence_ref:
+        section = f"comment-evidence:{card.get_uid()}:{page['compaction_uid']}:{evidence_ref}:{page['source_revision']}"
+        cursor = SectionCursor.decode(content_cursor) if content_cursor else None
+        if cursor and cursor.section != section:
+            raise ValidationError("INVALID_EVIDENCE_CURSOR: Restart current source evidence.")
+        source = bounded_text(public_card_timeline_entry(page["records"][0], full_comment_content=True), section,
+                              cursor.offset if cursor else 0, cursor.revision if cursor else None)
+        return {"evidence_ref": evidence_ref, "compaction_uid": compaction_uid,
+                "source_revision": page["source_revision"], "source": source.model_dump(mode="json")}
+    return {"records": [public_card_timeline_entry(event) for event in page["records"]], "next_cursor": page["next_cursor"]}
 
 
 @McpTool.add(

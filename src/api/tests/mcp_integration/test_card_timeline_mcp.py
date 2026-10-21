@@ -13,8 +13,10 @@ from langboard_shared.domain.models import (
     Bot,
     Card,
     CardComment,
+    CardCommentCompaction,
     CardCommentReaction,
     EmployeeMembershipPolicy,
+    InternalBot,
     ProjectActivity,
 )
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
@@ -26,7 +28,7 @@ async def test_real_mcp_timeline_checks_current_owner_and_preserves_evidence(boa
     _, actor, project, _, _, columns, *_ = board
     engine = DbEngine.get_main_engine()
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
-    for model in (Bot, Card, CardComment, CardCommentReaction, EmployeeMembershipPolicy, ProjectActivity):
+    for model in (Bot, Card, CardComment, CardCommentReaction, EmployeeMembershipPolicy, ProjectActivity, InternalBot, CardCommentCompaction):
         model.__table__.create(engine)
     with DbSession.atomic() as db:
         card = Card(project_id=project.id, project_column_id=columns[0].id, title="Private evidence",

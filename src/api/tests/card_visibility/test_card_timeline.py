@@ -153,8 +153,8 @@ def test_mcp_timeline_uses_current_visibility_and_public_snapshots(timeline, cur
          "data": {"uid": "comment", "content": {"content": "bounded comment"},
                   "user": {"uid": "actor", "firstname": "Original", "email": "private@example.invalid"}}},
     ], "next_cursor": "activity:next"}
-    activity = SimpleNamespace(get_card_timeline=Mock(return_value=page))
-    service = SimpleNamespace(card=card_service, activity=activity)
+    activity = SimpleNamespace(get_view=Mock(return_value=page))
+    service = SimpleNamespace(card=card_service, card_comment_compaction=activity)
     result = CardMcp.get_card_timeline(project.get_uid(), card.get_uid(), user, service, "activity:before")
     assert result["next_cursor"] == "activity:next"
     move = result["records"][0]
@@ -162,11 +162,11 @@ def test_mcp_timeline_uses_current_visibility_and_public_snapshots(timeline, cur
     assert move["from_column"] == {"name": "Before"} and move["to_column"] == {"name": "After"}
     assert move["evidence_ref"] == "activity:source"
     assert "secret" not in str(result) and "private@example.invalid" not in str(result)
-    activity.get_card_timeline.assert_called_once()
+    activity.get_view.assert_called_once()
     with DbSession.use(readonly=False) as db:
         card.owner_user_id = user.id + 1
         card.created_by_user_id = card.owner_user_id
         db.update(card)
     with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
         CardMcp.get_card_timeline(project.get_uid(), card.get_uid(), user, service)
-    assert activity.get_card_timeline.call_count == 1
+    assert activity.get_view.call_count == 1

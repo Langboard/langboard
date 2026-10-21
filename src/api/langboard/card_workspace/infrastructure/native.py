@@ -267,11 +267,20 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         resolved = self._service.card.resolve_readable_card(None, card_uid, self._actor, self._channel)
         if resolved is None:
             raise ValueError("Card not found in project")
-        before = SafeDateTime.fromisoformat(before_created_at) if before_created_at else None
-        items, total_count, next_fields = self._service.card_comment.get_api_page_by_card(
-            card_uid, limit, before, before_comment_uid
-        )
-        return CommentPageSource(items, total_count, next_fields)
+        project, card, _ = resolved
+        before = before_comment_uid
+        if before and ":" not in before:
+            before = f"comment:{before}"
+        page = self._service.card_comment_compaction.get_view(self._actor, project, card, before=before, channel=self._channel)
+        items = page["records"][:limit]
+        more = len(page["records"]) > limit or page["next_cursor"] is not None
+        next_fields = None
+        if more and items:
+            last = items[-1]
+            anchor = last["data"]["range_end"] if last["kind"] == "compaction" else last["evidence_ref"]
+            created_at = last["created_at"]
+            next_fields = (created_at.isoformat() if hasattr(created_at, "isoformat") else created_at, anchor)
+        return CommentPageSource(items, page["total_count"], next_fields)
 
     def get_project_identity(self, project_uid: str) -> dict[str, Any] | None:
         project = self._service.project.get_by_id_like(project_uid)

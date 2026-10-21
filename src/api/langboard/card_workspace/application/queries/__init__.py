@@ -43,6 +43,7 @@ from ..projections import (
     public_bot_schedule,
     public_bot_scope,
     public_card_summary,
+    public_card_timeline_entry,
     public_checklist,
     public_comment,
     public_label,
@@ -319,7 +320,7 @@ def _comment_page(
 ) -> BoundedItemsDto:
     next_cursor = CommentCursor(*next_fields).encode() if next_fields else None
     return BoundedItemsDto(
-        items=[public_comment(item) for item in items[:limit]],
+        items=[public_card_timeline_entry(item, inline_comment=True) if "kind" in item else public_comment(item) for item in items[:limit]],
         total_count=total_count,
         next_cursor=next_cursor,
         limit=limit,

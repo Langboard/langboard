@@ -61,7 +61,7 @@ class CardWorkspaceQueryPort(Protocol):
         before_created_at: str | None,
         before_comment_uid: str | None,
     ) -> CommentPageSource:
-        """Load one newest-first comment page."""
+        """Load one newest-first page of current compact comment context."""
 
     def get_project_identity(self, project_uid: str) -> dict[str, Any] | None:
         """Load the minimal identity of one accessible project."""

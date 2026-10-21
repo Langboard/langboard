@@ -564,3 +564,114 @@ def test_view_recovers_own_pending_request_even_when_newer_completed_records_fil
     current = service.get_view(actor, project, card)
     assert [row["uid"] for row in current["in_flight"]] == [pending.get_uid()]
     assert current["in_flight"][0]["request_key"] == pending.request_key
+
+
+async def test_real_mcp_compact_defaults_and_scoped_original_fragments(compact_command, monkeypatch):
+    from langboard.mcp_tools import CardMcp
+    assert CardMcp.get_card_timeline and CardMcp.get_card_bundle
+    from types import SimpleNamespace
+    from fastmcp import Client
+    from langboard.card_workspace.domain import CommentCursor
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_integration.Tool import McpTool
+    from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+    from langboard_shared.core.db import BaseDbModel
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+
+    service, actor, project, card, binding, comment, move, _ = compact_command
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    from langboard_shared.domain.models import CardExecutionGeneration
+    BaseDbModel.metadata.create_all(DbEngine.get_main_engine())
+    CardExecutionGeneration.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    long_text = "Original private comment " + "long source evidence " * 1100
+    with DbSession.atomic() as db:
+        card.visibility, card.owner_user_id, card.created_by_user_id = "PRIVATE", actor.id, actor.id
+        db.update(card)
+        comment.content = EditorContentModel(content=long_text)
+        db.update(comment)
+    model = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", model)
+    summary = await service.generate(actor, project, card, channel=CollaborationChannel.Mcp)
+    names = ("get_card_timeline", "get_card_bundle")
+    metadata = {name: McpTool.get_tool(name) for name in names}
+    monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
+    monkeypatch.setattr(McpTool, "get_tool", lambda key: metadata.get(key))
+    _, server = McpServer.get_http_app("agent")
+    token = mcp_auth_context.set({"tool_group": SimpleNamespace(activated_at=object(), tools=list(names)), "user_or_bot": actor})
+    arguments = {"project_uid": project.get_uid(), "card_uid": card.get_uid()}
+    try:
+        async with Client(server) as client:
+            tools = {tool.name: tool for tool in await client.list_tools()}
+            assert "compaction_uid" in tools["get_card_timeline"].inputSchema["properties"]
+            default = await client.call_tool("get_card_timeline", arguments)
+            assert not default.is_error, default
+            assert [item["kind"] for item in default.data["records"]] == ["compaction"]
+            text = json.dumps(default.data, default=str)
+            assert long_text[:100] not in text and "fixture-private-model-key" not in text
+            assert "request_key" not in text and "provider_revision" not in text
+            assert f"comment:{comment.get_uid()}" in text and f"activity:{move.get_uid()}" in text
+            bundle = await client.call_tool("get_card_bundle", {**arguments, "include": ["comments"]})
+            assert not bundle.is_error, bundle
+            data = bundle.structured_content
+            assert [item["kind"] for item in data["card"]["comments"]["items"]] == ["compaction"]
+            originals = await client.call_tool("get_card_timeline", {**arguments, "compaction_uid": summary["uid"]})
+            assert {item["kind"] for item in originals.data["records"]} == {"comment", "activity"}
+            source_args = {**arguments, "compaction_uid": summary["uid"], "evidence_ref": f"comment:{comment.get_uid()}"}
+            fragments = []
+            cursor = None
+            while True:
+                fragment = await client.call_tool("get_card_timeline", {**source_args, **({"content_cursor": cursor} if cursor else {})})
+                assert not fragment.is_error, fragment
+                source = fragment.data["source"]
+                assert len(source["content"]) <= 8000
+                fragments.append(source["content"])
+                cursor = source["next_cursor"]
+                if not cursor:
+                    break
+            assert len(fragments) >= 3
+            recovered = json.loads("".join(fragments))
+            assert recovered["comment"]["content"]["content"] == long_text
+            assert "fixture-private-model-key" not in str(recovered)
+            first_fragment = await client.call_tool("get_card_timeline", source_args)
+            cursor = first_fragment.data["source"]["next_cursor"]
+            foreign = await client.call_tool("get_card_timeline", {**source_args, "evidence_ref": "comment:foreign"}, raise_on_error=False)
+            assert foreign.is_error and long_text[:100] not in str(foreign.content)
+            cross_source = await client.call_tool("get_card_timeline", {**source_args, "evidence_ref": f"activity:{move.get_uid()}", "content_cursor": cursor}, raise_on_error=False)
+            assert cross_source.is_error
+            with DbSession.atomic() as db:
+                new_comments = [CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content=f"Uncovered {i}")) for i in range(6)]
+                for row in new_comments:
+                    db.insert(row)
+            from langboard.card_workspace.application import get_card_bundle
+            from langboard.card_workspace.domain import CommentPage, SectionPage
+            from langboard.card_workspace.infrastructure.native import NativeCardWorkspaceAdapter
+            adapter = NativeCardWorkspaceAdapter(actor, DomainService(), channel=CollaborationChannel.Mcp)
+            seen = []
+            after = None
+            while True:
+                result = get_card_bundle(adapter, project.get_uid(), card.get_uid(), CommentPage(limit=2, cursor=after), SectionPage(), include=["comments"])
+                page = result.continuation.page if after else result.card.comments
+                seen.extend(page.items)
+                after = page.next_cursor
+                if not after:
+                    break
+            assert len(seen) == 7 and len({(item["kind"], item["uid"]) for item in seen}) == 7
+            assert seen[-1]["kind"] == "compaction" and all(item["uid"] != comment.get_uid() for item in seen)
+            legacy = CommentCursor(created_at=new_comments[-1].created_at.isoformat(), comment_uid=new_comments[-1].get_uid()).encode()
+            old_page = get_card_bundle(adapter, project.get_uid(), card.get_uid(), CommentPage(limit=20, cursor=legacy), SectionPage(), include=["comments"])
+            assert all(item["uid"] != comment.get_uid() for item in old_page.continuation.page.items)
+            with DbSession.atomic() as db:
+                comment.content = EditorContentModel(content="Changed original")
+                db.update(comment)
+            stale = await client.call_tool("get_card_timeline", {**source_args, "content_cursor": cursor}, raise_on_error=False)
+            assert stale.is_error and long_text[:100] not in str(stale.content)
+            current = await client.call_tool("get_card_timeline", arguments)
+            assert not current.is_error and all(item["kind"] != "compaction" for item in current.data["records"])
+            with DbSession.atomic() as db:
+                card.owner_user_id, card.created_by_user_id = 2, 2
+                db.update(card)
+            denied = await client.call_tool("get_card_timeline", source_args, raise_on_error=False)
+            assert denied.is_error and "Changed original" not in str(denied.content)
+            assert model.await_count == 1
+    finally:
+        mcp_auth_context.reset(token)

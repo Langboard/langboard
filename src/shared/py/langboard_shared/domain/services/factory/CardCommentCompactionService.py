@@ -316,9 +316,10 @@ class CardCommentCompactionService(BaseDomainService):
             return {"records": [entry[1] for entry in page],
                     "next_cursor": page[-1][2] if has_more and page else None,
                     "eligibility": overview["eligibility"],
+                    "total_count": overview["eligibility"]["uncompacted_event_count"] + len(blocks),
                     "in_flight": [self.get(user, project_id, card_id, record.id, channel=channel) for record in own_active]}
 
-    def get_evidence(self, user, project, card, uid, *, before=None, channel=CollaborationChannel.Api):
+    def get_evidence(self, user, project, card, uid, *, before=None, evidence_ref=None, channel=CollaborationChannel.Api):
         """Page original records through the existing timeline on the primary."""
         from .ActivityService import ActivityService
 
@@ -327,6 +328,10 @@ class CardCommentCompactionService(BaseDomainService):
             if current["status"] != "completed":
                 raise CommentCompactionError("compaction_invalidated")
             refs = current["evidence_refs"]
+            if evidence_ref is not None:
+                if evidence_ref not in refs:
+                    raise CommentCompactionError("invalid_evidence_ref", 400)
+                refs = [evidence_ref]
             if before is not None and before not in refs:
                 raise CommentCompactionError("invalid_cursor", 400)
             page = self._get_service(ActivityService).get_card_timeline(project, card, before=before, evidence_refs=refs)
