@@ -1,5 +1,6 @@
 """Deduplicate inference without sharing attachment identity, permissions or cleanup."""
 
+import asyncio
 from datetime import timedelta
 from hashlib import sha256
 from unittest.mock import Mock
@@ -243,11 +244,21 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
     from langboard_shared.tasks.docling import DocumentEmbeddingTask as task
     from langboard_shared.tasks.docling.DocumentRetrievalSettings import DocumentRetrievalSettings
     from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
-    from langboard_shared.tasks.docling.DocumentVectorStore import open_document_vector_store, stage_vector_generation
+    from langboard_shared.tasks.docling.DocumentVectorStore import astage_vector_generation as stage_vector_generation
+    from langboard_shared.tasks.docling.DocumentVectorStore import open_document_vector_store
 
     metadata, card, attachment, document = document_source
     native = DomainService()
-    provider = Provider()
+
+    class AsyncOnlyProvider(Provider):
+        def embed_documents(self, texts):
+            raise AssertionError("The worker must use the official async provider path")
+
+        async def aembed_documents(self, texts):
+            await asyncio.sleep(0)
+            return Provider.embed_documents(self, texts)
+
+    provider = AsyncOnlyProvider()
     snapshot = {"binding_uid": "fixture-binding"}
     with DbSession.atomic() as db:
         other_card = Card(
@@ -295,7 +306,7 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
     try:
         pointers = []
         for source_card, source_attachment in ((card, attachment), (other_card, other)):
-            task.embed_transcription(service, source_attachment.get_uid(), "current")
+            asyncio.run(task.embed_transcription(service, source_attachment.get_uid(), "current"))
             saved = metadata.get_document_by_attachment_uid(CardMetadata, source_card, source_attachment.get_uid())
             assert saved["embedding"]["status"] == "indexed", saved["embedding"]
             pointers.append(saved["embedding"]["pointer"])
@@ -435,3 +446,79 @@ from langboard_shared.tasks.docling import DocumentEmbeddingTask, DocumentCleanu
         timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_async_workers_share_inflight_inference_without_blocking_loop(binding_store):  # noqa: F811
+    provider = Provider()
+
+    async def run():
+        entered, finish = asyncio.Event(), asyncio.Event()
+
+        async def infer(values):
+            entered.set()
+            await finish.wait()
+            return Provider.embed_documents(provider, values)
+
+        provider.aembed_documents = infer
+        provider.embed_documents = Mock(side_effect=AssertionError("sync inference forbidden"))
+        with cached_document_embeddings(provider, **config()) as first:
+            with cached_document_embeddings(provider, **config()) as second:
+                one = asyncio.create_task(first.aembed_documents(["same file"]))
+                await asyncio.wait_for(entered.wait(), 1)
+                two = asyncio.create_task(second.aembed_documents(["same file"]))
+                await asyncio.sleep(0.02)
+                assert not two.done()
+                finish.set()
+                results = await asyncio.wait_for(asyncio.gather(one, two), 2)
+                assert results[0] == results[1]
+                # Store callbacks must reuse warmed vectors without sync inference.
+                assert first.embed_documents(["same file"]) == results[0]
+                retain(first)
+                retain(second)
+        assert len(provider.calls) == 1
+        provider.embed_documents.assert_not_called()
+        release_cache_references(first.token)
+        release_cache_references(second.token)
+        assert rows() == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["timeout", "cancelled", "invalid-vector"])
+def test_async_failure_keeps_finished_batches_and_fences_retry(binding_store, failure):  # noqa: F811
+    provider = Provider()
+    batches = []
+
+    async def infer(values):
+        await asyncio.sleep(0)
+        assert DbSession._atomic_session.get() is None
+        batches.append(list(values))
+        if len(batches) == 3:
+            if failure == "cancelled":
+                raise asyncio.CancelledError()
+            if failure == "timeout":
+                raise TimeoutError("uncertain response")
+            return [[float("nan"), 2.0, 3.0] for _ in values]
+        return [[float(len(text)), 2.0, 3.0] for text in values]
+
+    provider.aembed_documents = infer
+    provider.embed_documents = Mock(side_effect=AssertionError("sync inference forbidden"))
+    texts = [f"chunk-{index}" for index in range(70)]
+
+    async def run():
+        error = {"timeout": TimeoutError, "cancelled": asyncio.CancelledError, "invalid-vector": ValueError}[failure]
+        with pytest.raises(error):
+            with cached_document_embeddings(provider, **config()) as first:
+                await first.aembed_documents(texts)
+        assert sum(row.vector is not None for row in rows()) == 64
+        with cached_document_embeddings(provider, **config()) as retry:
+            assert len(await retry.aembed_documents(texts)) == 70
+            retain(retry)
+        assert [len(batch) for batch in batches] == [32, 32, 6, 6]
+        assert batches[2] == batches[3]
+        provider.embed_documents.assert_not_called()
+        release_cache_references(first.token)
+        release_cache_references(retry.token)
+        assert rows() == []
+
+    asyncio.run(run())

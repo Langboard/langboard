@@ -4,6 +4,7 @@ Only content hashes, vectors and opaque generation references are persisted.
 Short primary transactions fence inference; no database lock spans a model call.
 """
 
+import asyncio
 import re
 import time
 from contextlib import contextmanager
@@ -122,6 +123,7 @@ class CachedDocumentEmbeddings:
         self.token = uuid4().hex
         self.retained = False
         self.uncertain = False
+        self._ready = {}
 
     def retain(self):
         self.retained = True
@@ -213,10 +215,48 @@ class CachedDocumentEmbeddings:
                 raise EmbeddingCacheUnavailable("Inference lease no longer belongs to this attempt")
 
     def embed_documents(self, texts):
+        steps = self._embedding_steps(texts)
+        result = None
+        while True:
+            try:
+                operation, values = steps.send(result)
+            except StopIteration as done:
+                return done.value
+            try:
+                if operation == "embed":
+                    result = self.embeddings.embed_documents(values)
+                else:
+                    time.sleep(values)
+                    result = None
+            except BaseException as error:
+                steps.throw(error)
+                raise
+
+    async def aembed_documents(self, texts):
+        steps = self._embedding_steps(texts)
+        result = None
+        while True:
+            try:
+                operation, values = steps.send(result)
+            except StopIteration as done:
+                return done.value
+            try:
+                if operation == "embed":
+                    result = await self.embeddings.aembed_documents(values)
+                else:
+                    await asyncio.sleep(values)
+                    result = None
+            except BaseException as error:
+                steps.throw(error)
+                raise
+
+    def _embedding_steps(self, texts):
         if not isinstance(texts, list) or any(not isinstance(text, str) for text in texts):
             raise ValueError("Embedding input must be a list of strings")
         if not texts:
             return []
+        if all(text in self._ready for text in texts):
+            return [self._ready[text] for text in texts]
         unique = {self._key(text): text for text in texts}
         entries, vectors, owned = {}, {}, {}
         attempted = False
@@ -238,7 +278,7 @@ class CachedDocumentEmbeddings:
                 self._renew_claims([identifier for _, identifier in remaining])
                 batch = remaining[:INFERENCE_BATCH_SIZE]
                 attempted = True
-                generated = self.embeddings.embed_documents([unique[key] for key, _ in batch])
+                generated = yield "embed", [unique[key] for key, _ in batch]
                 with DbSession.atomic() as db:
                     for (key, identifier), vector in zip(batch, generated, strict=True):
                         changed = db.exec(
@@ -274,7 +314,7 @@ class CachedDocumentEmbeddings:
                     break
                 if time.monotonic() >= deadline:
                     raise EmbeddingCacheUnavailable("Concurrent inference remains pending")
-                time.sleep(0.1)
+                yield "wait", 0.1
 
             from langchain_core.embeddings import Embeddings
 
@@ -287,12 +327,17 @@ class CachedDocumentEmbeddings:
                     raise NotImplementedError
 
             self_key = self._key
-            return validated_embeddings(CachedResults(), self.namespace[-1]).embed_documents(texts)
+            result = validated_embeddings(CachedResults(), self.namespace[-1]).embed_documents(texts)
+            self._ready.update(zip(texts, result, strict=True))
+            return result
         except BaseException:
             self.uncertain = attempted
             if owned:
                 self._release_claims(list(owned.values()), attempted=attempted)
             raise
+
+    async def aembed_query(self, text):
+        return await self.embeddings.aembed_query(text)
 
     def embed_query(self, text):
         # User queries are never persisted in an attachment-content cache.

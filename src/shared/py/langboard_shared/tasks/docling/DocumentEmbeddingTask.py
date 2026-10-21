@@ -18,7 +18,9 @@ from .DocumentVectorStore import (
     delete_vector_generation,
     open_document_vector_store,
     open_qdrant_store,
-    stage_vector_generation,
+)
+from .DocumentVectorStore import (
+    astage_vector_generation as stage_vector_generation,
 )
 
 
@@ -28,7 +30,7 @@ async def index_transcribed_attachment(request: str):
     try:
         payload = loads(request)
         if isinstance(payload, dict):
-            embed_transcription(
+            await embed_transcription(
                 service, payload.get("attachment_uid"), payload.get("generation"), payload.get("request_uid")
             )
     finally:
@@ -89,7 +91,7 @@ def _remove_recorded_vectors(pointer: dict) -> None:
         service.close()
 
 
-def embed_transcription(service, attachment_uid: str, generation: str, request_uid: str | None = None) -> None:
+async def embed_transcription(service, attachment_uid: str, generation: str, request_uid: str | None = None) -> None:
     if not isinstance(attachment_uid, str) or not isinstance(generation, str):
         return
     attachment = service.card_attachment.get_by_id_like(attachment_uid)
@@ -170,8 +172,9 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
                         dimensions=settings.dimensions,
                         collection_prefix=settings.collection_prefix,
                     )
-                pointer = stage_vector_generation(
+                pointer = await stage_vector_generation(
                     store,
+                    embeddings=cache,
                     source=source,
                     text=(document.get("content") or {}).get("markdown", ""),
                     document_json=service.docling_metadata.get_structural_document(

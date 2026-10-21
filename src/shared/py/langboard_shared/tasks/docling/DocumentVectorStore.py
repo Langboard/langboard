@@ -126,6 +126,25 @@ def stage_vector_generation(
     store: "VectorStore", *, source: dict, text: str, splitter, storage: dict, document_json: dict | None = None
 ) -> dict:
     """No active pointer changes until the caller's authoritative source fence commits."""
+    chunks, pointer = _prepare_vector_generation(
+        source=source, text=text, splitter=splitter, storage=storage, document_json=document_json
+    )
+    return _write_vector_generation(store, chunks, pointer)
+
+
+async def astage_vector_generation(
+    store: "VectorStore", *, embeddings, source: dict, text: str, splitter, storage: dict,
+    document_json: dict | None = None,
+) -> dict:
+    """Await native provider inference; the store consumes already validated cached vectors."""
+    chunks, pointer = _prepare_vector_generation(
+        source=source, text=text, splitter=splitter, storage=storage, document_json=document_json
+    )
+    await embeddings.aembed_documents([chunk.page_content for chunk in chunks])
+    return _write_vector_generation(store, chunks, pointer)
+
+
+def _prepare_vector_generation(*, source, text, splitter, storage, document_json):
     if not all(
         isinstance(source.get(key), str) and source[key]
         for key in ("board_uid", "card_uid", "attachment_uid", "content_hash", "embedding_fingerprint")
@@ -144,6 +163,11 @@ def stage_vector_generation(
         raise ValueError("Attachment exceeds the embedding chunk limit")
     ids = [str(uuid4()) for _ in chunks]
     pointer = {**source, "generation": generation, "chunk_count": len(chunks), "chunk_ids": ids, "storage": storage}
+    return chunks, pointer
+
+
+def _write_vector_generation(store, chunks, pointer):
+    ids = pointer["chunk_ids"]
     try:
         returned = store.add_documents(chunks, ids=ids)
         if returned != ids:

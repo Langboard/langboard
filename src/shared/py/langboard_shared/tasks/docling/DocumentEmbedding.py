@@ -122,6 +122,15 @@ def validated_embeddings(embeddings: "Embeddings", dimensions: int) -> "Embeddin
         def embed_query(self, text: str) -> list[float]:
             return self._validate(embeddings.embed_query(text))
 
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            vectors = await embeddings.aembed_documents(texts)
+            if len(vectors) != len(texts):
+                raise ValueError("Embedding provider returned an unexpected vector count")
+            return [self._validate(vector) for vector in vectors]
+
+        async def aembed_query(self, text: str) -> list[float]:
+            return self._validate(await embeddings.aembed_query(text))
+
         @staticmethod
         def _validate(vector: list[float]) -> list[float]:
             if len(vector) != dimensions or any(
