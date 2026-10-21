@@ -64,3 +64,49 @@ def has_allowed_ips(whitelist: list[str] | str | None, ips: list[str] | str | No
                 return True
 
     return False
+
+
+def is_ip_in_trusted_proxies(ip: str, trusted_proxies: list[str]) -> bool:
+    """Check an exact IP against a list of IPs or CIDR ranges."""
+    if not ip:
+        return False
+    for proxy in trusted_proxies:
+        if not proxy:
+            continue
+        if proxy == ip:
+            return True
+        if "/" in proxy and is_ipv4_in_range(ip, proxy):
+            return True
+    return False
+
+
+def resolve_client_ip(
+    peer_ip: str | None,
+    x_forwarded_for: str | None,
+    trusted_proxies: list[str],
+) -> str | None:
+    """Resolve the client IP, trusting forwarded headers only from trusted proxies.
+
+    The peer address is the only source the client cannot forge. When the peer is
+    a trusted proxy, X-Forwarded-For is walked right-to-left while each hop is a
+    trusted proxy; the first non-trusted hop (or the leftmost entry) is the
+    client. When the peer is NOT a trusted proxy, all forwarded headers are
+    attacker-controlled and ignored — the peer itself is the client. Returns
+    None when no address can be established (callers must fail closed).
+    """
+    peer = peer_ip.strip() if isinstance(peer_ip, str) else ""
+    if not peer:
+        return None
+    if not is_ip_in_trusted_proxies(peer, trusted_proxies):
+        return peer
+
+    hops = [hop.strip() for hop in (x_forwarded_for or "").split(",") if hop.strip()]
+    if not hops:
+        return peer
+    # Walk right-to-left while hops are trusted proxies; the first non-trusted
+    # hop is the client. If every hop is trusted, the leftmost entry is the
+    # originating client.
+    for hop in reversed(hops):
+        if not is_ip_in_trusted_proxies(hop, trusted_proxies):
+            return hop
+    return hops[0]

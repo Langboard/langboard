@@ -200,8 +200,11 @@ class Auth:
             return status.HTTP_401_UNAUTHORIZED
 
     @staticmethod
-    def validate_bot(headers: Headers) -> Bot | Literal[401]:
-        ips = AuthSecurity.get_all_client_ips(headers)
+    def validate_bot(headers: Headers, client_ip: str | None = None) -> Bot | Literal[401]:
+        """client_ip must be resolved via AuthSecurity.resolve_client_ip (peer +
+        trusted proxies). None means it could not be established: IP-restricted
+        keys fail closed."""
+        ips = [client_ip] if client_ip else []
         api_token = headers.get(AuthSecurity.API_TOKEN_HEADER, headers.get(AuthSecurity.API_TOKEN_HEADER.lower(), None))
         if not api_token:
             return status.HTTP_401_UNAUTHORIZED
@@ -245,8 +248,9 @@ class Auth:
         return user
 
     @staticmethod
-    def validate_user_by_api_key(headers: Headers) -> tuple[User, ApiKeySetting] | Literal[401]:
-        ips = AuthSecurity.get_all_client_ips(headers)
+    def validate_user_by_api_key(headers: Headers, client_ip: str | None = None) -> tuple[User, ApiKeySetting] | Literal[401]:
+        """See validate_bot for the client_ip contract (fail-closed on None)."""
+        ips = [client_ip] if client_ip else []
         key_material = headers.get(AuthSecurity.API_KEY_HEADER, headers.get(AuthSecurity.API_KEY_HEADER.lower(), None))
         if not key_material:
             return status.HTTP_401_UNAUTHORIZED
