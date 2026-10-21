@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+import test_registry
 from langboard.card_workspace.application.queries import get_card_bundle
 from langboard.card_workspace.domain import CommentPage, SectionPage
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
@@ -10,7 +11,7 @@ from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepositor
 from test_registry import form
 
 
-pytest_plugins = ["test_registry"]
+registry = test_registry.registry
 
 
 @pytest.mark.parametrize("active", [True, False])
