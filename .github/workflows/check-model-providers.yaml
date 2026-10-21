@@ -42,5 +42,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra image-generation
       - run: uv run --no-sync pytest -q src/api/tests/model_providers
