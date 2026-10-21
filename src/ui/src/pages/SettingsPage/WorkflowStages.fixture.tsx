@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser } from "@/core/models";
 import WorkflowStagesPage from "./WorkflowStagesPage";
+import useAuthStore from "@/core/stores/AuthStore";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const currentUser = AuthUser.Model.fromOne({
@@ -20,6 +21,8 @@ const currentUser = AuthUser.Model.fromOne({
     api_key_role_actions: [],
     mcp_role_actions: [],
 });
+useAuthStore.setState({ currentUser, state: "loaded", getToken: () => "workflow-local-fixture" });
+window.addEventListener("workflow-fixture-logout", () => useAuthStore.setState({ currentUser: null }));
 createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={new QueryClient()}>
         <WorkflowStagesPage currentUser={currentUser} />

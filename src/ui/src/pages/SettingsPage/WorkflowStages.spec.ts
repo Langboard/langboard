@@ -23,6 +23,140 @@ const existing = (): IWorkflowStage => ({
     },
 });
 
+const effectRun = (uid: string, started = "2026-10-21T03:00:00Z") => ({
+    uid,
+    source: "entry",
+    status: "succeeded",
+    effects: ["complete_checkitems", "stop_running_timers"],
+    started_at: started,
+    finished_at: started,
+    duration_ms: 1234,
+    result: { completed: 3, stopped: 2 },
+    project_uid: "board-source",
+    card_uid: "card-source",
+    actor_uid: "qa",
+    actor_type: "user",
+});
+
+for (const width of [1440, 390]) {
+    test(`workflow effect history ${width}px pages without writes, preserves draft and hides revoked results`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        let writes = 0;
+        let denied = false;
+        const cursors: (string | null)[] = [];
+        await page.route("**/settings/workflow-stages**", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            if (route.request().method() !== "GET") {
+                writes++;
+                return route.fulfill({ status: 500 });
+            }
+            const url = new URL(route.request().url());
+            if (!url.pathname.endsWith("/history")) return route.fulfill({ json: { stages: [existing()] } });
+            if (denied) return route.fulfill({ status: 403, json: {} });
+            cursors.push(url.searchParams.get("before"));
+            return route.fulfill({
+                json: url.searchParams.has("before")
+                    ? { items: [effectRun("one"), effectRun("two")], next_cursor: null }
+                    : { items: [effectRun("one")], next_cursor: "one" },
+            });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByLabel("Stage name", { exact: true }).fill("Unsaved stage");
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        const history = page.getByRole("region", { name: "Effect history", exact: true });
+        await expect(history.getByText("Succeeded", { exact: true })).toHaveCount(1);
+        await history.getByText("Effect details", { exact: true }).click();
+        await expect(history.getByText("Completed items: 3", { exact: true })).toBeVisible();
+        await expect(history.getByRole("link", { name: "Open card" })).toHaveAttribute("href", "/board/board-source/card-source");
+        await expect(history.getByRole("link", { name: "Open card" })).toHaveAttribute("target", "_blank");
+        await history.getByRole("button", { name: "More history" }).click();
+        await expect(history.getByText("Succeeded", { exact: true })).toHaveCount(2);
+        await page.getByRole("dialog").screenshot({ path: `.verification/workflow-history-${width}-light.png` });
+        await page.evaluate(() => document.documentElement.classList.add("dark"));
+        const darkBackground = await page.locator("body").evaluate((element) => getComputedStyle(element).backgroundColor);
+        expect(darkBackground).not.toBe("rgb(255, 255, 255)");
+        await expect(page.getByRole("dialog")).toHaveCSS("background-color", darkBackground);
+        await page.getByRole("dialog").screenshot({ path: `.verification/workflow-history-${width}-dark.png` });
+        expect(cursors).toContain("one");
+        expect(writes).toBe(0);
+        denied = true;
+        await history.getByRole("button", { name: "Refresh" }).click();
+        await expect(history.getByRole("alert")).toContainText("Could not load effect history");
+        await expect(history.getByText("Succeeded", { exact: true })).toHaveCount(0);
+        await page.getByRole("tab", { name: "Settings", exact: true }).click();
+        await expect(page.getByLabel("Stage name", { exact: true })).toHaveValue("Unsaved stage");
+        expect(writes).toBe(0);
+    });
+
+    test(`workflow history ${width}px ignores late stage response and clears after logout`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        let release!: () => void;
+        let oldRequested = false;
+        let oldFinished = false;
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const review = {
+            ...existing(),
+            uid: "review-stage",
+            key: "review",
+            name: "Review",
+            translations: { ...existing().translations, en: { name: "Review", description: "Review work" } },
+        };
+        await page.route("**/settings/workflow-stages**", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            const url = new URL(route.request().url());
+            if (!url.pathname.endsWith("/history")) return route.fulfill({ json: { stages: [existing(), review] } });
+            if (url.pathname.includes("/existing/")) {
+                oldRequested = true;
+                await pending;
+            }
+            await route.fulfill({
+                json: {
+                    items: [effectRun("run", url.pathname.includes("/existing/") ? "2020-01-01T00:00:00Z" : "2026-10-21T03:00:00Z")],
+                    next_cursor: null,
+                },
+            });
+            if (url.pathname.includes("/existing/")) oldFinished = true;
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        await expect.poll(() => oldRequested).toBe(true);
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: /^Review/ }).click();
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        await expect(page.locator("time")).toHaveAttribute("datetime", "2026-10-21T03:00:00Z");
+        release();
+        await expect.poll(() => oldFinished).toBe(true);
+        await expect(page.locator("time")).toHaveAttribute("datetime", "2026-10-21T03:00:00Z");
+        await page.evaluate(() => window.dispatchEvent(new Event("workflow-fixture-logout")));
+        await expect(page.getByRole("alert")).toContainText("History access unavailable");
+        await expect(page.locator("time")).toHaveCount(0);
+    });
+
+    test(`workflow history ${width}px keyboard navigation, empty state and unsaved stage guard`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.route("**/settings/workflow-stages**", (route) =>
+            route.fulfill({
+                json: new URL(route.request().url()).pathname.endsWith("/history") ? { items: [], next_cursor: null } : { stages: [existing()] },
+            })
+        );
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByRole("tab", { name: "Settings", exact: true }).focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(page.getByRole("tab", { name: "History", exact: true })).toHaveAttribute("aria-selected", "true");
+        await expect(page.getByText("No recorded effects", { exact: true })).toBeVisible();
+        await page.keyboard.press("Home");
+        await expect(page.getByLabel("Machine key", { exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "New stage", exact: true }).click();
+        await expect(page.getByRole("tab", { name: "History", exact: true })).toBeDisabled();
+    });
+}
+
 test("workflow stage submission owns one write before pending render and releases after conflict", async ({ page }) => {
     let writes = 0;
     let release!: () => void;
