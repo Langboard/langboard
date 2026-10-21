@@ -18,6 +18,8 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/DashboardPage/components/ProjectDiscovery";
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
+import ProjectCollectionTree from "./ProjectCollectionTree";
+import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectCollectionDialog from "./ProjectCollectionDialog";
 import useProjectCollections from "./useProjectCollections";
 
@@ -257,32 +259,18 @@ export default function ProjectExplorerSidebar({
                                             {t("dashboard.Reload project collections")}
                                         </Button>
                                     )}
-                                    {collections.collections.map((collection) => (
-                                        <details key={collection.uid} className="min-w-0 py-1">
-                                            <summary className="cursor-pointer truncate px-2 text-sm">{collection.name}</summary>
-                                            <div className="pl-3">
-                                                {collection.board_uids.map((uid) => {
-                                                    const project = projects.find((project) => project.uid === uid);
-                                                    return project ? (
-                                                        <ProjectExplorerItem
-                                                            key={uid}
-                                                            project={project}
-                                                            active={currentProjectUID === uid}
-                                                            onNavigate={onNavigate}
-                                                            onClick={() => {
-                                                                navigate(ROUTES.BOARD.MAIN(uid));
-                                                                onNavigate?.();
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <p key={uid} className="px-2 py-1 text-xs text-muted-foreground">
-                                                            {t("dashboard.Board unavailable")}
-                                                        </p>
-                                                    );
-                                                })}
-                                            </div>
-                                        </details>
-                                    ))}
+                                    {collections.collections.length > 0 && (
+                                        <ProjectCollectionTree
+                                            collections={collections.collections}
+                                            projects={projects}
+                                            busy={collections.busy}
+                                            save={collections.save}
+                                            navigate={(uid) => {
+                                                navigate(ROUTES.BOARD.MAIN(uid));
+                                                onNavigate?.();
+                                            }}
+                                        />
+                                    )}
                                 </>
                             )}
                             {displayed.map((project) => (
@@ -334,6 +322,12 @@ function ProjectExplorerItem({
             <button
                 type="button"
                 onClick={onClick}
+                draggable
+                onDragStart={(event) => {
+                    event.stopPropagation();
+                    event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
+                    event.dataTransfer.effectAllowed = "copy";
+                }}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                     "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",

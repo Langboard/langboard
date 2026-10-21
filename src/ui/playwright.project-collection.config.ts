@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/pages/DashboardPage/components",
-    testMatch: "ProjectCollection.spec.ts",
+    testMatch: ["ProjectCollection.spec.ts", "ProjectCollectionTree.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4210", channel: "chrome", headless: true },

@@ -134,5 +134,9 @@
   "Created boards are kept if you cancel": "묶음 추가를 취소해도 생성한 보드는 유지됩니다.",
   "Could not save collection": "저장하지 못했습니다. 선택 내용은 유지됩니다. 저장된 묶음을 다시 불러온 뒤 재시도하세요.",
   "Board unavailable": "접근할 수 없는 보드",
-  "Reload project collections": "프로젝트 묶음 다시 불러오기"
+  "Reload project collections": "프로젝트 묶음 다시 불러오기",
+  "Collection actions": "프로젝트 묶음 작업",
+  "Sort boards by name": "보드 이름순 정렬",
+  "Move collection up": "묶음 위로 이동",
+  "Move collection down": "묶음 아래로 이동"
 }

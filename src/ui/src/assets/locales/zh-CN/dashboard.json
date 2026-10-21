@@ -134,5 +134,9 @@
   "Created boards are kept if you cancel": "取消分组时已创建的看板仍会保留。",
   "Could not save collection": "保存失败，已保留您的选择。重新加载分组后重试。",
   "Board unavailable": "无法访问的看板",
-  "Reload project collections": "重新加载项目分组"
+  "Reload project collections": "重新加载项目分组",
+  "Collection actions": "项目组操作",
+  "Sort boards by name": "按看板名称排序",
+  "Move collection up": "上移项目组",
+  "Move collection down": "下移项目组"
 }

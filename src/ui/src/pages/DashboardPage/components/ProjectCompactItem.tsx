@@ -1,3 +1,4 @@
+import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -43,6 +44,12 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                         className="group min-w-0 rounded-xl border border-transparent pr-2 hover:border-border hover:bg-accent/70"
                     >
                         <Button
+                            draggable
+                            onDragStart={(event) => {
+                                event.stopPropagation();
+                                event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
+                                event.dataTransfer.effectAllowed = "copy";
+                            }}
                             variant="ghost"
                             className={cn(
                                 "flex h-auto min-w-0 flex-1 justify-start gap-3 rounded-xl px-3 text-left hover:bg-transparent",

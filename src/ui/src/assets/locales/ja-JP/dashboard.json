@@ -134,5 +134,9 @@
   "Created boards are kept if you cancel": "グループ追加を取り消しても作成済みボードは残ります。",
   "Could not save collection": "保存できませんでした。選択内容は保持されています。グループの再取得後に再試行してください。",
   "Board unavailable": "アクセスできないボード",
-  "Reload project collections": "プロジェクトグループを再取得"
+  "Reload project collections": "プロジェクトグループを再取得",
+  "Collection actions": "プロジェクトグループの操作",
+  "Sort boards by name": "ボード名順に並べ替え",
+  "Move collection up": "グループを上へ移動",
+  "Move collection down": "グループを下へ移動"
 }

@@ -134,5 +134,9 @@
   "Created boards are kept if you cancel": "Created boards are kept if you cancel this group.",
   "Could not save collection": "Could not save. Your selections are kept. Retry after reloading saved groups.",
   "Board unavailable": "Board unavailable",
-  "Reload project collections": "Reload project collections"
+  "Reload project collections": "Reload project collections",
+  "Collection actions": "Collection actions",
+  "Sort boards by name": "Sort boards by name",
+  "Move collection up": "Move collection up",
+  "Move collection down": "Move collection down"
 }

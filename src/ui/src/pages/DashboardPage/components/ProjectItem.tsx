@@ -1,3 +1,4 @@
+import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -70,7 +71,17 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
     };
 
     return (
-        <Card.Root {...props} className={cn(props.className, "cursor-pointer")} onClick={toBoard}>
+        <Card.Root
+            draggable
+            onDragStart={(event) => {
+                event.stopPropagation();
+                event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
+                event.dataTransfer.effectAllowed = "copy";
+            }}
+            {...props}
+            className={cn(props.className, "cursor-pointer")}
+            onClick={toBoard}
+        >
             <ModelRegistry.Project.Provider model={project}>
                 <Card.Header className="relative block pt-5">
                     <ProjectAvatar project={project} />
