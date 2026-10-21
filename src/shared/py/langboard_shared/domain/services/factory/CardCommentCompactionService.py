@@ -197,7 +197,7 @@ class CardCommentCompactionService(BaseDomainService):
                     "source_revision": record.source_revision, "has_more_sources": has_more,
                     "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
 
-    def get_page(self, user, project, card, *, before=None, channel=CollaborationChannel.Api):
+    def get_page(self, user, project, card, *, before=None, request_key_filter=None, channel=CollaborationChannel.Api):
         """Expose bounded verified blocks and the caller's in-flight request IDs."""
         with DbSession.atomic() as db:
             project, card, can_generate = self._authorize(user, project, card, channel)
@@ -224,6 +224,10 @@ class CardCommentCompactionService(BaseDomainService):
                 CardCommentCompaction.card_id == card_id,
                 or_(CardCommentCompaction.status == "completed", CardCommentCompaction.user_id == user.id),
             )
+            if request_key_filter is not None:
+                if len(request_key_filter) != 64 or any(char not in "0123456789abcdef" for char in request_key_filter):
+                    raise CommentCompactionError("invalid_request_key", 400)
+                query = query.where(CardCommentCompaction.request_key == request_key_filter, CardCommentCompaction.user_id == user.id)
             if before:
                 try:
                     cursor_id = InfraHelper.convert_id(before)
@@ -305,10 +309,14 @@ class CardCommentCompactionService(BaseDomainService):
                     raise CommentCompactionError("source_changed")
             self._authorize(user, project_id, card_id, channel)
             has_more = len(entries) > 20 or originals["next_cursor"] is not None
+            own_active = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
+                CardCommentCompaction.card_id == card_id, CardCommentCompaction.user_id == user.id,
+                CardCommentCompaction.status.in_(["pending", "running"]),
+            ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc()).limit(5)).all()
             return {"records": [entry[1] for entry in page],
                     "next_cursor": page[-1][2] if has_more and page else None,
                     "eligibility": overview["eligibility"],
-                    "in_flight": [record for record in overview["records"] if record["status"] in {"pending", "running", "retry_required"}]}
+                    "in_flight": [self.get(user, project_id, card_id, record.id, channel=channel) for record in own_active]}
 
     def get_evidence(self, user, project, card, uid, *, before=None, channel=CollaborationChannel.Api):
         """Page original records through the existing timeline on the primary."""

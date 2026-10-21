@@ -304,6 +304,15 @@ def test_compaction_pages_keep_sentinel_cursor_and_pending_jobs_inside_scope(com
     second = service.get_page(actor, project, card, before=first["next_cursor"])
     assert len(second["records"]) == 1 and second["next_cursor"] is None
     assert {row["uid"] for row in first["records"] + second["records"]} == expected
+    oldest = second["records"][0]
+    recovered = service.get_page(actor, project, card, request_key_filter=oldest["request_key"])
+    assert [row["uid"] for row in recovered["records"]] == [oldest["uid"]]
+    assert recovered["next_cursor"] is None
+    assert service.get_page(actor, project, card, request_key_filter=hidden.request_key)["records"] == []
+    assert service.get_page(actor, project, card, request_key_filter=foreign_request.request_key)["records"] == []
+    with pytest.raises(CommentCompactionError) as invalid:
+        service.get_page(actor, project, card, request_key_filter="invalid")
+    assert invalid.value.code == "invalid_request_key"
     for record in (hidden, foreign_request):
         with pytest.raises(CommentCompactionError) as denied:
             service.get_page(actor, project, card, before=record.get_uid())
@@ -393,6 +402,9 @@ def test_authenticated_http_uses_native_graph_service_auth_and_rejects_client_so
         listed = client.get(endpoint, headers=headers)
         assert listed.status_code == 200 and listed.headers["Cache-Control"] == "no-store"
         assert listed.json()["records"][0]["uid"] == result.json()["uid"] and len(requests) == 1
+        recovered = client.get(endpoint, params={"request_key": result.json()["request_key"]}, headers=headers)
+        assert recovered.status_code == 200 and [row["uid"] for row in recovered.json()["records"]] == [result.json()["uid"]]
+        assert client.get(endpoint, params={"request_key": "invalid"}, headers=headers).status_code == 400
         evidence = client.get(endpoint + "/" + result.json()["uid"] + "/evidence", headers=headers)
         assert evidence.status_code == 200, evidence.text
         assert evidence.headers["Cache-Control"] == "no-store" and len(evidence.json()["records"]) == 2
@@ -532,3 +544,23 @@ async def test_compact_view_cursor_crosses_block_boundaries_without_refetching_c
             break
     assert sizes == [20, 6] and len(records) == len(set(records))
     assert set(records) == expected
+
+
+def test_view_recovers_own_pending_request_even_when_newer_completed_records_fill_overview(compact_command):
+    service, actor, project, card, binding, *_ = compact_command
+    snapshot, _ = service._snapshot(project, card)
+    pending = service.repo.card_comment_compaction.reserve(card, actor, binding, snapshot)
+    with DbSession.atomic() as db:
+        other = db.exec(SqlBuilder.select.table(User).where(User.id == 2)).first()
+    for index in range(6):
+        old_snapshot = snapshot.model_copy(deep=True)
+        old_snapshot.sources[0].text += f" previous version {index}"
+        historical = service.repo.card_comment_compaction.reserve(card, other, binding, old_snapshot)
+        with DbSession.atomic() as db:
+            historical.status = "completed"
+            historical.draft = draft(old_snapshot).model_dump(mode="json")
+            db.update(historical)
+    assert all(row["uid"] != pending.get_uid() for row in service.get_page(actor, project, card)["records"])
+    current = service.get_view(actor, project, card)
+    assert [row["uid"] for row in current["in_flight"]] == [pending.get_uid()]
+    assert current["in_flight"][0]["request_key"] == pending.request_key

@@ -48,10 +48,11 @@ async def compact_card_comments(
 @AuthFilter.add("user")
 def list_card_comment_compactions(
     project_uid: str, card_uid: str, request: Request, before: str | None = Query(default=None, max_length=32),
+    request_key: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
     user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
 ):
     try:
-        result = service.card_comment_compaction.get_page(user, project_uid, card_uid, before=before,
+        result = service.card_comment_compaction.get_page(user, project_uid, card_uid, before=before, request_key_filter=request_key,
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
         return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
     except CommentCompactionError as error:
