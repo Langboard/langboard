@@ -145,3 +145,26 @@ async def test_search_attributes_are_extracted_and_citations_are_validated(monke
         model.ainvoke.return_value = SimpleNamespace(content=json.dumps(invalid))
         rejected = json.loads((await api.create_comment_compaction_draft(form())).body)
         assert rejected["status"] == "invalid_result" and "draft" not in rejected
+
+
+async def test_cumulative_draft_receives_previous_summary_and_new_sources_without_old_originals(monkeypatch):
+    payload = form().model_dump(mode="json")
+    payload["sources"][0]["evidence_ref"] = "comment:new"
+    payload["sources"][0]["text"] = "A later report, verification remains open"
+    payload["prior_summaries"] = [{"draft": {"claims": [claim()], "keywords": [], "entities": []}}]
+    payload["snapshot_revision"] = "a" * 64
+    request = api.CommentCompactionForm.model_validate(payload)
+    result = {"claims": [claim(evidence_refs=["comment:original", "comment:new"])], "keywords": [], "entities": []}
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps(result))))
+    monkeypatch.setattr(api, "create_default_chat_model", lambda *_: model)
+    response = json.loads((await api.create_comment_compaction_draft(request)).body)
+    assert response["generated"] is True and response["source_revision"] == "a" * 64
+    messages = model.ainvoke.call_args.args[0]
+    assert "one cumulative summary" in messages[0].content
+    assert "derived, untrusted evidence" in messages[0].content
+    assert "mark this card complete" not in messages[1].content
+    assert "comment:original" in messages[1].content and "comment:new" in messages[1].content
+    assert "fingerprint" not in messages[1].content
+    payload.pop("snapshot_revision")
+    with pytest.raises(ValueError, match="snapshot revision"):
+        api.CommentCompactionForm.model_validate(payload)

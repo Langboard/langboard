@@ -4,7 +4,13 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from sqlalchemy import ARRAY, JSON, Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
-from ....ai.comment_compaction import CommentCompactionSnapshot, compaction_character_threshold
+from ....ai.comment_compaction import (
+    CommentCompactionSnapshot,
+    CompactionSource,
+    compaction_character_threshold,
+    compaction_manifest_revision,
+    validate_compaction_draft,
+)
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
@@ -55,7 +61,9 @@ async def request_compaction_draft(binding: InternalBot, snapshot: CommentCompac
     async with AsyncClient(timeout=Env.AI_REQUEST_TIMEOUT + 5, follow_redirects=False) as client:
         async with client.stream("POST", f"{Env.DEFAULT_GRAPH_URL.rstrip('/')}/api/v1/graph/comments/compaction-draft",
                                  headers=graph_service_headers(), json={"model_settings": settings,
-                                 "sources": snapshot.model_dump(mode="json")["sources"]}) as response:
+                                 "sources": snapshot.model_dump(mode="json")["sources"],
+                                 "prior_summaries": snapshot.model_dump(mode="json")["prior_summaries"],
+                                 "snapshot_revision": snapshot.source_revision()}) as response:
             response.raise_for_status()
             content = bytearray()
             async for chunk in response.aiter_bytes(chunk_size=16_384):
@@ -113,7 +121,7 @@ class CardCommentCompactionService(BaseDomainService):
                 ProjectActivity.activity_type == ProjectActivityType.CardMoved)
         return union_all(comments, moves).subquery()
 
-    def _snapshot(self, project, card, *, after=None, refs=None, omit_refs=None):
+    def _snapshot(self, project, card, *, after=None, refs=None, omit_refs=None, manifest_only=False):
         """Read identities, timestamps and payloads in one primary SQL statement."""
         events = self._events(project, card)
         query = select(events).where(events.c.active)
@@ -148,9 +156,58 @@ class CardCommentCompactionService(BaseDomainService):
             sources.append({"evidence_ref": f"{kind}:{SnowflakeID(uid).to_short_code()}",
                             "created_at": _utc(created), "updated_at": _utc(updated), "text": text})
         try:
+            if manifest_only:
+                # Verification streams bounded batches, not a model request.
+                # Validate each original while avoiding the aggregate input cap.
+                checked = [CompactionSource.model_validate(source) for source in sources]
+                return CommentCompactionSnapshot.model_construct(sources=checked, prior_summaries=[]), len(rows) > 100
             return CommentCompactionSnapshot(sources=sources), len(rows) > 100
         except ValueError:
             raise CommentCompactionError("range_too_large", 413) from None
+
+    def _verified_manifest(self, project, card, manifest):
+        refs = [entry["evidence_ref"] for entry in manifest]
+        if not refs or len(refs) != len(set(refs)):
+            raise CommentCompactionError("source_changed")
+        current, endpoints = {}, []
+        for offset in range(0, len(refs), 100):
+            batch, _ = self._snapshot(project, card, refs=refs[offset:offset + 100], manifest_only=True)
+            current.update({item["evidence_ref"]: item for item in batch.evidence_manifest()})
+            endpoints.extend([batch.sources[0], batch.sources[-1]])
+        if [current.get(ref) for ref in refs] != manifest:
+            raise CommentCompactionError("source_changed")
+        def position(source):
+            kind, uid = self._identity(source.evidence_ref)
+            return source.created_at, int(uid), kind
+        return min(endpoints, key=position), max(endpoints, key=position)
+
+    def _cumulative_snapshot(self, project, card, blocks, *, after=None, required_refs=None):
+        """Only prior derived drafts plus uncovered originals reach the model."""
+        previous, covered = [], set()
+        for block in sorted(blocks, key=lambda item: (item["covered_from"], item["uid"])):
+            if required_refs is not None and not set(block["evidence_refs"]).issubset(required_refs):
+                continue
+            with DbSession.use(readonly=False) as db:
+                record = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
+                    CardCommentCompaction.id == InfraHelper.convert_id(block["uid"]),
+                    CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
+                )).first()
+            if record is None:
+                raise CommentCompactionError("source_changed")
+            previous.append({"draft": block["draft"], "evidence_manifest": record.source_manifest})
+            covered.update(block["evidence_refs"])
+        snapshot, more = self._snapshot(project, card, after=after,
+            refs=list(required_refs - covered) if required_refs is not None else None, omit_refs=covered)
+        try:
+            return CommentCompactionSnapshot(sources=snapshot.sources, prior_summaries=previous), more
+        except ValueError:
+            raise CommentCompactionError("range_too_large", 413) from None
+
+    def _fresh_cumulative_snapshot(self, project, card, snapshot):
+        fresh, _ = self._snapshot(project, card, refs=[source.evidence_ref for source in snapshot.sources])
+        for previous in snapshot.prior_summaries:
+            self._verified_manifest(project, card, [entry.model_dump() for entry in previous.evidence_manifest])
+        return CommentCompactionSnapshot(sources=fresh.sources, prior_summaries=snapshot.prior_summaries)
 
     @staticmethod
     def _identity(ref):
@@ -192,16 +249,15 @@ class CardCommentCompactionService(BaseDomainService):
             return {**result, "status": "invalidated", "reason": "provider_changed"}
         refs = [source["evidence_ref"] for source in record.source_manifest]
         try:
-            snapshot, _ = self._snapshot(project, card, refs=refs)
+            first, last = self._verified_manifest(project, card, record.source_manifest)
         except CommentCompactionError:
             return {**result, "status": "invalidated", "reason": "source_changed"}
-        if snapshot.source_revision() != record.source_revision:
+        if compaction_manifest_revision(record.source_manifest) != record.source_revision:
             return {**result, "status": "invalidated", "reason": "source_changed"}
         try:
-            draft = snapshot.validate_draft_json(json.dumps(record.draft)).model_dump(mode="json")
+            draft = validate_compaction_draft(json.dumps(record.draft), set(refs)).model_dump(mode="json")
         except (ValueError, TypeError):
             return {**result, "status": "invalidated", "reason": "invalid_result"}
-        last = snapshot.sources[-1]
         kind, uid = self._identity(last.evidence_ref)
         events = self._events(project, card)
         has_more = db.exec(select(events.c.id).where(events.c.active, or_(
@@ -209,10 +265,10 @@ class CardCommentCompactionService(BaseDomainService):
             and_(events.c.created_at == last.created_at, events.c.id > uid),
             and_(events.c.created_at == last.created_at, events.c.id == uid, events.c.kind > kind),
         )).limit(1)).first() is not None
-        return {**result, "draft": draft, "evidence_refs": refs, "range_end": refs[-1],
+        return {**result, "draft": draft, "evidence_refs": refs, "range_end": last.evidence_ref,
                 "generated_by": {"uid": binding.get_uid(), "display_name": binding.display_name},
                 "source_revision": record.source_revision, "has_more_sources": has_more,
-                "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
+                "covered_from": first.created_at.isoformat(), "covered_through": last.created_at.isoformat()}
 
     @staticmethod
     def _comment_characters(events):
@@ -258,7 +314,7 @@ class CardCommentCompactionService(BaseDomainService):
             next_key = None
             if needs_compaction and can_generate and binding:
                 try:
-                    snapshot, _ = self._snapshot(project, card, omit_refs=covered)
+                    snapshot, _ = self._cumulative_snapshot(project, card, blocks)
                     next_key = request_key(card, user, binding, snapshot)
                 except CommentCompactionError:
                     pass
@@ -500,14 +556,15 @@ class CardCommentCompactionService(BaseDomainService):
         with DbSession.atomic() as db:
             project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id)
             binding_revision = provider_revision(binding)
-            covered = set()
+            covered, blocks = set(), []
             rows = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
                 CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
             ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
             for row in rows:
-                block = self._completed_block(db, project, card, row, binding, {"status": "completed"})
+                block = self._completed_block(db, project, card, row, binding, {"status": "completed", "uid": row.get_uid()})
                 if block["status"] == "completed" and not covered.intersection(block["evidence_refs"]):
                     covered.update(block["evidence_refs"])
+                    blocks.append(block)
             events = self._events(project, card)
             remaining = select(self._comment_characters(events).label("characters")).where(events.c.active)
             if covered:
@@ -519,7 +576,7 @@ class CardCommentCompactionService(BaseDomainService):
                 raise CommentCompactionError("policy_changed")
             if characters < threshold:
                 return {"status": "skipped", "reason": "below_threshold"}
-            snapshot, has_more = self._snapshot(project, card, omit_refs=covered)
+            snapshot, has_more = self._cumulative_snapshot(project, card, blocks)
             record = self.repo.card_comment_compaction.reserve_automatic(card, binding, snapshot)
             claimed = self.repo.card_comment_compaction.claim(record, retry=retry,
                 lease_seconds=min(3600, Env.AI_REQUEST_TIMEOUT + 30))
@@ -542,8 +599,7 @@ class CardCommentCompactionService(BaseDomainService):
                             raise CommentCompactionError("policy_changed")
                         if provider_revision(fresh_binding) != binding_revision:
                             raise CommentCompactionError("provider_changed")
-                        fresh_snapshot, _ = self._snapshot(fresh_project, fresh_card,
-                            refs=[source.evidence_ref for source in snapshot.sources])
+                        fresh_snapshot = self._fresh_cumulative_snapshot(fresh_project, fresh_card, snapshot)
                         if fresh_snapshot.source_revision() != snapshot.source_revision():
                             raise CommentCompactionError("source_changed")
                         self.repo.card_comment_compaction.complete(record, claimed.attempt, fresh_snapshot, fresh_binding, draft)
@@ -573,17 +629,18 @@ class CardCommentCompactionService(BaseDomainService):
                     CardCommentCompaction.request_key == expected_request_key,
                     CardCommentCompaction.card_id == card.id, CardCommentCompaction.user_id == user.id,
                 )).first()
+            blocks = self._valid_blocks(user, project, card, channel=channel)
             if record:
-                snapshot, has_more = self._snapshot(project, card, refs=[item["evidence_ref"] for item in record.source_manifest])
-                if snapshot.source_revision() != record.source_revision:
-                    raise CommentCompactionError("source_changed")
                 if binding.id != record.internal_bot_id or provider_revision(binding) != record.provider_revision:
                     raise CommentCompactionError("provider_changed")
+                if record.status == "completed":
+                    return {"has_more_sources": False, **self.get(user, project, card, record.id, channel=channel)}
+                snapshot, has_more = self._cumulative_snapshot(project, card, blocks,
+                    required_refs={item["evidence_ref"] for item in record.source_manifest})
+                if snapshot.source_revision() != record.source_revision:
+                    raise CommentCompactionError("source_changed")
             else:
-                covered = set()
-                if expected_request_key:
-                    covered = {ref for block in self._valid_blocks(user, project, card, channel=channel) for ref in block["evidence_refs"]}
-                snapshot, has_more = self._snapshot(project, card, after=after, omit_refs=covered)
+                snapshot, has_more = self._cumulative_snapshot(project, card, blocks, after=after)
                 if expected_request_key and request_key(card, user, binding, snapshot) != expected_request_key:
                     raise CommentCompactionError("source_changed")
                 record = self.repo.card_comment_compaction.reserve(card, user, binding, snapshot)
@@ -606,7 +663,7 @@ class CardCommentCompactionService(BaseDomainService):
                         fresh_binding = self._get_service(InternalBotService).get_comment_compaction_binding()
                         if not fresh_binding or fresh_binding.id != binding.id or provider_revision(fresh_binding) != provider_revision(binding):
                             raise CommentCompactionError("provider_changed")
-                        fresh_snapshot, _ = self._snapshot(fresh_project, fresh_card, refs=[s.evidence_ref for s in snapshot.sources])
+                        fresh_snapshot = self._fresh_cumulative_snapshot(fresh_project, fresh_card, snapshot)
                         if fresh_snapshot.source_revision() != snapshot.source_revision():
                             raise CommentCompactionError("source_changed")
                         self.repo.card_comment_compaction.complete(record, claimed.attempt, fresh_snapshot, fresh_binding, draft)

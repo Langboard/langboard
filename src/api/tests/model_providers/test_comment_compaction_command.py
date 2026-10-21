@@ -881,7 +881,7 @@ async def test_default_view_returns_blocks_instead_of_covered_originals_and_keep
     assert "fixture-private-model-key" not in json.dumps(current, default=str)
 
 
-async def test_compact_view_sql_budget_keeps_three_blocks_and_new_original(compact_command, monkeypatch):
+async def test_compact_view_sql_budget_keeps_one_cumulative_block_and_new_original(compact_command, monkeypatch):
     service, actor, project, card, *_ = compact_command
     monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
     result = await service.generate(actor, project, card)
@@ -902,11 +902,12 @@ async def test_compact_view_sql_budget_keeps_three_blocks_and_new_original(compa
         view = service.get_view(actor, project, card)
     finally:
         event.remove(engine, "before_cursor_execute", count_select)
-    assert len([row for row in view["records"] if row["kind"] == "compaction"]) == 3
+    assert len([row for row in view["records"] if row["kind"] == "compaction"]) == 1
     assert [row["uid"] for row in view["records"] if row["kind"] == "comment"] == [uncovered.get_uid()]
-    assert view["total_count"] == 4 and view["eligibility"]["uncompacted_event_count"] == 1
+    assert view["total_count"] == 2 and view["eligibility"]["uncompacted_event_count"] == 1
     print(f"COMPACTION_VIEW_SQL_SELECTS={len(selects)}")
-    # The same three-block projection previously issued 118 SELECTs by loading
+    # Historical summaries stay persisted; only the latest cumulative block is visible.
+    # The old three-block projection issued 118 SELECTs by loading
     # a redundant summary overview. Keep a material margin while retaining the
     # final current-source and current-authority validation.
     assert len(selects) <= 85
@@ -1142,3 +1143,80 @@ async def test_automatic_threshold_counts_only_uncompressed_comment_bodies(autom
         db.update(stage)
     assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
     assert service.get_view(actor, project, card)["eligibility"]["compact_after_characters"] == 2000
+
+
+async def test_cumulative_summary_exceeds_one_original_batch_without_resending_old_text(compact_command, monkeypatch):
+    service, actor, project, card, _, original, *_ = compact_command
+    inputs = []
+    async def summarize(_, snapshot):
+        inputs.append(snapshot)
+        refs = [source.evidence_ref for source in snapshot.sources[:1]]
+        if snapshot.prior_summaries:
+            refs.append(f"comment:{original.get_uid()}")
+        return CompactionDraft(claims=[{"text": "Original unresolved work plus later reports; verification remains open",
+                                       "kind": "unresolved", "evidence_refs": refs}])
+    monkeypatch.setattr(command, "request_compaction_draft", summarize)
+    first = await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        for index in range(101):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id,
+                                  content=EditorContentModel(content=f"New original {index}")))
+    second = await service.generate(actor, project, card)
+    assert second["status"] == "completed" and len(second["evidence_refs"]) == 102
+    assert len(inputs[1].sources) == 100 and len(inputs[1].prior_summaries) == 1
+    assert "Original private comment" not in inputs[1].model_dump_json()
+    view = service.get_view(actor, project, card)
+    assert [row["uid"] for row in view["records"] if row["kind"] == "compaction"] == [second["uid"]]
+    assert len([row for row in view["records"] if row["kind"] == "comment"]) == 1
+    third = await service.generate(actor, project, card)
+    assert third["status"] == "completed" and len(third["evidence_refs"]) == 103
+    assert len(inputs[2].sources) == 1
+    assert "New original 0" not in inputs[2].model_dump_json()
+    assert service.get(actor, project, card, first["uid"])["status"] == "completed"
+    evidence = service.get_evidence(actor, project, card, third["uid"], evidence_ref=f"comment:{original.get_uid()}")
+    assert len(evidence["records"]) == 1
+    assert "Original private comment" in json.dumps(evidence, default=str)
+    with DbSession.atomic() as db:
+        original.content = EditorContentModel(content="Edited old evidence")
+        db.update(original)
+    assert service.get(actor, project, card, third["uid"])["status"] == "invalidated"
+    recovered = service.get_view(actor, project, card)
+    assert not any(row["kind"] == "compaction" for row in recovered["records"])
+    assert recovered["total_count"] == 103
+
+
+async def test_prior_original_changed_during_cumulative_generation_never_publishes(compact_command, monkeypatch):
+    service, actor, project, card, _, original, *_ = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="New evidence")))
+    async def modify_previous(_, snapshot):
+        assert snapshot.prior_summaries and len(snapshot.sources) == 1
+        with DbSession.atomic() as db:
+            original.content = EditorContentModel(content="Changed while a newer summary runs")
+            db.update(original)
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", modify_previous)
+    result = await service.generate(actor, project, card)
+    assert result["status"] == "failed" and result["error_code"] == "source_changed"
+    assert "draft" not in result
+
+
+async def test_automatic_second_summary_accumulates_prior_sources_only_after_new_threshold(automatic_command, monkeypatch):
+    (service, actor, project, card, binding, *_), _, _ = automatic_command
+    inputs = []
+    async def summarize(_, snapshot):
+        inputs.append(snapshot)
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", summarize)
+    first = await service.generate_automatic(project, binding, card)
+    with DbSession.atomic() as db:
+        db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="New evidence " * 100)))
+    second = await service.generate_automatic(project, binding, card)
+    assert first["status"] == second["status"] == "completed"
+    assert inputs[1].prior_summaries and len(inputs[1].sources) == 1
+    view = service.get_view(actor, project, card)
+    assert [row["uid"] for row in view["records"] if row["kind"] == "compaction"] == [second["uid"]]
+    assert len(view["records"][0]["data"]["evidence_refs"]) == 21
+    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}

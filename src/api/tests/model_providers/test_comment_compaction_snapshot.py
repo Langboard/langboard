@@ -77,3 +77,39 @@ def test_search_attributes_are_bounded_and_require_existing_evidence():
     result["entities"][0]["kind"] = "permission"
     with pytest.raises(ValueError):
         current.validate_draft_json(json.dumps(result))
+
+
+def test_cumulative_snapshot_keeps_prior_fingerprints_out_of_model_payload():
+    original = snapshot()
+    previous = {"draft": {"claims": [{"text": "An unresolved earlier report", "kind": "unresolved",
+        "evidence_refs": ["comment:original"]}]}, "evidence_manifest": original.evidence_manifest()}
+    current = CommentCompactionSnapshot(sources=[{
+        "evidence_ref": "comment:new", "created_at": "2026-10-22T00:00:00Z",
+        "updated_at": "2026-10-22T00:00:00Z", "text": "A newer report, not independently verified",
+    }], prior_summaries=[previous])
+    manifest = current.evidence_manifest()
+    assert manifest[:2] == original.evidence_manifest()
+    assert len(manifest) == 3
+    payload = current.model_dump_json()
+    assert "Original private evidence" not in payload and "fingerprint" not in payload
+    assert "unresolved earlier report" in payload
+    result = {"claims": [{"text": "Earlier report remains unresolved", "kind": "unresolved",
+                         "evidence_refs": ["comment:original", "comment:new"]}]}
+    assert current.validate_draft_json(json.dumps(result)).claims[0].kind == "unresolved"
+    result["claims"][0]["evidence_refs"] = ["comment:invented"]
+    with pytest.raises(ValueError, match="unknown evidence"):
+        current.validate_draft_json(json.dumps(result))
+    changed = current.model_copy(deep=True)
+    changed.prior_summaries[0].evidence_manifest[0].fingerprint = "f" * 64
+    assert changed.source_revision() != current.source_revision()
+
+
+def test_cumulative_snapshot_rejects_overlap_and_unbound_prior_citations():
+    original = snapshot()
+    previous = {"draft": {"claims": [{"text": "Unresolved", "kind": "unresolved",
+        "evidence_refs": ["comment:original"]}]}, "evidence_manifest": original.evidence_manifest()}
+    with pytest.raises(ValueError, match="Duplicate source"):
+        CommentCompactionSnapshot(sources=original.sources, prior_summaries=[previous])
+    previous["draft"]["claims"][0]["evidence_refs"] = ["comment:invented"]
+    with pytest.raises(ValueError, match="unknown evidence"):
+        CommentCompactionSnapshot(sources=original.sources, prior_summaries=[previous])
