@@ -27,3 +27,31 @@ test("unset preference preserves detected cache and invalid preference falls bac
     await page.getByRole("button", { name: "Login invalid" }).click();
     await expect(page.locator("output")).toContainText(JSON.stringify({ user: "user-invalid", language: "en-US" }));
 });
+
+for (const [browserLocale, expected] of [
+    ["ja-JP", "ja-JP"],
+    ["ko-KR", "ko-KR"],
+    ["fr-FR", "en-US"],
+]) {
+    test.describe(`unset preference with browser locale ${browserLocale}`, () => {
+        test.use({ locale: browserLocale });
+
+        test("uses navigator without a cache and retains it after login and reload", async ({ page }) => {
+            await page.goto("/src/core/providers/AuthLanguage.fixture.html");
+            await expect(page.locator("output")).toContainText(`"language":"${expected}"`);
+            await page.getByRole("button", { name: "Login unset", exact: true }).click();
+            await expect(page.locator("output")).toContainText(JSON.stringify({ user: "user-unset", language: expected }));
+            expect(await page.evaluate(() => localStorage.getItem("lang"))).toBe(expected);
+            expect(await page.evaluate(() => document.documentElement.lang)).toBe(expected);
+            await page.reload();
+            await expect(page.locator("output")).toContainText(`"language":"${expected}"`);
+        });
+
+        test("uses the cache before navigator for an unset account", async ({ page }) => {
+            await page.addInitScript(() => localStorage.setItem("lang", "zh-CN"));
+            await page.goto("/src/core/providers/AuthLanguage.fixture.html");
+            await page.getByRole("button", { name: "Login unset", exact: true }).click();
+            await expect(page.locator("output")).toContainText(JSON.stringify({ user: "user-unset", language: "zh-CN" }));
+        });
+    });
+}
