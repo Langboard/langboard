@@ -5,6 +5,9 @@ for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: 950 });
         const calls: { path: string; method: string; body: string }[] = [];
         const errors: string[] = [];
+        let previewFailure = false;
+        let releasePreview: (() => void) | undefined;
+        const pending: { preview?: Promise<void> } = {};
         page.on("pageerror", (error) => errors.push(error.message));
         await page.route("**/bot-avatar-fixture.html", (route) =>
             route.fulfill({
@@ -25,7 +28,11 @@ for (const width of [390, 1440]) {
                 return route.fulfill({
                     json: { configured: true, profiles: [{ uid: "image-profile", display_name: "Icon provider", model_name: "image-model" }] },
                 });
-            if (path.endsWith("/avatar/preview")) return route.fulfill({ json: { preview_data_url: png, width: 512, height: 512 } });
+            if (path.endsWith("/avatar/preview")) {
+                if (pending.preview) await pending.preview;
+                if (previewFailure) return route.fulfill({ status: 503, json: { message: "Image provider unavailable" } });
+                return route.fulfill({ json: { preview_data_url: png, width: 512, height: 512 } }).catch(() => undefined);
+            }
             if (path.endsWith("/bot/draft"))
                 return route.fulfill({
                     json: {
@@ -82,13 +89,47 @@ for (const width of [390, 1440]) {
         await expect(assistantAvatar.getByRole("button", { name: "Apply generated avatar", exact: true })).toBeVisible();
         await page.screenshot({ path: testInfo.outputPath("bot-avatar-preview.png") });
         await assistantAvatar.getByRole("button", { name: "Apply generated avatar", exact: true }).click();
+        const botName = page.getByRole("textbox", { name: "Bot name*", exact: true });
+        await expect(botName).toHaveValue("Tag bot");
+        await botName.fill("User edited bot");
+
+        // An image-provider failure must preserve the already accepted text draft.
+        previewFailure = true;
+        await page.getByRole("button", { name: "Generate with AI", exact: true }).click();
+        await avatarDialog.getByRole("combobox").selectOption("image-profile");
+        await avatarDialog.getByRole("checkbox").check();
+        await avatarDialog.getByRole("button", { name: "Generate with AI", exact: true }).click();
+        await expect(avatarDialog.getByRole("alert")).toBeVisible();
+        await expect(avatarDialog.getByRole("checkbox")).not.toBeChecked();
+        await expect(avatarDialog.getByRole("button", { name: "Apply generated avatar", exact: true })).toHaveCount(0);
+        await avatarDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(botName).toHaveValue("User edited bot");
+
+        // Close an in-flight generation, upload a different file, then deliver the stale response.
+        previewFailure = false;
+        pending.preview = new Promise<void>((resolve) => (releasePreview = resolve));
+        await page.getByRole("button", { name: "Generate with AI", exact: true }).click();
+        await avatarDialog.getByRole("combobox").selectOption("image-profile");
+        await avatarDialog.getByRole("checkbox").check();
+        await avatarDialog.getByRole("button", { name: "Generate with AI", exact: true }).click();
+        await expect.poll(() => calls.filter((call) => call.path.endsWith("/avatar/preview")).length).toBe(4);
+        await page.keyboard.press("Escape");
+        await expect(avatarDialog).toHaveCount(0);
+        await page.locator("input[type=file]").setInputFiles({
+            name: "direct-avatar.png",
+            mimeType: "image/png",
+            buffer: Buffer.from(png.split(",")[1], "base64"),
+        });
+        releasePreview?.();
+        await expect(botName).toHaveValue("User edited bot");
         await page.getByRole("textbox", { name: "API key*", exact: true }).fill("fixture-secret");
         await page.getByRole("button", { name: "Create", exact: true }).click();
         await expect
             .poll(() => calls.find((call) => call.path.endsWith("/settings/bot") && call.method === "POST")?.body ?? "")
-            .toContain("generated-avatar.png");
+            .toContain("direct-avatar.png");
+        expect(calls.find((call) => call.path.endsWith("/settings/bot") && call.method === "POST")?.body).not.toContain("generated-avatar.png");
         const imageCalls = calls.filter((call) => call.path.endsWith("/avatar/preview"));
-        expect(imageCalls).toHaveLength(2);
+        expect(imageCalls).toHaveLength(4);
         expect(imageCalls.every((call) => !call.body.includes("fixture-secret") && !call.body.includes("text.invalid"))).toBe(true);
         expect(calls.some((call) => call.path.includes("/account/avatar") || call.method === "PUT")).toBe(false);
         expect(errors).toEqual([]);
