@@ -1,5 +1,6 @@
 import importlib.util
 import os
+from itertools import combinations
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -56,6 +57,23 @@ def form(**changes):
     return SaveWorkflowStageForm(
         key="released", name="Released", description="Accepted delivery", **changes
     ).model_dump()
+
+
+@pytest.mark.parametrize("effects", [
+    list(effects)
+    for size in range(5)
+    for effects in combinations([
+        "complete_checkitems", "stop_running_timers", "notify_author_on_entry", "confirm_descendant_move",
+    ], size)
+])
+def test_all_supported_entry_effect_combinations_roundtrip_through_form_and_registry(registry, effects):
+    service, _ = registry
+    stage = service.save(form(entry_effects=effects))
+    saved = service.get_api_list()[0]
+    assert saved["entry_effects"] == effects
+    changed = effects[:-1] if effects else ["notify_author_on_entry"]
+    service.save({**form(entry_effects=changed), "expected_revision": saved["revision"]}, stage.get_uid())
+    assert service.get_api_list()[0]["entry_effects"] == changed
 
 
 def test_stale_editor_cannot_overwrite_or_deactivate_latest_stage(registry):
@@ -138,6 +156,8 @@ def test_create_update_deactivate_preserve_key_and_translations(registry):
     [
         {"key": "renamed"},
         {"entry_effects": ["webhook"]},
+        {"entry_effects": ["complete_checkitems", "stop_running_timers", "notify_author_on_entry", "notify_author_on_entry"]},
+        {"entry_effects": ["complete_checkitems", "stop_running_timers", "notify_author_on_entry", "confirm_descendant_move", "webhook"]},
         {"active_queue_policy": "maybe"},
         {"overdue_policy": "erase"},
         {"is_builtin": True},

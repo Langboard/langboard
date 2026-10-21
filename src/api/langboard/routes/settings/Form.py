@@ -372,7 +372,7 @@ class SaveWorkflowStageForm(BaseFormModel):
     counts_as_completed: bool = False
     active_queue_policy: str = Field(default="conditional", pattern=r"^(include|exclude|conditional)$")
     overdue_policy: str = Field(default="normal", pattern=r"^(normal|suppress)$")
-    entry_effects: list[str] = Field(default_factory=list, max_length=2)
+    entry_effects: list[str] = Field(default_factory=list, max_length=4)
     continuous_effects: dict[str, Any] | None = None
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
 
