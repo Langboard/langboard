@@ -20,6 +20,7 @@ const originalEvidence = (uid: string, text: string) => ({
     },
 });
 const compactBlock = {
+    generated_by: { uid: "compactor-profile", display_name: "Compactor <img src=x onerror=alert(1)>" },
     uid: "summary-one",
     status: "completed",
     request_key: compactKey,
@@ -270,6 +271,8 @@ for (const width of [1440, 390]) {
         await page.goto("/src/components/Layout/card-timeline.fixture.html");
         const block = page.locator("[data-comment-compaction-uid]");
         await expect(block).toContainText(compactBlock.draft.claims[0].text, { timeout: 45_000 });
+        await expect(block.locator("[data-generated-by-uid=compactor-profile]")).toContainText(compactBlock.generated_by.display_name);
+        await expect(block.locator("[data-generated-by-uid] img")).toHaveCount(0);
         await expect(page.getByText("New comment outside summary", { exact: true })).toBeVisible();
         expect(evidenceCursors).toEqual([]);
         await expect(block.locator("img")).toHaveCount(0);

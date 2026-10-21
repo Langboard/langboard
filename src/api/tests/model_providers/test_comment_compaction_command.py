@@ -81,6 +81,7 @@ async def test_server_collects_original_comments_and_moves_and_keeps_new_comment
     result = await service.generate(actor, project, card)
     assert result["status"] == "completed" and result["has_more_sources"] is True
     assert "fixture-private-model-key" not in str(result)
+    assert result["generated_by"] == {"uid": binding.get_uid(), "display_name": binding.display_name}
     with DbSession.use(readonly=False) as db:
         current = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.id == comment.id)).first()
         comments = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.card_id == card.id)).all()
@@ -665,6 +666,7 @@ async def test_real_mcp_compact_defaults_and_scoped_original_fragments(compact_c
             default = await client.call_tool("get_card_timeline", arguments)
             assert not default.is_error, default
             assert [item["kind"] for item in default.data["records"]] == ["compaction"]
+            assert default.data["records"][0]["summary"]["generated_by"] == {"uid": binding.get_uid(), "display_name": binding.display_name}
             text = json.dumps(default.data, default=str)
             assert long_text[:100] not in text and "fixture-private-model-key" not in text
             assert "request_key" not in text and "provider_revision" not in text
@@ -716,6 +718,7 @@ async def test_real_mcp_compact_defaults_and_scoped_original_fragments(compact_c
                     break
             assert len(seen) == 7 and len({(item["kind"], item["uid"]) for item in seen}) == 7
             assert seen[-1]["kind"] == "compaction" and all(item["uid"] != comment.get_uid() for item in seen)
+            assert seen[-1]["summary"]["generated_by"] == {"uid": binding.get_uid(), "display_name": binding.display_name}
             legacy = CommentCursor(created_at=new_comments[-1].created_at.isoformat(), comment_uid=new_comments[-1].get_uid()).encode()
             old_page = get_card_bundle(adapter, project.get_uid(), card.get_uid(), CommentPage(limit=20, cursor=legacy), SectionPage(), include=["comments"])
             assert all(item["uid"] != comment.get_uid() for item in old_page.continuation.page.items)
@@ -734,3 +737,19 @@ async def test_real_mcp_compact_defaults_and_scoped_original_fragments(compact_c
             assert model.await_count == 1
     finally:
         mcp_auth_context.reset(token)
+
+
+def test_mcp_compactor_attribution_never_forwards_profile_configuration():
+    from langboard.card_workspace.application.projections import public_card_timeline_entry
+
+    event = {"kind": "compaction", "uid": "summary", "data": {
+        "draft": {"claims": []},
+        "request_key": "private-request-key",
+        "generated_by": {"uid": "compactor", "display_name": "컴팩터", "value": {"api_key": "secret"},
+                         "email": "private@example.invalid", "tools": ["private-tool"]},
+    }}
+    result = public_card_timeline_entry(event)
+    assert result["summary"]["generated_by"] == {"uid": "compactor", "display_name": "컴팩터"}
+    assert not any(value in str(result) for value in ("secret", "private@example.invalid", "private-tool", "private-request-key"))
+    del event["data"]["generated_by"]
+    assert "generated_by" not in public_card_timeline_entry(event)["summary"]

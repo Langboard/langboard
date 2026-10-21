@@ -137,6 +137,8 @@ def public_card_timeline_entry(event: dict[str, Any], *, inline_comment: bool = 
             **pick(data, ("source_revision", "covered_from", "covered_through", "evidence_refs")),
             "claims": [pick(claim, ("kind", "text", "evidence_refs")) for claim in data["draft"]["claims"]],
         }
+        if isinstance(data.get("generated_by"), dict):
+            result["summary"]["generated_by"] = pick(data["generated_by"], ("uid", "display_name"))
     else:
         raise ValueError("Unsupported card timeline entry")
     return result

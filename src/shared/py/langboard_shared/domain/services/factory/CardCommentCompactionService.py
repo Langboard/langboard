@@ -194,6 +194,7 @@ class CardCommentCompactionService(BaseDomainService):
                 and_(events.c.created_at == last.created_at, events.c.id == uid, events.c.kind > kind),
             )).limit(1)).first() is not None
             return {**result, "draft": draft, "evidence_refs": refs, "range_end": refs[-1],
+                    "generated_by": {"uid": binding.get_uid(), "display_name": binding.display_name},
                     "source_revision": record.source_revision, "has_more_sources": has_more,
                     "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
 

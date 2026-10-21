@@ -6,6 +6,7 @@ export interface CommentCompaction {
     evidence_refs?: string[];
     covered_from?: string;
     covered_through?: string;
+    generated_by?: { uid: string; display_name: string };
     draft?: {
         claims: { text: string; kind: "fact" | "reported_success" | "reported_failure" | "unresolved" | "conflict"; evidence_refs: string[] }[];
     };
