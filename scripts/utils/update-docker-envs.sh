@@ -19,6 +19,12 @@ cd ../
 
 source .env
 
+# MAIL_SERVER is optional: leave empty to disable mail features. When set
+# later, fill it in .env and re-run this script (or make update_docker_settings).
+if [ -z "$MAIL_SERVER" ]; then
+    echo "MAIL_SERVER is empty — outbound mail is disabled. Set it in .env to enable."
+fi
+
 # Validate external postgres URLs if they are set
 if [ -n "$POSTGRES_EXTERNAL_MAIN_URL" ]; then
     validate_postgres_url "$POSTGRES_EXTERNAL_MAIN_URL" "POSTGRES_EXTERNAL_MAIN_URL"

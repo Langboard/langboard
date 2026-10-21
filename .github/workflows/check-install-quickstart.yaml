@@ -1,0 +1,45 @@
+name: Check Install Quickstart
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/check-install-quickstart.yaml
+      - README.md
+      - .env.example
+      - Makefile
+      - scripts/**
+      - docker/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compose-config:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Quickstart env bootstrap (mirrors scripts/run_docker_compose.sh)
+        run: |
+          cp .env.example .env
+          bash scripts/utils/update-docker-envs.sh
+          for service in nginx api ui socket flows db_backup; do
+            test -s "docker/envs/.${service}.env" || { echo "missing docker/envs/.${service}.env"; exit 1; }
+          done
+
+      - name: Compose config — embedded PostgreSQL (quickstart default)
+        run: |
+          COMPOSE_ARGS=$(WITH_DOCS=false WITH_UI_WATCHER=false WITH_OLLAMA_CPU=false WITH_OLLAMA_GPU=false bash scripts/utils/get-compose-args.sh)
+          docker compose $COMPOSE_ARGS config -q
+
+      - name: Compose config — external PostgreSQL (no embedded db / bouncer)
+        run: |
+          printf '\nPOSTGRES_EXTERNAL_MAIN_URL=postgresql://user:pass@external-db.example.com:5432/langboard\n' >> .env
+          COMPOSE_ARGS=$(WITH_DOCS=false WITH_UI_WATCHER=false WITH_OLLAMA_CPU=false WITH_OLLAMA_GPU=false bash scripts/utils/get-compose-args.sh)
+          docker compose $COMPOSE_ARGS config -q
+          if docker compose $COMPOSE_ARGS config --services | grep -E '^(db|db-replica|db-bouncer)$'; then
+            echo "external-PG composition must not include embedded postgres/bouncer services"; exit 1
+          fi
