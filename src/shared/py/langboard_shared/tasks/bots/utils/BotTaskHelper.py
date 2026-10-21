@@ -11,6 +11,7 @@ from ....helpers import BotHelper
 from ....helpers import BotHelper as BotHelperClass
 from ...webhooks import WebhookTask
 from ...webhooks.utils import WebhookModel
+from .requests.BaseBotRequest import BotRequestOutcome
 from .requests.Utils import create_request
 
 
@@ -114,7 +115,7 @@ class BotTaskHelper:
         scope_model: BaseDbModel | None = None,
         *,
         emit_webhook: bool = True,
-    ): ...
+    ) -> list[BotRequestOutcome]: ...
     @overload
     @staticmethod
     async def run(
@@ -124,7 +125,7 @@ class BotTaskHelper:
         project: Project | None = None,
         *,
         emit_webhook: bool = True,
-    ): ...
+    ) -> list[BotRequestOutcome]: ...
     @staticmethod
     async def run(
         bots: Bot | list[Bot] | list[tuple[Bot, BaseDbModel]],
@@ -134,31 +135,34 @@ class BotTaskHelper:
         scope_model: BaseDbModel | None = None,
         *,
         emit_webhook: bool = True,
-    ):
+    ) -> list[BotRequestOutcome]:
         if not BotTaskHelper.can_dispatch_card_scope(data, project, scope_model):
-            return
+            return []
 
         if not isinstance(bots, list):
             bots = [bots]
 
         bots = [bot for bot in bots if not isinstance(bot, tuple) or BotTaskHelper.can_dispatch_card_scope(data, project, bot[1])]
         if not bots:
-            return
+            return []
 
         if emit_webhook:
             WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
 
         if BotTaskHelper.is_bot_authored_event(data):
             logger.info("Skipped scoped bot cascade for bot-authored event: event=%s", event.value)
-            return
+            return []
 
+        outcomes: list[BotRequestOutcome] = []
         for bot in bots:
             if isinstance(bot, tuple):
                 bot, scope_model = bot
             request = create_request(bot, event.value, data, project, scope_model)
             if not request:
+                outcomes.append(BotRequestOutcome.PermanentFailure)
                 continue
-            await request.execute()
+            outcomes.append(await request.execute())
+        return outcomes
 
     @staticmethod
     def can_dispatch_card_scope(data: dict[str, Any], project: Project | None, scope_model: BaseDbModel | None) -> bool:

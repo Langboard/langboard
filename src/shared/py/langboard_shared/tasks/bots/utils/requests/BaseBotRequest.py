@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Any, TypedDict
-from httpx import AsyncClient, TimeoutException
+from httpx import AsyncClient, RequestError, TimeoutException
 from .....core.db import BaseDbModel, DbSession
 from .....core.logger import Logger
 from .....core.security.GraphServiceAuth import graph_service_headers
@@ -20,6 +21,15 @@ logger = Logger.use("bot-task")
 class RequestData(TypedDict, total=True):
     url: str
     data: dict[str, Any]
+
+
+class BotRequestOutcome(Enum):
+    """Transport admission only; Accepted does not establish execution success."""
+
+    Accepted = "accepted"
+    RetryableFailure = "retryable_failure"
+    PermanentFailure = "permanent_failure"
+    Skipped = "skipped"
 
 
 class BaseBotRequest(ABC):
@@ -44,19 +54,19 @@ class BaseBotRequest(ABC):
 
         return BotTaskHelper.can_dispatch_card_scope(self._data, self._project, self._scope_model)
 
-    async def execute(self) -> None:
+    async def execute(self) -> BotRequestOutcome:
         if not self._can_dispatch_scope():
-            return
+            return BotRequestOutcome.Skipped
         bot_log = await self._create_log(BotLogType.Info, f"'{self._event}' task started")
 
         request_data = self.create_request_data(bot_log)
         if not request_data:
             await self._update_log(bot_log, BotLogType.Error, "Invalid request data")
-            return
+            return BotRequestOutcome.PermanentFailure
 
         headers = self._get_bot_request_headers()
 
-        await self.request(request_data, headers, bot_log)
+        return await self.request(request_data, headers, bot_log)
 
     @abstractmethod
     def create_request_data(self, bot_log: tuple[BotLog, BaseBotLogModel | None]) -> RequestData | None: ...
@@ -67,9 +77,9 @@ class BaseBotRequest(ABC):
         headers: dict[str, Any],
         bot_log: tuple[BotLog, BaseBotLogModel | None],
         retried: int = 0,
-    ) -> None:
+    ) -> BotRequestOutcome:
         if not self._can_dispatch_scope():
-            return
+            return BotRequestOutcome.Skipped
         res = None
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 
@@ -86,11 +96,17 @@ class BaseBotRequest(ABC):
             log_type = self._get_start_request_log_type()
             message = "Request successfully executed"
             await self._update_log(bot_log, log_type, text if text else message)
+            return BotRequestOutcome.Accepted
         except TimeoutException as e:
             if retried < Env.AI_REQUEST_TRIALS:
                 return await self.request(request_data, headers, bot_log, retried + 1)
             logger.error("Timeout while requesting bot: %s", e)
             await self._update_log(bot_log, BotLogType.Error, str(e))
+            return BotRequestOutcome.RetryableFailure
+        except RequestError as e:
+            logger.error("Transport failure while requesting bot: %s", self._bot.bot_uname)
+            await self._update_log(bot_log, BotLogType.Error, str(e))
+            return BotRequestOutcome.RetryableFailure
         except Exception as e:
             if res:
                 logger.error(
@@ -101,9 +117,12 @@ class BaseBotRequest(ABC):
                     res.text,
                 )
                 await self._update_log(bot_log, BotLogType.Error, f"{res.status_code}: {res.text}")
+                if res.status_code in (408, 429) or res.status_code >= 500:
+                    return BotRequestOutcome.RetryableFailure
             else:
                 logger.error("Failed to request bot: %s(@%s)", self._bot.name, self._bot.bot_uname)
                 await self._update_log(bot_log, BotLogType.Error, str(e))
+            return BotRequestOutcome.PermanentFailure
 
     def _get_bot_request_headers(self) -> dict[str, Any]:
         headers = {
