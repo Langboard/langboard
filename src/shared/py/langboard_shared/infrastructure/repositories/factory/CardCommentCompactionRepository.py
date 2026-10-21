@@ -14,6 +14,7 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
 from ....domain.models import Card, CardCommentCompaction, InternalBot, User
+from ....domain.models.InternalBot import InternalBotType
 from ....domain.services.WorkflowCompactionHistory import finish_compaction_history, start_compaction_history
 
 
@@ -28,6 +29,11 @@ def provider_revision(binding: InternalBot) -> str:
 
 def request_key(card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> str:
     return sha256(json.dumps([POLICY_VERSION, int(card.id), int(user.id), snapshot.source_revision(),
+                             provider_revision(binding)]).encode()).hexdigest()
+
+
+def automatic_request_key(card: Card, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> str:
+    return sha256(json.dumps([POLICY_VERSION, int(card.id), ["profile", int(binding.id)], snapshot.source_revision(),
                              provider_revision(binding)]).encode()).hexdigest()
 
 
@@ -46,9 +52,19 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
         return "card_comment_compaction"
 
     def reserve(self, card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> CardCommentCompaction:
+        if not isinstance(user, User):
+            raise ValueError("Manual compaction requires a user")
+        return self._reserve(card, user.id, binding, snapshot, request_key(card, user, binding, snapshot))
+
+    def reserve_automatic(self, card: Card, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> CardCommentCompaction:
+        """Application must verify current board grant and workflow before this call."""
+        if binding.bot_type != InternalBotType.CommentCompaction:
+            raise ValueError("Automatic compaction requires a dedicated compactor")
+        return self._reserve(card, None, binding, snapshot, automatic_request_key(card, binding, snapshot))
+
+    def _reserve(self, card, user_id, binding, snapshot, key):
         source = snapshot.source_revision()
         provider = provider_revision(binding)
-        key = request_key(card, user, binding, snapshot)
         with DbSession.atomic() as db:
             # Serialize reservations on PostgreSQL; the unique constraint also
             # arbitrates SQLite and callers which did not acquire this lock.
@@ -57,7 +73,7 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             existing = db.exec(query).first()
             if existing:
                 return existing
-            record = CardCommentCompaction(request_key=key, card_id=card.id, user_id=user.id,
+            record = CardCommentCompaction(request_key=key, card_id=card.id, user_id=user_id,
                 internal_bot_id=binding.id, source_revision=source, provider_revision=provider,
                 policy_version=POLICY_VERSION, source_manifest=snapshot.evidence_manifest())
             try:
@@ -155,6 +171,7 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
         return db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
             CardCommentCompaction.id == record.id, CardCommentCompaction.card_id == record.card_id,
             CardCommentCompaction.user_id == record.user_id,
+            CardCommentCompaction.internal_bot_id == record.internal_bot_id,
         ).with_for_update().execution_options(populate_existing=True)).first()
 
     @staticmethod

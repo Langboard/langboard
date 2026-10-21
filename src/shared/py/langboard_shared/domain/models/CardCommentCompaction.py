@@ -18,7 +18,9 @@ class CardCommentCompaction(BaseDbModel, table=True):
     )
     request_key: str = Field(nullable=False, unique=True, max_length=64)
     card_id: SnowflakeID = SnowflakeIDField(foreign_key=Card, nullable=False, index=True)
-    user_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False)
+    # NULL identifies the dedicated internal_bot_id as the automatic principal.
+    # Never put an InternalBot ID in the User foreign key.
+    user_id: SnowflakeID | None = SnowflakeIDField(foreign_key=User, nullable=True)
     internal_bot_id: SnowflakeID = SnowflakeIDField(foreign_key=InternalBot, nullable=False)
     source_revision: str = Field(nullable=False, max_length=64)
     provider_revision: str = Field(nullable=False, max_length=64)

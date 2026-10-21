@@ -36,6 +36,12 @@ def compactions(board):
     with engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
         migration.upgrade()
+        principal_path = path.parent / "20261022010000-b4a719de028c.py"
+        principal_spec = importlib.util.spec_from_file_location("compaction_principal_migration", principal_path)
+        principal = importlib.util.module_from_spec(principal_spec)
+        principal_spec.loader.exec_module(principal)
+        with Operations.context(MigrationContext.configure(connection)):
+            principal.upgrade()
     with DbSession.atomic() as db:
         card = Card(project_id=project.id, project_column_id=columns[0].id, title="Original card")
         binding = InternalBot(bot_type=InternalBotType.CommentCompaction, display_name="Fixture",

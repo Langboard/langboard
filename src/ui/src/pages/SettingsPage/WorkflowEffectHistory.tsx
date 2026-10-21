@@ -158,7 +158,13 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                                 {t("settings.Finished")}: {date(row.finished_at)}
                                             </p>
                                         )}
-                                        <p>{row.actor_type === "bot" ? t("settings.Bot") : t("settings.User")}</p>
+                                        <p>
+                                            {row.actor_type === "profile"
+                                                ? t("settings.Execution profile")
+                                                : row.actor_type === "bot"
+                                                  ? t("settings.Bot")
+                                                  : t("settings.User")}
+                                        </p>
                                         {row.profile && (
                                             <p>
                                                 {t("settings.Execution profile")}: {row.profile.display_name}

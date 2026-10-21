@@ -493,7 +493,9 @@ for (const width of [1440, 390]) {
                 json: {
                     items: statuses.map((status) => ({
                         ...effectRun(status),
-                        source: "manual",
+                        source: status === "running" ? "continuous" : "manual",
+                        actor_type: status === "running" ? "profile" : "user",
+                        actor_uid: status === "running" ? "compactor" : "user",
                         status,
                         effects: ["compact_comments"],
                         result: { compacted: status === "succeeded" ? 1 : 0 },
@@ -519,7 +521,10 @@ for (const width of [1440, 390]) {
         await expect(history.locator("img")).toHaveCount(0);
         await expect(failed).not.toContainText("Completed items:");
         const running = history.getByRole("row").filter({ hasText: "Running" });
+        await expect(running).toContainText("Continuous effects");
         await running.getByText("Effect details", { exact: true }).click();
+        await expect(running.getByText("Execution profile", { exact: true })).toBeVisible();
+        await expect(running.getByText("User", { exact: true })).toHaveCount(0);
         await expect(running).not.toContainText("Finished:");
         await page.getByRole("dialog").screenshot({ path: `.verification/compaction-workflow-history-${width}.png` });
     });

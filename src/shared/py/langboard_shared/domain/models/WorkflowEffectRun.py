@@ -8,7 +8,7 @@ from ...core.types import SafeDateTime, SnowflakeID
 class WorkflowEffectRun(BaseDbModel, table=True):
     __table_args__ = (
         CheckConstraint("duration_ms >= 0", name="workflow_effect_duration"),
-        CheckConstraint("actor_type IN ('user','bot')", name="workflow_effect_actor"),
+        CheckConstraint("actor_type IN ('user','bot','profile')", name="workflow_effect_actor"),
         Index("ix_workflow_effect_run_stage_page", "stage_id", "id"),
         Index("ix_workflow_effect_run_execution_key", "execution_key", unique=True),
     )

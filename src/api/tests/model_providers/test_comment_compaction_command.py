@@ -40,6 +40,27 @@ from sqlalchemy import delete, event, update
 command = importlib.import_module("langboard_shared.domain.services.factory.CardCommentCompactionService")
 
 
+def test_profile_owned_summary_reuses_authorized_read_view_without_user_ownership(compact_command):
+    service, actor, project, card, binding, *_ = compact_command
+    snapshot, _ = service._snapshot(project, card)
+    repository = service.repo.card_comment_compaction
+    record = repository.reserve_automatic(card, binding, snapshot)
+    # A human reader does not own the compactor's pending request or cancellation.
+    with pytest.raises(CommentCompactionError) as denied:
+        service.get(actor, project, card, record.id)
+    assert denied.value.status == 404
+    with pytest.raises(CommentCompactionError):
+        service.cancel(actor, project, card, record.id)
+    claimed = repository.claim(record)
+    assert repository.complete(record, claimed.attempt, snapshot, binding, draft(snapshot))
+    block = service.get(actor, project, card, record.id)
+    assert block["status"] == "completed" and "request_key" not in block
+    assert block["generated_by"] == {"uid": binding.get_uid(), "display_name": binding.display_name}
+    view = service.get_view(actor, project, card)
+    assert [entry["kind"] for entry in view["records"]] == ["compaction"]
+    assert "Original private comment" not in json.dumps(view)
+
+
 @pytest.fixture
 def compact_command(compactions, board, monkeypatch):
     repo, actor, card, binding, comment, *_ = compactions

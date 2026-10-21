@@ -51,9 +51,11 @@ def start_compaction_history(db, record, now):
         return
     db.insert(WorkflowEffectRun(
         stage_id=stage.id, stage_key=stage.key, stage_revision=stage.edit_revision(),
-        project_id=card.project_id, card_id=card.id, actor_id=record.user_id, actor_type="user",
+        project_id=card.project_id, card_id=card.id,
+        actor_id=record.user_id if record.user_id is not None else profile.id,
+        actor_type="user" if record.user_id is not None else "profile",
         profile_id=profile.id, profile_name=profile.display_name, execution_key=_key(record, record.attempt),
-        source="manual", status="running", effects=["compact_comments"],
+        source="manual" if record.user_id is not None else "continuous", status="running", effects=["compact_comments"],
         lease_expires_at=record.lease_expires_at,
         started_at=now, finished_at=now, duration_ms=0, result={},
     ))

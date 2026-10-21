@@ -80,3 +80,37 @@ def test_compaction_attempts_record_profile_status_and_preserve_failed_receipts(
     assert latest.result == {"compacted": int(expected == "succeeded")}
     assert latest.duration_ms >= 0
     assert latest.error_code == ({"failed": "provider_error", "cancelled": "cancelled"}.get(expected))
+
+
+@pytest.mark.parametrize("outcome", ["success", "provider_error", "cancel", "retry"])
+def test_automatic_attempts_are_profile_owned_without_a_borrowed_user(compactions, outcome):
+    repo, actor, card, binding, comment, snapshot, draft, _ = compactions
+    stage = _bind_stage(card)
+    original = comment.model_dump(mode="json")
+    manual = repo.reserve(card, actor, binding, snapshot)
+    automatic = repo.reserve_automatic(card, binding, snapshot)
+    assert automatic.user_id is None and automatic.internal_bot_id == binding.id
+    assert automatic.request_key != manual.request_key
+    assert repo.reserve_automatic(card, binding, snapshot).id == automatic.id
+    now = SafeDateTime.now()
+    claimed = repo.claim(automatic, now=now, lease_seconds=60)
+    assert claimed.attempt == 1
+    first = _runs()[0]
+    assert (first.actor_id, first.actor_type, first.source) == (binding.id, "profile", "continuous")
+    assert (first.profile_id, first.profile_name, first.stage_id) == (binding.id, binding.display_name, stage.id)
+    if outcome == "success":
+        assert repo.complete(automatic, 1, snapshot, binding, draft, now=now)
+    elif outcome == "provider_error":
+        assert repo.fail(automatic, 1, "provider_error")
+    elif outcome == "cancel":
+        assert repo.cancel(automatic)
+        assert not repo.complete(automatic, 1, snapshot, binding, draft, now=now)
+    else:
+        later = now + timedelta(seconds=61)
+        assert repo.claim(automatic, retry=True, now=later)
+        assert not repo.complete(automatic, 1, snapshot, binding, draft, now=later)
+        assert repo.complete(automatic, 2, snapshot, binding, draft, now=later)
+        assert _runs()[0].status == "uncertain"
+    assert all(run.actor_type == "profile" and run.actor_id == binding.id for run in _runs())
+    assert manual.user_id == actor.id and manual.status == "pending"
+    assert comment.model_dump(mode="json") == original
