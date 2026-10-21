@@ -44,7 +44,7 @@ class MiddlewareHelper:
             return
 
         try:
-            ip_address = AuthSecurity.get_client_ip(headers)
+            ip_address = AuthSecurity.resolve_client_ip((scope.get("client") or (None,))[0], headers)
 
             status_code = status_holder["status"]
             is_success = status.HTTP_200_OK <= status_code < status.HTTP_400_BAD_REQUEST
@@ -63,20 +63,21 @@ class MiddlewareHelper:
     @staticmethod
     def validate_auth(scope: Scope) -> User | Bot | int:
         headers = Headers(scope=scope)
+        client_ip = AuthSecurity.resolve_client_ip((scope.get("client") or (None,))[0], headers)
         if headers.get(AuthSecurity.API_TOKEN_HEADER, headers.get(AuthSecurity.API_TOKEN_HEADER.lower())):
             validation_result = Auth.validate_user_by_api_token(headers)
             if isinstance(validation_result, User):
                 scope["auth"] = validation_result
                 return validation_result
 
-            validation_result = Auth.validate_bot(headers)
+            validation_result = Auth.validate_bot(headers, client_ip)
             if isinstance(validation_result, Bot):
                 scope["auth"] = validation_result
                 return validation_result
             return validation_result
 
         if headers.get(AuthSecurity.API_KEY_HEADER, headers.get(AuthSecurity.API_KEY_HEADER.lower())):
-            validation_result = Auth.validate_user_by_api_key(headers)
+            validation_result = Auth.validate_user_by_api_key(headers, client_ip)
             if isinstance(validation_result, tuple):
                 user, api_key = validation_result
                 scope["auth"] = user

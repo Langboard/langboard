@@ -150,6 +150,16 @@ class Env:
         return urls.split(",") if urls else []
 
     @property
+    def TRUSTED_PROXY_IPS(self) -> list[str]:
+        """Comma-separated proxy IPs/CIDRs whose forwarded headers may be trusted.
+
+        Empty by default: forwarded headers are never trusted and IP-restricted
+        keys are evaluated against the direct peer address (fail-closed).
+        """
+        proxies = self.__get_from_cache("TRUSTED_PROXY_IPS", "")
+        return [proxy.strip() for proxy in proxies.split(",") if proxy.strip()]
+
+    @property
     def CACHE_TYPE(self) -> Literal["in-memory", "redis"]:
         cache_type = cast(Any, self.__get_from_cache("CACHE_TYPE", "in-memory"))
         _available_cache_types = {"in-memory", "redis"}
