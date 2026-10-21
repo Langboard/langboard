@@ -58,6 +58,17 @@ def fixture(monkeypatch, tmp_path):
             )
         ),
     )
+    class Passthrough:
+        token = None
+        def __init__(self, embeddings):
+            self.embeddings = embeddings
+            self.retain = Mock()
+        def embed_documents(self, values):
+            return self.embeddings.embed_documents(values)
+        def embed_query(self, value):
+            return self.embeddings.embed_query(value)
+    monkeypatch.setattr(task, "cached_document_embeddings",
+                        lambda embeddings, **kwargs: nullcontext(Passthrough(embeddings)))
     monkeypatch.setattr(task, "create_document_embeddings", Mock(return_value=object()))
     monkeypatch.setattr(task, "open_document_vector_store", Mock(return_value=nullcontext(object())))
     monkeypatch.setattr(

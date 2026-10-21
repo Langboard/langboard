@@ -78,7 +78,11 @@ def scenario(directory):
     )
     from langboard_shared.core.db import DbSession, SqlBuilder
     from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models import DocumentVectorCleanup
+    from langboard_shared.domain.models import (
+        DocumentEmbeddingCache,
+        DocumentEmbeddingCacheReference,
+        DocumentVectorCleanup,
+    )
     from langboard_shared.Env import Env
     from langboard_shared.tasks.docling import DocumentCleanupTask as outbox
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
@@ -96,7 +100,8 @@ def scenario(directory):
     try:
         with admin.begin() as connection:
             connection.execute(text(f"CREATE SCHEMA {schema}"))
-        DocumentVectorCleanup.__table__.create(DbEngine.get_main_engine())
+        for model in (DocumentVectorCleanup, DocumentEmbeddingCache, DocumentEmbeddingCacheReference):
+            model.__table__.create(DbEngine.get_main_engine())
         vector_path.parent.mkdir(parents=True, exist_ok=True)
         source = dict(
             board_uid="fixture-board",

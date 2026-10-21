@@ -42,7 +42,6 @@ from .CardBotSchedule import CardBotSchedule
 from .CardBotScope import CardBotScope
 from .CardComment import CardComment
 from .CardCommentCompaction import CardCommentCompaction
-from .WorkflowEffectRun import WorkflowEffectRun
 from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
@@ -59,6 +58,7 @@ from .ChatTemplate import ChatTemplate
 from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
+from .DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from .DocumentKeywordIndex import DocumentKeywordIndex
 from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
@@ -130,6 +130,7 @@ from .UserProfile import UserProfile
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
+from .WorkflowEffectRun import WorkflowEffectRun
 from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
@@ -190,6 +191,8 @@ __all__ = [
     'CardContentBlock',
     'CardMetadata',
     'DocumentVectorCleanup',
+    'DocumentEmbeddingCache',
+    'DocumentEmbeddingCacheReference',
     'DocumentKeywordIndex',
     'KeywordSearchConfiguration',
     'KeywordSearchConnection',
@@ -205,6 +208,7 @@ __all__ = [
     'GlobalCardRelationshipType',
     'GlobalLabel',
     'WorkflowStageDefinition',
+    'WorkflowEffectRun',
     'BotScheduleGraphApprovalRequest',
     'BotTriggerGraphApprovalRequest',
     'ChatGraphApprovalRequest',

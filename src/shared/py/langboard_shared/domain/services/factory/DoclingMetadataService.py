@@ -457,6 +457,10 @@ class DoclingMetadataService(BaseDomainService):
             if embedding_config is not None:
                 updated["embedding_config"] = embedding_config
             published = self.upsert_document(CardMetadata, card, updated, expected_generation=generation)
+            if published and embedding.get("status") == "indexed":
+                from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
+
+                activate_cache_references(db, ((embedding.get("pointer") or {}).get("storage") or {}).get("cache_use_token"))
             previous = (document.get("embedding") or {}).get("pointer")
             if published and embedding.get("status") == "indexed" and previous != embedding.get("pointer"):
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup

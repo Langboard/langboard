@@ -9,6 +9,7 @@ from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
 from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
+from .DocumentEmbeddingCache import cached_document_embeddings, release_cache_references
 from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrievalSettings
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
@@ -41,6 +42,12 @@ async def remove_attachment_embedding(request: str):
 
 
 def remove_recorded_embedding(pointer: dict) -> None:
+    """Release shared results only after this attachment generation is removed."""
+    _remove_recorded_vectors(pointer)
+    release_cache_references((pointer.get("storage") or {}).get("cache_use_token"))
+
+
+def _remove_recorded_vectors(pointer: dict) -> None:
     """Delete the recorded namespace even after current indexing settings change."""
     if not isinstance(pointer, dict):
         raise ValueError("A recorded embedding pointer is required")
@@ -138,57 +145,64 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
         directory = Env.DATA_DIR / "document-retrieval"
         # No PostgreSQL row lock is held during remote inference.
         vector_allowed = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
-        context = open_document_vector_store(settings, embeddings, fingerprint, directory, vector_allowed)
-        with context as store:
-            source = dict(
-                board_uid=project.get_uid(),
-                card_uid=card.get_uid(),
-                attachment_uid=attachment_uid,
-                content_hash=content_hash,
-                embedding_fingerprint=fingerprint,
-            )
-            storage = {"type": settings.store}
-            if settings.store == "postgres":
-                storage["dimensions"] = settings.dimensions
-            if settings.store == "qdrant":
-                storage.update(
-                    endpoint=str(settings.external_url).rstrip("/"),
-                    binding_uid=snapshot["binding_uid"],
-                    dimensions=settings.dimensions,
-                    collection_prefix=settings.collection_prefix,
+        with cached_document_embeddings(
+            embeddings, binding_uid=snapshot["binding_uid"], content_hash=content_hash,
+            fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
+        ) as cache:
+            context = open_document_vector_store(settings, cache, fingerprint, directory, vector_allowed)
+            with context as store:
+                source = dict(
+                    board_uid=project.get_uid(),
+                    card_uid=card.get_uid(),
+                    attachment_uid=attachment_uid,
+                    content_hash=content_hash,
+                    embedding_fingerprint=fingerprint,
                 )
-            pointer = stage_vector_generation(
-                store,
-                source=source,
-                text=(document.get("content") or {}).get("markdown", ""),
-                document_json=service.docling_metadata.get_structural_document(
-                    card, attachment_uid, generation=generation, content_hash=content_hash
-                ),
-                splitter=settings.splitter,
-                storage=storage,
-            )
-            remove = delete_vector_generation
-            try:
-                # Inference can outlive deletion or an endpoint change. Resolve
-                # the current primary binding before publishing its new pointer.
-                current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
-                if not current_binding or current_binding.bot_type != InternalBotType.DocumentEmbedding:
-                    raise ValueError("Embedding binding is unavailable")
-                resolve_embedding_snapshot(snapshot, current_binding.value)
-                committed = service.docling_metadata.publish_document_embedding(
-                    card,
-                    attachment_uid,
-                    generation,
-                    content_hash,
-                    {"status": "indexed", "pointer": pointer, "source_generation": generation, "config": snapshot},
-                    expected_embedding=old,
+                storage = {"type": settings.store}
+                if cache.token:
+                    storage["cache_use_token"] = cache.token
+                if settings.store == "postgres":
+                    storage["dimensions"] = settings.dimensions
+                if settings.store == "qdrant":
+                    storage.update(
+                        endpoint=str(settings.external_url).rstrip("/"),
+                        binding_uid=snapshot["binding_uid"],
+                        dimensions=settings.dimensions,
+                        collection_prefix=settings.collection_prefix,
+                    )
+                pointer = stage_vector_generation(
+                    store,
+                    source=source,
+                    text=(document.get("content") or {}).get("markdown", ""),
+                    document_json=service.docling_metadata.get_structural_document(
+                        card, attachment_uid, generation=generation, content_hash=content_hash
+                    ),
+                    splitter=settings.splitter,
+                    storage=storage,
                 )
-            except Exception:
-                remove(store, pointer)
-                raise
-            if not committed:
-                remove(store, pointer)
-                return
+                remove = delete_vector_generation
+                try:
+                    # Inference can outlive deletion or an endpoint change. Resolve
+                    # the current primary binding before publishing its new pointer.
+                    current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
+                    if not current_binding or current_binding.bot_type != InternalBotType.DocumentEmbedding:
+                        raise ValueError("Embedding binding is unavailable")
+                    resolve_embedding_snapshot(snapshot, current_binding.value)
+                    committed = service.docling_metadata.publish_document_embedding(
+                        card,
+                        attachment_uid,
+                        generation,
+                        content_hash,
+                        {"status": "indexed", "pointer": pointer, "source_generation": generation, "config": snapshot},
+                        expected_embedding=old,
+                    )
+                except Exception:
+                    remove(store, pointer)
+                    raise
+                if not committed:
+                    remove(store, pointer)
+                    return
+                cache.retain()
     except Exception as error:
         if isinstance(error, VectorGenerationCleanupError):
             from ...core.db import DbSession
