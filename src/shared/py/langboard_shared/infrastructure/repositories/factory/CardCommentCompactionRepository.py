@@ -71,10 +71,10 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
         now = now or SafeDateTime.now()
         with DbSession.atomic() as db:
             current = self._locked(db, record)
-            if current is None or current.status in {"completed", "cancelled"}:
+            if current is None or current.status == "completed":
                 return None
             expired = current.lease_expires_at is None or _utc(current.lease_expires_at) <= _utc(now)
-            if current.status != "pending" and not (retry and expired and current.status in {"running", "failed"}):
+            if current.status != "pending" and not (retry and expired and current.status in {"running", "failed", "cancelled"}):
                 return None
             values = {"status": "running", "attempt": current.attempt + 1,
                       "lease_expires_at": now + timedelta(seconds=lease_seconds),
@@ -121,6 +121,18 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
                 self._attempt_condition(current, attempt, SafeDateTime.now()),
             ).values(status="cancelled" if code == "cancelled" else "failed", error_code=code,
                      lease_expires_at=None, updated_at=SafeDateTime.now())) == 1
+
+    def cancel(self, record: CardCommentCompaction) -> bool:
+        """Withdraw pending/running work; a late provider response cannot publish."""
+        with DbSession.atomic() as db:
+            current = self._locked(db, record)
+            if current is None or current.status not in {"pending", "running"}:
+                return False
+            return db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
+                CardCommentCompaction.id == current.id, CardCommentCompaction.attempt == current.attempt,
+                CardCommentCompaction.status.in_(["pending", "running"]),
+            ).values(status="cancelled", error_code="cancelled", lease_expires_at=None,
+                     updated_at=SafeDateTime.now())) == 1
 
     @staticmethod
     def _locked(db, record):

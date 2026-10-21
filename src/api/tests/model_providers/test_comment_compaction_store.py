@@ -1,58 +1,19 @@
 """Exercise migration, non-destructive persistence, request coalescing and fencing."""
 
-import importlib.util
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from pathlib import Path
 from threading import Barrier
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from langboard_shared.ai.comment_compaction import CommentCompactionSnapshot, CompactionDraft
-from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
+from langboard_shared.ai.comment_compaction import CompactionDraft
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Bot, Card, CardComment, CardCommentCompaction, InternalBot, User
-from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
-from langboard_shared.domain.models.InternalBot import InternalBotType
-from langboard_shared.infrastructure.repositories.factory.CardCommentCompactionRepository import (
-    CardCommentCompactionRepository,
-)
+from langboard_shared.domain.models import CardComment, CardCommentCompaction, InternalBot, User
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
-
-
-@pytest.fixture
-def compactions(board):
-    _, actor, project, _, _, columns, *_ = board
-    engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardComment, InternalBot):
-        model.__table__.create(engine)
-    path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021020000-c4a8f16d3092.py"
-    spec = importlib.util.spec_from_file_location("compaction_migration", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    with engine.begin() as connection:
-        migration.op = Operations(MigrationContext.configure(connection))
-        migration.upgrade()
-    with DbSession.atomic() as db:
-        card = Card(project_id=project.id, project_column_id=columns[0].id, title="Original card")
-        binding = InternalBot(bot_type=InternalBotType.CommentCompaction, display_name="Fixture",
-                              platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
-                              value='{"model_name":"fixture"}', api_key="private-fixture-credential")
-        db.insert(card)
-        db.insert(binding)
-        comment = CardComment(card_id=card.id, user_id=actor.id,
-                              content=EditorContentModel(content="Original private comment"))
-        db.insert(comment)
-    snapshot = CommentCompactionSnapshot(sources=[{
-        "evidence_ref": f"comment:{comment.get_uid()}", "created_at": comment.created_at,
-        "updated_at": comment.updated_at, "text": comment.content.content,
-    }])
-    draft = CompactionDraft(claims=[{"text": "Reported work remains unverified", "kind": "unresolved",
-                                    "evidence_refs": [snapshot.sources[0].evidence_ref]}])
-    return CardCommentCompactionRepository(None, None), actor, card, binding, comment, snapshot, draft, migration
 
 
 def test_reservation_coalesces_only_the_same_actor_source_and_provider(compactions):
@@ -124,7 +85,7 @@ def test_failure_records_only_known_codes_and_never_a_partial_summary(compaction
     assert saved.error_code == code and saved.draft is None
     assert repo.claim(saved) is None
     retried = repo.claim(saved, retry=True)
-    assert (retried is None) == (code == "cancelled")
+    assert retried is not None and retried.attempt == record.attempt + 1
 
 
 def test_migration_cannot_discard_existing_compaction_evidence(compactions):

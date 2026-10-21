@@ -163,6 +163,10 @@ class DomainService(Factory):
         return self._create_or_get_product(factory.CardAttachmentService)
 
     @property
+    def card_comment_compaction(self):
+        return self._create_or_get_product(factory.CardCommentCompactionService)
+
+    @property
     def card_comment(self):
         return self._create_or_get_product(factory.CardCommentService)
 

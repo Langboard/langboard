@@ -5,6 +5,7 @@ from .BotDefaultScopeBranchService import BotDefaultScopeBranchService
 from .BotLogService import BotLogService
 from .BotService import BotService
 from .CardAttachmentService import CardAttachmentService
+from .CardCommentCompactionService import CardCommentCompactionService
 from .CardCommentService import CardCommentService
 from .CardContentBlockService import CardContentBlockService
 from .CardRelationshipService import CardRelationshipService
@@ -50,6 +51,7 @@ __all__ = [
     "BotService",
     "CardAttachmentService",
     "CardCommentService",
+    "CardCommentCompactionService",
     "CardContentBlockService",
     "CardRelationshipService",
     "CardService",
