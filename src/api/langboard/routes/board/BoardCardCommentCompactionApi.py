@@ -17,6 +17,7 @@ class CommentCompactionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     after: str | None = Field(default=None, max_length=64)
     retry: bool = Field(default=False, strict=True)
+    expected_request_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 def compaction_response(result):
@@ -34,7 +35,7 @@ async def compact_card_comments(
 ):
     try:
         result = await service.card_comment_compaction.generate(user, project_uid, card_uid,
-            after=body.after, retry=body.retry,
+            after=body.after, retry=body.retry, expected_request_key=body.expected_request_key,
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
         return compaction_response(result)
     except CommentCompactionError as error:
@@ -84,5 +85,21 @@ def cancel_card_comment_compaction(
     try:
         return compaction_response(service.card_comment_compaction.cancel(user, project_uid, card_uid, compaction_uid,
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)))
+    except CommentCompactionError as error:
+        return JsonResponse(content={"code": error.code}, status_code=error.status, headers={"Cache-Control": "no-store"})
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get("/board/{project_uid}/card/{card_uid}/comment-compactions/{compaction_uid}/evidence", tags=["Board.Card.Comment"])
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def get_card_comment_compaction_evidence(
+    project_uid: str, card_uid: str, compaction_uid: str, request: Request, before: str | None = Query(default=None, max_length=64),
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+):
+    try:
+        result = service.card_comment_compaction.get_evidence(user, project_uid, card_uid, compaction_uid, before=before,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+        return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
     except CommentCompactionError as error:
         return JsonResponse(content={"code": error.code}, status_code=error.status, headers={"Cache-Control": "no-store"})

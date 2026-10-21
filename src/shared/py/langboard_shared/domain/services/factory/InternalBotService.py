@@ -48,7 +48,7 @@ class InternalBotService(BaseDomainService):
             binding = db.exec(SqlBuilder.select.table(InternalBot).where(
                 InternalBot.bot_type == InternalBotType.CommentCompaction, InternalBot.is_default == True,  # noqa: E712
                 InternalBot.deleted_at.is_(None),
-            ).limit(1)).first()
+            ).limit(1).execution_options(populate_existing=True)).first()
         if binding and binding.platform == BotPlatform.Default and binding.platform_running_type == BotPlatformRunningType.Default and not binding.api_url:
             return binding
         return None

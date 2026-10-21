@@ -316,7 +316,8 @@ class ActivityService(BaseDomainService):
         return api_activities, count_new_records, project, card
 
     def get_card_timeline(
-        self, project: TProjectParam, card: TCardParam, *, before: str | None = None,
+        self, project: TProjectParam, card: TCardParam, *, before: str | None = None, evidence_refs: list[str] | None = None,
+        omit_refs: list[str] | None = None,
     ) -> dict[str, Any]:
         """Bounded, non-destructive event projection; callers enforce current card visibility."""
         empty = {"records": [], "next_cursor": None}
@@ -326,7 +327,7 @@ class ActivityService(BaseDomainService):
         project, card = params
         if card.project_id != project.id:
             return empty
-        identities = self.repo.activity.get_card_timeline_page(project, card, before=before)
+        identities = self.repo.activity.get_card_timeline_page(project, card, before=before, evidence_refs=evidence_refs, omit_refs=omit_refs)
         page = identities[:20]
         comment_ids = [record_id for kind, record_id, _ in page if kind == "comment"]
         activity_ids = [record_id for kind, record_id, _ in page if kind == "activity"]

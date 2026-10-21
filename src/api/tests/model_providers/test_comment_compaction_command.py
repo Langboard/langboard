@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard.routes.activities import ActivityApi  # noqa: F401
 from langboard.routes.board import BoardCardCommentCompactionApi  # noqa: F401
 from langboard_shared.ai.comment_compaction import CommentCompactionSnapshot, CompactionDraft
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
@@ -18,11 +19,22 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.GraphServiceAuth import verify_graph_service_token
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Card, CardComment, CardCommentCompaction, ProjectActivity, User
+from langboard_shared.domain.models import (
+    Card,
+    CardComment,
+    CardCommentCompaction,
+    CardCommentReaction,
+    InternalBot,
+    Project,
+    ProjectActivity,
+    ProjectRole,
+    User,
+)
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
 from langboard_shared.Env import Env
+from sqlalchemy import delete, update
 
 
 command = importlib.import_module("langboard_shared.domain.services.factory.CardCommentCompactionService")
@@ -32,6 +44,7 @@ command = importlib.import_module("langboard_shared.domain.services.factory.Card
 def compact_command(compactions, board, monkeypatch):
     repo, actor, card, binding, comment, *_ = compactions
     ProjectActivity.__table__.create(DbEngine.get_main_engine())
+    CardCommentReaction.__table__.create(DbEngine.get_main_engine())
     with DbSession.atomic() as db:
         board[4].actions = ["read", "card_update"]
         db.update(board[4])
@@ -49,7 +62,7 @@ def compact_command(compactions, board, monkeypatch):
 
 def draft(snapshot):
     return CompactionDraft(claims=[{"text": "A change was reported, verification remains open", "kind": "unresolved",
-                                   "evidence_refs": [source.evidence_ref for source in snapshot.sources]}])
+                                   "evidence_refs": [source.evidence_ref for source in snapshot.sources[:20]]}])
 
 
 async def test_server_collects_original_comments_and_moves_and_keeps_new_comments_visible(compact_command, monkeypatch):
@@ -297,6 +310,54 @@ def test_compaction_pages_keep_sentinel_cursor_and_pending_jobs_inside_scope(com
         assert denied.value.code == "invalid_cursor"
 
 
+async def test_eligibility_uses_server_volume_and_long_comment_sources(compact_command, monkeypatch):
+    service, actor, project, card, _, comment, _, role = compact_command
+    small = service.get_page(actor, project, card)["eligibility"]
+    assert small["event_count"] == 2 and small["provider_configured"] and small["can_generate"]
+    assert not small["needs_compaction"]
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="Long evidence " * 2500)
+        db.update(comment)
+    large = service.get_page(actor, project, card)["eligibility"]
+    assert large["source_characters"] > 30_000 and large["needs_compaction"]
+    async def generate(_, snapshot):
+        assert len(snapshot.sources[0].text) > 30_000
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    result = await service.generate(actor, project, card)
+    assert result["status"] == "completed" and "covered_through" in result
+    with DbSession.atomic() as db:
+        role.actions = ["read"]
+        db.update(role)
+    assert service.get_page(actor, project, card)["eligibility"]["can_generate"] is False
+
+
+async def test_explicit_original_evidence_reuses_bounded_timeline_and_excludes_new_comments(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    with DbSession.atomic() as db:
+        for index in range(40):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content=f"Covered {index}")))
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    result = await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        later = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="Later original"))
+        db.insert(later)
+    seen, sizes, before = [], [], None
+    while True:
+        page = service.get_evidence(actor, project, card, result["uid"], before=before)
+        sizes.append(len(page["records"]))
+        seen.extend(row["evidence_ref"] for row in page["records"])
+        before = page["next_cursor"]
+        if before is None:
+            break
+    assert sizes == [20, 20, 2] and len(seen) == len(set(seen)) == 42
+    assert set(seen) == set(result["evidence_refs"])
+    assert f"comment:{later.get_uid()}" not in seen
+    with pytest.raises(CommentCompactionError) as invalid:
+        service.get_evidence(actor, project, card, result["uid"], before=f"comment:{later.get_uid()}")
+    assert invalid.value.code == "invalid_cursor"
+
+
 def test_authenticated_http_uses_native_graph_service_auth_and_rejects_client_sources(compact_command, monkeypatch):
     _, actor, project, card, *_ = compact_command
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
@@ -332,8 +393,142 @@ def test_authenticated_http_uses_native_graph_service_auth_and_rejects_client_so
         listed = client.get(endpoint, headers=headers)
         assert listed.status_code == 200 and listed.headers["Cache-Control"] == "no-store"
         assert listed.json()["records"][0]["uid"] == result.json()["uid"] and len(requests) == 1
+        evidence = client.get(endpoint + "/" + result.json()["uid"] + "/evidence", headers=headers)
+        assert evidence.status_code == 200, evidence.text
+        assert evidence.headers["Cache-Control"] == "no-store" and len(evidence.json()["records"]) == 2
+        view = client.get(f"/activity/project/{project.get_uid()}/card/{card.get_uid()}/timeline?compact=true", headers=headers)
+        assert view.status_code == 200, view.text
+        assert view.headers["Cache-Control"] == "no-store"
+        assert [entry["kind"] for entry in view.json()["records"]] == ["compaction"]
+        assert "Original private comment" not in view.text
         foreign = Card(project_id=project.id, project_column_id=card.project_column_id, title="Foreign card")
         with DbSession.atomic() as db:
             db.insert(foreign)
         path = f"/board/{project.get_uid()}/card/{foreign.get_uid()}/comment-compactions/{result.json()['uid']}"
         assert client.get(path, headers=headers).status_code == 404
+
+
+@pytest.mark.parametrize("change", ["card", "project", "user", "role", "provider", "visibility", "project_owner"])
+async def test_current_primary_rechecks_survive_identity_map_cache(compact_command, monkeypatch, change):
+    service, actor, project, card, binding, _, _, role = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    result = await service.generate(actor, project, card)
+    model, record_id, field, value = {
+        "card": (Card, card.id, "deleted_at", SafeDateTime.now()),
+        "project": (Project, project.id, "deleted_at", SafeDateTime.now()),
+        "user": (User, actor.id, "activated_at", None),
+        "role": (ProjectRole, role.id, "actions", []),
+        "provider": (InternalBot, binding.id, "value", '{"agent_llm":"OpenAI","model_name":"new configuration"}'),
+        "visibility": (Card, card.id, "visibility", "PRIVATE"),
+        "project_owner": (Project, project.id, "owner_id", actor.id),
+    }[change]
+    with DbSession.atomic() as db:
+        held = db.exec(SqlBuilder.select.table(model).where(model.id == record_id)).first()
+        old = getattr(held, field)
+        assert service.get(actor, project, card, result["uid"])["status"] == "completed"
+        values = {field: value}
+        if change == "visibility":
+            values.update(owner_user_id=2, created_by_user_id=2)
+        if change == "project_owner":
+            from langboard_shared.domain.models import ProjectAssignedUser
+            db.exec(delete(ProjectAssignedUser).where(ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id))
+        db.exec(update(model).execution_options(synchronize_session=False).where(model.id == record_id).values(**values))
+        ordinary = db.exec(SqlBuilder.select.table(model).where(model.id == record_id)).first()
+        if change in {"card", "project"}:
+            assert ordinary is None  # Existing soft-delete predicates already fail closed.
+        else:
+            assert ordinary is held and getattr(ordinary, field) == old
+        if change == "project_owner":
+            assert service.get(actor, project, card, result["uid"])["status"] == "completed"
+        elif change == "provider":
+            reread = service.get(actor, project, card, result["uid"])
+            assert reread["status"] == "invalidated" and "draft" not in reread
+        else:
+            with pytest.raises(CommentCompactionError) as denied:
+                service.get_evidence(actor, project, card, result["uid"])
+            assert denied.value.status == (403 if change == "role" else 404)
+
+
+async def test_server_request_key_advances_uncovered_ranges_and_replays_without_duplicate_model_calls(compact_command, monkeypatch):
+    service, actor, project, card, _, comment, *_ = compact_command
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="First long evidence " * 1000)
+        db.update(comment)
+    snapshots = []
+    async def generate(_, snapshot):
+        snapshots.append(snapshot)
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    key = service.get_page(actor, project, card)["eligibility"]["next_request_key"]
+    assert key
+    first = await service.generate(actor, project, card, expected_request_key=key)
+    assert (await service.generate(actor, project, card, expected_request_key=key))["uid"] == first["uid"]
+    assert len(snapshots) == 1 and not service.get_page(actor, project, card)["eligibility"]["needs_compaction"]
+    with DbSession.atomic() as db:
+        later = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="New long evidence " * 1000))
+        db.insert(later)
+    next_key = service.get_page(actor, project, card)["eligibility"]["next_request_key"]
+    assert next_key and next_key != key
+    second = await service.generate(actor, project, card, expected_request_key=next_key)
+    assert second["uid"] != first["uid"] and len(snapshots) == 2
+    assert [source.evidence_ref for source in snapshots[1].sources] == [f"comment:{later.get_uid()}"]
+    assert (await service.generate(actor, project, card, expected_request_key=key))["uid"] == first["uid"] and len(snapshots) == 2
+
+
+async def test_stale_preview_key_cannot_silently_create_another_request(compact_command, monkeypatch):
+    service, actor, project, card, _, comment, *_ = compact_command
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="Previewed evidence " * 1000)
+        db.update(comment)
+    key = service.get_page(actor, project, card)["eligibility"]["next_request_key"]
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="Changed evidence " * 1000)
+        db.update(comment)
+    model = AsyncMock()
+    monkeypatch.setattr(command, "request_compaction_draft", model)
+    with pytest.raises(CommentCompactionError) as stale:
+        await service.generate(actor, project, card, expected_request_key=key)
+    assert stale.value.code == "source_changed" and model.await_count == 0
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(CardCommentCompaction)).all() == []
+
+
+async def test_default_view_returns_blocks_instead_of_covered_originals_and_keeps_new_comments(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    summary = await service.generate(actor, project, card)
+    view = service.get_view(actor, project, card)
+    assert [record["kind"] for record in view["records"]] == ["compaction"]
+    assert view["records"][0]["uid"] == summary["uid"] and view["next_cursor"] is None
+    assert "Original private comment" not in json.dumps(view)
+    assert not view["eligibility"]["needs_compaction"]
+    with DbSession.atomic() as db:
+        later = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="Current uncovered comment"))
+        db.insert(later)
+    current = service.get_view(actor, project, card)
+    assert [record["kind"] for record in current["records"]] == ["comment", "compaction"]
+    assert current["records"][0]["uid"] == later.get_uid()
+    assert current["eligibility"]["uncompacted_event_count"] == 1
+    assert "fixture-private-model-key" not in json.dumps(current, default=str)
+
+
+async def test_compact_view_cursor_crosses_block_boundaries_without_refetching_covered_comments(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    summary = await service.generate(actor, project, card)
+    expected = {f"compaction:{summary['uid']}"}
+    with DbSession.atomic() as db:
+        for index in range(25):
+            comment = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content=f"New comment {index}"))
+            db.insert(comment)
+            expected.add(f"comment:{comment.get_uid()}")
+    records, sizes, before = [], [], None
+    while True:
+        page = service.get_view(actor, project, card, before=before)
+        sizes.append(len(page["records"]))
+        records.extend(record["evidence_ref"] for record in page["records"])
+        before = page["next_cursor"]
+        if before is None:
+            break
+    assert sizes == [20, 6] and len(records) == len(set(records))
+    assert set(records) == expected

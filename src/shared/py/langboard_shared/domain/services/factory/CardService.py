@@ -264,6 +264,7 @@ class CardService(BaseDomainService):
                 .select_from(Project)
                 .join(User, User.id == user.id)
                 .where(Project.id == project_id)
+                .execution_options(populate_existing=True)
             ).first()
         if current is None:
             return None
@@ -372,7 +373,8 @@ class CardService(BaseDomainService):
         if card is None:
             return None
         with DbSession.use(readonly=False) as db:
-            current = db.exec(SqlBuilder.select.table(Card).where(Card.id == InfraHelper.convert_id(card))).first()
+            current = db.exec(SqlBuilder.select.table(Card).where(Card.id == InfraHelper.convert_id(card))
+                              .execution_options(populate_existing=True)).first()
         if current is None or current.deleted_at is not None:
             return None
         resolved = self.resolve_visibility_context(

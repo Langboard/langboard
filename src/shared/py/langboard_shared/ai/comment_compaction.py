@@ -24,7 +24,7 @@ class CompactionSource(BaseModel):
     evidence_ref: EvidenceRef
     created_at: AwareDatetime
     updated_at: AwareDatetime
-    text: str = Field(min_length=1, max_length=16_000)
+    text: str = Field(min_length=1, max_length=100_000)
 
 
 class CompactionClaim(BaseModel):

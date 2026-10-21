@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, TypeAlias, TypeVar, overload, override
-from sqlalchemy import String, and_, cast, literal, or_, select, union_all
+from sqlalchemy import String, and_, cast, literal, or_, select, tuple_, union_all
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.queries.Select import SelectOfScalar
 from ....core.domain import BaseRepository
@@ -114,7 +114,8 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
             ).limit(limit + 1)).all())
 
     def get_card_timeline_page(
-        self, project: Project, card: Card, *, before: str | None = None,
+        self, project: Project, card: Card, *, before: str | None = None, evidence_refs: list[str] | None = None,
+        omit_refs: list[str] | None = None,
     ) -> list[tuple[str, int, datetime]]:
         """One shared order for comments and committed moves, with a scoped cursor and sentinel."""
         comments = select(
@@ -131,6 +132,17 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
         events = union_all(comments, moves).subquery()
         with DbSession.use(readonly=True) as db:
             query = select(events.c.kind, events.c.id, events.c.created_at).where(events.c.active)
+            if evidence_refs is not None:
+                identities = []
+                for ref in evidence_refs:
+                    kind, separator, uid = ref.partition(":")
+                    if not separator or kind not in {"comment", "activity"}:
+                        return []
+                    identities.append((kind, InfraHelper.convert_id(uid)))
+                query = query.where(tuple_(events.c.kind, events.c.id).in_(identities))
+            if omit_refs:
+                omitted = [(kind, InfraHelper.convert_id(uid)) for kind, uid in (ref.split(":", 1) for ref in omit_refs)]
+                query = query.where(tuple_(events.c.kind, events.c.id).not_in(omitted))
             if before:
                 kind, separator, uid = before.partition(":")
                 if not separator or kind not in {"comment", "activity"} or not uid or len(uid) > 32:

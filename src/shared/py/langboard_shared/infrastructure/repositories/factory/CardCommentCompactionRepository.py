@@ -25,6 +25,11 @@ def provider_revision(binding: InternalBot) -> str:
     return sha256(f"{binding.get_uid()}:{_utc(binding.updated_at).isoformat()}".encode()).hexdigest()
 
 
+def request_key(card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> str:
+    return sha256(json.dumps([POLICY_VERSION, int(card.id), int(user.id), snapshot.source_revision(),
+                             provider_revision(binding)]).encode()).hexdigest()
+
+
 def _utc(value):
     # SQLite returns timezone-naive UTC; PostgreSQL returns timezone-aware values.
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
@@ -42,7 +47,7 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
     def reserve(self, card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> CardCommentCompaction:
         source = snapshot.source_revision()
         provider = provider_revision(binding)
-        key = sha256(json.dumps([POLICY_VERSION, int(card.id), int(user.id), source, provider]).encode()).hexdigest()
+        key = request_key(card, user, binding, snapshot)
         with DbSession.atomic() as db:
             # Serialize reservations on PostgreSQL; the unique constraint also
             # arbitrates SQLite and callers which did not acquire this lock.

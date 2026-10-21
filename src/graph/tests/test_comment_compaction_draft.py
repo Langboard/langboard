@@ -40,6 +40,19 @@ async def test_compaction_draft_uses_existing_model_factory_and_returns_bound_ev
     assert "local-fixture-key" not in str(messages) and "local-fixture-key" not in str(response)
 
 
+async def test_long_original_comment_uses_existing_graph_payload_limit(monkeypatch):
+    data = form().model_dump(mode="json")
+    data["sources"][0]["text"] = "Long source evidence " * 1600
+    request = api.CommentCompactionForm.model_validate(data)
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"claims": [claim()]}))))
+    monkeypatch.setattr(api, "create_default_chat_model", lambda *_: model)
+    response = json.loads((await api.create_comment_compaction_draft(request)).body)
+    assert response["generated"] is True and len(model.ainvoke.call_args.args[0][1].content) > 30_000
+    data["sources"][0]["text"] = "x" * 100_001
+    with pytest.raises(ValueError):
+        api.CommentCompactionForm.model_validate(data)
+
+
 @pytest.mark.parametrize("content", [
     "not JSON", "x" * 32_001, '{"claims":[]}',
     json.dumps({"claims": [claim(evidence_refs=["comment:outside"])]}),
