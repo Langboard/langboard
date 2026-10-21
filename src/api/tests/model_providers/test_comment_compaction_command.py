@@ -18,7 +18,7 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.GraphServiceAuth import verify_graph_service_token
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Card, CardComment, CardCommentCompaction, ProjectActivity
+from langboard_shared.domain.models import Card, CardComment, CardCommentCompaction, ProjectActivity, User
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
@@ -270,6 +270,31 @@ async def test_host_transaction_cannot_enclose_model_execution(compact_command, 
     with DbSession.atomic(), pytest.raises(CommentCompactionError) as denied:
         await service.generate(actor, project, card)
     assert denied.value.code == "transaction_not_supported" and model.await_count == 0
+
+
+def test_compaction_pages_keep_sentinel_cursor_and_pending_jobs_inside_scope(compact_command):
+    service, actor, project, card, binding, *_ = compact_command
+    snapshot, _ = service._snapshot(project, card)
+    expected = set()
+    for index in range(6):
+        version = snapshot.model_copy(deep=True)
+        version.sources[0].text += f" version {index}"
+        expected.add(service.repo.card_comment_compaction.reserve(card, actor, binding, version).get_uid())
+    with DbSession.atomic() as db:
+        other = db.exec(SqlBuilder.select.table(User).where(User.id == 2)).first()
+        foreign = Card(project_id=project.id, project_column_id=card.project_column_id, title="Foreign requests")
+        db.insert(foreign)
+    hidden = service.repo.card_comment_compaction.reserve(card, other, binding, snapshot)
+    foreign_request = service.repo.card_comment_compaction.reserve(foreign, actor, binding, snapshot)
+    first = service.get_page(actor, project, card)
+    assert len(first["records"]) == 5 and first["next_cursor"]
+    second = service.get_page(actor, project, card, before=first["next_cursor"])
+    assert len(second["records"]) == 1 and second["next_cursor"] is None
+    assert {row["uid"] for row in first["records"] + second["records"]} == expected
+    for record in (hidden, foreign_request):
+        with pytest.raises(CommentCompactionError) as denied:
+            service.get_page(actor, project, card, before=record.get_uid())
+        assert denied.value.code == "invalid_cursor"
 
 
 def test_authenticated_http_uses_native_graph_service_auth_and_rejects_client_sources(compact_command, monkeypatch):
