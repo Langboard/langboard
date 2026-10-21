@@ -3,7 +3,7 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from sqlalchemy import Text, and_, cast, func, literal, or_, select, tuple_, union_all
+from sqlalchemy import Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
 from ....ai.comment_compaction import CommentCompactionSnapshot
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -197,21 +197,20 @@ class CardCommentCompactionService(BaseDomainService):
                     "source_revision": record.source_revision, "has_more_sources": has_more,
                     "covered_from": snapshot.sources[0].created_at.isoformat(), "covered_through": last.created_at.isoformat()}
 
-    def get_page(self, user, project, card, *, before=None, request_key_filter=None, channel=CollaborationChannel.Api):
-        """Expose bounded verified blocks and the caller's in-flight request IDs."""
-        with DbSession.atomic() as db:
-            project, card, can_generate = self._authorize(user, project, card, channel)
-            project_id, card_id = project.id, card.id
+    def _eligibility(self, user, project, card, can_generate, blocks):
+        """Request-local volume projection over blocks already verified by this caller."""
+        with DbSession.use(readonly=False) as db:
             events = self._events(project, card)
-            count, characters = db.exec(select(func.count(), func.coalesce(func.sum(func.length(events.c.payload)), 0))
-                .select_from(events).where(events.c.active)).first()
+            covered = {ref for block in blocks for ref in block["evidence_refs"]}
+            uncovered = (tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered])
+                         if covered else literal(True))
+            volume = select(events.c.payload, uncovered.label("uncovered")).where(events.c.active).subquery()
+            count, characters, remaining_count, remaining_characters = db.exec(select(
+                func.count(), func.coalesce(func.sum(func.length(volume.c.payload)), 0),
+                func.coalesce(func.sum(case((volume.c.uncovered, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((volume.c.uncovered, func.length(volume.c.payload)), else_=0)), 0),
+            ).select_from(volume)).first()
             binding = self._get_service(InternalBotService).get_comment_compaction_binding()
-            active = self._valid_blocks(user, project, card, channel=channel)
-            covered = {ref for block in active for ref in block["evidence_refs"]}
-            uncovered = select(func.count(), func.coalesce(func.sum(func.length(events.c.payload)), 0)).select_from(events).where(events.c.active)
-            if covered:
-                uncovered = uncovered.where(tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered]))
-            remaining_count, remaining_characters = db.exec(uncovered).first()
             needs_compaction = remaining_count >= 20 or remaining_characters >= 12_000
             next_key = None
             if needs_compaction and can_generate and binding:
@@ -220,6 +219,18 @@ class CardCommentCompactionService(BaseDomainService):
                     next_key = request_key(card, user, binding, snapshot)
                 except CommentCompactionError:
                     pass
+        return {"can_generate": can_generate, "provider_configured": binding is not None,
+                "event_count": count, "source_characters": characters,
+                "uncompacted_event_count": remaining_count, "uncompacted_characters": remaining_characters,
+                "needs_compaction": needs_compaction, "next_request_key": next_key}
+
+    def get_page(self, user, project, card, *, before=None, request_key_filter=None, channel=CollaborationChannel.Api):
+        """Expose bounded verified blocks and the caller's in-flight request IDs."""
+        with DbSession.atomic() as db:
+            project, card, can_generate = self._authorize(user, project, card, channel)
+            project_id, card_id = project.id, card.id
+            active = self._valid_blocks(user, project, card, channel=channel)
+            eligibility = self._eligibility(user, project, card, can_generate, active)
             query = SqlBuilder.select.table(CardCommentCompaction).where(
                 CardCommentCompaction.card_id == card_id,
                 or_(CardCommentCompaction.status == "completed", CardCommentCompaction.user_id == user.id),
@@ -242,10 +253,7 @@ class CardCommentCompactionService(BaseDomainService):
         page = records[:5]
         return {"records": [self.get(user, project_id, card_id, record.id, channel=channel) for record in page],
                 "next_cursor": page[-1].get_uid() if len(records) > 5 else None,
-                "eligibility": {"can_generate": can_generate, "provider_configured": binding is not None,
-                                "event_count": count, "source_characters": characters,
-                                "uncompacted_event_count": remaining_count, "uncompacted_characters": remaining_characters,
-                                "needs_compaction": needs_compaction, "next_request_key": next_key}}
+                "eligibility": eligibility}
 
     def _valid_blocks(self, user, project, card, *, channel):
         """Choose current disjoint ranges; superseded summaries never hide sources."""
@@ -267,10 +275,10 @@ class CardCommentCompactionService(BaseDomainService):
         from .ActivityService import ActivityService
 
         with DbSession.atomic() as db:
-            project, card, _ = self._authorize(user, project, card, channel)
+            project, card, can_generate = self._authorize(user, project, card, channel)
             project_id, card_id = project.id, card.id
-            overview = self.get_page(user, project, card, channel=channel)
             blocks = self._valid_blocks(user, project, card, channel=channel)
+            eligibility = self._eligibility(user, project, card, can_generate, blocks)
             covered = [ref for block in blocks for ref in block["evidence_refs"]]
             anchor = None
             if before:
@@ -315,8 +323,8 @@ class CardCommentCompactionService(BaseDomainService):
             ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc()).limit(5)).all()
             return {"records": [entry[1] for entry in page],
                     "next_cursor": page[-1][2] if has_more and page else None,
-                    "eligibility": overview["eligibility"],
-                    "total_count": overview["eligibility"]["uncompacted_event_count"] + len(blocks),
+                    "eligibility": eligibility,
+                    "total_count": eligibility["uncompacted_event_count"] + len(blocks),
                     "in_flight": [self.get(user, project_id, card_id, record.id, channel=channel) for record in own_active]}
 
     def get_evidence(self, user, project, card, uid, *, before=None, evidence_ref=None, channel=CollaborationChannel.Api):

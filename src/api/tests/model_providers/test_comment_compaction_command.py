@@ -34,7 +34,7 @@ from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
 from langboard_shared.Env import Env
-from sqlalchemy import delete, update
+from sqlalchemy import delete, event, update
 
 
 command = importlib.import_module("langboard_shared.domain.services.factory.CardCommentCompactionService")
@@ -522,6 +522,65 @@ async def test_default_view_returns_blocks_instead_of_covered_originals_and_keep
     assert current["records"][0]["uid"] == later.get_uid()
     assert current["eligibility"]["uncompacted_event_count"] == 1
     assert "fixture-private-model-key" not in json.dumps(current, default=str)
+
+
+async def test_compact_view_sql_budget_keeps_three_blocks_and_new_original(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    result = await service.generate(actor, project, card)
+    for index in range(2):
+        with DbSession.atomic() as db:
+            db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content=f"Next source {index}")))
+        result = await service.generate(actor, project, card, after=result["range_end"])
+    with DbSession.atomic() as db:
+        uncovered = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="Uncovered original"))
+        db.insert(uncovered)
+    engine = DbEngine.get_main_engine()
+    selects = []
+    def count_select(_, __, statement, ___, ____, _____):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(True)
+    event.listen(engine, "before_cursor_execute", count_select)
+    try:
+        view = service.get_view(actor, project, card)
+    finally:
+        event.remove(engine, "before_cursor_execute", count_select)
+    assert len([row for row in view["records"] if row["kind"] == "compaction"]) == 3
+    assert [row["uid"] for row in view["records"] if row["kind"] == "comment"] == [uncovered.get_uid()]
+    assert view["total_count"] == 4 and view["eligibility"]["uncompacted_event_count"] == 1
+    print(f"COMPACTION_VIEW_SQL_SELECTS={len(selects)}")
+    # The same three-block projection previously issued 118 SELECTs by loading
+    # a redundant summary overview. Keep a material margin while retaining the
+    # final current-source and current-authority validation.
+    assert len(selects) <= 85
+
+
+@pytest.mark.parametrize("change", ["source", "read_permission", "provider"])
+async def test_compact_view_rechecks_after_original_projection(compact_command, monkeypatch, change):
+    from langboard_shared.domain.services.factory.ActivityService import ActivityService
+
+    service, actor, project, card, binding, comment, _, role = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    assert (await service.generate(actor, project, card))["status"] == "completed"
+    activity = service._get_service(ActivityService)
+    original = activity.get_card_timeline
+    def project_then_change(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with DbSession.atomic() as db:
+            if change == "source":
+                comment.content = EditorContentModel(content="Changed after projection")
+                db.update(comment)
+            elif change == "read_permission":
+                role.actions = []
+                db.update(role)
+            else:
+                binding.is_default = False
+                db.update(binding)
+        return result
+    monkeypatch.setattr(activity, "get_card_timeline", project_then_change)
+    with pytest.raises(CommentCompactionError) as denied:
+        service.get_view(actor, project, card)
+    assert denied.value.status == 403 if change == "read_permission" else denied.value.code == "source_changed"
 
 
 async def test_compact_view_cursor_crosses_block_boundaries_without_refetching_covered_comments(compact_command, monkeypatch):
