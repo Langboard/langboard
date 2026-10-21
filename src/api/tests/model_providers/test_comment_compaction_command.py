@@ -406,6 +406,31 @@ async def test_compaction_persists_evidence_bound_card_search_metadata_and_expan
     assert service.search_metadata_candidates(actor, project, context, "Elixir") == {}
 
 
+@pytest.mark.parametrize("stale_count", [20, 40])
+async def test_search_refills_candidates_after_stale_summary_hints(compact_command, monkeypatch, stale_count):
+    service, actor, project, card, binding, *_ = compact_command
+
+    async def provider(_, snapshot):
+        return CompactionDraft(claims=draft(snapshot).claims,
+            keywords=[{"value": "SearchNeedle", "evidence_refs": [snapshot.sources[0].evidence_ref]}])
+
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        original = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+        # These persisted hints refer to sources no longer belonging to their cards.
+        # They must not consume the search result limit and hide the older valid card.
+        for index in range(stale_count):
+            newer = Card(project_id=project.id, project_column_id=card.project_column_id, title=f"Stale {index}")
+            db.insert(newer)
+            db.insert(CardCommentCompaction(request_key=f"stale-search-{index}", card_id=newer.id,
+                user_id=actor.id, internal_bot_id=binding.id, source_revision=original.source_revision,
+                provider_revision=original.provider_revision, source_manifest=original.source_manifest,
+                status="completed", draft=original.draft))
+    project, context = DomainService().card.resolve_visibility_context(project, actor, command.CollaborationChannel.Api)
+    assert set(service.search_metadata_candidates(actor, project, context, "SearchNeedle")) == {card.id}
+
+
 async def test_server_collects_original_comments_and_moves_and_keeps_new_comments_visible(compact_command, monkeypatch):
     service, actor, project, card, binding, comment, move, _ = compact_command
     before = comment.model_dump(mode="json")

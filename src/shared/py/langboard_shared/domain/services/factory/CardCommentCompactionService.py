@@ -416,24 +416,34 @@ class CardCommentCompactionService(BaseDomainService):
         entity_match = select(literal(1)).select_from(entities).where(or_(
             entities.c.value.op("->>")("name").ilike(pattern, escape="\\"), alias_match,
         )).correlate(CardCommentCompaction).exists()
-        # Only persisted attributes are candidate hints; validate current source revisions below.
-        with DbSession.use(readonly=False) as db:
-            candidates = db.exec(select(Card.id).join(CardCommentCompaction, CardCommentCompaction.card_id == Card.id)
-                .join(ProjectColumn, and_(ProjectColumn.id == Card.project_column_id, ProjectColumn.project_id == Card.project_id))
-                .where(Card.project_id == project.id, Card.deleted_at.is_(None), Card.source_type.is_(None),
-                       ProjectColumn.deleted_at.is_(None), card_visibility_scope(context),
-                       CardCommentCompaction.status == "completed", or_(keyword_match, entity_match))
-                .distinct().order_by(Card.id.desc()).limit(20)).all()
-        matches = {}
-        for (card_id,) in candidates:
-            try:
-                metadata = self.get_search_metadata(user, project, card_id, channel=channel)
-            except CommentCompactionError:
-                continue
-            terms = [item["value"] for item in metadata["keywords"]]
-            terms.extend(term for item in metadata["entities"] for term in [item["name"], *item.get("aliases", [])])
-            if any(query.casefold() in term.casefold() for term in terms):
-                matches[card_id] = metadata
+        # Persisted hints may be stale. Apply the result limit after current-source
+        # validation, reading bounded SQL pages without retaining all candidates.
+        query_statement = (select(Card.id).join(CardCommentCompaction, CardCommentCompaction.card_id == Card.id)
+            .join(ProjectColumn, and_(ProjectColumn.id == Card.project_column_id, ProjectColumn.project_id == Card.project_id))
+            .where(Card.project_id == project.id, Card.deleted_at.is_(None), Card.source_type.is_(None),
+                   ProjectColumn.deleted_at.is_(None), card_visibility_scope(context),
+                   CardCommentCompaction.status == "completed", or_(keyword_match, entity_match))
+            .distinct().order_by(Card.id.desc()).limit(20))
+        matches, before = {}, None
+        while len(matches) < 20:
+            with DbSession.use(readonly=False) as db:
+                candidates = db.exec(query_statement.where(Card.id < before) if before is not None else query_statement).all()
+            if not candidates:
+                break
+            before = candidates[-1][0]
+            for (card_id,) in candidates:
+                try:
+                    metadata = self.get_search_metadata(user, project, card_id, channel=channel)
+                except CommentCompactionError:
+                    continue
+                terms = [item["value"] for item in metadata["keywords"]]
+                terms.extend(term for item in metadata["entities"] for term in [item["name"], *item.get("aliases", [])])
+                if any(query.casefold() in term.casefold() for term in terms):
+                    matches[card_id] = metadata
+                    if len(matches) == 20:
+                        break
+            if len(candidates) < 20:
+                break
         return matches
 
     def get_view(self, user, project, card, *, before=None, channel=CollaborationChannel.Api):
