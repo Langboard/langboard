@@ -21,9 +21,10 @@ import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 export interface ICreateProjectFormDialogProps {
     opened: bool;
     setOpened: (opened: bool) => void;
+    onCreated?: (projectUID: string) => void;
 }
 
-function CreateProjectFormDialog({ opened, setOpened }: ICreateProjectFormDialogProps): React.JSX.Element {
+function CreateProjectFormDialog({ opened, setOpened, onCreated }: ICreateProjectFormDialogProps): React.JSX.Element {
     const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
     const { mutate } = useCreateProject();
@@ -38,11 +39,16 @@ function CreateProjectFormDialog({ opened, setOpened }: ICreateProjectFormDialog
             title: { required: true },
             description: {},
             project_type: { required: true },
-            template_name: {},
+            ...(templateName ? { template_name: {} } : {}),
         },
         mutate,
         mutateOnSuccess: (data) => {
-            navigate(ROUTES.BOARD.MAIN(data.project_uid));
+            if (onCreated) {
+                setOpened(false);
+                onCreated(data.project_uid);
+            } else {
+                navigate(ROUTES.BOARD.MAIN(data.project_uid));
+            }
         },
         useDefaultBadRequestHandler: true,
     });
