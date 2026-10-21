@@ -207,7 +207,10 @@ class CardCommentCompactionService(BaseDomainService):
         fresh, _ = self._snapshot(project, card, refs=[source.evidence_ref for source in snapshot.sources])
         for previous in snapshot.prior_summaries:
             self._verified_manifest(project, card, [entry.model_dump() for entry in previous.evidence_manifest])
-        return CommentCompactionSnapshot(sources=fresh.sources, prior_summaries=snapshot.prior_summaries)
+        try:
+            return CommentCompactionSnapshot(sources=fresh.sources, prior_summaries=snapshot.prior_summaries)
+        except ValueError:
+            raise CommentCompactionError("source_changed") from None
 
     @staticmethod
     def _identity(ref):

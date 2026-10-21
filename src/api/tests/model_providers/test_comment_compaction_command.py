@@ -1203,6 +1203,30 @@ async def test_prior_original_changed_during_cumulative_generation_never_publish
     assert "draft" not in result
 
 
+async def test_new_comments_growing_past_cumulative_budget_during_generation_fail_closed(compact_command, monkeypatch):
+    service, actor, project, card, _, original, *_ = compact_command
+    prior = CompactionDraft(claims=[{"text": "x" * 1000, "kind": "unresolved",
+                                    "evidence_refs": [f"comment:{original.get_uid()}"]} for _ in range(12)])
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(return_value=prior))
+    await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        comments = [CardComment(card_id=card.id, user_id=actor.id,
+                               content=EditorContentModel(content="x" * 96000)) for _ in range(5)]
+        for comment in comments:
+            db.insert(comment)
+    async def grow_comments(_, snapshot):
+        assert snapshot.prior_summaries and len(snapshot.sources) == 5
+        with DbSession.atomic() as db:
+            for comment in comments:
+                comment.content = EditorContentModel(content="x" * 99000)
+                db.update(comment)
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", grow_comments)
+    result = await service.generate(actor, project, card)
+    assert result["status"] == "failed" and result["error_code"] == "source_changed"
+    assert "draft" not in result
+
+
 async def test_automatic_second_summary_accumulates_prior_sources_only_after_new_threshold(automatic_command, monkeypatch):
     (service, actor, project, card, binding, *_), _, _ = automatic_command
     inputs = []
