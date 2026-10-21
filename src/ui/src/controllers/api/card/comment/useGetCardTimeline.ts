@@ -10,26 +10,35 @@ import { Utils } from "@langboard/core/utils";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 
+import type { CommentCompaction, CommentCompactionEligibility } from "./CommentCompaction.types";
+
 interface TimelineBase {
     uid: string;
     evidence_ref: string;
     created_at: string;
 }
-export type CardTimelineEntry = TimelineBase & ({ kind: "comment"; data: ProjectCardComment.IStore } | { kind: "activity"; data: ColumnEvent });
+export type CardTimelineEntry = TimelineBase &
+    (
+        | { kind: "comment"; data: ProjectCardComment.IStore }
+        | { kind: "activity"; data: ColumnEvent }
+        | { kind: "compaction"; data: CommentCompaction }
+    );
 interface CardTimelinePage {
     records: CardTimelineEntry[];
     next_cursor: string | null;
+    eligibility?: CommentCompactionEligibility;
+    in_flight?: CommentCompaction[];
 }
 
-export default function useGetCardTimeline() {
+export default function useGetCardTimeline(compactionUID?: string) {
     const { projectUID, card, currentUser, socket } = useBoardCard();
     const client = useQueryClient();
     const subscriber = useId();
     const sessionVersion = useAuthStore((state) => state.getSessionVersion());
     const identityVersion = useAuthStore((state) => state.getIdentityVersion());
     const queryKey = useMemo(
-        () => ["card-timeline", currentUser.uid, identityVersion, projectUID, card.uid],
-        [currentUser.uid, identityVersion, projectUID, card.uid]
+        () => ["card-timeline", currentUser.uid, identityVersion, projectUID, card.uid, compactionUID ?? "compact"],
+        [currentUser.uid, identityVersion, projectUID, card.uid, compactionUID]
     );
     const editing = useEditorStore(
         (state) => !!state.currentEditor?.startsWith(`${card.uid}-comment-`) && state.currentEditor !== `${card.uid}-comment-form`
@@ -42,8 +51,14 @@ export default function useGetCardTimeline() {
         initialPageParam: undefined as string | undefined,
         queryFn: async ({ pageParam, signal }) => {
             const requestSession = useAuthStore.getState().getSessionVersion();
-            const url = Utils.String.format(`${Routing.API.ACTIVITIY.CARD}/timeline`, { uid: projectUID, card_uid: card.uid });
-            const { data } = await api.get<CardTimelinePage>(url, { params: { before: pageParam }, signal });
+            const cardURL = Utils.String.format(Routing.API.BOARD.CARD.GET_DETAILS, { uid: projectUID, card_uid: card.uid });
+            const url = compactionUID
+                ? `${cardURL}/comment-compactions/${encodeURIComponent(compactionUID)}/evidence`
+                : Utils.String.format(`${Routing.API.ACTIVITIY.CARD}/timeline`, { uid: projectUID, card_uid: card.uid });
+            const { data } = await api.get<CardTimelinePage>(url, {
+                params: { before: pageParam, ...(!compactionUID && { compact: true }) },
+                signal,
+            });
             const auth = useAuthStore.getState();
             if (
                 signal.aborted ||
@@ -146,5 +161,5 @@ export default function useGetCardTimeline() {
                 }) ?? []
         );
     }, [query.data]);
-    return { ...query, entries, refresh, editing };
+    return { ...query, entries, refresh, editing, eligibility: query.data?.pages[0]?.eligibility, inFlight: query.data?.pages[0]?.in_flight ?? [] };
 }

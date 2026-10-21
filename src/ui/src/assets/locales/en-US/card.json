@@ -428,5 +428,24 @@
     "needs_input": "Input needed",
     "needs_approval": "Awaiting approval",
     "Execution context unavailable": "Goal, scope and next action are unknown: no authoritative execution context is available."
-  }
+  },
+  "Compacted comments": "Compacted comments",
+  "AI summary. Check the original evidence.": "AI summary. Check the original evidence.",
+  "Recorded fact": "Recorded fact",
+  "Reported success": "Reported success",
+  "Reported failure": "Reported failure",
+  "Unresolved": "Unresolved",
+  "Conflicting evidence": "Conflicting evidence",
+  "Evidence {{number}}": "Evidence {{number}}",
+  "Show original comments": "Show original comments",
+  "Hide original comments": "Hide original comments",
+  "Summary evidence changed. Reload comments.": "Summary evidence changed. Reload comments.",
+  "Compacting comments": "Compacting comments",
+  "Cancel compaction": "Cancel compaction",
+  "Retry compaction": "Retry compaction",
+  "Compact comments": "Compact comments",
+  "Compaction failed": "Could not compact comments.",
+  "Compaction cancelled": "Compaction cancelled.",
+  "Compaction retry_required": "Compaction expired. Please retry.",
+  "Compaction invalidated": "Summary changed. Generate it again."
 }

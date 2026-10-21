@@ -1,5 +1,44 @@
 import { expect, test } from "@playwright/test";
 
+const compactTime = "2026-10-01T12:00:00Z";
+const compactKey = "a".repeat(64);
+const compactEligibility = { can_generate: true, provider_configured: true, needs_compaction: true, next_request_key: compactKey };
+const originalEvidence = (uid: string, text: string) => ({
+    kind: "comment",
+    uid,
+    evidence_ref: `comment:${uid}`,
+    created_at: compactTime,
+    data: {
+        uid,
+        card_uid: "first-card",
+        created_at: compactTime,
+        updated_at: compactTime,
+        content: { content: text },
+        is_edited: false,
+        reactions: {},
+        user: { uid: "timeline-user", type: "user", firstname: "Timeline", lastname: "Reader", created_at: compactTime, updated_at: compactTime },
+    },
+});
+const compactBlock = {
+    uid: "summary-one",
+    status: "completed",
+    request_key: compactKey,
+    source_revision: "source-one",
+    covered_from: compactTime,
+    covered_through: compactTime,
+    evidence_refs: ["comment:evidence-first", "comment:evidence-last"],
+    draft: {
+        claims: [{ kind: "reported_failure", text: "Reported failure <img src=x onerror=alert(1)>", evidence_refs: ["comment:evidence-last"] }],
+    },
+};
+const compactEntry = {
+    kind: "compaction",
+    uid: compactBlock.uid,
+    evidence_ref: `compaction:${compactBlock.uid}`,
+    created_at: compactTime,
+    data: compactBlock,
+};
+
 for (const width of [1440, 390]) {
     test(`comment timeline removes cached content when current access is revoked at ${width}px`, async ({ page }) => {
         test.setTimeout(90_000);
@@ -204,5 +243,180 @@ for (const width of [1440, 390]) {
         await page.getByRole("button", { name: "Socket reopened", exact: true }).click();
         await expect.poll(() => requests).toBe(beforeRefresh + 2);
         await expect(comment).toHaveCount(1);
+    });
+    test(`comment timeline compact block loads cited originals only on request at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const evidenceCursors: (string | null)[] = [];
+        await page.route(/\/timeline(?:\?|$)/, async (route) => {
+            expect(new URL(route.request().url()).searchParams.get("compact")).toBe("true");
+            await route.fulfill({
+                json: {
+                    records: [originalEvidence("new-comment", "New comment outside summary"), compactEntry],
+                    next_cursor: null,
+                    eligibility: { ...compactEligibility, needs_compaction: false, next_request_key: null },
+                    in_flight: [],
+                },
+            });
+        });
+        await page.route(/\/comment-compactions\/summary-one\/evidence(?:\?|$)/, async (route) => {
+            const before = new URL(route.request().url()).searchParams.get("before");
+            evidenceCursors.push(before);
+            await route.fulfill({
+                json: before
+                    ? { records: [originalEvidence("evidence-last", "Cited original preserved")], next_cursor: null }
+                    : { records: [originalEvidence("evidence-first", "Earlier original preserved")], next_cursor: "comment:evidence-first" },
+            });
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        const block = page.locator("[data-comment-compaction-uid]");
+        await expect(block).toContainText(compactBlock.draft.claims[0].text, { timeout: 45_000 });
+        await expect(page.getByText("New comment outside summary", { exact: true })).toBeVisible();
+        expect(evidenceCursors).toEqual([]);
+        await expect(block.locator("img")).toHaveCount(0);
+        await expect(block.getByText("Reported failure", { exact: true })).toBeVisible();
+        await block.getByRole("button", { name: "Evidence 2", exact: true }).click();
+        await expect(block.getByText("Cited original preserved", { exact: true })).toBeVisible();
+        expect(evidenceCursors).toEqual([null, "comment:evidence-first"]);
+        await page.screenshot({ path: `.verification/compaction-evidence-${width}.png`, fullPage: true });
+        await page.evaluate(() => document.documentElement.classList.add("dark"));
+        await page.screenshot({ path: `.verification/compaction-evidence-dark-${width}.png`, fullPage: true });
+        await expect(page.locator("#card-evidence-summary-one-comment\\:evidence-last")).toBeFocused();
+        await block.getByRole("button", { name: "Hide original comments", exact: true }).click();
+        await expect(block.getByText("Cited original preserved", { exact: true })).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+
+    test(`comment timeline compaction cancellation blocks late results and retry keeps request key at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const posts: { expected_request_key: string; retry: boolean }[] = [];
+        let release: (() => void) | undefined;
+        let complete = false;
+        let cancelled = false;
+        let releaseRetry: (() => void) | undefined;
+        await page.route(/\/timeline(?:\?|$)/, (route) =>
+            route.fulfill({
+                json: {
+                    records: complete ? [compactEntry] : [originalEvidence("evidence-first", "Original before compaction")],
+                    next_cursor: null,
+                    eligibility: { ...compactEligibility, needs_compaction: !complete, next_request_key: complete ? null : compactKey },
+                    in_flight: [],
+                },
+            })
+        );
+        await page.route(/\/comment-compactions(?:\/summary-one(?:\/cancel)?)?(?:\?|$)/, async (route) => {
+            const url = new URL(route.request().url());
+            if (url.pathname.endsWith("/cancel")) {
+                cancelled = true;
+                await route.fulfill({ json: { uid: "summary-one", status: "cancelled", request_key: compactKey } });
+                release?.();
+            } else if (route.request().method() === "POST") {
+                posts.push(route.request().postDataJSON());
+                if (posts.length === 1) {
+                    await new Promise<void>((resolve) => {
+                        release = resolve;
+                    });
+                    await route.fulfill({ json: compactBlock }).catch(() => {});
+                } else {
+                    cancelled = false;
+                    await new Promise<void>((resolve) => {
+                        releaseRetry = resolve;
+                    });
+                    complete = true;
+                    await route.fulfill({ json: compactBlock });
+                }
+            } else {
+                const running = { uid: "summary-one", status: cancelled ? "cancelled" : "running", request_key: compactKey };
+                await route.fulfill({ json: url.pathname.endsWith("/summary-one") ? running : { records: [running] } });
+            }
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await page.getByRole("button", { name: "Compact comments", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Cancel compaction", exact: true })).toBeEnabled();
+        await page.getByRole("button", { name: "Cancel compaction", exact: true }).click();
+        await expect(page.getByText("Compaction cancelled.", { exact: true })).toBeVisible();
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(0);
+        await page.getByRole("button", { name: "Retry compaction", exact: true }).click();
+        await expect.poll(() => posts.length).toBe(2);
+        await expect(page.getByText("Compacting comments", { exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Retry compaction", exact: true })).toHaveCount(0);
+        releaseRetry?.();
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(1);
+        expect(posts).toEqual([
+            { expected_request_key: compactKey, retry: false },
+            { expected_request_key: compactKey, retry: true },
+        ]);
+    });
+
+    test(`comment timeline invalidated evidence restores originals and read role cannot generate at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let invalidated = false;
+        await page.route(/\/timeline(?:\?|$)/, (route) =>
+            route.fulfill({
+                json: {
+                    records: invalidated ? [originalEvidence("evidence-last", "Changed original remains readable")] : [compactEntry],
+                    next_cursor: null,
+                    eligibility: { ...compactEligibility, can_generate: false },
+                    in_flight: [],
+                },
+            })
+        );
+        await page.route(/\/comment-compactions\/summary-one\/evidence(?:\?|$)/, async (route) => {
+            invalidated = true;
+            await route.fulfill({ status: 409, json: { code: "compaction_invalidated" } });
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(1);
+        await expect(page.getByRole("button", { name: "Compact comments", exact: true })).toHaveCount(0);
+        await page.getByRole("button", { name: "Show original comments", exact: true }).click();
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(0);
+        await expect(page.getByText("Changed original remains readable", { exact: true })).toBeVisible();
+    });
+    test(`comment timeline compaction late response cannot populate another card at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let release: (() => void) | undefined;
+        await page.route(/\/timeline(?:\?|$)/, (route) =>
+            route.fulfill({
+                json: {
+                    records: [],
+                    next_cursor: null,
+                    eligibility: route.request().url().includes("first-card") ? compactEligibility : undefined,
+                },
+            })
+        );
+        await page.route(/\/comment-compactions(?:\?|$)/, async (route) => {
+            if (route.request().method() === "POST") {
+                await new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+                await route.fulfill({ json: compactBlock }).catch(() => {});
+            } else await route.fulfill({ json: { records: [] } });
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await page.getByRole("button", { name: "Compact comments", exact: true }).click();
+        await expect.poll(() => !!release).toBe(true);
+        await page.getByRole("button", { name: "Switch timeline card", exact: true }).click();
+        release?.();
+        await expect(page.getByText("No comments", { exact: true })).toBeVisible();
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Cancel compaction", exact: true })).toHaveCount(0);
+    });
+
+    test(`comment timeline evidence permission loss hides cached summary and comments at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.route(/\/timeline(?:\?|$)/, (route) =>
+            route.fulfill({
+                json: {
+                    records: [originalEvidence("new-comment", "Private outside summary"), compactEntry],
+                    next_cursor: null,
+                    eligibility: { ...compactEligibility, needs_compaction: false },
+                },
+            })
+        );
+        await page.route(/\/comment-compactions\/summary-one\/evidence(?:\?|$)/, (route) => route.fulfill({ status: 404, json: {} }));
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(1);
+        await page.getByRole("button", { name: "Show original comments", exact: true }).click();
+        await expect(page.locator("[data-comment-compaction-uid]")).toHaveCount(0);
+        await expect(page.getByText("Private outside summary", { exact: true })).toHaveCount(0);
     });
 }

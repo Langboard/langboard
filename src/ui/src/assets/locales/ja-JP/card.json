@@ -428,5 +428,24 @@
     "needs_input": "入力待ち",
     "needs_approval": "承認待ち",
     "Execution context unavailable": "目標、範囲、次のアクションは不明です。正式な実行コンテキストがありません。"
-  }
+  },
+  "Compacted comments": "圧縮したコメント",
+  "AI summary. Check the original evidence.": "AIによる要約です。元の証拠を確認してください。",
+  "Recorded fact": "記録された事実",
+  "Reported success": "成功の報告",
+  "Reported failure": "失敗の報告",
+  "Unresolved": "未解決",
+  "Conflicting evidence": "矛盾する証拠",
+  "Evidence {{number}}": "証拠 {{number}}",
+  "Show original comments": "元のコメントを表示",
+  "Hide original comments": "元のコメントを折りたたむ",
+  "Summary evidence changed. Reload comments.": "要約の証拠が変更されました。コメントを再読み込みしてください。",
+  "Compacting comments": "コメントを圧縮中",
+  "Cancel compaction": "圧縮をキャンセル",
+  "Retry compaction": "圧縮を再試行",
+  "Compact comments": "コメントを圧縮",
+  "Compaction failed": "圧縮できませんでした。",
+  "Compaction cancelled": "圧縮がキャンセルされました。",
+  "Compaction retry_required": "圧縮の実行期限が切れました。再試行してください。",
+  "Compaction invalidated": "要約が変更されたため再生成が必要です。"
 }

@@ -428,5 +428,24 @@
     "needs_input": "需要输入",
     "needs_approval": "等待批准",
     "Execution context unavailable": "目标、范围和下一步操作未知：尚无权威执行上下文。"
-  }
+  },
+  "Compacted comments": "已压缩的评论",
+  "AI summary. Check the original evidence.": "AI 摘要，请核对原始证据。",
+  "Recorded fact": "已记录的事实",
+  "Reported success": "成功报告",
+  "Reported failure": "失败报告",
+  "Unresolved": "未解决",
+  "Conflicting evidence": "相互冲突的证据",
+  "Evidence {{number}}": "证据 {{number}}",
+  "Show original comments": "查看原始评论",
+  "Hide original comments": "收起原始评论",
+  "Summary evidence changed. Reload comments.": "摘要证据已更改，请重新加载评论。",
+  "Compacting comments": "正在压缩评论",
+  "Cancel compaction": "取消压缩",
+  "Retry compaction": "重试压缩",
+  "Compact comments": "压缩评论",
+  "Compaction failed": "无法完成压缩。",
+  "Compaction cancelled": "压缩已取消。",
+  "Compaction retry_required": "压缩任务已过期，请重试。",
+  "Compaction invalidated": "摘要已更改，需要重新生成。"
 }
