@@ -25,14 +25,30 @@ def test_search_passes_timezone_aware_half_open_period_to_native_query() -> None
             search_context_by_project=lambda project, query, **filters: calls.append((project, query, filters)) or [],
         )
     )
-    assert UserMcp.search_project_cards(
+    response = UserMcp.search_project_cards(
         "project",
         " release ",
         service,
         "created_at",
         "2026-09-15T00:00:00+09:00",
         "2026-09-16T00:00:00+09:00",
-     user=SEARCH_USER) == {"cards": [], "workflow_stages": {}, "columns": {}}
+        user=SEARCH_USER,
+    )
+    assert response["cards"] == []
+    assert response["workflow_stages"] == {}
+    assert response["columns"] == {}
+    assert response["search_scope"] == {
+        "project_uid": "project",
+        "query": "release",
+        "include_closed": False,
+        "workflow_stages": None,
+        "date_field": "created_at",
+        "since": "2026-09-14T15:00:00+00:00",
+        "until": "2026-09-15T15:00:00+00:00",
+        "method": "lexical",
+        "sources": "readable_card_context_and_extracted_attachment_text",
+        "exhaustive": False,
+    }
     project, query, filters = calls[0]
     assert (project, query) == ("project", "release")
     assert filters["date_field"] == "created_at"
@@ -139,3 +155,18 @@ def test_document_search_tool_returns_sources_with_aggregate_excerpt_budget():
 
 
 SEARCH_USER = SimpleNamespace(id=1)
+
+
+@pytest.mark.parametrize("include_closed", [False, True])
+def test_search_scope_preserves_filters_without_claiming_complete_document_coverage(include_closed):
+    search = Mock(return_value=[{"uid": "one-card", "title": "one hit"}])
+    service = SimpleNamespace(card=SimpleNamespace(search_context_by_project=search))
+    response = UserMcp.search_project_cards(
+        "board", "Friday", service, include_closed=include_closed,
+        workflow_stages=["done"], user=SEARCH_USER,
+    )
+    scope = response["search_scope"]
+    assert scope["include_closed"] is search.call_args.kwargs["include_closed"] is include_closed
+    assert scope["workflow_stages"] == search.call_args.kwargs["workflow_stages"] == ["done"]
+    assert len(response["cards"]) == 1
+    assert scope["exhaustive"] is False

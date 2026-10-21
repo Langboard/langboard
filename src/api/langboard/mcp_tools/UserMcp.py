@@ -164,6 +164,20 @@ def search_project_cards(
     keys = {card["work_state"]["workflow_stage"] for card in cards if card.get("work_state", {}).get("workflow_stage")}
     stages = service.workflow_stage.get_api_by_keys(keys) if keys else {}
     return {
+        # Search is bounded and attachment extraction may be incomplete. A small
+        # result set is not proof that no other document exists in the project.
+        "search_scope": {
+            "project_uid": project_uid,
+            "query": normalized_query,
+            "include_closed": include_closed,
+            "workflow_stages": workflow_stages,
+            "date_field": date_field,
+            "since": lower.isoformat() if lower is not None else None,
+            "until": upper.isoformat() if upper is not None else None,
+            "method": "lexical",
+            "sources": "readable_card_context_and_extracted_attachment_text",
+            "exhaustive": False,
+        },
         "cards": [
             {
                 **public_card_summary(card, compact_workflow=True),
