@@ -41,6 +41,7 @@ from .CardBotLog import CardBotLog
 from .CardBotSchedule import CardBotSchedule
 from .CardBotScope import CardBotScope
 from .CardComment import CardComment
+from .CardCommentCompaction import CardCommentCompaction
 from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
@@ -58,7 +59,6 @@ from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
 from .DocumentKeywordIndex import DocumentKeywordIndex
-from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
 from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
 from .DokployWebhookBinding import DokployWebhookBinding
@@ -73,6 +73,7 @@ from .GlobalLabel import GlobalLabel
 from .GraphApprovalRequest import GraphApprovalRequest
 from .InternalBot import InternalBot
 from .InternalBotRun import InternalBotRun
+from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
 from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
 from .McpToolGroup import McpToolGroup
@@ -183,6 +184,7 @@ __all__ = [
     'CardBotSchedule',
     'CardBotScope',
     'CardComment',
+    'CardCommentCompaction',
     'CardCommentReaction',
     'CardContentBlock',
     'CardMetadata',
