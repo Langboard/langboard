@@ -55,7 +55,7 @@ for (const width of [390, 1440]) {
         denied = false;
         await page.getByRole("button", { name: "Retry", exact: true }).click();
         await expect(read).not.toBeChecked();
-        await expect(page.getByText("Saving authority does not enable automatic execution.", { exact: false })).toBeVisible();
+        await expect(page.getByText("Automatic compaction requires read and compact authority", { exact: false })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
         expect(errors).toEqual([]);
         await page.screenshot({ path: `.verification/compactor-board-grant-${width}.png`, fullPage: true });

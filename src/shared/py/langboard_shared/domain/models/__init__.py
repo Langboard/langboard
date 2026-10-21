@@ -29,6 +29,7 @@ from .BotLog import BotLog
 from .BotSchedule import BotSchedule
 from .BotScheduleRun import BotScheduleRun
 from .CompactorBoardGrant import CompactorBoardGrant
+from .WorkflowCompactionSchedule import WorkflowCompactionSchedule
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
@@ -179,6 +180,7 @@ __all__ = [
     'BotSchedule',
     'BotScheduleRun',
     'CompactorBoardGrant',
+    'WorkflowCompactionSchedule',
     'Card',
     'CardAppSignalBinding',
     'CardSignalCreation',

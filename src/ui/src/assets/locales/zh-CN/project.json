@@ -432,7 +432,7 @@
     "Archive cards": "归档卡片",
     "Compactor authority saved": "已保存并重新确认当前权限。",
     "Compactor profile missing": "请先在内部 AI 设置中创建专用压缩器配置。",
-    "Compactor runtime pending": "保存权限不会启用自动执行。工作流执行尚未连接。"
+    "Compactor runtime pending": "自动压缩需要读取和压缩权限，并在工作流阶段启用自动压缩，按设置的检查间隔执行。自动归档尚不可用。"
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",

@@ -444,8 +444,9 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_workflow_compaction.sh", "workflow-compaction"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 7
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 8
     cron_utils.reload_cron.assert_called_once_with()
 
 
@@ -468,6 +469,7 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "ollama-pull-recovery"),
         call(cron, "document-cleanup-recovery"),
         call(cron, "internal-bot-run-recovery"),
+        call(cron, "workflow-compaction"),
     ]
     assert cron_utils.create_job.call_args_list == [
         call(cron, "* * * * *", "/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
@@ -477,8 +479,9 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_workflow_compaction.sh", "workflow-compaction"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 7
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 8
     cron_utils.reload_cron.assert_called_once_with()
 
 

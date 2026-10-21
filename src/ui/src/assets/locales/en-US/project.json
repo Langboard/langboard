@@ -432,7 +432,7 @@
     "Archive cards": "Archive cards",
     "Compactor authority saved": "Authority saved and current permissions reloaded.",
     "Compactor profile missing": "Create a dedicated compactor profile in internal AI settings first.",
-    "Compactor runtime pending": "Saving authority does not enable automatic execution. Workflow execution is not connected yet."
+    "Compactor runtime pending": "Automatic compaction requires read and compact authority plus Auto compact on the workflow stage, and follows its check interval. Automatic archive is not available yet."
   },
   "App panel": "App panel",
   "Close App panel": "Close App panel",

@@ -432,7 +432,7 @@
     "Archive cards": "카드 아카이브",
     "Compactor authority saved": "권한을 저장하고 현재 권한을 다시 확인했습니다.",
     "Compactor profile missing": "내부 AI 설정에서 전용 컴팩터 프로필을 먼저 만드세요.",
-    "Compactor runtime pending": "권한을 저장해도 자동 실행은 켜지지 않습니다. 워크플로우 실행 연결은 아직 준비 중입니다."
+    "Compactor runtime pending": "자동 압축은 읽기·압축 권한과 단계의 오토컴팩트 설정이 모두 필요하며, 설정한 확인 주기를 따릅니다. 자동 아카이브는 아직 준비 중입니다."
   },
   "App panel": "앱 패널",
   "Close App panel": "앱 패널 닫기",

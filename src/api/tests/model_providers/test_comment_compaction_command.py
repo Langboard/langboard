@@ -235,6 +235,119 @@ async def test_automatic_command_coalesces_concurrent_attempts_and_keeps_provide
     assert provider.await_count == 1
 
 
+@pytest.fixture
+def scheduled_command(automatic_command):
+    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+
+    WorkflowCompactionSchedule.__table__.create(DbEngine.get_main_engine())
+    return automatic_command
+
+
+async def test_continuous_worker_keeps_interval_and_skips_already_covered_sources(scheduled_command, monkeypatch):
+    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+
+    (service, _, project, card, binding, *_), _, _ = scheduled_command
+    provider = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    now = SafeDateTime.now()
+    assert await run_due_compactions(now=now) == 1
+    assert await run_due_compactions(now=now + timedelta(seconds=59)) == 0
+    with DbSession.use(readonly=False) as db:
+        state = db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first()
+    assert state.last_status == "completed" and state.lease_token is None
+    assert await run_due_compactions(now=now + timedelta(seconds=301)) == 1
+    assert provider.await_count == 1
+    assert service.get_view(scheduled_command[0][1], project, card)["records"][0]["kind"] == "compaction"
+
+
+async def test_continuous_worker_retries_provider_failure_after_interval(scheduled_command, monkeypatch):
+    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+
+    calls = 0
+
+    async def provider(_, snapshot):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("Temporary provider failure")
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    now = SafeDateTime.now()
+    assert await run_due_compactions(now=now) == 1
+    assert await run_due_compactions(now=now + timedelta(seconds=59)) == 0
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first().last_status == "failed"
+    assert await run_due_compactions(now=now + timedelta(seconds=301)) == 1
+    with DbSession.use(readonly=False) as db:
+        record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+    assert calls == 2 and record.status == "completed" and record.attempt == 2 and record.user_id is None
+
+
+def test_continuous_claim_capacity_recovery_and_late_finish_fencing(scheduled_command):
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import _claim, _finish
+
+    (service, _, project, card, binding, *_), column, _ = scheduled_command
+    now = SafeDateTime.now()
+    first = _claim(service, project.id, binding.id, card.id, now)
+    assert first and _claim(service, project.id, binding.id, card.id, now) is None
+    with DbSession.atomic() as db:
+        second_card = Card(project_id=project.id, project_column_id=column.id, title="Second")
+        third_card = Card(project_id=project.id, project_column_id=column.id, title="Third")
+        db.insert(second_card)
+        db.insert(third_card)
+    second = _claim(service, project.id, binding.id, second_card.id, now)
+    assert second and _claim(service, project.id, binding.id, third_card.id, now) is None
+    recovered = _claim(service, project.id, binding.id, card.id, now + timedelta(seconds=4000))
+    assert recovered and recovered[1] != first[1]
+    assert not _finish(first, now, "completed", now + timedelta(seconds=4001))
+    assert _finish(recovered, now + timedelta(seconds=4000), "skipped", now + timedelta(seconds=4001))
+
+
+def test_continuous_postgres_concurrent_claim_has_one_owner(scheduled_command):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from langboard_shared.tasks.bots.WorkflowCompactionTask import _claim, _finish
+
+    if DbEngine.get_main_engine().dialect.name != "postgresql":
+        pytest.skip("Concurrent FOR UPDATE requires PostgreSQL")
+    (service, _, project, card, binding, *_), _, _ = scheduled_command
+    now = SafeDateTime.now()
+    barrier = Barrier(2)
+
+    def claim():
+        barrier.wait(timeout=5)
+        return _claim(service, project.id, binding.id, card.id, now)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(claim) for _ in range(2)]
+        results = [future.result(timeout=15) for future in futures]
+    assert sum(result is not None for result in results) == 1
+    owner = next(result for result in results if result)
+    assert not _finish(owner, now, "completed", now + timedelta(seconds=4000))
+
+
+async def test_continuous_scan_rechecks_revoked_grants_before_claim(scheduled_command, monkeypatch):
+    from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
+    from langboard_shared.tasks.bots import WorkflowCompactionTask as worker
+
+    (_, actor, project, _, binding, *_), _, _ = scheduled_command
+    original = worker._due
+
+    def due(*args):
+        rows = original(*args)
+        set_compactor_board_grant(actor, project.id, binding.id, can_read=False, can_compact=False, can_archive=False)
+        return rows
+
+    monkeypatch.setattr(worker, "_due", due)
+    provider = AsyncMock()
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    assert await worker.run_due_compactions() == 0
+    provider.assert_not_awaited()
+
+
 async def test_server_collects_original_comments_and_moves_and_keeps_new_comments_visible(compact_command, monkeypatch):
     service, actor, project, card, binding, comment, move, _ = compact_command
     before = comment.model_dump(mode="json")

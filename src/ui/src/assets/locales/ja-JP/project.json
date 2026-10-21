@@ -432,7 +432,7 @@
     "Archive cards": "カードのアーカイブ",
     "Compactor authority saved": "保存後に現在の権限を確認しました。",
     "Compactor profile missing": "内部 AI 設定で専用コンパクタープロファイルを作成してください。",
-    "Compactor runtime pending": "権限を保存しても自動実行は有効になりません。ワークフロー実行はまだ接続されていません。"
+    "Compactor runtime pending": "自動圧縮には読み取り・圧縮権限とステージの自動圧縮設定が必要で、設定された確認間隔に従います。自動アーカイブはまだ利用できません。"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",

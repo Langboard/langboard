@@ -17,6 +17,7 @@ def run():
         ("/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         ("/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         ("/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        ("/app/scripts/run_workflow_compaction.sh", "workflow-compaction"),
     ):
         existing_jobs = list(cron.find_comment(comment))
         if (
