@@ -136,6 +136,12 @@ def public_card_timeline_entry(event: dict[str, Any], *, inline_comment: bool = 
         result["summary"] = {
             **pick(data, ("source_revision", "covered_from", "covered_through", "evidence_refs")),
             "claims": [pick(claim, ("kind", "text", "evidence_refs")) for claim in data["draft"]["claims"]],
+            "search_metadata": {
+                "source": "comment_compaction", "derived": True,
+                "keywords": [pick(item, ("value", "evidence_refs")) for item in data["draft"].get("keywords", [])],
+                "entities": [pick(item, ("name", "kind", "aliases", "evidence_refs"))
+                             for item in data["draft"].get("entities", [])],
+            },
         }
         if isinstance(data.get("generated_by"), dict):
             result["summary"]["generated_by"] = pick(data["generated_by"], ("uid", "display_name"))

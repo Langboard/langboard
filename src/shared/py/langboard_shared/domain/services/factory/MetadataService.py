@@ -30,7 +30,7 @@ class MetadataService(BaseDomainService):
 
     @staticmethod
     def _is_work_plan_receipt(key: str) -> bool:
-        return key.strip().lower().startswith("internal.work_plan.")
+        return key.strip().lower().startswith(("internal.work_plan.", "internal.comment_compaction."))
 
     @staticmethod
     def name() -> str:
@@ -115,7 +115,7 @@ class MetadataService(BaseDomainService):
         if isinstance(foreign_model, Card) and foreign_model.is_linked_resource:
             return None
         if not internal and any(self._is_work_plan_receipt(k) for k in (key, old_key) if k is not None):
-            raise ValueError("Work plan receipt metadata is server-owned")
+            raise ValueError("Derived internal metadata is server-owned")
         if isinstance(foreign_model, Card) and key == CARD_PRESENTATION_KEY:
             validate_card_presentation(value)
         metadata = self.repo.metadata.save(model, foreign_model, key, value, old_key)
@@ -125,5 +125,5 @@ class MetadataService(BaseDomainService):
         if isinstance(foreign_model, Card) and foreign_model.is_linked_resource:
             return False
         if any(self._is_work_plan_receipt(k) for k in ([keys] if isinstance(keys, str) else keys)):
-            raise ValueError("Work plan receipt metadata is server-owned")
+            raise ValueError("Derived internal metadata is server-owned")
         return self.repo.metadata.delete_keys(model, foreign_model, keys)

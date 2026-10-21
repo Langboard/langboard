@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
 from ....ai.comment_compaction import CommentCompactionSnapshot
 from ....core.db import DbSession, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime, SnowflakeID
@@ -285,6 +286,67 @@ class CardCommentCompactionService(BaseDomainService):
             covered.update(block["evidence_refs"])
             blocks.append(block)
         return blocks
+
+    @staticmethod
+    def _search_metadata(blocks):
+        """Project only currently valid card search metadata from its authoritative compaction drafts."""
+        result = {"keywords": [], "entities": []}
+        for field, name in (("keywords", "value"), ("entities", "name")):
+            seen = set()
+            for block in blocks:
+                for item in block["draft"].get(field, []):
+                    identity = (item.get("kind"), item[name].casefold())
+                    if identity in seen or len(result[field]) >= 40:
+                        continue
+                    seen.add(identity)
+                    result[field].append({**item, "compaction_uid": block["uid"],
+                                          "source_revision": block["source_revision"]})
+        return {"source": "comment_compaction", "derived": True, **result}
+
+    def get_search_metadata(self, user, project, card, *, channel=CollaborationChannel.Api):
+        with DbSession.atomic():
+            project, card, _ = self._authorize(user, project, card, channel)
+            blocks = self._valid_blocks(user, project, card, channel=channel)
+            self._authorize(user, project, card, channel)
+            return self._search_metadata(blocks)
+
+    def search_metadata_candidates(self, user, project, context, query, *, channel=CollaborationChannel.Api):
+        from ..CardVisibilityPolicy import card_visibility_scope
+
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        postgres = DbEngine.get_main_engine().dialect.name == "postgresql"
+        elements = func.json_array_elements if postgres else func.json_each
+        keywords = elements(CardCommentCompaction.draft["keywords"]).table_valued("value").alias("search_keywords")
+        entities = elements(CardCommentCompaction.draft["entities"]).table_valued("value").alias("search_entities")
+        aliases = (func.json_array_elements_text if postgres else func.json_each)(
+            entities.c.value.op("->")("aliases")).table_valued("value").alias("search_aliases")
+        keyword_match = select(literal(1)).select_from(keywords).where(
+            keywords.c.value.op("->>")("value").ilike(pattern, escape="\\")).correlate(CardCommentCompaction).exists()
+        alias_match = select(literal(1)).select_from(aliases).where(
+            aliases.c.value.ilike(pattern, escape="\\")).correlate(entities).exists()
+        entity_match = select(literal(1)).select_from(entities).where(or_(
+            entities.c.value.op("->>")("name").ilike(pattern, escape="\\"), alias_match,
+        )).correlate(CardCommentCompaction).exists()
+        # Only persisted attributes are candidate hints; validate current source revisions below.
+        with DbSession.use(readonly=False) as db:
+            candidates = db.exec(select(Card.id).join(CardCommentCompaction, CardCommentCompaction.card_id == Card.id)
+                .join(ProjectColumn, and_(ProjectColumn.id == Card.project_column_id, ProjectColumn.project_id == Card.project_id))
+                .where(Card.project_id == project.id, Card.deleted_at.is_(None), Card.source_type.is_(None),
+                       ProjectColumn.deleted_at.is_(None), card_visibility_scope(context),
+                       CardCommentCompaction.status == "completed", or_(keyword_match, entity_match))
+                .distinct().order_by(Card.id.desc()).limit(20)).all()
+        matches = {}
+        for (card_id,) in candidates:
+            try:
+                metadata = self.get_search_metadata(user, project, card_id, channel=channel)
+            except CommentCompactionError:
+                continue
+            terms = [item["value"] for item in metadata["keywords"]]
+            terms.extend(term for item in metadata["entities"] for term in [item["name"], *item.get("aliases", [])])
+            if any(query.casefold() in term.casefold() for term in terms):
+                matches[card_id] = metadata
+        return matches
 
     def get_view(self, user, project, card, *, before=None, channel=CollaborationChannel.Api):
         """One canonical page of current summaries and uncovered original events."""

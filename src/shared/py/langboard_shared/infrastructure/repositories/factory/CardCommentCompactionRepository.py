@@ -13,7 +13,7 @@ from ....ai.comment_compaction import CommentCompactionSnapshot, CompactionDraft
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
-from ....domain.models import Card, CardCommentCompaction, InternalBot, User
+from ....domain.models import Card, CardCommentCompaction, CardMetadata, InternalBot, User
 from ....domain.models.InternalBot import InternalBotType
 from ....domain.services.WorkflowCompactionHistory import finish_compaction_history, start_compaction_history
 
@@ -133,6 +133,15 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             ).values(draft=validated.model_dump(mode="json"), status="completed", lease_expires_at=None,
                      updated_at=SafeDateTime.now())) == 1
             if changed:
+                # The fenced completion owns this immutable, server-derived metadata row.
+                # Public reads must validate the source and current reader through the compaction service.
+                db.insert(CardMetadata(card_id=current.card_id,
+                    key=f"internal.comment_compaction.{current.get_uid()}.search",
+                    value=json.dumps({"source": "comment_compaction", "derived": True,
+                        "compaction_uid": current.get_uid(), "source_revision": current.source_revision,
+                        "policy_version": current.policy_version,
+                        "keywords": [item.model_dump(mode="json") for item in validated.keywords],
+                        "entities": [item.model_dump(mode="json") for item in validated.entities]}, ensure_ascii=False)))
                 finish_compaction_history(db, current, attempt, "succeeded", now=now)
             return changed
 

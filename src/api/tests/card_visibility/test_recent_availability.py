@@ -12,10 +12,12 @@ from langboard_shared.domain.models import (
     CardAssignedUser,
     CardAttachment,
     CardComment,
+    CardCommentCompaction,
     CardRelationship,
     Checkitem,
     Checklist,
     GlobalCardRelationshipType,
+    InternalBot,
     KeywordSearchConfiguration,
     Project,
     ProjectAssignedUser,
@@ -42,7 +44,7 @@ from sqlalchemy import create_engine
 
 def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration):
+    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration, InternalBot, CardCommentCompaction):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -90,7 +92,9 @@ def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monke
         )
         content_reader = SimpleNamespace(api_blocks_by_cards=lambda ids: {card_id: [{"uid": str(card_id)}] for card_id in ids})
         scim = SimpleNamespace(is_employee=lambda user: False)
-        service = CardService(lambda cls: content_reader if cls.__name__ == "CardContentBlockService" else scim, lambda _: None, repository)
+        compaction_reader = SimpleNamespace(search_metadata_candidates=lambda *args, **kwargs: {})
+        readers = {"CardContentBlockService": content_reader, "CardCommentCompactionService": compaction_reader}
+        service = CardService(lambda cls: readers.get(cls.__name__, scim), lambda _: None, repository)
         uids = [card.get_uid() for card in cards]
         for channel in CollaborationChannel:
             expected = {uids[0], uids[2]} if channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp) else {uids[0]}

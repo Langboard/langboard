@@ -24,6 +24,7 @@ from langboard_shared.domain.models import (
     CardComment,
     CardCommentCompaction,
     CardCommentReaction,
+    CardMetadata,
     InternalBot,
     Project,
     ProjectActivity,
@@ -348,6 +349,63 @@ async def test_continuous_scan_rechecks_revoked_grants_before_claim(scheduled_co
     provider.assert_not_awaited()
 
 
+async def test_compaction_persists_evidence_bound_card_search_metadata_and_expands_search(compact_command, monkeypatch):
+    from langboard_shared.domain.models import CardAttachment
+
+    service, actor, project, card, binding, comment, *_ = compact_command
+    CardAttachment.__table__.create(DbEngine.get_main_engine())
+
+    async def provider(_, snapshot):
+        return CompactionDraft(claims=draft(snapshot).claims,
+            keywords=[{"value": "동시편집", "evidence_refs": [snapshot.sources[0].evidence_ref]}],
+            entities=[{"name": "Phoenix", "kind": "technology", "aliases": ["Elixir Phoenix"],
+                       "evidence_refs": [snapshot.sources[0].evidence_ref]}])
+
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="동시편집 Phoenix Elixir Phoenix 문제")
+        db.update(comment)
+    receipt = await service.generate(actor, project, card)
+    with DbSession.use(readonly=False) as db:
+        stored = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+    assert stored.draft["entities"][0]["name"] == "Phoenix"
+    with DbSession.use(readonly=False) as db:
+        row = db.exec(SqlBuilder.select.table(CardMetadata).where(CardMetadata.card_id == card.id)).first()
+    assert row.key == f"internal.comment_compaction.{receipt['uid']}.search"
+    assert json.loads(row.value)["entities"][0]["name"] == "Phoenix"
+    assert DomainService().metadata.get_all_as_api(CardMetadata, card) == []
+    assert DomainService().metadata.get_by_key_as_api(CardMetadata, card, row.key) is None
+    with DbSession.atomic() as db:
+        db.insert(CardMetadata(card_id=card.id, key="z-public", value="manual"))
+    assert DomainService().metadata.get_all_as_api(CardMetadata, card, as_dict=True, limit=1) == {"z-public": "manual"}
+    with pytest.raises(ValueError, match="server-owned"):
+        DomainService().metadata.save(CardMetadata, card, row.key, "forged")
+    with pytest.raises(ValueError, match="server-owned"):
+        DomainService().metadata.delete(CardMetadata, card, row.key)
+    metadata = service.get_search_metadata(actor, project, card)
+    assert metadata["source"] == "comment_compaction" and metadata["derived"] is True
+    assert metadata["keywords"][0]["compaction_uid"] == receipt["uid"]
+    assert metadata["entities"][0]["evidence_refs"] == [f"comment:{comment.get_uid()}"]
+    from langboard.card_workspace.application.projections import public_card_timeline_entry
+    event = service.get_view(actor, project, card)["records"][0]
+    projected = public_card_timeline_entry(event)
+    assert projected["summary"]["search_metadata"]["entities"][0]["aliases"] == ["Elixir Phoenix"]
+    project, context = DomainService().card.resolve_visibility_context(project, actor, command.CollaborationChannel.Api)
+    matches = service.search_metadata_candidates(actor, project, context, "Elixir")
+    assert set(matches) == {card.id}
+    assert set(service.search_metadata_candidates(actor, project, context, "동시편집")) == {card.id}
+    assert service.search_metadata_candidates(actor, project, context, "evidence_refs") == {}
+    # Native card search exposes the validated retrieval hints, never model configuration.
+    results = DomainService().card.search_context_by_project(project, "Elixir", user=actor, include_closed=True)
+    assert results[0]["search_metadata"]["entities"][0]["name"] == "Phoenix"
+    assert "fixture-private-model-key" not in json.dumps(metadata)
+    with DbSession.atomic() as db:
+        comment.content = EditorContentModel(content="Source no longer says that")
+        db.update(comment)
+    assert service.get_search_metadata(actor, project, card)["entities"] == []
+    assert service.search_metadata_candidates(actor, project, context, "Elixir") == {}
+
+
 async def test_server_collects_original_comments_and_moves_and_keeps_new_comments_visible(compact_command, monkeypatch):
     service, actor, project, card, binding, comment, move, _ = compact_command
     before = comment.model_dump(mode="json")
@@ -413,9 +471,13 @@ async def test_changes_during_generation_never_publish_stale_or_unauthorized_tex
 @pytest.mark.parametrize("change", ["edit", "delete", "provider", "read_permission", "policy"])
 async def test_completed_summary_is_revalidated_on_every_read(compact_command, monkeypatch, change):
     service, actor, project, card, binding, comment, _, role = compact_command
-    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    def with_metadata(_, snapshot):
+        return CompactionDraft(claims=draft(snapshot).claims,
+            keywords=[{"value": "EvidenceKeyword", "evidence_refs": [snapshot.sources[0].evidence_ref]}])
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=with_metadata))
     result = await service.generate(actor, project, card)
     assert result["status"] == "completed"
+    assert service.get_search_metadata(actor, project, card)["keywords"][0]["value"] == "EvidenceKeyword"
     with DbSession.atomic() as db:
         if change == "edit":
             comment.content = EditorContentModel(content="Edited after summary")
@@ -440,6 +502,12 @@ async def test_completed_summary_is_revalidated_on_every_read(compact_command, m
     else:
         current = service.get(actor, project, card, result["uid"])
         assert current["status"] == "invalidated" and "draft" not in current
+    if change == "read_permission":
+        with pytest.raises(CommentCompactionError):
+            service.get_search_metadata(actor, project, card)
+    else:
+        assert service.get_search_metadata(actor, project, card)["keywords"] == []
+
 
 
 async def test_concurrent_command_calls_share_one_model_execution(compact_command, monkeypatch):
@@ -672,6 +740,8 @@ def test_authenticated_http_uses_native_graph_service_auth_and_rejects_client_so
     endpoint = f"/board/{project.get_uid()}/card/{card.get_uid()}/comment-compactions"
     access, refresh = AuthSecurity.authenticate(actor.id)
     with TestClient(app) as client:
+        metadata_endpoint = f"/board/{project.get_uid()}/card/{card.get_uid()}/search-metadata"
+        assert client.get(metadata_endpoint).status_code == 401
         assert client.post(endpoint, json={}).status_code == 401
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         headers = {"Authorization": f"Bearer {access}"}
@@ -683,6 +753,9 @@ def test_authenticated_http_uses_native_graph_service_auth_and_rejects_client_so
         assert result.headers["Cache-Control"] == "no-store" and result.json()["status"] == "completed"
         assert len(requests) == 1 and "fixture-private-model-key" not in result.text
         assert client.get(endpoint + "/" + result.json()["uid"], headers=headers).json()["status"] == "completed"
+        metadata = client.get(metadata_endpoint, headers=headers)
+        assert metadata.status_code == 200 and metadata.headers["Cache-Control"] == "no-store"
+        assert metadata.json() == {"source": "comment_compaction", "derived": True, "keywords": [], "entities": []}
         listed = client.get(endpoint, headers=headers)
         assert listed.status_code == 200 and listed.headers["Cache-Control"] == "no-store"
         assert listed.json()["records"][0]["uid"] == result.json()["uid"] and len(requests) == 1

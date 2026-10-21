@@ -25,7 +25,7 @@ def claim(**changes):
 
 
 async def test_compaction_draft_uses_existing_model_factory_and_returns_bound_evidence(monkeypatch):
-    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=[{"type": "text", "text": json.dumps({"claims": [claim()]})}])))
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=[{"type": "text", "text": json.dumps({"claims": [claim()], "keywords": [], "entities": []})}])))
     def factory(provider, settings):
         return model if provider == "OpenAI" and settings["api_key"] == "local-fixture-key" else None
     monkeypatch.setattr(api, "create_default_chat_model", factory)
@@ -44,7 +44,7 @@ async def test_long_original_comment_uses_existing_graph_payload_limit(monkeypat
     data = form().model_dump(mode="json")
     data["sources"][0]["text"] = "Long source evidence " * 1600
     request = api.CommentCompactionForm.model_validate(data)
-    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"claims": [claim()]}))))
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"claims": [claim()], "keywords": [], "entities": []}))))
     monkeypatch.setattr(api, "create_default_chat_model", lambda *_: model)
     response = json.loads((await api.create_comment_compaction_draft(request)).body)
     assert response["generated"] is True and len(model.ainvoke.call_args.args[0][1].content) > 30_000
@@ -60,6 +60,8 @@ async def test_long_original_comment_uses_existing_graph_payload_limit(monkeypat
     json.dumps({"claims": [claim(kind="verified_complete")]}),
     json.dumps({"claims": [claim(text="   ")]}),
     json.dumps({"claims": [claim()], "execute": "archive"}),
+    json.dumps({"claims": [claim()]}),
+    json.dumps({"claims": [claim()], "keywords": []}),
 ])
 async def test_invalid_or_uncited_model_result_never_becomes_a_draft(monkeypatch, content):
     monkeypatch.setattr(api, "create_default_chat_model", lambda *_: SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=content))))
@@ -109,7 +111,7 @@ async def test_cancellation_propagates_instead_of_returning_a_successful_draft(m
 async def test_compaction_route_requires_service_auth_before_any_model_call(monkeypatch):
     secret = "local-compaction-service-fixture-secret-32bytes"
     monkeypatch.setattr(type(Env), "SOCKET_PHOENIX_INTERNAL_SECRET", property(lambda _: secret))
-    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"claims": [claim()]}))))
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"claims": [claim()], "keywords": [], "entities": []}))))
     factory = Mock(return_value=model)
     monkeypatch.setattr(api, "create_default_chat_model", factory)
     app = FastAPI()
@@ -124,3 +126,22 @@ async def test_compaction_route_requires_service_auth_before_any_model_call(monk
         assert response.status_code == 200 and response.json()["status"] == "draft"
         assert response.json()["draft"]["claims"][0]["evidence_refs"] == ["comment:original"]
     factory.assert_called_once()
+
+
+async def test_search_attributes_are_extracted_and_citations_are_validated(monkeypatch):
+    payload = {"claims": [claim()],
+        "keywords": [{"value": "동시편집", "evidence_refs": ["comment:original"]}],
+        "entities": [{"name": "Phoenix", "kind": "technology", "aliases": ["Elixir Phoenix"],
+                      "evidence_refs": ["comment:original"]}]}
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps(payload))))
+    monkeypatch.setattr(api, "create_default_chat_model", lambda *_: model)
+    response = json.loads((await api.create_comment_compaction_draft(form())).body)
+    assert response["draft"]["keywords"][0]["value"] == "동시편집"
+    assert response["draft"]["entities"][0]["kind"] == "technology"
+    assert "aliases must be supported" in model.ainvoke.call_args.args[0][0].content
+    for field in ("keywords", "entities"):
+        invalid = json.loads(json.dumps(payload))
+        invalid[field][0]["evidence_refs"] = ["comment:outside"]
+        model.ainvoke.return_value = SimpleNamespace(content=json.dumps(invalid))
+        rejected = json.loads((await api.create_comment_compaction_draft(form())).body)
+        assert rejected["status"] == "invalid_result" and "draft" not in rejected

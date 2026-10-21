@@ -25,6 +25,22 @@ def compaction_response(result):
                         headers={"Cache-Control": "no-store"})
 
 
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get("/board/{project_uid}/card/{card_uid}/search-metadata", tags=["Board.Card.Comment"])
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def get_card_search_metadata(
+    project_uid: str, card_uid: str, request: Request,
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+):
+    try:
+        metadata = service.card_comment_compaction.get_search_metadata(user, project_uid, card_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+        return JsonResponse(content=metadata, headers={"Cache-Control": "no-store"})
+    except CommentCompactionError as error:
+        return JsonResponse(content={"code": error.code}, status_code=error.status, headers={"Cache-Control": "no-store"})
+
+
 @AppRouter.schema(form=CommentCompactionBody, permission=ApiPermission.Edit)
 @AppRouter.api.post("/board/{project_uid}/card/{card_uid}/comment-compactions", tags=["Board.Card.Comment"])
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read, ProjectRoleAction.CardUpdate], RoleFinder.project)

@@ -1170,6 +1170,10 @@ class CardService(BaseDomainService):
             if not context.active or not context.project_member:
                 return []
             external_matches = self.repo.card.validate_document_candidates(project, candidates, context=context)
+        from .CardCommentCompactionService import CardCommentCompactionService
+
+        semantic_matches = self._get_service(CardCommentCompactionService).search_metadata_candidates(
+            user, project, context, input_value, channel=channel)
         records = self.repo.card.search_context_by_project(
             project,
             input_value,
@@ -1179,7 +1183,8 @@ class CardService(BaseDomainService):
             include_closed=include_closed,
             workflow_stages=workflow_stages,
             context=context,
-            **({"additional_card_ids": list(external_matches)} if external_matches else {}),
+            **({"additional_card_ids": list(dict.fromkeys([*external_matches, *semantic_matches]))}
+               if external_matches or semantic_matches else {}),
         )
         document_matches = self.repo.card.search_document_matches(
             project, [card.id for card, _ in records], input_value, context=context
@@ -1204,6 +1209,7 @@ class CardService(BaseDomainService):
                     "title": card.title,
                     "description": description if include_work_state else {"content": description},
                     "project_column_name": column.name,
+                    **({"search_metadata": semantic_matches[card.id]} if card.id in semantic_matches else {}),
                     **({"document_matches": document_matches[card.id]} if card.id in document_matches else {}),
                     **(
                         {"project_column_uid": column.get_uid(), "work_state": states[card.id]}

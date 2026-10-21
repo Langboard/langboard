@@ -11,7 +11,7 @@ from langboard_shared.ai.comment_compaction import CompactionDraft
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import CardComment, CardCommentCompaction, InternalBot, User
+from langboard_shared.domain.models import CardComment, CardCommentCompaction, CardMetadata, InternalBot, User
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
@@ -125,3 +125,25 @@ def test_concurrent_requests_reserve_one_run_and_claim_one_attempt(compactions):
         futures = [pool.submit(claim) for _ in range(2)]
         results = [future.result(timeout=10) for future in futures]
     assert sum(result is not None for result in results) == 1
+
+
+def test_metadata_and_summary_commit_atomically_without_duplicate_completion(compactions, monkeypatch):
+    repo, actor, card, binding, _, snapshot, draft, *_ = compactions
+    record = repo.claim(repo.reserve(card, actor, binding, snapshot))
+    original_insert = DbSession.insert
+    def reject_metadata(self, obj):
+        if isinstance(obj, CardMetadata):
+            raise RuntimeError("fixture storage failure")
+        return original_insert(self, obj)
+    with monkeypatch.context() as patch:
+        patch.setattr(DbSession, "insert", reject_metadata)
+        with pytest.raises(RuntimeError, match="storage failure"):
+            repo.complete(record, record.attempt, snapshot, binding, draft)
+    with DbSession.use(readonly=False) as db:
+        saved = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(CardCommentCompaction.id == record.id)).first()
+        assert saved.status == "running" and saved.draft is None
+        assert db.exec(SqlBuilder.select.table(CardMetadata)).all() == []
+    assert repo.complete(record, record.attempt, snapshot, binding, draft)
+    assert not repo.complete(record, record.attempt, snapshot, binding, draft)
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(CardMetadata)).all()) == 1

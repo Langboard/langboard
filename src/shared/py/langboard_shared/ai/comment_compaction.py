@@ -45,6 +45,24 @@ class CompactionDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     claims: list[CompactionClaim] = Field(min_length=1, max_length=12)
+    keywords: list["CompactionKeyword"] = Field(default_factory=list, max_length=20)
+    entities: list["CompactionEntity"] = Field(default_factory=list, max_length=20)
+
+
+class CompactionKeyword(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    value: str = Field(min_length=1, max_length=80)
+    evidence_refs: list[EvidenceRef] = Field(min_length=1, max_length=10)
+
+
+class CompactionEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["person", "organization", "project", "product", "technology", "location", "document", "other"]
+    aliases: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(default_factory=list, max_length=5)
+    evidence_refs: list[EvidenceRef] = Field(min_length=1, max_length=10)
 
 
 class CommentCompactionSnapshot(BaseModel):
@@ -74,6 +92,6 @@ class CommentCompactionSnapshot(BaseModel):
             raise ValueError("Invalid compaction response")
         draft = CompactionDraft.model_validate_json(content)
         allowed = {source.evidence_ref for source in self.sources}
-        if any(not set(claim.evidence_refs).issubset(allowed) for claim in draft.claims):
+        if any(not set(item.evidence_refs).issubset(allowed) for item in [*draft.claims, *draft.keywords, *draft.entities]):
             raise ValueError("Compaction cites unknown evidence")
         return draft

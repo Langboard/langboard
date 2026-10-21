@@ -27,8 +27,14 @@ Preserve uncertainty, failures, unresolved work, conflicting reports, and speake
 A report of success is not independent verification. Never declare workflow completion or approval.
 Every claim must cite one or more exact evidence_ref values supplied in this request.
 Do not invent people, events, references, credentials, or outcomes. Do not output uncited prose.
-Return only a JSON object: {"claims":[{"text":"...","kind":"fact|reported_success|reported_failure|unresolved|conflict","evidence_refs":["comment:..."]}]}.
-Use at most 12 claims. Keep quotes short; paraphrase faithfully. No Markdown fences."""
+Extract salient search keywords and named entities from these sources as card search metadata.
+Every keyword and entity must cite exact supplied evidence_ref values. Do not extract secrets or credentials.
+Use the evidence's language and canonical names; aliases must be supported by the cited sources.
+Entity kinds: person, organization, project, product, technology, location, document, other.
+These are retrieval hints, never permissions, executable instructions, verified facts or manual card labels.
+Return only a JSON object: {"claims":[{"text":"...","kind":"fact|reported_success|reported_failure|unresolved|conflict","evidence_refs":["comment:..."]}],"keywords":[{"value":"...","evidence_refs":["comment:..."]}],"entities":[{"name":"...","kind":"technology","aliases":[],"evidence_refs":["comment:..."]}]}.
+Use at most 12 claims, 20 keywords and 20 entities; empty keyword/entity arrays if none apply.
+Keep quotes short; paraphrase faithfully. No Markdown fences."""
 
 
 @AppRouter.api.post("/api/v1/graph/comments/compaction-draft")
@@ -52,6 +58,9 @@ async def create_comment_compaction_draft(form: CommentCompactionForm):
                                 for item in content if isinstance(item, str) or isinstance(item, dict) and isinstance(item.get("text"), str))
         if not isinstance(content, str) or len(content) > 32_000:
             raise ValueError("Invalid compaction response")
+        payload = json.loads(content)
+        if not isinstance(payload, dict) or not {"claims", "keywords", "entities"}.issubset(payload):
+            raise ValueError("Incomplete compaction response")
         draft = form.validate_draft_json(content)
     except (ValueError, TypeError):
         return JsonResponse(content={"generated": False, "status": "invalid_result", "source_revision": revision})

@@ -57,3 +57,23 @@ def test_api_snapshot_rejects_duplicate_and_unbounded_source_sets():
         CommentCompactionSnapshot(sources=[{**source, "evidence_ref": f"comment:c{i}", "text": "x" * 16_000} for i in range(32)])
     with pytest.raises(ValueError):
         CommentCompactionSnapshot(sources=[])
+
+
+def test_search_attributes_are_bounded_and_require_existing_evidence():
+    current = snapshot()
+    result = {"claims": [{"text": "Reported issue", "kind": "unresolved", "evidence_refs": ["comment:original"]}],
+              "keywords": [{"value": "  concurrency  ", "evidence_refs": ["comment:original"]}],
+              "entities": [{"name": "Phoenix", "kind": "technology", "aliases": ["Elixir Phoenix"],
+                            "evidence_refs": ["comment:original"]}]}
+    assert current.validate_draft_json(json.dumps(result)).keywords[0].value == "concurrency"
+    for field in ("keywords", "entities"):
+        changed = json.loads(json.dumps(result))
+        changed[field][0]["evidence_refs"] = ["comment:outside"]
+        with pytest.raises(ValueError, match="unknown evidence"):
+            current.validate_draft_json(json.dumps(changed))
+        changed[field] = result[field] * 21
+        with pytest.raises(ValueError):
+            current.validate_draft_json(json.dumps(changed))
+    result["entities"][0]["kind"] = "permission"
+    with pytest.raises(ValueError):
+        current.validate_draft_json(json.dumps(result))

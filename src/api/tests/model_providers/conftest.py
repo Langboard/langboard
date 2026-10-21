@@ -12,6 +12,7 @@ from langboard_shared.domain.models import (
     Bot,
     Card,
     CardComment,
+    CardMetadata,
     InternalBot,
     WorkflowEffectRun,
     WorkflowStageDefinition,
@@ -27,7 +28,7 @@ from langboard_shared.infrastructure.repositories.factory.CardCommentCompactionR
 def compactions(board):
     _, actor, project, _, _, columns, *_ = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardComment, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
+    for model in (Bot, Card, CardComment, CardMetadata, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
         model.__table__.create(engine, checkfirst=True)
     path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021020000-c4a8f16d3092.py"
     spec = importlib.util.spec_from_file_location("compaction_migration", path)
