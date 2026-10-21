@@ -423,7 +423,16 @@
     "Connection MCP automation": "Run external automation",
     "Connection MCP refresh required": "Access denied, state changed, or request failed. Refresh and review before saving again.",
     "Connection MCP no tools": "No declared tools",
-    "GitHub app connection identity": "GitHub App {{appId}} · {{connectionId}}"
+    "GitHub app connection identity": "GitHub App {{appId}} · {{connectionId}}",
+    "Compactor board authority": "Compactor board authority",
+    "Compactor authority help": "Authority belongs to this compactor profile. Private cards are excluded. Removing read access also removes compact and archive access.",
+    "Compactor authority unavailable": "Access denied, state changed, or request failed. Refresh before saving again.",
+    "Read board cards": "Read board cards",
+    "Compact comments": "Compact comments",
+    "Archive cards": "Archive cards",
+    "Compactor authority saved": "Authority saved and current permissions reloaded.",
+    "Compactor profile missing": "Create a dedicated compactor profile in internal AI settings first.",
+    "Compactor runtime pending": "Saving authority does not enable automatic execution. Workflow execution is not connected yet."
   },
   "App panel": "App panel",
   "Close App panel": "Close App panel",

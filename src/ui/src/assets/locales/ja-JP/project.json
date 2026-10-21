@@ -423,7 +423,16 @@
     "Connection MCP automation": "外部自動化の実行",
     "Connection MCP refresh required": "アクセス拒否、状態変更、またはリクエスト失敗。更新して再確認してください。",
     "Connection MCP no tools": "宣言されたツールなし",
-    "GitHub app connection identity": "GitHub アプリ {{appId}} · {{connectionId}}"
+    "GitHub app connection identity": "GitHub アプリ {{appId}} · {{connectionId}}",
+    "Compactor board authority": "コンパクターのボード権限",
+    "Compactor authority help": "このプロファイルに権限を付与します。非公開カードは除外されます。読み取りを解除すると圧縮とアーカイブも解除されます。",
+    "Compactor authority unavailable": "権限がないか状態が変更されたか、要求が失敗しました。再読み込みしてから保存してください。",
+    "Read board cards": "ボードカードの読み取り",
+    "Compact comments": "コメントの圧縮",
+    "Archive cards": "カードのアーカイブ",
+    "Compactor authority saved": "保存後に現在の権限を確認しました。",
+    "Compactor profile missing": "内部 AI 設定で専用コンパクタープロファイルを作成してください。",
+    "Compactor runtime pending": "権限を保存しても自動実行は有効になりません。ワークフロー実行はまだ接続されていません。"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",

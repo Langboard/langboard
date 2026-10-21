@@ -423,7 +423,16 @@
     "Connection MCP automation": "运行外部自动化",
     "Connection MCP refresh required": "访问被拒、状态已变更或请求失败。请刷新并重新确认。",
     "Connection MCP no tools": "没有已声明的工具",
-    "GitHub app connection identity": "GitHub 应用 {{appId}} · {{connectionId}}"
+    "GitHub app connection identity": "GitHub 应用 {{appId}} · {{connectionId}}",
+    "Compactor board authority": "压缩器看板权限",
+    "Compactor authority help": "向此配置授予权限。私密卡片不在范围内。取消读取权限会同时取消压缩和归档权限。",
+    "Compactor authority unavailable": "无权限、状态已更改或请求失败。请重新加载后再保存。",
+    "Read board cards": "读取看板卡片",
+    "Compact comments": "压缩评论",
+    "Archive cards": "归档卡片",
+    "Compactor authority saved": "已保存并重新确认当前权限。",
+    "Compactor profile missing": "请先在内部 AI 设置中创建专用压缩器配置。",
+    "Compactor runtime pending": "保存权限不会启用自动执行。工作流执行尚未连接。"
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",
