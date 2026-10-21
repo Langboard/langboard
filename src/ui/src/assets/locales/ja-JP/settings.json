@@ -438,5 +438,12 @@
   "User": "ユーザー",
   "Bot": "ボット",
   "Notify the author when someone else enters this stage": "他の人がこの段階に移動したら作成者に通知",
-  "Notifications created": "作成された通知"
+  "Notifications created": "作成された通知",
+  "Failed": "失敗",
+  "Cancelled": "キャンセル済み",
+  "Uncertain": "結果不明",
+  "Manual": "手動",
+  "Execution profile": "実行プロフィール",
+  "Error code": "エラーコード",
+  "Compact comments": "コメントを圧縮"
 }

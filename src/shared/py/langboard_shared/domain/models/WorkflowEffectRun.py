@@ -10,6 +10,7 @@ class WorkflowEffectRun(BaseDbModel, table=True):
         CheckConstraint("duration_ms >= 0", name="workflow_effect_duration"),
         CheckConstraint("actor_type IN ('user','bot')", name="workflow_effect_actor"),
         Index("ix_workflow_effect_run_stage_page", "stage_id", "id"),
+        Index("ix_workflow_effect_run_execution_key", "execution_key", unique=True),
     )
     # No cascading foreign keys: deleting work must not erase execution evidence.
     stage_id: SnowflakeID = SnowflakeIDField(nullable=False)
@@ -26,6 +27,11 @@ class WorkflowEffectRun(BaseDbModel, table=True):
     finished_at: SafeDateTime = DateTimeField(default=SafeDateTime.now, nullable=False)
     duration_ms: int = Field(nullable=False)
     result: dict[str, int] = Field(nullable=False, sa_type=JSON)
+    execution_key: str | None = Field(default=None, nullable=True, max_length=128)
+    profile_id: SnowflakeID | None = SnowflakeIDField(nullable=True)
+    profile_name: str | None = Field(default=None, nullable=True, max_length=255)
+    error_code: str | None = Field(default=None, nullable=True, max_length=64)
+    lease_expires_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 
     def notification_data(self) -> dict:
         return {}

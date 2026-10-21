@@ -14,6 +14,7 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
 from ....domain.models import Card, CardCommentCompaction, InternalBot, User
+from ....domain.services.WorkflowCompactionHistory import finish_compaction_history, start_compaction_history
 
 
 POLICY_VERSION = 1
@@ -92,6 +93,7 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
                 return None
             for field, value in values.items():
                 setattr(current, field, value)
+            start_compaction_history(db, current, now)
             return current
 
     def complete(self, record: CardCommentCompaction, attempt: int, snapshot: CommentCompactionSnapshot,
@@ -110,10 +112,13 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
                     or current.provider_revision != provider_revision(binding)
                     or current.internal_bot_id != binding.id):
                 return False
-            return db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
+            changed = db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
                 self._attempt_condition(current, attempt, now or SafeDateTime.now()),
             ).values(draft=validated.model_dump(mode="json"), status="completed", lease_expires_at=None,
                      updated_at=SafeDateTime.now())) == 1
+            if changed:
+                finish_compaction_history(db, current, attempt, "succeeded", now=now)
+            return changed
 
     def fail(self, record: CardCommentCompaction, attempt: int, code: str) -> bool:
         if code not in FAILURE_CODES:
@@ -122,10 +127,13 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             current = self._locked(db, record)
             if not self._owns_attempt(current, attempt, SafeDateTime.now()):
                 return False
-            return db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
+            changed = db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
                 self._attempt_condition(current, attempt, SafeDateTime.now()),
             ).values(status="cancelled" if code == "cancelled" else "failed", error_code=code,
                      lease_expires_at=None, updated_at=SafeDateTime.now())) == 1
+            if changed:
+                finish_compaction_history(db, current, attempt, "cancelled" if code == "cancelled" else "failed", code)
+            return changed
 
     def cancel(self, record: CardCommentCompaction) -> bool:
         """Withdraw pending/running work; a late provider response cannot publish."""
@@ -133,11 +141,14 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             current = self._locked(db, record)
             if current is None or current.status not in {"pending", "running"}:
                 return False
-            return db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
+            changed = db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
                 CardCommentCompaction.id == current.id, CardCommentCompaction.attempt == current.attempt,
                 CardCommentCompaction.status.in_(["pending", "running"]),
             ).values(status="cancelled", error_code="cancelled", lease_expires_at=None,
                      updated_at=SafeDateTime.now())) == 1
+            if changed:
+                finish_compaction_history(db, current, current.attempt, "cancelled", "cancelled")
+            return changed
 
     @staticmethod
     def _locked(db, record):

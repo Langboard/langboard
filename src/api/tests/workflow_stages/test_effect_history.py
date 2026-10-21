@@ -9,7 +9,7 @@ from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
 from langboard.routes.settings.WorkflowStageSettingsApi import get_workflow_effect_history
 from langboard_shared.core.caching import Cache
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
@@ -82,7 +82,7 @@ def test_history_filters_before_paging_retains_archived_and_separates_workflows(
         f.service.get_effect_history(f.user, f.stages[1].get_uid(), before=first["next_cursor"])
     assert set(first["items"][0]) == {
         "uid", "source", "status", "effects", "started_at", "finished_at", "duration_ms", "result",
-        "project_uid", "card_uid", "actor_uid", "actor_type",
+        "project_uid", "card_uid", "actor_uid", "actor_type", "profile", "error_code",
     }
 
 
@@ -157,3 +157,27 @@ def test_authenticated_history_requires_admin_setting_read_and_revalidates_card_
             setting_role.actions = []
             db.update(setting_role)
         assert client.get(url, headers=headers).status_code == 403
+
+
+def test_expired_compaction_lease_is_reported_uncertain_without_rewriting_evidence(history):
+    from datetime import timedelta
+
+    f = history
+    now = SafeDateTime.now()
+    with DbSession.atomic() as db:
+        receipt = WorkflowEffectRun(
+            stage_id=f.stages[0].id, stage_key=f.stages[0].key, stage_revision="c" * 64,
+            project_id=10, card_id=f.cards[0].id, actor_id=f.user.id, actor_type="user",
+            source="manual", effects=["compact_comments"], duration_ms=0, result={}, status="running",
+            profile_id=123, profile_name="컴팩터", execution_key="compaction:lost:1",
+            lease_expires_at=now - timedelta(seconds=1),
+        )
+        db.insert(receipt)
+    page = f.service.get_effect_history(f.user, f.stages[0].get_uid(), channel=CollaborationChannel.HumanUI)
+    row = next(item for item in page["items"] if item["uid"] == receipt.get_uid())
+    assert row["status"] == "uncertain" and row["error_code"] == "lease_expired"
+    assert row["profile"] == {"uid": receipt.profile_id.to_short_code(), "display_name": "컴팩터"}
+    assert "execution_key" not in row
+    with DbSession.use(readonly=False) as db:
+        stored = db.exec(SqlBuilder.select.table(WorkflowEffectRun).where(WorkflowEffectRun.id == receipt.id)).first()
+        assert stored.status == "running" and stored.error_code is None

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from sqlalchemy import and_, func, or_, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
+from ....core.types import SafeDateTime
 from ....helpers import InfraHelper
 from ....publishers import AppSettingPublisher
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
@@ -33,6 +34,7 @@ from ..AppWorkflowPolicy import (
     resolve_app_workflow,
 )
 from ..CardVisibilityPolicy import CollaborationChannel, card_visibility_scope_by_project
+from ..WorkflowCompactionHistory import history_lease_expired
 from .CardService import CardService
 
 
@@ -436,13 +438,17 @@ class WorkflowStageService(BaseDomainService):
                     raise ValueError("Workflow history cursor is unavailable")
                 query = query.where(WorkflowEffectRun.id < anchor_id)
             rows = db.exec(query.order_by(WorkflowEffectRun.id.desc()).limit(limit + 1)).all()
+            now = SafeDateTime.now()
             items = [{
-                "uid": row.get_uid(), "source": row.source, "status": row.status,
+                "uid": row.get_uid(), "source": row.source, "status": "uncertain" if history_lease_expired(row, now) else row.status,
                 "effects": row.effects, "started_at": row.started_at, "finished_at": row.finished_at,
                 "duration_ms": row.duration_ms, "result": row.result,
                 "project_uid": InfraHelper.convert_uid(row.project_id),
                 "card_uid": InfraHelper.convert_uid(row.card_id),
                 "actor_uid": InfraHelper.convert_uid(row.actor_id), "actor_type": row.actor_type,
+                "profile": {"uid": InfraHelper.convert_uid(row.profile_id), "display_name": row.profile_name}
+                if row.profile_id is not None else None,
+                "error_code": "lease_expired" if history_lease_expired(row, now) else row.error_code,
             } for row in rows[:limit]]
             return {"items": items, "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None}
 

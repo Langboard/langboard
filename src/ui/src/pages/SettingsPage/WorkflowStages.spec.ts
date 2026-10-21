@@ -480,3 +480,47 @@ for (const width of [1440, 390]) {
         await page.getByRole("dialog").screenshot({ path: `.verification/author-entry-notification-${width}.png` });
     });
 }
+
+for (const width of [1440, 390]) {
+    test(`compaction workflow history shows profile and outcomes at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        const statuses = ["succeeded", "failed", "cancelled", "uncertain", "running"];
+        await page.route("**/settings/workflow-stages**", (route) => {
+            const url = new URL(route.request().url());
+            if (!url.pathname.endsWith("/history")) return route.fulfill({ json: { stages: [existing()] } });
+            expect(route.request().method()).toBe("GET");
+            return route.fulfill({
+                json: {
+                    items: statuses.map((status) => ({
+                        ...effectRun(status),
+                        source: "manual",
+                        status,
+                        effects: ["compact_comments"],
+                        result: { compacted: status === "succeeded" ? 1 : 0 },
+                        profile: { uid: "compactor", display_name: "Compactor <img src=x onerror=alert(1)>" },
+                        error_code: status === "failed" ? "provider_error" : null,
+                    })),
+                    next_cursor: null,
+                },
+            });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        const history = page.getByRole("region", { name: "Effect history", exact: true });
+        for (const label of ["Succeeded", "Failed", "Cancelled", "Uncertain", "Running"]) {
+            await expect(history.getByText(label, { exact: true })).toHaveCount(1);
+        }
+        const failed = history.getByRole("row").filter({ hasText: "Failed" });
+        await failed.getByText("Effect details", { exact: true }).click();
+        await expect(failed).toContainText("Execution profile: Compactor <img src=x onerror=alert(1)>");
+        await expect(failed).toContainText("Error code: provider_error");
+        await expect(failed.getByText("Compact comments", { exact: true })).toBeVisible();
+        await expect(history.locator("img")).toHaveCount(0);
+        await expect(failed).not.toContainText("Completed items:");
+        const running = history.getByRole("row").filter({ hasText: "Running" });
+        await running.getByText("Effect details", { exact: true }).click();
+        await expect(running).not.toContainText("Finished:");
+        await page.getByRole("dialog").screenshot({ path: `.verification/compaction-workflow-history-${width}.png` });
+    });
+}

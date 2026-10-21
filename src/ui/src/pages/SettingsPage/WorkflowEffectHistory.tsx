@@ -19,6 +19,8 @@ interface IEffectRun {
     card_uid: string;
     actor_uid: string;
     actor_type: string;
+    profile?: { uid: string; display_name: string } | null;
+    error_code?: string | null;
 }
 interface IHistoryPage {
     items: IEffectRun[];
@@ -61,7 +63,18 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
         if (key === "complete_checkitems") return t("settings.Complete unchecked items");
         if (key === "stop_running_timers") return t("settings.Stop running timers");
         if (key === "notify_author_on_entry") return t("settings.Notify the author when someone else enters this stage");
+        if (key === "compact_comments") return t("settings.Compact comments");
         return t("settings.Unknown effect");
+    };
+    const statusLabel = (status: string) => {
+        const labels: Record<string, string> = {
+            succeeded: "Succeeded",
+            running: "Running",
+            failed: "Failed",
+            cancelled: "Cancelled",
+            uncertain: "Uncertain",
+        };
+        return t(`settings.${labels[status] ?? "Unknown status"}`);
     };
     const date = (value: string) => {
         const parsed = new Date(value);
@@ -125,21 +138,37 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                                 <li key={key}>{effectLabel(key)}</li>
                                             ))}
                                         </ul>
-                                        <p className="mt-2">
-                                            {t("settings.Completed items")}: {formatNumber(row.result.completed ?? 0, i18n.language)}
-                                        </p>
-                                        <p>
-                                            {t("settings.Stopped timers")}: {formatNumber(row.result.stopped ?? 0, i18n.language)}
-                                        </p>
+                                        {row.result.completed !== undefined && (
+                                            <p className="mt-2">
+                                                {t("settings.Completed items")}: {formatNumber(row.result.completed, i18n.language)}
+                                            </p>
+                                        )}
+                                        {row.result.stopped !== undefined && (
+                                            <p>
+                                                {t("settings.Stopped timers")}: {formatNumber(row.result.stopped, i18n.language)}
+                                            </p>
+                                        )}
                                         {row.result.notified !== undefined && (
                                             <p>
                                                 {t("settings.Notifications created")}: {formatNumber(row.result.notified, i18n.language)}
                                             </p>
                                         )}
-                                        <p>
-                                            {t("settings.Finished")}: {date(row.finished_at)}
-                                        </p>
+                                        {!["running", "uncertain"].includes(row.status) && (
+                                            <p>
+                                                {t("settings.Finished")}: {date(row.finished_at)}
+                                            </p>
+                                        )}
                                         <p>{row.actor_type === "bot" ? t("settings.Bot") : t("settings.User")}</p>
+                                        {row.profile && (
+                                            <p>
+                                                {t("settings.Execution profile")}: {row.profile.display_name}
+                                            </p>
+                                        )}
+                                        {row.error_code && (
+                                            <p>
+                                                {t("settings.Error code")}: {row.error_code}
+                                            </p>
+                                        )}
                                         <a
                                             className="mt-2 inline-block underline"
                                             target="_blank"
@@ -155,11 +184,11 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                         ? t("settings.Entry effects")
                                         : row.source === "continuous"
                                           ? t("settings.Continuous effects")
-                                          : t("settings.Unknown source")}
+                                          : row.source === "manual"
+                                            ? t("settings.Manual")
+                                            : t("settings.Unknown source")}
                                 </Table.Cell>
-                                <Table.Cell className="align-top">
-                                    {row.status === "succeeded" ? t("settings.Succeeded") : t("settings.Unknown status")}
-                                </Table.Cell>
+                                <Table.Cell className="align-top">{statusLabel(row.status)}</Table.Cell>
                                 <Table.Cell className="hidden whitespace-nowrap align-top sm:table-cell">{duration(row.duration_ms)}</Table.Cell>
                             </Table.Row>
                         ))}

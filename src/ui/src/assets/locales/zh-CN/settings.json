@@ -438,5 +438,12 @@
   "User": "用户",
   "Bot": "机器人",
   "Notify the author when someone else enters this stage": "其他人移入此阶段时通知作者",
-  "Notifications created": "已创建通知"
+  "Notifications created": "已创建通知",
+  "Failed": "失败",
+  "Cancelled": "已取消",
+  "Uncertain": "结果不确定",
+  "Manual": "手动",
+  "Execution profile": "执行配置",
+  "Error code": "错误代码",
+  "Compact comments": "压缩评论"
 }

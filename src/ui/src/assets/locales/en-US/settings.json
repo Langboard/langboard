@@ -438,5 +438,12 @@
   "User": "User",
   "Bot": "Bot",
   "Notify the author when someone else enters this stage": "Notify the author when someone else enters this stage",
-  "Notifications created": "Notifications created"
+  "Notifications created": "Notifications created",
+  "Failed": "Failed",
+  "Cancelled": "Cancelled",
+  "Uncertain": "Uncertain",
+  "Manual": "Manual",
+  "Execution profile": "Execution profile",
+  "Error code": "Error code",
+  "Compact comments": "Compact comments"
 }

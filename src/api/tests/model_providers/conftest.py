@@ -8,7 +8,14 @@ from alembic.operations import Operations
 from langboard_shared.ai.comment_compaction import CommentCompactionSnapshot, CompactionDraft
 from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.domain.models import Bot, Card, CardComment, InternalBot
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    CardComment,
+    InternalBot,
+    WorkflowEffectRun,
+    WorkflowStageDefinition,
+)
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.infrastructure.repositories.factory.CardCommentCompactionRepository import (
@@ -20,8 +27,8 @@ from langboard_shared.infrastructure.repositories.factory.CardCommentCompactionR
 def compactions(board):
     _, actor, project, _, _, columns, *_ = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardComment, InternalBot):
-        model.__table__.create(engine)
+    for model in (Bot, Card, CardComment, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
+        model.__table__.create(engine, checkfirst=True)
     path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021020000-c4a8f16d3092.py"
     spec = importlib.util.spec_from_file_location("compaction_migration", path)
     migration = importlib.util.module_from_spec(spec)
