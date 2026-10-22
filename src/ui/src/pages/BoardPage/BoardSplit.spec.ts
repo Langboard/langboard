@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page) {
+async function setup(page: Page, withCollection = false) {
     page.on("pageerror", (error) => console.error("Split fixture page error:", error.message));
     const now = new Date().toISOString();
     const user = {
@@ -22,7 +22,12 @@ async function setup(page: Page) {
         industry: "",
         purpose: "",
     };
-    const projects = ["left", "right", "third"].map((uid) => ({
+    let collectionWrites = 0;
+    let savedCollection = {
+        revision: 0,
+        collections: [{ uid: "00000000-0000-4000-8000-000000000001", name: "Fixture collection", board_uids: [] as string[] }],
+    };
+    const projects = ["left", "right", "third", ...(withCollection ? ["00000000001"] : [])].map((uid) => ({
         uid,
         title: `${uid} board`,
         created_at: now,
@@ -55,7 +60,15 @@ async function setup(page: Page) {
             if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
             const uid = path.split("/")[2];
             let json: unknown = {};
-            if (path.startsWith("/auth/")) json = { access_token: "fixture", user, bots: [] };
+            if (path === "/account/project-collections" && withCollection) {
+                if (route.request().method() === "PUT") {
+                    collectionWrites++;
+                    const input = route.request().postDataJSON();
+                    expect(input.expected_revision).toBe(savedCollection.revision);
+                    savedCollection = { revision: savedCollection.revision + 1, collections: input.collections };
+                }
+                json = savedCollection;
+            } else if (path.startsWith("/auth/")) json = { access_token: "fixture", user, bots: [] };
             else if (path === `/board/${uid}`)
                 json = { project: projects.find((project) => project.uid === uid), project_bot_scopes: [], project_bot_schedules: [] };
             else if (path === `/board/${uid}/cards`)
@@ -117,6 +130,7 @@ async function setup(page: Page) {
     await page.goto("/src/pages/BoardPage/BoardSplit.fixture.html");
     await expect(page.getByText("left column 0", { exact: true }).first()).toBeVisible({ timeout: 45_000 });
     await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
+    return () => ({ collectionWrites, savedCollection });
 }
 
 test("explorer opens two real boards with one shell; either close preserves survivor DOM", async ({ page }) => {
@@ -344,4 +358,31 @@ test("left pull still opens composer and boundary gestures preserve a draft", as
     await pullBoard(page, { edge: "left" });
     await expect(draft).toHaveValue("Boundary draft retained");
     expect(submissions).toBe(0);
+});
+
+test("native explorer board drag distinguishes collection copy from board split", async ({ page }) => {
+    const receipt = await setup(page, true);
+    const explorer = page.locator("[data-workbench-explorer]");
+    if (!(await explorer.isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();
+    const source = explorer.getByRole("button", { name: "00000000001 board", exact: true }).first();
+    const collection = explorer.getByRole("button", { name: "Fixture collection", exact: true });
+    await expect(collection).toBeVisible();
+    await source.dragTo(collection);
+    await expect(page.locator("[data-board-pane]")).toHaveCount(1);
+    await collection.click();
+    await expect(explorer.getByRole("treeitem").filter({ hasText: "00000000001 board" })).toHaveCount(1);
+    expect(receipt().collectionWrites).toBe(1);
+    // Arborist rows retain their internal move behavior and expose the same
+    // board reference when the destination is a board pane.
+    await expect(page).toHaveURL(/\/board\/left$/);
+    await explorer
+        .getByRole("treeitem")
+        .filter({ hasText: "00000000001 board" })
+        .getByRole("button", { name: "00000000001 board", exact: true })
+        .dragTo(page.locator("[data-board-pane]").first(), { targetPosition: { x: 200, y: 100 } });
+    await expect(page.locator("[data-board-pane]")).toHaveCount(2);
+    await expect(page.locator("[data-board-pane]").nth(1).getByText("00000000001 column 0", { exact: true }).first()).toBeVisible();
+    await expect(explorer.getByRole("treeitem").filter({ hasText: "00000000001 board" })).toHaveCount(1);
+    expect(receipt().collectionWrites).toBe(1);
+    expect(receipt().savedCollection.collections[0].board_uids).toEqual(["00000000001"]);
 });

@@ -50,6 +50,7 @@ function BoardWorkspace() {
                         onDragOver={(event) => {
                             if (mobile || split.panes.length >= 2 || !event.dataTransfer.types.includes(BOARD_REFERENCE_DRAG_TYPE)) return;
                             event.preventDefault();
+                            event.stopPropagation();
                             event.dataTransfer.dropEffect = "copy";
                         }}
                         onDrop={(event) => {

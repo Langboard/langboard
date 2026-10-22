@@ -11,6 +11,7 @@ import useToggleStarProject from "@/controllers/api/dashboard/useToggleStarProje
 import type { ProjectCollection } from "./useProjectCollections";
 
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
+const COLLECTION_BOARD_DRAG_TYPE = "application/x-langboard-collection-board";
 interface CollectionNode {
     id: string;
     name: string;
@@ -85,6 +86,7 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
     return (
         <div
             onDragOver={(event) => {
+                if (event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE)) return;
                 if (!busy && event.dataTransfer.types.includes(BOARD_REFERENCE_DRAG_TYPE)) {
                     event.preventDefault();
                     event.stopPropagation();
@@ -92,6 +94,7 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                 }
             }}
             onDrop={(event) => {
+                if (event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE)) return;
                 if (busy || !event.dataTransfer.types.includes(BOARD_REFERENCE_DRAG_TYPE)) return;
                 const target = (event.target as HTMLElement).closest<HTMLElement>("[data-collection-uid]")?.dataset.collectionUid;
                 const uid = event.dataTransfer.getData(BOARD_REFERENCE_DRAG_TYPE);
@@ -163,6 +166,12 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                         style={style}
                         data-collection-uid={node.data.collectionUID}
                         className="flex min-w-0 items-center gap-1"
+                        onDragStartCapture={(event) => {
+                            if (!busy && node.data.boardUID && projectMap.has(node.data.boardUID)) {
+                                event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, node.data.boardUID);
+                                event.dataTransfer.setData(COLLECTION_BOARD_DRAG_TYPE, node.data.id);
+                            }
+                        }}
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                     >
