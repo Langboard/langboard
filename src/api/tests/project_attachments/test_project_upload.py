@@ -13,6 +13,8 @@ from langboard_shared.core.routing import ApiException
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     DocumentExtractionCache,
     DocumentExtractionCacheReference,
     InternalBot,
@@ -34,6 +36,8 @@ pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test
 @pytest.fixture
 def cloud(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
+    for model in (AttachmentStorageObject, AttachmentStorageReference):
+        model.__table__.create(b.engine, checkfirst=True)
     ProjectAttachment.__table__.create(b.engine)
     ProjectAttachmentUploadReceipt.__table__.create(b.engine)
     ProjectAttachmentDocument.__table__.create(b.engine)
@@ -124,6 +128,8 @@ def test_replace_stable_id_receipt_snapshot_and_old_key_follows_current(cloud):
 
 
 def test_same_bytes_do_not_allocate_and_explicit_add(cloud, monkeypatch):
+    physical = Mock(wraps=Storage._storages["local"].upload_immutable)
+    monkeypatch.setattr(Storage._storages["local"], "upload_immutable", physical)
     first = upload(cloud)
     proposal = upload(cloud)
     allocator = Mock(wraps=Storage.upload_named)
@@ -133,6 +139,8 @@ def test_same_bytes_do_not_allocate_and_explicit_add(cloud, monkeypatch):
     other = upload(cloud)
     added = choose(cloud, other, action="add", data=b"first")
     assert added["uid"] != first["uid"] and added["url"] != first["url"]
+    assert physical.call_count == len(rows(AttachmentStorageObject)) == 1
+    assert len(rows(AttachmentStorageReference)) == 2
 
 
 def test_terminal_cancel_and_uuid_mismatch(cloud):
@@ -211,6 +219,22 @@ def test_concurrent_identical_request_allocates_once(cloud):
     assert results[0]["uid"] == results[1]["uid"]
     assert sorted(result["replayed"] for result in results) == [False, True]
     assert len(rows(ProjectAttachment)) == len(rows(ProjectAttachmentUploadReceipt)) == 1
+
+
+def test_compensation_cannot_release_current_or_historical_native_ownership(cloud):
+    upload(cloud)
+    original = rows(ProjectAttachment)[0].file
+    proposal = upload(cloud, data=b"second")
+    choose(cloud, proposal, data=b"second")
+    current = rows(ProjectAttachment)[0]
+    assert Storage.delete(original) and Storage.delete(original)
+    assert Storage.get_file(original) == b"first"
+    assert Storage.delete(current.file) and Storage.get_file(current.file) == b"second"
+    with DbSession.atomic() as db:
+        db.delete(current)
+    assert Storage.delete(original) and Storage.delete(current.file)
+    assert Storage.get_file(original) == b"first" and Storage.get_file(current.file) == b"second"
+    assert not any(reference.released for reference in rows(AttachmentStorageReference))
 
 
 def test_download_rechecks_authority_after_spool(cloud, monkeypatch):

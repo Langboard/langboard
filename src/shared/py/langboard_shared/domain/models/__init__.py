@@ -22,6 +22,7 @@ from .AppGovernancePolicy import AppGovernancePolicy
 from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
+from .AttachmentStorageObject import AttachmentStorageObject, AttachmentStorageReference
 from .BoardAppBinding import BoardAppBinding
 from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
@@ -144,6 +145,8 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    'AttachmentStorageObject',
+    'AttachmentStorageReference',
     'WhisperThread',
     'WhisperMessage',
     'WhisperParticipant',

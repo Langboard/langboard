@@ -447,13 +447,14 @@ optional index still requires live primary-source authorization for every read.
 ## Cloud replacement publication and retained references
 
 A project attachment keeps its logical UID when its bytes are replaced. Each changed
-upload receives an independent immutable storage object. The previous object and an
+upload receives an independent immutable logical storage locator. Identical bytes can
+share one private physical object. The previous locator and an
 internal deleted provenance row remain retained; the row points directly to the same
 live owner. Existing protected embed URLs resolve through that exact same-project,
 same-owner provenance to the current attachment. Revoked membership, deletion,
 foreign ownership, ambiguous object keys, orphan aliases and alias cycles deny access.
 Downloads still recheck current authority and object identity after bounded spooling.
-There is no public version browser or physical byte deduplication.
+There is no public version browser. Private byte reuse does not confer read authority.
 
 The document row separates the requested immutable source/generation/configuration
 from its last published text and vector source snapshots. A replacement or reprocessing
@@ -468,7 +469,8 @@ cache references advance with successful extraction publication and release at t
 deletion. Old physical objects remain retained internally under native storage ownership.
 
 Same-byte replacement leaves storage and processing unchanged. Explicit duplicate add
-creates separate logical and physical file ownership while reusing the existing private
+creates separate native UIDs and logical file ownership while sharing immutable physical
+bytes and reusing the existing private
 conversion and embedding caches. Removing one logical document releases only its own
 cache references. The additive `9460fa18ec32` migration follows `8359ef07db21`, preserves
 and labels populated project/wiki published state, and refuses destructive downgrade
@@ -481,3 +483,53 @@ references and published vector pointers are retired. Unpublished cache uses ret
 existing bounded lease/expiry recovery. Internal historical objects have no purge or
 version-selection UI, and an old native URL follows the current file rather than selecting
 the historical bytes.
+
+
+## Private native attachment byte ownership
+
+`AttachmentStorageObject` identifies bytes by provider, SHA-256 and length;
+`AttachmentStorageReference` owns each distinct native FileModel tuple. Card,
+project and wiki producers use the same storage facade, including clone/import
+calls that allocate distinct native locators. Import staging uses a fresh logical
+locator per attempt; stable native lineage still owns committed replay. Retried
+compensation retains its previous attempt tombstone and cannot release a later
+attempt. The registry contains no
+user grant, attachment name projection or canonical public URL. Native source
+provenance and current exact-owner authorization remain responsible for all
+original and historical URL delivery, including the final check after spooling.
+The private `attachment_objects` namespace is rejected by both the facade and
+native HTTP route. Registry fields are excluded from API/notification payloads.
+
+Uploads freeze their input through a spool with a 1 MiB memory threshold, read
+in 64 KiB chunks, and enforce the configured upload limit. Database allocation
+joins the native owner transaction: PostgreSQL locks the content row and SQLite
+reserves its writer through the same conflict-safe insert. An allocation token
+fences readiness publication. Providers create immutable objects without
+replacing existing bytes; local publication links a completed temporary file
+and S3 publication uses a conditional object create. The facade verifies bounded
+SHA-256 and length before publishing readiness or any logical reference.
+
+Provider success can precede database publication failure. Immutable provider
+keys are reproducible from the verified bytes, so retry verifies and adopts the
+already completed object without another physical upload. A failed or stale
+publisher cannot commit its logical reference after token or transaction loss.
+Incomplete or mismatched provider data fails closed and is never silently
+replaced. A ready shared object is never overwritten by another acquire.
+
+Release retains a logical reference while any current or historical native row
+still owns its exact tuple; otherwise it tombstones only the selected reference.
+Repeated release cannot
+delete physical data or another active, pending or historical owner's bytes.
+Physical objects, including zero-reference and rollback remnants, remain
+retained; garbage collection, physical backfill, and provider purge are outside
+this change. Legacy files without a registry reference continue through their
+native adapter; generated `ref_` keys and private locators never fall back to a
+legacy provider lookup. Registry query failures propagate instead of treating
+an unknown managed object as legacy.
+
+The additive `a570fb29ed43` migration follows `9460fa18ec32`, creates empty private
+ownership tables, performs no provider I/O or existing-file rewrite, and refuses
+downgrade while any physical row or logical tombstone remains. Processing cache
+fingerprints, model generations, source-authority checks and independent vector
+ownership retain their existing contracts. Controlled S3 fixtures demonstrate
+adapter behavior; they provide no live-provider deployment evidence.

@@ -291,7 +291,7 @@ def upload_attachment(
             same_content = duplicate_action == "replace" and target is not None and target_hash == content_hash
             if not same_content:
                 stored = Storage.upload_named(
-                    upload.file, StorageName.CardAttachment, uuid4().hex + Path(filename).suffix, filename
+                    upload.file, StorageName.CardAttachment, "ref_" + uuid4().hex + Path(filename).suffix, filename
                 )
                 if stored is None:
                     raise RuntimeError("Attachment storage unavailable")
@@ -322,7 +322,7 @@ def upload_attachment(
                         CardMetadata, current_card, target.get_uid()
                     )
                     target.file = stored
-                    db.after_commit(lambda: Storage.delete(old_file))
+                    # Historical native embed URLs retain their own logical reference.
                 target.content_sha256 = content_hash
                 target.filename = filename
                 db.update(target)

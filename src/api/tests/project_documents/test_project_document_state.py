@@ -17,6 +17,8 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     DocumentExtractionCache,
     DocumentExtractionCacheReference,
     DocumentVectorCleanup,
@@ -39,6 +41,8 @@ pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test
 @pytest.fixture
 def documents(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
+    for model in (AttachmentStorageObject, AttachmentStorageReference):
+        model.__table__.create(b.engine, checkfirst=True)
     for model in (ProjectAttachment, ProjectAttachmentDocument, ProjectAttachmentUploadReceipt, DocumentVectorCleanup, DocumentExtractionCache, DocumentExtractionCacheReference):
         model.__table__.create(b.engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
@@ -681,6 +685,52 @@ def test_retention_successor_populated_upgrade_and_guarded_downgrade(documents, 
         migration.downgrade()
         assert "replaced_by_id" not in {c["name"] for c in sa.inspect(connection).get_columns("project_attachment")}
         assert connection.execute(sa.select(wiki_state.c.markdown)).scalar_one() == "Published wiki"
+
+
+def test_physical_registry_migration_preserves_native_legacy_source_and_cache(documents, monkeypatch):
+    import sqlalchemy as sa
+    from langboard_shared.core.storage import StorageName
+
+    b = documents
+    AttachmentStorageReference.__table__.drop(b.engine)
+    AttachmentStorageObject.__table__.drop(b.engine)
+    legacy = LocalStorage().upload_named(BytesIO(b"legacy source"), "legacy.pdf", StorageName.ProjectAttachment, "legacy.pdf")
+    with DbSession.atomic() as db:
+        attachment = ProjectAttachment(
+            project_id=b.source_board.id, user_id=b.actor.id, filename="legacy.pdf", file=legacy,
+            content_sha256=sha256(b"legacy source").hexdigest(),
+        )
+        db.insert(attachment)
+    b.documents.request(b.actor, b.source_board, attachment)
+    index(b)
+    with DbSession.atomic() as db:
+        cache = DocumentExtractionCache(cache_key="a" * 64, markdown="Legacy private extraction")
+        db.insert(cache)
+        db.insert(DocumentExtractionCacheReference(cache_id=cache.id, use_token="b" * 32,
+                                                   source_type="project_attachment", source_uid=attachment.get_uid(),
+                                                   generation="c" * 32))
+    path = Path(__file__).parents[2] / "langboard/migrations/versions/20261022230000-a570fb29ed43.py"
+    spec = spec_from_file_location("physical_native_legacy_migration", path)
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    models = (ProjectAttachment, ProjectAttachmentDocument, DocumentExtractionCache, DocumentExtractionCacheReference)
+    with b.engine.begin() as connection:
+        before = {model: connection.execute(sa.select(model.__table__)).mappings().all() for model in models}
+        with monkeypatch.context() as patch:
+            forbidden = Mock(side_effect=AssertionError("Migration must not perform provider I/O"))
+            patch.setattr(Storage._storages["local"], "download", forbidden)
+            patch.setattr(Storage._storages["local"], "upload_immutable", forbidden)
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+            forbidden.assert_not_called()
+        assert {model: connection.execute(sa.select(model.__table__)).mappings().all() for model in models} == before
+        assert connection.execute(sa.select(AttachmentStorageObject.__table__)).first() is None
+        assert connection.execute(sa.select(AttachmentStorageReference.__table__)).first() is None
+    assert source(b).file == legacy and Storage.get_file(legacy) == b"legacy source"
+    Storage.upload_named(BytesIO(b"explicit new source"), StorageName.ProjectAttachment, "ref_new.pdf", "new.pdf")
+    with b.engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)), pytest.raises(RuntimeError, match="retained"):
+            migration.downgrade()
 
 
 def test_force_reprocessing_failure_preserves_published_document(documents):

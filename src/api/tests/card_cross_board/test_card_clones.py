@@ -12,6 +12,8 @@ from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     Card,
     CardAppOwnership,
     CardAssignedProjectLabel,
@@ -268,6 +270,8 @@ def test_private_and_internal_visibility_are_preserved_without_widening(clone_bo
 
 def test_attachment_copy_has_new_identity_equal_bytes_native_owner_and_rewritten_body(clone_board, monkeypatch):
     b = clone_board
+    physical = Mock(wraps=Storage._storages["local"].upload_immutable)
+    monkeypatch.setattr(Storage._storages["local"], "upload_immutable", physical)
     file = Storage.upload_named(
         BytesIO(b"native attachment bytes"), StorageName.CardAttachment, "original.bin", "report.bin"
     )
@@ -301,6 +305,9 @@ def test_attachment_copy_has_new_identity_equal_bytes_native_owner_and_rewritten
         resolver.resolve_file_owner(copied.file.storage_type, copied.file.storage_name, copied.file.filename).id
         == copied.id
     )
+    assert physical.call_count == len(rows(AttachmentStorageObject)) == 1
+    assert len(rows(AttachmentStorageReference)) == 2
+    assert len(list((Env.LOCAL_STORAGE_DIR / "attachment_objects").iterdir())) == 1
     assert copied.document_text == "Already transcribed text"
     assert result["card"]["description"]["content"] == f"[report]({copied.file.path})"
     send.assert_not_called()
@@ -315,9 +322,9 @@ def test_attachment_failure_rolls_back_database_storage_and_socket(clone_board, 
     with pytest.raises(RuntimeError, match="activity failed"):
         clone(b)
     assert len(rows(Card)) == 1 and len(rows(CardAttachment)) == 1 and rows(ProjectActivity) == []
-    assert list((Env.LOCAL_STORAGE_DIR / "card_attachment").iterdir()) == [
-        Env.LOCAL_STORAGE_DIR / "card_attachment/original.bin"
-    ]
+    assert len(rows(AttachmentStorageReference)) == len(rows(AttachmentStorageObject)) == 1
+    assert len(list((Env.LOCAL_STORAGE_DIR / "attachment_objects").iterdir())) == 1
+    assert Storage.get_file(file) == b"rollback bytes"
     b.published.assert_not_called()
 
 
@@ -605,7 +612,9 @@ def test_ambiguous_native_source_file_provenance_cannot_be_copied(clone_board):
     with pytest.raises(ValueError, match="provenance"):
         clone(b)
     assert len(rows(Card)) == 1 and rows(ProjectActivity) == []
-    assert len(list((Env.LOCAL_STORAGE_DIR / "card_attachment").iterdir())) == 1
+    assert len(list((Env.LOCAL_STORAGE_DIR / "attachment_objects").iterdir())) == 1
+    assert len(rows(AttachmentStorageReference)) == 1
+    assert Storage.get_file(file) == b"ambiguous bytes"
     b.attachment_service.dispatch_created.assert_not_called()
     b.published.assert_not_called()
 

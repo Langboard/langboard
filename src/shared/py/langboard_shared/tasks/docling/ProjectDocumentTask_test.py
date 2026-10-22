@@ -12,6 +12,8 @@ from langchain_core.embeddings import Embeddings
 from sqlalchemy import create_engine
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     DocumentEmbeddingCache,
     DocumentEmbeddingCacheReference,
     DocumentExtractionCache,
@@ -44,7 +46,7 @@ class FixtureProvider(Embeddings):
 @pytest.fixture
 def worker(monkeypatch, tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'native-cache.db'}")
-    for model in (DocumentEmbeddingCache, DocumentEmbeddingCacheReference,
+    for model in (AttachmentStorageObject, AttachmentStorageReference, DocumentEmbeddingCache, DocumentEmbeddingCacheReference,
                   DocumentExtractionCache, DocumentExtractionCacheReference):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)

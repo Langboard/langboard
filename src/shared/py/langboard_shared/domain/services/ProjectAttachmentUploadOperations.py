@@ -168,7 +168,7 @@ def upload_attachment(
                         raise ValueError("Attachment provenance is missing or ambiguous")
                 if not same_content:
                     stored = Storage.upload_named(
-                        upload.file, StorageName.ProjectAttachment, uuid4().hex + Path(filename).suffix, filename
+                        upload.file, StorageName.ProjectAttachment, "ref_" + uuid4().hex + Path(filename).suffix, filename
                     )
                     if stored is None:
                         raise RuntimeError("Attachment storage unavailable")

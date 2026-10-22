@@ -12,6 +12,8 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     DocumentEmbeddingCache,
     DocumentEmbeddingCacheReference,
     DocumentExtractionCache,
@@ -63,6 +65,8 @@ class Provider(Embeddings):
 @pytest.fixture
 def wiki(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
+    for model in (AttachmentStorageObject, AttachmentStorageReference):
+        model.__table__.create(b.engine, checkfirst=True)
     for model in (
         ProjectWiki,
         ProjectWikiAssignedUser,
@@ -181,6 +185,30 @@ def test_native_upload_worker_shared_calculation_independent_generations_search_
     for event in rows(DocumentVectorCleanup):
         assert process_cleanup(int(event.id))
     assert not rows(WikiAttachmentDocument) and not rows(DocumentExtractionCache) and not rows(DocumentEmbeddingCache)
+
+
+def test_new_embedding_settings_partition_paid_work_without_reupload_or_automatic_reindex(wiki, monkeypatch):
+    from json import loads
+
+    b = wiki
+    physical = Mock(wraps=Storage._storages["local"].upload_immutable)
+    monkeypatch.setattr(Storage._storages["local"], "upload_immutable", physical)
+    first = upload(b)
+    original = indexed(b, first)
+    settings = loads(b.binding.value)
+    settings["model_name"] = "changed-embedding-model"
+    b.binding.value = dumps(settings)
+    second = upload(b)
+    changed = indexed(b, second)
+    assert physical.call_count == len(rows(AttachmentStorageObject)) == 1
+    assert b.convert.call_count == len(rows(DocumentExtractionCache)) == 1
+    assert b.provider.calls == len(rows(DocumentEmbeddingCache)) == 2
+    assert original.generation != changed.generation
+    assert original.embedding["pointer"]["embedding_fingerprint"] != changed.embedding["pointer"]["embedding_fingerprint"]
+    retained = next(row for row in rows(WikiAttachmentDocument) if row.attachment_id == first.id)
+    assert retained.generation == original.generation and retained.embedding == original.embedding
+    assert retained.embedding_config == original.embedding_config
+    assert len(rows(DocumentExtractionCacheReference)) == len(rows(DocumentEmbeddingCacheReference)) == 2
 
 
 def test_metadata_default_legacy_lazy_hash_and_exact_wiki_scope(wiki):
@@ -396,6 +424,8 @@ def test_card_project_wiki_native_workers_share_one_paid_calculation(wiki, monke
     b = wiki
     for model in (CardAttachment, CardMetadata, CardDocumentArtifact, KeywordSearchConfiguration, DocumentKeywordIndex):
         model.__table__.create(b.engine)
+    physical = Mock(wraps=Storage._storages["local"].upload_immutable)
+    monkeypatch.setattr(Storage._storages["local"], "upload_immutable", physical)
     wiki_attachment = upload(b)
     wiki_state = indexed(b, wiki_attachment)
     file = Storage.upload(UploadFile(BytesIO(b"source"), filename="report.pdf"), StorageName.ProjectAttachment)
@@ -447,6 +477,9 @@ def test_card_project_wiki_native_workers_share_one_paid_calculation(wiki, monke
     )
     assert card_state["status"] == "indexed" and card_state["embedding"]["status"] == "indexed"
     assert b.convert.call_count == 1 and b.provider.calls == 1
+    assert physical.call_count == len(rows(AttachmentStorageObject)) == 1
+    assert len(rows(AttachmentStorageReference)) == 3
+    assert len({wiki_attachment.file.path, project_attachment.file.path, card_attachment.file.path}) == 3
     assert len(rows(DocumentExtractionCacheReference)) == len(rows(DocumentEmbeddingCacheReference)) == 3
     assert len(rows(DocumentExtractionCache)) == len(rows(DocumentEmbeddingCache)) == 1
     pointers = [

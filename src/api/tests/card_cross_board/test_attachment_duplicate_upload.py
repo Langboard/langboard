@@ -18,12 +18,16 @@ from langboard_shared.core.routing import ApiException
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     Card,
     CardAttachment,
     CardDocumentArtifact,
     CardMetadata,
     DocumentEmbeddingCache,
     DocumentEmbeddingCacheReference,
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
     DocumentKeywordIndex,
     DocumentVectorCleanup,
     ProjectActivity,
@@ -46,6 +50,8 @@ def uploads(mirror_board, monkeypatch, tmp_path):  # noqa: F811 - imported nativ
     b = mirror_board
     for model in (
         CardAttachment,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
         CardMetadata,
         CardDocumentArtifact,
         DocumentKeywordIndex,
@@ -139,7 +145,8 @@ def test_add_replace_cancel_retry_and_exact_embedded_urls(uploads):
     assert result["uid"] == first["uid"]
     current = rows(CardAttachment)[0]
     assert current.user_id == original.user_id and current.file != old_file
-    assert Storage.get_file(old_file) is None
+    assert Storage.get_file(old_file) == b"first"
+    assert Storage.delete(old_file) and Storage.get_file(old_file) == b"first"
     assert download(b, old_file)[0] == b"second"
     assert rows(Card)[0].description.content == f"![original]({old_file.path})"
     assert choose(b, preview)["replayed"]
@@ -208,7 +215,8 @@ def test_rollback_retains_old_object_and_removes_staged_upload(uploads, monkeypa
         choose(b, preview)
     assert len(rows(CardAttachment, deleted=True)) == 1
     assert Storage.get_file(old.file) == b"first"
-    assert len(list((Env.LOCAL_STORAGE_DIR / "card_attachment").iterdir())) == 1
+    assert len(rows(AttachmentStorageObject)) == len(rows(AttachmentStorageReference)) == 1
+    assert len(list((Env.LOCAL_STORAGE_DIR / "attachment_objects").iterdir())) == 2
     assert len(rows(ProjectActivity)) == 1
 
 
@@ -522,7 +530,11 @@ def test_selected_legacy_verification_fails_without_changing_provenance(uploads,
         db.execute(update(CardAttachment).values(content_sha256=None))
     preview = upload(b, content=b"x")
     if failure == "missing":
-        Storage.delete(original.file)
+        from langboard_shared.domain.services.AttachmentStorageOperations import resolve
+
+        managed, physical = resolve(original.file.storage_type, original.file.storage_name, original.file.filename)
+        assert managed and physical is not None
+        (Env.LOCAL_STORAGE_DIR / physical[0] / physical[1]).unlink()
     else:
         monkeypatch.setattr(type(Env), "MAX_FILE_SIZE_MB", property(lambda _: 0.000002))
     with pytest.raises(ValueError):
