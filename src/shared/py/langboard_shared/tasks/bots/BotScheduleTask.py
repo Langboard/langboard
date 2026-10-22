@@ -129,7 +129,7 @@ async def _check_bot_schedule_runnable(interval_str: str):
 
 
 async def _run_scheduler(
-    bot: Bot, bot_schedule: BotSchedule, schedule_model: BaseBotScheduleModel, model: BaseDbModel | None = None
+    bot: Bot, bot_schedule: BotSchedule, schedule_model: BaseBotScheduleModel, model: BaseDbModel | None = None, *, workflow: bool = False
 ):
     if bot_schedule.status != BotScheduleStatus.Started:
         return
@@ -138,6 +138,11 @@ async def _run_scheduler(
         model = BotHelper.get_target_model_by_bot_model("schedule", schedule_model)
         if not model:
             return
+
+    if isinstance(model, Card) and not workflow:
+        from .WorkflowCompactionTask import run_workflow_bound_schedule
+        if await run_workflow_bound_schedule(bot, bot_schedule, schedule_model, model):
+            return []
 
     project = None
     data = {}
@@ -175,7 +180,7 @@ async def _run_scheduler(
         schedule_model.last_rnu_at = SafeDateTime.now()
         db.update(schedule_model)
 
-    await BotTaskHelper.run(bot, BotDefaultTrigger.BotCronScheduled, data, project, model)
+    outcomes = await BotTaskHelper.run(bot, BotDefaultTrigger.BotCronScheduled, data, project, model)
 
     old_status = bot_schedule.status
     if bot_schedule.running_type == BotScheduleRunningType.Onetime:
@@ -186,3 +191,4 @@ async def _run_scheduler(
 
     if project and bot_schedule.status != old_status:
         ProjectBotPublisher.rescheduled(project, schedule_model, {"status": bot_schedule.status.value})
+    return outcomes

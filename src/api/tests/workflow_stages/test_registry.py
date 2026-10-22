@@ -190,7 +190,7 @@ def test_migration_installs_six_translated_policies_without_entry_effects():
     with engine.begin() as connection:
         with Operations.context(MigrationContext.configure(connection)):
             module.upgrade()
-        columns = [column for column in WorkflowStageDefinition.__table__.columns if column.name != "continuous_effects"]
+        columns = [column for column in WorkflowStageDefinition.__table__.columns if column.name not in {"continuous_effects", "entry_bots"}]
         rows = connection.execute(select(*columns)).mappings().all()
         assert len(rows) == 6
         assert {row["key"] for row in rows} == {"backlog", "ready", "active", "review", "closed", "reference"}
@@ -309,3 +309,17 @@ def test_continuous_policy_rejects_coercion_unbounded_intervals_and_unknown_fiel
         service.save(form(continuous_effects=policy))
     with engine.connect() as connection:
         assert connection.execute(text("SELECT count(*) FROM workflow_stage_definition")).scalar_one() == 0
+
+
+def test_workflow_bot_bindings_roundtrip_and_old_clients_preserve_selection(registry):
+    service, _ = registry
+    entry = [{"bot_uid": "123456789ab", "condition": "card_moved"}]
+    continuous = {"bots": [{"bot_uid": "123456789ab", "condition": "bot_cron_scheduled",
+                            "schedule_uid": "123456789ac", "interval_seconds": 120}]}
+    stage = service.save(form(entry_bots=entry, continuous_effects=continuous))
+    saved = service.get_api_list()[0]
+    assert saved["entry_bots"] == entry and saved["continuous_effects"]["bots"] == continuous["bots"]
+    stage = service.save({**form(), "expected_revision": saved["revision"]}, stage.get_uid())
+    assert stage.entry_bots == entry and stage.continuous_effects["bots"] == continuous["bots"]
+    stage = service.save({**form(entry_bots=[]), "expected_revision": stage.edit_revision()}, stage.get_uid())
+    assert stage.entry_bots == []

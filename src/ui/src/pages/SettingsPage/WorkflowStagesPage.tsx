@@ -12,6 +12,7 @@ import Sheet from "@/components/base/Sheet";
 import Tabs from "@/components/base/Tabs";
 import WorkflowEffectHistory from "./WorkflowEffectHistory";
 import Toast from "@/components/base/Toast";
+import { api } from "@/core/helpers/Api";
 import { AuthUser } from "@/core/models";
 import { SettingRole } from "@/core/models/roles";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
@@ -19,6 +20,8 @@ import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import {
     CONTINUOUS_EFFECT_DEFAULTS,
     IWorkflowStage,
+    IWorkflowBotOptions,
+    IWorkflowBotBinding,
     TWorkflowInput,
     useWorkflowStages,
 } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
@@ -34,6 +37,7 @@ const blank = (): TWorkflowInput => ({
     active_queue_policy: "conditional",
     overdue_policy: "normal",
     entry_effects: [],
+    entry_bots: [],
     continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS },
     translations: Object.fromEntries(Object.keys(LANGUAGES).map((key) => [key, { name: "", description: "" }])),
 });
@@ -43,6 +47,25 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
     const { hasRoleAction } = useRoleActionFilter(currentUser.useField("setting_role_actions"));
     const { setPageAliasRef } = usePageHeader();
     const { load, save, deactivate } = useWorkflowStages();
+    const [botOptions, setBotOptions] = useState<IWorkflowBotOptions>({ bots: [], schedules: [] });
+    const [botOptionsError, setBotOptionsError] = useState(false);
+    useEffect(() => {
+        if (!hasRoleAction(SettingRole.EAction.BotRead)) return;
+        let disposed = false;
+        api.get<IWorkflowBotOptions>("/settings/workflow-stages/bot-options")
+            .then((response) => {
+                if (!disposed) {
+                    if (Array.isArray(response.data.bots) && Array.isArray(response.data.schedules)) setBotOptions(response.data);
+                    else setBotOptionsError(true);
+                }
+            })
+            .catch(() => {
+                if (!disposed) setBotOptionsError(true);
+            });
+        return () => {
+            disposed = true;
+        };
+    }, [currentUser.uid]);
     const [stages, setStages] = useState<IWorkflowStage[]>([]);
     const [draft, setDraft] = useState<TWorkflowInput>(blank);
     const continuous = { ...CONTINUOUS_EFFECT_DEFAULTS, ...draft.continuous_effects };
@@ -88,6 +111,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             active_queue_policy,
             overdue_policy,
             entry_effects,
+            entry_bots,
             continuous_effects,
             translations,
         } = stage ?? { ...blank(), uid: undefined };
@@ -103,6 +127,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             active_queue_policy,
             overdue_policy,
             entry_effects: [...entry_effects],
+            entry_bots: [...(entry_bots ?? [])],
             continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS, ...continuous_effects },
             translations: { ...blank().translations, ...translations, en: { name, description } },
         });
@@ -119,6 +144,125 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
     const edit = (fields: Partial<TWorkflowInput>) => {
         setDraft((item) => ({ ...item, ...fields }));
         setDirty(true);
+    };
+    const botBindings = (kind: "entry" | "continuous") => {
+        const bindings = kind === "entry" ? (draft.entry_bots ?? []) : continuous.bots;
+        const update = (next: IWorkflowBotBinding[]) =>
+            edit(kind === "entry" ? { entry_bots: next } : { continuous_effects: { ...continuous, bots: next } });
+        return (
+            <div className="space-y-3 border-t pt-3">
+                <p className="text-sm font-medium">{kind === "entry" ? t("settings.Entry bots") : t("settings.Interval bots")}</p>
+                <p className="text-xs text-muted-foreground">
+                    {kind === "entry"
+                        ? t("settings.Uses the existing Card moved hook once on stage entry. Frozen or unmatched hooks do not run.")
+                        : t("settings.Uses an active card schedule. This interval applies while the card remains in this stage.")}
+                </p>
+                {botOptionsError && (
+                    <p role="status" className="text-xs">
+                        {t("settings.Bot options unavailable. Saved bindings are preserved.")}
+                    </p>
+                )}
+                {bindings.map((binding, index) => (
+                    <div key={`${kind}-${binding.bot_uid}`} className="space-y-2 rounded-md border p-2">
+                        <p className="text-sm">{botOptions.bots.find((bot) => bot.uid === binding.bot_uid)?.name ?? binding.bot_uid}</p>
+                        {kind === "continuous" && (
+                            <>
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Card schedule")}
+                                    <select
+                                        className="select w-full rounded-md border bg-background p-2"
+                                        aria-label={`${t("settings.Card schedule")} ${index + 1}`}
+                                        value={binding.schedule_uid ?? ""}
+                                        onChange={(event) =>
+                                            update(bindings.map((item, i) => (i === index ? { ...item, schedule_uid: event.target.value } : item)))
+                                        }
+                                    >
+                                        <option value="" disabled>
+                                            {t("settings.Select an active card schedule")}
+                                        </option>
+                                        {!botOptions.schedules.some((schedule) => schedule.uid === binding.schedule_uid) && binding.schedule_uid && (
+                                            <option value={binding.schedule_uid} disabled>
+                                                {binding.schedule_uid} ({t("settings.Unavailable")})
+                                            </option>
+                                        )}
+                                        {botOptions.schedules
+                                            .filter((schedule) => schedule.bot_uid === binding.bot_uid)
+                                            .map((schedule) => (
+                                                <option key={schedule.uid} value={schedule.uid} disabled={!schedule.is_available}>
+                                                    {schedule.name}
+                                                    {schedule.is_available ? "" : ` (${t("settings.Unavailable")})`}
+                                                </option>
+                                            ))}
+                                    </select>
+                                </label>
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Bot interval minutes")}
+                                    <Input
+                                        type="number"
+                                        min="1"
+                                        max="1440"
+                                        step="any"
+                                        required
+                                        value={(binding.interval_seconds ?? 300) / 60}
+                                        onChange={(event) =>
+                                            update(
+                                                bindings.map((item, i) =>
+                                                    i === index ? { ...item, interval_seconds: Math.round(Number(event.target.value) * 60) } : item
+                                                )
+                                            )
+                                        }
+                                    />
+                                </label>
+                            </>
+                        )}
+                        <Button type="button" variant="outline" onClick={() => update(bindings.filter((_, i) => i !== index))}>
+                            {t("settings.Remove bot")}
+                        </Button>
+                    </div>
+                ))}
+                <label className="block space-y-1 text-sm">
+                    {kind === "entry" ? t("settings.Add entry bot") : t("settings.Add interval bot")}
+                    <select
+                        className="select w-full rounded-md border bg-background p-2"
+                        value=""
+                        aria-label={kind === "entry" ? t("settings.Add entry bot") : t("settings.Add interval bot")}
+                        disabled={!hasRoleAction(SettingRole.EAction.BotRead) || botOptionsError || bindings.length >= 20}
+                        onChange={(event) => {
+                            const bot_uid = event.target.value;
+                            if (!bot_uid) return;
+                            const schedule = botOptions.schedules.find((item) => item.bot_uid === bot_uid && item.is_available);
+                            update([
+                                ...bindings,
+                                kind === "entry"
+                                    ? { bot_uid, condition: "card_moved" }
+                                    : { bot_uid, condition: "bot_cron_scheduled", schedule_uid: schedule?.uid, interval_seconds: 300 },
+                            ]);
+                        }}
+                    >
+                        <option value="">Select bot</option>
+                        {botOptions.bots.map((bot) => (
+                            <option
+                                key={bot.uid}
+                                value={bot.uid}
+                                disabled={
+                                    bindings.some((binding) => binding.bot_uid === bot.uid) ||
+                                    (kind === "entry" && !bot.entry_available) ||
+                                    (kind === "continuous" &&
+                                        !botOptions.schedules.some((schedule) => schedule.bot_uid === bot.uid && schedule.is_available))
+                                }
+                            >
+                                {bot.name}
+                                {kind === "entry" && !bot.entry_available ? ` (${t("settings.No active Card moved hook")})` : ""}
+                                {kind === "continuous" &&
+                                !botOptions.schedules.some((schedule) => schedule.bot_uid === bot.uid && schedule.is_available)
+                                    ? ` (${t("settings.No active card schedule")})`
+                                    : ""}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </div>
+        );
     };
     const editText = (field: "name" | "description", value: string) => {
         if (language === "en") edit({ [field]: value });
@@ -459,6 +603,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                             {t(`settings.${label}`)}
                                         </label>
                                     ))}
+                                    {botBindings("entry")}
                                     <p className="text-xs text-muted-foreground">{t("settings.Saving does not replay effects on existing cards.")}</p>
                                 </fieldset>
                                 <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
@@ -546,6 +691,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                             />
                                         </label>
                                     )}
+                                    {botBindings("continuous")}
                                 </fieldset>
                                 {conflict && (
                                     <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">

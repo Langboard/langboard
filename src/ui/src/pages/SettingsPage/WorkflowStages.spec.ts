@@ -430,6 +430,7 @@ for (const width of [1440, 390]) {
             const payload = route.request().postDataJSON();
             expect(payload.expected_revision).toBe(saved.revision);
             expect(payload.continuous_effects).toEqual({
+                bots: [],
                 auto_compact: true,
                 auto_archive: true,
                 interval_seconds: 120,
@@ -578,5 +579,78 @@ for (const choice of ["Move all descendants", "Move only this card", "Cancel"]) 
             expect(requests[1].move_descendants).toBe(choice === "Move all descendants");
             expect(requests[1].confirmation_revision).toBe("revision-one");
         }
+    });
+}
+
+for (const width of [1440, 390]) {
+    test(`workflow bot bindings ${width}px persist native triggers and per-binding interval`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1100 });
+        let stage = existing();
+        let saved: Record<string, unknown> | undefined;
+        const bot = { uid: "123456789ab", name: "Workflow assistant", entry_available: true };
+        const unavailable = { uid: "123456789ac", name: "Unavailable assistant", entry_available: false };
+        await page.route("**/settings/workflow-stages**", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            const url = new URL(route.request().url());
+            if (url.pathname.endsWith("/bot-options"))
+                return route.fulfill({
+                    json: {
+                        bots: [bot, unavailable],
+                        schedules: [{ uid: "123456789ad", bot_uid: bot.uid, card_uid: "card", name: "Delivery card", is_available: true }],
+                    },
+                });
+            if (url.pathname.endsWith("/history"))
+                return route.fulfill({
+                    json: {
+                        items: [
+                            {
+                                ...effectRun("bot-run"),
+                                source: "bot_entry",
+                                status: "accepted",
+                                actor_type: "bot",
+                                effects: [`bot:${bot.uid}`, "card_moved"],
+                                result: { accepted: 1 },
+                            },
+                        ],
+                        next_cursor: null,
+                    },
+                });
+            if (route.request().method() === "PUT") {
+                saved = route.request().postDataJSON();
+                stage = { ...stage, ...saved, revision: "b".repeat(64) } as IWorkflowStage;
+                return route.fulfill({ json: { stage } });
+            }
+            return route.fulfill({ json: { stages: [stage] } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(page.getByLabel("Add entry bot").getByRole("option", { name: /Unavailable assistant/ })).toHaveAttribute("disabled", "");
+        await page.getByLabel("Add entry bot").selectOption(bot.uid);
+        await page.getByLabel("Add interval bot").selectOption(bot.uid);
+        await expect(page.getByLabel("Card schedule 1", { exact: true })).toHaveValue("123456789ad");
+        await page.getByLabel("Bot interval minutes").fill("2.5");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => saved?.entry_bots).toEqual([{ bot_uid: bot.uid, condition: "card_moved" }]);
+        expect((saved?.continuous_effects as { bots: unknown[] }).bots).toEqual([
+            {
+                bot_uid: bot.uid,
+                condition: "bot_cron_scheduled",
+                schedule_uid: "123456789ad",
+                interval_seconds: 150,
+            },
+        ]);
+        await page.reload();
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(page.getByLabel("Bot interval minutes")).toHaveValue("2.5");
+        await page.getByLabel("Bot interval minutes").scrollIntoViewIfNeeded();
+        await page.getByRole("dialog").screenshot({ path: `.verification/workflow-bot-bindings-${width}.png` });
+        await page.evaluate(() => document.documentElement.classList.add("dark"));
+        const darkBackground = await page.locator("body").evaluate((element) => getComputedStyle(element).backgroundColor);
+        await expect(page.getByRole("dialog")).toHaveCSS("background-color", darkBackground);
+        await page.getByRole("dialog").screenshot({ path: `.verification/workflow-bot-bindings-${width}-dark.png` });
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        await expect(page.getByRole("region", { name: "Effect history" }).getByText("Dispatch accepted", { exact: true })).toBeVisible();
+        await page.getByText("Effect details", { exact: true }).click();
+        await expect(page.getByText("Dispatch accepted; see bot logs for execution details.", { exact: true })).toBeVisible();
     });
 }

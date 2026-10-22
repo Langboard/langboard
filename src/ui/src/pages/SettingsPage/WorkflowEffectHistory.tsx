@@ -14,7 +14,7 @@ interface IEffectRun {
     started_at: string;
     finished_at: string;
     duration_ms: number;
-    result: { completed?: number; stopped?: number; notified?: number };
+    result: { completed?: number; stopped?: number; notified?: number; accepted?: number; skipped?: number };
     project_uid: string;
     card_uid: string;
     actor_uid: string;
@@ -65,11 +65,16 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
         if (key === "notify_author_on_entry") return t("settings.Notify the author when someone else enters this stage");
         if (key === "compact_comments") return t("settings.Compact comments");
         if (key === "auto_archive") return t("settings.Auto archive cards");
+        if (key.startsWith("bot:")) return `${t("settings.Bot")}: ${key.slice(4)}`;
+        if (key === "card_moved") return t("settings.Card moved hook");
+        if (key === "bot_cron_scheduled") return t("settings.Card schedule");
         return t("settings.Unknown effect");
     };
     const statusLabel = (status: string) => {
         const labels: Record<string, string> = {
             succeeded: "Succeeded",
+            accepted: "Dispatch accepted",
+            skipped: "Skipped",
             running: "Running",
             failed: "Failed",
             cancelled: "Cancelled",
@@ -139,6 +144,9 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                                 <li key={key}>{effectLabel(key)}</li>
                                             ))}
                                         </ul>
+                                        {row.result.accepted !== undefined && (
+                                            <p>{t("settings.Dispatch accepted; see bot logs for execution details.")}</p>
+                                        )}
                                         {row.result.completed !== undefined && (
                                             <p className="mt-2">
                                                 {t("settings.Completed items")}: {formatNumber(row.result.completed, i18n.language)}
@@ -189,11 +197,15 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                 <Table.Cell className="align-top">
                                     {row.source === "entry"
                                         ? t("settings.Entry effects")
-                                        : row.source === "continuous"
-                                          ? t("settings.Continuous effects")
-                                          : row.source === "manual"
-                                            ? t("settings.Manual")
-                                            : t("settings.Unknown source")}
+                                        : row.source === "bot_entry"
+                                          ? t("settings.Entry bots")
+                                          : row.source === "bot_interval"
+                                            ? t("settings.Interval bots")
+                                            : row.source === "continuous"
+                                              ? t("settings.Continuous effects")
+                                              : row.source === "manual"
+                                                ? t("settings.Manual")
+                                                : t("settings.Unknown source")}
                                 </Table.Cell>
                                 <Table.Cell className="align-top">{statusLabel(row.status)}</Table.Cell>
                                 <Table.Cell className="hidden whitespace-nowrap align-top sm:table-cell">{duration(row.duration_ms)}</Table.Cell>

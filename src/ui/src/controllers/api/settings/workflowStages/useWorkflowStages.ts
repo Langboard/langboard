@@ -1,7 +1,18 @@
 import { api } from "@/core/helpers/Api";
 import { useQueryMutation } from "@/core/helpers/QueryMutation";
 
+export interface IWorkflowBotBinding {
+    bot_uid: string;
+    condition: "card_moved" | "bot_cron_scheduled";
+    schedule_uid?: string;
+    interval_seconds?: number;
+}
+export interface IWorkflowBotOptions {
+    bots: { uid: string; name: string; entry_available: boolean }[];
+    schedules: { uid: string; bot_uid: string; card_uid: string; name: string; is_available: boolean }[];
+}
 export const CONTINUOUS_EFFECT_DEFAULTS = {
+    bots: [] as IWorkflowBotBinding[],
     auto_compact: false,
     auto_archive: false,
     interval_seconds: 300,
@@ -23,6 +34,7 @@ export interface IWorkflowStage {
     active_queue_policy: "include" | "exclude" | "conditional";
     overdue_policy: "normal" | "suppress";
     entry_effects: string[];
+    entry_bots?: IWorkflowBotBinding[];
     continuous_effects?: Partial<typeof CONTINUOUS_EFFECT_DEFAULTS>;
     translations: Record<string, { name: string; description: string }>;
 }

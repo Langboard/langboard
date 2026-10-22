@@ -20,6 +20,15 @@ def get_workflow_stages(service: DomainService = DomainService.scope()) -> JsonR
     return JsonResponse(content={"stages": service.workflow_stage.get_api_list()})
 
 
+@AppRouter.api.get("/settings/workflow-stages/bot-options", tags=["AppSettings.WorkflowStage"])
+@RoleFilter.add(SettingRole, [SettingRoleAction.WorkflowStageRead, SettingRoleAction.BotRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_workflow_bot_options(
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    return JsonResponse(content=service.workflow_stage.get_bot_options(user), headers={"Cache-Control": "no-store"})
+
+
 @AppRouter.api.get("/settings/workflow-stages/{stage_uid}/history", tags=["AppSettings.WorkflowStage"])
 @RoleFilter.add(SettingRole, [SettingRoleAction.WorkflowStageRead], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")

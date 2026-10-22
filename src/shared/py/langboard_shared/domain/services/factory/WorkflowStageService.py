@@ -412,6 +412,48 @@ class WorkflowStageService(BaseDomainService):
             for stage in sorted(InfraHelper.get_all(WorkflowStageDefinition), key=lambda s: (s.order, s.key))
         ]
 
+    def get_bot_options(self, user: User) -> dict:
+        """Minimal Bot identities and schedules on cards visible to this administrator."""
+        from ....helpers import BotHelper
+        from ...models import Bot, BotSchedule, CardBotSchedule
+        from ...models.bases import BotTriggerCondition
+        from ...models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
+
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(user, CollaborationChannel.Api)
+        entry_bots = set()
+        from datetime import timezone
+
+        def utc(value):
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+        now = utc(SafeDateTime.now())
+        with DbSession.use(readonly=False) as db:
+            for model in BotHelper.get_scope_model_classes_by_condition(BotTriggerCondition.CardMoved):
+                default_model = BotHelper.get_default_scope_model_class(model.get_scope_column_name())
+                defaults = {row.bot_default_scope_branch_id: row.conditions for row in db.exec(SqlBuilder.select.table(default_model)).all()} if default_model else {}
+                for scope in db.exec(SqlBuilder.select.table(model).where(model.is_frozen.is_(False))).all():
+                    conditions = defaults.get(scope.default_scope_branch_id, []) if scope.default_scope_branch_id else scope.conditions
+                    if BotTriggerCondition.CardMoved in conditions:
+                        entry_bots.add(scope.bot_id)
+            bots = db.exec(SqlBuilder.select.table(Bot)).all()
+            rows = db.exec(SqlBuilder.select.tables(BotSchedule, Card)
+                .join(CardBotSchedule, CardBotSchedule.bot_schedule_id == BotSchedule.id)
+                .join(Card, Card.id == CardBotSchedule.card_id)
+                .join(Project, Project.id == Card.project_id)
+                .where(Card.deleted_at.is_(None), Card.archived_at.is_(None), Project.deleted_at.is_(None),
+                       Card.visibility.in_(["INTERNAL", "SHARED"]), Card.source_type.is_(None),
+                       card_visibility_scope_by_project(contexts))).all()
+        return {
+            "bots": [{"uid": bot.get_uid(), "name": bot.name, "entry_available": bot.id in entry_bots} for bot in bots],
+            "schedules": [{"uid": schedule.get_uid(), "bot_uid": InfraHelper.convert_uid(schedule.bot_id),
+                           "card_uid": card.get_uid(), "name": card.title,
+                           "is_available": schedule.status == BotScheduleStatus.Started
+                           and (schedule.running_type == BotScheduleRunningType.Infinite or
+                                (schedule.running_type == BotScheduleRunningType.Duration and schedule.start_at is not None
+                                 and schedule.end_at is not None and utc(schedule.start_at) <= now < utc(schedule.end_at)))}
+                          for schedule, card in rows],
+        }
+
     def get_effect_history(self, user: User, stage_uid: str, *, before: str | None = None, limit: int = 20,
                            channel: CollaborationChannel = CollaborationChannel.Api) -> dict | None:
         """Apply current card audiences in SQL before paging committed effect receipts."""
@@ -458,12 +500,43 @@ class WorkflowStageService(BaseDomainService):
         return {key: stage.api_response() for key, stage in self.repo.workflow_stage.get_by_keys(keys).items()}
 
     @staticmethod
+    def normalize_bot_bindings(value: list, *, continuous: bool = False) -> list[dict]:
+        if not isinstance(value, list) or len(value) > 20:
+            raise ValueError("Invalid workflow bot bindings")
+        bindings = []
+        seen = set()
+        for binding in value:
+            allowed = {"bot_uid", "condition", "interval_seconds", "schedule_uid"} if continuous else {"bot_uid", "condition"}
+            if not isinstance(binding, dict) or set(binding) - allowed:
+                raise ValueError("Invalid workflow bot binding")
+            uid, condition = binding.get("bot_uid"), binding.get("condition")
+            if not isinstance(uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", uid) or condition != ("bot_cron_scheduled" if continuous else "card_moved"):
+                raise ValueError("Workflow bots require a matching existing card hook")
+            if uid in seen:
+                raise ValueError("Duplicate workflow bot binding")
+            seen.add(uid)
+            item = {"bot_uid": uid, "condition": condition}
+            if continuous:
+                schedule_uid = binding.get("schedule_uid")
+                if not isinstance(schedule_uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", schedule_uid):
+                    raise ValueError("An existing card schedule is required")
+                item["schedule_uid"] = schedule_uid
+                interval = binding.get("interval_seconds", 300)
+                if type(interval) is not int or not 60 <= interval <= 86400:
+                    raise ValueError("Invalid workflow bot interval")
+                item["interval_seconds"] = interval
+            bindings.append(item)
+        return bindings
+
+    @staticmethod
     def normalize_continuous_effects(value: dict) -> dict:
         defaults = {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400,
                     "compact_after_characters": DEFAULT_COMPACTION_CHARACTERS}
-        if not isinstance(value, dict) or set(value) - set(defaults):
+        if not isinstance(value, dict) or set(value) - set(defaults) - {"bots"}:
             raise ValueError("Unsupported continuous workflow effect")
         result = {**defaults, **value}
+        if "bots" in result:
+            result["bots"] = WorkflowStageService.normalize_bot_bindings(result["bots"], continuous=True)
         compaction_character_threshold(result)
         if any(type(result[key]) is not bool for key in ("auto_compact", "auto_archive")):
             raise ValueError("Continuous workflow switches must be boolean")
@@ -485,6 +558,7 @@ class WorkflowStageService(BaseDomainService):
             "active_queue_policy",
             "overdue_policy",
             "entry_effects",
+            "entry_bots",
             "continuous_effects",
             "translations",
         }:
@@ -492,6 +566,9 @@ class WorkflowStageService(BaseDomainService):
         stage = InfraHelper.get_by_id_like(WorkflowStageDefinition, uid) if uid else None
         if uid and not stage:
             return None
+        entry_bots = fields.pop("entry_bots", None)
+        if entry_bots is not None or stage is None:
+            fields["entry_bots"] = self.normalize_bot_bindings(entry_bots if entry_bots is not None else [])
         continuous = fields.pop("continuous_effects", None)
         if continuous is not None or stage is None:
             fields["continuous_effects"] = self.normalize_continuous_effects(continuous if continuous is not None else {})
