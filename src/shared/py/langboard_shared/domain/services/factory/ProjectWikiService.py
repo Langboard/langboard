@@ -1,5 +1,8 @@
 from typing import Any, Literal
-from ....core.db import EditorContentModel
+from sqlalchemy import Text, cast, func, literal_column, select
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from ....core.db import DbSession, EditorContentModel, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.exceptions.WikiContentConflict import WikiContentConflict
@@ -10,7 +13,8 @@ from ....helpers import InfraHelper
 from ....publishers import CardPublisher, ProjectWikiPublisher
 from ....tasks.activities import ProjectWikiActivityTask
 from ....tasks.bots import ProjectWikiBotTask
-from ...models import Bot, Card, Project, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, User
+from ...models import Bot, Card, Project, ProjectAssignedUser, ProjectRole, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, User
+from ...models.ProjectRole import ProjectRoleAction
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
 
@@ -24,6 +28,61 @@ class ProjectWikiService(BaseDomainService):
     def get_by_id_like(self, wiki: TWikiParam | None) -> ProjectWiki | None:
         wiki = InfraHelper.get_by_id_like(ProjectWiki, wiki)
         return wiki
+
+    def resolve_readable_file(self, actor: User, storage_type: str, storage_name: str, filename: str) -> ProjectWikiAttachment | None:
+        """Authorize exact committed wiki provenance using current primary grants."""
+        dialect = DbEngine.get_main_engine().dialect.name
+        column = ProjectWikiAttachment.column("file")
+        if dialect == "postgresql":
+            decoded = cast(cast(column, JSONB).op("#>>")(cast([], ARRAY(Text))), JSONB)
+            def value(key):
+                return decoded.op("->>")(literal_column(f"'{key}'"))
+        elif dialect == "sqlite":
+            def value(key):
+                return func.json_extract(func.json_extract(column, literal_column("'$'")), literal_column(f"'$.{key}'"))
+        elif dialect in {"mysql", "mariadb"}:
+            def value(key):
+                return func.json_unquote(func.json_extract(func.json_unquote(column), f"$.{key}"))
+        else:
+            raise ValueError("Unsupported database dialect for file provenance")
+        with DbSession.use(readonly=False) as db:
+            matches = db.exec(SqlBuilder.select.table(ProjectWikiAttachment).where(
+                value("storage_type") == storage_type,
+                value("storage_name") == storage_name,
+                value("filename") == filename,
+            ).limit(2).execution_options(populate_existing=True)).all()
+            if len(matches) != 1:
+                return None
+            attachment = matches[0]
+            current = db.exec(
+                select(ProjectWiki, Project, User)
+                .select_from(ProjectWiki)
+                .join(Project, Project.id == ProjectWiki.project_id)
+                .join(User, User.id == actor.id)
+                .where(ProjectWiki.id == attachment.project_wiki_id)
+                .execution_options(populate_existing=True)
+            ).first()
+            if current is None:
+                return None
+            wiki, project, user = current
+            if wiki.deleted_at is not None or project.deleted_at is not None or user.deleted_at is not None or not user.activated_at:
+                return None
+            member = db.exec(SqlBuilder.select.table(ProjectAssignedUser).where(
+                ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == user.id,
+            )).first()
+            if project.owner_id != user.id and member is None:
+                return None
+            role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                ProjectRole.project_id == project.id, ProjectRole.user_id == user.id,
+            )).first()
+            if not user.is_admin and (role is None or not role.is_granted(ProjectRoleAction.Read)):
+                return None
+            assigned = db.exec(SqlBuilder.select.column(ProjectWikiAssignedUser.user_id).where(
+                ProjectWikiAssignedUser.project_wiki_id == wiki.id,
+                ProjectWikiAssignedUser.user_id == user.id,
+                ProjectWikiAssignedUser.project_assigned_id == member.id if member else False,
+            )).all()
+            return attachment if self.can_view(user, project, wiki, assigned) else None
 
     def get_api_list(self, user_or_bot: TUserOrBot, project: TProjectParam | None) -> list[dict[str, Any]]:
         project = InfraHelper.get_by_id_like(Project, project)
