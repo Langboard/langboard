@@ -91,6 +91,7 @@ from .WorkflowStagePolicyService import WorkflowStagePolicyService
 class CardService(BaseDomainService):
     CONTEXT_DESCRIPTION_MAX_LENGTH = 1200
     LINKED_RESOURCE_PREVIEW_MAX_LENGTH = 240
+    MIRROR_INVALIDATION_BATCH_SIZE = 200
 
     @staticmethod
     def _contains_relationship_type() -> GlobalCardRelationshipType:
@@ -2070,19 +2071,54 @@ class CardService(BaseDomainService):
         return {"entries": entries, "has_more": has_more, "next_cursor": next_cursor}
 
     def _invalidate_source_card_mirrors(self, card: Card) -> None:
-        """Refresh only native references after the source transaction commits."""
-        if card.is_linked_resource:
-            return
+        if not card.is_linked_resource:
+            self._invalidate_source_mirrors(source_uid=card.get_uid())
+
+    def invalidate_source_project_mirrors(self, project: Project) -> None:
+        """Refresh native references when their source board's access changes."""
+        self._invalidate_source_mirrors(source_project=project)
+
+    def _invalidate_source_mirrors(
+        self, *, source_uid: str | None = None, source_project: Project | None = None
+    ) -> None:
+        """Page source-board IDs and matching mirrors without a global reference scan."""
         with DbSession.atomic() as db:
+            if source_uid is not None:
+                self._queue_source_mirror_invalidations(db, [source_uid])
+                return
+            if source_project is None:
+                return
+            last_source_id = 0
+            while True:
+                source_ids = db.exec(
+                    SqlBuilder.select.column(Card.id)
+                    .where(Card.project_id == source_project.id, Card.id > last_source_id)
+                    .order_by(Card.id)
+                    .limit(self.MIRROR_INVALIDATION_BATCH_SIZE)
+                ).all()
+                if not source_ids:
+                    return
+                self._queue_source_mirror_invalidations(db, [source_id.to_short_code() for source_id in source_ids])
+                if len(source_ids) < self.MIRROR_INVALIDATION_BATCH_SIZE:
+                    return
+                last_source_id = source_ids[-1]
+
+    def _queue_source_mirror_invalidations(self, db: DbSession, source_uids: list[str]) -> None:
+        """Keep query pages bounded; callbacks retain only affected destination rows."""
+        last_mirror_id = 0
+        while True:
             references = db.exec(
                 select(Card, Project)
                 .join(Project, Project.id == Card.project_id)
                 .where(
                     Card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD,
-                    Card.source_uid == card.get_uid(),
+                    Card.source_uid.in_(source_uids),
+                    Card.id > last_mirror_id,
                     Card.deleted_at.is_(None),
                     Project.deleted_at.is_(None),
                 )
+                .order_by(Card.id)
+                .limit(self.MIRROR_INVALIDATION_BATCH_SIZE)
             ).all()
             for mirror, destination in references:
                 db.after_commit(
@@ -2090,6 +2126,9 @@ class CardService(BaseDomainService):
                         destination, mirror
                     )
                 )
+            if len(references) < self.MIRROR_INVALIDATION_BATCH_SIZE:
+                return
+            last_mirror_id = references[-1][0].id
 
     @guard_card_app_mutation
     def change_visibility(
@@ -2857,7 +2896,8 @@ class CardService(BaseDomainService):
             if not is_linked_resource:
                 self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project, card)
             self.repo.card.delete(card, purge=is_linked_resource)
-            self._invalidate_source_card_mirrors(card)
+            if not is_linked_resource:
+                self._invalidate_source_card_mirrors(card)
             self.repo.card.reoder_after_delete(card.project_column_id, card.order)
 
         CardPublisher.deleted(project, card)

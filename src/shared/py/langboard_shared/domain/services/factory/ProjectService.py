@@ -397,6 +397,16 @@ class ProjectService(BaseDomainService):
         emails: list[str],
         direct_members: list[User] | None = None,
     ) -> bool:
+        with DbSession.atomic():
+            return self._update_assigned_users(user, project, emails, direct_members)
+
+    def _update_assigned_users(
+        self,
+        user: User,
+        project: TProjectParam | None,
+        emails: list[str],
+        direct_members: list[User] | None = None,
+    ) -> bool:
         project = InfraHelper.get_by_id_like(Project, project)
         if not project:
             return False
@@ -435,6 +445,9 @@ class ProjectService(BaseDomainService):
             "assigned_members": [user.api_response() for user, _ in new_assigned_users],
             "invited_members": invitation_service.get_api_invited_user_list_by_project(project),
         }
+
+        if old_assigned_user_ids != {assigned_user.id for assigned_user, _ in new_assigned_users}:
+            self._get_service_by_name("card").invalidate_source_project_mirrors(project)
 
         ProjectPublisher.assigned_users_updated(project, model)
         ProjectPublisher.assigned_to_users(project, newly_assigned_users)
@@ -584,6 +597,15 @@ class ProjectService(BaseDomainService):
         target_user: TUserParam | None,
         roles: list[ProjectRoleAction],
     ):
+        with DbSession.atomic():
+            return self._update_user_roles(project, target_user, roles)
+
+    def _update_user_roles(
+        self,
+        project: TProjectParam | None,
+        target_user: TUserParam | None,
+        roles: list[ProjectRoleAction],
+    ):
         project = InfraHelper.get_by_id_like(Project, project)
         target_user = InfraHelper.get_by_id_like(User, target_user)
         if not project or not target_user or not (self.is_assigned(target_user, project))[0]:
@@ -603,6 +625,7 @@ class ProjectService(BaseDomainService):
         else:
             role = self.repo.role.project.grant(actions=role_strs, user_id=target_user.id, project_id=project.id)
 
+        self._get_service_by_name("card").invalidate_source_project_mirrors(project)
         ProjectPublisher.user_roles_updated(project, target_user, role.actions)
 
         return True
@@ -692,6 +715,7 @@ class ProjectService(BaseDomainService):
         with DbSession.atomic():
             self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project)
             self.repo.project.delete(project)
+            self._get_service_by_name("card").invalidate_source_project_mirrors(project)
 
         ProjectPublisher.deleted(project)
         ProjectActivityTask.project_deleted(user, project)
