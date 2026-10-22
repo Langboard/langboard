@@ -24,6 +24,9 @@ from langboard_shared.Env import Env
 from sqlalchemy import delete, update
 
 
+pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test"], indirect=True)
+
+
 @pytest.fixture
 def cloud(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
