@@ -1,19 +1,22 @@
 """Persisted native ownership projection and current mutation authority."""
+# Pytest injects explicitly imported fixtures by their parameter names.
+# ruff: noqa: F811
 from types import SimpleNamespace
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import Bot, Card, CardAppOwnership
+from langboard_shared.domain.services.factory.CardRelationshipService import CardRelationshipService
 from sqlalchemy import event, update
-from test_card_clones import clone
-from test_card_mirrors import link
-
-
-pytest_plugins = ["test_card_mirrors", "test_card_clones"]
+from test_card_clones import clone, clone_board  # noqa: F401
+from test_card_mirrors import link, mirror_board  # noqa: F401
 
 
 def snapshot(b, monkeypatch, visible):
     service = b.service
     repo = service.repo
+    original_service = service._get_service
+    relationships = SimpleNamespace(get_readable_incident_by_cards=lambda *a, **kw: {})
+    monkeypatch.setattr(service, "_get_service", lambda kind: relationships if kind is CardRelationshipService else original_service(kind))
     monkeypatch.setattr(repo.card, "get_board_list", lambda *args, **kwargs: [(card, 0) for card in visible])
     monkeypatch.setattr(repo.card, "get_board_creators", lambda *args, **kwargs: {})
     repo.card_assigned_user = SimpleNamespace(get_all_by_project=lambda *a, **kw: [])

@@ -138,7 +138,12 @@ test("explorer opens two real boards with one shell; either close preserves surv
     if (!(await page.locator("[data-workbench-explorer]").isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();
     const split = page.getByRole("button", { name: "Open right board in split view" }).first();
     await split.hover();
-    await split.click({ force: true });
+    await expect(split).toHaveCSS("opacity", "1");
+    await page.mouse.move(1100, 50);
+    await split.focus();
+    await expect(split).toBeFocused();
+    await expect(split).toHaveCSS("opacity", "1");
+    await page.keyboard.press("Enter");
     const panes = page.locator("[data-board-pane]");
     await expect(panes).toHaveCount(2);
     await expect(panes.nth(1).locator("[data-board-pane-footer]")).toContainText("right board");

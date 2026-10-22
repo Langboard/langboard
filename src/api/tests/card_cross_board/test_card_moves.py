@@ -704,13 +704,19 @@ def test_keyword_location_uses_native_durable_generation_and_current_board(move_
 def test_move_recovers_inflight_conversion_at_current_location(move_board, monkeypatch, tmp_path, status):
     from tempfile import NamedTemporaryFile
     from langboard_shared.core.broker import Broker
-    from langboard_shared.domain.models import CardDocumentArtifact
+    from langboard_shared.domain.models import (
+        CardDocumentArtifact,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+    )
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.helpers import InfraHelper
     from langboard_shared.tasks.docling import DoclingMetadataTask as task
 
     b = move_board
     CardDocumentArtifact.__table__.create(b.engine)
+    DocumentExtractionCache.__table__.create(b.engine)
+    DocumentExtractionCacheReference.__table__.create(b.engine)
     file = Storage.upload_named(BytesIO(b"pending bytes"), StorageName.CardAttachment, "pending.pdf", "pending.pdf")
     with DbSession.use(readonly=False) as db:
         attachment = CardAttachment(card_id=b.source.id, user_id=b.actor.id, filename="pending.pdf", file=file)
