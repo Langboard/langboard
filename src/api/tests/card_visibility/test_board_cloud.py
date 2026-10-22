@@ -466,3 +466,53 @@ def test_card_title_is_current_and_foreign_wiki_drift_is_denied(cloud, monkeypat
 
     monkeypatch.setattr(cloud.service.project_wiki, "resolve_readable_file", moved)
     assert all("wiki_uid" not in item["source"] for item in read(cloud)["items"])
+
+
+@pytest.mark.parametrize("revoked", ["role", "wiki", "card_file", "project_file"])
+def test_final_response_rechecks_previously_projected_sources(cloud, monkeypatch, revoked):
+    import langboard.apps.BoardCloud as app
+
+    native_file = None
+    if revoked == "project_file":
+        with DbSession.atomic() as db:
+            native_file = ProjectAttachment(
+                project_id=cloud.project.id, user_id=cloud.actor.id, filename="native.pdf", content_sha256="a" * 64,
+                file=cloud.card_file.file.model_copy(update={"storage_name": "project_attachment", "filename": "native-project.pdf"}),
+            )
+            db.insert(native_file)
+    original = app._item
+    projected = set()
+    revocation_applied = False
+
+    def revoke_after_projection(attachment, project, source, kind):
+        nonlocal revocation_applied
+        item = original(attachment, project, source, kind)
+        projected.add(item["id"])
+        if not revocation_applied and len(projected) == (5 if native_file else 4):
+            revocation_applied = True
+            with cloud.engine.begin() as db:
+                if revoked == "role":
+                    db.execute(update(ProjectRole).values(actions=[]))
+                elif revoked == "wiki":
+                    db.execute(delete(ProjectWikiAssignedUser))
+                elif revoked == "project_file":
+                    db.execute(update(ProjectAttachment).where(ProjectAttachment.id == native_file.id)
+                               .values(deleted_at=SafeDateTime.now()))
+                else:
+                    db.execute(update(CardAttachment).where(CardAttachment.id == cloud.card_file.id)
+                               .values(deleted_at=SafeDateTime.now()))
+        return item
+
+    monkeypatch.setattr(app, "_item", revoke_after_projection)
+    if revoked == "role":
+        with pytest.raises(ApiException.NotFound_404):
+            read(cloud)
+    else:
+        items = read(cloud)["items"]
+        hidden = f"wiki_attachment:{cloud.wiki_file.get_uid()}" if revoked == "wiki" else f"card_attachment:{cloud.card_file.get_uid()}"
+        if native_file:
+            hidden = f"project_attachment:{native_file.get_uid()}"
+        assert len(items) == (4 if native_file else 3)
+        assert all(item["id"] != hidden for item in items)
+    assert len(projected) == (5 if native_file else 4)
+    assert revocation_applied

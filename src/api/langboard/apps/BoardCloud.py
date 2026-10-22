@@ -212,6 +212,62 @@ def _resolve_cloud_context(service, actor, project_uid, channel):
     return project, context, current_actor
 
 
+def _read_attachment_item(service, current_actor, project, attachment, source, kind, channel):
+    file = attachment.file
+    if kind == "card":
+        if file.storage_name != StorageName.CardAttachment.value:
+            return None
+        owner = service.card_attachment.resolve_file_owner(file.storage_type, file.storage_name, file.filename)
+        if owner is None or owner.id != attachment.id or owner.card_id != source.id or owner.file != file:
+            return None
+        readable = service.card.resolve_readable_card(project, source, current_actor, channel)
+        if readable is None or readable[1].is_linked_resource:
+            return None
+        source = readable[1]
+    elif kind == "project":
+        if file.storage_name != StorageName.ProjectAttachment.value:
+            return None
+        owner = service.project_attachment.resolve_readable_file(
+            current_actor, file.storage_type, file.storage_name, file.filename
+        )
+        if owner is None or owner.id != attachment.id or owner.project_id != project.id or owner.file != file:
+            return None
+        with DbSession.use(readonly=False) as db:
+            owner = db.exec(
+                SqlBuilder.select.table(ProjectAttachment).where(ProjectAttachment.id == owner.id)
+                .execution_options(populate_existing=True)
+            ).first()
+        if (
+            owner is None or owner.project_id != project.id or owner.file != file
+            or not service.project_attachment.can_upload(current_actor, project)
+        ):
+            return None
+        source = project
+    else:
+        if file.storage_name != StorageName.Wiki.value:
+            return None
+        owner = service.project_wiki.resolve_readable_file(
+            current_actor, file.storage_type, file.storage_name, file.filename
+        )
+        if (
+            owner is None
+            or owner.id != attachment.id
+            or owner.project_wiki_id != source.id
+            or owner.file != file
+        ):
+            return None
+        with DbSession.use(readonly=False) as db:
+            source = db.exec(
+                SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == owner.project_wiki_id)
+            ).first()
+        if source is None or source.project_id != project.id:
+            return None
+    item = _item(owner, project, source, kind)
+    if kind == "project":
+        item["can_replace"] = service.project_attachment.can_replace(current_actor, project, owner)
+    return item
+
+
 def read_board_cloud(
     service, actor, project_uid, *, channel=CollaborationChannel.Api, view="all", limit=100, cursor=None
 ):
@@ -233,6 +289,7 @@ def read_board_cloud(
     state = _decode_cursor(cursor, scope) if cursor else {"after": None, "remaining": 20, "issued": int(time())}
     after, remaining = state["after"], state["remaining"]
     items, examined, exhausted = [], 0, False
+    emitted = []
     target = min(limit, remaining) if view == "recent" else limit
     while len(items) < target and examined < _SCAN_LIMIT:
         count = min(_CANDIDATE_BATCH, _SCAN_LIMIT - examined)
@@ -243,67 +300,27 @@ def read_board_cloud(
         for attachment, source, kind in candidates:
             examined += 1
             after = (attachment.created_at, kind, int(attachment.id))
-            file = attachment.file
-            if kind == "card":
-                if file.storage_name != StorageName.CardAttachment.value:
-                    continue
-                owner = service.card_attachment.resolve_file_owner(file.storage_type, file.storage_name, file.filename)
-                if owner is None or owner.id != attachment.id or owner.card_id != source.id or owner.file != file:
-                    continue
-                readable = service.card.resolve_readable_card(project, source, current_actor, channel)
-                if readable is None or readable[1].is_linked_resource:
-                    continue
-                source = readable[1]
-            elif kind == "project":
-                if file.storage_name != StorageName.ProjectAttachment.value:
-                    continue
-                owner = service.project_attachment.resolve_readable_file(
-                    current_actor, file.storage_type, file.storage_name, file.filename
-                )
-                if owner is None or owner.id != attachment.id or owner.project_id != project.id or owner.file != file:
-                    continue
-                with DbSession.use(readonly=False) as db:
-                    owner = db.exec(
-                        SqlBuilder.select.table(ProjectAttachment).where(ProjectAttachment.id == owner.id)
-                        .execution_options(populate_existing=True)
-                    ).first()
-                if (
-                    owner is None or owner.project_id != project.id or owner.file != file
-                    or not service.project_attachment.can_upload(current_actor, project)
-                ):
-                    continue
-                source = project
-            else:
-                if file.storage_name != StorageName.Wiki.value:
-                    continue
-                owner = service.project_wiki.resolve_readable_file(
-                    current_actor, file.storage_type, file.storage_name, file.filename
-                )
-                if (
-                    owner is None
-                    or owner.id != attachment.id
-                    or owner.project_wiki_id != source.id
-                    or owner.file != file
-                ):
-                    continue
-                with DbSession.use(readonly=False) as db:
-                    source = db.exec(
-                        SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == owner.project_wiki_id)
-                    ).first()
-                if source is None or source.project_id != project.id:
-                    continue
-            item = _item(owner, project, source, kind)
-            if kind == "project":
-                item["can_replace"] = service.project_attachment.can_replace(current_actor, project, owner)
+            item = _read_attachment_item(service, current_actor, project, attachment, source, kind, channel)
+            if item is None:
+                continue
             if view in {"files", "media"} and item["kind"] != ("media" if view == "media" else "file"):
                 continue
             items.append(item)
+            emitted.append((attachment, source, kind))
             if len(items) == target:
                 break
         else:
             if len(candidates) < count:
                 exhausted = True
                 break
+    # Recheck the entire bounded response after traversal. A later source lookup
+    # can overlap revocation or replacement of an item already projected above.
+    project, context, current_actor = _resolve_cloud_context(service, actor, project_uid, channel)
+    items = [
+        item for attachment, source, kind in emitted
+        if (item := _read_attachment_item(service, current_actor, project, attachment, source, kind, channel)) is not None
+        and (view not in {"files", "media"} or item["kind"] == ("media" if view == "media" else "file"))
+    ]
     if view == "recent":
         remaining -= len(items)
     has_more = not exhausted and after is not None and (view != "recent" or remaining > 0)

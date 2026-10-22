@@ -106,7 +106,11 @@ def test_exact_project_provenance_rechecked(cloud, monkeypatch, change):
             return result
 
         monkeypatch.setattr(cloud.service.project_attachment, "resolve_readable_file", mutate)
-    assert project_items(read(cloud)) == []
+    if change == "revoked_after_resolve":
+        with pytest.raises(ApiException.NotFound_404):
+            read(cloud)
+    else:
+        assert project_items(read(cloud)) == []
 
 
 def test_current_account_and_membership_revocation_between_project_pages(cloud):
