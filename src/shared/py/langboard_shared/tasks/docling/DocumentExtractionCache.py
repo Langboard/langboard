@@ -221,6 +221,7 @@ class CachedDocumentExtraction:
         self.token = uuid4().hex
         self.retained = False
         self.entry_id = None
+        self._ready = False
 
     def retain(self):
         self.retained = True
@@ -315,6 +316,7 @@ class CachedDocumentExtraction:
             if ready is not None:
                 result = self._normalize(ready)
                 self._validate()
+                self._ready = True
                 return result
             if owned:
                 self._validate()
@@ -334,6 +336,7 @@ class CachedDocumentExtraction:
                     if changed != 1:
                         raise ExtractionCacheUnavailable("Conversion lease no longer belongs to this attempt")
                 self._validate()
+                self._ready = True
                 return deepcopy(result)
             if time.monotonic() >= deadline:
                 raise ExtractionCacheUnavailable("Concurrent document conversion remains pending")
@@ -368,5 +371,12 @@ def cached_document_extraction(**kwargs):
     cache = CachedDocumentExtraction(**kwargs)
     try:
         yield cache
+    except BaseException:
+        # Native publication can fail after validated conversion succeeds. Keep
+        # its pending reference for bounded retry reuse; expiry cleanup removes
+        # abandoned results without publishing an attachment or source pointer.
+        if cache._ready:
+            cache.retain()
+        raise
     finally:
         cache._close()

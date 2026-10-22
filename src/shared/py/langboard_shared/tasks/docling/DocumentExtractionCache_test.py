@@ -1,7 +1,7 @@
 """Real primary SQL lifecycle and concurrency; remote conversion is an explicit fixture."""
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import timedelta, timezone
 from hashlib import sha256
 from importlib.util import module_from_spec, spec_from_file_location
 from os import environ
@@ -238,18 +238,115 @@ def test_stale_lease_cannot_publish_or_clobber_winner(store):
     assert rows(Cache) == []
 
 
-def test_failure_retry_and_consumer_failure_remove_orphans(store):
+def test_failed_conversion_and_unpublished_success_remove_orphans(store):
+    converter = Mock(side_effect=[RuntimeError("provider"), converted()])
     with pytest.raises(RuntimeError, match="provider"):
         with cached_document_extraction(**settings()) as cache:
-            cache.get_or_convert(Mock(side_effect=RuntimeError("provider")))
-    assert rows(Cache) == rows(Reference) == []
-    with pytest.raises(RuntimeError, match="publication"):
-        with cached_document_extraction(**settings()) as cache:
-            cache.get_or_convert(converted)
-            raise RuntimeError("publication")
+            cache.get_or_convert(converter)
     assert rows(Cache) == rows(Reference) == []
     with cached_document_extraction(**settings()) as cache:
-        assert cache.get_or_convert(converted)["markdown"] == "private result"
+        assert cache.get_or_convert(converter)["markdown"] == "private result"
+    assert converter.call_count == 2
+    assert rows(Cache) == rows(Reference) == []
+
+
+def test_successful_extraction_survives_publication_rollback_for_retry(store):
+    converter = Mock(side_effect=converted)
+    with pytest.raises(RuntimeError, match="publication"):
+        with cached_document_extraction(**settings()) as first:
+            first.get_or_convert(converter)
+            expiry = rows(Reference)[0].expires_at
+            with DbSession.atomic() as db:
+                assert activate_extraction_reference(
+                    db, first.token, source_type="card_attachment", source_uid="source", generation="a" * 32
+                )
+                raise RuntimeError("publication")
+    reference = rows(Reference)[0]
+    assert reference.expires_at == expiry
+    assert reference.source_type is reference.source_uid is reference.generation is None
+    assert reference.api_response() == rows(Cache)[0].api_response() == {}
+    assert rows(Cache)[0].lease_token is None
+    with cached_document_extraction(**settings(filename="retry.PDF")) as retry:
+        assert retry.get_or_convert(converter)["markdown"] == "private result"
+        assert retry.token != first.token
+        activate(retry)
+    assert converter.call_count == 1
+    references = {ref.use_token: ref for ref in rows(Reference)}
+    assert references[first.token].expires_at == expiry
+    assert references[retry.token].expires_at is None
+    assert references[retry.token].source_uid == "source"
+
+
+@pytest.mark.parametrize("source_type", ["card_attachment", "project_attachment", "wiki_attachment"])
+def test_failed_publication_pending_use_survives_source_release_then_expires(store, source_type):
+    converter = Mock(side_effect=converted)
+    with cached_document_extraction(**settings()) as original:
+        original.get_or_convert(converter)
+        with DbSession.atomic() as db:
+            assert activate_extraction_reference(
+                db, original.token, source_type=source_type, source_uid="source", generation="a" * 32
+            )
+    with pytest.raises(RuntimeError, match="publication"):
+        with cached_document_extraction(**settings()) as failed:
+            failed.get_or_convert(converter)
+            raise RuntimeError("publication")
+    assert len(rows(Reference)) == 2
+    with DbSession.atomic() as db:
+        assert release_extraction_source(db, source_type, "source") == 1
+    assert len(rows(Cache)) == len(rows(Reference)) == 1
+    pending = rows(Reference)[0]
+    assert pending.use_token == failed.token
+    remaining = pending.expires_at.replace(tzinfo=timezone.utc) - SafeDateTime.now()
+    assert timedelta() < remaining <= timedelta(hours=module.PENDING_REFERENCE_HOURS)
+    with cached_document_extraction(**settings()) as retry:
+        assert retry.get_or_convert(converter)["markdown"] == "private result"
+    assert converter.call_count == 1
+    with DbSession.atomic() as db:
+        db.exec(update(Reference).values(expires_at=SafeDateTime.now() - timedelta(seconds=1)))
+        assert not activate_extraction_reference(
+            db, failed.token, source_type=source_type, source_uid="source", generation="b" * 32
+        )
+    assert recover_expired_extraction_references(limit=1) == 1
+    assert rows(Cache) == rows(Reference) == []
+    with cached_document_extraction(**settings()) as fresh:
+        fresh.get_or_convert(converter)
+    assert converter.call_count == 2
+
+
+@pytest.mark.parametrize("revoked_at", [1, 2, 3])
+def test_publication_retry_revalidates_authority_before_cached_delivery(store, revoked_at):
+    converter = Mock(side_effect=converted)
+    with pytest.raises(RuntimeError, match="publication"):
+        with cached_document_extraction(**settings()) as first:
+            first.get_or_convert(converter)
+            raise RuntimeError("publication")
+    validate = Mock(side_effect=[None] * (revoked_at - 1) + [InterruptedError("authority revoked")])
+    with pytest.raises(InterruptedError, match="authority revoked"):
+        with cached_document_extraction(**settings(on_validate=validate)) as retry:
+            retry.get_or_convert(converter)
+            pytest.fail("Revoked authority must not receive the cached result")
+    assert validate.call_count == revoked_at
+    assert converter.call_count == 1
+    assert [ref.use_token for ref in rows(Reference)] == [first.token]
+    assert rows(Reference)[0].expires_at is not None
+
+
+def test_revocation_after_conversion_discards_unvalidated_result(store):
+    allowed = True
+
+    def validate():
+        if not allowed:
+            raise InterruptedError("authority revoked")
+
+    def convert():
+        nonlocal allowed
+        allowed = False
+        return converted()
+
+    with pytest.raises(InterruptedError, match="authority revoked"):
+        with cached_document_extraction(**settings(on_validate=validate)) as cache:
+            cache.get_or_convert(convert)
+    assert rows(Cache) == rows(Reference) == []
 
 
 @pytest.mark.parametrize(
