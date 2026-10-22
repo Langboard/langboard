@@ -35,12 +35,15 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
         if (query.isError) return [];
         return [...new Map(query.data?.pages.flatMap((page) => page.items).map((item) => [item.id, item])).values()];
     }, [query.data, query.isError, category]);
+    const mixed = (category === "all" || category === "recent") && query.data?.pages[0]?.capabilities.all_recent === "attachments_and_links";
     const visible = items.filter((item) => !folder || item.folder_id === folder);
-    const tree: CloudNode[] = (category === "links" ? (["Links"] as const) : folderNames).map((name) => ({
-        id: name.toLowerCase(),
-        name: t(`cloud.${name}`),
-        children: items.filter((item) => item.folder_id === name.toLowerCase()).map((item) => ({ id: item.id, name: item.name, item })),
-    }));
+    const tree: CloudNode[] = (category === "links" ? (["Links"] as const) : mixed ? ([...folderNames, "Links"] as const) : folderNames).map(
+        (name) => ({
+            id: name.toLowerCase(),
+            name: t(`cloud.${name}`),
+            children: items.filter((item) => item.folder_id === name.toLowerCase()).map((item) => ({ id: item.id, name: item.name, item })),
+        })
+    );
     const limitations = query.isError ? [] : (query.data?.pages.flatMap((page) => page.limitations ?? []) ?? []);
     const openItem = (item: CloudItem) => {
         if (item.kind === "link") window.open(item.url, "_blank", "noopener,noreferrer");
@@ -88,7 +91,7 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                 enabled={!query.isError && query.data?.pages[0]?.capabilities.upload === true}
             />
             <p className="shrink-0 px-3 py-2 text-xs text-muted-foreground">
-                {t(category === "links" ? "cloud.Read only links" : "cloud.Read only attachments")}
+                {t(category === "links" ? "cloud.Read only links" : mixed ? "cloud.Read mixed sources" : "cloud.Read only attachments")}
             </p>
             <>
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -151,7 +154,9 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                     </nav>
                     <div className="flex items-center justify-between gap-2 p-2">
                         <span className="text-xs text-muted-foreground">
-                            {t(category === "links" ? "cloud.Loaded links" : "cloud.Loaded files", { count: visible.length })}
+                            {t(category === "links" ? "cloud.Loaded links" : mixed ? "cloud.Loaded items" : "cloud.Loaded files", {
+                                count: visible.length,
+                            })}
                         </span>
                         <div className="flex gap-1" aria-label={t("cloud.View")}>
                             {(["list", "grid"] as const).map((view) => (
@@ -201,7 +206,7 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                         key={`${scope}:${category}:${folder ?? "all"}:${layout}`}
                         items={visible}
                         layout={layout}
-                        label={t(category === "links" ? "cloud.Links" : "cloud.Attachments")}
+                        label={t(category === "links" ? "cloud.Links" : mixed ? "cloud.Cloud items" : "cloud.Attachments")}
                         onPreview={setPreview}
                         onSource={openSource}
                         onDocument={(item) => setDocument({ item, scope })}

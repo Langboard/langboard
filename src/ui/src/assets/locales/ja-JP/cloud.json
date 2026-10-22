@@ -26,7 +26,7 @@
   "Load more": "Load more",
   "Source": "Source",
   "Links": "リンク",
-  "Read only links": "閲覧できるカードとウィキ本文に保存されたHTTP・HTTPSリンクです。外部ページで開き、リモート内容は取得しません。すべて・最近には添付ファイルのみを表示します。",
+  "Read only links": "閲覧できるカードとウィキ本文に保存されたHTTP・HTTPSリンクです。外部ページで開き、リモート内容は取得しません。",
   "Loaded links": "読み込み済みリンク {{count}}件",
   "No links in loaded pages": "確認したソースにリンクはありません。さらに読み込んで確認できます。",
   "No links": "確認したソースにリンクはありません。",
@@ -56,5 +56,8 @@
   "Search document": "文書を検索",
   "Document matches": "文書の検索結果",
   "No document matches": "一致する文書の抜粋がありません。",
-  "Document pages": "ページ: {{pages}}"
+  "Document pages": "ページ: {{pages}}",
+  "Read mixed sources": "プロジェクトファイル、閲覧可能なカード・ウィキ添付と保存済みリンクです。アップロードは受信箱または選択した既定フォルダーに保存します。",
+  "Loaded items": "読み込み済み {{count}} 件",
+  "Cloud items": "クラウド項目"
 }

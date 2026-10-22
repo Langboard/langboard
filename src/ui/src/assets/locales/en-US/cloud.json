@@ -26,7 +26,7 @@
   "Load more": "Load more",
   "Source": "Source",
   "Links": "Links",
-  "Read only links": "Saved HTTP and HTTPS links from readable card and wiki bodies. Links open externally; no remote content is fetched. All and Recent show attachments only.",
+  "Read only links": "Saved HTTP and HTTPS links from readable card and wiki bodies. Links open externally; no remote content is fetched.",
   "Loaded links": "{{count}} loaded links",
   "No links in loaded pages": "No links in the scanned sources. Continue loading to check more.",
   "No links": "No links in the scanned sources.",
@@ -56,5 +56,8 @@
   "Search document": "Search document",
   "Document matches": "Document matches",
   "No document matches": "No matching document excerpts.",
-  "Document pages": "Pages: {{pages}}"
+  "Document pages": "Pages: {{pages}}",
+  "Read mixed sources": "Project files, readable card and wiki attachments, and saved links. Upload to Inbox or the selected default folder.",
+  "Loaded items": "{{count}} loaded items",
+  "Cloud items": "Cloud items"
 }

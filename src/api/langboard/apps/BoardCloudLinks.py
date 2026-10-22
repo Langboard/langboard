@@ -134,7 +134,7 @@ def _source_query(project, context, actor, kind):
     return source, cast(body, Text), and_(source.project_id == project.id, source.deleted_at.is_(None), audience)
 
 
-def _candidates(project, context, actor, after, inclusive=False, count=SOURCE_BATCH):
+def _candidates(project, context, actor, after, inclusive=False, count=SOURCE_BATCH, *, suffix=""):
     rows = []
     with DbSession.use(readonly=False) as db:
         for kind in ("card", "wiki"):
@@ -150,8 +150,8 @@ def _candidates(project, context, actor, after, inclusive=False, count=SOURCE_BA
                         and_(
                             source.created_at == stamp,
                             or_(
-                                kind < last_kind,
-                                and_(kind == last_kind, source.id <= last_id if inclusive else source.id < last_id),
+                                kind + suffix < last_kind,
+                                and_(kind + suffix == last_kind, source.id <= last_id if inclusive else source.id < last_id),
                             ),
                         ),
                     )
@@ -324,7 +324,7 @@ def read_board_links(service, project, context, actor, channel, *, limit, cursor
         "mime_type_source": "stored_hyperlink",
         "has_more": has_more,
         "next_cursor": next_cursor,
-        "capabilities": {"hyperlinks": True, "upload": False, "replace": False, "all_recent": "attachments_only"},
+        "capabilities": {"hyperlinks": True, "upload": False, "replace": False, "all_recent": "attachments_and_links"},
         "limitations": limitations,
         "limitation_count": len(limitations),
         "scan_limits": {
@@ -334,3 +334,195 @@ def read_board_links(service, project, context, actor, channel, *, limit, cursor
             "sources_per_page": MAX_SCANNED_SOURCES,
         },
     }
+
+
+def _mixed_decode(cursor, scope):
+    if not cursor:
+        return {"after": None, "offset": 0, "pending": False, "digest": None, "remaining": 20, "issued": int(time())}
+    try:
+        if len(cursor) > 4096:
+            raise ValueError()
+        state = loads(Encryptor.decrypt(cursor, Env.JWT_SECRET_KEY))
+        if state["scope"] != scope or not 0 <= time() - state["issued"] <= CURSOR_TTL:
+            raise ValueError()
+        stamp, kind, identifier = state["after"]
+        if kind not in {"card_attachment", "wiki_attachment", "project_attachment", "card_link", "wiki_link"}:
+            raise ValueError()
+        if type(identifier) is not int or identifier <= 0:
+            raise ValueError()
+        if type(state["offset"]) is not int or not 0 <= state["offset"] <= MAX_CONTENT_CHARS:
+            raise ValueError()
+        if type(state["remaining"]) is not int or not 0 <= state["remaining"] <= 20:
+            raise ValueError()
+        if type(state["pending"]) is not bool or (state["pending"] and not kind.endswith("_link")):
+            raise ValueError()
+        if state["pending"] and (not isinstance(state["digest"], str) or len(state["digest"]) != 64):
+            raise ValueError()
+        state["after"] = (datetime.fromisoformat(stamp), kind, identifier)
+        return state
+    except (ValueError, TypeError, KeyError, UnicodeError, OverflowError):
+        raise ApiException.BadRequest_400() from None
+
+
+def _mixed_candidates(project, context, actor, after, pending, count):
+    from .BoardCloud import _candidates as attachment_candidates
+
+    rows = [
+        ((attachment.created_at, kind + "_attachment", int(attachment.id)), (attachment, source, kind))
+        for attachment, source, kind in attachment_candidates(project, context, actor, after, count, suffix="_attachment")
+    ]
+    rows.extend(
+        ((row[2], row[0] + "_link", int(row[1])), row)
+        for row in _candidates(project, context, actor, after, pending, count=count, suffix="_link")
+    )
+    return sorted(rows, key=lambda row: row[0], reverse=True)[:count]
+
+
+def read_board_mixed(service, project, context, actor, channel, *, view, limit, cursor=None):
+    """Merge immutable native source creation keys, resuming links within a source.
+
+    A source's deduplicated links retain Markdown occurrence order. The complete
+    order is (creation time, source kind, native id, occurrence), newest first
+    for the first three components. Cursors contain positions and hashes only.
+    """
+    from .BoardCloud import _SCAN_LIMIT, _read_attachment_item, _resolve_cloud_context
+
+    scope = ["board-cloud-mixed:1", str(actor.id), str(project.id), channel.value, view]
+    state = _mixed_decode(cursor, scope)
+    after, offset, pending, digest = state["after"], state["offset"], state["pending"], state["digest"]
+    target = min(limit, state["remaining"]) if view == "recent" else limit
+    items, limitations, attachments, sources = [], [], [], {}
+    response_bytes, read_chars, examined, scanned_sources = 2048 + MAX_SCANNED_SOURCES * 1536, 0, 0, 0
+    stopped = False
+    while len(items) < target and examined < _SCAN_LIMIT and not stopped:
+        candidates = _mixed_candidates(project, context, actor, after, pending, SOURCE_BATCH)
+        if not candidates:
+            offset, pending, digest = 0, False, None
+            break
+        for key, candidate in candidates:
+            if len(items) >= target or examined >= _SCAN_LIMIT:
+                stopped = True
+                break
+            project, context, actor = _resolve_cloud_context(service, actor, project.get_uid(), channel)
+            if key[1].endswith("_attachment"):
+                attachment, source, kind = candidate
+                item = _read_attachment_item(service, actor, project, attachment, source, kind, channel)
+                if item is not None:
+                    size = len(dumps(item, ensure_ascii=False).encode())
+                    if response_bytes + size > MAX_PAGE_BYTES:
+                        if not items:
+                            raise ApiException.BadRequest_400()
+                        stopped = True
+                        break
+                    items.append(item)
+                    attachments.append((attachment, source, kind))
+                    response_bytes += size
+                examined += 1
+                after, offset, pending, digest = key, 0, False, None
+                continue
+            kind, identifier, created, updated, title, size = candidate
+            if scanned_sources >= MAX_SCANNED_SOURCES:
+                stopped = True
+                break
+            if read_chars + min(size or 0, MAX_SOURCE_STORAGE_CHARS) > MAX_REQUEST_STORAGE_CHARS:
+                stopped = True
+                break
+            row = _read_source(project, context, actor, kind, identifier,
+                               remaining_chars=MAX_REQUEST_STORAGE_CHARS - read_chars)
+            examined += 1
+            scanned_sources += 1
+            if row is None:
+                after, offset, pending, digest = key, 0, False, None
+                continue
+            raw = row[4]
+            if raw is None and (row[5] or 0) <= MAX_SOURCE_STORAGE_CHARS:
+                stopped = True
+                break
+            resumed = offset if pending and key == after else 0
+            if pending and key == after and sha256((raw or "").encode()).hexdigest() != digest:
+                raise ApiException.BadRequest_400()
+            after = key
+            if raw is None:
+                sources[(kind, identifier)] = row[2]
+                limitations.append({"reason": "source_too_large", "source": _source(project, kind, row)})
+                offset, pending, digest = 0, False, None
+                continue
+            read_chars += len(raw)
+            value = loads(raw)
+            if isinstance(value, str):
+                value = loads(value)
+            markdown = value.get("content", "") if isinstance(value, dict) else ""
+            if len(markdown) > MAX_CONTENT_CHARS:
+                sources[(kind, identifier)] = row[2]
+                limitations.append({"reason": "source_too_large", "source": _source(project, kind, row)})
+                offset, pending, digest = 0, False, None
+                continue
+            links = stored_links(markdown)
+            for index in range(resumed, len(links)):
+                item = _item(project, kind, row, *links[index])
+                size = len(dumps(item, ensure_ascii=False).encode())
+                if len(items) == target or response_bytes + size > MAX_PAGE_BYTES:
+                    offset, pending, digest = index, True, sha256(raw.encode()).hexdigest()
+                    stopped = True
+                    break
+                sources[(kind, identifier)] = row[2]
+                items.append(item)
+                response_bytes += size
+            else:
+                offset, pending, digest = 0, False, None
+            if stopped:
+                break
+    # Resolve current board/channel grants again and revalidate every earlier
+    # emitted source and attachment after the final traversal lookup.
+    project, context, actor = _resolve_cloud_context(service, actor, project.get_uid(), channel)
+    current_attachments = {}
+    for attachment, source, kind in attachments:
+        item = _read_attachment_item(service, actor, project, attachment, source, kind, channel)
+        if item is not None:
+            current_attachments[item["id"]] = item
+    project, context, actor = _resolve_cloud_context(service, actor, project.get_uid(), channel)
+    denied = set()
+    source_versions = {(kind, source.id): None for _, source, kind in attachments if kind != "project"}
+    source_versions.update(sources)
+    with DbSession.use(readonly=False) as db:
+        for (kind, identifier), version in source_versions.items():
+            source, _, audience = _source_query(project, context, actor, kind)
+            current = db.exec(select(source.updated_at).where(audience, source.id == identifier).limit(1)).first()
+            if current is None:
+                denied.add((kind, identifier.to_short_code()))
+            elif version is not None and current[0] != version:
+                raise ApiException.BadRequest_400()
+
+    def readable(entry):
+        return not any(entry["source"].get(f"{kind}_uid") == uid for kind, uid in denied)
+
+    items = [current_attachments[entry["id"]] if entry["kind"] != "link" else entry
+             for entry in items if readable(entry) and (entry["kind"] == "link" or entry["id"] in current_attachments)]
+    limitations = [entry for entry in limitations if readable(entry)]
+    remaining = state["remaining"] - len(items) if view == "recent" else state["remaining"]
+    has_more = (view != "recent" or remaining > 0) and (
+        pending or bool(_mixed_candidates(project, context, actor, after, False, 1))
+    )
+    next_cursor = None
+    if has_more:
+        next_cursor = Encryptor.encrypt(dumps({
+            "scope": scope, "after": [after[0].isoformat(), after[1], after[2]],
+            "offset": offset, "pending": pending, "digest": digest,
+            "remaining": remaining, "issued": state["issued"],
+        }), Env.JWT_SECRET_KEY)
+    response = {
+        "items": items,
+        "folders": [{"id": name.lower(), "name": name} for name in ("Inbox", "Documents", "Media", "Links")],
+        "total": None, "total_is_exact": False, "recent_limit": 20,
+        "mime_type_source": "filename_extension", "has_more": has_more, "next_cursor": next_cursor,
+        "capabilities": {"hyperlinks": True, "upload": service.project_attachment.can_upload(actor, project),
+                         "replace": True, "links_view": True, "all_recent": "attachments_and_links"},
+        "limitations": limitations, "limitation_count": len(limitations),
+        "scan_limits": {"source_storage_chars": MAX_SOURCE_STORAGE_CHARS, "source_content_chars": MAX_CONTENT_CHARS,
+                        "response_bytes": MAX_PAGE_BYTES, "sources_per_page": MAX_SCANNED_SOURCES,
+                        "candidates_per_page": _SCAN_LIMIT},
+    }
+
+    if len(dumps(response, ensure_ascii=False).encode()) > MAX_PAGE_BYTES:
+        raise ApiException.BadRequest_400()
+    return response

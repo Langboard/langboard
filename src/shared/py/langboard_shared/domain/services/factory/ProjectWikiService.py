@@ -1,6 +1,7 @@
 from typing import Any, Literal
 from sqlalchemy import Text, cast, func, literal_column, select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.orm import defer
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
@@ -13,7 +14,17 @@ from ....helpers import InfraHelper
 from ....publishers import CardPublisher, ProjectWikiPublisher
 from ....tasks.activities import ProjectWikiActivityTask
 from ....tasks.bots import ProjectWikiBotTask
-from ...models import Bot, Card, Project, ProjectAssignedUser, ProjectRole, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, User
+from ...models import (
+    Bot,
+    Card,
+    Project,
+    ProjectAssignedUser,
+    ProjectRole,
+    ProjectWiki,
+    ProjectWikiAssignedUser,
+    ProjectWikiAttachment,
+    User,
+)
 from ...models.ProjectRole import ProjectRoleAction
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
@@ -29,8 +40,10 @@ class ProjectWikiService(BaseDomainService):
         wiki = InfraHelper.get_by_id_like(ProjectWiki, wiki)
         return wiki
 
-    def resolve_readable_file(self, actor: User, storage_type: str, storage_name: str, filename: str) -> ProjectWikiAttachment | None:
-        """Authorize exact committed wiki provenance using current primary grants."""
+    def resolve_readable_file(
+        self, actor: User, storage_type: str, storage_name: str, filename: str, *, metadata_only: bool = False
+    ) -> ProjectWikiAttachment | None:
+        """Authorize exact committed provenance; metadata projections forbid body loading."""
         dialect = DbEngine.get_main_engine().dialect.name
         column = ProjectWikiAttachment.column("file")
         if dialect == "postgresql":
@@ -54,14 +67,16 @@ class ProjectWikiService(BaseDomainService):
             if len(matches) != 1:
                 return None
             attachment = matches[0]
-            current = db.exec(
+            query = (
                 select(ProjectWiki, Project, User)
                 .select_from(ProjectWiki)
                 .join(Project, Project.id == ProjectWiki.project_id)
                 .join(User, User.id == actor.id)
                 .where(ProjectWiki.id == attachment.project_wiki_id)
-                .execution_options(populate_existing=True)
-            ).first()
+            )
+            if metadata_only:
+                query = query.options(defer(ProjectWiki.content, raiseload=True))
+            current = db.exec(query.execution_options(populate_existing=True)).first()
             if current is None:
                 return None
             wiki, project, user = current

@@ -24,6 +24,7 @@ from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVisibilityPolicy import card_visibility_scope
 from langboard_shared.Env import Env
 from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import defer
 
 
 _DOCUMENT_EXTENSIONS = {
@@ -115,7 +116,7 @@ def _decode_cursor(cursor, scope):
         raise ApiException.BadRequest_400() from None
 
 
-def _candidates(project, context, actor, after, count):
+def _candidates(project, context, actor, after, count, *, suffix=""):
     """Fetch three bounded streams; SQL applies native source visibility first."""
     assigned = (
         select(ProjectWikiAssignedUser.id)
@@ -155,6 +156,12 @@ def _candidates(project, context, actor, after, count):
                     scope,
                 )
             )
+            query = query.options(
+                *(
+                    [defer(Card.description, raiseload=True), defer(Card.ai_description, raiseload=True)]
+                    if kind == "card" else [defer(ProjectWiki.content, raiseload=True)]
+                )
+            )
             if after is not None:
                 stamp, last_kind, last_id = after
                 query = query.where(
@@ -162,7 +169,7 @@ def _candidates(project, context, actor, after, count):
                         attachment.created_at < stamp,
                         and_(
                             attachment.created_at == stamp,
-                            or_(kind < last_kind, and_(kind == last_kind, attachment.id < last_id)),
+                            or_(kind + suffix < last_kind, and_(kind + suffix == last_kind, attachment.id < last_id)),
                         ),
                     )
                 )
@@ -176,7 +183,7 @@ def _candidates(project, context, actor, after, count):
                     ProjectAttachment.created_at < stamp,
                     and_(
                         ProjectAttachment.created_at == stamp,
-                        or_("project" < last_kind, and_("project" == last_kind, ProjectAttachment.id < last_id)),
+                        or_("project" + suffix < last_kind, and_("project" + suffix == last_kind, ProjectAttachment.id < last_id)),
                     ),
                 )
             )
@@ -220,7 +227,7 @@ def _read_attachment_item(service, current_actor, project, attachment, source, k
         owner = service.card_attachment.resolve_file_owner(file.storage_type, file.storage_name, file.filename)
         if owner is None or owner.id != attachment.id or owner.card_id != source.id or owner.file != file:
             return None
-        readable = service.card.resolve_readable_card(project, source, current_actor, channel)
+        readable = service.card.resolve_readable_card(project, source, current_actor, channel, metadata_only=True)
         if readable is None or readable[1].is_linked_resource:
             return None
         source = readable[1]
@@ -247,7 +254,7 @@ def _read_attachment_item(service, current_actor, project, attachment, source, k
         if file.storage_name != StorageName.Wiki.value:
             return None
         owner = service.project_wiki.resolve_readable_file(
-            current_actor, file.storage_type, file.storage_name, file.filename
+            current_actor, file.storage_type, file.storage_name, file.filename, metadata_only=True
         )
         if (
             owner is None
@@ -259,6 +266,7 @@ def _read_attachment_item(service, current_actor, project, attachment, source, k
         with DbSession.use(readonly=False) as db:
             source = db.exec(
                 SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == owner.project_wiki_id)
+                .options(defer(ProjectWiki.content, raiseload=True))
             ).first()
         if source is None or source.project_id != project.id:
             return None
@@ -273,9 +281,9 @@ def read_board_cloud(
 ):
     """Bounded traversal over native attachments, with current exact authorization.
 
-    Recent means the first 20 visible files in immutable creation order. Counts
+    Recent means the first 20 visible items in immutable creation order. Counts
     remain unknown. Empty filtered pages may carry a continuation. Native project
-    assets retain persisted folders; all/recent contain attachments only.
+    assets retain persisted folders; all/recent include stored hyperlinks.
     """
     if view not in {"all", "recent", "files", "media", "links"}:
         raise ValueError("Unsupported cloud view")
@@ -285,6 +293,10 @@ def read_board_cloud(
         from .BoardCloudLinks import read_board_links
 
         return read_board_links(service, project, context, current_actor, channel, limit=limit, cursor=cursor)
+    if view in {"all", "recent"}:
+        from .BoardCloudLinks import read_board_mixed
+
+        return read_board_mixed(service, project, context, current_actor, channel, view=view, limit=limit, cursor=cursor)
     scope = _cursor_scope(actor, project, channel, view)
     state = _decode_cursor(cursor, scope) if cursor else {"after": None, "remaining": 20, "issued": int(time())}
     after, remaining = state["after"], state["remaining"]
@@ -351,6 +363,6 @@ def read_board_cloud(
             "upload": service.project_attachment.can_upload(current_actor, project),
             "replace": True,
             "links_view": True,
-            "all_recent": "attachments_only",
+            "all_recent": "attachments_and_links",
         },
     }

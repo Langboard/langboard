@@ -128,7 +128,7 @@ def test_same_name_independent_sources_and_virtual_folders(cloud):
         f"/board/{cloud.project.get_uid()}/wiki/{cloud.wiki.get_uid()}",
     }
     assert {item["folder_id"] for item in data["items"]} == {"inbox", "documents", "media"}
-    assert data["capabilities"]["hyperlinks"] is False
+    assert data["capabilities"]["hyperlinks"] is True
 
 
 def test_visible_filters_pagination_and_recent_policy(cloud):
@@ -270,7 +270,7 @@ def test_native_route_preserves_actor_channel_and_projection(cloud):
 def test_current_attachment_parent_cannot_drift_into_another_source(cloud, monkeypatch):
     owner = cloud.service.card_attachment.resolve_file_owner
 
-    def moved(*args):
+    def moved(*args, **kwargs):
         row = owner(*args)
         if row is not None:
             row.card_id += 99
@@ -285,8 +285,8 @@ def test_current_attachment_parent_cannot_drift_into_another_source(cloud, monke
 def test_wiki_title_and_project_are_current_after_native_resolution(cloud, monkeypatch):
     resolver = cloud.service.project_wiki.resolve_readable_file
 
-    def renamed(*args):
-        owner = resolver(*args)
+    def renamed(*args, **kwargs):
+        owner = resolver(*args, **kwargs)
         with cloud.engine.begin() as db:
             db.execute(update(ProjectWiki).values(title="Current title"))
         return owner
@@ -299,8 +299,8 @@ def test_wiki_title_and_project_are_current_after_native_resolution(cloud, monke
 def test_wiki_attachment_cannot_move_to_another_source(cloud, monkeypatch):
     resolver = cloud.service.project_wiki.resolve_readable_file
 
-    def moved(*args):
-        owner = resolver(*args)
+    def moved(*args, **kwargs):
+        owner = resolver(*args, **kwargs)
         if owner is not None:
             owner.project_wiki_id += 99
         return owner
@@ -401,13 +401,13 @@ def test_recent_allowance_across_pages_is_20(cloud):
 
 @pytest.mark.parametrize("change", ["tamper", "expiry", "view", "channel", "project", "actor"])
 def test_scoped_authenticated_cursor_rejects_replay(cloud, monkeypatch, change):
-    import langboard.apps.BoardCloud as app
-
     cursor = read(cloud, limit=1)["next_cursor"]
     if change == "tamper":
         cursor = cursor[:10] + ("A" if cursor[10] != "A" else "B") + cursor[11:]
     elif change == "expiry":
-        monkeypatch.setattr(app, "time", lambda: 9999999999)
+        from langboard.apps import BoardCloudLinks
+
+        monkeypatch.setattr(BoardCloudLinks, "time", lambda: 9999999999)
     kwargs = dict(channel=CollaborationChannel.HumanUI, cursor=cursor)
     actor, project = cloud.actor, cloud.project
     if change == "view":
@@ -443,10 +443,10 @@ def test_current_grants_and_source_revocation_apply_between_pages(cloud):
 def test_card_title_is_current_and_foreign_wiki_drift_is_denied(cloud, monkeypatch):
     resolver = cloud.service.card.resolve_readable_card
 
-    def renamed(*args):
+    def renamed(*args, **kwargs):
         with cloud.engine.begin() as db:
             db.execute(update(Card).values(title="Current card title"))
-        return resolver(*args)
+        return resolver(*args, **kwargs)
 
     monkeypatch.setattr(cloud.service.card, "resolve_readable_card", renamed)
     assert all(
@@ -458,8 +458,8 @@ def test_card_title_is_current_and_foreign_wiki_drift_is_denied(cloud, monkeypat
         foreign = Project(owner_id=cloud.other.id, title="Foreign")
         db.insert(foreign)
 
-    def moved(*args):
-        attachment = wiki_resolver(*args)
+    def moved(*args, **kwargs):
+        attachment = wiki_resolver(*args, **kwargs)
         with cloud.engine.begin() as db:
             db.execute(update(ProjectWiki).values(project_id=foreign.id))
         return attachment

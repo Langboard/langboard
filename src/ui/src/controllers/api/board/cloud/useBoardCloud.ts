@@ -32,7 +32,7 @@ export interface CloudPage {
     recent_limit: number;
     has_more: boolean;
     next_cursor: string | null;
-    capabilities: { hyperlinks: boolean; upload: boolean; replace: boolean; all_recent?: "attachments_only" };
+    capabilities: { hyperlinks: boolean; upload: boolean; replace: boolean; all_recent?: "attachments_only" | "attachments_and_links" };
     limitations?: { reason: "source_too_large"; source: CloudItem["source"] }[];
     limitation_count?: number;
 }

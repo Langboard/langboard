@@ -210,7 +210,7 @@ test("saved links use native tree, list, grid and card/wiki navigation without r
     await expect(links.getByRole("link", { name: "Saved card", exact: true })).toHaveAttribute("href", "https://external.invalid/card");
     await expect(links.getByRole("link", { name: "Saved card", exact: true })).toHaveAttribute("rel", "noopener noreferrer");
     await expect(links.getByRole("link", { name: "Saved card", exact: true })).toHaveAttribute("target", "_blank");
-    await expect(page.getByText("All and Recent show attachments only", { exact: false })).toBeVisible();
+    await expect(page.getByText("no remote content is fetched", { exact: false })).toBeVisible();
     await page.getByLabel("Folders").getByRole("button", { name: "Links", exact: true }).click();
     await expect(page.getByLabel("Folders").getByRole("button", { name: "Saved wiki", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Grid", exact: true }).click();
@@ -805,3 +805,34 @@ test("compact panel and responsive grid retain bounded late-item access", async 
         expect(await collection.getByRole("listitem").count()).toBeLessThan(100);
     }
 });
+
+for (const category of ["All", "Recent"]) {
+    test(`mixed ${category} view includes file and link folders across pages`, async ({ page }) => {
+        await page.route("**/board/*/cloud?**", (route) => {
+            const query = new URL(route.request().url()).searchParams;
+            const more = !!query.get("cursor");
+            return route.fulfill({
+                json: {
+                    ...response(more ? [link("wiki", true)] : [item("report"), link("card")], more ? null : "mixed-next"),
+                    folders: [...response().folders, { id: "links", name: "Links" }],
+                    capabilities: { hyperlinks: true, upload: false, replace: false, all_recent: "attachments_and_links" },
+                },
+            });
+        });
+        await page.goto(fixture);
+        await page.getByLabel("Categories").getByRole("button", { name: category, exact: true }).click();
+        const list = page.getByRole("list", { name: "Cloud items", exact: true });
+        await expect(list.getByText("report.pdf", { exact: true })).toBeVisible();
+        await expect(list.getByRole("link", { name: "Saved card", exact: true })).toBeVisible();
+        await expect(page.getByText("2 loaded items", { exact: true })).toBeVisible();
+        await expect(page.getByText("Project files, readable card and wiki attachments, and saved links.", { exact: false })).toBeVisible();
+        await page.getByRole("button", { name: "Load more", exact: true }).click();
+        await expect(list.getByRole("link", { name: "Saved wiki", exact: true })).toBeVisible();
+        await expect(page.getByText("3 loaded items", { exact: true })).toBeVisible();
+        await page.getByLabel("Folders").getByRole("button", { name: "Links", exact: true }).click();
+        await expect(list.getByText("report.pdf", { exact: true })).toHaveCount(0);
+        await expect(list.getByRole("link")).toHaveCount(2);
+        await page.getByRole("button", { name: "Grid", exact: true }).click();
+        await expect(list).toHaveAttribute("data-layout", "grid");
+    });
+}

@@ -26,7 +26,7 @@
   "Load more": "Load more",
   "Source": "Source",
   "Links": "链接",
-  "Read only links": "可读卡片和维基正文中保存的HTTP和HTTPS链接。在外部页面打开，不抓取远程内容。全部和最近仅显示附件。",
+  "Read only links": "可读卡片和维基正文中保存的HTTP和HTTPS链接。在外部页面打开，不抓取远程内容。",
   "Loaded links": "已加载 {{count}} 个链接",
   "No links in loaded pages": "已检查的来源中没有链接。可继续加载以查看更多。",
   "No links": "已检查的来源中没有链接。",
@@ -56,5 +56,8 @@
   "Search document": "搜索文档",
   "Document matches": "文档匹配结果",
   "No document matches": "没有匹配的文档摘录。",
-  "Document pages": "页码：{{pages}}"
+  "Document pages": "页码：{{pages}}",
+  "Read mixed sources": "项目文件、可读卡片和维基附件以及保存的链接。上传到收件箱或所选默认文件夹。",
+  "Loaded items": "已加载 {{count}} 个项目",
+  "Cloud items": "云项目"
 }

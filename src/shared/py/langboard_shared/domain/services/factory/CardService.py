@@ -10,7 +10,7 @@ from typing import Any, Literal, Sequence, cast, overload
 from sqlalchemy import Text, func, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import defer, load_only
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -378,16 +378,17 @@ class CardService(BaseDomainService):
         card: TCardParam | None,
         user: TUserOrBot | None,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        *,
+        metadata_only: bool = False,
     ) -> tuple[Project, Card, CardVisibilityContext] | None:
-        """Revalidate direct IDs and cached rows before exposing any card section."""
+        """Revalidate direct IDs and cached rows; metadata projections forbid body loading."""
         if card is None:
             return None
+        query = SqlBuilder.select.table(Card).where(Card.id == InfraHelper.convert_id(card))
+        if metadata_only:
+            query = query.options(defer(Card.description, raiseload=True), defer(Card.ai_description, raiseload=True))
         with DbSession.use(readonly=False) as db:
-            current = db.exec(
-                SqlBuilder.select.table(Card)
-                .where(Card.id == InfraHelper.convert_id(card))
-                .execution_options(populate_existing=True)
-            ).first()
+            current = db.exec(query.execution_options(populate_existing=True)).first()
         if current is None or current.deleted_at is not None:
             return None
         resolved = self.resolve_visibility_context(

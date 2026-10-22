@@ -26,7 +26,7 @@
   "Load more": "더 불러오기",
   "Source": "출처",
   "Links": "링크",
-  "Read only links": "열람 가능한 카드와 위키 본문의 HTTP·HTTPS 링크입니다. 외부 페이지로 열리며 원격 내용은 수집하지 않습니다. 전체·최근에는 첨부 파일만 표시됩니다.",
+  "Read only links": "열람 가능한 카드와 위키 본문의 HTTP·HTTPS 링크입니다. 외부 페이지로 열리며 원격 내용은 수집하지 않습니다.",
   "Loaded links": "불러온 링크 {{count}}개",
   "No links in loaded pages": "확인한 출처에 링크가 없습니다. 더 불러와 확인할 수 있습니다.",
   "No links": "확인한 출처에 링크가 없습니다.",
@@ -56,5 +56,8 @@
   "Search document": "문서 검색",
   "Document matches": "문서 검색 결과",
   "No document matches": "일치하는 문서 내용이 없습니다.",
-  "Document pages": "페이지: {{pages}}"
+  "Document pages": "페이지: {{pages}}",
+  "Read mixed sources": "프로젝트 파일, 열람 가능한 카드·위키 첨부와 저장된 링크입니다. 업로드는 인박스 또는 선택한 기본 폴더에 저장됩니다.",
+  "Loaded items": "불러온 항목 {{count}}개",
+  "Cloud items": "클라우드 항목"
 }
