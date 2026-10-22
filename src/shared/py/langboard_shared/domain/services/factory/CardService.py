@@ -668,6 +668,7 @@ class CardService(BaseDomainService):
                         project,
                         [card],
                         include_content=include_description,
+                        **({"channel": channel} if channel != CollaborationChannel.Api else {}),
                     )[card.get_uid()],
                 }
             )
@@ -808,7 +809,10 @@ class CardService(BaseDomainService):
         cards = []
         linked_cards = [card for card, _ in raw_cards if getattr(card, "is_linked_resource", False)]
         resource_payloads = (
-            self._get_linked_resource_payloads(user_or_bot, project, linked_cards, include_content=False)
+            self._get_linked_resource_payloads(
+                user_or_bot, project, linked_cards, include_content=False,
+                **({"channel": channel} if channel != CollaborationChannel.Api else {}),
+            )
             if linked_cards
             else {}
         )
@@ -918,6 +922,7 @@ class CardService(BaseDomainService):
         cards: Sequence[Card],
         *,
         include_content: bool,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> dict[str, dict[str, Any]]:
         payloads: dict[str, dict[str, Any]] = {
             card.get_uid(): {
@@ -928,6 +933,15 @@ class CardService(BaseDomainService):
             for card in cards
             if card.source_type is not None and card.source_uid is not None
         }
+        from ..CardCrossBoardOperations import project_card_payloads
+
+        payloads.update(
+            project_card_payloads(
+                self, user_or_bot,
+                [card for card in cards if card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD],
+                include_content=include_content, channel=channel, destination_project=project,
+            )
+        )
         wiki_cards = [
             card
             for card in cards
@@ -987,6 +1001,14 @@ class CardService(BaseDomainService):
             payloads[card.get_uid()] = payload
 
         return payloads
+
+    def link_cross_board_card(
+        self, user, source_project, source_card, project, column,
+        *, channel: CollaborationChannel = CollaborationChannel.Api,
+    ):
+        from ..CardCrossBoardOperations import link_card
+
+        return link_card(self, user, source_project, source_card, project, column, channel=channel)
 
     def create_linked_wiki_card(
         self,
@@ -1127,7 +1149,10 @@ class CardService(BaseDomainService):
             api_cards.append(api_card)
 
         for project, linked_cards, linked_api_cards in linked_resources_by_project.values():
-            payloads = self._get_linked_resource_payloads(user, project, linked_cards, include_content=False)
+            payloads = self._get_linked_resource_payloads(
+                user, project, linked_cards, include_content=False,
+                **({"channel": channel} if channel != CollaborationChannel.Api else {}),
+            )
             for card, api_card in zip(linked_cards, linked_api_cards, strict=True):
                 api_card["linked_resource"] = payloads[card.get_uid()]
 
@@ -1152,6 +1177,7 @@ class CardService(BaseDomainService):
             project,
             [card for card, _ in records if card.is_linked_resource],
             include_content=False,
+            **({"channel": channel} if channel != CollaborationChannel.Api else {}),
         )
         blocks_by_card = self._get_service(CardContentBlockService).api_blocks_by_cards(
             [card.id for card, _ in records]
@@ -1427,6 +1453,7 @@ class CardService(BaseDomainService):
             project,
             [card for card, _ in page if card.is_linked_resource],
             include_content=False,
+            **({"channel": channel} if channel != CollaborationChannel.Api else {}),
         )
         work_states = self.get_work_states([card for card, _ in page], context=context)
         cards: list[dict[str, Any]] = []
@@ -1590,6 +1617,8 @@ class CardService(BaseDomainService):
         if not params:
             return None
         project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         if not self.is_check_card(card):
             return False
@@ -1789,6 +1818,8 @@ class CardService(BaseDomainService):
         if not params:
             return None
         project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         selected_markdown = selected_markdown.strip()
         if not selected_markdown:
@@ -1867,6 +1898,8 @@ class CardService(BaseDomainService):
         if not params:
             return None
         project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         markdown = card.description.content or ""
         pattern = re.compile(r"^[\t ]*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s+(.+)$", re.MULTILINE)
@@ -1955,6 +1988,8 @@ class CardService(BaseDomainService):
         if not params:
             return None
         project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         selected_markdown = selected_markdown.strip()
         if not selected_markdown:
@@ -2046,6 +2081,8 @@ class CardService(BaseDomainService):
             if resolved is None:
                 return None
             project, current, context = resolved
+            if current.source_type == Card.LINKED_RESOURCE_PROJECT_CARD:
+                return None
             actor = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
             role = db.exec(
                 SqlBuilder.select.table(ProjectRole).where(
@@ -2202,6 +2239,10 @@ class CardService(BaseDomainService):
             ).first()
             if card is None:
                 return None
+            if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+                target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
+                if target is None or not target.is_archive:
+                    return None
             family = self._root_move_family(db, project, card, new_column)
             if family:
                 descendants, revision = family
@@ -2391,6 +2432,10 @@ class CardService(BaseDomainService):
             ).first()
             if card is None or card.deleted_at is not None:
                 return None
+            if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+                target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
+                if target is None or not target.is_archive:
+                    return None
             old_column = InfraHelper.get_by_id_like(ProjectColumn, card.project_column_id)
             if not old_column or old_column.project_id != project.id:
                 return None
@@ -2466,6 +2511,8 @@ class CardService(BaseDomainService):
         if not params:
             raise ValueError("Card not found in project")
         project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            raise ValueError("Card mirrors are read-only")
         member = self.repo.project_assigned_user.find_by_user_and_project(user, project)
         if member is None:
             raise ValueError("Current user must first be onboarded to this project")
@@ -2488,6 +2535,8 @@ class CardService(BaseDomainService):
         if not params:
             raise LookupError("Card not found in project")
         project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            raise ValueError("Card mirrors are read-only")
         assignee = InfraHelper.get_by_id_like(User, assignee_uid)
         if assignee is None or assignee.deleted_at is not None or assignee.activated_at is None:
             raise ValueError("Select an active member of this project")

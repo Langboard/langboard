@@ -9,6 +9,7 @@ from .ProjectColumn import ProjectColumn
 
 class Card(BaseNotificationScheduleModel, table=True):
     LINKED_RESOURCE_PROJECT_WIKI: ClassVar[str] = "project_wiki"
+    LINKED_RESOURCE_PROJECT_CARD: ClassVar[str] = "project_card"
 
     created_by_user_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
     created_by_bot_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)

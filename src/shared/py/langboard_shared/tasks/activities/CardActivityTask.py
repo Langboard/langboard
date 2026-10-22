@@ -100,3 +100,15 @@ async def card_deleted(user_or_bot: User | Bot, project: Project, card: Card):
         user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardDeleted, project, card)
     )
     record_project_activity(user_or_bot, activity)
+
+
+def record_card_linked(user: User, project: Project, mirror: Card, source_project: Project, source: Card):
+    """Persist only source identity, never private source content, with the reference transaction."""
+    helper = ActivityTaskHelper(ProjectActivity)
+    return helper.record(
+        user,
+        {"source": {"type": Card.LINKED_RESOURCE_PROJECT_CARD, "uid": source.get_uid(),
+                    "project_uid": source_project.get_uid(),
+                    "url": f"/board/{source_project.get_uid()}/{source.get_uid()}"}},
+        **helper.get_card_activity_params(ProjectActivityType.CardLinked, project, mirror),
+    )

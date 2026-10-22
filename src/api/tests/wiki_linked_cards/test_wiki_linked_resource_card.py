@@ -233,6 +233,15 @@ def test_archive_and_archive_column_drop_delete_only_the_link(monkeypatch: pytes
 
     monkeypatch.setattr(module, "execution_readiness_uow", execution)
 
+    @contextmanager
+    def transaction():
+        with execution() as unit:
+            yield unit.db
+
+    monkeypatch.setattr(module.DbSession, "atomic", transaction)
+    service._root_move_family = lambda *args: None
+    service._change_order = lambda *args: CardService._change_order(service, *args)
+
     with pytest.raises(CardDeleteForbidden, match="original card author or an administrator"):
         CardService.archive(service, actor, project, card)
     with pytest.raises(CardDeleteForbidden, match="original card author or an administrator"):
@@ -325,6 +334,15 @@ def test_regular_column_move_keeps_linked_card_movable(monkeypatch: pytest.Monke
                               watch_card_and_dependents=watched)
 
     monkeypatch.setattr(module, "execution_readiness_uow", execution)
+
+    @contextmanager
+    def transaction():
+        with execution() as unit:
+            yield unit.db
+
+    monkeypatch.setattr(module.DbSession, "atomic", transaction)
+    service._root_move_family = lambda *args: None
+    service._change_order = lambda *args: CardService._change_order(service, *args)
 
     actor = User.model_construct(id=1)
     assert CardService.change_order(service, actor, project, card, 0, destination) is True

@@ -60,6 +60,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         resolved_type = ContentBlockType(block_type)
         normalized = build_payload(resolved_type, payload)
@@ -109,6 +111,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         block = self.repo.card_content_block.get_by_uid_card(block_uid, card)
         if not block:
@@ -137,6 +141,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         block = self.repo.card_content_block.get_by_uid_card(block_uid, card)
         if not block:
@@ -165,6 +171,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         siblings = self.repo.card_content_block.get_all_by_card(card)
         uid_list = [b.get_uid() for b in siblings]
@@ -214,6 +222,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return []
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return []
 
         for entry in blocks:
             resolved_type = ContentBlockType(entry["block_type"])
@@ -259,6 +269,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         if self.repo.card_content_block.get_all_by_card(card):
             return []  # already migrated
