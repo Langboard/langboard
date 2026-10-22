@@ -2,6 +2,7 @@
 
 import os
 from contextlib import contextmanager
+from itertools import count
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
@@ -41,6 +42,7 @@ def title_board(request, monkeypatch):
             models.Project,
             models.ProjectColumn,
             models.Card,
+            models.CardChangeReceipt,
             models.GlobalLabel,
             models.ProjectLabel,
             models.CardAssignedProjectLabel,
@@ -69,7 +71,8 @@ def title_board(request, monkeypatch):
     monkeypatch.setattr(CardActivityTask, "card_updated", lambda *args: effects.append("activity"))
     monkeypatch.setattr(CardBotTask, "card_updated", lambda *args: effects.append("bot"))
     monkeypatch.setattr(service.card, "sync_completion_checkitem_title", lambda *args: None)
-    monkeypatch.setattr(service.card, "next_change_seq", lambda: 1)
+    change_sequences = count(1)
+    monkeypatch.setattr(service.card, "next_change_seq", lambda: next(change_sequences))
     monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args: CardVisibility.Internal)
     monkeypatch.setattr(service.card, "_card_creator_projection", lambda *args: None)
 
