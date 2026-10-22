@@ -56,7 +56,7 @@ class InternalBotService(BaseDomainService):
     @staticmethod
     def _require_compaction_platform(platform, running_type, api_url):
         if platform != BotPlatform.Default or running_type != BotPlatformRunningType.Default or api_url:
-            raise ValueError("Comment compaction requires the native provider binding")
+            raise ValueError("This internal role requires the native provider binding")
 
     def is_document_embedding_enabled(self) -> bool:
         binding = self.get_document_embedding_binding()
@@ -129,8 +129,12 @@ class InternalBotService(BaseDomainService):
         avatar: FileModel | None = None,
         is_default: bool = False,
     ) -> InternalBot:
-        if bot_type == InternalBotType.CommentCompaction:
+        if bot_type in (InternalBotType.CommentCompaction, InternalBotType.AvatarSummary):
             self._require_compaction_platform(platform, platform_running_type, api_url)
+        if bot_type == InternalBotType.AvatarSummary:
+            from ....ai.avatar_summary import model_settings
+
+            model_settings(value)
         if bot_type == InternalBotType.ImageGeneration:
             self._require_image_transaction_owner()
             from ....ai.image_generation import prepare_image_binding
@@ -197,8 +201,12 @@ class InternalBotService(BaseDomainService):
         if not internal_bot:
             return None
 
+        if internal_bot.bot_type == InternalBotType.AvatarSummary:
+            from ....ai.avatar_summary import model_settings
+
+            model_settings(form.get("value") if form.get("value") is not None else internal_bot.value)
         previous_locator = internal_bot.api_key
-        if internal_bot.bot_type == InternalBotType.CommentCompaction:
+        if internal_bot.bot_type in (InternalBotType.CommentCompaction, InternalBotType.AvatarSummary):
             self._require_compaction_platform(
                 form.get("platform") or internal_bot.platform,
                 form.get("platform_running_type") or internal_bot.platform_running_type,
@@ -290,6 +298,11 @@ class InternalBotService(BaseDomainService):
         if internal_bot.bot_type == InternalBotType.ImageGeneration:
             self._require_image_transaction_owner()
             self._persist_image(internal_bot, "delete", internal_bot.api_key)
+            return True
+
+        if internal_bot.bot_type == InternalBotType.AvatarSummary:
+            self.repo.internal_bot.delete(internal_bot)
+            InternalBotPublisher.deleted(internal_bot)
             return True
 
         default_internal_bot = self.repo.internal_bot.get_default_by_type(internal_bot.bot_type)

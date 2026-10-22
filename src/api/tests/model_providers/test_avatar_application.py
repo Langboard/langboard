@@ -24,7 +24,14 @@ from langboard_shared.core.security import KeyVault
 from langboard_shared.core.security.vault.LocalDevVaultProvider import LocalDevVaultProvider
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
-from langboard_shared.domain.models import Card, InternalBot, SettingRole, UserProfile
+from langboard_shared.domain.models import (
+    Card,
+    CardAssignedProjectLabel,
+    InternalBot,
+    ProjectLabel,
+    SettingRole,
+    UserProfile,
+)
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
@@ -54,7 +61,7 @@ def raster(color="blue"):
 @pytest.fixture
 def avatars(board, monkeypatch, tmp_path):
     engine = DbEngine.get_main_engine()
-    for model in (InternalBot, Card, UserProfile):
+    for model in (InternalBot, Card, UserProfile, ProjectLabel, CardAssignedProjectLabel):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "files"))
@@ -198,9 +205,10 @@ def test_profiles_and_prepared_context_never_transmit_private_material(avatars, 
         db.update(project)
     prepared = avatar.context(actor, project.get_uid())
     assert prepared["external_request"] is False
-    assert "active=1" in prepared["prompt"]
+    assert prepared["source_revision"] and prepared["sources"]
+    assert "secret-title-0" in json.dumps(prepared)
     serialized = json.dumps([profiles, prepared])
-    for sensitive in ("secret-title", "Private client", "never-expose", "private-vault", "images.example", "PRIVATE"):
+    for sensitive in ("secret-title-1", "secret-title-2", "never-expose", "private-vault", "images.example", "PRIVATE"):
         assert sensitive not in serialized
     assert calls == []
 
@@ -275,6 +283,7 @@ def avatar_http(avatars, monkeypatch):
         boards.restore_board_avatar,
         boards.board_avatar_profiles,
         boards.board_avatar_context,
+        boards.board_avatar_semantic_preview,
         boards.preview_board_avatar,
         bots.bot_avatar_profiles,
         bots.preview_bot_avatar,
@@ -625,3 +634,229 @@ def test_generated_bot_preview_is_explicitly_uploaded_and_persisted(avatar_http,
     reread = next(bot for bot in listed.json()["bots"] if bot["uid"] == created["uid"])
     assert reread["avatar"] == created["avatar"]
     assert service.bot.get_by_id_like(created["uid"]).avatar.path == created["avatar"]
+
+
+@pytest.fixture
+def semantic_avatar(avatars):
+    from langboard_shared.domain.models import CardAssignedProjectLabel, ProjectLabel
+    from langboard_shared.domain.services.factory.AvatarSummaryService import AvatarSummaryService
+
+    avatar, service, actor, project, role, _, folder, published = avatars
+    for model in (ProjectLabel, CardAssignedProjectLabel):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        binding = InternalBot(bot_type=InternalBotType.AvatarSummary, display_name="Semantic",
+            platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+            value=json.dumps({"agent_llm": "OpenAI", "model_name": "semantic-fixture", "api_key": "secret-fixture",
+                              "api_names": ["delete_board"], "system_prompt": "unsafe custom prompt"}))
+        db.insert(binding)
+        card = Card(project_id=project.id, project_column_id=40, visibility="SHARED", title="Robot navigation https://private.test api_key=hidden")
+        db.insert(card)
+        for options in ({"visibility": "PRIVATE", "owner_user_id": actor.id}, {"visibility": "INTERNAL"},
+                        {"archived_at": actor.created_at}, {"source_type": "project_wiki", "source_uid": "opaque"}):
+            db.insert(Card(project_id=project.id, project_column_id=40, created_by_user_id=actor.id, title="excluded-source", **options))
+        label = ProjectLabel(project_id=project.id, name="Robotics", color="#123456", description="Excluded body")
+        db.insert(label)
+        db.insert(CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id))
+    return AvatarSummaryService(service), actor, project, role, binding, card
+
+
+def test_semantic_context_is_bounded_readable_sanitized_and_dedicated(semantic_avatar):
+    summary, actor, project, _, binding, _ = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    assert context["external_request"] is False
+    assert context["profiles"] == [{"uid": binding.get_uid(), "display_name": "Semantic", "model_name": "semantic-fixture"}]
+    serialized = json.dumps(context)
+    assert all(value not in serialized for value in ("excluded-source", "private.test", "hidden", "secret-fixture", "delete_board", "Excluded body"))
+    assert any(source["text"] == "Robotics" for source in context["sources"])
+    assert sum(len(source["text"]) for source in context["sources"]) <= 5000
+    assert context == summary.context(actor, project.get_uid())
+    assert not InternalBotType.AvatarSummary.is_executable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["none", "source", "profile", "permission", "deactivation", "base"])
+async def test_semantic_selected_sources_and_final_fences(semantic_avatar, monkeypatch, change):
+    from langboard_shared.ai.avatar_summary import AvatarSummaryDraft
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, role, binding, card = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    selected = [source["id"] for source in context["sources"] if source["kind"] == "card_title"]
+    calls = []
+
+    async def generate(settings, snapshot, revision):
+        calls.append(snapshot)
+        assert set(settings) == {"agent_llm", "model_name", "api_key"}
+        assert [source.id for source in snapshot.sources] == selected
+        with DbSession.atomic() as db:
+            if change == "source":
+                card.title = "Changed title"
+                db.update(card)
+            elif change == "profile":
+                binding.value = binding.value.replace("semantic-fixture", "changed-model")
+                db.update(binding)
+            elif change == "permission":
+                role.actions = ["read"]
+                db.update(role)
+            elif change == "deactivation":
+                actor.activated_at = None
+                db.update(actor)
+            elif change == "base":
+                project.avatar_revision += 1
+                db.update(project)
+        return AvatarSummaryDraft(prompt="A navigation robot symbol", source_refs=selected)
+
+    monkeypatch.setattr(module, "request_avatar_summary", generate)
+    for ids, confirmed in ((selected, False), (selected * 2, True), (["foreign-source"], True), ([], True)):
+        with pytest.raises(AvatarError):
+            await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(), ids, confirmed)
+    assert calls == []
+    if change == "none":
+        result = await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(), selected, True)
+        assert result["external_request"] and result["prompt"] == "A navigation robot symbol"
+    else:
+        with pytest.raises(AvatarError) as rejected:
+            await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(), selected, True)
+        assert rejected.value.status in (403, 409)
+    assert len(calls) == 1
+
+
+def test_semantic_http_context_and_consent(avatar_http, monkeypatch):
+    from langboard_shared.ai.avatar_summary import AvatarSummaryDraft
+    from langboard_shared.domain.models import CardAssignedProjectLabel, ProjectLabel
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    client, identity, _, avatars = avatar_http
+    _, _, actor, project, _, _, _, _ = avatars
+    for model in (ProjectLabel, CardAssignedProjectLabel):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        binding = InternalBot(bot_type=InternalBotType.AvatarSummary, display_name="Summary",
+                              platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+                              value='{"agent_llm":"OpenAI","model_name":"fixture"}')
+        db.insert(binding)
+    calls = []
+    revoked = [False]
+    async def generate(settings, snapshot, revision):
+        calls.append(snapshot)
+        if revoked[0]:
+            identity["actor"] = 401
+        return AvatarSummaryDraft(prompt="A project symbol", source_refs=[source.id for source in snapshot.sources])
+    monkeypatch.setattr(module, "request_avatar_summary", generate)
+    base = f"/board/{project.get_uid()}/avatar"
+    context = client.post(base + "/context").json()
+    payload = {"source_revision": context["source_revision"], "profile_uid": binding.get_uid(),
+               "source_ids": [source["id"] for source in context["sources"]], "confirmed": False}
+    assert client.post(base + "/semantic-preview", json=payload).status_code == 400 and not calls
+    payload["confirmed"] = True
+    assert client.post(base + "/semantic-preview", json={**payload, "text": "client source"}).status_code == 400
+    response = client.post(base + "/semantic-preview", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["external_request"] is True and len(calls) == 1
+    revoked[0] = True
+    assert client.post(base + "/semantic-preview", json=payload).status_code == 403
+    assert len(calls) == 2
+    identity["actor"] = actor
+    identity["allowed"] = False
+    assert client.post(base + "/semantic-preview", json=payload).status_code == 403
+    assert len(calls) == 2
+
+
+def test_semantic_context_caps_titles_and_labels_and_never_uses_bodies(semantic_avatar):
+    summary, actor, project, _, binding, card = semantic_avatar
+    with DbSession.atomic() as db:
+        project.description = "d" * 2000
+        project.ai_description = "hidden-ai-body"
+        db.update(project)
+        for index in range(30):
+            db.insert(Card(project_id=project.id, project_column_id=40, visibility="SHARED", title="t" * 200 + str(index)))
+        for index in range(15):
+            label = ProjectLabel(project_id=project.id, name="l" * 80 + str(index), color="#123456", description="hidden-label-body")
+            db.insert(label)
+            db.insert(CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id))
+    context = summary.context(actor, project.get_uid())
+    assert len([source for source in context["sources"] if source["kind"] == "card_title"]) == 24
+    assert len([source for source in context["sources"] if source["kind"] == "label"]) <= 12
+    assert sum(len(source["text"]) for source in context["sources"]) <= 5000
+    for source in context["sources"]:
+        assert len(source["text"]) <= {"project_description": 1000, "label": 60}.get(source["kind"], 120)
+    assert "hidden-ai-body" not in json.dumps(context) and "hidden-label-body" not in json.dumps(context)
+
+
+def test_semantic_native_profile_validation_and_generic_execution_rejection(semantic_avatar):
+    from langboard_shared.ai.InternalBotGraphRequest import build_internal_bot_graph_request
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    summary, actor, project, _, binding, _ = semantic_avatar
+    service = InternalBotService(None, None, None)
+    with pytest.raises(ValueError):
+        service.create(InternalBotType.AvatarSummary, "Invalid", BotPlatform.Langflow, BotPlatformRunningType.Endpoint,
+                       value='{"agent_llm":"OpenAI","model_name":"fixture"}')
+    with pytest.raises(ValueError):
+        service.create(InternalBotType.AvatarSummary, "Missing model", BotPlatform.Default, BotPlatformRunningType.Default)
+    with pytest.raises(ValueError, match="not executable"):
+        build_internal_bot_graph_request(binding, actor, "run tools", "session", project.get_uid(), {})
+
+
+@pytest.mark.asyncio
+async def test_semantic_producer_authenticates_and_sends_only_selected_native_text(semantic_avatar, monkeypatch):
+    import httpx
+    from langboard_shared.ai.avatar_summary import AvatarSummarySnapshot
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, _, binding, _ = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    snapshot = AvatarSummarySnapshot(sources=[source for source in context["sources"] if source["kind"] == "card_title"])
+    seen = []
+    def handler(request):
+        seen.append(request)
+        payload = json.loads(request.content)
+        assert request.headers["Authorization"] == "Bearer local-service-fixture"
+        assert request.url.path == "/api/v1/graph/avatar/semantic-draft"
+        assert payload["sources"] == snapshot.model_dump()["sources"]
+        assert set(payload) == {"model_settings", "sources", "source_revision"}
+        assert "app_api_token" not in request.content.decode() and "delete_board" not in request.content.decode()
+        return httpx.Response(200, json={"generated": True, "source_revision": context["source_revision"],
+            "draft": {"prompt": "A navigation robot icon", "source_refs": [source.id for source in snapshot.sources]}})
+    original = httpx.AsyncClient
+    monkeypatch.setattr(module, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(module, "graph_service_headers", lambda: {"Authorization": "Bearer local-service-fixture"})
+    monkeypatch.setattr(type(Env), "DEFAULT_GRAPH_URL", property(lambda _: "http://internal-fixture"))
+    draft = await module.request_avatar_summary({"agent_llm": "OpenAI", "model_name": "fixture"}, snapshot, context["source_revision"])
+    assert draft.prompt == "A navigation robot icon" and len(seen) == 1
+
+
+def test_local_semantic_context_rechecks_authority_before_return(semantic_avatar, monkeypatch):
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, role, _, _ = semantic_avatar
+    original = module.profile_settings
+    def revoked(profile):
+        result = original(profile)
+        with DbSession.atomic() as db:
+            role.actions = ["read"]
+            db.update(role)
+        return result
+    monkeypatch.setattr(module, "profile_settings", revoked)
+    with pytest.raises(AvatarError) as denied:
+        summary.context(actor, project.get_uid())
+    assert denied.value.status == 403
+
+
+@pytest.mark.asyncio
+async def test_profile_change_between_review_rebuild_and_binding_read_never_transmits(semantic_avatar, monkeypatch):
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, _, binding, _ = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    original = InternalBotService.get_current_by_id_like
+    def changed(service, uid):
+        with DbSession.atomic() as db:
+            binding.value = binding.value.replace("semantic-fixture", "unreviewed-model")
+            db.update(binding)
+        return original(service, uid)
+    monkeypatch.setattr(InternalBotService, "get_current_by_id_like", changed)
+    calls = []
+    async def forbidden(*args):
+        calls.append(args)
+    monkeypatch.setattr(module, "request_avatar_summary", forbidden)
+    with pytest.raises(AvatarError) as rejected:
+        await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(),
+                              [source["id"] for source in context["sources"]], True)
+    assert rejected.value.status == 409 and not calls

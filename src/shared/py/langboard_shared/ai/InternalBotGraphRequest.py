@@ -34,6 +34,8 @@ def build_internal_bot_graph_request(
     tweaks: dict[str, Any] | None = None,
     file_path: str | None = None,
 ) -> dict[str, Any]:
+    if not bot.bot_type.is_executable:
+        raise ValueError("Internal bot role is not executable")
     if bot.platform != BotPlatform.Default or bot.platform_running_type != BotPlatformRunningType.Default:
         raise ValueError("Internal bot does not use the default Graph platform")
     if not session_id or not user.id:
@@ -137,6 +139,8 @@ def build_internal_bot_langflow_request(
     rest_data: dict[str, Any],
     file_path: str | None = None,
 ) -> dict[str, Any]:
+    if not bot.bot_type.is_executable:
+        raise ValueError("Internal bot role is not executable")
     if bot.platform != BotPlatform.Langflow or bot.platform_running_type != BotPlatformRunningType.Endpoint:
         raise ValueError("Internal bot does not use the Langflow endpoint platform")
     if not session_id or not user.id or not bot.api_url or not bot.value:

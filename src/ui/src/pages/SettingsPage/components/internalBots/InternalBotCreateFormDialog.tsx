@@ -53,7 +53,10 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
     };
     const [selectedType, setSelectedType] = useState<InternalBotModel.EInternalBotType>(InternalBotModel.EInternalBotType.ProjectChat);
     const isImageGeneration = selectedType === InternalBotModel.EInternalBotType.ImageGeneration;
-    const isNativeOnly = isImageGeneration || selectedType === InternalBotModel.EInternalBotType.CommentCompaction;
+    const isNativeOnly =
+        isImageGeneration ||
+        selectedType === InternalBotModel.EInternalBotType.CommentCompaction ||
+        selectedType === InternalBotModel.EInternalBotType.AvatarSummary;
     const [imageConfig, setImageConfig] = useState(defaultImageGenerationConfig);
     const [imageApiKey, setImageApiKey] = useState("");
     const [selectedPlatform, setSelectedPlatform] = useState<EBotPlatform>(EBotPlatform.Default);
@@ -195,10 +198,14 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
     }, [opened, selectedType, actor]);
 
     useEffect(() => {
-        if (selectedType === InternalBotModel.EInternalBotType.CommentCompaction) {
+        if ([InternalBotModel.EInternalBotType.CommentCompaction, InternalBotModel.EInternalBotType.AvatarSummary].includes(selectedType)) {
             setSelectedPlatform(EBotPlatform.Default);
             setSelectedPlatformRunningType(EBotPlatformRunningType.Default);
-            if (inputsRef.current.displayName && !inputsRef.current.displayName.value.trim()) {
+            if (
+                selectedType === InternalBotModel.EInternalBotType.CommentCompaction &&
+                inputsRef.current.displayName &&
+                !inputsRef.current.displayName.value.trim()
+            ) {
                 inputsRef.current.displayName.value = "컴팩터";
             }
         }
@@ -287,6 +294,9 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                             />
                         </Box>
                     )}
+                    {selectedType === InternalBotModel.EInternalBotType.AvatarSummary && (
+                        <p className="mt-4 text-sm">{t("internalBot.avatar.summary_configuration")}</p>
+                    )}
                     {isImageGeneration && (
                         <Box mt="4">
                             <ImageGenerationFields
@@ -330,7 +340,10 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                                 purpose={
                                     selectedType === InternalBotModel.EInternalBotType.DocumentEmbedding
                                         ? "embedding"
-                                        : selectedType === InternalBotModel.EInternalBotType.CommentCompaction
+                                        : [
+                                                InternalBotModel.EInternalBotType.CommentCompaction,
+                                                InternalBotModel.EInternalBotType.AvatarSummary,
+                                            ].includes(selectedType)
                                           ? "compaction"
                                           : "chat"
                                 }

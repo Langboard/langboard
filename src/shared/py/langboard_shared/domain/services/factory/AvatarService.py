@@ -6,7 +6,6 @@ from io import BytesIO
 from threading import BoundedSemaphore
 from uuid import uuid4
 from anyio import to_thread
-from sqlalchemy import case, func, select
 from ....ai.image_generation import (
     MAX_IMAGE_BYTES,
     binding_signature,
@@ -15,18 +14,15 @@ from ....ai.image_generation import (
     validate_image_config,
 )
 from ....core.db import DbSession, SqlBuilder
-from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.storage import Storage, StorageName
 from ....Env import Env
 from ....publishers import ProjectPublisher, UserPublisher
 from ....security import Auth, RoleFinder, RoleSecurity
-from ...models import Card, InternalBot, ProjectColumn, SettingRole, User
+from ...models import InternalBot, SettingRole, User
 from ...models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from ...models.InternalBot import InternalBotType
 from ...models.ProjectRole import ProjectRoleAction
 from ...models.SettingRole import SettingRoleAction
-from ..CardVisibilityPolicy import CardVisibility, card_visibility_scope
-from .CardService import CardService
 from .InternalBotService import InternalBotService
 from .WorkflowStageService import WorkflowStageService
 
@@ -136,48 +132,9 @@ class AvatarService:
         return {"preview_data_url": preview, "width": 512, "height": 512}
 
     def context(self, actor, project_uid):
-        board = self._target(actor, project_uid)
-        card_service = self.service._create_or_get_product(CardService)
-        resolved = card_service.resolve_visibility_context(board, actor, CollaborationChannel.HumanUI)
-        if resolved is None:
-            raise AvatarError("avatar_forbidden", 403)
-        _, visibility = resolved
-        stages = ("backlog", "ready", "active", "review", "closed")
-        stage = case((ProjectColumn.workflow_stage.in_(stages), ProjectColumn.workflow_stage), else_="unclassified")
-        with DbSession.use(readonly=False) as db:
-            rows = db.exec(
-                select(stage, func.count(Card.id))
-                .join(
-                    ProjectColumn,
-                    ProjectColumn.id == Card.project_column_id,
-                )
-                .where(
-                    Card.project_id == board.id,
-                    ProjectColumn.project_id == board.id,
-                    Card.deleted_at.is_(None),
-                    ProjectColumn.deleted_at.is_(None),
-                    Card.archived_at.is_(None),
-                    Card.visibility == CardVisibility.Shared.value,
-                    Card.source_type.is_(None),
-                    card_visibility_scope(visibility),
-                )
-                .group_by(stage)
-                .limit(6)
-            ).all()
-        counts = dict(rows)
-        prompt = (
-            "Design one simple centered symbolic icon with strong silhouette, flat geometric shapes, "
-            "high contrast and safe crop margins; no text, logos or faces. "
-            "Shared readable work progress counts: "
-            + ", ".join(f"{key}={counts[key]}" for key in sorted(counts))
-            + ". "
-            "Add the public domain or purpose before confirming external generation."
-        )
-        return {
-            "prompt": prompt,
-            "transmitted_fields": ["shared_readable_workflow_counts"],
-            "external_request": False,
-        }
+        from .AvatarSummaryService import AvatarSummaryService
+
+        return AvatarSummaryService(self.service).context(actor, project_uid)
 
     @staticmethod
     def _publish(target, state):

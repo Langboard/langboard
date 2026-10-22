@@ -207,7 +207,7 @@ const InternalBotValue = memo(() => {
                 purpose={
                     botType === EInternalBotType.DocumentEmbedding
                         ? "embedding"
-                        : botType === EInternalBotType.CommentCompaction
+                        : [EInternalBotType.CommentCompaction, EInternalBotType.AvatarSummary].includes(botType)
                           ? "compaction"
                           : "chat"
                 }

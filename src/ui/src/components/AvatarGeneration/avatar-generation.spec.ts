@@ -21,9 +21,22 @@ for (const width of [390, 1440]) {
             if (url.endsWith("/context"))
                 return route.fulfill({
                     json: {
-                        prompt: "A simple icon for 4 active workflow stages",
-                        transmitted_fields: ["shared_readable_workflow_counts"],
+                        source_revision: "reviewed-1",
+                        sources: [
+                            { id: "title", kind: "project_title", text: "Mountain navigation" },
+                            { id: "card", kind: "card_title", text: "Sensitive draft" },
+                        ],
+                        profiles: [{ uid: "summary", display_name: "Summary model", model_name: "text-model" }],
                         external_request: false,
+                    },
+                });
+            if (url.endsWith("/semantic-preview"))
+                return route.fulfill({
+                    json: {
+                        external_request: true,
+                        source_revision: "reviewed-1",
+                        profile_uid: "summary",
+                        prompt: "A mountain compass for navigation",
                     },
                 });
             if (url.endsWith("/restore")) {
@@ -64,17 +77,34 @@ for (const width of [390, 1440]) {
             if (board) {
                 const count = calls.filter((call) => call.url.endsWith("/preview")).length;
                 await dialog.getByRole("button", { name: "Prepare board summary", exact: true }).click();
-                await expect(prompt).toHaveValue("A simple icon for 4 active workflow stages");
+                await expect(dialog.getByText("Mountain navigation", { exact: true })).toBeVisible();
+                expect(calls.filter((call) => call.url.endsWith("/semantic-preview"))).toHaveLength(0);
                 expect(calls.filter((call) => call.url.endsWith("/preview"))).toHaveLength(count);
-                await expect(dialog.getByText(/Local aggregate summary/)).toBeVisible();
+                await dialog.getByRole("checkbox", { name: "Sensitive draft", exact: true }).uncheck();
+                await dialog.getByRole("combobox", { name: "Avatar summary profile", exact: true }).selectOption("summary");
+                const summarize = dialog.getByRole("button", { name: "Generate semantic icon prompt", exact: true });
+                await expect(summarize).toBeDisabled();
+                await dialog.getByRole("checkbox", { name: /Send exactly the checked text sources/ }).check();
+                await summarize.click();
+                await expect(prompt).toHaveValue("A mountain compass for navigation");
+                const semantic = calls.filter((call) => call.url.endsWith("/semantic-preview")).at(-1)!;
+                expect(JSON.parse(semantic.body)).toEqual({
+                    source_revision: "reviewed-1",
+                    profile_uid: "summary",
+                    source_ids: ["title"],
+                    confirmed: true,
+                });
+                await expect(dialog.getByRole("button", { name: "Generate with AI", exact: true })).toBeDisabled();
+                await dialog.getByRole("checkbox", { name: "Sensitive draft", exact: true }).check();
+                await expect(prompt).not.toHaveValue("A mountain compass for navigation");
             }
             await prompt.fill("A blue simple geometric mountain icon");
-            const consent = dialog.getByRole("checkbox").first();
+            const consent = dialog.getByRole("checkbox", { name: /Send this prompt to the selected external image provider/ });
             const generate = dialog.getByRole("button", { name: "Generate with AI", exact: true });
             await expect(generate).toBeDisabled();
             await consent.check();
             await generate.click();
-            await expect(dialog.getByRole("img")).toHaveCount(6);
+            await expect(dialog.locator("img")).toHaveCount(6);
             await expect(consent).not.toBeChecked();
             await expect(generate).toBeDisabled();
             const previewCall = calls.filter((call) => call.url.endsWith("/preview")).at(-1)!;
@@ -89,11 +119,11 @@ for (const width of [390, 1440]) {
             await dialog.getByRole("button", { name: "Apply generated avatar", exact: true }).click();
             if (!board) {
                 await expect(dialog.getByRole("alert")).toContainText("Could not complete");
-                await expect(dialog.getByRole("img")).toHaveCount(6);
+                await expect(dialog.locator("img")).toHaveCount(6);
                 failApply = false;
                 await dialog.getByRole("button", { name: "Apply generated avatar", exact: true }).click();
             }
-            await expect(dialog.getByRole("img")).toHaveCount(0);
+            await expect(dialog.locator("img")).toHaveCount(0);
             const applied = calls.filter((call) => call.method === "PUT" && call.url.endsWith("/avatar")).at(-1)!;
             expect(applied.body).toMatch(/name="expected_revision"/);
             expect(applied.body).toMatch(/filename="generated-avatar.png"/);
@@ -164,17 +194,17 @@ test("unconfigured nonadmin, stale revision, cancellation and authority changes"
     const choose = dialog.getByRole("combobox", { name: "Image profile", exact: true });
     await choose.selectOption("profile");
     const prompt = dialog.getByRole("textbox", { name: "Prompt sent to the selected model", exact: true });
-    const consent = dialog.getByRole("checkbox").first();
+    const consent = dialog.getByRole("checkbox", { name: /Send this prompt to the selected external image provider/ });
     const generate = dialog.getByRole("button", { name: "Generate with AI", exact: true });
     await prompt.fill("Retain unsaved prompt");
     await consent.check();
     await generate.click();
-    await expect(dialog.getByRole("img")).toHaveCount(6);
+    await expect(dialog.locator("img")).toHaveCount(6);
     conflict = true;
     await dialog.getByRole("button", { name: "Apply generated avatar", exact: true }).click();
     await expect(dialog.getByRole("alert")).toContainText("Current state was refreshed");
     await expect(prompt).toHaveValue("Retain unsaved prompt");
-    await expect(dialog.getByRole("img")).toHaveCount(0);
+    await expect(dialog.locator("img")).toHaveCount(0);
     expect(putCalls).toBe(1);
     hold = true;
     for (const action of ["cancel", "Toggle permission", "Switch actor"]) {
@@ -193,7 +223,7 @@ test("unconfigured nonadmin, stale revision, cancellation and authority changes"
                 .dispatchEvent("click");
         }
         release?.();
-        await expect(dialog.getByRole("img")).toHaveCount(0);
+        await expect(dialog.locator("img")).toHaveCount(0);
         await expect(consent).not.toBeChecked();
         if (action === "Toggle permission")
             await page
@@ -262,3 +292,96 @@ for (const roles of ["missing", "granted"]) {
         expect(errors).toEqual([]);
     });
 }
+
+test("semantic response is rejected after live summary profile changes", async ({ page }) => {
+    let release: (() => void) | undefined;
+    let sent = 0;
+    await page.route("**/*", async (route) => {
+        if (!["fetch", "xhr"].includes(route.request().resourceType())) return route.continue();
+        const url = new URL(route.request().url()).pathname;
+        if (url.endsWith("/image-profiles"))
+            return route.fulfill({ json: { profiles: [{ uid: "profile", display_name: "Images", model_name: "image-model" }] } });
+        if (url.endsWith("/context"))
+            return route.fulfill({
+                json: {
+                    external_request: false,
+                    source_revision: "r1",
+                    sources: [{ id: "title", kind: "project_title", text: "Reviewed board text" }],
+                    profiles: [{ uid: "summary", display_name: "Summary model", model_name: "text-model" }],
+                },
+            });
+        if (url.endsWith("/semantic-preview")) {
+            sent++;
+            await new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            return route
+                .fulfill({ json: { external_request: true, source_revision: "r1", profile_uid: "summary", prompt: "Stale semantic output" } })
+                .catch(() => undefined);
+        }
+        if (url.endsWith("/avatar")) return route.fulfill({ json: { avatar: null, previous_avatar: null, avatar_revision: 0, can_restore: false } });
+        return route.fulfill({ json: { oidc_enabled: false } });
+    });
+    await page.goto(fixture);
+    await page.getByRole("button", { name: "Toggle target", exact: true }).click();
+    await page.getByRole("button", { name: "Generate with AI", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Prepare board summary", exact: true }).click();
+    await dialog.getByRole("combobox", { name: "Avatar summary profile", exact: true }).selectOption("summary");
+    await dialog.getByRole("checkbox", { name: /Send exactly the checked text sources/ }).check();
+    await dialog.getByRole("button", { name: "Generate semantic icon prompt", exact: true }).click();
+    await expect.poll(() => sent).toBe(1);
+    await page
+        .locator("nav button")
+        .filter({ hasText: /^Change summary profile$/ })
+        .dispatchEvent("click");
+    release?.();
+    await expect(dialog.getByRole("textbox", { name: "Prompt sent to the selected model", exact: true })).not.toHaveValue("Stale semantic output");
+    await expect(dialog.getByRole("combobox", { name: "Avatar summary profile", exact: true })).toHaveCount(0);
+    await expect(dialog.locator("img")).toHaveCount(0);
+});
+
+test("avatar summary configuration uses only native provider settings", async ({ page }) => {
+    let submitted: Record<string, string> | undefined;
+    await page.route("**/*", async (route) => {
+        if (!["fetch", "xhr"].includes(route.request().resourceType())) return route.continue();
+        if (new URL(route.request().url()).pathname.endsWith("/settings/internal-bot") && route.request().method() === "POST") {
+            const body = new Uint8Array(route.request().postDataBuffer()!);
+            const fields = await new Response(body.buffer, { headers: { "content-type": route.request().headers()["content-type"] } }).formData();
+            submitted = Object.fromEntries([...fields.entries()].filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+            return route.fulfill({ status: 201, json: { internal_bot: { uid: "created-summary" } } });
+        }
+        return route.fulfill({ json: { apis: {}, api_comfort_tools: [] } });
+    });
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await page.goto("/src/pages/SettingsPage/components/internalBots/provider-role.fixture.html");
+    await page.getByRole("button", { name: "Open creation", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog
+        .getByRole("combobox")
+        .filter({ hasText: /Select a platform\*?$/ })
+        .click();
+    await page.getByRole("option", { name: "N8N", exact: true }).click();
+    await dialog.getByRole("combobox").filter({ hasText: "Select a type" }).click();
+    await page.getByRole("option", { name: "Avatar summary", exact: true }).click();
+    await expect(dialog.getByRole("combobox").filter({ hasText: "Select a platform" })).toHaveCount(0);
+    await expect(dialog.getByRole("combobox").filter({ hasText: "Select a running type" })).toHaveCount(0);
+    await expect(dialog.getByText("Comfort tools", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText("System prompt", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("textbox", { name: "Internal bot display name*", exact: true })).toHaveValue("");
+    await dialog.getByRole("textbox", { name: "Internal bot display name*", exact: true }).fill("Reviewed avatar summary");
+    await dialog.getByRole("combobox").filter({ hasText: "Select a provider" }).click();
+    await page.getByRole("option", { name: "OpenAI Compatible", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "Base URL*", exact: true }).fill("https://summary.example.test/v1");
+    await dialog.getByRole("textbox", { name: "API key*", exact: true }).fill("fixture-summary-key");
+    await dialog.getByRole("textbox", { name: "Model*", exact: true }).fill("explicit-summary-model");
+    await dialog.getByRole("button", { name: "Create", exact: true }).click();
+    await expect.poll(() => submitted?.bot_type).toBe("avatar_summary");
+    expect(submitted?.platform).toBe("default");
+    expect(submitted?.platform_running_type).toBe("default");
+    const config = JSON.parse(submitted!.value);
+    expect(config.agent_llm).toBe("OpenAI Compatible");
+    expect(config.model_name).toBe("explicit-summary-model");
+    expect(config.api_names ?? []).toEqual([]);
+    await expect(dialog).toHaveCount(0);
+});
