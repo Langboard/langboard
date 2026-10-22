@@ -111,14 +111,13 @@ jobs:
           node-version: "22"
       - name: Prepare Corepack for Yarn cache
         run: corepack enable
-      - uses: actions/setup-node@v4
+      - name: Restore Yarn cache
+        uses: actions/setup-node@v4
         with:
-          node-version: "22"
           cache: yarn
           cache-dependency-path: |
             src/shared/ts/yarn.lock
             src/ui/yarn.lock
-      - run: corepack enable
       - run: yarn install --frozen-lockfile
         working-directory: src/shared/ts
       - run: yarn build
