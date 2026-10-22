@@ -159,6 +159,10 @@ class DomainService(Factory):
         return self._create_or_get_product(factory.CardRelationshipService)
 
     @property
+    def wiki_document(self):
+        return self._create_or_get_product(factory.WikiDocumentService)
+
+    @property
     def project_document(self):
         return self._create_or_get_product(factory.ProjectDocumentService)
 

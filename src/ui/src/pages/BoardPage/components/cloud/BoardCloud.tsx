@@ -325,7 +325,12 @@ function CloudCollection({
                                             grid={layout === "grid"}
                                             onPreview={() => onPreview(item)}
                                             onSource={() => onSource(item)}
-                                            onDocument={item.source.kind === "project" && item.attachment_uid ? () => onDocument(item) : undefined}
+                                            onDocument={
+                                                item.attachment_uid &&
+                                                (item.source.kind === "project" || (item.source.kind === "wiki" && item.source.wiki_uid))
+                                                    ? () => onDocument(item)
+                                                    : undefined
+                                            }
                                         />
                                     )
                                 )}

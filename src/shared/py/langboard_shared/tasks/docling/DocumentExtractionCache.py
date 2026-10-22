@@ -37,7 +37,7 @@ def _token(value):
 
 
 def _source(source_type, source_uid, generation=None):
-    if source_type not in {"card_attachment", "project_attachment"}:
+    if source_type not in {"card_attachment", "project_attachment", "wiki_attachment"}:
         raise ValueError("Invalid extraction source type")
     if not isinstance(source_uid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", source_uid):
         raise ValueError("Invalid server-owned extraction source")

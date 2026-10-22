@@ -71,6 +71,7 @@ def _source(project, attachment):
 def _identity(attachment, document):
     return deepcopy(
         (
+            getattr(attachment, "project_wiki_id", None),
             attachment.file,
             attachment.content_sha256,
             attachment.filename,
@@ -83,7 +84,17 @@ def _identity(attachment, document):
     )
 
 
-def read_project_document(service, user, project_uid, attachment_uid, *, offset=0, limit=4000):
+def read_project_document(
+    service,
+    user,
+    project_uid,
+    attachment_uid,
+    *,
+    offset=0,
+    limit=4000,
+    source_factory=_source,
+    read_model=ProjectDocumentRead,
+):
     if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 8000:
         raise ValueError("Invalid project document read bounds")
     project, attachment, document = _readable(service, user, project_uid, attachment_uid)
@@ -92,8 +103,8 @@ def read_project_document(service, user, project_uid, attachment_uid, *, offset=
     text = text or ""
     end = min(offset + limit, len(text))
     keywords = document.keywords or {}
-    response = ProjectDocumentRead(
-        source=_source(project, attachment),
+    response = read_model(
+        source=source_factory(project, attachment),
         status=document.status,
         generation=document.generation,
         text=text[offset:end],
@@ -148,7 +159,19 @@ def _binding(service, snapshot, pointer):
     return private, settings, fingerprint
 
 
-def search_project_document(service, user, project_uid, attachment_uid, query, *, max_tokens=2000):
+def search_project_document(
+    service,
+    user,
+    project_uid,
+    attachment_uid,
+    query,
+    *,
+    max_tokens=2000,
+    source_factory=_source,
+    search_model=ProjectDocumentSearch,
+    match_model=ProjectDocumentMatch,
+    source_identity=None,
+):
     from ...tasks.docling.DocumentEmbedding import create_document_embeddings
     from ...tasks.docling.DocumentVectorQuery import search_vector_generation
     from ...tasks.docling.DocumentVectorStore import open_document_vector_store
@@ -167,13 +190,19 @@ def search_project_document(service, user, project_uid, attachment_uid, query, *
     pointer = embedding.get("pointer")
     if document.status != "indexed" or not isinstance(pointer, dict) or not pointer.get("chunk_ids"):
         raise ValueError("Project document vectors unavailable")
+    expected_source = (
+        source_identity(project, attachment)
+        if source_identity
+        else {
+            "source_type": "project_attachment",
+            "board_uid": project.get_uid(),
+            "attachment_uid": attachment.get_uid(),
+            "content_hash": attachment.content_sha256,
+        }
+    )
     if (
-        pointer.get("source_type") != "project_attachment"
-        or pointer.get("board_uid") != project.get_uid()
-        or pointer.get("attachment_uid") != attachment.get_uid()
-        or pointer.get("content_hash") != attachment.content_sha256
-        or "card_uid" in pointer
-        or "wiki_uid" in pointer
+        any(pointer.get(key) != value for key, value in expected_source.items())
+        or any(key in pointer for key in ("card_uid", "wiki_uid") if key not in expected_source)
         or embedding.get("source_generation") != document.generation
     ):
         raise ValueError("Project document vectors do not match current source")
@@ -205,12 +234,12 @@ def search_project_document(service, user, project_uid, attachment_uid, query, *
             raise ValueError("Binding changed")
     except Exception:
         raise ValueError("Project document embedding binding unavailable") from None
-    source = _source(latest_project, latest_attachment)
-    return ProjectDocumentSearch(
+    source = source_factory(latest_project, latest_attachment)
+    return search_model(
         source=source,
         generation=document.generation,
         matches=[
-            ProjectDocumentMatch(
+            match_model(
                 chunk_id=hit["chunk_id"],
                 content=hit["content"],
                 source=source,

@@ -26,9 +26,9 @@ from .NotificationService import NotificationService
 from .OllamaModelPullService import OllamaModelPullService
 from .OrchestrationTaskService import OrchestrationTaskService
 from .OrganizationService import OrganizationService
-from .ProjectDocumentService import ProjectDocumentService
 from .ProjectAttachmentService import ProjectAttachmentService
 from .ProjectColumnService import ProjectColumnService
+from .ProjectDocumentService import ProjectDocumentService
 from .ProjectEmailNotificationService import ProjectEmailNotificationService
 from .ProjectInvitationService import ProjectInvitationService
 from .ProjectLabelService import ProjectLabelService
@@ -41,6 +41,7 @@ from .SecretReferenceService import SecretReferenceService
 from .UserGroupService import UserGroupService
 from .UserNotificationSettingService import UserNotificationSettingService
 from .UserService import UserService
+from .WikiDocumentService import WikiDocumentService
 from .WorkflowStageService import WorkflowStageService
 
 
@@ -76,6 +77,7 @@ __all__ = [
     "OrganizationService",
     "SecretReferenceService",
     "ProjectDocumentService",
+    "WikiDocumentService",
     "ProjectAttachmentService",
     "ProjectColumnService",
     "ProjectEmailNotificationService",

@@ -7,7 +7,15 @@ import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
 import { CloudItem } from "@/controllers/api/board/cloud/useBoardCloud";
 
-type Source = { source_type: "project_attachment"; project_uid: string; attachment_uid: string; name: string; url: string; board_url: string };
+type Source = {
+    source_type: "project_attachment" | "wiki_attachment";
+    project_uid: string;
+    wiki_uid?: string;
+    attachment_uid: string;
+    name: string;
+    url: string;
+    board_url: string;
+};
 type Receipt = { attachment_uid: string; generation: string; status: "pending" | "processing" | "indexed" | "failed" };
 type DocumentPage = Omit<Receipt, "attachment_uid"> & {
     source: Source;
@@ -36,7 +44,9 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
     const [failed, setFailed] = useState(false);
     const active = useRef<AbortController | undefined>(undefined);
     const mounted = useRef(false);
-    const path = `/board/${encodeURIComponent(projectUID)}/cloud/attachment/${encodeURIComponent(item.attachment_uid!)}/document`;
+    const wikiUID = item.source.kind === "wiki" ? item.source.wiki_uid : undefined;
+    const ownerPath = wikiUID ? `/wiki/${encodeURIComponent(wikiUID)}` : "";
+    const path = `/board/${encodeURIComponent(projectUID)}/cloud${ownerPath}/attachment/${encodeURIComponent(item.attachment_uid!)}/document`;
     const current = () =>
         mounted.current && useAuthStore.getState().currentUser?.uid === actor && useAuthStore.getState().getIdentityVersion() === identity;
     useEffect(() => {
@@ -47,11 +57,12 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
         };
     }, []);
     const validSource = (source: Source) =>
-        source?.source_type === "project_attachment" &&
+        source?.source_type === (wikiUID ? "wiki_attachment" : "project_attachment") &&
+        (wikiUID ? source.wiki_uid === wikiUID : source.wiki_uid === undefined) &&
         source.project_uid === projectUID &&
         source.attachment_uid === item.attachment_uid &&
         source.url === item.url &&
-        source.board_url === `/board/${projectUID}/cloud`;
+        source.board_url === (wikiUID ? `/board/${projectUID}/wiki/${wikiUID}` : `/board/${projectUID}/cloud`);
     async function run(operation: (signal: AbortSignal) => Promise<void>) {
         if (busy || !current()) return;
         active.current?.abort();

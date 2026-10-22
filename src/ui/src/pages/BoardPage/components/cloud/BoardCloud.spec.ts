@@ -582,6 +582,64 @@ const documentFixturePage = (extra = {}) => ({
     ...extra,
 });
 const documentPath = "**/board/cloud-board/cloud/attachment/native-document/document";
+const wikiDocumentSource = {
+    ...nativeDocumentSource,
+    source_type: "wiki_attachment",
+    wiki_uid: "native-wiki",
+    board_url: "/board/cloud-board/wiki/native-wiki",
+};
+const wikiDocumentPath = "**/board/cloud-board/cloud/wiki/native-wiki/attachment/native-document/document";
+async function wikiDocumentCatalog(page: import("@playwright/test").Page) {
+    const source = { ...nativeDocumentItem().source, kind: "wiki", wiki_uid: "native-wiki", url: wikiDocumentSource.board_url };
+    await page.route("**/board/*/cloud?**", (route) => route.fulfill({ json: response([{ ...nativeDocumentItem(), source }]) }));
+    await page.goto(fixture);
+    await page.getByRole("button", { name: "Document", exact: true }).click();
+}
+
+test("wiki document uses its own process, read and search routes with native citations", async ({ page }) => {
+    const calls: string[] = [];
+    await page.route(`${wikiDocumentPath}?**`, (route) => {
+        calls.push("read");
+        return route.fulfill({ json: documentFixturePage({ source: wikiDocumentSource }) });
+    });
+    await page.route(`${wikiDocumentPath}/process`, (route) => {
+        calls.push("process");
+        return route.fulfill({ json: { attachment_uid: "native-document", generation: "wiki-generation", status: "pending" } });
+    });
+    await page.route(`${wikiDocumentPath}/search`, (route) => {
+        calls.push("search");
+        return route.fulfill({
+            json: {
+                source: wikiDocumentSource,
+                generation: "wiki-generation",
+                matches: [{ chunk_id: "wiki-chunk", content: "Wiki semantic excerpt", source: wikiDocumentSource, pages: [1], page: 1 }],
+            },
+        });
+    });
+    await wikiDocumentCatalog(page);
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toContainText("Private native fixture text");
+    await page.getByLabel("Document query", { exact: true }).fill("wiki query");
+    await page.getByRole("button", { name: "Search document", exact: true }).click();
+    await expect(page.getByLabel("Document matches")).toContainText("Wiki semantic excerpt");
+    await expect(page.getByRole("link", { name: "Source: native-document.pdf" })).toHaveAttribute("href", wikiDocumentSource.url);
+    await page.getByRole("button", { name: "Process document", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Processing queued");
+    expect(calls).toEqual(["read", "search", "process"]);
+});
+
+for (const wrongSource of [nativeDocumentSource, { ...wikiDocumentSource, wiki_uid: "another-wiki" }]) {
+    test(`wiki document rejects mismatched owner ${wrongSource.source_type}-${"wiki_uid" in wrongSource ? wrongSource.wiki_uid : "none"}`, async ({
+        page,
+    }) => {
+        await page.route(`${wikiDocumentPath}?**`, (route) => route.fulfill({ json: documentFixturePage({ source: wrongSource }) }));
+        await wikiDocumentCatalog(page);
+        await page.getByRole("button", { name: "Read document", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("Document unavailable");
+        await expect(page.getByText("Private native fixture text", { exact: true })).toHaveCount(0);
+    });
+}
+
 async function documentCatalog(page: import("@playwright/test").Page, next: string | null = null) {
     await page.route("**/board/*/cloud?**", (route) => route.fulfill({ json: response([nativeDocumentItem(), item("legacy-card")], next) }));
     await page.goto(fixture);

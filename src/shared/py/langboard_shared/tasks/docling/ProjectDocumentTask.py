@@ -56,8 +56,9 @@ async def embed_project_attachment(request: str):
         service.close()
 
 
-def _source_fence(service, attachment_uid, generation, document, *, status):
-    current = service.project_document.load_source(attachment_uid, generation)
+def _source_fence(service, attachment_uid, generation, document, *, status, documents=None):
+    documents = documents or service.project_document
+    current = documents.load_source(attachment_uid, generation)
     if not current:
         raise InterruptedError("Document source is no longer authorized")
     latest = current[2]
@@ -69,16 +70,17 @@ def _source_fence(service, attachment_uid, generation, document, *, status):
     return current
 
 
-def _index_project_attachment(service, attachment_uid, generation):
+def _index_project_attachment(service, attachment_uid, generation, *, documents=None, embedding_task=None):
+    documents = documents or service.project_document
     temp_path = ""
     indexed = False
     try:
-        source = service.project_document.load_source(attachment_uid, generation)
+        source = documents.load_source(attachment_uid, generation)
         if not source or source[2].status != "pending":
             return
         snapshot = deepcopy(source[2])
         _current_vision_config(service, snapshot.vision_config)
-        source = service.project_document.claim(attachment_uid, generation)
+        source = documents.claim(attachment_uid, generation)
         if not source:
             return
         project, attachment, document = source
@@ -88,9 +90,12 @@ def _index_project_attachment(service, attachment_uid, generation):
         attachment = deepcopy(attachment)
 
         def fence(*_):
-            current = _source_fence(service, attachment_uid, generation, document, status="processing")
-            if any(getattr(current[1], key) != getattr(attachment, key)
-                   for key in ("filename", "file", "content_sha256")):
+            current = _source_fence(
+                service, attachment_uid, generation, document, status="processing", documents=documents
+            )
+            if any(
+                getattr(current[1], key) != getattr(attachment, key) for key in ("filename", "file", "content_sha256")
+            ):
                 raise InterruptedError("Document source changed")
             _current_vision_config(service, document.vision_config)
 
@@ -114,26 +119,36 @@ def _index_project_attachment(service, attachment_uid, generation):
         def convert():
             structure = []
             markdown = _convert_to_markdown(
-                temp_path, on_progress=fence, vision_value=dumps(private),
-                on_keywords=collect, on_document=structure.append,
+                temp_path,
+                on_progress=fence,
+                vision_value=dumps(private),
+                on_keywords=collect,
+                on_document=structure.append,
             )
             return {"markdown": markdown, "keywords": keywords, "document_json": structure[0] if structure else None}
 
         with cached_document_extraction(
-            binding_uid=document.vision_config["binding_uid"], content_hash=writer.digest.hexdigest(),
-            vision_config=document.vision_config, filename=attachment.filename,
-            timeout_seconds=Env.DOCLING_CONVERSION_TIMEOUT_SECONDS, on_validate=fence,
+            binding_uid=document.vision_config["binding_uid"],
+            content_hash=writer.digest.hexdigest(),
+            vision_config=document.vision_config,
+            filename=attachment.filename,
+            timeout_seconds=Env.DOCLING_CONVERSION_TIMEOUT_SECONDS,
+            on_validate=fence,
         ) as cache:
             result = cache.get_or_convert(convert)
             fence()
-            indexed = service.project_document.publish_extraction(
-                attachment_uid, generation, markdown=result["markdown"], keywords=result["keywords"],
-                document_json=result["document_json"], extraction_cache_token=cache.token,
+            indexed = documents.publish_extraction(
+                attachment_uid,
+                generation,
+                markdown=result["markdown"],
+                keywords=result["keywords"],
+                document_json=result["document_json"],
+                extraction_cache_token=cache.token,
             )
             if indexed:
                 cache.retain()
     except Exception:
-        service.project_document.mark_failed(attachment_uid, generation, phase="extraction")
+        documents.mark_failed(attachment_uid, generation, phase="extraction")
     finally:
         if temp_path:
             try:
@@ -144,11 +159,14 @@ def _index_project_attachment(service, attachment_uid, generation):
         try:
             args, kwargs = TaskParameters(dumps(dict(attachment_uid=attachment_uid, generation=generation))).pack()
             Broker.celery.send_task(
-                "langboard_shared.tasks.docling.ProjectDocumentTask.embed_project_attachment",
-                args=args, kwargs=kwargs, time_limit=600, soft_time_limit=570,
+                embedding_task or "langboard_shared.tasks.docling.ProjectDocumentTask.embed_project_attachment",
+                args=args,
+                kwargs=kwargs,
+                time_limit=600,
+                soft_time_limit=570,
             )
         except Exception:
-            service.project_document.mark_failed(attachment_uid, generation, phase="embedding")
+            documents.mark_failed(attachment_uid, generation, phase="embedding")
 
 
 def _record_cleanup(pointer):
@@ -159,8 +177,9 @@ def _record_cleanup(pointer):
         record_cleanup(db, pointer)
 
 
-async def _embed_project_attachment(service, attachment_uid, generation):
-    source = service.project_document.load_source(attachment_uid, generation)
+async def _embed_project_attachment(service, attachment_uid, generation, *, documents=None, source_factory=None):
+    documents = documents or service.project_document
+    source = documents.load_source(attachment_uid, generation)
     if not source or source[2].status != "indexed" or not isinstance(source[2].embedding_config, dict):
         return
     project, attachment, document = source
@@ -168,8 +187,11 @@ async def _embed_project_attachment(service, attachment_uid, generation):
     snapshot = document.embedding_config
     old = deepcopy(document.embedding or {})
     try:
+
         def fence():
-            current = _source_fence(service, attachment_uid, generation, document, status="indexed")
+            current = _source_fence(
+                service, attachment_uid, generation, document, status="indexed", documents=documents
+            )
             if (current[2].embedding or {}) != old:
                 raise InterruptedError("Document embedding publication superseded")
             binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
@@ -182,9 +204,13 @@ async def _embed_project_attachment(service, attachment_uid, generation):
         fingerprint = embedding_fingerprint(
             provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
         )
-        if (old.get("status") == "indexed" and old.get("source_generation") == generation
-                and old.get("config") == snapshot and old.get("chunk_version") == CHUNK_VERSION
-                and (old.get("pointer") or {}).get("embedding_fingerprint") == fingerprint):
+        if (
+            old.get("status") == "indexed"
+            and old.get("source_generation") == generation
+            and old.get("config") == snapshot
+            and old.get("chunk_version") == CHUNK_VERSION
+            and (old.get("pointer") or {}).get("embedding_fingerprint") == fingerprint
+        ):
             return
         allowed = set(Env.get_from_env("MODEL_PROVIDER_ALLOWED_BASE_URLS", "").split(","))
         provider = create_document_embeddings(private, allowed)
@@ -207,37 +233,67 @@ async def _embed_project_attachment(service, attachment_uid, generation):
                 raise NotImplementedError
 
         with cached_document_embeddings(
-            FencedEmbeddings(), binding_uid=snapshot["binding_uid"], content_hash=attachment.content_sha256,
-            fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
+            FencedEmbeddings(),
+            binding_uid=snapshot["binding_uid"],
+            content_hash=attachment.content_sha256,
+            fingerprint=fingerprint,
+            dimensions=settings.dimensions,
+            timeout_seconds=settings.timeout_seconds,
             splitter=settings.splitter,
         ) as cache:
             vector_allowed = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
             fence()
             with open_document_vector_store(
-                settings, cache, fingerprint, Env.DATA_DIR / "document-retrieval", vector_allowed,
+                settings,
+                cache,
+                fingerprint,
+                Env.DATA_DIR / "document-retrieval",
+                vector_allowed,
             ) as store:
                 storage = {"type": settings.store, "cache_use_token": cache.token}
                 if settings.store == "postgres":
                     storage["dimensions"] = settings.dimensions
                 if settings.store == "qdrant":
                     storage.update(
-                        endpoint=str(settings.external_url).rstrip("/"), binding_uid=snapshot["binding_uid"],
-                        dimensions=settings.dimensions, collection_prefix=settings.collection_prefix,
+                        endpoint=str(settings.external_url).rstrip("/"),
+                        binding_uid=snapshot["binding_uid"],
+                        dimensions=settings.dimensions,
+                        collection_prefix=settings.collection_prefix,
                     )
                 fence()
                 pointer = await astage_vector_generation(
-                    store, embeddings=cache, source=dict(
-                        source_type="project_attachment", board_uid=project.get_uid(), attachment_uid=attachment_uid,
-                        content_hash=attachment.content_sha256, embedding_fingerprint=fingerprint,
-                    ), text=document.markdown, document_json=document.document_json,
-                    splitter=settings.splitter, storage=storage,
+                    store,
+                    embeddings=cache,
+                    source={
+                        **(
+                            source_factory(project, attachment)
+                            if source_factory
+                            else {
+                                "source_type": "project_attachment",
+                                "board_uid": project.get_uid(),
+                                "attachment_uid": attachment_uid,
+                                "content_hash": attachment.content_sha256,
+                            }
+                        ),
+                        "embedding_fingerprint": fingerprint,
+                    },
+                    text=document.markdown,
+                    document_json=document.document_json,
+                    splitter=settings.splitter,
+                    storage=storage,
                 )
                 try:
                     fence()
-                    published = service.project_document.publish_embedding(
-                        attachment_uid, generation, expected_embedding=old, embedding=dict(
-                            status="indexed", pointer=pointer, source_generation=generation,
-                            config=snapshot, chunk_version=CHUNK_VERSION,
+                    published = documents.publish_embedding(
+                        attachment_uid,
+                        generation,
+                        expected_embedding=old,
+                        embedding=dict(
+                            status="indexed",
+                            pointer=pointer,
+                            source_generation=generation,
+                            config=snapshot,
+                            chunk_version=CHUNK_VERSION,
                         ),
                     )
                 except Exception:
@@ -252,8 +308,13 @@ async def _embed_project_attachment(service, attachment_uid, generation):
             return
         if isinstance(error, VectorGenerationCleanupError):
             _record_cleanup(error.pointer)
-        service.project_document.publish_embedding(
-            attachment_uid, generation, expected_embedding=old, embedding={
-                **old, "status": "failed", "error": "Document embedding failed; request processing again",
+        documents.publish_embedding(
+            attachment_uid,
+            generation,
+            expected_embedding=old,
+            embedding={
+                **old,
+                "status": "failed",
+                "error": "Document embedding failed; request processing again",
             },
         )

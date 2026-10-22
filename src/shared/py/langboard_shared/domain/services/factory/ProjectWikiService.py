@@ -48,25 +48,35 @@ class ProjectWikiService(BaseDomainService):
         column = ProjectWikiAttachment.column("file")
         if dialect == "postgresql":
             decoded = cast(cast(column, JSONB).op("#>>")(cast([], ARRAY(Text))), JSONB)
+
             def value(key):
                 return decoded.op("->>")(literal_column(f"'{key}'"))
         elif dialect == "sqlite":
+
             def value(key):
                 return func.json_extract(func.json_extract(column, literal_column("'$'")), literal_column(f"'$.{key}'"))
         elif dialect in {"mysql", "mariadb"}:
+
             def value(key):
                 return func.json_unquote(func.json_extract(func.json_unquote(column), f"$.{key}"))
         else:
             raise ValueError("Unsupported database dialect for file provenance")
         with DbSession.use(readonly=False) as db:
-            matches = db.exec(SqlBuilder.select.table(ProjectWikiAttachment).where(
-                value("storage_type") == storage_type,
-                value("storage_name") == storage_name,
-                value("filename") == filename,
-            ).limit(2).execution_options(populate_existing=True)).all()
+            matches = db.exec(
+                SqlBuilder.select.table(ProjectWikiAttachment, with_deleted=True)
+                .where(
+                    value("storage_type") == storage_type,
+                    value("storage_name") == storage_name,
+                    value("filename") == filename,
+                )
+                .limit(2)
+                .execution_options(populate_existing=True)
+            ).all()
             if len(matches) != 1:
                 return None
             attachment = matches[0]
+            if attachment.deleted_at is not None:
+                return None
             query = (
                 select(ProjectWiki, Project, User)
                 .select_from(ProjectWiki)
@@ -80,23 +90,36 @@ class ProjectWikiService(BaseDomainService):
             if current is None:
                 return None
             wiki, project, user = current
-            if wiki.deleted_at is not None or project.deleted_at is not None or user.deleted_at is not None or not user.activated_at:
+            if (
+                wiki.deleted_at is not None
+                or project.deleted_at is not None
+                or user.deleted_at is not None
+                or not user.activated_at
+            ):
                 return None
-            member = db.exec(SqlBuilder.select.table(ProjectAssignedUser).where(
-                ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == user.id,
-            )).first()
+            member = db.exec(
+                SqlBuilder.select.table(ProjectAssignedUser).where(
+                    ProjectAssignedUser.project_id == project.id,
+                    ProjectAssignedUser.user_id == user.id,
+                )
+            ).first()
             if project.owner_id != user.id and member is None:
                 return None
-            role = db.exec(SqlBuilder.select.table(ProjectRole).where(
-                ProjectRole.project_id == project.id, ProjectRole.user_id == user.id,
-            )).first()
+            role = db.exec(
+                SqlBuilder.select.table(ProjectRole).where(
+                    ProjectRole.project_id == project.id,
+                    ProjectRole.user_id == user.id,
+                )
+            ).first()
             if not user.is_admin and (role is None or not role.is_granted(ProjectRoleAction.Read)):
                 return None
-            assigned = db.exec(SqlBuilder.select.column(ProjectWikiAssignedUser.user_id).where(
-                ProjectWikiAssignedUser.project_wiki_id == wiki.id,
-                ProjectWikiAssignedUser.user_id == user.id,
-                ProjectWikiAssignedUser.project_assigned_id == member.id if member else False,
-            )).all()
+            assigned = db.exec(
+                SqlBuilder.select.column(ProjectWikiAssignedUser.user_id).where(
+                    ProjectWikiAssignedUser.project_wiki_id == wiki.id,
+                    ProjectWikiAssignedUser.user_id == user.id,
+                    ProjectWikiAssignedUser.project_assigned_id == member.id if member else False,
+                )
+            ).all()
             return attachment if self.can_view(user, project, wiki, assigned) else None
 
     def get_api_list(self, user_or_bot: TUserOrBot, project: TProjectParam | None) -> list[dict[str, Any]]:
@@ -346,6 +369,37 @@ class ProjectWikiService(BaseDomainService):
 
         return project, wiki
 
+    def can_upload_attachment(self, user, project, wiki):
+        from .ProjectAttachmentService import current_authority
+
+        with DbSession.use(readonly=False) as db:
+            authority = current_authority(db, user, project)
+            if authority is None:
+                return False
+            actor, board, role = authority
+            current = db.exec(
+                SqlBuilder.select.table(ProjectWiki)
+                .where(ProjectWiki.id == InfraHelper.convert_id(wiki), ProjectWiki.project_id == board.id)
+                .execution_options(populate_existing=True)
+            ).first()
+            if current is None or (
+                not actor.is_admin and (role is None or not role.is_granted(ProjectRoleAction.Read))
+            ):
+                return False
+            member = db.exec(
+                SqlBuilder.select.table(ProjectAssignedUser).where(
+                    ProjectAssignedUser.project_id == board.id, ProjectAssignedUser.user_id == actor.id
+                )
+            ).first()
+            assigned = db.exec(
+                SqlBuilder.select.column(ProjectWikiAssignedUser.user_id).where(
+                    ProjectWikiAssignedUser.project_wiki_id == current.id,
+                    ProjectWikiAssignedUser.user_id == actor.id,
+                    ProjectWikiAssignedUser.project_assigned_id == member.id if member else False,
+                )
+            ).all()
+            return self.can_view(actor, board, current, assigned)
+
     def upload_attachment(
         self, user: User, project: TProjectParam | None, wiki: TWikiParam | None, attachment: FileModel
     ) -> ProjectWikiAttachment | None:
@@ -362,8 +416,31 @@ class ProjectWikiService(BaseDomainService):
             order=self.repo.project_wiki_attachment.get_next_order(wiki),
         )
 
-        self.repo.project_wiki_attachment.insert(wiki_attachment)
+        from ..AppGovernance import lock_policy_mutation
+        from .WikiDocumentService import WikiDocumentService
 
+        if not self.can_upload_attachment(user, project, wiki):
+            return None
+        documents = self._get_service(WikiDocumentService)
+        digest = documents.hash_file(attachment)
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db)
+            db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == wiki.id).with_for_update()).first()
+            if not self.can_upload_attachment(user, project, wiki):
+                return None
+            wiki_attachment.content_sha256 = digest
+            self.repo.project_wiki_attachment.insert(wiki_attachment)
+
+            # Processing is optional; the native upload must survive invalid model settings.
+            def process_after_commit():
+                try:
+                    documents.request(user, project, wiki_attachment, automatic=True)
+                except Exception:
+                    from ....core.broker import Broker
+
+                    Broker.logger.warning("Wiki document automatic processing unavailable")
+
+            db.after_commit(process_after_commit)
         return wiki_attachment
 
     def delete(self, user_or_bot: TUserOrBot, project: TProjectParam | None, wiki: TWikiParam | None) -> bool:
@@ -375,7 +452,11 @@ class ProjectWikiService(BaseDomainService):
         self._get_service(GraphApprovalRequestService).cancel_pending_by_scope(
             project, ProjectWiki.__tablename__, wiki.get_uid(), reason="project wiki deleted"
         )
-        self.repo.project_wiki.delete(wiki)
+        from .WikiDocumentService import WikiDocumentService
+
+        with DbSession.atomic():
+            self._get_service(WikiDocumentService).record_scope_embedding_cleanup(project, wiki)
+            self.repo.project_wiki.delete(wiki)
 
         ProjectWikiPublisher.deleted(project, wiki)
         self._publish_linked_card_changed(project, wiki)

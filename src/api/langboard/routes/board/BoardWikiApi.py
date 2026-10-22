@@ -35,7 +35,9 @@ from .forms import (
 
 
 @AppRouter.schema(permission=ApiPermission.Read)
-@AppRouter.api.get("/board/{project_uid}/wikis/search", tags=["Board.Wiki"], description="Search readable wiki summaries.")
+@AppRouter.api.get(
+    "/board/{project_uid}/wikis/search", tags=["Board.Wiki"], description="Search readable wiki summaries."
+)
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
 def search_project_wikis(
@@ -398,12 +400,20 @@ def upload_wiki_attachment(
     if not attachment:
         raise MissingException("body", "attachment")
 
+    if not service.project_wiki.can_upload_attachment(user, project_uid, wiki_uid):
+        raise ApiException.NotFound_404(ApiErrorCode.NF2008)
+
     file_model = Storage.upload(attachment, StorageName.Wiki)
     if not file_model:
         raise ApiException.InternalServerError_500(ApiErrorCode.OP1002)
 
-    result = service.project_wiki.upload_attachment(user, project_uid, wiki_uid, file_model)
+    try:
+        result = service.project_wiki.upload_attachment(user, project_uid, wiki_uid, file_model)
+    except Exception:
+        Storage.delete(file_model)
+        raise
     if not result:
+        Storage.delete(file_model)
         raise ApiException.NotFound_404(ApiErrorCode.NF2008)
 
     return JsonResponse(

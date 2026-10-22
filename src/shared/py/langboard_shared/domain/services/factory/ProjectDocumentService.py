@@ -24,6 +24,18 @@ MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
 
 
 class ProjectDocumentService(BaseDomainService):
+    document_model = ProjectAttachmentDocument
+    source_type = "project_attachment"
+    index_task = INDEX_TASK
+
+    def vector_source(self, board, attachment):
+        return {
+            "source_type": self.source_type,
+            "board_uid": board.get_uid(),
+            "attachment_uid": attachment.get_uid(),
+            "content_hash": attachment.content_sha256,
+        }
+
     @staticmethod
     def name():
         return "project_document"
@@ -84,11 +96,11 @@ class ProjectDocumentService(BaseDomainService):
             return None
         return authority[1], source
 
-    @staticmethod
-    def _document(db, attachment, *, lock=False):
+    def _document(self, db, attachment, *, lock=False):
+        model = self.document_model
         query = (
-            SqlBuilder.select.table(ProjectAttachmentDocument)
-            .where(ProjectAttachmentDocument.attachment_id == attachment.id)
+            SqlBuilder.select.table(model)
+            .where(model.attachment_id == attachment.id)
             .execution_options(populate_existing=True)
         )
         return db.exec(query.with_for_update() if lock else query).first()
@@ -123,7 +135,7 @@ class ProjectDocumentService(BaseDomainService):
                     .where(User.id == document.requested_by_id)
                     .execution_options(populate_existing=True)
                 ).first()
-                requester_valid = current_authority(db, previous_actor, board) is not None
+                requester_valid = self._authorized_source(db, previous_actor, board, attachment) is not None
             if (
                 document
                 and requester_valid
@@ -136,7 +148,7 @@ class ProjectDocumentService(BaseDomainService):
                 return self._receipt(attachment, document)
             if document is not None:
                 self.invalidate(db, attachment, preserve_extraction=document.source_revision == revision)
-            document = ProjectAttachmentDocument(
+            document = self.document_model(
                 attachment_id=attachment.id,
                 requested_by_id=user.id,
                 source_revision=revision,
@@ -151,7 +163,7 @@ class ProjectDocumentService(BaseDomainService):
 
             def enqueue():
                 try:
-                    Broker.celery.send_task(INDEX_TASK, args=args, kwargs=kwargs)
+                    Broker.celery.send_task(self.index_task, args=args, kwargs=kwargs)
                 except Exception:
                     self.mark_failed(attachment_uid, generation, phase="extraction", only_pending=True)
 
@@ -237,8 +249,11 @@ class ProjectDocumentService(BaseDomainService):
                 from ....tasks.docling.DocumentExtractionCache import activate_extraction_reference
 
                 if not activate_extraction_reference(
-                    db, extraction_cache_token, source_type="project_attachment",
-                    source_uid=source[1].get_uid(), generation=generation,
+                    db,
+                    extraction_cache_token,
+                    source_type=self.source_type,
+                    source_uid=source[1].get_uid(),
+                    generation=generation,
                 ):
                     return False
             document = source[2]
@@ -263,17 +278,12 @@ class ProjectDocumentService(BaseDomainService):
                 pointer = embedding.get("pointer")
                 if (
                     not isinstance(pointer, dict)
+                    or any(pointer.get(key) != value for key, value in self.vector_source(board, attachment).items())
                     or any(
-                        pointer.get(key) != value
-                        for key, value in {
-                            "source_type": "project_attachment",
-                            "board_uid": board.get_uid(),
-                            "attachment_uid": attachment.get_uid(),
-                            "content_hash": attachment.content_sha256,
-                        }.items()
+                        key in pointer
+                        for key in ("card_uid", "wiki_uid")
+                        if key not in self.vector_source(board, attachment)
                     )
-                    or "card_uid" in pointer
-                    or "wiki_uid" in pointer
                 ):
                     return False
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
@@ -327,13 +337,13 @@ class ProjectDocumentService(BaseDomainService):
         if not preserve_extraction:
             from ....tasks.docling.DocumentExtractionCache import release_extraction_source
 
-            release_extraction_source(db, "project_attachment", attachment.get_uid())
+            release_extraction_source(db, self.source_type, attachment.get_uid())
         document = self._document(db, attachment, lock=True)
         if document is not None:
             from ....tasks.docling.DocumentCleanupTask import record_cleanup
 
             record_cleanup(db, (document.embedding or {}).get("pointer"))
-            db.exec(delete(ProjectAttachmentDocument).where(ProjectAttachmentDocument.id == document.id))
+            db.exec(delete(self.document_model).where(self.document_model.id == document.id))
 
     def record_scope_embedding_cleanup(self, project):
         with DbSession.atomic() as db:

@@ -27,10 +27,8 @@ from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotLog import BotLog
 from .BotSchedule import BotSchedule
-from .BotScheduleRun import BotScheduleRun
-from .CompactorBoardGrant import CompactorBoardGrant
-from .WorkflowCompactionSchedule import WorkflowCompactionSchedule
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
+from .BotScheduleRun import BotScheduleRun
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
 from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
@@ -61,6 +59,7 @@ from .ChatTemplate import ChatTemplate
 from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
+from .CompactorBoardGrant import CompactorBoardGrant
 from .DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from .DocumentExtractionCache import DocumentExtractionCache, DocumentExtractionCacheReference
 from .DocumentKeywordIndex import DocumentKeywordIndex
@@ -92,8 +91,8 @@ from .ProjectActivity import ProjectActivity
 from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from .ProjectAssignedUser import ProjectAssignedUser
-from .ProjectAttachmentDocument import ProjectAttachmentDocument
 from .ProjectAttachment import ProjectAttachment
+from .ProjectAttachmentDocument import ProjectAttachmentDocument
 from .ProjectAttachmentUploadReceipt import ProjectAttachmentUploadReceipt
 from .ProjectBotDefaultScope import ProjectBotDefaultScope
 from .ProjectBotLog import ProjectBotLog
@@ -125,7 +124,6 @@ from .SettingRole import SettingRole
 from .User import User
 from .UserActivity import UserActivity
 from .UserAppPreference import UserAppPreference
-from .UserProjectCollection import UserProjectCollection
 from .UserBoardFilterPreference import UserBoardFilterPreference
 from .UserCardReadState import UserCardReadState
 from .UserEmail import UserEmail
@@ -135,9 +133,12 @@ from .UserIdentityLink import IdentityProvider, UserIdentityLink
 from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
+from .UserProjectCollection import UserProjectCollection
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
+from .WikiAttachmentDocument import WikiAttachmentDocument
+from .WorkflowCompactionSchedule import WorkflowCompactionSchedule
 from .WorkflowEffectRun import WorkflowEffectRun
 from .WorkflowStageDefinition import WorkflowStageDefinition
 
@@ -263,6 +264,7 @@ __all__ = [
     'ProjectWikiActivity',
     'ProjectWikiAssignedUser',
     'ProjectWikiAttachment',
+    'WikiAttachmentDocument',
     'ProjectWikiMetadata',
     'SecretReference',
     'SecretReferenceAudit',
