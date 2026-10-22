@@ -1,3 +1,4 @@
+import { useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
 import Toast from "@/components/base/Toast";
 import useCreateCard from "@/controllers/api/board/useCreateCard";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
@@ -7,7 +8,7 @@ import { ProjectRole } from "@/core/models/roles";
 import { useBoard } from "@/core/providers/BoardProvider";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router";
+import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 
 export interface IBoardAddCardContext {
     isEditing: bool;
@@ -48,10 +49,11 @@ export const BoardAddCardProvider = ({
     isDefaultCardColumn,
     children,
 }: IBoardAddCardProviderProps): React.ReactNode => {
+    const paneID = useBoardSplitPane();
     const { project, hasRoleAction } = useBoard();
     const [t] = useTranslation();
     const [isValidating, setIsValidating] = useState(false);
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = usePageSearchParams();
     const newCardCommandHandled = useRef(false);
     const disableChangeModeAttr = "data-disable-change-mode";
     const canWrite = hasRoleAction(ProjectRole.EAction.CardWrite) && !column.is_archive;
@@ -73,6 +75,7 @@ export const BoardAddCardProvider = ({
         valueType: "textarea",
         disableNewLine: true,
         editorName,
+        independent: !!paneID,
         customStartEditing: () => {
             toLastPage();
 
@@ -147,15 +150,18 @@ export const BoardAddCardProvider = ({
         }
 
         const pointerDownEvent = (e: PointerEvent) => {
-            const target = e.target;
-            if (target instanceof HTMLElement && !target.closest(`[${disableChangeModeAttr}], [data-board-compose]`)) {
-                changeMode("view");
-            }
+            const path = e.composedPath();
+            const targetPane = path.find((node) => node instanceof HTMLElement && node.hasAttribute("data-board-pane"));
+            if (paneID && targetPane instanceof HTMLElement && targetPane.getAttribute("data-board-pane") !== paneID) return;
+            const protectedTarget = path.some(
+                (node) => node instanceof HTMLElement && (node.hasAttribute(disableChangeModeAttr) || node.hasAttribute("data-board-compose"))
+            );
+            if (!protectedTarget) changeMode("view");
         };
 
         window.addEventListener("pointerdown", pointerDownEvent);
         return () => window.removeEventListener("pointerdown", pointerDownEvent);
-    }, [isEditing, changeMode, disableChangeModeAttr]);
+    }, [isEditing, changeMode, disableChangeModeAttr, paneID]);
 
     const scrollToBottom = () => {
         const viewport = viewportRef.current;

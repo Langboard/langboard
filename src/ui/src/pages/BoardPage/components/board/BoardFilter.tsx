@@ -1,3 +1,4 @@
+import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { metadataDisplay } from "@/core/utils/MetadataDisplay";
 import useProjectWorkflowStages from "@/controllers/api/board/useProjectWorkflowStages";
@@ -34,6 +35,7 @@ export function SkeletonBoardFilter() {
 function BoardFilter() {
     const { project, columns, cards, currentUser, filters, filterCard, filterMember, filterLabel, navigateWithFilters } = useBoard();
     const [t, i18n] = useTranslation();
+    const [, setSearchParams] = usePageSearchParams();
     const [open, setOpen] = useState(false);
     const favorites = useBoardFilterPreferences(currentUser.uid, project.uid);
     const stages = useProjectWorkflowStages(
@@ -70,20 +72,16 @@ function BoardFilter() {
     }, [cards, project.all_members, currentUser.uid]);
 
     const setFilterKeyword = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (!filters.keyword) {
-            filters.keyword = [];
-        }
-
         const keyword = event.currentTarget.value;
-
-        if (filters.keyword.includes(keyword)) {
-            return;
-        }
-
-        if (keyword) filters.keyword = keyword.split(",");
-        else delete filters.keyword;
-
-        navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
+        // Write the input value to this pane's query directly. Focus handoff
+        // can replace the previous render's mutable filter object mid-event.
+        setSearchParams((params) => {
+            const values = (params.get("filters") ?? "").split(",").filter((value) => value && !value.startsWith("keyword:"));
+            if (keyword) values.push(`keyword:${encodeURIComponent(encodeURIComponent(keyword))}`);
+            if (values.length) params.set("filters", values.join(","));
+            else params.delete("filters");
+            return params;
+        });
     };
 
     const countAppliedFilters =

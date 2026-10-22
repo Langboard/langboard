@@ -4,8 +4,10 @@ import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Navigate, useLocation } from "react-router";
-import { DashboardStyledLayout } from "@/components/Layout";
+import { Navigate } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
+import BoardPaneLayout from "./BoardPaneLayout";
+import { useBoardSplitContext, useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Skeleton from "@/components/base/Skeleton";
@@ -107,10 +109,13 @@ type TWorkbenchContext = "explorer" | "my-work" | "changes" | "inbox" | "activit
 
 const BoardProxy = memo((): React.JSX.Element => {
     const { setPageAliasRef } = usePageHeader();
+    const split = useBoardSplitContext();
+    const paneID = useBoardSplitPane();
+    const focused = !split || !paneID || split.focusedPane === paneID;
     const { currentUser } = useAuth();
     const socket = useSocket();
     const navigate = usePageNavigateRef();
-    const location = useLocation();
+    const location = usePageLocation();
     const [projectUID, pageRoute] = location.pathname.split("/").slice(2);
     if (!projectUID) {
         return <Navigate to={ROUTES.ERROR(EHttpStatus.HTTP_404_NOT_FOUND)} replace />;
@@ -144,6 +149,7 @@ const BoardProxy = memo((): React.JSX.Element => {
     }, [error]);
 
     useEffect(() => {
+        if (!focused) return;
         if (!data || !hasCurrentProject) {
             setPageAliasRef.current();
             return;
@@ -152,7 +158,7 @@ const BoardProxy = memo((): React.JSX.Element => {
         if (pageRoute !== "card") {
             setPageAliasRef.current(data.project.title);
         }
-    }, [data, hasCurrentProject, pageRoute]);
+    }, [data, hasCurrentProject, pageRoute, focused]);
 
     useEffect(() => {
         if (!hasCurrentProject) {
@@ -188,10 +194,13 @@ interface IBoardProxyDisplayProps {
 
 function BoardHeaderProjectTitle({ project }: { project: Project.TModel }) {
     const title = project.useField("title");
+    const split = useBoardSplitContext();
+    const paneID = useBoardSplitPane();
+    const focused = !split || !paneID || split.focusedPane === paneID;
     const { setPageAliasRef } = usePageHeader();
     useEffect(() => {
-        setPageAliasRef.current(title);
-    }, [title, setPageAliasRef]);
+        if (focused) setPageAliasRef.current(title);
+    }, [title, setPageAliasRef, focused]);
     return <span className="max-w-32 shrink-0 truncate">{title}</span>;
 }
 
@@ -201,6 +210,10 @@ function BoardHeaderCardTitle({ card }: { card: ProjectCard.TModel }) {
 }
 
 function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }: IBoardProxyDisplayProps): React.JSX.Element {
+    const boardTitle = project.useField("title");
+    const split = useBoardSplitContext();
+    const paneID = useBoardSplitPane();
+    const focused = !split || !paneID || split.focusedPane === paneID;
     const [t] = useTranslation();
     const socket = useSocket();
     const { currentUser } = useAuth();
@@ -282,6 +295,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         },
     });
     useEffect(() => {
+        if (!focused) return;
         const toggleContext = () => toggleSwitchProject();
         const openChanges = () => showWorkbenchContext("changes");
         const openMyWork = () => showWorkbenchContext("my-work");
@@ -296,7 +310,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             window.removeEventListener(WORKBENCH_OPEN_MY_WORK_EVENT, openMyWork);
             window.removeEventListener(WORKBENCH_OPEN_RELATIONS_EVENT, openRelations);
         };
-    }, [toggleSwitchProject, showWorkbenchContext]);
+    }, [toggleSwitchProject, showWorkbenchContext, focused]);
     const { boardViewType, selectCardViewType, chatSidebarRef, boardChat, setBoardViewType, setChatResizableSidebar, setBoardChat } =
         useBoardController();
     const isCardPage = !!pageRoute && !["graph", "wiki", "settings"].includes(pageRoute);
@@ -642,7 +656,8 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
 
     return (
         <>
-            <DashboardStyledLayout
+            <BoardPaneLayout
+                boardTitle={boardTitle}
                 inert={isProjectLoading}
                 aria-busy={isProjectLoading}
                 headerNavs={[
@@ -925,7 +940,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                 ) : (
                     <SkeletonComponent />
                 )}
-            </DashboardStyledLayout>
+            </BoardPaneLayout>
         </>
     );
 }

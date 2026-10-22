@@ -1,6 +1,7 @@
+import useBoardSplit from "@/core/hooks/useBoardSplit";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { retainProjects, useOpenCards } from "./OpenCardsStore";
@@ -90,7 +91,7 @@ export default function ProjectExplorerSidebar({
     });
     const openCardsCollapsed = !!(userUID && collapsedByUser?.[userUID]);
     const navigate = usePageNavigateRef();
-    const location = useLocation();
+    const location = usePageLocation();
     const { data, isPending, isError, isFetching, refetch } = useGetProjects({ refetchOnWindowFocus: true });
     const authorizedProjectUIDs = useMemo(() => new Set(data?.projects.map((project) => project.uid) ?? []), [data]);
     const [showOlderCards, setShowOlderCards] = useState(false);
@@ -315,10 +316,11 @@ function ProjectExplorerItem({
     onClick: () => void;
     onNavigate?: () => void;
 }) {
+    const split = useBoardSplit();
     const title = project.useField("title");
     const starred = project.useField("starred");
     return (
-        <div className="flex min-w-0 items-center gap-1" style={{ containerType: "inline-size", containerName: "project-workload" }}>
+        <div className="group flex min-w-0 items-center gap-1" style={{ containerType: "inline-size", containerName: "project-workload" }}>
             <button
                 type="button"
                 onClick={onClick}
@@ -337,6 +339,19 @@ function ProjectExplorerItem({
                 <IconComponent icon={starred ? "star" : "folder-kanban"} size="4" />
                 <span className="truncate">{title}</span>
             </button>
+            {split && (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="hidden size-6 opacity-0 focus:opacity-100 group-hover:opacity-100 md:inline-flex"
+                    aria-label={`Open ${title} in split view`}
+                    disabled={split.panes.length >= 2}
+                    onClick={() => split.open(project.uid)}
+                >
+                    <IconComponent icon="columns-2" size="3" />
+                </Button>
+            )}
             <ProjectWorkloadBadges projectUID={project.uid} compact onNavigate={onNavigate} />
         </div>
     );

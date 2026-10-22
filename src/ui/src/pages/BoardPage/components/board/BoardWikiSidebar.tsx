@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import Button from "@/components/base/Button";
 import useGetWikis from "@/controllers/api/wiki/useGetWikis";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -9,7 +9,7 @@ import { cn } from "@/core/utils/ComponentUtils";
 export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUID: string; onNavigate?: () => void }) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
-    const location = useLocation();
+    const location = usePageLocation();
     const { data, isFetching, error, refetch } = useGetWikis({ project_uid: projectUID });
     const wikis = data?.wikis.filter((wiki) => !wiki.forbidden && !wiki.isInBin) ?? [];
     const open = (url: string) => {
