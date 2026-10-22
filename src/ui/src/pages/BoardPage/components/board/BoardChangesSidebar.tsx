@@ -56,10 +56,22 @@ export default function BoardChangesSidebar({ projectUID, onNavigate }: { projec
                                 onNavigate?.();
                             }}
                         >
-                            <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
-                            <span className="min-w-0 flex-1 break-words text-sm">{card.title}</span>
+                            <span className="flex w-full min-w-0 items-center gap-2">
+                                <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                                <span className="min-w-0 flex-1 break-words text-sm">{card.title}</span>
+                            </span>
                             <span className="shrink-0 text-xs text-muted-foreground">
                                 {card.last_change_target_type === "comment" ? t("dashboard.Comment change") : t("dashboard.Card change")}
+                            </span>
+                            <span className="shrink-0 text-xs text-muted-foreground" data-unread-change-count>
+                                {card.unread_change_count_status === "exact" &&
+                                card.unread_change_count !== null &&
+                                Number.isSafeInteger(card.unread_change_count) &&
+                                card.unread_change_count >= 0
+                                    ? t("dashboard.Unread change count", { count: card.unread_change_count })
+                                    : card.unread_change_count_status === "manual_unread"
+                                      ? t("dashboard.Marked unread")
+                                      : t("dashboard.Change count unavailable")}
                             </span>
                             {card.last_change_at && (
                                 <time

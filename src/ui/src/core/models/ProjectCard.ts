@@ -64,6 +64,8 @@ export interface Interface extends IBaseModel {
     last_change_target_uid?: string;
     last_change_at?: Date | null;
     has_unread_change?: bool;
+    unread_change_count?: number | null;
+    unread_change_count_status?: "exact" | "unknown_history" | "manual_unread" | "not_applicable";
 }
 
 export interface IWorkState {
@@ -332,6 +334,14 @@ class ProjectCard extends BaseModel<IStore> {
     }
     public set has_unread_change(value: bool) {
         this.update({ has_unread_change: value });
+    }
+
+    public get unread_change_count(): number | null {
+        return this.getValue("unread_change_count") ?? null;
+    }
+
+    public get unread_change_count_status(): Interface["unread_change_count_status"] {
+        return this.getValue("unread_change_count_status");
     }
 
     public get last_change_target_type(): string | undefined {
