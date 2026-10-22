@@ -178,6 +178,9 @@ def upload_attachment(
                         raise RuntimeError("Attachment storage did not allocate an independent object")
                 if duplicate_action == "replace":
                     if not same_content:
+                        from .factory.ProjectDocumentService import ProjectDocumentService
+
+                        service._get_service(ProjectDocumentService).invalidate(db, target)
                         old_file = target.file
                         target.file = stored
                         db.after_commit(lambda: Storage.delete(old_file))
@@ -196,6 +199,12 @@ def upload_attachment(
                         folder_id=folder_id,
                     )
                     db.insert(result)
+                if not same_content:
+                    from .factory.ProjectDocumentService import ProjectDocumentService
+
+                    db.after_commit(
+                        lambda: service._get_service(ProjectDocumentService).request(actor, board, result, automatic=True)
+                    )
                 response = {**result.api_response(), "request_uid": request_uid, "replayed": False}
             # Store JSON-safe final result, never resolve a later mutable asset on retry.
             response = loads(dumps(convert_python_data(response, recursive=True)))

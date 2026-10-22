@@ -1,0 +1,269 @@
+"""Process authorized native project sources using the shared document facilities."""
+
+from copy import deepcopy
+from hashlib import sha256
+from json import dumps, loads
+from os import unlink
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from ...core.broker import Broker
+from ...core.broker.TaskParameters import TaskParameters
+from ...core.storage import Storage
+from ...domain.models.InternalBot import InternalBotType
+from ...domain.services import DomainService
+from ...Env import Env
+from .DoclingMetadataTask import _convert_to_markdown, _current_vision_config
+from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
+from .DocumentEmbeddingCache import CHUNK_VERSION, cached_document_embeddings
+from .DocumentKeywords import keyword_languages, normalize_keywords
+from .DocumentVectorGeneration import embedding_fingerprint
+from .DocumentVectorStore import (
+    VectorGenerationCleanupError,
+    astage_vector_generation,
+    delete_vector_generation,
+    open_document_vector_store,
+)
+
+
+class _BoundedDownload:
+    """Reject an oversized write before any of its bytes reach the temporary file."""
+
+    def __init__(self, destination, limit):
+        self.destination, self.limit = destination, limit
+        self.size = 0
+        self.digest = sha256()
+
+    def write(self, value):
+        if self.size + len(value) > self.limit:
+            raise ValueError("Document download exceeds processing limit")
+        written = self.destination.write(value)
+        if written != len(value):
+            raise OSError("Incomplete document download")
+        self.size += written
+        self.digest.update(value)
+        return written
+
+    def tell(self):
+        return self.size
+
+    def flush(self):
+        return self.destination.flush()
+
+
+def _payload(request):
+    value = loads(request)
+    if not isinstance(value, dict):
+        return None
+    if not all(isinstance(value.get(key), str) and value[key] for key in ("attachment_uid", "generation")):
+        return None
+    return value["attachment_uid"], value["generation"]
+
+
+@Broker.wrap_async_task_decorator
+async def index_project_attachment(request: str):
+    service = DomainService()
+    try:
+        payload = _payload(request)
+        if payload:
+            _index_project_attachment(service, *payload)
+    finally:
+        service.close()
+
+
+@Broker.wrap_async_task_decorator
+async def embed_project_attachment(request: str):
+    service = DomainService()
+    try:
+        payload = _payload(request)
+        if payload:
+            await _embed_project_attachment(service, *payload)
+    finally:
+        service.close()
+
+
+def _source_fence(service, attachment_uid, generation, document, *, status):
+    current = service.project_document.load_source(attachment_uid, generation)
+    if not current:
+        raise InterruptedError("Document source is no longer authorized")
+    latest = current[2]
+    if latest.status != status or any(
+        getattr(latest, key) != getattr(document, key)
+        for key in ("generation", "source_revision", "vision_config", "embedding_config")
+    ):
+        raise InterruptedError("Document processing snapshot changed")
+    return current
+
+
+def _index_project_attachment(service, attachment_uid, generation):
+    temp_path = ""
+    indexed = False
+    try:
+        source = service.project_document.load_source(attachment_uid, generation)
+        if not source or source[2].status != "pending":
+            return
+        snapshot = deepcopy(source[2])
+        _current_vision_config(service, snapshot.vision_config)
+        source = service.project_document.claim(attachment_uid, generation)
+        if not source:
+            return
+        project, attachment, document = source
+        document = deepcopy(document)
+        private = _current_vision_config(service, document.vision_config)
+
+        def fence(*_):
+            _source_fence(service, attachment_uid, generation, document, status="processing")
+            _current_vision_config(service, document.vision_config)
+
+        fence()
+        with NamedTemporaryFile(delete=False, suffix=Path(attachment.filename).suffix) as temporary:
+            temp_path = temporary.name
+            writer = _BoundedDownload(temporary, Env.MAX_FILE_SIZE_MB * 1024 * 1024)
+            downloaded = Storage.download_file(attachment.file, writer)
+        fence()
+        if not downloaded or not writer.size or writer.digest.hexdigest() != attachment.content_sha256:
+            raise ValueError("Document download does not match authoritative content")
+        keywords = {}
+        languages = keyword_languages(private)
+
+        def collect(value):
+            for language, words in normalize_keywords(value, languages).items():
+                keywords[language] = normalize_keywords(
+                    {language: keywords.get(language, []) + words}, [language], limit=32
+                ).get(language, [])
+
+        structure = []
+        fence()
+        markdown = _convert_to_markdown(
+            temp_path, on_progress=fence, vision_value=dumps(private),
+            on_keywords=collect, on_document=structure.append,
+        )
+        fence()
+        indexed = service.project_document.publish_extraction(
+            attachment_uid, generation, markdown=markdown, keywords=keywords,
+            document_json=structure[0] if structure else None,
+        )
+    except Exception:
+        service.project_document.mark_failed(attachment_uid, generation, phase="extraction")
+    finally:
+        if temp_path:
+            try:
+                unlink(temp_path)
+            except OSError:
+                pass
+    if indexed and isinstance(document.embedding_config, dict):
+        try:
+            args, kwargs = TaskParameters(dumps(dict(attachment_uid=attachment_uid, generation=generation))).pack()
+            Broker.celery.send_task(
+                "langboard_shared.tasks.docling.ProjectDocumentTask.embed_project_attachment",
+                args=args, kwargs=kwargs, time_limit=600, soft_time_limit=570,
+            )
+        except Exception:
+            service.project_document.mark_failed(attachment_uid, generation, phase="embedding")
+
+
+def _record_cleanup(pointer):
+    from ...core.db import DbSession
+    from .DocumentCleanupTask import record_cleanup
+
+    with DbSession.atomic() as db:
+        record_cleanup(db, pointer)
+
+
+async def _embed_project_attachment(service, attachment_uid, generation):
+    source = service.project_document.load_source(attachment_uid, generation)
+    if not source or source[2].status != "indexed" or not isinstance(source[2].embedding_config, dict):
+        return
+    project, attachment, document = source
+    document = deepcopy(document)
+    snapshot = document.embedding_config
+    old = deepcopy(document.embedding or {})
+    try:
+        def fence():
+            current = _source_fence(service, attachment_uid, generation, document, status="indexed")
+            if (current[2].embedding or {}) != old:
+                raise InterruptedError("Document embedding publication superseded")
+            binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
+            if not binding or binding.bot_type != InternalBotType.DocumentEmbedding:
+                raise ValueError("Embedding binding unavailable")
+            return resolve_embedding_snapshot(snapshot, binding.value)
+
+        private = fence()
+        config, settings = validate_embedding_config(private)
+        fingerprint = embedding_fingerprint(
+            provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
+        )
+        if (old.get("status") == "indexed" and old.get("source_generation") == generation
+                and old.get("config") == snapshot and old.get("chunk_version") == CHUNK_VERSION
+                and (old.get("pointer") or {}).get("embedding_fingerprint") == fingerprint):
+            return
+        allowed = set(Env.get_from_env("MODEL_PROVIDER_ALLOWED_BASE_URLS", "").split(","))
+        provider = create_document_embeddings(private, allowed)
+        from langchain_core.embeddings import Embeddings
+
+        class FencedEmbeddings(Embeddings):
+            def embed_documents(self, texts):
+                fence()
+                result = provider.embed_documents(texts)
+                fence()
+                return result
+
+            async def aembed_documents(self, texts):
+                fence()
+                result = await provider.aembed_documents(texts)
+                fence()
+                return result
+
+            def embed_query(self, text):
+                raise NotImplementedError
+
+        with cached_document_embeddings(
+            FencedEmbeddings(), binding_uid=snapshot["binding_uid"], content_hash=attachment.content_sha256,
+            fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
+            splitter=settings.splitter,
+        ) as cache:
+            vector_allowed = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
+            fence()
+            with open_document_vector_store(
+                settings, cache, fingerprint, Env.DATA_DIR / "document-retrieval", vector_allowed,
+            ) as store:
+                storage = {"type": settings.store, "cache_use_token": cache.token}
+                if settings.store == "postgres":
+                    storage["dimensions"] = settings.dimensions
+                if settings.store == "qdrant":
+                    storage.update(
+                        endpoint=str(settings.external_url).rstrip("/"), binding_uid=snapshot["binding_uid"],
+                        dimensions=settings.dimensions, collection_prefix=settings.collection_prefix,
+                    )
+                fence()
+                pointer = await astage_vector_generation(
+                    store, embeddings=cache, source=dict(
+                        source_type="project_attachment", board_uid=project.get_uid(), attachment_uid=attachment_uid,
+                        content_hash=attachment.content_sha256, embedding_fingerprint=fingerprint,
+                    ), text=document.markdown, document_json=document.document_json,
+                    splitter=settings.splitter, storage=storage,
+                )
+                try:
+                    fence()
+                    published = service.project_document.publish_embedding(
+                        attachment_uid, generation, expected_embedding=old, embedding=dict(
+                            status="indexed", pointer=pointer, source_generation=generation,
+                            config=snapshot, chunk_version=CHUNK_VERSION,
+                        ),
+                    )
+                except Exception:
+                    delete_vector_generation(store, pointer)
+                    raise
+                if not published:
+                    delete_vector_generation(store, pointer)
+                    return
+                cache.retain()
+    except Exception as error:
+        if isinstance(error, InterruptedError):
+            return
+        if isinstance(error, VectorGenerationCleanupError):
+            _record_cleanup(error.pointer)
+        service.project_document.publish_embedding(
+            attachment_uid, generation, expected_embedding=old, embedding={
+                **old, "status": "failed", "error": "Document embedding failed; request processing again",
+            },
+        )

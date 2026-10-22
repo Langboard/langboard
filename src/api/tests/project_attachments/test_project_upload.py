@@ -13,13 +13,15 @@ from langboard_shared.core.routing import ApiException
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    InternalBot,
     ProjectAssignedUser,
     ProjectAttachment,
+    ProjectAttachmentDocument,
     ProjectAttachmentUploadReceipt,
     ProjectRole,
     User,
 )
-from langboard_shared.domain.services.factory.ProjectAttachmentService import ProjectAttachmentService
+from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from sqlalchemy import delete, update
 
@@ -32,12 +34,16 @@ def cloud(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
     ProjectAttachment.__table__.create(b.engine)
     ProjectAttachmentUploadReceipt.__table__.create(b.engine)
+    ProjectAttachmentDocument.__table__.create(b.engine)
+    InternalBot.__table__.create(b.engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
-    b.cloud = ProjectAttachmentService(None, None, None)
+    domain = DomainService()
+    b.cloud = domain.project_attachment
     b.http = SimpleNamespace(project_attachment=b.cloud)
     monkeypatch.setattr(FileApi.MiddlewareHelper, "validate_auth", lambda _: b.actor)
-    return b
+    yield b
+    domain.close()
 
 
 def upload(b, name="report.pdf", data=b"first", request_uid=None, **kwargs):
@@ -301,18 +307,22 @@ def test_migration_up_down_and_populated_guard(cloud):
     spec.loader.exec_module(module)
     assert module.down_revision == "3e14fa528d76"
     with cloud.engine.begin() as connection:
+        ProjectAttachmentDocument.__table__.drop(connection)
         ProjectAttachmentUploadReceipt.__table__.drop(connection)
         ProjectAttachment.__table__.drop(connection)
         with Operations.context(MigrationContext.configure(connection)):
             module.upgrade()
+        ProjectAttachmentDocument.__table__.create(connection)
     upload(cloud)
     with cloud.engine.begin() as connection:
         with Operations.context(MigrationContext.configure(connection)), pytest.raises(RuntimeError):
             module.downgrade()
     with cloud.engine.begin() as connection:
+        ProjectAttachmentDocument.__table__.drop(connection)
         connection.execute(delete(ProjectAttachmentUploadReceipt))
         connection.execute(delete(ProjectAttachment))
         with Operations.context(MigrationContext.configure(connection)):
             module.downgrade()
             module.upgrade()
+        ProjectAttachmentDocument.__table__.create(connection)
     assert upload(cloud)["uid"]

@@ -713,6 +713,9 @@ class ProjectService(BaseDomainService):
             )
 
         with DbSession.atomic():
+            from .ProjectDocumentService import ProjectDocumentService
+
+            self._get_service(ProjectDocumentService).record_scope_embedding_cleanup(project)
             self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project)
             self.repo.project.delete(project)
             self._get_service_by_name("card").invalidate_source_project_mirrors(project)
