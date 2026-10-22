@@ -43,6 +43,7 @@ import { BoardBotScopeList } from "@/pages/BoardPage/components/board/BoardBotSc
 import useGetProject from "@/controllers/api/board/useGetProject";
 import useResolveCardLocation from "@/controllers/api/card/useResolveCardLocation";
 import useGetCards from "@/controllers/api/board/useGetCards";
+import useBoardUnreadCards from "@/pages/BoardPage/components/board/BoardUnreadCards";
 import useGetGraphApprovalCount from "@/controllers/api/board/graphApprovals/useGetGraphApprovalCount";
 import ActivityList from "@/components/ActivityList";
 import { SocketEvents } from "@langboard/core/constants";
@@ -350,8 +351,9 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     const { boardViewType, selectCardViewType, chatSidebarRef, boardChat, setBoardViewType, setChatResizableSidebar, setBoardChat } =
         useBoardController();
     const isCardPage = !!pageRoute && !["graph", "wiki", "cloud", "settings"].includes(pageRoute);
-    // BoardPage owns fetching; the shell only observes its snapshot for the card title.
-    const { data: boardCardsData } = useGetCards({ project_uid: project.uid }, { enabled: false });
+    // BoardPage owns fetching; the shell observes its current account/session snapshot.
+    const { data: boardCardsData, dataUpdatedAt: boardCardsUpdatedAt } = useGetCards({ project_uid: project.uid }, { enabled: false });
+    const unreadCards = useBoardUnreadCards(project.uid, currentUser && boardCardsData && !isProjectLoading ? boardCardsUpdatedAt : 0);
     const activeCard = boardCardsData && isCardPage ? ProjectCard.Model.getModel(pageRoute) : undefined;
     const { data: approvalCountData, refetch: refetchApprovalCount } = useGetGraphApprovalCount(project.uid, {
         interceptToast: false,
@@ -759,6 +761,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                     {
                         icon: "circle-dot",
                         label: t("dashboard.Changes"),
+                        badge: unreadCards.length || undefined,
                         onClick: () => toggleWorkbenchContext("changes"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "changes",
                     },

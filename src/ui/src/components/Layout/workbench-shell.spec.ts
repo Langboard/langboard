@@ -3,6 +3,153 @@ import type { CatalogApp } from "../../controllers/api/board/useBoardAppCatalog"
 import type { Page, Route } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
+test("Changes rail counts all native unread cards and follows model, board and identity transitions", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const now = new Date().toISOString();
+    let actor = "fixture-user";
+    let holdCards = false;
+    let releaseCards: (() => void) | undefined;
+    const cardReads: string[] = [];
+    const user = () => ({ uid: actor, created_at: now, updated_at: now, firstname: "Fixture", lastname: "User", user_groups: [] });
+    const projects = () =>
+        ["left", "right"].map((uid) => ({
+            uid,
+            title: `${uid} board`,
+            created_at: now,
+            updated_at: now,
+            owner_uid: actor,
+            project_type: "default",
+            archive_visible_days: 30,
+            all_members: [user()],
+            invited_member_uids: [],
+            internal_bots: [],
+            internal_bot_settings: {},
+            current_auth_role_actions: ["*"],
+            labels: [],
+            description: "",
+        }));
+    await page.route(
+        (url) => url.port === "5381",
+        async (route) => {
+            const path = new URL(route.request().url()).pathname;
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            const uid = path.split("/")[2];
+            let json: unknown = {};
+            if (path.startsWith("/auth/")) json = { access_token: "fixture", user: user(), bots: [] };
+            else if (path === `/board/${uid}`) json = { project: projects().find((project) => project.uid === uid) };
+            else if (path === `/board/${uid}/cards`) {
+                cardReads.push(`${actor}/${uid}`);
+                if (holdCards)
+                    await new Promise<void>((resolve) => {
+                        releaseCards = resolve;
+                    });
+                const count = actor === "fixture-user" ? (uid === "left" ? 55 : 2) : 3;
+                json = {
+                    cards: Array.from({ length: count + 3 }, (_, index) => ({
+                        uid: `${uid}-${index}`,
+                        project_uid: uid,
+                        project_column_uid: `${uid}-column`,
+                        title: `${uid} card ${index}`,
+                        created_at: now,
+                        updated_at: now,
+                        order: index,
+                        member_uids: [],
+                        labels: [],
+                        relationships: [],
+                        has_unread_change: index !== count + 2,
+                        last_change_seq: index + 1,
+                        ...(index === count ? { source_type: "project_card" } : index === count + 1 ? { source_type: "project_wiki" } : {}),
+                    })),
+                    columns: [{ uid: `${uid}-column`, project_uid: uid, name: `${uid} column`, order: 0, created_at: now, updated_at: now }],
+                    checklists: [],
+                    global_relationships: [],
+                };
+            } else if (path.includes("/column/dock")) json = { column_uids: [] };
+            else if (path.includes("/cards/available")) json = { card_uids: [] };
+            else if (path.includes("project")) json = { projects: projects(), columns: [], records: [], collections: [] };
+            else if (path.includes("apps")) json = { apps: [] };
+            await route.fulfill({ json });
+        }
+    );
+    await page.goto("/src/pages/BoardPage/BoardSplit.fixture.html");
+    const changes = page.getByRole("button", { name: "Changes", exact: true });
+    await expect(changes).toContainText("55", { timeout: 45_000 });
+    expect(cardReads).toEqual(["fixture-user/left"]);
+    await expect(page.getByRole("region", { name: "Changes", exact: true })).toHaveCount(0);
+    await page.evaluate(async () => {
+        const path = "/src/core/models/index.ts";
+        const { ProjectCard } = await import(/* @vite-ignore */ path);
+        ProjectCard.Model.getModel("left-0").has_unread_change = false;
+    });
+    await expect(changes).toContainText("54");
+    await page.evaluate(async () => {
+        const path = "/src/core/models/index.ts";
+        const { ProjectCard } = await import(/* @vite-ignore */ path);
+        ProjectCard.Model.getModel("left-0").has_unread_change = true;
+    });
+    await expect(changes).toContainText("55");
+    await changes.click();
+    const sidebar = page.getByRole("region", { name: "Changes", exact: true }).last();
+    await expect(sidebar.getByRole("button").filter({ hasText: "left card" })).toHaveCount(50);
+    await expect(sidebar.getByText("Showing the first 50 unread cards.", { exact: true })).toBeVisible();
+    await page.evaluate(async () => {
+        const path = "/src/core/models/index.ts";
+        const { ProjectCard } = await import(/* @vite-ignore */ path);
+        ProjectCard.Model.getModels(
+            (card: { project_uid: string; source_type?: string }) => card.project_uid === "left" && !card.source_type
+        ).forEach((card: { has_unread_change: boolean }) => {
+            card.has_unread_change = false;
+        });
+    });
+    await expect(changes).toHaveText("");
+    await expect(sidebar.getByText("No unread changes in this board.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Explorer", exact: true }).click();
+    holdCards = true;
+    await page.locator("[data-workbench-explorer]").getByRole("button", { name: "right board", exact: true }).first().click();
+    await expect.poll(() => releaseCards !== undefined).toBe(true);
+    await expect(changes).toHaveText("");
+    holdCards = false;
+    releaseCards!();
+    await expect(changes).toContainText("2");
+    // Both boards are cached: switching must synchronously select the current board's unread projection.
+    const explorer = page.locator("[data-workbench-explorer]");
+    await explorer.getByRole("button", { name: "left board", exact: true }).first().click();
+    await expect(changes).toHaveText("");
+    await explorer.getByRole("button", { name: "right board", exact: true }).first().click();
+    await expect(changes).toContainText("2");
+    expect(cardReads).toEqual(["fixture-user/left", "fixture-user/right"]);
+    releaseCards = undefined;
+    holdCards = true;
+    actor = "other-user";
+    await page.evaluate(async () => {
+        const storePath = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const [{ default: store }, { api }] = await Promise.all([import(/* @vite-ignore */ storePath), import(/* @vite-ignore */ apiPath)]);
+        await store.getState().updateToken("other-session", api);
+    });
+    await expect.poll(() => releaseCards !== undefined).toBe(true);
+    await expect(changes).toHaveText("");
+    holdCards = false;
+    releaseCards!();
+    await expect(changes).toContainText("3");
+    releaseCards = undefined;
+    holdCards = true;
+    await page.evaluate(async () => {
+        const storePath = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const [{ default: store }, { api }] = await Promise.all([import(/* @vite-ignore */ storePath), import(/* @vite-ignore */ apiPath)]);
+        await store.getState().updateToken("renewed-session", api);
+    });
+    await expect.poll(() => releaseCards !== undefined).toBe(true);
+    await expect(changes).toHaveText("");
+    holdCards = false;
+    releaseCards!();
+    await expect(changes).toContainText("3");
+    expect(cardReads).toEqual(["fixture-user/left", "fixture-user/right", "other-user/right", "other-user/right"]);
+    expect(errors).toEqual([]);
+});
+
 test.beforeEach(async ({ page }) => {
     const accounts = new Map<string, { revision: number; pinned_apps: { key: string; name: string }[] }>();
     await page.route("**/account/app-preferences", (route) => {

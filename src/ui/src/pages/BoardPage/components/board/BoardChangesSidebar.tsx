@@ -1,7 +1,7 @@
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
 import useGetCards from "@/controllers/api/board/useGetCards";
-import { ProjectCard } from "@/core/models";
+import useBoardUnreadCards from "./BoardUnreadCards";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { useTranslation } from "react-i18next";
@@ -9,12 +9,8 @@ import { useTranslation } from "react-i18next";
 export default function BoardChangesSidebar({ projectUID, onNavigate }: { projectUID: string; onNavigate?: () => void }) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
-    const { dataUpdatedAt, isFetching, refetch } = useGetCards({ project_uid: projectUID }, { enabled: true });
-    const unreadCards = ProjectCard.Model.useModels(
-        (card) =>
-            card.project_uid === projectUID && card.has_unread_change && card.source_type !== "project_wiki" && card.source_type !== "project_card",
-        [projectUID, dataUpdatedAt]
-    );
+    const { data, dataUpdatedAt, isFetching, refetch } = useGetCards({ project_uid: projectUID }, { enabled: true });
+    const unreadCards = useBoardUnreadCards(projectUID, data ? dataUpdatedAt : 0);
     const visibleCards = [...unreadCards].sort((a, b) => (b.last_change_seq ?? 0) - (a.last_change_seq ?? 0)).slice(0, 50);
 
     return (
