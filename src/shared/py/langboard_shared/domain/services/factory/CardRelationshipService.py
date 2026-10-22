@@ -144,16 +144,22 @@ class CardRelationshipService(BaseDomainService):
             self._validate_blocking_edge(edges, parent, child, relationship_types[type_id].machine_semantic)
         with execution_readiness_uow() as execution:
             execution.watch([card.id] if is_parent else affected_ids)
-            self.repo.card_relationship.delete_all_by_card_and_relation(card, relation="parent" if is_parent else "child")
+            retained = {(related.id, edge.relationship_type_id): edge for edge, _, related in old_relationships}
+            desired = set(candidates)
+            removed_ids = [edge.id for key, edge in retained.items() if key not in desired]
+            if removed_ids:
+                db.exec(SqlBuilder.delete.table(CardRelationship).where(CardRelationship.id.in_(removed_ids)))
             new_relationships_dict: dict[SnowflakeID, bool] = {}
             for related_card_id, relationship_type_id in candidates:
+                new_relationships_dict[related_card_id] = True
+                if (related_card_id, relationship_type_id) in retained:
+                    continue
                 new_relationship = CardRelationship(
                     relationship_type_id=relationship_type_id,
                     card_id_parent=related_card_id if is_parent else card.id,
                     card_id_child=card.id if is_parent else related_card_id,
                 )
                 self.repo.card_relationship.insert(new_relationship)
-                new_relationships_dict[related_card_id] = True
 
             new_relationships = self.get_api_list_by_card(card)
             self._mark_card_changed_for_unread(card, "relationship")

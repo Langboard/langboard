@@ -14,6 +14,12 @@ import { MAX_PINNED_APPS } from "@/core/stores/UserSettingsStore";
 
 interface CatalogApp {
     key: string;
+    kind?: "composition";
+    composition_key?: string;
+    modules?: CatalogApp[];
+    is_enabled?: boolean;
+    revision?: string;
+    builtin?: boolean;
     name: string;
     description: string;
     version?: string;
@@ -37,42 +43,71 @@ export default function AppStore({ userUID }: { userUID: string }) {
     const [search] = useSearchParams();
     const navigate = usePageNavigateRef();
     const projectUID = search.get("project_uid") ?? undefined;
+    const compositionKey = appKey ? (search.get("composition_key") ?? undefined) : undefined;
     const pinnedApps = usePinnedAppRail({ userUID, projectUID });
     const after = appKey ? undefined : (search.get("after") ?? undefined);
-    const valid = (!appKey || /^[a-z][a-z0-9_-]{0,31}$/.test(appKey)) && (!projectUID || /^[A-Za-z0-9]{11}$/.test(projectUID));
+    const valid =
+        (!compositionKey || (compositionKey === appKey && /^[a-z][a-z0-9_-]{0,31}$/.test(compositionKey))) &&
+        (!appKey || /^[a-z][a-z0-9_-]{0,31}$/.test(appKey)) &&
+        (!projectUID || /^[A-Za-z0-9]{11}$/.test(projectUID));
     const query = useQuery({
-        queryKey: ["user-app-catalog", userUID, projectUID, appKey, after],
+        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after],
         enabled: valid,
         queryFn: async ({ signal }) =>
-            (await api.get<Catalog>("/apps/catalog", { signal, params: { project_uid: projectUID, key: appKey, after } })).data,
+            (
+                await api.get<Catalog>("/apps/catalog", {
+                    signal,
+                    params: {
+                        include_compositions: true,
+                        project_uid: projectUID,
+                        key: compositionKey ? undefined : appKey,
+                        composition_key: compositionKey,
+                        after,
+                    },
+                })
+            ).data,
         retry: 0,
         gcTime: 0,
     });
-    const suffix = search.size ? `?${search}` : "";
+    const moduleSearch = new URLSearchParams(search);
+    moduleSearch.delete("composition_key");
+    moduleSearch.delete("after");
+    const suffix = moduleSearch.size ? `?${moduleSearch}` : "";
+    const detailURL = (app: CatalogApp) => {
+        const params = new URLSearchParams(moduleSearch);
+        if (app.kind === "composition") params.set("composition_key", app.key);
+        return `${ROUTES.APPS.DETAIL(app.key)}${params.size ? `?${params}` : ""}`;
+    };
     const catalog = query.data;
     const apps = new Map<string, CatalogApp>();
-    for (const app of catalog?.official ?? []) apps.set(app.key, app);
-    for (const app of catalog?.items ?? []) apps.set(app.key, { ...apps.get(app.key), ...app });
-    const selected = appKey ? apps.get(appKey) : undefined;
+    for (const app of catalog?.official ?? []) apps.set(`${app.kind ?? "module"}:${app.key}`, app);
+    for (const app of catalog?.items ?? []) {
+        const identity = `${app.kind ?? "module"}:${app.key}`;
+        apps.set(identity, { ...apps.get(identity), ...app });
+    }
+    const selected = appKey ? apps.get(`${compositionKey ? "composition" : "module"}:${appKey}`) : undefined;
     const isPinned = pinnedApps.pins.some((pin) => pin.key === selected?.key);
     const listURL = `${ROUTES.APPS.ROUTE}${suffix}`;
     const nextSearch = new URLSearchParams({ ...(projectUID ? { project_uid: projectUID } : {}), after: catalog?.next_cursor ?? "" });
-    const icon = (app: CatalogApp) => (
-        <AppPackageIcon
-            appKey={app.key}
-            installation={app.installation}
-            fallbackUrl={
-                app.repository && app.source !== "manual" && app.source !== "registered"
-                    ? `https://github.com/${app.repository}/releases/latest/download/icon-light.svg`
-                    : undefined
-            }
-            fallbackDarkUrl={
-                app.repository && app.source !== "manual" && app.source !== "registered"
-                    ? `https://github.com/${app.repository}/releases/latest/download/icon-dark.svg`
-                    : undefined
-            }
-        />
-    );
+    const icon = (entry: CatalogApp) => {
+        const app = entry.modules?.find((module) => module.installation) ?? entry.modules?.[0] ?? entry;
+        return (
+            <AppPackageIcon
+                appKey={app.key}
+                installation={app.installation}
+                fallbackUrl={
+                    app.repository && app.source !== "manual" && app.source !== "registered"
+                        ? `https://github.com/${app.repository}/releases/latest/download/icon-light.svg`
+                        : undefined
+                }
+                fallbackDarkUrl={
+                    app.repository && app.source !== "manual" && app.source !== "registered"
+                        ? `https://github.com/${app.repository}/releases/latest/download/icon-dark.svg`
+                        : undefined
+                }
+            />
+        );
+    };
     return (
         <DashboardStyledLayout
             headerNavs={[]}
@@ -188,18 +223,52 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                 <div className="min-w-0">
                                     <h2 className="break-words text-xl font-semibold">{selected.name}</h2>
                                     <p className="text-sm text-muted-foreground">
-                                        {selected.version ?? t("appStore.Not installed")} ·{" "}
-                                        {t(
-                                            selected.source === "manual"
-                                                ? "appStore.Manual app"
-                                                : selected.source === "registered"
-                                                  ? "appStore.Registered app"
-                                                  : "appStore.Official app"
-                                        )}
+                                        {selected.kind === "composition"
+                                            ? t("appStore.Logical app")
+                                            : (selected.version ?? t("appStore.Not installed"))}{" "}
+                                        ·{" "}
+                                        {selected.kind === "composition"
+                                            ? t("appStore.Modules", { count: selected.modules?.length ?? 0 })
+                                            : t(
+                                                  selected.source === "manual"
+                                                      ? "appStore.Manual app"
+                                                      : selected.source === "registered"
+                                                        ? "appStore.Registered app"
+                                                        : "appStore.Official app"
+                                              )}
                                     </p>
                                 </div>
                             </div>
                             <p className="break-words text-sm text-muted-foreground">{selected.description}</p>
+                            {selected.modules && (
+                                <section aria-label={t("appStore.App modules")} className="space-y-3">
+                                    <h3 className="font-medium">{t("appStore.App modules")}</h3>
+                                    <p className="text-sm text-muted-foreground">{t("appStore.Module consent")}</p>
+                                    <ul className="space-y-3">
+                                        {selected.modules.map((module) => (
+                                            <li key={module.key} className="space-y-2 rounded-lg border p-3">
+                                                <h4 className="break-words font-medium">{module.name}</h4>
+                                                <p className="break-all text-xs text-muted-foreground">
+                                                    {module.key} · {module.version ?? t("appStore.Built-in module")}
+                                                </p>
+                                                <p className="text-sm">
+                                                    {t(module.is_enabled ? "appStore.Module enabled" : "appStore.Module disabled")}
+                                                </p>
+                                                {!!module.capabilities?.length && (
+                                                    <p className="break-words text-sm">
+                                                        {t("appStore.Requested capabilities")}: {module.capabilities.join(", ")}
+                                                    </p>
+                                                )}
+                                                {module.is_enabled && !module.builtin && (
+                                                    <Button asChild variant="outline" className="min-h-11">
+                                                        <Link to={detailURL(module)}>{t("appStore.View module", { name: module.name })}</Link>
+                                                    </Button>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
+                            )}
                             {!!selected.capabilities?.length && (
                                 <div>
                                     <h3 className="mb-2 font-medium">{t("appStore.Requested capabilities")}</h3>
@@ -212,7 +281,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                     </ul>
                                 </div>
                             )}
-                            {selected.is_installed && (
+                            {selected.is_installed && selected.kind !== "composition" && (
                                 <div className="space-y-2">
                                     <Button
                                         variant="outline"
@@ -249,8 +318,8 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         <div className="grid gap-3 md:grid-cols-2">
                             {[...apps.values()].map((app) => (
                                 <Link
-                                    key={app.key}
-                                    to={`${ROUTES.APPS.DETAIL(app.key)}${suffix}`}
+                                    key={`${app.kind ?? "module"}:${app.key}`}
+                                    to={detailURL(app)}
                                     className={
                                         "flex min-h-24 min-w-0 items-center gap-4 rounded-xl border bg-card p-4 transition-colors " +
                                         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -261,7 +330,9 @@ export default function AppStore({ userUID }: { userUID: string }) {
                                         <h2 className="truncate font-semibold">{app.name}</h2>
                                         <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{app.description}</p>
                                         <p className="mt-1 text-xs text-muted-foreground">
-                                            {t(app.is_installed ? "appStore.Installed" : "appStore.Not installed")}
+                                            {app.kind === "composition"
+                                                ? t("appStore.Modules", { count: app.modules?.length ?? 0 })
+                                                : t(app.is_installed ? "appStore.Installed" : "appStore.Not installed")}
                                         </p>
                                     </div>
                                     <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />

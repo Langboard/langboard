@@ -79,6 +79,13 @@ export const BoardAddCardProvider = ({
             setTimeout(() => {
                 if (valueRef.current) {
                     valueRef.current.focus();
+                    valueRef.current.scrollIntoView({ block: "nearest", inline: "nearest" });
+                    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                        valueRef.current.animate(
+                            [{ boxShadow: "0 0 0 3px hsl(var(--primary) / 0.65)" }, { boxShadow: "0 0 0 0 hsl(var(--primary) / 0)" }],
+                            { duration: 700, easing: "ease-out" }
+                        );
+                    }
                 }
                 scrollToBottom();
             }, 0);
@@ -141,7 +148,7 @@ export const BoardAddCardProvider = ({
 
         const pointerDownEvent = (e: PointerEvent) => {
             const target = e.target;
-            if (target instanceof HTMLElement && !target.closest(`[${disableChangeModeAttr}]`)) {
+            if (target instanceof HTMLElement && !target.closest(`[${disableChangeModeAttr}], [data-board-compose]`)) {
                 changeMode("view");
             }
         };

@@ -90,21 +90,71 @@ def is_project_available(project_uid: str, service: DomainService = DomainServic
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
 def get_project(
-    project_uid: str, user_or_bot: User | Bot = Auth.scope("all"), service: DomainService = DomainService.scope()
+    project_uid: str,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    service: DomainService = DomainService.scope(),
+    include_automation: bool = True,
 ) -> JsonResponse:
+    timings = [perf_counter()]
     result = service.project.get_details(user_or_bot, project_uid, is_setting=False)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     project, response = result
-    project_bot_scopes = service.project.get_api_bot_scope_list(project)
-    project_bot_schedules = service.project.get_api_bot_schedule_list(project)
+    timings.append(perf_counter())
+    project_bot_scopes = service.project.get_api_bot_scope_list(project) if include_automation else []
+    project_bot_schedules = service.project.get_api_bot_schedule_list(project) if include_automation else []
+    timings.append(perf_counter())
     if isinstance(user_or_bot, User):
         service.project.set_last_view(user_or_bot, project)
-    return JsonResponse(
+    timings.append(perf_counter())
+    result = JsonResponse(
         content={
             "project": response,
             "project_bot_scopes": project_bot_scopes,
             "project_bot_schedules": project_bot_schedules,
+        }
+    )
+    timings.append(perf_counter())
+    result.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={(end - start) * 1000:.3f}"
+        for name, start, end in zip(
+            ("project_details", "project_bots", "project_visit", "project_serialize"), timings, timings[1:]
+        )
+    )
+    return result
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/automation",
+    tags=["Board"],
+    description="Get board automation on demand without recording a visit.",
+    responses=OpenApiSchema()
+    .suc(
+        {
+            "project_bot_scopes": [ProjectBotScope],
+            "project_bot_schedules": [ProjectBotSchedule],
+            "column_bot_scopes": [ProjectColumnBotScope],
+            "column_bot_schedules": [ProjectColumnBotSchedule],
+        }
+    )
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF2001)
+    .get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_project_automation(project_uid: str, service: DomainService = DomainService.scope()) -> JsonResponse:
+    project = service.project.get_by_id_like(project_uid)
+    if project is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    return JsonResponse(
+        content={
+            "project_bot_scopes": service.project.get_api_bot_scope_list(project),
+            "project_bot_schedules": service.project.get_api_bot_schedule_list(project),
+            "column_bot_scopes": service.project_column.get_api_bot_scopes_by_project(project),
+            "column_bot_schedules": service.project_column.get_api_bot_schedule_list_by_project(project, None),
         }
     )
 
@@ -368,13 +418,11 @@ def get_project_cards(
     request: Request,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
+    include_automation: bool = True,
 ) -> JsonResponse:
     timings = [perf_counter()]
-    project = service.project.get_by_id_like(project_uid)
-    if project is None:
-        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
-    resolved = service.card.resolve_visibility_context(project, user_or_bot, channel)
+    resolved = service.card.resolve_visibility_context(project_uid, user_or_bot, channel)
     if resolved is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     project, context = resolved
@@ -388,8 +436,10 @@ def get_project_cards(
     timings.append(perf_counter())
     checklists = [checklist.api_response() for checklist in raw_checklists]
     timings.append(perf_counter())
-    column_bot_scopes = service.project_column.get_api_bot_scopes_by_project(project)
-    column_bot_schedules = service.project_column.get_api_bot_schedule_list_by_project(project, columns)
+    column_bot_scopes = service.project_column.get_api_bot_scopes_by_project(project) if include_automation else []
+    column_bot_schedules = (
+        service.project_column.get_api_bot_schedule_list_by_project(project, columns) if include_automation else []
+    )
 
     timings.append(perf_counter())
     column_names_by_uid = {col["uid"]: col["name"] for col in columns}

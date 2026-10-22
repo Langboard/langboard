@@ -541,6 +541,8 @@ for (const width of [1440, 390]) {
         await page.goto("/src/components/Layout/column-history.fixture.html");
         const entry = page.locator("nav time");
         await expect(entry).toHaveText("Review queue");
+        await entry.focus();
+        await expect(page.getByRole("tooltip")).toBeVisible();
         for (const language of ["ko-KR", "en-US", "ja-JP", "zh-CN"]) {
             const exact = await page.evaluate(
                 async ({ language, createdAt }) => {
@@ -552,10 +554,10 @@ for (const width of [1440, 390]) {
                 { language, createdAt }
             );
             await expect(entry).toHaveAttribute("aria-label", `Review queue · ${exact} · History Worker`);
-            await entry.focus();
             await expect(page.getByRole("tooltip")).toContainText(exact);
-            await entry.press("Escape");
         }
+        await entry.press("Escape");
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
         expect(requests).toBe(1);
     });
 }
@@ -572,6 +574,42 @@ test("rail keeps settings reachable below scrolling workspace actions", async ({
     await settings.focus();
     await expect(settings).toBeFocused();
 });
+
+for (const storageFailure of ["malformed", "null", "read-denied", "write-denied"] as const) {
+    test(`settings storage ${storageFailure} does not prevent shell navigation`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.addInitScript((failure) => {
+            const key = "user-settings-store";
+            if (failure === "malformed" || failure === "null") localStorage.setItem(key, failure === "null" ? "null" : "{broken");
+            if (failure === "read-denied") {
+                const getItem = Storage.prototype.getItem;
+                Storage.prototype.getItem = function (name) {
+                    if (name === key) throw new DOMException("Storage unavailable", "SecurityError");
+                    return getItem.call(this, name);
+                };
+            }
+            if (failure === "write-denied") {
+                const setItem = Storage.prototype.setItem;
+                Storage.prototype.setItem = function (name, value) {
+                    if (name === key) throw new DOMException("Storage full", "QuotaExceededError");
+                    return setItem.call(this, name, value);
+                };
+            }
+        }, storageFailure);
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+        if (storageFailure === "malformed" || storageFailure === "null") {
+            expect(await page.evaluate(() => localStorage.getItem("user-settings-store"))).toBe(storageFailure === "null" ? "null" : "{broken");
+        }
+        const sidebar = page.locator("[data-workbench-sidebar]");
+        await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Board", exact: true })).toBeVisible();
+        await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+        expect(errors).toEqual([]);
+    });
+}
 
 for (const width of [1440, 1100]) {
     test(`explicit sidebar preference survives navigation and reload at ${width}px`, async ({ page }) => {
@@ -959,3 +997,71 @@ for (const width of [1440, 390]) {
         });
     }
 }
+
+test("compose dock opens the first column editor and preserves a draft without submitting", async ({ page }) => {
+    let writes = 0;
+    await page.route("http://127.0.0.1:5381/**", async (route) => {
+        if (route.request().method() === "POST") writes++;
+        await route.fulfill({ json: { active_work: [], columns: [], pinned_apps: [], revision: 0 } });
+    });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+    const compose = page.getByRole("button", { name: "Compose", exact: true });
+    await expect(compose).toBeVisible();
+    await compose.click();
+    const input = page.locator("textarea");
+    await expect(input).toBeFocused();
+    await input.fill("Keep this card draft");
+    await compose.click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("Keep this card draft");
+    expect(writes).toBe(0);
+    await expect(page).not.toHaveURL(/new-card/);
+});
+
+test("resizing across the minimum threshold collapses and reverse dragging expands", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const sidebar = page.locator("[data-workbench-sidebar]").filter({ has: page.getByText("Sidebar Dashboard", { exact: true }) });
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    const resize = sidebar.locator(".resizer");
+    const handle = await resize.boundingBox();
+    await page.mouse.move(handle!.x + 1, handle!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(handle!.x - 220, handle!.y + 100, { steps: 12 });
+    await page.mouse.up();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(52);
+    const collapsed = await resize.boundingBox();
+    await page.mouse.move(collapsed!.x + 1, collapsed!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(collapsed!.x + 240, collapsed!.y + 100, { steps: 12 });
+    await page.mouse.up();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await expect(page.getByText("Sidebar Dashboard", { exact: true })).toBeVisible();
+    const width = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+    expect(width).toBeGreaterThanOrEqual(220);
+    expect(width).toBeLessThanOrEqual(420);
+    expect(await page.evaluate(() => document.documentElement.style.userSelect)).toBe("");
+});
+
+test("approved header orbit plays once on hover and respects reduced motion", async ({ page }) => {
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const home = page.getByRole("link", { name: "Go to Dashboard", exact: true });
+    await expect(home.getByText("Langboard", { exact: true })).toBeVisible();
+    await expect(home.locator("svg")).toHaveCount(1);
+    const star = home.locator("g[id$=animated-star] > g");
+    const position = () =>
+        star.evaluate((element) => {
+            const matrix = (element as SVGGraphicsElement).getCTM()!;
+            return [matrix.e, matrix.f];
+        });
+    const resting = await position();
+    await home.hover();
+    await expect.poll(position).not.toEqual(resting);
+    await expect.poll(position, { timeout: 3500 }).toEqual(resting);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await home.focus();
+    await expect(home).toBeFocused();
+    await expect(home.locator("g[id$=animated-star]")).toBeHidden();
+    await expect(home.locator("g[id$=reduced-star]")).toBeVisible();
+});

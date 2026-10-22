@@ -7,6 +7,8 @@ from uuid import uuid4
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from langboard_shared.core.caching import Cache
+from langboard_shared.core.caching.InMemoryCache import InMemoryCache
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security import KeyVault
@@ -28,13 +30,18 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
+from langboard_shared.Env import Env
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture(params=["sqlite://", "postgresql-test"])
-def board(monkeypatch, request):
+def board(monkeypatch, request, tmp_path):
+    # Reused fixture IDs must not inherit identity snapshots from another test.
+    # Exercise the native cache implementation against this test's own storage.
+    monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
+    monkeypatch.setattr(Cache, "_cache", InMemoryCache())
     url = request.param
     if url == "postgresql-test":
         url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
@@ -134,6 +141,7 @@ def secrets(board, monkeypatch, tmp_path):
         "20261009040000-7c98451eab03.py",
         "20261009100000-b51832cfe4a7.py",
         "20261010212000-e15b02634f97.py",
+        "20261019030000-f17085d21943.py",
     ):
         migration_path = Path(__file__).resolve().parents[3] / "src/api/langboard/migrations/versions" / filename
         spec = importlib.util.spec_from_file_location("secret_reference_migration", migration_path)

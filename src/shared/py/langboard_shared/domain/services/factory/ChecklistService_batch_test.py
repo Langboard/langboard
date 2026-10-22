@@ -15,7 +15,7 @@ from .ChecklistService import ChecklistService
 
 
 @pytest.mark.parametrize("open_only", [False, True])
-def test_hundred_lists_preserve_point_projection_with_five_queries(monkeypatch, open_only):
+def test_hundred_lists_preserve_point_projection_with_three_queries(monkeypatch, open_only):
     engine = create_engine("sqlite://")
     for model in (Card, User, Checklist, Checkitem, CheckitemTimerRecord):
         model.__table__.create(engine)
@@ -84,7 +84,7 @@ def test_hundred_lists_preserve_point_projection_with_five_queries(monkeypatch, 
     event.listen(engine, "before_cursor_execute", listener)
     try:
         result = service.get_api_list_by_card(card, limit=101, checkitems_limit=5, open_only=open_only)
-        assert len([q for q in queries if q.lstrip().upper().startswith("SELECT")]) == 5, queries
+        assert len([q for q in queries if q.lstrip().upper().startswith("SELECT")]) == 3, queries
         assert len(result) == 100
         assert all(len(row["checkitems"]) == 5 for row in result)
         expected_titles = [str(i) for i in range(3, 8)] if open_only else [str(i) for i in range(5)]

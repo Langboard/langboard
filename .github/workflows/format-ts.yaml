@@ -15,9 +15,19 @@ jobs:
     if: vars.CI_RUNNER != ''
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: write
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Setup Node.js

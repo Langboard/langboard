@@ -106,7 +106,7 @@ def test_explicit_embedding_preserves_transcription_and_uses_current_settings(mo
     send.assert_not_called()
 
 
-def test_attachment_delete_dispatches_recorded_vector_cleanup_only_after_commit(monkeypatch):
+def test_attachment_delete_delegates_cleanup_to_metadata_transaction_owner(monkeypatch):
     from contextlib import contextmanager
 
     service = object.__new__(CardAttachmentService)
@@ -138,9 +138,7 @@ def test_attachment_delete_dispatches_recorded_vector_cleanup_only_after_commit(
     assert service.delete(user, project, card, attachment)
     send.assert_not_called()
     repository.card_attachment.delete.assert_called_once_with(attachment)
-    assert len(callbacks) == 1
-    callbacks[0]()
-    assert send.call_args.args[0].endswith(".remove_attachment_embedding")
-    # TaskParameters supplies the encoded transport; never provider credentials.
-    assert "recorded" in str(send.call_args)
+    # Metadata owns durable cleanup and after-commit delivery. The attachment
+    # service must not dispatch a second legacy deletion task itself.
+    assert callbacks == []
     assert metadata.delete_document_by_attachment_uid.call_args.args[-1] == "attachment"

@@ -1,3 +1,4 @@
+import AvatarGeneration from "@/components/AvatarGeneration";
 import AutoComplete from "@/components/base/AutoComplete";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
@@ -23,6 +24,8 @@ const BoardSettingsBasic = memo(() => {
     const { canEditBasicInfo, isBasicInfoEditing, project, setIsBasicInfoEditing } = useBoardSettings();
     const [t] = useTranslation();
     const { mutate } = useChangeProjectDetails(project.uid);
+    const avatar = project.useField("avatar");
+    const avatarRevision = project.useField("avatar_revision") ?? 0;
     const title = project.useField("title");
     const description = project.useField("description");
     const aiDescription = project.useField("ai_description");
@@ -90,6 +93,17 @@ const BoardSettingsBasic = memo(() => {
 
     return (
         <Flex direction="col" py="4" gap="4" items="center">
+            {avatar && <img src={avatar} width={96} height={96} alt={t("internalBot.avatar.current")} className="rounded-xl border object-cover" />}
+            <AvatarGeneration
+                base={`/board/${encodeURIComponent(project.uid)}/avatar`}
+                revisionKey={`${avatar}:${avatarRevision}`}
+                canUpdate={canEditBasicInfo}
+                disabled={isValidating}
+                onPersisted={(snapshot) => {
+                    project.avatar = snapshot.avatar ?? undefined;
+                    project.avatar_revision = snapshot.avatar_revision;
+                }}
+            />
             <Form.Root className="flex w-full max-w-96 flex-col gap-3" onSubmit={handleSubmit} ref={formRef}>
                 {canEditBasicInfo && (
                     <Flex items="center" justify="end" gap="2">

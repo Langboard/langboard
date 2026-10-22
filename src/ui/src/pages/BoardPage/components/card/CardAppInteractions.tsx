@@ -44,19 +44,21 @@ interface Props {
     cardUID: string;
     userUID: string;
     canRespond: boolean;
+    embedded?: boolean;
 }
 const config = { env: { interceptToast: true } as never };
 export default function CardAppInteractions(props: Props) {
     return (
         <div key={`${props.userUID}/${props.projectUID}/${props.cardUID}`} className="space-y-3">
             <InteractionList {...props} />
-            <CardAppRuntimes {...props} />
+            {!props.embedded && <CardAppRuntimes {...props} />}
         </div>
     );
 }
-function InteractionList({ projectUID, cardUID, userUID, canRespond }: Props) {
+function InteractionList({ projectUID, cardUID, userUID, canRespond, embedded = false }: Props) {
     const [t] = useTranslation();
-    const [open, setOpen] = useState(false);
+    const [expanded, setOpen] = useState(false);
+    const open = embedded || expanded;
     const [sending, setSending] = useState(false);
     const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
     const cursor = cursors[cursors.length - 1];
@@ -78,10 +80,12 @@ function InteractionList({ projectUID, cardUID, userUID, canRespond }: Props) {
         refetchOnReconnect: false,
     });
     return (
-        <section className="space-y-3 rounded-lg border p-3" aria-busy={query.isFetching}>
-            <Button size="sm" variant="ghost" aria-expanded={open} disabled={sending} onClick={() => setOpen(!open)}>
-                {t("card.appInteractions.title")}
-            </Button>
+        <section className={embedded ? "space-y-3" : "space-y-3 rounded-lg border p-3"} aria-busy={query.isFetching}>
+            {!embedded && (
+                <Button size="sm" variant="ghost" aria-expanded={open} disabled={sending} onClick={() => setOpen(!open)}>
+                    {t("card.appInteractions.title")}
+                </Button>
+            )}
             {open && (
                 <>
                     <p className="text-sm text-muted-foreground">{t("card.appInteractions.help")}</p>

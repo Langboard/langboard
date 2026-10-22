@@ -46,6 +46,8 @@ azure-vault = ["langboard-shared[azure-vault]"]
 # Structured document types and CPU-only PDF rendering; no inference weights.
 document-processing = ["langboard-shared[document-processing]"]
 document-retrieval = ["langboard-shared[document-retrieval]"]
+keyword-search = ["langboard-shared[keyword-search]"]
+image-generation = ["langboard-shared[image-generation]"]
 
 
 [dependency-groups]

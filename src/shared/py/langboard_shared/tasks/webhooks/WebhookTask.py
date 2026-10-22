@@ -328,7 +328,15 @@ def _get_webhook_settings(after_id: SnowflakeID | None = None) -> list[WebhookSe
 
 
 def _get_webhook_setting(webhook_uid: str) -> WebhookSetting | None:
-    return InfraHelper.get_by_id_like(WebhookSetting, webhook_uid)
+    # Fanout may discover candidates on a replica; delivery rechecks the primary.
+    try:
+        webhook_id = InfraHelper.convert_id(webhook_uid)
+    except (TypeError, ValueError):
+        return None
+    with DbSession.use(readonly=False) as db:
+        return db.exec(
+            SqlBuilder.select.table(WebhookSetting).where(WebhookSetting.id == webhook_id).limit(1)
+        ).first()
 
 
 def _accepts_event(setting: WebhookSetting, event: str) -> bool:

@@ -34,7 +34,7 @@ from test_app_execution_start import start_scope
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
-@pytest.mark.parametrize("revocation", ["content", "resource", "ownership", "binding", "mapping", "connection", "generation", "move"])
+@pytest.mark.parametrize("revocation", ["content", "resource", "ownership", "binding", "mapping", "connection", "generation", "move", "completed_stage"])
 def test_native_active_handoff_current_permit_replay_rollback_and_revocation(board, monkeypatch, revocation):
     connection, card, token, request, lease_id, runtime = start_scope(board, monkeypatch)
     engine = DbEngine.get_main_engine()
@@ -151,6 +151,10 @@ def test_native_active_handoff_current_permit_replay_rollback_and_revocation(boa
             current.title = "Changed after Active handoff"
             current.last_change_seq += 1
             db.update(current)
+        elif revocation == "completed_stage":
+            stage = board[6][1]
+            stage.counts_as_completed = True
+            db.update(stage)
         elif revocation == "move":
             current.project_column_id = board[5][0].id
             db.update(current)

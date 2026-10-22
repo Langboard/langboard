@@ -8,7 +8,10 @@ import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
+// Controlled transport for local component regressions; this is not deployed E2E.
 const writes: unknown[] = [];
+const reads: string[] = [];
+Object.assign(window, { workflowReads: reads });
 let inbound = [{ connection_uid: "connection1", ownership: "personal", state: "connected", revision: "a".repeat(64) }];
 let inboundFailed = false;
 let consentFailed = false;
@@ -17,17 +20,28 @@ let credentialRows: { credential_uid: string; expires_at: string; revoked_at: st
 const inboundReads: string[] = [];
 Object.assign(window, { inboundReads });
 const missing = new URLSearchParams(location.search).has("missing");
+const invalid = new URLSearchParams(location.search).has("invalid");
+let workflowMapping: Record<string, string> = { active: invalid ? "deleted" : "one" };
 let repaired = false;
+let legacyAssigned = false;
 let disabled = false;
 Object.assign(window, { workflowWrites: writes });
 api.defaults.adapter = async (config) => {
+    if (!config.method || config.method === "get") reads.push(config.url ?? "");
     if (config.url?.includes("/credentials")) {
         if (config.method === "post") {
             writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
-            if (config.url.endsWith("/revoke")) credentialRows = credentialRows.map(row => ({ ...row, revoked_at: "2026-10-11T06:00:00Z" }));
+            if (config.url.endsWith("/revoke")) credentialRows = credentialRows.map((row) => ({ ...row, revoked_at: "2026-10-11T06:00:00Z" }));
             else {
                 credentialRows = [{ credential_uid: "credential1", expires_at: "2026-10-11T07:00:00Z", revoked_at: null }];
-                if (new URLSearchParams(location.search).has("credentialfail")) throw new AxiosError("Issuance response lost", "ERR_BAD_REQUEST", config, undefined, { config, status: 422, statusText: "Error", headers: {}, data: {} });
+                if (new URLSearchParams(location.search).has("credentialfail"))
+                    throw new AxiosError("Issuance response lost", "ERR_BAD_REQUEST", config, undefined, {
+                        config,
+                        status: 422,
+                        statusText: "Error",
+                        headers: {},
+                        data: {},
+                    });
                 return { config, status: 200, statusText: "OK", headers: {}, data: { token: "synthetic-once-value" } };
             }
         }
@@ -38,13 +52,30 @@ api.defaults.adapter = async (config) => {
             const body = JSON.parse(config.data ?? "{}");
             writes.push({ ...body, url: config.url });
             if (new URLSearchParams(location.search).has("resourcefail")) throw new Error("Resource result unknown");
-            resourceRows = [{ resource_uid: "resource1", resource_type: body.resource_type,
-                external_resource_id: body.external_resource_id, selected: body.selected, access_revision: body.selected ? 1 : 2 }];
+            resourceRows = [
+                {
+                    resource_uid: "resource1",
+                    resource_type: body.resource_type,
+                    external_resource_id: body.external_resource_id,
+                    selected: body.selected,
+                    access_revision: body.selected ? 1 : 2,
+                },
+            ];
         }
-        return { config, status: 200, statusText: "OK", headers: {}, data: {
-            app_revision: "a".repeat(64), binding_uid: "binding", binding_revision: "b".repeat(64),
-            resource_types: ["project"], items: resourceRows, next_cursor: null,
-        } };
+        return {
+            config,
+            status: 200,
+            statusText: "OK",
+            headers: {},
+            data: {
+                app_revision: "a".repeat(64),
+                binding_uid: "binding",
+                binding_revision: "b".repeat(64),
+                resource_types: ["project"],
+                items: resourceRows,
+                next_cursor: null,
+            },
+        };
     }
     if (config.url?.endsWith("/inbound-connections")) {
         if (config.method === "post") {
@@ -80,11 +111,17 @@ api.defaults.adapter = async (config) => {
     }
     if (config.method === "put" || config.method === "post") {
         writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
+        if (config.url?.endsWith("/column/legacy/workflow-stage")) legacyAssigned = true;
         if (!config.url?.endsWith("/workflow")) repaired = true;
+        else workflowMapping = JSON.parse(config.data ?? "{}").workflow_mapping ?? workflowMapping;
         if (config.url?.endsWith("/disable")) disabled = true;
     }
-    if ((config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions")) &&
-        writes.length && new URLSearchParams(location.search).has("storereadfail")) throw new Error("Store readback lost");
+    if (
+        (config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions")) &&
+        writes.length &&
+        new URLSearchParams(location.search).has("storereadfail")
+    )
+        throw new Error("Store readback lost");
     if (config.url?.endsWith("/settings/apps/compositions") && new URLSearchParams(location.search).has("groupfail"))
         throw new Error("Grouping discovery unavailable");
     if (config.url?.endsWith("/settings/apps") || config.url?.endsWith("/settings/apps/compositions"))
@@ -94,13 +131,21 @@ api.defaults.adapter = async (config) => {
             statusText: "OK",
             headers: {},
             data: {
-                compositions: new URLSearchParams(location.search).has("grouped") ? [{
-                    key: "review-suite", name: "Review Suite", description: "Independent features in one management view.",
-                    revision: "c".repeat(64), module_keys: ["github", "example-erp"],
-                }] : [],
+                compositions: new URLSearchParams(location.search).has("grouped")
+                    ? [
+                          {
+                              key: "review-suite",
+                              name: "Review Suite",
+                              description: "Independent features in one management view.",
+                              revision: "c".repeat(64),
+                              module_keys: ["github", "example-erp"],
+                          },
+                      ]
+                    : [],
                 apps: ["github", "glitchtip", "dokploy", ...(new URLSearchParams(location.search).has("external") ? ["example-erp"] : [])].map(
                     (key) => ({
                         key,
+                        version: "1.0.0",
                         app_revision: key === "example-erp" ? "a".repeat(64) : null,
                         inbound_connection_management: key === "example-erp",
                         name: { github: "GitHub", glitchtip: "GlitchTip", dokploy: "Dokploy" }[key] ?? "Example ERP",
@@ -121,7 +166,9 @@ api.defaults.adapter = async (config) => {
                                       granted_capabilities:
                                           key === "example-erp" && new URLSearchParams(location.search).has("consentdisabled")
                                               ? ["panels.render"]
-                                              : new URLSearchParams(location.search).has("retainedsignal") ? ["signals.read"] : [],
+                                              : new URLSearchParams(location.search).has("retainedsignal")
+                                                ? ["signals.read"]
+                                                : [],
                                       stage_transitions_enabled: false,
                                   }
                                 : null,
@@ -135,6 +182,32 @@ api.defaults.adapter = async (config) => {
                         workflow_requirements: key === "dokploy" ? null : { required: ["active", "review", "closed"], optional: [] },
                     })
                 ),
+            },
+        };
+    if (config.url?.endsWith("/workflow") && new URLSearchParams(location.search).has("legacyclosed"))
+        return {
+            config,
+            status: 200,
+            statusText: "OK",
+            headers: {},
+            data: {
+                workflow_stages: { closed: { name: "Closed", description: "Operationally completed work", translations: {} } },
+                binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: { closed: workflowMapping.closed ?? "one" } },
+                column_names: { one: "Done", legacy: "완료" },
+                available_columns: [
+                    { uid: "one", name: "Done", workflow_stage: "closed" },
+                    { uid: "legacy", name: "완료", workflow_stage: legacyAssigned ? "closed" : null },
+                ],
+                choices: [
+                    {
+                        stage: "closed",
+                        required: true,
+                        stage_active: true,
+                        status: "resolved",
+                        column_uid: workflowMapping.closed ?? "one",
+                        candidates: legacyAssigned ? ["one", "legacy"] : ["one"],
+                    },
+                ],
             },
         };
     return {
@@ -151,7 +224,7 @@ api.defaults.adapter = async (config) => {
                 },
                 review: { name: "Review", description: "", translations: {} },
             },
-            binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: { active: "one" } },
+            binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: workflowMapping },
             column_names: { one: "Doing", two: "Implementation" },
             available_columns: [
                 { uid: "two", name: "Implementation", workflow_stage: new URLSearchParams(location.search).has("replace") ? "review" : null },
@@ -161,9 +234,9 @@ api.defaults.adapter = async (config) => {
                     stage: "active",
                     required: !new URLSearchParams(location.search).has("inactive"),
                     stage_active: !new URLSearchParams(location.search).has("inactive"),
-                    status: missing && !repaired ? "missing" : "resolved",
-                    column_uid: missing && !repaired ? null : "one",
-                    candidates: missing && !repaired ? [] : ["one", "two"],
+                    status: invalid && workflowMapping.active === "deleted" ? "invalid" : missing && !repaired ? "missing" : "resolved",
+                    column_uid: invalid ? workflowMapping.active : missing && !repaired ? null : "one",
+                    candidates: (missing || invalid) && !repaired ? [] : ["one", "two"],
                 },
             ],
         },

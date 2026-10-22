@@ -1,3 +1,4 @@
+import { PUBLIC_UI_URL } from "@/constants";
 import { ThemeProvider } from "next-themes";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -6,6 +7,11 @@ import App from "@/App";
 import { setupPreloadRecovery } from "@/core/helpers/setupPreloadRecovery";
 import { initializeBrowserTelemetry } from "@/core/helpers/BrowserTelemetry";
 import "@/assets/styles/main.css";
+
+// Legacy SDK entries may omit runtime configuration; this application requires its asset.
+if (process.env.IS_PRODUCTION === "true" && globalThis.__LANGBOARD_RUNTIME_CONFIG__ === undefined) {
+    throw new Error("Public runtime configuration failed to load");
+}
 
 const Strict = process.env.IS_PRODUCTION !== "true" ? React.StrictMode : React.Fragment;
 
@@ -18,7 +24,7 @@ void initializeBrowserTelemetry({
     release: process.env.PUBLIC_SENTRY_RELEASE || "",
 }).catch(() => console.warn("Browser telemetry could not be initialized"));
 
-const configuredPublicUIURL = new URL(process.env.PUBLIC_UI_URL || window.location.origin);
+const configuredPublicUIURL = new URL(PUBLIC_UI_URL);
 const currentURL = new URL(window.location.href);
 const loopbackHostnames = new Set(["localhost", "127.0.0.1"]);
 

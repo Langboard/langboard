@@ -139,6 +139,8 @@ class SecretReferenceService(BaseDomainService):
             current = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id).with_for_update()).first()
             if current is None or current.deleted_at or not current.activated_at:
                 return False
+            if scope == "instance":
+                return scope_id == 0 and current.is_admin
             if scope == "personal":
                 return current.id == scope_id
             if scope == "project":
@@ -177,7 +179,11 @@ class SecretReferenceService(BaseDomainService):
         if DbSession.has_active_transaction():
             raise RuntimeError("Credential storage must own its transaction")
         name = validate_secret_name(name)
-        scope_id = int(actor.id) if scope == "personal" and scope_uid == "me" else InfraHelper.convert_id(scope_uid)
+        scope_id = (
+            0
+            if scope == "instance" and scope_uid == "instance"
+            else (int(actor.id) if scope == "personal" and scope_uid == "me" else InfraHelper.convert_id(scope_uid))
+        )
         if not isinstance(value, SecretStr) or not value.get_secret_value():
             raise ValueError("Secret material must be a nonempty SecretStr")
         locator = None
@@ -404,7 +410,9 @@ class SecretReferenceService(BaseDomainService):
                     {
                         "uid": row.get_uid(),
                         "created_at": row.created_at.isoformat(),
-                        "actor_uid": InfraHelper.convert_uid(row.actor_id),
+                        "actor_uid": InfraHelper.convert_uid(row.actor_id) if row.actor_id is not None else None,
+                        "actor_kind": row.actor_kind,
+                        "principal_id": row.principal_id,
                         "action": row.action,
                         "revision_before": None
                         if row.action == "created"
@@ -446,7 +454,7 @@ class SecretReferenceService(BaseDomainService):
             raise ValueError("Invalid secret binding revision")
         with DbSession.atomic() as db:
             reference = self._find(actor, uri, lock=True)
-            if reference.state != "active":
+            if reference.scope == "instance" or reference.state != "active":
                 raise SecretReferenceUnavailable()
             if reference.revision != expected_revision:
                 raise SecretReferenceConflict()
@@ -457,7 +465,11 @@ class SecretReferenceService(BaseDomainService):
     ) -> SecretStr:
         with DbSession.atomic() as db:
             reference = self._find(actor, uri, lock=True)
-            if reference.state != "active" or reference.provider != KeyVault.provider.name():
+            if (
+                reference.scope == "instance"
+                or reference.state != "active"
+                or reference.provider != KeyVault.provider.name()
+            ):
                 raise SecretReferenceUnavailable()
             try:
                 material = KeyVault.get_key(reference.locator)
@@ -467,6 +479,76 @@ class SecretReferenceService(BaseDomainService):
                 return SecretStr(material)
             except KeyError:
                 raise SecretReferenceUnavailable() from None
+
+    def resolve_for_keyword_workload(self, connection_id: int, *, operation: str) -> SecretStr:
+        """Only the native admin-approved destination grant can resolve instance material.
+
+        Vault IO occurs outside DB transactions. A second locked authority read
+        denies revocation or rotation which happened while the vault was read.
+        """
+        # Settings imports this service's exceptions; defer the reverse dependency.
+        from ..KeywordSearchSettings import configuration
+
+        if DbSession.has_active_transaction():
+            raise RuntimeError("Keyword workload resolution must own its transaction")
+
+        def validate(db):
+            config = configuration(operation=operation, connection_id=connection_id, lock=True)
+            uri = config["secret_ref"]
+            if not re.fullmatch(r"secret://ref/[A-Za-z0-9]{1,11}", uri):
+                raise SecretReferenceUnavailable()
+            reference = db.exec(
+                SqlBuilder.select.table(SecretReference)
+                .where(SecretReference.id == InfraHelper.convert_id(uri.rsplit("/", 1)[1]))
+                .with_for_update()
+            ).first()
+            if (
+                reference is None
+                or reference.scope != "instance"
+                or int(reference.scope_id) != 0
+                or reference.state != "active"
+                or reference.provider != KeyVault.provider.name()
+                or reference.revision != config["secret_revision"]
+            ):
+                raise SecretReferenceUnavailable()
+            return reference, config["configuration_revision"]
+
+        with DbSession.atomic() as db:
+            reference, config_revision = validate(db)
+            identity = (reference.id, reference.revision, reference.provider, reference.locator, config_revision)
+        provider = KeyVault.provider
+        try:
+            material = provider.get_key(identity[3])
+        except KeyError:
+            raise SecretReferenceUnavailable() from None
+        if not isinstance(material, str) or not material:
+            raise SecretReferenceUnavailable()
+        with DbSession.atomic() as db:
+            reference, config_revision = validate(db)
+            if (
+                identity != (reference.id, reference.revision, reference.provider, reference.locator, config_revision)
+                or provider is not KeyVault.provider
+            ):
+                raise SecretReferenceUnavailable()
+            db.insert(
+                SecretReferenceAudit(
+                    reference_id=reference.id,
+                    actor_id=None,
+                    actor_kind="workload",
+                    principal_id="document_keyword",
+                    action="resolved",
+                    source_kind="api" if operation == "preflight" else "runtime",
+                    source_uid="keyword_preflight"
+                    if operation == "preflight"
+                    else InfraHelper.convert_uid(connection_id),
+                    scope=reference.scope,
+                    scope_id=reference.scope_id,
+                    reference_revision=reference.revision,
+                    request_id=uuid4().hex,
+                    reason_code="runtime_use",
+                )
+            )
+        return SecretStr(material)
 
     def rename(
         self,
@@ -498,11 +580,17 @@ class SecretReferenceService(BaseDomainService):
         *,
         source: SecretAuditSource = SecretAuditSource(),
     ) -> dict:
-        scope_id = int(actor.id) if scope == "personal" and scope_uid == "me" else InfraHelper.convert_id(scope_uid)
+        scope_id = (
+            0
+            if scope == "instance" and scope_uid == "instance"
+            else (int(actor.id) if scope == "personal" and scope_uid == "me" else InfraHelper.convert_id(scope_uid))
+        )
         with DbSession.atomic() as db:
             reference = self._find(actor, uri, lock=True)
             if reference.revision != expected_revision:
                 raise SecretReferenceConflict()
+            if reference.scope == "instance" or scope == "instance":
+                raise SecretReferenceUnavailable()
             if not self._authorize(actor, scope, scope_id):
                 raise SecretReferenceUnavailable()
             reference.scope = scope

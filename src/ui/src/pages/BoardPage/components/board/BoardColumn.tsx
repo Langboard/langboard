@@ -57,8 +57,8 @@ export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
             <Card.Content className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3">
                 <Box pb="2.5" className="overflow-hidden">
                     <Flex direction="col" gap="3">
-                        {Array.from({ length: cardCount }).map(() => (
-                            <SkeletonBoardColumnCard key={Utils.String.Token.shortUUID()} />
+                        {Array.from({ length: cardCount }).map((_, index) => (
+                            <SkeletonBoardColumnCard key={index} />
                         ))}
                     </Flex>
                 </Box>
@@ -103,7 +103,7 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
         return columnRowDndHelpers.column({
             canDrag: canDragAndDrop,
-            canDropRows: mode === "manual",
+            canDropRows: (row) => mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid),
             column,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: header,

@@ -75,13 +75,13 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
     calls = calls if calls is not None else {}
 
     def capture(name: str):
-        def inner(_project: Any, archive_visible_since: SafeDateTime) -> list[Any]:
+        def inner(_project: Any, archive_visible_since: SafeDateTime, *, context=None) -> list[Any]:
             calls[name] = archive_visible_since
             return []
 
         return inner
 
-    def capture_creators(_project: Any, archive_visible_since: SafeDateTime) -> dict[int, Any]:
+    def capture_creators(_project: Any, archive_visible_since: SafeDateTime, *, context=None) -> dict[int, Any]:
         calls["creators"] = archive_visible_since
         return {}
 
@@ -99,7 +99,7 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
             )[1]
         ),
         checkitem=SimpleNamespace(
-            get_active_workers_by_project=lambda _project, _card=None: [],
+            get_active_workers_by_project=lambda _project, _card=None, **kwargs: [],
         ),
     )
     return CardService(lambda _service: None, lambda _name: None, repository)

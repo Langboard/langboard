@@ -1,3 +1,4 @@
+import useGetBoardAutomation from "@/controllers/api/board/useGetBoardAutomation";
 import Box from "@/components/base/Box";
 import DropdownMenu from "@/components/base/DropdownMenu";
 import Flex from "@/components/base/Flex";
@@ -14,6 +15,25 @@ import { useTranslation } from "react-i18next";
 
 const BoardColumnMoreMenuBotList = memo(({ column }: { column: ProjectColumn.TModel }) => {
     const bots = BotModel.Model.useModels(() => true);
+    const [t] = useTranslation();
+    const automation = useGetBoardAutomation(column.project_uid);
+    if (!automation.isSuccess || automation.isFetching) {
+        return (
+            <DropdownMenu.Item
+                aria-label={t(automation.isError ? "common.Retry" : "common.Loading...")}
+                disabled={!automation.isError}
+                onSelect={(event) => {
+                    event.preventDefault();
+                    void automation.refetch();
+                }}
+            >
+                <span role={automation.isError ? "alert" : "status"}>
+                    {t(automation.isError ? "board.Could not load board" : "common.Loading...")}
+                    {automation.isError && ` ${t("common.Retry")}`}
+                </span>
+            </DropdownMenu.Item>
+        );
+    }
 
     if (!bots.length) {
         return null;

@@ -27,7 +27,6 @@ from langboard_shared.helpers import MiddlewareHelper
 
 
 async def test_modern_annotations_reach_catalog_and_raw_search_without_changing_legacy():
-
     ModuleLoader.load("mcp_tools", "Mcp", log=False)
     registered = set(McpTool.get_tools())
     assert READ_ONLY_TOOLS - {"search_raw_tools"} <= registered
@@ -91,7 +90,6 @@ async def test_provider_preserves_wrapped_dispatch_and_tool_group_deny(monkeypat
 
 
 async def test_registered_profiles_partition_catalog_without_changing_schemas():
-
     ModuleLoader.load("mcp_tools", "Mcp", log=False)
     registered = set(McpTool.get_tools())
     assert AGENT_CORE_TOOLS <= registered
@@ -112,7 +110,12 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
         assert "profile" in modern["get_card_bundle"]["properties"]
         assert "profile" not in catalogs["compatibility"]["get_card_bundle"]["properties"]
         modern["get_card_bundle"]["properties"].pop("profile")
-        assert modern["list_project_cards"]["properties"]["format"]["default"] == "tree"
+        assert modern["list_project_cards"]["properties"].pop("format") == {
+            "default": "tree",
+            "enum": ["tree", "normal"],
+            "type": "string",
+        }
+        assert "format" not in catalogs["compatibility"]["list_project_cards"]["properties"]
         assert "query" not in catalogs["compatibility"]["get_projects"]["properties"]
         query = modern["get_projects"]["properties"].pop("query")
         assert query["default"] is None
@@ -135,7 +138,6 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
 
 @pytest.mark.parametrize("role_allowed", [True, False])
 async def test_raw_search_respects_grants_and_proxy_rechecks_current_authorization(monkeypatch, role_allowed):
-
     calls = []
 
     def record(value: int) -> dict[str, int]:
@@ -189,7 +191,6 @@ async def test_raw_search_respects_grants_and_proxy_rechecks_current_authorizati
 
 @pytest.mark.parametrize("path", ["/mcp/stream", "/mcp/agent/stream", "/mcp/raw/stream"])
 def test_mounted_profiles_retain_http_authentication(monkeypatch, path):
-
     monkeypatch.setattr(ModuleLoader, "load", lambda *args, **kwargs: {})
     monkeypatch.setattr(MiddlewareHelper, "validate_auth", lambda scope, **kwargs: 401)
     app = App.__new__(App)
@@ -338,7 +339,6 @@ async def test_card_policy_resource_reuses_current_query_and_rejects_ungranted_r
     ],
 )
 async def test_modern_page_bounds_reject_invalid_arguments_before_domain_dispatch(name, parameter, maximum):
-
     calls = []
 
     async def read(**kwargs) -> dict:
@@ -361,5 +361,86 @@ async def test_modern_page_bounds_reject_invalid_arguments_before_domain_dispatc
                 result = await client.call_tool(name, {parameter: valid})
                 assert result.structured_content == {parameter: valid}
             assert calls == [1, maximum]
+    finally:
+        mcp_auth_context.reset(token)
+
+
+@pytest.mark.parametrize("profile", ["compatibility", "agent"])
+async def test_project_card_list_compatibility_preserves_frozen_flat_contract(monkeypatch, profile):
+    from pathlib import Path
+    from unittest.mock import Mock
+    from langboard.mcp_tools import CardMcp
+    from langboard_shared.domain.models import User
+
+    ModuleLoader.load("mcp_tools", "Mcp", log=False)
+    metadata = McpTool.get_tool("list_project_cards")
+    monkeypatch.setattr(McpTool, "get_tools", lambda: {"list_project_cards": metadata})
+    monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata if name == "list_project_cards" else None)
+    monkeypatch.setattr(McpServer, "_validate_role", lambda *args, **kwargs: True)
+    page = SimpleNamespace(
+        items=[
+            {"uid": "a", "title": "A", "project_column_uid": "column"},
+            {"uid": "b", "title": "B", "project_column_uid": "column"},
+        ],
+        total_count=100,
+        next_cursor_fields=("2026-10-08T00:00:00+00:00", "b"),
+        workflow_stages={"doing": {"name": "Doing"}},
+        columns={"column": {"name": "In progress"}},
+    )
+    port = SimpleNamespace(
+        get_project_card_page=Mock(return_value=page),
+        get_project_card_relationships=Mock(
+            return_value=[{"parent_card_uid": "a", "child_card_uid": "b", "machine_semantic": "contains"}]
+        ),
+    )
+    monkeypatch.setattr(CardMcp, "_adapter", lambda actor, service: port)
+    actor = User(firstname="MCP", lastname="Reader", email="mcp@example.invalid", password="test")
+    token = mcp_auth_context.set(
+        {"user_or_bot": actor, "tool_group": SimpleNamespace(activated_at=object(), tools=["list_project_cards"])}
+    )
+    try:
+        _, server = McpServer.get_http_app(profile)
+        async with Client(server, mode="legacy" if profile == "compatibility" else "2026-07-28") as client:
+            tool = (await client.list_tools())[0]
+            arguments = {"project_uid": "board", "limit": 2, "include_closed": True, "workflow_stages": ["doing"]}
+            result = (await client.call_tool("list_project_cards", arguments)).structured_content
+            if profile == "compatibility":
+                frozen = json.loads((Path(__file__).parent / "fixtures/legacy-native-v1.json").read_text())
+                expected = next(item for item in frozen["contract"]["tools"] if item["name"] == "list_project_cards")
+                assert tool.input_schema == expected["input_schema"]
+                registered = (await server.list_tools(run_middleware=False))[0]
+                assert registered.output_schema == expected["output_schema"]
+                # FastMCP client discovery inlines local schema references.
+                wire_schema = dict(expected["output_schema"])
+                definitions = wire_schema.pop("$defs")
+                wire_schema["properties"] = {**wire_schema["properties"], "cards": definitions["BoundedItemsDto"]}
+                assert tool.output_schema == wire_schema
+                assert set(result) == {"project_uid", "cards", "workflow_stages"}
+                assert [item["uid"] for item in result["cards"]["items"]] == ["a", "b"]
+                assert all(item["project_column_name"] == "In progress" for item in result["cards"]["items"])
+                port.get_project_card_relationships.assert_not_called()
+                for forbidden in ("tree", "normal"):
+                    with pytest.raises(ToolError):
+                        await client.call_tool("list_project_cards", {**arguments, "format": forbidden})
+                assert port.get_project_card_page.call_count == 1
+            else:
+                assert tool.input_schema["properties"]["format"]["default"] == "tree"
+                assert result["format"] == "tree"
+                assert result["cards"]["items"][0]["children"][0]["uid"] == "b"
+                assert result["relationship_scope"] == "current_page"
+                normal = (
+                    await client.call_tool("list_project_cards", {**arguments, "format": "normal"})
+                ).structured_content
+                assert set(normal) == {"project_uid", "cards", "workflow_stages", "columns"}
+                assert [item["uid"] for item in normal["cards"]["items"]] == ["a", "b"]
+                assert all("project_column_name" not in item for item in normal["cards"]["items"])
+                assert normal["cards"]["next_cursor"] == result["cards"]["next_cursor"]
+                assert normal["columns"] == page.columns
+                port.get_project_card_relationships.assert_called_once_with("board", ["a", "b"])
+            assert result["cards"]["limit"] == 2 and result["cards"]["total_count"] == 100
+            await client.call_tool("list_project_cards", {**arguments, "cursor": result["cards"]["next_cursor"]})
+            args, kwargs = port.get_project_card_page.call_args
+            assert args[:2] == ("board", 2) and args[2] is not None and args[3] == "b"
+            assert kwargs == {"include_closed": True, "workflow_stages": ["doing"]}
     finally:
         mcp_auth_context.reset(token)

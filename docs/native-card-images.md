@@ -10,12 +10,10 @@ Downloads stop at 25 MiB total before unbounded storage allocation; results incl
 
 Modern response budgeting permits up to 36 MiB serialized output for this bounded image tool when it contains image blocks, covering base64 expansion. Other read responses retain the existing budget. These limits are not removed by Raw proxy calls.
 
-Tests exercise storage/parser/card boundaries and actual middleware response handling; live OAuth authentication and deployed image consumption still require separate acceptance before removing plugin image logic.
+## Body image selection
 
-## Query cost and deployed-domain receipt
-
-Image reads use the already validated card and a targeted content-block query instead of the full card-details projection. When blocks exist, only rich-text block payloads provide body image references; code and diagram sources stay literal, and the legacy description is not revived. Cards without blocks retain description parsing. Attachment-only reads do not load body content, comments, assignees, labels, relationships, workers or content blocks. Tests fail if the full card-details service is invoked. This does not claim a measured latency improvement or full structured-content-block parity.
-
-On 2026-10-05, an in-process FastMCP client inside the deployed API container used the native Agent/Core provider, canonical wrapper, current database user/role checks and actual storage. Card `0HNR57mHyGP`, attachment `bV29EzKID39`, returned one PNG ImageContent with 27,859 bytes and no omissions. Selecting that same attachment from card `dUceNp14Xz9` returned only text and `attachment_not_in_card`, with zero image bytes. No business records were changed.
-
-The probe explicitly supplied the existing database actor in a local auth context. It proves native protocol serialization, card ancestry and storage behavior; it does not prove an external HTTP connector, OAuth login, bearer verification or refresh. Those acceptance gates remain open.
+When a card has content blocks, only rich-text blocks contribute body image
+references. Code and diagram blocks remain literal, and an older description is
+not used as a fallback. Cards without blocks use their stored description.
+Attachment-only reads do not inspect body content. Reading an image does not
+extract document text or grant access to another card's attachment.

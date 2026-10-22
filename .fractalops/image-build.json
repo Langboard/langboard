@@ -75,6 +75,7 @@
       "context": ".",
       "dockerfile": "docker/ui-production.Dockerfile",
       "buildTarget": "runtime",
+      "buildArgs": {"NODE_BUILD_HEAP_MB": "6144"},
       "validation": {
         "target": "validation-ui-results",
         "cachePolicy": "fresh",
@@ -97,6 +98,23 @@
         "freshStages": [
           "validation"
         ]
+      }
+    },
+    "work-plan-diagnostics": {
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "platform": "linux/amd64",
+      "network": "default",
+      "buildTarget": "integration-work-plan-lock-cost",
+      "integration": {
+        "imageTarget": "integration-work-plan-lock-cost",
+        "services": [
+          "postgres"
+        ],
+        "timeoutSeconds": 1200,
+        "envRefs": {
+          "LANGBOARD_FILE_TEST_DATABASE_URL": "postgres.sqlalchemy-url"
+        }
       }
     }
   }

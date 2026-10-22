@@ -215,7 +215,7 @@ def test_common_factory_read_missing_sqlite_does_not_create_files(tmp_path):
 
     directory = tmp_path / "absent"
     with open_document_vector_store(
-        DocumentRetrievalSettings(dimensions=3), Fixture(), "a" * 64, directory, set(), create=False
+        DocumentRetrievalSettings(store="sqlite", dimensions=3), Fixture(), "a" * 64, directory, set(), create=False
     ) as store:
         assert store is None
     assert not directory.exists()

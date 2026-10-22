@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { dropTargetForElements, monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
@@ -33,16 +34,19 @@ export default function BoardFloatingNavigation({
     dockEnabled?: boolean;
 }) {
     useProjectDockSync(project.uid);
+    const [t] = useTranslation();
+    const [, setSearchParams] = useSearchParams();
     const roles = project.useField("current_auth_role_actions");
     const isAdmin = currentUser.useField("is_admin");
     const { hasRoleAction } = useRoleActionFilter(roles);
+    const canCreate = dockEnabled && hasRoleAction(ProjectRole.EAction.CardWrite);
     const canDrop = dockEnabled && (isAdmin || hasRoleAction(ProjectRole.EAction.CardUpdate));
     const columns = ProjectColumn.Model.useModels((column) => column.project_uid === project.uid);
     project.useField("dock_revision");
     const pinned = pinnedProjectDockColumns(columns);
     const archive = columns.find((column) => column.is_archive);
     const [dragging, setDragging] = useState(false);
-    const hasNavigationItems = items.some((item) => !item.hidden);
+    const hasNavigationItems = canCreate || items.some((item) => !item.hidden);
     const flippedCards = useFlippedCards(currentUser.uid, project.uid);
 
     useEffect(() => {
@@ -65,6 +69,25 @@ export default function BoardFloatingNavigation({
             )}
             trailing={
                 <>
+                    {canCreate && (
+                        <Button
+                            variant="ghost"
+                            className="h-11 shrink-0 gap-2 rounded-full"
+                            data-board-compose=""
+                            onClick={() =>
+                                setSearchParams(
+                                    (params) => {
+                                        params.set("new-card", "1");
+                                        return params;
+                                    },
+                                    { replace: true }
+                                )
+                            }
+                        >
+                            <IconComponent icon="square-pen" size="4" />
+                            <span className="text-xs">{t("board.Compose")}</span>
+                        </Button>
+                    )}
                     <CardFlipTray userUID={currentUser.uid} projectUID={project.uid} leadingSeparator={hasNavigationItems} />
                     {dockEnabled && (
                         <div className="flex min-w-0 items-center">

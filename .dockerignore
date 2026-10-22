@@ -2,6 +2,8 @@
 **/*_test.py
 # The API profile explicitly runs this colocated authority regression.
 !src/api/langboard/routes/board/BoardCardApi_authority_test.py
+!src/api/langboard/mcp_tools/UserMcp_search_test.py
+!src/shared/py/langboard_shared/core/routing/AppExceptionHandlingRoute_test.py
 !src/shared/py/langboard_shared/core/caching/RedisCache_test.py
 !src/shared/py/langboard_shared/core/broker/RedisBroker_test.py
 # Worker profile executes these contract tests inside the root Dockerfile.
@@ -10,7 +12,8 @@
 !src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py
 !src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py
 !src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py
-# API cleanup regressions import its deterministic embedding fixture.
+# API cleanup regressions import deterministic embedding/vector fixtures.
+!src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingTask_test.py
 !src/shared/py/langboard_shared/tasks/docling/DocumentSqliteVectorStore_test.py
 # The full Phoenix validation target executes these colocated tests.
 !scripts/sdk/verify_python_artifact_test.py

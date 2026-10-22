@@ -13,7 +13,7 @@ TASK_NAME = "langboard.document_vector_cleanup"
 LEASE_SECONDS = 120
 
 
-def record_cleanup(db, pointer: dict | None) -> bool:
+def record_cleanup(db, pointer: dict | None, *, dispatch: bool = True) -> bool:
     """Called inside the transaction removing the last authoritative source pointer."""
     if not isinstance(pointer, dict) or not (pointer.get("chunk_ids") or pointer.get("namespace")):
         return False
@@ -27,6 +27,7 @@ def record_cleanup(db, pointer: dict | None) -> bool:
             "content_hash",
             "embedding_fingerprint",
             "generation",
+            "chunk_count",
             "chunk_ids",
             "namespace",
         )
@@ -47,7 +48,8 @@ def record_cleanup(db, pointer: dict | None) -> bool:
         }
     event = DocumentVectorCleanup(pointer=recorded)
     db.insert(event)
-    db.after_commit(lambda: enqueue_cleanup(int(event.id)))
+    if dispatch:
+        db.after_commit(lambda: enqueue_cleanup(int(event.id)))
     return True
 
 
@@ -125,3 +127,7 @@ def process_cleanup(event_id: int) -> bool:
 @Broker.wrap_async_task_decorator({"name": TASK_NAME, "acks_late": True, "reject_on_worker_lost": True})
 async def document_vector_cleanup_task(event_id: int):
     process_cleanup(event_id)
+
+
+if __name__ == "__main__":
+    recover_cleanup()

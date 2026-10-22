@@ -1,10 +1,13 @@
 "use client";
 
+import Button from "@/components/base/Button";
+import IconComponent from "@/components/base/IconComponent";
+import { useTranslation } from "react-i18next";
 import useColumnCardSort from "./useColumnCardSort";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import invariant from "tiny-invariant";
-import { BOARD_CARD_TOUCH_DND_ATTR, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
+import { BOARD_CARD_TOUCH_DND_ATTR, BOARD_CARD_TOUCH_HANDLE_ATTR, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
 import { ProjectCard, ProjectCardRelationship } from "@/core/models";
 import Box from "@/components/base/Box";
 import Card from "@/components/base/Card";
@@ -58,7 +61,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
     useBoardMemberDrop(innerRef, card);
 
     useEffect(() => {
-        if (!canDragCards || mode !== "manual") {
+        if (!canDragCards) {
             return;
         }
 
@@ -68,6 +71,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
 
         return columnRowDndHelpers.row({
             row: card,
+            canDropRow: (row) => mode === "manual" || row.project_column_uid !== columnUID,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: inner,
             dropTarget: outer,
@@ -94,6 +98,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
                 card={card}
                 hierarchyDepth={hierarchyDepth}
                 grouped={grouped}
+                canTouchDrag={canDragCards}
             />
             {state.type === "preview"
                 ? createPortal(
@@ -112,6 +117,7 @@ function BoardColumnCardDisplay({
     innerRef,
     hierarchyDepth,
     grouped,
+    canTouchDrag = false,
 }: {
     card: ProjectCard.TModel;
     state: TRowState;
@@ -119,7 +125,9 @@ function BoardColumnCardDisplay({
     innerRef?: React.Ref<HTMLDivElement | null>;
     hierarchyDepth: number;
     grouped: boolean;
+    canTouchDrag?: boolean;
 }) {
+    const [t] = useTranslation();
     const { selectCardViewType, currentCardUIDRef, getRelationshipSelectionActor, isSelectedCard, isDisabledCard } = useBoardController();
     const { filters, canDragCards, navigateWithFilters } = useBoard();
     const isSelectedRelationshipCard = isSelectedCard(card.uid);
@@ -141,7 +149,7 @@ function BoardColumnCardDisplay({
     };
 
     const cardClassName = cn(
-        "group/relationship-card relative min-w-0",
+        "group/relationship-card relative flex min-w-0 items-start",
         "data-[relationship-drop-target=true]:ring-2 data-[relationship-drop-target=true]:ring-primary",
         canDragCards
             ? "cursor-pointer touch-pan-y"
@@ -185,12 +193,34 @@ function BoardColumnCardDisplay({
                     <Box
                         ref={innerRef}
                         className={cn(
-                            "w-full rounded-xl transition-shadow data-[member-drop-target=true]:ring-2 data-[member-drop-target=true]:ring-primary",
+                            "min-w-0 flex-1 rounded-xl transition-shadow",
+                            "data-[member-drop-target=true]:ring-2 data-[member-drop-target=true]:ring-primary",
                             "data-[member-drop-target=true]:ring-offset-2 data-[member-drop-target=true]:ring-offset-background"
                         )}
                     >
                         <BoardColumnCardCollapsible isDragging={state.type !== "idle"} compact={grouped} />
                     </Box>
+                    {canTouchDrag && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                                "hidden size-11 shrink-0 touch-none select-none text-muted-foreground",
+                                "active:bg-accent active:text-accent-foreground",
+                                "[@media(any-pointer:coarse)]:inline-flex [@media(hover:none)]:inline-flex",
+                                "[[data-touch-drag-state=dragging]_&]:bg-accent [[data-touch-drag-state=pending]_&]:bg-accent"
+                            )}
+                            aria-label={t("common.Drag to reorder")}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }}
+                            {...{ [BOARD_CARD_TOUCH_HANDLE_ATTR]: "" }}
+                        >
+                            <IconComponent icon="grip-vertical" size="5" aria-hidden="true" />
+                        </Button>
+                    )}
                 </Box>
                 {state.type === "is-over" && state.closestEdge === "bottom" ? <BoardColumnCardShadow dragging={state.dragging} /> : null}
             </Flex>

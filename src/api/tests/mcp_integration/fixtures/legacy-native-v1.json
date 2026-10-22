@@ -3026,14 +3026,6 @@
               ],
               "default": null
             },
-            "format": {
-              "default": "tree",
-              "enum": [
-                "tree",
-                "normal"
-              ],
-              "type": "string"
-            },
             "include_closed": {
               "default": false,
               "type": "boolean"
@@ -3069,7 +3061,65 @@
         },
         "name": "list_project_cards",
         "output_schema": {
-          "additionalProperties": true,
+          "$defs": {
+            "BoundedItemsDto": {
+              "additionalProperties": false,
+              "description": "One bounded collection projection with an opaque continuation.",
+              "properties": {
+                "items": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "next_cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "total_count": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "items",
+                "total_count",
+                "next_cursor",
+                "limit"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Bounded project card list.",
+          "properties": {
+            "cards": {
+              "$ref": "#/$defs/BoundedItemsDto"
+            },
+            "project_uid": {
+              "type": "string"
+            },
+            "workflow_stages": {
+              "additionalProperties": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "project_uid",
+            "cards"
+          ],
           "type": "object"
         }
       },
@@ -5073,8 +5123,8 @@
       }
     ]
   },
-  "contract_sha256": "7ffa2c2487a24417cdda522b9b36df250ab008e4248c75aefd89279774ba353e",
-  "fastmcp_version": "4.0.10",
+  "contract_sha256": "a1c059c96b4fa69d03cc1a2f34539408765c31237377d8a56dcafcdd64d801d7",
+  "fastmcp_version": "4.0.0b3",
   "format_version": 1,
-  "scope": "Portable source tool contract with explicit card-list tree/page-bound transition; see docs/mcp-legacy-contract-gate.md. No deployed identities or tool-group configuration."
+  "scope": "Portable legacy tool registration contract; no deployment identities or tool-group configuration."
 }

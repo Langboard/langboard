@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     buildCommandPaletteCards,
+    buildProjectSearchSections,
+    selectDiscoveryProjects,
     buildProjectDiscoverySections,
     buildProjectQuickSwitcherSections,
     isProjectQuickSwitcherShortcut,
@@ -164,4 +166,46 @@ test("dashboard search reuses command fuzzy ranking without mutating inputs", ()
         projects.map(({ uid }) => uid),
         ["Langboard", "Unrelated", "Langboard Notes"]
     );
+});
+
+test("search assigns one representative group without limiting related results", () => {
+    const items = [
+        project("overlap", { starred: true, related_to_current_user: true }),
+        ...Array.from({ length: 9 }, (_, i) => project(`related-${i}`, { related_to_current_user: true })),
+        project("other"),
+    ];
+    const sections = buildProjectSearchSections([...items, items[0]]);
+    assert.equal(sections.favorites.length, 1);
+    assert.equal(sections.related.length, 9);
+    assert.equal(sections.other.length, 1);
+    assert.equal(
+        new Set(
+            Object.values(sections)
+                .flat()
+                .map((item) => item.uid)
+        ).size,
+        11
+    );
+});
+
+test("discovery combines authoritative filters and sorts activity separately from viewing", () => {
+    const items = [
+        {
+            ...project("unread", { starred: true, related_to_current_user: true }),
+            board_has_unread_change: true,
+            last_viewed_at: new Date("2026-10-19"),
+            last_activity_at: new Date("2026-10-01"),
+        },
+        { ...project("active"), board_has_unread_change: false, last_viewed_at: new Date("2026-10-01"), last_activity_at: new Date("2026-10-19") },
+        { ...project("unknown"), last_viewed_at: new Date("2026-10-19"), last_activity_at: null },
+    ];
+    assert.deepEqual(
+        selectDiscoveryProjects(items, "", ["unread", "related", "favorites", "unfinished"], "default", new Set(["unread"])).map((p) => p.uid),
+        ["unread"]
+    );
+    assert.equal(selectDiscoveryProjects(items, "", [], "activity")[0].uid, "active");
+    assert.equal(selectDiscoveryProjects(items, "", [], "viewed")[0].uid, "unknown");
+    assert.equal(selectDiscoveryProjects(items, "", [], "unread")[0].uid, "unread");
+    assert.equal(selectDiscoveryProjects(items, "", ["unread"], "default").length, 1);
+    assert.equal(searchProjects([items[0], items[0]], "unread").length, 1);
 });

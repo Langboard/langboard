@@ -3,14 +3,14 @@
 import argparse
 from asyncio import run as run_async
 from dataclasses import dataclass
-from datetime import timezone
+from datetime import datetime, timezone
 from uuid import UUID
-from sqlalchemy import column, func, or_, select, table, text, update
+from sqlalchemy import case, column, func, or_, select, table, text, update
 from ...core.db import DbSession
 from ...core.types import SnowflakeID
 from ...helpers import InfraHelper
 from .ExecutionBindingPolicy import binding_for_project, binding_invalid_reasons
-from .ExecutionReadinessUow import CurrentExecution, current_execution
+from .ExecutionReadinessUow import current_execution
 from .utils import WebhookModel
 from .WebhookTask import post_signed_webhook
 
@@ -53,27 +53,51 @@ class ClaimedDelivery:
     event_id: UUID
     model: WebhookModel
     webhook_uid: str
+    lease_until: datetime
 
 
-def _mark(db: DbSession, event_id: UUID, state: str, error: str | None = None) -> None:
-    db.exec(
-        update(OUTBOX).where(OUTBOX.c.id == event_id).values(state=state, last_error=error, processed_at=func.now())
-    )
+def _mark(
+    db: DbSession, event_id: UUID, state: str, error: str | None = None, *, lease_until: datetime | None = None
+) -> None:
+    query = update(OUTBOX).where(OUTBOX.c.id == event_id)
+    if lease_until is not None:
+        query = query.where(
+            OUTBOX.c.state == "delivering", OUTBOX.c.lease_until == lease_until, OUTBOX.c.lease_until > func.now()
+        )
+    db.exec(query.values(state=state, last_error=error, processed_at=func.now()))
 
 
-def _event_data(project_id: int, card_id: int, generation: int, current: CurrentExecution) -> dict:
-    """Project the claim-time point-read; the outbox row keeps commit-time provenance."""
+def _event_data(project_id: int, card_id: int, generation: int, snapshot: dict) -> dict | None:
+    """Project only a complete persisted snapshot; legacy incomplete rows fail closed."""
+    if not {"title", "labels", "assignee_ids", "source_revision"} <= snapshot.keys():
+        return None
+    if snapshot["title"] is not None and not isinstance(snapshot["title"], str):
+        return None
+    if not isinstance(snapshot["labels"], list) or not all(isinstance(name, str) for name in snapshot["labels"]):
+        return None
+    if not isinstance(snapshot["assignee_ids"], list) or not all(
+        type(uid) is int and 0 < uid <= SnowflakeID.MAX_VALUE for uid in snapshot["assignee_ids"]
+    ):
+        return None
+    revision = snapshot["source_revision"]
+    if not isinstance(revision, str):
+        return None
+    try:
+        if datetime.fromisoformat(revision).utcoffset() is None:
+            return None
+    except ValueError:
+        return None
     project_uid = SnowflakeID(project_id).to_short_code()
     card_uid = SnowflakeID(card_id).to_short_code()
     return {
         "project_uid": project_uid,
         "card_uid": card_uid,
         "execution_generation": generation,
-        "title": current.title,
-        "labels": current.labels,
-        "assignees": [SnowflakeID(uid).to_short_code() for uid in current.assignee_ids],
+        "title": snapshot["title"],
+        "labels": list(snapshot["labels"]),
+        "assignees": [SnowflakeID(uid).to_short_code() for uid in snapshot["assignee_ids"]],
         "card_url": f"/board/{project_uid}/{card_uid}",
-        "source_revision": current.revision.isoformat(),
+        "source_revision": revision,
     }
 
 
@@ -95,6 +119,7 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
                 OUTBOX.c.event_type,
                 OUTBOX.c.payload_json,
                 OUTBOX.c.attempt_count,
+                func.now() + text(f"interval '{DELIVERY_LEASE_SECONDS} seconds'"),
             )
             .where(
                 or_(
@@ -111,7 +136,7 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
         row = db.exec(query).first()
         if row is None:
             return None
-        event_id, project_id, card_id, generation, occurred_at, event_type, snapshot, attempts = row
+        event_id, project_id, card_id, generation, occurred_at, event_type, snapshot, attempts, lease_until = row
         if int(attempts or 0) >= MAX_DELIVERY_ATTEMPTS:
             _mark(db, event_id, "failed", "delivery_attempts_exhausted")
             return _TERMINAL
@@ -121,10 +146,13 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
         if not all(snapshot.get(key) for key in ("binding_id", "binding_revision", "webhook_uid")):
             _mark(db, event_id, "blocked", "destination_unavailable")
             return _TERMINAL
+        data = _event_data(project_id, card_id, generation, snapshot)
+        if data is None:
+            _mark(db, event_id, "blocked", "snapshot_unavailable")
+            return _TERMINAL
         current = current_execution(card_id, db)
-        # The event is a "this generation is executable" signal, not an
-        # immutable snapshot: a READY-preserving content edit must not discard
-        # the execution. Only lost readiness or a newer generation supersedes.
+        # Commit-time provenance is immutable. Current readiness and generation
+        # remain execution fences; READY-preserving edits retain deliverability.
         if current is None or not current.is_ready or current.generation != generation:
             _mark(db, event_id, "superseded", "stale_readiness")
             return _TERMINAL
@@ -145,7 +173,7 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
             event=event_type,
             event_id=str(event_id),
             occurred_at=occurred_at.astimezone(timezone.utc).isoformat(),
-            data=_event_data(project_id, card_id, generation, current),
+            data=data,
         )
         db.exec(
             update(OUTBOX)
@@ -153,10 +181,12 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
             .values(
                 state="delivering",
                 attempt_count=int(attempts or 0) + 1,
-                lease_until=func.now() + text(f"interval '{DELIVERY_LEASE_SECONDS} seconds'"),
+                lease_until=lease_until,
             )
         )
-        return ClaimedDelivery(event_id=event_id, model=model, webhook_uid=snapshot["webhook_uid"])
+        return ClaimedDelivery(
+            event_id=event_id, model=model, webhook_uid=snapshot["webhook_uid"], lease_until=lease_until
+        )
 
 
 async def drain_one(event_id: UUID | None = None) -> bool:
@@ -169,17 +199,30 @@ async def drain_one(event_id: UUID | None = None) -> bool:
     try:
         await post_signed_webhook(claimed.model, claimed.webhook_uid)
     except Exception as error:
-        # Release the claim but keep the attempt count so exhaustion is
-        # bounded; Celery retries this task and the cron re-drains 'pending'.
+        # The final HTTP failure is terminal immediately; no fifth task or cron
+        # pass is needed after Celery's initial attempt and three retries.
         with DbSession.atomic() as db:
             db.exec(
                 update(OUTBOX)
-                .where(OUTBOX.c.id == claimed.event_id)
-                .values(state="pending", last_error=type(error).__name__[:80], lease_until=None, processed_at=func.now())
+                .where(
+                    OUTBOX.c.id == claimed.event_id,
+                    OUTBOX.c.state == "delivering",
+                    OUTBOX.c.lease_until == claimed.lease_until,
+                    OUTBOX.c.lease_until > func.now(),
+                )
+                .values(
+                    state=case((OUTBOX.c.attempt_count >= MAX_DELIVERY_ATTEMPTS, "failed"), else_="pending"),
+                    last_error=case(
+                        (OUTBOX.c.attempt_count >= MAX_DELIVERY_ATTEMPTS, "delivery_attempts_exhausted"),
+                        else_=type(error).__name__[:80],
+                    ),
+                    lease_until=None,
+                    processed_at=func.now(),
+                )
             )
         raise ExecutionDeliveryFailed(f"Execution delivery failed: event={claimed.event_id}") from error
     with DbSession.atomic() as db:
-        _mark(db, claimed.event_id, "delivered")
+        _mark(db, claimed.event_id, "delivered", lease_until=claimed.lease_until)
     return True
 
 

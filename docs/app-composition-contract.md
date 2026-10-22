@@ -1,38 +1,26 @@
 # Logical apps and independently authorized modules
 
-Status: host persistence, HTTP discovery and board Store grouping implemented
-and locally verified. The administrator composition editor is implemented and locally verified. Full-composition disable is implemented with atomic revision checks. Deployed migration/browser acceptance remains open.
+A composition groups modules for management. Each module keeps its own identity, connections and
+permissions. Availability depends on the installed host version and configuration. For SDK
+usage, see the [external app SDK](external-app-sdk.md).
 
 ## Board Store and app management
 
-The Store shows overview tiles; it does not eagerly mount every provider's
-connection editor. Explicit compositions have one tile and a module overview.
-Each module's management view has separate Connections, Permissions, Workflow
-and Panel sections. Provider connection editors are loaded on demand when an app is managed, rather than with the Store overview. Once mounted, connection editors remain mounted across section changes to preserve local drafts.
-Each section explains its purpose and authority boundary in English, Korean, Japanese and Chinese. Empty or whitespace-only app descriptions fall back to the provider summary, then to a generic setup description for third-party apps.
-Commands continue to address the exact module key and its approved revisions.
-Panel activation does not enable signal publication or create app-owned cards.
+The Store shows overview tiles; it does not eagerly mount every provider's connection editor.
+Explicit compositions have one tile and a module overview. Each module's management view has
+separate Connections, Permissions, Workflow and Panel sections. Provider connection editors are
+loaded on demand when an app is managed, rather than with the Store overview. Once mounted,
+connection editors remain mounted across section changes to preserve local drafts. Each section
+explains its purpose and authority boundary in English, Korean, Japanese and Chinese. Empty or
+whitespace-only app descriptions fall back to the provider summary, then to a generic setup
+description for third-party apps. Commands continue to address the exact module key and its
+approved revisions. Panel activation does not enable signal publication or create app-owned
+cards.
 
-Modern discovery returns membership and modules together. The UI uses one request
-and one snapshot; it does not merge grants across modules. If composition discovery
-fails, the UI reports degraded grouping and loads the unchanged flat module list.
-It does not display an old grouped snapshot as a successful current refresh.
-English, Korean, Japanese and Chinese management labels are provided. Local
-desktop/mobile tests cover group navigation, module-targeted panel writes,
-retained signal consent, workflow drafts, credential recovery, read-only authority
-and degraded discovery. These fixture tests do not prove canary deployment.
-
-### Shared UX acceptance
-
-Review app setup as a complete user flow: discover the app, connect an account,
-understand the requested permissions, select resources and map the existing
-workflow stages. Provider-specific fields belong inside the shared management
-sections and reuse host inputs, color controls, icons and feedback. A successful
-installation alone does not prove that connection, permissions or resource
-selection are complete. Check both desktop and mobile navigation, retained
-unsaved inputs and recoverable errors when changing the shared UI. Keep provider
-editors deferred until needed so an increasing app catalog does not mount every
-integration form on the Store overview.
+Modern discovery returns membership and modules together. The UI uses one request and one
+snapshot; it does not merge grants across modules. If composition discovery fails, the UI
+reports degraded grouping and loads the unchanged flat module list. It does not display an old
+grouped snapshot as a successful current refresh.
 
 ## Current host API
 
@@ -42,44 +30,29 @@ integration form on the Store overview.
 - `POST /settings/apps/compositions/{key}/ungroup`: revision-checked removal
   of presentation membership, preserving exact module authority records.
 - `GET /board/{project_uid}/settings/apps/compositions`: current board reader
-  obtains compositions and the unchanged module catalog in one host transaction.
-
-The migration creates `app_composition` and `app_composition_member` without
-renaming or copying module records, and seeds no provider-name associations.
-Unique module membership is enforced in SQL. A downgrade refuses to discard
-approved groups until they have been explicitly ungrouped. Local SQLite and
-PostgreSQL tests cover authority preservation, stale revision/membership
-conflicts, current administrator/read revocation, authenticated HTTP and schema
-upgrade/rollback. This is not deployed Store or migration acceptance evidence.
-
-## Outcome
-
-Show one explicitly configured logical app in the Store and one details screen
-for its modules. Preserve all existing module keys and authorization records.
-Signals, an inbox, app-owned workflow cards, and a rail panel remain separate
-features. A logical app is a management grouping, never an execution identity.
+  obtains compositions and the unchanged module catalog in one consistent snapshot.
 
 ## Composition ownership and validation
 
-The instance administrator approves a host-managed composition with a stable key,
-English fallback name, description, generation, and an ordered set of existing
-module keys. An app cannot place itself into another publisher's composition.
-Neither provider names nor `*-panel` suffixes, icons, URLs, or `signal_sources`
-create a composition. Each module belongs to at most one composition. Reject
-duplicate module keys, unknown definitions, and cyclic/nested compositions.
-Removal from a composition changes presentation only.
+The instance administrator approves a host-managed composition with a stable key, fallback name
+(at most 80 characters), description (at most 1000 characters), revision, and an ordered set of
+existing module keys. An app cannot place itself into another publisher's composition. Neither
+provider names nor `*-panel` suffixes, icons, URLs, or `signal_sources` create a composition.
+Each module belongs to at most one composition. A composition accepts 1–16 existing module keys.
+Duplicate keys, unknown definitions and nested compositions are rejected. Removal from a
+composition changes presentation only.
 
-Composition edits use optimistic revision checks and current administrator
-authorization. An unavailable or disabled module remains visible in details
-when it has retained records, with its current status. Missing module definitions
-cannot silently fall back to another module or borrow that module's capabilities.
+Composition edits use optimistic revision checks and current administrator authorization. An
+unavailable or disabled module remains visible in details when it has retained records, with its
+current status. Missing module definitions cannot silently fall back to another module or borrow
+that module's capabilities.
 
 ## Module identity and independent features
 
-Each module retains its exact key, definition version and revision, publisher,
-trust targets, resource types, declared capabilities, and board binding revision.
-One logical tile does not sum grants or join credentials. Details show each
-feature's declared availability separately from its actual consent/status.
+Each module retains its exact key, definition version and revision, publisher, trust targets,
+resource types, declared capabilities, and board binding revision. One logical tile does not sum
+grants or join credentials. Details show each feature's declared availability separately from
+its actual consent/status.
 
 | Feature | Meaning | Required boundary |
 | --- | --- | --- |
@@ -88,210 +61,101 @@ feature's declared availability separately from its actual consent/status.
 | App-owned card | Durable workflow object owned by a declared app | Card creation grant, lifecycle declaration, durable ownership and selected resources |
 | Rail panel | Optional UI contributed by a module | Panel rendering grant; separate grants for data reads and commands |
 
-Signal receipt does not create a card. Explicit native inbox card creation
-creates an ordinary card with an evidence link, not app ownership. A card-owned
-interaction or archive command resolves through the owning module key and never
-the composition key. Native comments, checklists and relationships remain usable.
+Signal receipt does not create a card. Explicit native inbox card creation creates an ordinary
+card with an evidence link, not app ownership. A card-owned interaction or archive command
+resolves through the owning module key and never the composition key. Native comments,
+checklists and relationships remain usable.
 
 ## Connection and board management
 
-The details screen displays module-specific connections, selected resources,
-panel consent, card lifecycle and workflow mapping together. Every mutation
-still addresses one exact module and its current revisions. Connections retain
-their personal/organization owner; grouping does not expose another user's
-credentials or turn a personal connection into shared automation authority.
+The details screen displays module-specific connections, selected resources, panel consent, card
+lifecycle and workflow mapping together. Every mutation still addresses one exact module and its
+current revisions. Connections retain their personal/organization owner; grouping does not
+expose another user's credentials or turn a personal connection into shared automation
+authority.
 
-Workflow mapping uses the host's built-in stage registry. A composition cannot
-introduce provider-specific stage identities. Each applicable module retains
-its mapping and transition opt-in. No mapping or transition is enabled merely
-by installing a panel, reading an inbox, or receiving a signal.
+Workflow mapping uses the host's built-in stage registry. A composition cannot introduce
+provider-specific stage identities. Each applicable module retains its mapping and transition
+opt-in. No mapping or transition is enabled merely by installing a panel, reading an inbox, or
+receiving a signal.
 
 ## Updates and revocation
 
-Review updates per module. Preserve only the capability intersection allowed
-by `update_consent`; source, resource-type and signal-policy changes renew the
-affected read/publication consent. Publisher, authentication, MCP or data target
-changes renew the affected trust approval and connection consent.
+Review updates per module. Preserve only the capability intersection allowed by the update
+consent policy; source, resource-type and signal-policy changes renew the affected
+read/publication consent. Publisher, authentication, MCP or data target changes renew the
+affected trust approval and connection consent.
 
-Composition label/order edits do not renew module consent. Adding a module shows
-its existing authorized state or requires its own new consent; it grants nothing
-through the already-installed logical app. Removing a module does not revoke it
-implicitly: offer an explicit separate disable action and retain its records.
+Composition label/order edits do not renew module consent. Adding a module shows its existing
+authorized state or requires its own new consent; it grants nothing through the
+already-installed logical app. Removing a module does not revoke it implicitly. Disable it
+explicitly to withdraw grants while retaining its records.
 
 Panel-only disable withdraws `panels.render` and panel state, preserving independent
-signal/card/workflow grants. Full logical-app disable is an explicit operation
-over its current module set. Lock the composition revision and module bindings,
-authorize all targets before mutation, and clear their execution grants in one
-host transaction. Preserve connections, signals, cards, ownership and history.
-Already-disabled modules are idempotent targets. An unavailable definition or
-organization policy never prevents withdrawal of retained board grants through
-the existing revocation authorization path. A changed composition/binding revision
-or lost board revocation authority rejects the whole write. External effects
-already executed are not reported as rolled back.
+signal/card/workflow grants. Full logical-app disable is an explicit operation over its current
+module set. The operation checks the composition revision and every module binding before
+withdrawing grants atomically. Connections, signals, cards, ownership and history remain.
+Already-disabled modules are idempotent targets. An unavailable definition or organization
+policy never prevents withdrawal of retained board grants through the existing revocation
+authorization path. A changed composition/binding revision or lost board revocation authority
+rejects the whole write. External effects already executed are not reported as rolled back.
 
 ## Existing installations and compatibility
 
-Migration is presentation-only: approve explicit compositions and assign exact
-existing keys without renaming or copying definitions, connections, tokens,
-bindings, resources, cards or signal receipts. This avoids inventing consent and
-preserves existing foreign-key/history references. Re-running the migration is
-idempotent; conflicting membership is rejected for administrator review.
-
-Keep the existing flat module catalog and module-addressed API for old SDK/MCP
-clients. Add composition discovery separately, including the composition revision
-and exact member keys. The new Store resolves members from the same authorized
-catalog snapshot and renders ungrouped modules as standalone apps. If discovery
-is unavailable, retain the flat catalog with a visible degraded state; do not
-infer provider grouping. Rollback removes presentation memberships only.
-
-## Acceptance gates
-
-1. The explicitly grouped provider appears once in the Store, with all module
-   revisions, connections, resources and separate feature controls in details.
-2. A third provider can be grouped through administrator configuration without
-   a host code change, name heuristic or permission promotion.
-3. Panel-only disable, module disable and full-composition disable have distinct
-   tested effects; no stored card, signal or connection is deleted.
-4. Trust/source/resource updates renew only affected consent. A concurrent
-   composition/module update rejects stale mutations before any partial write.
-5. An idempotent migration and rollback preserve exact existing record identities,
-   owner scopes, grants and API responses for old SDK/MCP clients.
-6. PostgreSQL HTTP tests and authenticated desktop/mobile browser flows prove
-   these operations. Source checks and this document alone do not satisfy them.
-
-
-## Settings navigation and loading
-
-The board settings page separates basic board configuration, Apps, people and
-notifications, and AI/automation. A section mounts when first visited; revisiting
-it retains local editor state. App Store overview tiles do not mount native
-connection editors. Managing one module uses the full available content width.
-Connection editors stay mounted while switching that module's management sections
-so unsaved instance and credential-reference fields survive. Leaving the module
-or board still ends this local draft; credentials are not persisted by this UI.
-
-Instance settings group permitted routes by workspace setup, people/notifications,
-AI/automation, and Apps/integrations. Route permissions and direct links remain
-unchanged. Individual settings pages load through React lazy/Suspense.
-
-Board details failures now expose a retry instead of leaving only notification
-settings visible. This recovery affordance does not establish the cause of a
-browser request abort. Canary browser verification reproduced the abort twice;
-the fix must be deployed before its recovery behavior can be verified there.
-
+Grouping preserves existing module keys, definitions, connections, tokens, bindings, resources,
+cards and signal receipts. It grants no new consent. The flat module catalog and
+module-addressed API remain available to clients. Ungrouped modules appear as standalone apps.
+If composition discovery is unavailable, the Store shows the flat catalog with a degraded state
+rather than inferring groups from provider names.
 
 ## Administrator composition editor
 
-`/settings/app-groups` is available only to instance administrators, within
-Apps/integrations settings. It creates and updates explicit group metadata,
-selecting existing modules from the authoritative discovery endpoint. A module
-already assigned to another group cannot be selected. Disabled modules can be
-retained/grouped without becoming enabled. Module identities are shown next to
-names and versions; a group never derives members from a provider-name suffix.
+`/settings/app-groups` is available only to instance administrators, within Apps/integrations
+settings. It creates and updates explicit group metadata, selecting existing modules from the
+authoritative discovery endpoint. A module already assigned to another group cannot be selected.
+Disabled modules can be retained/grouped without becoming enabled. Module identities are shown
+next to names and versions; a group never derives members from a provider-name suffix.
 
-The group key is immutable during editing. Updates and confirmed ungrouping
-submit the observed revision. Failed/unknown mutation results retain the draft
-and prevent repeated writes until an explicit reload; reload discards the draft.
-An older host without module discovery exposes recovery and no editable form.
-This UI is presentation management, not an install, credential, grant or
-full-group disable operation. Local desktop/mobile browser tests cover exact
-create/update payloads, confirmed ungrouping, conflict draft retention and
-non-admin exclusion. Native authenticated HTTP tests separately verify current
-administrator authority and preservation of flat module discovery.
+The group key is immutable during editing. Updates and confirmed ungrouping submit the observed
+revision. Failed/unknown mutation results retain the draft and prevent repeated writes until an
+explicit reload; reload discards the draft. An older host without module discovery exposes
+recovery and no editable form. This UI is presentation management, not an install, credential,
+grant or full-group disable operation.
 
+## Settings navigation and loading
+
+The board settings page separates basic board configuration, Apps, people and notifications, and
+AI/automation. Revisiting a section retains local editor state. App Store overview tiles load
+connection editors only when needed. Managing one module uses the full available content width.
+Connection editors stay mounted while switching that module's management sections so unsaved
+instance and credential-reference fields survive. Leaving the module or board still ends this
+local draft; credentials are not persisted by this UI.
 
 ### Board group withdrawal
 
-`POST /board/{project_uid}/settings/apps/compositions/{key}/disable` accepts
-`expected_revision` for the composition and `binding_revisions` keyed by every
-exact member. An unconfigured member uses `null`; the server does not create a
-binding for it. All current binding revisions must match before any grants are
-changed. This board-scoped operation reuses module withdrawal semantics and
-requires current board update/revocation authority. It does not disable global
-app definitions or delete connections, resources, signals or cards.
+`POST /board/{project_uid}/settings/apps/compositions/{key}/disable` accepts `expected_revision`
+for the composition and `binding_revisions` keyed by every exact member. An unconfigured member
+uses `null`; the server does not create a binding for it. All current binding revisions must
+match before any grants are changed. This board-scoped operation reuses module withdrawal
+semantics and requires current board update/revocation authority. It does not disable global app
+definitions or delete connections, resources, signals or cards.
 
-The Store lists affected module keys before confirmation. A failed write or
-readback blocks another group write until an explicit successful snapshot reload.
-There is no group-level automatic re-enable: modules keep their own consent gates.
+The Store lists affected module keys before confirmation. A failed write or readback blocks
+another group write until an explicit successful snapshot reload. There is no group-level
+automatic re-enable: modules keep their own consent gates.
 
+### Board composition detail navigation
 
-Local withdrawal acceptance: 14 native SQLite/PostgreSQL, authenticated HTTP and
-migration cases passed. The Store/workflow browser suite passed all 41 cases,
-including full group confirmation at 1440px/390px and failed-write reload gating.
-TypeScript type checking, changed production UI lint, Ruff and diff checks passed.
-These local results do not establish deployed composition migration or provider
-integration acceptance.
+An explicitly declared composition opens one full-width module detail surface. Its persistent
+module navigation displays only the authoritative member keys; the active module retains its
+exact identity, version, binding and app revision. Connections and selected resource status,
+per-module permissions, workflow, and panel consent share this surface. Workflow and inbound
+management expand within the active module. Group withdrawal still confirms every member and
+submits the composition revision plus the complete binding revision snapshot.
 
-Native durable-record acceptance additionally exercises a separately declared
-app with an actual app-owned card, source signal, selected resource, connection,
-archive receipt and pending signed event. Full group withdrawal retains their
-identities and stored content; the pending event is blocked before its first
-delivery attempt, and current credentials cannot create another card. Ordinary
-module updates retain only previously granted capabilities. Publisher changes
-revoke the connection and require attention without changing group presentation
-or deleting the owned card. Stale pre-update binding revisions reject withdrawal.
-The expanded native suite passes 16 cases; provider network/runtime acceptance
-remains a separate gate.
-
-SDK 0.2.28 exposes the same administrator discovery/save/ungroup and board
-snapshot/withdrawal contracts through AppRegistry and AppManager. The host pins
-the reviewed wheel and digest; old catalog/module methods remain available.
-The SDK-to-native authenticated HTTP suite runs against SQLite and PostgreSQL,
-including stale withdrawal rejection, unbound-member null revisions and preserved
-module state after ungrouping. Combined composition/registry suite: 24 passed.
-The standalone SDK suite passes 86 Python cases, including Python 3.13 imports.
-
-UI loading also groups translation namespaces into one lazy Rollup chunk per
-language. The existing i18next backend still loads the selected language and its
-English fallback; locale selection, fallback and translation content are unchanged.
-An isolated Vite build using the production chunk classifier and all repository
-translations reduced translation chunks from 116 to 4. All 116 namespace exports
-matched their original JSON, and the entry had no eager translation imports.
-This measures asset fan-out, not deployed latency or full production-build acceptance.
-
-Resource isolation acceptance uses the installed SDK over native authenticated
-HTTP on SQLite and PostgreSQL: two boards share one connection and the same
-external resource identity, while selections, health and workflow mappings remain
-independent. Revoking one selection retains the other board; removing current
-ownership denies that board without disabling the remaining board. Combined
-resource HTTP and migration-storage checks: 28 passed. The storage fixture now
-applies connection ownership and archive-setting migrations before comparing ORM
-columns and constraints. These checks are included in the existing contract CI.
-
-Image requests use a protected tag `refs/tags/image-executor/<sha>`
-and a separate approved `IMAGE_BUILD_COMMIT`. The requester verifies the tag is
-still the exact commit before dispatch, resolving one annotation when present.
-Nested annotations are rejected. The private executor must independently
-enforce its own protected-ref, dispatcher and approved-source policy. GitHub
-workflow dispatch requires a named branch or tag, so a raw commit SHA alone is
-not a valid dispatch ref. Isolated request-contract tests cover lightweight and
-annotated tags, moved targets, nested annotations, mutable refs, missing pins,
-lookup failure and unknown dispatch
-outcomes without retry. Repository names, runner credentials and private settings
-remain operator configuration. This is not evidence of a published canary image.
-
-Registered panel resource acceptance also runs on SQLite and PostgreSQL (16
-cases): declared resource types and current module consent restrict reads;
-disabled definitions, revoked resources, disconnected connections and another
-owner exclude context. The authenticated panel endpoint filters other apps
-before pagination, rejects stale revisions and returns no credential references.
-The test now relies on the shared current-schema fixture rather than recreating
-organization columns, and runs in the existing contract CI. This proves the
-native read bridge, not an external provider or deployed panel session.
-
-Store module disable and panel consent now share the group withdrawal failure
-gate. A failed mutation or failed catalog readback blocks another parent Store
-mutation until an explicit successful reload, with one recovery button. The
-focused browser suite passes four cases including failed readback at desktop and
-mobile sizes and unknown write recovery; 41 existing workflow/Store cases also
-passed. This remains local browser acceptance pending canary deployment.
-
-### Store visual review (2026-10-11)
-
-Overview tiles reuse the host card, muted icon surface, typography and button
-components. Composition and individual module icons are decorative; long app
-names wrap without expanding the grid. No remote icon assets or new dependency
-are required. The current Store browser suite passed 44 cases, including 1440px
-and 390px management, consent, resource selection, draft retention and failed
-readback guards. The local rendered overview was visually inspected. These
-checks do not establish deployment or a live provider connection.
+Only explicitly visited modules and management sections mount their forms. Visited connection
+and consent views remain locally mounted while hidden so unsaved fields and unknown-write locks
+survive section/module navigation. They are discarded when leaving the app detail. Unvisited
+sections are not loaded in advance. Unsaved workflow or inbound changes and pending operations
+prevent navigation until handled. Policy-disabled modules permit retained grant withdrawal;
+panel consent cannot add a new grant while the definition is unavailable.

@@ -136,6 +136,8 @@
     "Apps workflow": "Apps workflow",
     "App": "App",
     "App workflow draft help": "Configure workflow destinations. Connections need separate setup. Saving keeps automatic transitions off.",
+    "Manage stage columns": "Manage stage columns",
+    "Reuse stage column help": "Reuse an existing column before creating one. Assigning a stage changes the meaning and counts of all cards in that column; review and approval evidence stays separate. Select and save the App destination afterward.",
     "App workflow unavailable": "Workflow settings unavailable",
     "App workflow save failed": "Could not save. Reload settings and try again.",
     "In progress": "In progress",

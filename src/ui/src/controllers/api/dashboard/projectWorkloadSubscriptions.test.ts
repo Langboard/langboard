@@ -11,7 +11,7 @@ for (const cached of [false, true]) {
     test(`activity during slow ${cached ? "cached" : "initial"} reads completes them and coalesces a fresh follow-up`, async (context) => {
         context.mock.timers.enable({ apis: ["setTimeout"] });
         const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-        const key = ["get-dashboard-projects"];
+        const key = ["get-dashboard-projects", "actor-a"];
         const requests: { signal: AbortSignal; resolve: (value: number) => void }[] = [];
         const observer = new QueryObserver(client, {
             queryKey: key,
@@ -69,7 +69,7 @@ for (const cached of [false, true]) {
 test("releasing an owner during a slow read prevents its queued follow-up", async (context) => {
     context.mock.timers.enable({ apis: ["setTimeout"] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-    const key = ["get-dashboard-projects"];
+    const key = ["get-dashboard-projects", "actor-a"];
     let resolve = (_value: number) => {};
     let reads = 0;
     const observer = new QueryObserver(client, {
@@ -117,7 +117,7 @@ test("shared views retain topics, burst refresh, reconnect and last release", as
     const acknowledgements: (() => void)[] = [];
     let open = () => {};
     const client = {
-        getQueryState: () => undefined,
+        refetchQueries: async () => {},
         invalidateQueries: async () => {
             order.push("read");
         },
@@ -179,7 +179,7 @@ test("late acknowledgement cannot refresh released or replacement owners", async
     let reconnect = () => {};
     let reads = 0;
     const client = {
-        getQueryState: () => undefined,
+        refetchQueries: async () => {},
         invalidateQueries: async () => {
             reads++;
         },

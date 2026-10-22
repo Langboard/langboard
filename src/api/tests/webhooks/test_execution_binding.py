@@ -70,7 +70,7 @@ def test_live_binding_rechecks_webhook_and_signing_secret(monkeypatch: pytest.Mo
         (WebhookSetting, "hook"): SimpleNamespace(id=7, events=[event], secret_id="key"),
     }
     monkeypatch.setattr(
-        ExecutionBindingPolicy.InfraHelper, "get_by_id_like", lambda model, uid: records.get((model, uid))
+        ExecutionBindingPolicy, "_lookup", lambda model, uid: records.get((model, uid))
     )
     monkeypatch.setattr(ExecutionBindingPolicy.KeyVault, "get_key", lambda key: "secret")
     assert ExecutionBindingPolicy.binding_invalid_reasons(binding, event) == []

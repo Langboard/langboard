@@ -1,3 +1,4 @@
+import { useIsMobile } from "@/core/hooks/useIsMobile";
 import Dialog from "@/components/base/Dialog";
 import { isNotificationInteraction } from "@/components/Header/useNotificationNavigation";
 import { CARD_WINDOW_EMBEDDED_OVERLAY_CLASS, CARD_WINDOW_HEIGHT_CLASS, CARD_WINDOW_OVERLAY_CLASS } from "./cardWindowLayout";
@@ -55,12 +56,12 @@ const BoardCardPageComponent = ({
     const motionRef = useRef<{ stop: () => void } | null>(null);
     const closingRef = useRef(false);
     const finishedCloseRef = useRef(false);
-    const [isClosing, setIsClosing] = useState(false);
     const isCardEditingRef = useRef(false);
     const cancelCardEditRef = useRef<(() => void) | null>(null);
     const [isComposing, setIsComposing] = useState(false);
     const [localIsExpanded, setLocalIsExpanded] = useState(false);
-    const isExpanded = controlledIsExpanded ?? localIsExpanded;
+    const isMobile = useIsMobile();
+    const isExpanded = isMobile || (controlledIsExpanded ?? localIsExpanded);
     const setIsExpanded = controlledSetIsExpanded ?? setLocalIsExpanded;
     const { selectCardViewType } = useBoardController();
     const shouldHideForCardSelection = !!selectCardViewType;
@@ -172,7 +173,7 @@ const BoardCardPageComponent = ({
         } else {
             content?.style.removeProperty("--card-origin-transform");
         }
-        if (toTray && content) {
+        if (content) {
             motionRef.current?.stop();
             motionRef.current = animate(
                 content,
@@ -182,8 +183,6 @@ const BoardCardPageComponent = ({
                 },
                 { duration: CARD_ANIMATION_DURATION_MS / 1000, ease: [0.2, 0.8, 0.2, 1], onComplete: finishClose }
             );
-        } else {
-            setIsClosing(true);
         }
         closeTimerRef.current = window.setTimeout(finishClose, CARD_ANIMATION_DURATION_MS + 50);
     };
@@ -282,7 +281,6 @@ const BoardCardPageComponent = ({
                                 const opener = visible ? source?.querySelector<HTMLButtonElement>("[data-board-card-open]") : undefined;
                                 (opener ?? fallback)?.focus({ preventScroll: true });
                             }}
-                            data-card-viewer-closing={isClosing ? "true" : undefined}
                             disableMotionAnimation
                             onAnimationStart={(event) => {
                                 if (event.target === event.currentTarget && event.animationName === "card-viewer-open") {
@@ -292,25 +290,25 @@ const BoardCardPageComponent = ({
                                     event.currentTarget.dataset.cardViewerOpened = "true";
                                 }
                             }}
-                            onAnimationEnd={(event) => {
-                                if (isClosing && event.target === event.currentTarget && event.animationName === "card-viewer-close") {
-                                    finishClose();
-                                }
-                            }}
                             className={cn(
                                 "border-0 p-0 shadow-none",
-                                isExpanded &&
-                                    (embedded
-                                        ? cn(
-                                              "pointer-events-auto absolute inset-0 z-[1]",
-                                              "h-full w-full max-w-none overflow-hidden",
-                                              "rounded-none bg-background"
-                                          )
-                                        : cn(
-                                              "pointer-events-auto fixed bottom-0 left-0 right-0 top-16",
-                                              "w-auto max-w-none overflow-hidden rounded-none bg-background",
-                                              "md:left-[var(--board-chat-sidebar-width,0px)]"
-                                          )),
+                                isMobile
+                                    ? cn(
+                                          "pointer-events-auto fixed inset-0 z-[110] h-dvh max-h-dvh",
+                                          "w-screen max-w-none overflow-hidden rounded-none bg-background"
+                                      )
+                                    : isExpanded &&
+                                          (embedded
+                                              ? cn(
+                                                    "pointer-events-auto absolute inset-0 z-[1]",
+                                                    "h-full w-full max-w-none overflow-hidden",
+                                                    "rounded-none bg-background"
+                                                )
+                                              : cn(
+                                                    "pointer-events-auto fixed bottom-0 left-0 right-0 top-16",
+                                                    "w-auto max-w-none overflow-hidden rounded-none bg-background",
+                                                    "md:left-[var(--board-chat-sidebar-width,0px)]"
+                                                )),
                                 !isExpanded &&
                                     cn(
                                         "h-[calc(100dvh-theme(spacing.6))] max-h-[calc(100dvh-theme(spacing.6))]",
@@ -361,6 +359,10 @@ const BoardCardPageComponent = ({
                             disablePortal={embedded}
                             viewportRef={viewportRef}
                             onInteractOutside={(event) => {
+                                if (isMobile) {
+                                    event.preventDefault();
+                                    return;
+                                }
                                 if (isNotificationInteraction(event.detail.originalEvent.target)) {
                                     event.preventDefault();
                                     return;
@@ -405,7 +407,12 @@ const BoardCardPageComponent = ({
                                     event.stopPropagation();
 
                                     getEditorStore().setCurrentEditor(null);
+                                    return;
                                 }
+                                // Keep the viewer mounted until the shared return animation finishes.
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleCloseRequest();
                             }}
                         >
                             <BoardCard
@@ -414,7 +421,7 @@ const BoardCardPageComponent = ({
                                 currentUser={currentUser}
                                 viewportRef={viewportRef}
                                 isExpanded={isExpanded}
-                                setIsExpanded={setIsExpanded}
+                                setIsExpanded={isMobile ? undefined : setIsExpanded}
                                 onClose={handleCloseRequest}
                                 onFlip={async (card) => {
                                     if (isComposing || !currentUser || closingRef.current) return;

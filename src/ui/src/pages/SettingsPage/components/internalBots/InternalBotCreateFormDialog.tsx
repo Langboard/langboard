@@ -26,9 +26,12 @@ import { TBotValueDefaultInputRefLike } from "@/components/bots/BotValueInput/ty
 import BotPlatformSelect from "@/components/bots/BotPlatformSelect";
 import BotPlatformRunningTypeSelect from "@/components/bots/BotPlatformRunningTypeSelect";
 import { ISharedSettingsModalProps } from "@/pages/SettingsPage/types";
+import useAuthStore from "@/core/stores/AuthStore";
+import ImageGenerationFields, { defaultImageGenerationConfig } from "./ImageGenerationFields";
 
 function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettingsModalProps): React.JSX.Element {
     const [t] = useTranslation();
+    const actor = useAuthStore((state) => state.currentUser);
     const navigate = usePageNavigateRef();
     const [isValidating, setIsValidating] = useState(false);
     const dialogContentRef = useRef<HTMLDivElement | null>(null);
@@ -43,26 +46,38 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
         inputsRef.current[key] = el as any;
     };
     const [selectedType, setSelectedType] = useState<InternalBotModel.EInternalBotType>(InternalBotModel.EInternalBotType.ProjectChat);
+    const isImageGeneration = selectedType === InternalBotModel.EInternalBotType.ImageGeneration;
+    const [imageConfig, setImageConfig] = useState(defaultImageGenerationConfig);
+    const [imageApiKey, setImageApiKey] = useState("");
     const [selectedPlatform, setSelectedPlatform] = useState<EBotPlatform>(EBotPlatform.Default);
     const [selectedPlatformRunningType, setSelectedPlatformRunningType] = useState<EBotPlatformRunningType>(EBotPlatformRunningType.Default);
     const valueType = useMemo(() => getValueType(selectedPlatform, selectedPlatformRunningType), [selectedPlatform, selectedPlatformRunningType]);
     const formRequirements = useMemo(
-        () => requirements[selectedPlatform]?.[selectedPlatformRunningType] ?? [],
-        [selectedPlatform, selectedPlatformRunningType]
+        () => (isImageGeneration ? [] : (requirements[selectedPlatform]?.[selectedPlatformRunningType] ?? [])),
+        [selectedPlatform, selectedPlatformRunningType, isImageGeneration]
     );
     const valueRef = useRef("");
-    const { mutate } = useCreateInternalBot();
+    const { mutate, reset } = useCreateInternalBot({ interceptToast: isImageGeneration, gcTime: isImageGeneration ? 0 : undefined });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const save = async () => {
         if (isValidating || !inputsRef.current.displayName) {
             return;
         }
 
-        await syncPendingBotValueInputChange(inputsRef.current.value);
+        if (!isImageGeneration) await syncPendingBotValueInputChange(inputsRef.current.value);
         setIsValidating(true);
 
         const values = {} as Record<keyof typeof inputsRef.current, string>;
         const newErrors = {} as Record<keyof typeof inputsRef.current, string>;
+        let validImageEndpoint = false;
+        try {
+            validImageEndpoint = ["https:", "http:"].includes(new URL(imageConfig.base_url).protocol);
+        } catch {
+            /* Server validates endpoint policy. */
+        }
+        if (isImageGeneration && (!validImageEndpoint || !imageConfig.model_name.trim())) {
+            newErrors.value = t("internalBot.image.required");
+        }
         let focusableInput = null as HTMLInputElement | HTMLTextAreaElement | null;
 
         const shouldValidateInputs: (keyof typeof inputsRef.current)[] = ["displayName", ...formRequirements];
@@ -112,15 +127,18 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
             {
                 bot_type: selectedType,
                 display_name: values.displayName,
-                platform: selectedPlatform,
-                platform_running_type: selectedPlatformRunningType,
+                platform: isImageGeneration ? EBotPlatform.Default : selectedPlatform,
+                platform_running_type: isImageGeneration ? EBotPlatformRunningType.Default : selectedPlatformRunningType,
                 api_url: values.url,
-                api_key: values.apiKey,
-                value: valueRef.current,
+                api_key: isImageGeneration ? imageApiKey : values.apiKey,
+                value: isImageGeneration ? JSON.stringify(imageConfig) : valueRef.current,
                 avatar: dataTransferRef.current.files[0],
             },
             {
                 onSuccess: () => {
+                    if (isImageGeneration) setOpened(false);
+                    setImageApiKey("");
+                    setImageConfig(defaultImageGenerationConfig());
                     Toast.Add.success(t("successes.Internal bot created successfully."));
                     if (dataTransferRef.current.items.length) {
                         dataTransferRef.current.items.clear();
@@ -132,6 +150,10 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                     });
                 },
                 onError: (error) => {
+                    if (isImageGeneration) {
+                        setErrors({ value: t("internalBot.image.save_failed") });
+                        return;
+                    }
                     const { handle } = setupApiErrorHandler({
                         [EHttpStatus.HTTP_403_FORBIDDEN]: {
                             after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
@@ -142,7 +164,8 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                 },
                 onSettled: () => {
                     setIsValidating(false);
-                    setOpened(false);
+                    if (!isImageGeneration) setOpened(false);
+                    if (isImageGeneration) reset();
                 },
             }
         );
@@ -155,6 +178,14 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
 
         setOpened(opened);
     };
+
+    useEffect(() => {
+        setImageApiKey("");
+        if (!opened) {
+            setImageConfig(defaultImageGenerationConfig());
+            setErrors({});
+        }
+    }, [opened, selectedType, actor]);
 
     useEffect(() => {
         if (AVAILABLE_RUNNING_TYPES_BY_PLATFORM[selectedPlatform].includes(selectedPlatformRunningType)) {
@@ -225,16 +256,32 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                             })}
                         />
                     </Box>
-                    <Box mt="4">
-                        <BotPlatformSelect state={[selectedPlatform, setSelectedPlatform]} isValidating={isValidating} />
-                    </Box>
-                    <Box mt="4">
-                        <BotPlatformRunningTypeSelect
-                            state={[selectedPlatformRunningType, setSelectedPlatformRunningType]}
-                            platform={selectedPlatform}
-                            isValidating={isValidating}
-                        />
-                    </Box>
+                    {!isImageGeneration && (
+                        <Box mt="4">
+                            <BotPlatformSelect state={[selectedPlatform, setSelectedPlatform]} isValidating={isValidating} />
+                        </Box>
+                    )}
+                    {!isImageGeneration && (
+                        <Box mt="4">
+                            <BotPlatformRunningTypeSelect
+                                state={[selectedPlatformRunningType, setSelectedPlatformRunningType]}
+                                platform={selectedPlatform}
+                                isValidating={isValidating}
+                            />
+                        </Box>
+                    )}
+                    {isImageGeneration && (
+                        <Box mt="4">
+                            <ImageGenerationFields
+                                config={imageConfig}
+                                onChange={setImageConfig}
+                                apiKey={imageApiKey}
+                                onApiKeyChange={setImageApiKey}
+                                disabled={isValidating}
+                            />
+                            {errors.value && <FormErrorMessage error={errors.value} notInForm />}
+                        </Box>
+                    )}
                     {formRequirements.includes("url") && (
                         <Box mt="4">
                             <Floating.LabelInput

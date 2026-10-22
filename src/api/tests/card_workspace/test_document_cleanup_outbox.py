@@ -1,11 +1,12 @@
 """Cleanup request durability, bounded recovery and lease fencing on SQLite/PostgreSQL."""
 
+import runpy
 from datetime import timedelta
 from unittest.mock import Mock
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import DocumentVectorCleanup
+from langboard_shared.domain.models import CardAttachment, DocumentVectorCleanup
 from langboard_shared.tasks.docling import DocumentCleanupTask as outbox
 from langboard_shared.tasks.docling import DocumentEmbeddingTask as embedding
 from sqlalchemy import update
@@ -63,6 +64,15 @@ def test_commit_survives_broker_failure_and_rollback_never_dispatches(cleanup_st
     assert outbox.process_cleanup(0) is False
 
 
+def test_module_entrypoint_recovers_committed_requests(cleanup_store):
+    event = record()
+    cleanup_store.reset_mock(side_effect=True)
+    with pytest.warns(RuntimeWarning, match="found in sys.modules"):
+        runpy.run_module(outbox.__name__, run_name="__main__")
+    cleanup_store.assert_called_once_with(outbox.TASK_NAME, args=[int(event.id)])
+    assert len(pending()) == 1
+
+
 def test_failure_backoff_keeps_pointer_and_sanitizes_error(cleanup_store, monkeypatch):
     event = record()
     remove = Mock(side_effect=RuntimeError("fixture-secret private document"))
@@ -87,6 +97,40 @@ def test_failure_backoff_keeps_pointer_and_sanitizes_error(cleanup_store, monkey
     assert pending() == []
     assert outbox.process_cleanup(int(event.id)) is False
     assert remove.call_count == 2
+
+
+def test_negative_vector_delete_ack_preserves_cleanup_until_retry(cleanup_store, monkeypatch):
+    from langboard_shared.tasks.docling.DocumentVectorStore import delete_vector_generation
+    from langchain_qdrant import QdrantVectorStore
+    from qdrant_client.models import UpdateResult, UpdateStatus
+
+    # Exercise the official integration's bool return for a valid but incomplete
+    # provider operation, then its completed retry, through the durable outbox.
+    client = Mock()
+    client.delete.side_effect = [
+        UpdateResult(operation_id=1, status=UpdateStatus.ACKNOWLEDGED),
+        UpdateResult(operation_id=1, status=UpdateStatus.COMPLETED),
+    ]
+    store = QdrantVectorStore(
+        client=client, collection_name="recorded_documents", validate_embeddings=False, validate_collection_config=False
+    )
+    monkeypatch.setattr(embedding, "remove_recorded_embedding", lambda value: delete_vector_generation(store, value))
+    event = record()
+    assert outbox.process_cleanup(int(event.id)) is False
+    retry = pending()[0]
+    assert retry.pointer == pointer() and retry.attempt_count == 1 and retry.claim_token is None
+    assert retry.last_error == "cleanup_failed_check_original_connection"
+    with DbSession.atomic() as db:
+        db.exec(
+            update(DocumentVectorCleanup)
+            .where(DocumentVectorCleanup.id == event.id)
+            .values(due_at=SafeDateTime.now() - timedelta(seconds=1))
+        )
+    assert outbox.process_cleanup(int(event.id)) is True
+    assert pending() == []
+    assert client.delete.call_count == 2
+    for call in client.delete.call_args_list:
+        assert call.kwargs == {"collection_name": "recorded_documents", "points_selector": ["old-1"]}
 
 
 def test_lease_fences_duplicate_delivery_and_recovers_worker_loss(cleanup_store, monkeypatch):
@@ -152,9 +196,9 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
     from langboard_shared.core.storage import FileModel
     from langboard_shared.domain.models import (
         Card,
-        CardAttachment,
         CardDocumentArtifact,
         CardMetadata,
+        DocumentKeywordIndex,
         Organization,
         Project,
         ProjectColumn,
@@ -162,7 +206,17 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
     )
     from langboard_shared.domain.services import DomainService
 
-    for model in (User, Organization, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata):
+    for model in (
+        User,
+        Organization,
+        Project,
+        ProjectColumn,
+        Card,
+        CardAttachment,
+        CardDocumentArtifact,
+        CardMetadata,
+        DocumentKeywordIndex,
+    ):
         model.__table__.create(binding_store)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: binding_store)
     with DbSession.atomic() as db:
@@ -178,6 +232,7 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
             user_id=owner.id,
             card_id=card.id,
             filename="source.pdf",
+            document_text="retained text",
             file=FileModel(
                 storage_type="test",
                 storage_name="test",
@@ -227,6 +282,13 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
             raise RuntimeError("rollback")
     assert pending() == []
     assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) == document
+    with DbSession.use(readonly=False) as db:
+        assert (
+            db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id))
+            .first()
+            .document_text
+            == "retained text"
+        )
     change()
     assert len(pending()) == 1 and pending()[0].pointer == pointer()
     cleanup_store.assert_called_once()
@@ -238,6 +300,10 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
         assert len(pending()) == 1
     else:
         assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) is None
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first()
+            assert current.document_text == "" and current.file == attachment.file
+            assert current.deleted_at is None
         service.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
         assert len(pending()) == 1
 
@@ -271,11 +337,12 @@ def test_cleanup_migration_refuses_populated_downgrade(binding_store):  # noqa: 
             assert connection.execute(select(DocumentVectorCleanup.id)).first() is None
 
 
-def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, tmp_path, monkeypatch):
+@pytest.mark.parametrize("pointer_format", ["chunk_ids", "namespace"])
+def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, tmp_path, monkeypatch, pointer_format):
     pytest.importorskip("langchain_core")
     from types import SimpleNamespace
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
-    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_document_store, open_sqlite_vector_store
     from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
     from langboard_shared.tasks.docling.DocumentVectorStore import stage_vector_generation
 
@@ -290,19 +357,116 @@ def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, 
         "embedding_fingerprint": "a" * 64,
     }
     path = directory / (source["embedding_fingerprint"] + ".sqlite")
-    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
-        old = stage_vector_generation(
-            store, source=source, text="alpha old", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
-        )
-        new = stage_vector_generation(
-            store, source=source, text="alpha new", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
-        )
+    if pointer_format == "namespace":
+        from langboard_shared.tasks.docling.DocumentVectorGeneration import replace_attachment_generation
+
+        legacy_source = {key: value for key, value in source.items() if key != "embedding_fingerprint"}
+        with open_document_store(path, Fixture(), dimensions=3) as store:
+            old = replace_attachment_generation(
+                store,
+                **legacy_source,
+                fingerprint=source["embedding_fingerprint"],
+                text="alpha old",
+                splitter=DocumentSplitterSettings(),
+                publish_pointer=False,
+            )
+            new = replace_attachment_generation(
+                store,
+                **legacy_source,
+                fingerprint=source["embedding_fingerprint"],
+                text="alpha new",
+                splitter=DocumentSplitterSettings(),
+                publish_pointer=False,
+            )
+    else:
+        with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+            old = stage_vector_generation(
+                store, source=source, text="alpha old", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
+            )
+            new = stage_vector_generation(
+                store, source=source, text="alpha new", splitter=DocumentSplitterSettings(), storage={"type": "sqlite"}
+            )
     with DbSession.atomic() as db:
         outbox.record_cleanup(db, old)
     event = pending()[0]
     assert outbox.process_cleanup(int(event.id)) is True
     assert pending() == []
-    with open_sqlite_vector_store(path, None, dimensions=3) as store:
-        assert store.get_by_ids(old["chunk_ids"]) == []
-        assert store.get_by_ids(new["chunk_ids"])
+    if pointer_format == "namespace":
+        with open_document_store(path, Fixture(), dimensions=3) as store:
+            assert store.get(tuple(old["namespace"]), "0") is None
+            assert store.get(tuple(new["namespace"]), "0") is not None
+            assert store.conn.execute("SELECT COUNT(*) FROM store_vectors").fetchone()[0] == new["chunk_count"]
+    else:
+        with open_sqlite_vector_store(path, None, dimensions=3) as store:
+            assert store.get_by_ids(old["chunk_ids"]) == []
+            assert store.get_by_ids(new["chunk_ids"])
     assert outbox.process_cleanup(int(event.id)) is False
+
+
+@pytest.mark.parametrize("failure", ["stage", "rejected", "publication-error"])
+def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_store, monkeypatch, tmp_path, failure):
+    from contextlib import nullcontext
+    from langboard_shared.tasks.docling.DocumentEmbeddingTask_test import fixture
+    from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
+    from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+    from langboard_shared.tasks.docling.DocumentVectorStore import delete_vector_generation, stage_vector_generation
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    config, settings = embedding.validate_embedding_config.return_value
+    settings.splitter = DocumentSplitterSettings()
+    fingerprint = embedding_fingerprint(
+        provider=config["base_url"], model=config["model_name"], dimensions=3, version="v1"
+    )
+    directory = tmp_path / "document-retrieval"
+    directory.mkdir()
+    path = directory / (fingerprint + ".sqlite")
+    source = dict(
+        board_uid="board-uid",
+        card_uid="card-uid",
+        attachment_uid="attachment",
+        content_hash="hash",
+        embedding_fingerprint=fingerprint,
+    )
+    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+        survivor = stage_vector_generation(
+            store, source=source, text="previous generation", splitter=settings.splitter, storage={"type": "sqlite"}
+        )
+        document["embedding"]["pointer"] = survivor
+        add = store.add_documents
+
+        def partial_write(*args, **kwargs):
+            result = add(*args, **kwargs)
+            if failure == "stage":
+                raise RuntimeError("private provider failure fixture-secret")
+            return result
+
+        monkeypatch.setattr(store, "add_documents", partial_write)
+        monkeypatch.setattr(store, "delete", Mock(side_effect=RuntimeError("private delete failure fixture-secret")))
+        monkeypatch.setattr(embedding, "open_document_vector_store", lambda *_: nullcontext(store))
+        monkeypatch.setattr(embedding, "stage_vector_generation", stage_vector_generation)
+        monkeypatch.setattr(embedding, "delete_vector_generation", delete_vector_generation)
+        service.docling_metadata.publish_document_embedding.return_value = False
+        if failure == "publication-error":
+            service.docling_metadata.publish_document_embedding.side_effect = [
+                RuntimeError("publication failed"),
+                False,
+            ]
+        embedding.embed_transcription(service, "attachment", "current")
+        events = pending()
+        assert len(events) == 1
+        staged = events[0].pointer
+        assert staged["chunk_ids"] != survivor["chunk_ids"]
+        assert store.get_by_ids(staged["chunk_ids"])
+        assert store.get_by_ids(survivor["chunk_ids"])
+        assert "fixture-secret" not in str(staged) and "private" not in str(staged)
+        failed = service.docling_metadata.publish_document_embedding.call_args.args[-1]
+        assert failed["status"] == "failed" and failed["pointer"] == survivor
+    cleanup_store.assert_called_once()
+    assert outbox.process_cleanup(int(events[0].id)) is True
+    assert pending() == []
+    assert outbox.process_cleanup(int(events[0].id)) is False
+    with open_sqlite_vector_store(path, Fixture(), dimensions=3) as store:
+        assert not store.get_by_ids(staged["chunk_ids"])
+        assert store.get_by_ids(survivor["chunk_ids"])

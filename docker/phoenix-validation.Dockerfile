@@ -53,7 +53,7 @@ RUN mix local.hex --force && mix local.rebar --force
 COPY --chown=validation:validation pyproject.toml uv.lock README.md alembic.ini ./
 COPY --chown=validation:validation src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
 COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
-RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen --no-install-project --no-install-package langboard-shared
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --no-install-project --no-install-package langboard-shared
 COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
 RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get && mix deps.compile
 COPY --chown=validation:validation src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
@@ -69,8 +69,8 @@ COPY --chown=validation:validation Makefile tach.toml conftest.py ./
 COPY --chown=validation:validation scripts ./scripts
 COPY --chown=validation:validation .github/workflows/request-image-build.yaml ./.github/workflows/request-image-build.yaml
 COPY --chown=validation:validation docker ./docker
-RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --frozen
-RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --frozen
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --locked
 
 # Test execution must use the locked environments installed above without egress.
 ENV UV_NO_SYNC=1 \

@@ -4,6 +4,11 @@ The request workflow uses one standard-library client for review validation and
 product image requests. Both use the current GitHub Actions OIDC identity; the
 source repository does not need a central dispatch token.
 
+The request job uses the operator-configured `CI_RUNNER` in a standard Ubuntu
+job container. It is skipped when no runner is configured; it does not fall back
+to GitHub-hosted compute. The container supplies Python, Git and CA certificates
+for the request client. Validation and image building remain executor operations.
+
 ```sh
 # Review validation: v1, current PR required, review ref only.
 python3 scripts/image_build/request_validation.py
@@ -25,9 +30,13 @@ prints only the credential-free receipt. Executor approval and immutable tag
 verification belong to the broker and executor, rather than a second client
 using a stored token.
 
-Keep the existing request ID after a timeout, rate limit or server error. Use
-GET to reconcile it; do not dispatch a new run merely because observation timed
-out. No automatic retry, credential redirect or legacy-token fallback exists.
+After a timeout, rate limit, server error or pending admission receipt, the
+client makes one GET using the same request ID. It never repeats POST. If that
+read remains inconclusive, retain the request ID for inspection rather than
+dispatching another run. Explicit broker rejections and invalid receipts fail
+closed; cancellation propagates. This bounded recovery does not wait for remote
+validation or image publication. No credential redirect or legacy-token
+fallback exists.
 
 This client requires the deployed product broker contract. A local passing test
 does not establish broker deployment, image publication, scan/signature success,

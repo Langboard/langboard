@@ -1,4 +1,5 @@
 {
+  "Compose": "Compose",
   "Board": "Board",
   "Shared dock": "Shared dock",
   "Dock shared description": "Pinned column shortcuts are shared with everyone on this board. Changing them does not reorder board columns.",

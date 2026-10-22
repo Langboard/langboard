@@ -10,9 +10,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from verify_python_artifact import verify
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+SDK_WHEEL = verify(ROOT)
+sys.path.insert(0, str(SDK_WHEEL))
 EXAMPLES = pathlib.Path(os.environ["LANGBOARD_SDK_EXAMPLES_DIR"]).resolve()
 
 if os.environ.get("SDK_ACCEPTANCE_SERVER") == "1":
@@ -208,9 +211,9 @@ async def acceptance(base, auth):
             card_resources = CardResources(transport)
             selection_scope = (auth["board"], first["card_uid"], auth["connection"])
             selection = await card_resources.read(*selection_scope)
-            assert selection["revision"] is None and selection["resource_uids"] == []
-            selection = await card_resources.select(*selection_scope, [auth["resource"]], expected_revision=None)
-            assert selection["revision"] == 1 and selection["changed"]
+            assert selection["revision"] == 1 and selection["resource_uids"] == [auth["resource"]]
+            selection = await card_resources.select(*selection_scope, [auth["resource"]], expected_revision=1)
+            assert selection["revision"] == 1 and not selection["changed"]
             assert (await card_resources.read(*selection_scope))["resource_uids"] == [auth["resource"]]
             try:
                 await card_resources.select(*selection_scope, [], expected_revision=None)
@@ -319,7 +322,7 @@ with tempfile.TemporaryDirectory(prefix="langboard-sdk-http-") as tmp:
         JWT_SECRET_KEY="disposable-acceptance-" + os.urandom(32).hex(),
         CACHE_TYPE="in-memory",
         BROADCAST_TYPE="in-memory",
-        PYTHONPATH=str(ROOT / "src/sdk/vendor/langboard_sdk-0.2.19-py3-none-any.whl"),
+        PYTHONPATH=os.pathsep.join(map(str, (SDK_WHEEL, ROOT / "src/api", ROOT / "src/shared/py"))),
     )
     broadcast = ROOT / "local/broadcast"
     broadcast.mkdir(parents=True, exist_ok=True)

@@ -255,12 +255,16 @@ def test_postgresql_concurrent_prepare_returns_one_draft(board):
 
 def test_catalog_does_not_aggregate_other_persons_private_connections(board, binding):
     with DbSession.use(readonly=False) as db:
-        for owner_id, identifier in ((board[1].id, 100), (board[2].owner_id, 101)):
+        for owner_id, identifier, selected in (
+            (board[1].id, 100, True),
+            (board[2].owner_id, 101, True),
+            (board[1].id, 102, False),
+        ):
             connection = AppConnection(owner_id=owner_id, app_key="github", state="connected")
             db.insert(connection)
             db.insert(AppResourceBinding(
                 board_binding_id=binding.id, connection_id=connection.id, resource_type="repository",
-                external_resource_id=str(identifier), access_state="granted", health="healthy",
+                external_resource_id=str(identifier), access_state="granted", health="healthy", is_selected=selected,
             ))
     catalog = board[0].get_app_catalog(board[1], board[2].get_uid())
     github = next(item for item in catalog if item["key"] == "github")

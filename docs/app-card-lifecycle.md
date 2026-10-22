@@ -8,165 +8,90 @@
 | Inbox | Receive, group and triage signals | Inbox read/triage state; no implied card completion or approval |
 | App-owned card | Track actionable work in an existing board workflow | Native card identity, app provenance, comments, relations and checklists |
 
-These are distinct resources and functions, not alternate names for one card.
-An app may provide only an inbox, only workflow cards, or both. Linking a signal
-to a card preserves both identities and histories. Reading, dismissing or resolving
-an inbox entry does not complete or archive a linked card. A card response or
-archive does not silently consume its inbox evidence. Any configured conversion
-or synchronization requires its own explicit feature, authority and receipt.
+An app may provide an inbox, workflow cards or both. Linking a signal to a card preserves both
+identities and histories. Reading, dismissing or resolving an inbox entry does not complete or
+archive its linked card. Responding to or archiving a card does not consume its inbox evidence.
 
-Signal inbox ingestion, app-owned workflow card creation, card interactions and
-archive synchronization are separately enabled connection features. Receiving a
-signal never enables any of the others. New connections default to no card
-creation, no interactions and no external archive effects. Settings must retain
-the explicitly enabled features and recheck current capability and scope before
-each external action. Declaring a feature does not enable or authorize it.
+Signal ingestion, card creation, interactions and archive synchronization require separate
+consent. New connections enable none of the card creation, interaction or external archive
+effects automatically. Declaring a capability grants nothing. Native Inbox card creation creates
+an ordinary card without app ownership.
 
-Every card-producing app must declare an archive policy for each supported card
-type. SDK declaration schema 2 requires `card_lifecycle` for `cards.create`;
-schema 1 remains readable during explicit migration. An undeclared type cannot
-silently inherit an external action. The host must reject creation of undeclared
-types and require migration before enabling card creation for old definitions.
-Host approval/update now requires lifecycle policies for card-producing apps,
-including schema 1 submissions; old approved definitions remain readable.
-Creation now requires an explicit declared `card_type`, validates it against the
-current app lifecycle and records it in immutable import provenance. Replays
-retain the original type; changed types conflict. Definitions without lifecycle
-must be explicitly updated before creating new cards. Existing native cards and
-their history remain intact; automatic migration and lifecycle dispatch are pending.
+Every card-producing app must declare a lifecycle policy for each card type. Declaration schema
+2 requires `card_lifecycle` for `cards.create`; schema 1 remains readable, but approval/update
+and new creation require lifecycle declarations. Creation requires an explicit declared
+`card_type`; replays retain its original type and changed types conflict. Existing cards and
+history remain readable. App-created cards retain the creating app and selected connection
+resource. Creation grants no interaction capability and does not resume execution.
 
-New app-created cards persist app ownership and their authenticated connection's
-selected resource in the creation transaction, including native ownership/resource
-audit history. Duplicate source recovery does not add audit rows or overwrite
-later human configuration. This lets the creating app use its explicitly granted
-interaction capability on the same native card; creation does not grant that
-capability or resume execution. Failed creation rolls back configuration together
-with card and import lineage.
-
-Archive policies use `retain` or `external`. External policies name a stable
-app-owned action, have `default_enabled: false`, and provide explanatory text.
-Restoring a card retains the current external state; reopening an issue requires
-a separate explicit action. Neither archiving nor deleting a card deletes its
-external resource. Existing comments, relations and checklists remain native.
+Archive policies use `retain` or `external`. External policies name a stable app-owned action,
+use `default_enabled: false` and explain the effect. Restoring a card retains the external
+state; reopening an issue requires a separate action. Neither archiving nor deleting a card
+deletes its external resource.
 
 ## Intended app behavior
 
+These policies describe optional provider behavior. Declaring a policy does not install a
+provider adapter or establish that an instance can execute it.
+
 | App card | Archive with synchronization enabled | Optional interaction |
 | --- | --- | --- |
-| GitHub issue | Close the current linked issue and read back `closed` | Close or defer |
+| GitHub issue | Close the linked issue and read back `closed` | Close or defer |
 | GitHub pull request | Retain state; never implicitly merge or close | Merge, close without merging, or hold |
-| GlitchTip issue | Resolve the current linked issue and read back `resolved` | Resolve, ignore, or escalate |
-| Dokploy deployment | Retain deployment and logs; never stop or delete a service | Review deployment evidence or explicitly select a new deployment action |
+| GlitchTip issue | Resolve the linked issue and read back `resolved` | Resolve, ignore, or escalate |
+| Dokploy deployment | Retain deployment and logs; never stop or delete a service | Review evidence or explicitly select another deployment action |
 
-GitHub issue closure uses the official issue update API. PR merge must be a
-distinct action with the frozen head SHA, current checks/mergeability and current
-repository permission. Archive is not PR merge approval. No existing review PRs
-are merged by developing or testing this feature.
+PR merge requires a distinct action with the frozen head SHA, current checks, mergeability and
+repository permission. Archiving is not merge approval. Provider action availability depends on
+the installed app and its configuration.
 
-## Host execution requirements
+## Archive synchronization consent
 
-Archive intent, native archive state and external outcome are separate durable
-facts. Persist an outbox event with the same native transaction as the archive
-intent; deliver through the signed app channel after commit. Include event UID,
-card UID, card type, ownership revision, external resource identity and feature
-configuration revision. Recheck current app, connection, selected resource,
-actor or automation permission and enabled feature at dispatch and execution.
-Archiving must not accidentally invalidate its own authorized completion event;
-do not reuse runtime-start eligibility for lifecycle delivery.
+Use `PUT /board/{board}/apps/{app}/archive-sync` with the current binding revision and selected
+card types. Only approved external lifecycle policies with separate `events.receive` consent
+qualify. New bindings have an empty `archive_sync_types` list. Lifecycle or trust changes reset
+activation. Disabling a board binding clears consent; re-enabling cannot revive an older queued
+operation.
 
-Use one idempotency key per archive operation. A repeat reads current external
-state before mutation. Record `pending`, `applied`, `already_applied`, `retained`,
-`failed`, `blocked` or `unknown` independently of transport delivery. A successful
-HTTP write requires a readback of the same resource in the desired state.
-Connection revocation blocks pending work. Timeout or lost mutation response is
-unknown and needs readback before any retry. Do not hold a database transaction
-across provider calls or claim external success from an archived native card.
+An archive receipt records `retained` when policy retains state or synchronization is disabled,
+and `blocked` when lifecycle provenance is missing or ambiguous. Reordering within Archive does
+not create another operation; restoring and archiving again creates a separate receipt.
+Restoring invalidates an undelivered archive request. Archiving, event delivery and the external
+outcome have separate receipts. Native archival alone never establishes provider success.
 
-Before activation, the settings UI explains the external effect; the archive UI
-shows the enabled effect and later its receipt. Archive sync is not an arbitrary
-provider-code execution hook. Provider verbs and credentials stay in each app.
+## Signed archive event
 
-## Current implementation evidence
+The event `io.langboard.app.card.archived.v1` contains stable `event_uid` and `archive_uid`,
+card revision, declared action and immutable external identity. Current app, connection,
+selected resource, grants, destination and synchronization consent are rechecked before
+delivery. Connection revocation blocks pending work. Archive delivery is independent of
+runtime-start eligibility.
 
-Native archive entry now records an `AppCardArchive` receipt in the same
-transaction as movement, including its card revision, owner, declaration,
-selection and immutable import source. Reordering within Archive retains the
-original archive time and does not create another operation. Restoring and
-archiving again creates a separate receipt. A persistence failure rolls back
-movement; stored history prevents destructive schema downgrade. The receipt
-records `retained` when the declared policy retains state or external sync is
-disabled, and `blocked` for missing or ambiguous lifecycle provenance. This
-stage does not by itself enable external sync. The host provides explicit
-card-type synchronization consent and archive delivery independently of
-runtime-start eligibility. New and migrated bindings default to an empty
-`archive_sync_types` list. Administrators use
-`PUT /board/{board}/apps/{app}/archive-sync` with the current binding revision
-and selected card types; only approved external lifecycle policies with
-separate `events.receive` consent qualify. Lifecycle or trust changes reset
-activation. Disable and re-enable changes the consent generation and cannot
-revive an older queued operation.
+Receivers deduplicate by operation identity, recheck provider authority, inspect current
+external state before mutation and read it back afterward. Timeout or a lost mutation response
+leaves the result unknown; reconcile before another write. Provider credentials and API
+execution belong to the receiving app.
 
-The signed event is `io.langboard.app.card.archived.v1`. It includes stable
-`event_uid` and `archive_uid`, the card revision, declared action and immutable
-external identity. Receivers must deduplicate by operation identity, recheck
-their provider authority, read current external state before mutation and
-read back afterward. Host dispatch rechecks ownership, selection, grants,
-connection and destination after DNS resolution. Restoring the native card
-invalidates an undelivered archive request. Events use the existing durable,
-bounded delivery machinery, without treating archive as runtime execution.
+## Provider outcomes and receipt reads
 
-An app reports its separate provider outcome with
-`POST /apps/v1/boards/{board}/archives/{archive}/outcome`, its connection Bearer
-credential, `expected_revision` and
-`outcome: {state, external_state, readback_confirmed}`. Applied states require
-readback. The host labels this as an authenticated app report, not independent
-provider verification. Unknown reports suppress further mutation delivery;
-subsequent current-authority readback can reconcile the outcome. Native users
-can read bounded receipts through
-`GET /board/{board}/card/{card}/apps/archives`; card visibility still applies.
-The owning app can reconcile an ambiguous report through
-`GET /apps/v1/boards/{board}/archives/{archive}` with its connection Bearer
-credential. The response contains the current receipt, outcome revision and
-delivery state, with `Cache-Control: no-store`. It rechecks the current archived
-incarnation, ownership, selected resources and explicit synchronization consent.
-It does not retry delivery or mutate the provider. A conflicting terminal report
-does not revoke an otherwise authorized receipt read. Consent withdrawal or a
-changed card/connection boundary prevents this read; retained native history
-remains available to authorized human users through the separate board route.
-Board settings now expose explicit per-card-type archive synchronization consent
-with current binding revisions. Disabling a board binding clears this consent and
-advances its generation so re-enabling cannot revive a queued archive operation.
-Card detail loads the latest ten receipts only when the history control is opened;
-it separates event delivery from authenticated app-reported provider outcomes.
-These source changes still require deployed browser acceptance and live provider
-execution before release completion.
+An app reports an outcome with `POST /apps/v1/boards/{board}/archives/{archive}/outcome`, its
+connection Bearer credential, `expected_revision` and `outcome: {state, external_state,
+readback_confirmed}`. Reported states are `applied`, `already_applied`, `failed`, `blocked` or
+`unknown`. Applied states require nonempty external state and confirmed readback. Reports are
+authenticated app reports, not independent provider verification. Unknown outcomes suppress
+further mutation delivery until reconciliation.
 
-The independent Example Monitor artifacts exercise signed signal ingestion,
-native Inbox card creation and native app-owned human interactions in one test
-process on SQLite and PostgreSQL. Artifact SHA-256 and imported module paths
-are checked against their reviewed provenance, so a cached older package cannot
-stand in for the interaction-capable package. Inbox-created native cards retain
-no app ownership. Interaction requests require existing ownership and separate
-consent; a different owner is denied. Receipt acknowledgment does not resume
-execution or apply a workflow outcome.
+The owning app reads the receipt with `GET /apps/v1/boards/{board}/archives/{archive}`. The
+response includes outcome revision and delivery state and uses `Cache-Control: no-store`.
+Current archived incarnation, ownership, resources and explicit synchronization consent still
+apply. A conflicting terminal report does not by itself prevent an authorized receipt read.
+Consent withdrawal or changed card/connection boundaries prevent app reads. Reading does not
+retry delivery or mutate the provider.
 
-The full response/outbox interaction test still prepares ownership, definition
-and consent in its database fixture. A separate PostgreSQL integration test now
-creates an Example Monitor card through the public app API, then invokes the
-packaged app's HITL request and current-response helpers over HTTP. Ownership
-and selected-resource audit history come from the native creation transaction,
-not fixture insertion. Creation replay preserves one card and one ownership
-audit; interaction replay preserves one request; consent withdrawal denies
-subsequent reads. Definition and consent are still fixture prerequisites for
-this separate test, so it does not prove independent service deployment or user
-onboarding. Assigning or transferring ownership on an existing card remains an
-internal configuration service without a public mutation endpoint.
-Canary browser acceptance and external provider execution remain unverified.
+Native users read bounded history through `GET /board/{board}/card/{card}/apps/archives` under
+current card visibility. Card detail loads the latest ten receipts when history is opened and
+distinguishes delivery from provider outcomes. Retained native history remains available to
+currently authorized users after app consent is withdrawn.
 
-SDK source 0.2.15 validates finite lifecycle and disabled-by-default card action
-declarations. GitHub adapter source closes issues using one write and a readback,
-protects PR resources, and builds an opt-in structured PR decision request.
-GlitchTip adapter source supports a resolve/readback interface; its HTTP provider
-adapter is still required. Dokploy returns an explicit no-external-action receipt.
-These modules are not yet wired to signed events, settings or host archive paths.
-No deployed provider mutations or end-to-end archive behavior are claimed.
+See the [external app SDK](external-app-sdk.md) and [human
+interactions](app-human-interactions.md) for related consent and receipts.

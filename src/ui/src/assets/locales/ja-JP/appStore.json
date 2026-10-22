@@ -26,5 +26,13 @@
   "Unpin from rail": "レールの固定を解除",
   "Pin to rail": "レールに固定",
   "Shortcut limit": "最大{{count}}件のショートカットを固定できます。",
-  "Shortcut sync unavailable": "ショートカットを同期できません。再度変更する前に現在のアカウント設定を取得してください。"
+  "Shortcut sync unavailable": "ショートカットを同期できません。再度変更する前に現在のアカウント設定を取得してください。",
+  "Logical app": "アプリ",
+  "Modules": "構成要素 {{count}}個",
+  "App modules": "アプリの構成要素",
+  "Module consent": "各モジュールのバージョン、権限、ボードでの同意は個別に維持されます。要求された権限は付与された権限ではありません。ショートカットは個別のモジュールから保存できます。",
+  "Built-in module": "組み込みモジュール",
+  "Module enabled": "個別の同意後に利用可能",
+  "Module disabled": "管理者が無効化",
+  "View module": "{{name}}を表示"
 }

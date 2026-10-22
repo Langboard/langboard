@@ -1,6 +1,7 @@
 from typing import Any
 from sqlalchemy import TEXT
-from ...core.db import ApiField, Field, SnowflakeIDField
+from ...core.db import ApiField, Field, ModelColumnType, SnowflakeIDField
+from ...core.storage import FileModel
 from ...core.types import SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from .Organization import Organization
@@ -13,6 +14,13 @@ class Project(BaseNotificationScheduleModel, table=True):
     )
     organization_id: SnowflakeID | None = SnowflakeIDField(
         foreign_key=Organization.expr("id"), nullable=True, index=True, api_field=ApiField(name="organization_uid")
+    )
+    avatar: FileModel | None = Field(
+        default=None, sa_type=ModelColumnType(FileModel), api_field=ApiField(field_base_model="path")
+    )
+    previous_avatar: FileModel | None = Field(default=None, sa_type=ModelColumnType(FileModel))
+    avatar_revision: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": "0"}, api_field=ApiField()
     )
     title: str = Field(nullable=False, api_field=ApiField())
     description: str | None = Field(default=None, sa_type=TEXT, api_field=ApiField())

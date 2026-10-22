@@ -46,9 +46,7 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
             try {
                 // Let a slow snapshot finish, then read changes that arrived after it started.
                 // Cancel/restart on every event can starve an active dashboard indefinitely.
-                if (client.getQueryState(queryKey)?.fetchStatus === "fetching") {
-                    await client.refetchQueries({ queryKey }, { cancelRefetch: false });
-                }
+                await client.refetchQueries({ queryKey, type: "active", fetchStatus: "fetching" }, { cancelRefetch: false });
                 if (clients.get(client) === owned && owned.projects.size) {
                     await client.invalidateQueries({ queryKey }, { cancelRefetch: false });
                 }

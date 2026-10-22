@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo, useReducer } from "react";
-import { add as addDate, intervalToDuration, differenceInSeconds } from "date-fns";
+import { memo } from "react";
+import { useTimerDuration } from "@/core/hooks/useTimerDuration";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
@@ -21,28 +21,7 @@ const BoardCardCheckitemTimer = memo(() => {
     const status = checkitem.useField("status");
     const accumulatedSeconds = checkitem.useField("accumulated_seconds");
     const timerStartedAt = checkitem.useField("timer_started_at");
-    const [updated, forceUpdate] = useReducer((x) => x + 1, 0);
-    const duration = useMemo(() => {
-        const now = new Date();
-        let timerSeconds = accumulatedSeconds;
-        if (status === ProjectCheckitem.ECheckitemStatus.Started && timerStartedAt) {
-            timerSeconds += differenceInSeconds(now, timerStartedAt);
-        }
-
-        return intervalToDuration({
-            start: now,
-            end: addDate(now, { seconds: timerSeconds }),
-        });
-    }, [updated, status, accumulatedSeconds, timerStartedAt]);
-
-    useEffect(() => {
-        if (status !== ProjectCheckitem.ECheckitemStatus.Started || !timerStartedAt) {
-            return;
-        }
-
-        const timerInterval = setInterval(forceUpdate, 1000);
-        return () => clearInterval(timerInterval);
-    }, [status, timerStartedAt]);
+    const duration = useTimerDuration(status === ProjectCheckitem.ECheckitemStatus.Started, accumulatedSeconds, timerStartedAt);
 
     return (
         <Popover.Root>

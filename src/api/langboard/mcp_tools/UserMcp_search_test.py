@@ -10,7 +10,11 @@ import pytest
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard.mcp_tools import UserMcp  # noqa: E402
-from langboard_shared.core.types import SnowflakeID  # noqa: E402
+from langboard_shared.core.types import SafeDateTime, SnowflakeID  # noqa: E402
+from langboard_shared.domain.services.CardVisibilityPolicy import (  # noqa: E402
+    CardVisibilityContext,
+    CollaborationChannel,
+)
 from langboard_shared.domain.services.factory.CardService import CardService  # noqa: E402
 
 
@@ -52,27 +56,26 @@ def test_search_rejects_invalid_period_before_service_access(since, until) -> No
 def test_my_work_scopes_projects_and_round_trips_keyset_cursor() -> None:
     project_uid = SnowflakeID(12).to_short_code()
     card_uid = SnowflakeID(34).to_short_code()
-    page = Mock(return_value=([{"card_uid": card_uid}], ("2026-09-29T00:00:00+00:00", project_uid, card_uid)))
-    service = SimpleNamespace(
-        project=SimpleNamespace(
-            get_api_list=lambda _: (
-                [
-                    {"uid": project_uid, "current_auth_role_actions": ["read"]},
-                    {"uid": "hidden", "current_auth_role_actions": ["update"]},
-                ],
-                [],
-            )
-        ),
-        card=SimpleNamespace(get_assigned_work_page=page),
-    )
+    card = SimpleNamespace(id=34, get_uid=lambda: card_uid, title="Assigned", updated_at=SafeDateTime(2026, 9, 29), deadline_at=None)
+    project = SimpleNamespace(get_uid=lambda: project_uid, title="Readable")
+    column = SimpleNamespace(get_uid=lambda: "column", name="Work")
+    page = Mock(return_value=[(card, project, column, True), (card, project, column, True)])
+    context = CardVisibilityContext(CollaborationChannel.Mcp, True, True, False, actor_user_id=1)
+    service = SimpleNamespace(card=SimpleNamespace(
+        resolve_work_visibility_contexts=Mock(return_value={12: context}),
+        repo=SimpleNamespace(card=SimpleNamespace(get_my_work_page=page)),
+        get_work_states=Mock(return_value={34: {"completed": False}}),
+    ))
     user = SimpleNamespace(id=1)
-    service.card._get_service = lambda _: service.project
     service.card.list_assigned_work = lambda *args, **kwargs: CardService.list_assigned_work(service.card, *args, **kwargs)
     first = UserMcp.list_my_work(user, service, limit=1)
-    assert first["items"] == [{"card_uid": card_uid}]
-    assert page.call_args.args[1:3] == ([project_uid], 1)
+    assert first["items"][0]["card_uid"] == card_uid
+    assert first["items"][0]["work_state"] == {"completed": False}
+    assert page.call_args.args[1] == [project_uid] and page.call_args.args[-1] == 2
+    assert page.call_args.kwargs["contexts"] == {12: context}
+    service.card.resolve_work_visibility_contexts.assert_called_once_with(user, CollaborationChannel.Mcp)
     UserMcp.list_my_work(user, service, cursor=first["next_cursor"], limit=1)
-    assert page.call_args.args[3][1:] == (12, 34)
+    assert page.call_args.kwargs["before"][1:] == (12, 34)
     with pytest.raises(ValueError, match="not readable"):
         UserMcp.list_my_work(user, service, project_uid="hidden")
     with pytest.raises(ValueError, match="Invalid My Work cursor"):

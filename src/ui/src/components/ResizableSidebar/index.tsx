@@ -59,6 +59,7 @@ function ResizableSidebar({
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
 
     const collapsedWidth = 52;
+    const expandedWidthRef = useRef(initialWidth);
 
     if (collapsableWidth < 100) {
         throw new Error("collapsableWidth must be greater than 100");
@@ -92,10 +93,11 @@ function ResizableSidebar({
             if (collapsed) {
                 widthSize = collapsedWidth;
             } else {
-                widthSize = collapsableWidth;
+                widthSize = expandedWidthRef.current;
             }
         }
 
+        if (!collapsed) expandedWidthRef.current = widthSize;
         sidebar.style.maxWidth = `${widthSize}px`;
         if (widthCssVariable) {
             document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${widthSize}px`);
@@ -141,7 +143,12 @@ function ResizableSidebar({
         const handleResizing = (event: MouseEvent) => {
             const width = originalWidth + (event.pageX - originalMouseX);
             if (minWidth) {
-                setCollapsedAttr(false, sidebar, Math.max(minWidth, Math.min(maxWidth ?? width, width)));
+                const nextCollapsed = width < (collapsableWidth + collapsedWidth) / 2;
+                const wasCollapsed = sidebar.getAttribute("data-collapsed") === "true";
+                // Animate threshold crossings; ordinary width tracking follows the pointer immediately.
+                if (nextCollapsed || wasCollapsed) sidebar.removeAttribute("data-resizing");
+                else sidebar.setAttribute("data-resizing", "true");
+                setCollapsedAttr(nextCollapsed, sidebar, nextCollapsed ? collapsedWidth : Math.max(minWidth, Math.min(maxWidth ?? width, width)));
                 return;
             }
             if (width > collapsableWidth) {
@@ -183,8 +190,8 @@ function ResizableSidebar({
                     position="relative"
                     display={{ initial: "hidden", md: hidden ? "hidden" : "block" }}
                     size="full"
-                    className="group/sidebar border-r transition-all data-[resizing=true]:transition-none"
-                    style={{ maxWidth: `${isCollapsed ? collapsedWidth : initialWidth}px` }}
+                    className="group/sidebar border-r transition-all duration-200 data-[resizing=true]:transition-none motion-reduce:transition-none"
+                    style={{ maxWidth: `${isCollapsed ? collapsedWidth : expandedWidthRef.current}px` }}
                     data-collapsed={isCollapsed ? "true" : "false"}
                     data-workbench-sidebar=""
                     id={sidebarIdRef.current}
@@ -216,7 +223,7 @@ function ResizableSidebar({
                             variant="secondary"
                             aria-label={t(isCollapsed ? "common.Expand" : "common.Collapse")}
                             onClick={() => {
-                                setCollapsedAttr(!isCollapsed, undefined, isCollapsed ? initialWidth : undefined);
+                                setCollapsedAttr(!isCollapsed);
                                 setIsCollapsed(!isCollapsed);
                                 onCollapsedChange?.(!isCollapsed, "user");
                             }}

@@ -3,6 +3,7 @@ from json import loads as json_loads
 from typing import TYPE_CHECKING, Any, Sequence, cast
 from urllib.parse import urlparse
 from ....core.caching import Cache
+from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.resources.locales.LangEnum import LangEnum
@@ -190,6 +191,36 @@ class UserService(BaseDomainService):
         self.repo.user_email.update(subemail)
 
     def update(self, user: User, form: dict, from_setting: bool = False) -> bool:
+        with DbSession.atomic() as db:
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            if current is None:
+                return False
+            expected = form.get("expected_avatar_revision")
+            if (form.get("avatar") is not None or form.get("delete_avatar")) and expected is not None:
+                from .AvatarService import AvatarError
+
+                if type(expected) is not int or expected != current.avatar_revision:
+                    raise AvatarError("avatar_revision_conflict", 409)
+            result = self._update_locked(current, form, from_setting, db)
+
+            # Keep callers holding the authenticated model consistent after commit.
+            def refresh_caller():
+                for field in (
+                    "firstname",
+                    "lastname",
+                    "avatar",
+                    "previous_avatar",
+                    "avatar_revision",
+                    "is_admin",
+                    "activated_at",
+                ):
+                    setattr(user, field, getattr(current, field))
+
+            db.after_commit(refresh_caller)
+            return result
+
+    def _update_locked(self, user: User, form: dict, from_setting: bool, db) -> bool:
+        previous_avatar = user.avatar
         profile = self.repo.user_profile.get_by_user(user)
         if not profile:
             profile = UserProfile(
@@ -230,6 +261,10 @@ class UserService(BaseDomainService):
             old_record["avatar"] = convert_python_data(user.avatar)
             user.avatar = None
 
+        if user.avatar != previous_avatar:
+            user.previous_avatar = previous_avatar
+            user.avatar_revision += 1
+
         if not old_record:
             if profile.is_new():
                 self.repo.user_profile.insert(profile)
@@ -241,8 +276,6 @@ class UserService(BaseDomainService):
         else:
             self.repo.user.update([user, profile])
 
-        Auth.reset_user(user)
-
         model: dict[str, Any] = {}
         for key in form:
             if key not in validators or key not in old_record:
@@ -252,12 +285,19 @@ class UserService(BaseDomainService):
             else:
                 model[key] = convert_python_data(getattr(user, key))
 
-        UserPublisher.updated(user, model)
-        if from_setting and model:
-            AppSettingPublisher.user_updated(user.get_uid(), model)
-        if from_setting:
-            if "activated_at" in form and not user.activated_at:
+        if user.avatar != previous_avatar:
+            model["avatar"] = user.avatar.path if user.avatar else None
+            model["avatar_revision"] = user.avatar_revision
+
+        def publish():
+            Auth.reset_user(user)
+            UserPublisher.updated(user, model)
+            if from_setting and model:
+                AppSettingPublisher.user_updated(user.get_uid(), model)
+            if from_setting and "activated_at" in form and not user.activated_at:
                 UserPublisher.deactivated(user)
+
+        db.after_commit(publish)
 
         return True
 

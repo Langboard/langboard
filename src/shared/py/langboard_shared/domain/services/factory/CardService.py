@@ -16,6 +16,7 @@ from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from ....core.exceptions.CardDescriptionConflict import CardDescriptionConflict
 from ....core.schema import TimeBasedPagination
+from ....core.search.ElasticsearchKeywordSearch import search_document_candidates
 from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import (
@@ -69,6 +70,7 @@ from ..ExecutionGeneration import execution_generations
 from .CardContentBlockService import CardContentBlockService
 from .CardRelationshipService import CardRelationshipService
 from .CheckitemService import CheckitemService
+from .DoclingMetadataService import DoclingMetadataService
 from .GlobalLabelService import GlobalLabelService
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
@@ -204,11 +206,41 @@ class CardService(BaseDomainService):
             raise ValueError("At most 200 recent cards may be checked")
         if not card_uids or not isinstance(user, User):
             return []
-        resolved = self.resolve_visibility_context(project, user, channel)
-        if resolved is None:
+        project_uid = InfraHelper.convert_uid(InfraHelper.convert_id(project))
+        return [
+            card_uid
+            for _, card_uid in self.get_existing_pairs(
+                [(project_uid, uid) for uid in card_uids],
+                user=user,
+                channel=channel,
+            )
+        ]
+
+    def get_existing_pairs(
+        self,
+        pairs: list[tuple[str, str]],
+        *,
+        user: User,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> list[tuple[str, str]]:
+        """Validate only explicitly requested board/card pairs using current authority."""
+        if len(pairs) > 200:
+            raise ValueError("At most 200 recent cards may be checked")
+        pairs = list(dict.fromkeys(pairs))
+        # Invalid/unknown external identifiers fail closed before SQL conversion.
+        valid_pairs = []
+        for project_uid, card_uid in pairs:
+            try:
+                if InfraHelper.convert_id(project_uid) > 0 and InfraHelper.convert_id(card_uid) > 0:
+                    valid_pairs.append((project_uid, card_uid))
+            except ValueError:
+                continue
+        pairs = valid_pairs
+        if not pairs or not isinstance(user, User):
             return []
-        project, context = resolved
-        return self.repo.card.get_existing_uids(project, card_uids, context=context)
+        project_ids = {InfraHelper.convert_id(project_uid) for project_uid, _ in pairs}
+        contexts = self.resolve_work_visibility_contexts(user, channel, project_ids=project_ids)
+        return self.repo.card.get_existing_pairs(pairs, contexts=contexts)
 
     def resolve_visibility_context(
         self,
@@ -221,16 +253,24 @@ class CardService(BaseDomainService):
             return None
         # Read the primary: cached auth and replica membership may outlive revocation.
         project_id = InfraHelper.convert_id(project)
-        with DbSession.use(readonly=False) as db:
-            project = db.exec(SqlBuilder.select.table(Project).where(Project.column("id") == project_id)).first()
-            current_user = db.exec(SqlBuilder.select.table(User).where(User.column("id") == user.id)).first()
-        if project is None or project.deleted_at is not None:
-            return None
-        if current_user is None or current_user.deleted_at is not None or not current_user.activated_at:
-            return None
-        member = project.owner_id == current_user.id or bool(
-            self.repo.project_assigned_user.get_all_by_project(project, [current_user], limit=1, consistent=True)
+        assigned = (
+            select(ProjectAssignedUser.id)
+            .where(ProjectAssignedUser.project_id == Project.id, ProjectAssignedUser.user_id == user.id)
+            .exists()
         )
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(
+                select(Project, User, assigned)
+                .select_from(Project)
+                .join(User, User.id == user.id)
+                .where(Project.id == project_id)
+            ).first()
+        if current is None:
+            return None
+        project, current_user, assigned_member = current
+        if project.deleted_at is not None or current_user.deleted_at is not None or not current_user.activated_at:
+            return None
+        member = project.owner_id == current_user.id or bool(assigned_member)
         internal = self._resolve_internal_access(current_user) if member else False
         context = CardVisibilityContext(
             channel=channel,
@@ -245,9 +285,11 @@ class CardService(BaseDomainService):
         self,
         user: User,
         channel: CollaborationChannel,
+        *,
+        project_ids: set[int] | None = None,
     ) -> dict[int, CardVisibilityContext]:
         """Resolve current cross-board membership in two primary reads, not N reads."""
-        if not isinstance(user, User):
+        if not isinstance(user, User) or project_ids == set():
             return {}
         with DbSession.use(readonly=False) as db:
             current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
@@ -271,14 +313,15 @@ class CardService(BaseDomainService):
                 )
                 .exists()
             )
-            projects = db.exec(
-                SqlBuilder.select.table(Project).where(
-                    or_(Project.owner_id == current.id, membership & read_grant),
-                )
-            ).all()
+            query = SqlBuilder.select.column(Project.id).where(
+                or_(Project.owner_id == current.id, membership & read_grant),
+            )
+            if project_ids is not None:
+                query = query.where(Project.id.in_(project_ids))
+            projects = db.exec(query).all()
         internal = self._resolve_internal_access(current)
         context = CardVisibilityContext(channel, True, True, internal, actor_user_id=int(current.id))
-        return {int(project.id): context for project in projects}
+        return {int(project_id): context for project_id in projects}
 
     def _resolve_internal_access(self, user: User) -> bool | None:
         """Resolve card access independently of employee classification.
@@ -582,6 +625,7 @@ class CardService(BaseDomainService):
         user_or_bot: TUserOrBot | None = None,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        include_description: bool = True,
     ) -> dict[str, Any] | None:
         resolved = self.resolve_readable_card(project, card, user_or_bot, channel)
         if resolved is None:
@@ -592,7 +636,7 @@ class CardService(BaseDomainService):
         if not column:
             return None
 
-        api_card = card.api_response()
+        api_card = card.api_response(include_body=include_description)
         api_card["visibility"] = card.visibility
         api_card["project_column_name"] = column.name
         api_card["work_state"] = self.get_work_states([card], context=context)[card.id]
@@ -611,7 +655,7 @@ class CardService(BaseDomainService):
                         user_or_bot,
                         project,
                         [card],
-                        include_content=True,
+                        include_content=include_description,
                     )[card.get_uid()],
                 }
             )
@@ -634,10 +678,11 @@ class CardService(BaseDomainService):
         card_relationship_service = self._get_service(CardRelationshipService)
         api_card["relationships"] = card_relationship_service.get_api_list_by_card(card, context=context)
 
-        blocks = self._get_service(CardContentBlockService).api_blocks_by_card(card)
-        if blocks:
-            api_card["content_blocks"] = blocks
-            api_card["description_content_source"] = "blocks"
+        if include_description:
+            blocks = self._get_service(CardContentBlockService).api_blocks_by_card(card)
+            if blocks:
+                api_card["content_blocks"] = blocks
+                api_card["description_content_source"] = "blocks"
         return api_card
 
     def get_board_snapshot(
@@ -657,15 +702,19 @@ class CardService(BaseDomainService):
         if archive_visible_since is None:
             archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
         raw_cards = self.repo.card.get_board_list(project, archive_visible_since, context=context)
+        if not raw_cards:
+            return [], []
         visible_cards = {card.id: card for card, _ in raw_cards}
-        raw_members = self.repo.card_assigned_user.get_all_by_project(project, archive_visible_since)
+        raw_members = self.repo.card_assigned_user.get_all_by_project(project, archive_visible_since, context=context)
         members: dict[int, list[str]] = {}
         for member, card_assigned_user in raw_members:
             if card_assigned_user.card_id not in members:
                 members[card_assigned_user.card_id] = []
             members[card_assigned_user.card_id].append(member.get_uid())
 
-        raw_relationships = self.repo.card_relationship.get_all_by_project(project, archive_visible_since)
+        raw_relationships = self.repo.card_relationship.get_all_by_project(
+            project, archive_visible_since, context=context
+        )
         relationships: dict[int, list[dict[str, Any]]] = {}
         for relationship, relation_type in raw_relationships:
             parent = visible_cards.get(relationship.card_id_parent)
@@ -689,14 +738,16 @@ class CardService(BaseDomainService):
             relationships[relationship.card_id_parent].append(projection)
             relationships[relationship.card_id_child].append(projection)
 
-        raw_labels = self.repo.project_label.get_all_card_labels_by_project(project, archive_visible_since)
+        raw_labels = self.repo.project_label.get_all_card_labels_by_project(
+            project, archive_visible_since, context=context
+        )
         labels: dict[int, list[dict[str, Any]]] = {}
         for label, card_label in raw_labels:
             if card_label.card_id not in labels:
                 labels[card_label.card_id] = []
             labels[card_label.card_id].append(label.api_response())
 
-        creators = self.repo.card.get_board_creators(project, archive_visible_since)
+        creators = self.repo.card.get_board_creators(project, archive_visible_since, context=context)
         raw_checklists = self.repo.checklist.get_all_by_project(
             project,
             archive_visible_since=archive_visible_since,
@@ -706,7 +757,7 @@ class CardService(BaseDomainService):
             checklist.card_id: checklist.is_checked for checklist in raw_checklists if checklist.is_system
         }
         user_checklist_card_ids = {checklist.card_id for checklist in raw_checklists if not checklist.is_system}
-        active_workers_by_card = self.get_active_workers(project)
+        active_workers_by_card = self.get_active_workers(project, context=context)
         work_states = self.get_work_states([card for card, _ in raw_cards], context=context)
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
@@ -762,11 +813,15 @@ class CardService(BaseDomainService):
 
         return cards, [checklist for checklist in raw_checklists if not checklist.is_system]
 
-    def get_active_workers(self, project: Project, card: Card | None = None) -> dict[int, list[dict[str, Any]]]:
+    def get_active_workers(
+        self, project: Project, card: Card | None = None, *, context: CardVisibilityContext | None = None
+    ) -> dict[int, list[dict[str, Any]]]:
         """Project one avatar per timer owner without changing card assignment."""
         grouped: dict[int, dict[str, dict[str, Any]]] = {}
         now = SafeDateTime.now()
-        for checkitem, checklist, started_at in self.repo.checkitem.get_active_workers_by_project(project, card):
+        for checkitem, checklist, started_at in self.repo.checkitem.get_active_workers_by_project(
+            project, card, context=context
+        ):
             if checkitem.user_id is None:
                 continue
             user_uid = checkitem.user_id.to_short_code()
@@ -1099,7 +1154,20 @@ class CardService(BaseDomainService):
             return []
         project, context = resolved
 
+        if not context.active or not context.project_member:
+            return []
         cards = []
+        candidates = search_document_candidates(project.get_uid(), input_value)
+        external_matches = {}
+        if candidates is not None:
+            # A remote request may outlive membership or employee-policy revocation.
+            resolved = self.resolve_visibility_context(project, user, channel)
+            if resolved is None:
+                return []
+            project, context = resolved
+            if not context.active or not context.project_member:
+                return []
+            external_matches = self.repo.card.validate_document_candidates(project, candidates, context=context)
         records = self.repo.card.search_context_by_project(
             project,
             input_value,
@@ -1109,10 +1177,20 @@ class CardService(BaseDomainService):
             include_closed=include_closed,
             workflow_stages=workflow_stages,
             context=context,
+            **({"additional_card_ids": list(external_matches)} if external_matches else {}),
         )
         document_matches = self.repo.card.search_document_matches(
             project, [card.id for card, _ in records], input_value, context=context
         )
+        for card, _ in records:
+            if card.id not in external_matches:
+                continue
+            matches = document_matches.setdefault(card.id, [])
+            existing = {match["attachment_uid"] for match in matches}
+            matches.extend(
+                match for match in external_matches.get(card.id, []) if match["attachment_uid"] not in existing
+            )
+            document_matches[card.id] = matches[:2]
         states = self.get_work_states([card for card, _ in records], context=context) if include_work_state else {}
         for card, column in records:
             description = card.description.content
@@ -1147,10 +1225,12 @@ class CardService(BaseDomainService):
         limit: int,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> list[dict[str, Any]]:
         """Return a token-efficient cross-project work queue with match reasons."""
 
-        contexts = self.resolve_work_visibility_contexts(user, channel)
+        if contexts is None:
+            contexts = self.resolve_work_visibility_contexts(user, channel)
         records = self.repo.card.get_my_work_page(
             user,
             [project["uid"] for project in projects],
@@ -1205,13 +1285,8 @@ class CardService(BaseDomainService):
         """Shared REST/MCP assigned-work query with current read grants and keyset pagination."""
         if type(limit) is not int or not 1 <= limit <= 25:
             raise ValueError("limit must be between 1 and 25")
-        projects, _ = self._get_service(ProjectService).get_api_list(user)
-        readable = {
-            project["uid"]
-            for project in projects
-            if "*" in project["current_auth_role_actions"]
-            or ProjectRoleAction.Read.value in project["current_auth_role_actions"]
-        }
+        contexts = self.resolve_work_visibility_contexts(user, channel)
+        readable = {SnowflakeID(project_id).to_short_code() for project_id in contexts}
         if project_uid is not None:
             if project_uid not in readable:
                 raise ValueError("Project not found or not readable")
@@ -1233,28 +1308,9 @@ class CardService(BaseDomainService):
                 raise ValueError("Invalid My Work cursor") from exc
         if not readable:
             return {"items": [], "next_cursor": None}
-        items, next_fields = self.get_assigned_work_page(user, sorted(readable), limit, before, channel=channel)
-        next_cursor = (
-            base64.urlsafe_b64encode(json.dumps(next_fields, separators=(",", ":")).encode()).decode().rstrip("=")
-            if next_fields
-            else None
-        )
-        return {"items": items, "next_cursor": next_cursor}
-
-    def get_assigned_work_page(
-        self,
-        user: User,
-        project_uids: list[str],
-        limit: int,
-        before: tuple[SafeDateTime, int, int] | None = None,
-        *,
-        channel: CollaborationChannel = CollaborationChannel.Api,
-    ) -> tuple[list[dict[str, Any]], tuple[str, str, str] | None]:
-        """Read one permission-scoped, assigned-only page without per-card fetches."""
-        contexts = self.resolve_work_visibility_contexts(user, channel)
         records = self.repo.card.get_my_work_page(
             user,
-            project_uids,
+            sorted(readable),
             {"assigned"},
             [],
             SafeDateTime.now(),
@@ -1285,7 +1341,12 @@ class CardService(BaseDomainService):
         ]
         last = page[-1] if has_more and page else None
         next_fields = (last[0].updated_at.isoformat(), last[1].get_uid(), last[0].get_uid()) if last else None
-        return items, next_fields
+        next_cursor = (
+            base64.urlsafe_b64encode(json.dumps(next_fields, separators=(",", ":")).encode()).decode().rstrip("=")
+            if next_fields
+            else None
+        )
+        return {"items": items, "next_cursor": next_cursor}
 
     def get_api_page_by_project(
         self,
@@ -2375,6 +2436,8 @@ class CardService(BaseDomainService):
             # Linked cards are disposable references. Purging the board-side row
             # allows the same source to be linked again while its Wiki stays intact.
             is_linked_resource = card.is_linked_resource
+            if not is_linked_resource:
+                self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project, card)
             self.repo.card.delete(card, purge=is_linked_resource)
             self.repo.card.reoder_after_delete(card.project_column_id, card.order)
 

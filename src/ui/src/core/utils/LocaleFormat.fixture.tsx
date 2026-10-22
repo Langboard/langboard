@@ -1,3 +1,7 @@
+import { getMcpToolStore, useMcpTool } from "@/core/stores/McpToolStore";
+import { getBotStatusStore, useHasRunningBot } from "@/core/stores/BotStatusStore";
+import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
+import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { BoardProvider } from "@/core/providers/BoardProvider";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import BoardColumnCardCollapsible from "@/pages/BoardPage/components/board/BoardColumnCardCollapsible";
@@ -14,7 +18,7 @@ import { EditorDataProvider } from "@/core/providers/EditorDataProvider";
 import { ImageProgress, PlaceholderElement } from "@/components/plate-ui/media-placeholder-node";
 import { UNITS } from "@/components/Cron/constants";
 import OllamaModelTracker from "@/pages/SettingsPage/components/ollama/OllamaModelTracker";
-import { getOllamaModelStore } from "@/core/stores/OllamaModelStore";
+import { getOllamaModelStore, updateProgressCallback } from "@/core/stores/OllamaModelStore";
 import { DescriptionOverviewRail } from "@/pages/BoardPage/components/card/description/DescriptionOverviewRail";
 import DataTablePagination from "@/components/base/DataTable/Pagination";
 import { DataTableProvider } from "@/components/base/DataTable/Provider";
@@ -28,9 +32,10 @@ import BoardWorkIsland from "@/pages/BoardPage/components/board/BoardWorkIsland"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { Project, ProjectCard } from "@/core/models";
+import type { IWorkState } from "@/core/models/ProjectCard";
 import BoardOutlineSidebar from "@/pages/BoardPage/components/board/BoardOutlineSidebar";
 import { api } from "@/core/helpers/Api";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Breadcrumb from "@/components/base/Breadcrumb";
 import Dialog from "@/components/base/Dialog";
 import MarkdownThinkBlock from "@/components/Markdown/ThinkBlock";
@@ -130,8 +135,36 @@ function PlaceholderFixture() {
     );
 }
 
+getMcpToolStore().replaceTools([
+    { name: "first", description: "First tool", input_schema: {} },
+    { name: "second", description: "Second tool", input_schema: {} },
+]);
+getBotStatusStore().replaceMap({ card: { first: ["bot"] }, project_column: { second: [] } });
+getEditorStore().setCurrentEditor("second");
+getUserSettingsStore().updateSettings({ notifications_time_range: "7d", graph_view_modes: { fixture: "network" } });
+
+function StoreSelectionFixture() {
+    const [second, setSecond] = useState(false);
+    const name = second ? "second" : "first";
+    const tool = useMcpTool(name);
+    const running = useHasRunningBot({ type: second ? "project_column" : "card", targetUID: name });
+    const currentEditor = useIsCurrentEditor(name);
+    const setting = useUserSettings(second ? "graph_view_modes" : "notifications_time_range");
+    return (
+        <section data-testid="store-selection">
+            <output data-testid="selected-tool">{tool?.description}</output>
+            <output data-testid="selected-running">{String(running)}</output>
+            <output data-testid="selected-editor">{String(currentEditor)}</output>
+            <output data-testid="selected-setting">{JSON.stringify(setting)}</output>
+            <button onClick={() => setSecond(!second)}>Switch stored target</button>
+        </section>
+    );
+}
+
 function Fixture() {
     const [t, language] = useTranslation();
+    const railViewport = useRef<HTMLDivElement>(null);
+    const [pullName, setPullName] = useState("locale-progress");
     const [dragging, setDragging] = useState(false);
     const [editor] = useState(() =>
         createPlateEditor({
@@ -142,6 +175,7 @@ function Fixture() {
     const distance = useUpdateDateDistance(date);
     return (
         <>
+            <StoreSelectionFixture />
             <div data-testid="media-placeholders">
                 <PlaceholderFixture />
             </div>
@@ -204,7 +238,16 @@ function Fixture() {
             <output data-testid="numeric-activity">{t("activity.{count} New Activities", { count: 1234 })}</output>
             <output data-testid="numeric-approval">{t("bot.{count} pending approvals", { count: 1234 })}</output>
             <div data-testid="description-rail" className="relative h-96">
-                <DescriptionOverviewRail chunks={railChunks} activeIndex={1233} onNavigate={() => {}} viewportHeight={320} />
+                <div ref={railViewport} style={{ height: 320, overflowY: "auto" }}>
+                    <div style={{ height: railChunks.length * 20 }} />
+                </div>
+                <DescriptionOverviewRail
+                    chunks={railChunks}
+                    activeIndex={1233}
+                    onNavigate={() => {}}
+                    viewportHeight={320}
+                    scrollParentRef={railViewport}
+                />
             </div>
             <output data-testid="relative">{distance}</output>
             <output data-testid="remaining-counts">
@@ -244,7 +287,22 @@ function Fixture() {
                 />
             </div>
             <div data-testid="ollama-progress">
-                <OllamaModelTracker name="locale-progress" />
+                <OllamaModelTracker name={pullName} />
+                <button
+                    onClick={() => {
+                        getOllamaModelStore().upsertPullingModel({ name: "other-progress", progress: 67, isTracking: true });
+                        setPullName("other-progress");
+                    }}
+                >
+                    Switch pull target
+                </button>
+                <button
+                    onClick={() =>
+                        updateProgressCallback({ onSuccess: () => {}, onError: () => {} })({ model: pullName, status: "downloading", percent: 0 })
+                    }
+                >
+                    Reset pull progress
+                </button>
             </div>
             <output data-testid="duration">{formatTimerDuration({ hours: 1, minutes: 2, seconds: 3 }, language.language)}</output>
             <output data-testid="count">{formatNumber(12345, language.language)}</output>
@@ -262,6 +320,51 @@ function Fixture() {
             </output>
             <output data-testid="file-size">{formatFileSize(1536, language.language, 1)}</output>
             <div data-testid="board-comment-count" className="max-w-80">
+                <select
+                    aria-label="Fixture work state"
+                    defaultValue="missing"
+                    onChange={(event) => {
+                        const scenario = event.target.value;
+                        const card = ProjectCard.Model.getModel("locale-outline")!;
+                        const reason = { code: "dependency_unavailable", message: "SECRET prerequisite title", source_ref: "card:secret-uid" };
+                        const state: IWorkState = {
+                            version: 1,
+                            workflow_stage: "active",
+                            completed: false,
+                            verification_state: "unverified",
+                            verification_source_change_seq: 0,
+                            verification: null,
+                            execution_state: null,
+                            blocker_state: null,
+                            material_kind: "work",
+                            lifecycle: "active",
+                            active_queue_eligible: null,
+                            checklist_progress: { total: 2, completed: 2 },
+                            reasons: [],
+                            state_inconsistency: [],
+                        };
+                        if (scenario === "blocked") {
+                            state.blocker_state = "blocked";
+                            state.reasons = [reason];
+                        }
+                        if (scenario === "approval") {
+                            state.blocker_state = "needs_approval";
+                            state.reasons = [{ ...reason, code: "approval_pending" }];
+                        }
+                        if (scenario === "closed") {
+                            state.completed = true;
+                            state.checklist_progress.completed = 1;
+                            state.workflow_stage = "closed";
+                            state.state_inconsistency = [{ ...reason, code: "closed_with_open_checkitems" }];
+                        }
+                        if (scenario === "unknown") state.reasons = [{ ...reason, code: "future_reason" }];
+                        card.work_state = scenario === "missing" ? undefined : state;
+                    }}
+                >
+                    {["missing", "blocked", "approval", "closed", "active", "unknown"].map((scenario) => (
+                        <option key={scenario}>{scenario}</option>
+                    ))}
+                </select>
                 <BoardProvider project={fixtureProject} currentUser={documentUser}>
                     <ModelRegistry.ProjectCard.Provider model={ProjectCard.Model.getModel("locale-outline")!} params={{ setFilters: () => {} }}>
                         <BoardColumnCardCollapsible isDragging={false} />

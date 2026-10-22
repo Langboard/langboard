@@ -6,7 +6,7 @@ import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.storage import FileModel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     Card,
     CardAssignedUser,
@@ -16,6 +16,7 @@ from langboard_shared.domain.models import (
     Checkitem,
     Checklist,
     GlobalCardRelationshipType,
+    KeywordSearchConfiguration,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
@@ -41,7 +42,7 @@ from sqlalchemy import create_engine
 
 def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState):
+    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -197,7 +198,8 @@ def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monke
         assert service.resolve_work_visibility_contexts(member, CollaborationChannel.Mcp) == {}
         assert repository.card.get_my_work_page(member, [project], {"assigned"}, [], now, now, "updated_at", None, None, 25, contexts={}) == []
         with DbSession.use(readonly=False) as db:
-            db.update(role)
+            no_read.actions = ["read"]
+            db.update(no_read)
         # A cached SHARED object cannot bypass a committed visibility change.
         with DbSession.use(readonly=False) as db:
             changed = cards[0].model_copy(deep=True)
@@ -265,3 +267,199 @@ def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monke
             service.get_existing_uids(project, [uids[0]] * 201, user=owner)
     finally:
         engine.dispose()
+
+
+def _batch_repository(service, project):
+    from sqlalchemy import text
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as db:
+            db.execute(text("ALTER TABLE project_column ADD COLUMN deleted_at TIMESTAMPTZ, ADD COLUMN project_id BIGINT"))
+            db.execute(text("UPDATE project_column SET project_id = :project_id WHERE id = 0"), {"project_id": int(project.id)})
+    else:
+        ProjectColumn.__table__.create(engine)
+        with engine.begin() as db:
+            column = ProjectColumn(id=0, project_id=project.id, name="Fixture")
+            db.execute(ProjectColumn.__table__.insert().values(**{c.name: getattr(column, c.name) for c in ProjectColumn.__table__.columns}))
+    service.repo.card = CardRepository(None, None)
+
+
+@pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_batch_current_authority_exact_pairs_and_projection(current_card, monkeypatch):
+    from sqlalchemy import event
+    user, project, card, service = current_card
+    _batch_repository(service, project)
+    engine = __import__("langboard_shared.core.db.DbEngine", fromlist=["DbEngine"]).DbEngine.get_main_engine()
+    with DbSession.use(readonly=False) as db:
+        other = Project(owner_id=user.id, title="Second board")
+        db.insert(other)
+        column = ProjectColumn(id=SnowflakeID(), project_id=other.id, name="Second board column")
+        if engine.dialect.name == "postgresql":
+            from sqlalchemy import text
+            db.exec(text("INSERT INTO project_column (id, project_id) VALUES (:id, :project_id)").bindparams(id=int(column.id), project_id=int(other.id)))
+        else:
+            db.exec(ProjectColumn.__table__.insert().values(**{c.name: getattr(column, c.name) for c in ProjectColumn.__table__.columns}))
+        second = Card(project_id=other.id, project_column_id=column.id, title="Second", visibility="SHARED")
+        db.insert(second)
+        card.visibility = "SHARED"
+        card.owner_user_id = None
+        db.update(card)
+    pairs = [(project.get_uid(), card.get_uid()), (other.get_uid(), second.get_uid())]
+    observed = []
+    def capture(conn, cursor, statement, parameters, context, many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            observed.append(statement)
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        assert set(service.get_existing_pairs(pairs + pairs, user=user)) == set(pairs)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert service.get_existing_pairs([("!!!!!!!!!!!", card.get_uid()), (project.get_uid(), "unknown")], user=user) == []
+    # App ownership and linked wiki provenance preserve the same native read policy.
+    from langboard_shared.domain.models import CardAppOwnership
+    CardAppOwnership.__table__.create(engine)
+    with DbSession.use(readonly=False) as db:
+        db.insert(CardAppOwnership(card_id=second.id, app_key="fixture-app"))
+        second.source_type = Card.LINKED_RESOURCE_PROJECT_WIKI
+        second.source_uid = "fixture-wiki"
+        db.update(second)
+    assert set(service.get_existing_pairs(pairs, user=user)) == set(pairs)
+    assert len(observed) == 3
+    assert "project.id IN" in observed[1]
+    projection = observed[-1].split("FROM")[0]
+    assert "card.project_id" in projection and "card.id" in projection
+    assert "title" not in projection and "description" not in projection and "last_change" not in projection
+    assert "LIMIT" in observed[-1]
+    assert service.get_existing_pairs([(project.get_uid(), second.get_uid()), (other.get_uid(), card.get_uid())], user=user) == []
+    with DbSession.use(readonly=False) as db:
+        second.project_column_id = 0
+        db.update(second)
+    assert service.get_existing_pairs(pairs, user=user) == [pairs[0]]
+    with DbSession.use(readonly=False) as db:
+        second.project_column_id = column.id
+        db.update(second)
+    with pytest.raises(ValueError, match="200"):
+        service.get_existing_pairs(pairs * 101, user=user)
+    with DbSession.use(readonly=False) as db:
+        second.archived_at = SafeDateTime.now()
+        db.update(second)
+    assert service.get_existing_pairs(pairs, user=user) == [pairs[0]]
+    from sqlalchemy import text
+    with engine.begin() as db:
+        db.execute(text("UPDATE project_column SET deleted_at = CURRENT_TIMESTAMP WHERE id = 0"))
+    assert service.get_existing_pairs(pairs, user=user) == []
+    with engine.begin() as db:
+        db.execute(text("UPDATE project_column SET deleted_at = NULL WHERE id = 0"))
+    with DbSession.use(readonly=False) as db:
+        deleted = card.model_copy(deep=True)
+        deleted.deleted_at = SafeDateTime.now()
+        db.update(deleted)
+    assert service.get_existing_pairs(pairs, user=user) == []
+
+
+@pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_batch_role_revocation_channels_and_account(current_card):
+    owner, project, card, service = current_card
+    _batch_repository(service, project)
+    with DbSession.use(readonly=False) as db:
+        member = User(firstname="Current", lastname="Member", email="member@example.invalid", password="test-only", activated_at=SafeDateTime.now())
+        db.insert(member)
+        assignment = ProjectAssignedUser(project_id=project.id, user_id=member.id)
+        role = ProjectRole(project_id=project.id, user_id=member.id, actions=["read"])
+        db.insert(assignment)
+        db.insert(role)
+        card.owner_user_id = member.id
+        card.created_by_user_id = member.id
+        db.update(card)
+    pairs = [(project.get_uid(), card.get_uid())]
+    for channel in CollaborationChannel:
+        expected = pairs if channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp) else []
+        assert service.get_existing_pairs(pairs, user=member, channel=channel) == expected
+    with DbSession.use(readonly=False) as db:
+        card.visibility = "INTERNAL"
+        card.owner_user_id = None
+        db.update(card)
+    assert service.get_existing_pairs(pairs, user=member, channel=CollaborationChannel.HumanUI) == []
+    with DbSession.use(readonly=False) as db:
+        card.visibility = "SHARED"
+        db.update(card)
+        role.actions = ["update"]
+        db.update(role)
+    assert service.get_existing_pairs(pairs, user=member) == []
+    with DbSession.use(readonly=False) as db:
+        role.actions = ["read"]
+        db.update(role)
+    assert service.get_existing_pairs(pairs, user=member) == pairs
+    with DbSession.use(readonly=False) as db:
+        db.delete(assignment)
+    assert service.get_existing_pairs(pairs, user=member) == []
+    assert service.get_existing_pairs(pairs, user=owner) == pairs
+    with DbSession.use(readonly=False) as db:
+        inactive = owner.model_copy(deep=True)
+        inactive.activated_at = None
+        db.update(inactive)
+    assert service.get_existing_pairs(pairs, user=owner) == []
+
+
+@pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_batch_authenticated_native_http(current_card, monkeypatch):
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from jwt import encode
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.routes.dashboard.DashboardApi import get_available_recent_card_pairs
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.Env import Env
+    user, project, card, card_service = current_card
+    _batch_repository(card_service, project)
+    service = SimpleNamespace(card=card_service, close=lambda: None)
+    monkeypatch.setattr(importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    for route in app.routes:
+        if getattr(route, "endpoint", None) is get_available_recent_card_pairs:
+            for dep in route.dependant.dependencies:
+                if dep.name == "service":
+                    app.dependency_overrides[dep.call] = lambda: service
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    token = encode({"sub": str(user.id), "internal": "bot", "api_permission_level": "read",
+        "exp": int(SafeDateTime.now().timestamp()) + 300, "iss": Env.PROJECT_NAME}, Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
+    headers = {"X-Api-Token": token}
+    payload = {"cards": [{"project_uid": project.get_uid(), "card_uid": card.get_uid()}]}
+    with TestClient(app) as client:
+        assert client.post("/dashboard/cards/available", json=payload).status_code == 401
+        from langboard_shared.core.security import AuthSecurity
+        access, refresh = AuthSecurity.authenticate(user.id)
+        native_headers = {"Authorization": f"Bearer {access}", "Cookie": f"{Env.REFRESH_TOKEN_NAME}={refresh}"}
+        native = client.post("/dashboard/cards/available", json=payload, headers=native_headers)
+        assert native.status_code == 200 and native.json() == payload
+        # Internal API channel cannot disclose a human's private card.
+        response = client.post("/dashboard/cards/available", json=payload, headers=headers)
+        assert response.status_code == 200 and response.json() == {"cards": []}
+        with DbSession.use(readonly=False) as db:
+            card.visibility = "SHARED"
+            card.owner_user_id = None
+            db.update(card)
+        response = client.post("/dashboard/cards/available", json=payload, headers=headers)
+        assert response.status_code == 200 and response.json() == payload
+        assert client.post("/dashboard/cards/available", json={"cards": payload["cards"] * 201}, headers=headers).status_code == 400
+        with DbSession.use(readonly=False) as db:
+            member = User(firstname="HTTP", lastname="Reader", email="http-reader@example.invalid", password="test-only", activated_at=SafeDateTime.now())
+            db.insert(member)
+            db.insert(ProjectAssignedUser(project_id=project.id, user_id=member.id))
+            grant = ProjectRole(project_id=project.id, user_id=member.id, actions=["read"])
+            db.insert(grant)
+        member_access, member_refresh = AuthSecurity.authenticate(member.id)
+        member_headers = {"Authorization": f"Bearer {member_access}", "Cookie": f"{Env.REFRESH_TOKEN_NAME}={member_refresh}"}
+        assert client.post("/dashboard/cards/available", json=payload, headers=member_headers).json() == payload
+        with DbSession.use(readonly=False) as db:
+            grant.actions = ["update"]
+            db.update(grant)
+        assert client.post("/dashboard/cards/available", json=payload, headers=member_headers).json() == {"cards": []}
+        with DbSession.use(readonly=False) as db:
+            inactive = user.model_copy(deep=True)
+            inactive.activated_at = None
+            db.update(inactive)
+        response = client.post("/dashboard/cards/available", json=payload, headers=headers)
+        assert response.status_code == 200 and response.json() == {"cards": []}

@@ -1,45 +1,20 @@
-# Fresh installation migration verification
+# Fresh installation and database upgrades
 
-The reviewed development line now upgrades empty SQLite and PostgreSQL databases to
-`dc60b3745ae2` with 120 tables. Verification used the actual Alembic CLI; no
-`create_all`, revision stamping, production database, or migration bypass was used.
+Langboard migrations support SQLite and PostgreSQL. Use the migration entrypoint
+shipped with the selected application version before starting that version's
+producers and workers. Do not replace migration execution with schema creation or
+revision stamping.
 
-## Corrections
+PostgreSQL uses its native enum and JSONB representation; SQLite uses the supported
+portable representations. Migration inspection must use the selected database's
+actual schema rather than assuming PostgreSQL catalog tables are available.
 
-- Preserve PostgreSQL enum conversion and content-change sequences only on PostgreSQL.
-- Compile timestamp defaults with SQLAlchemy instead of PostgreSQL-only text.
-- Allow the two historical activity-index migrations to converge on the same index.
-- Keep the canary merge revision ID, but retain only its three terminal parents.
-  Removed parents are already ancestors of those terminals; their migrations remain reachable.
-- Inspect checklist columns and indexes through SQLAlchemy rather than PostgreSQL catalogs.
-- Use Alembic batch operations for organization and global-label constraints.
-- Keep PostgreSQL JSONB while providing SQLite JSON and portable JSON defaults.
+An empty-database installation and an upgrade of retained application data are
+different operations. Back up a populated database before upgrading, preserve its
+migration lineage, and check compatibility with the previous application version
+before planning rollback. Corrections to historical migrations do not automatically
+alter a database whose corresponding revisions are already recorded as applied.
 
-No new runtime dependency, schema revision ID, or application abstraction was introduced.
-These historical corrections repair fresh installation and previously unapplied upgrades.
-They do not modify already stamped databases automatically or prove downgrade safety
-for every historical revision.
-
-## Evidence
-
-- Empty SQLite: full `alembic upgrade head`, revision `dc60b3745ae2`, 120 tables.
-- Empty PostgreSQL 18.6: same full upgrade, revision, and table count; disposable
-  local server stopped and temporary database removed afterward.
-- Four targeted tests passed: merge-graph ancestry, full SQLite installation and
-  repeated `upgrade head` preserving all seed rows, and enum-storage compatibility.
-- Ruff and `git diff --check` passed.
-
-Reproduce the tracked regression tests from the repository root:
-
-```sh
-PROJECT_NAME=langboard PROJECT_SHORT_NAME=lb python -m pytest -q \
-  src/api/tests/card_workspace/test_fresh_install_migrations.py \
-  src/api/tests/card_workspace/test_checkitem_status_migration.py
-```
-
-PostgreSQL verification requires a disposable PostgreSQL instance and explicit
-`MAIN_DATABASE_URL` and `READONLY_DATABASE_URL`. Never target production for a
-fresh-install check.
-
-This evidence covers the reviewed source snapshot. Runtime deployment, authenticated
-UI behavior, the complete CARVE gate, and future stack changes require separate evidence.
+Do not assume that downgrade is supported for every historical revision. Migrations
+that retain pending work or ownership data can refuse destructive downgrade. Keep
+those records and resolve the documented compatibility condition before rollback.

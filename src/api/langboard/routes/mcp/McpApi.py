@@ -15,6 +15,7 @@ from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
+from ...card_workspace.application.work_plan import WorkPlanRejected
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
 from ...mcp_integration.Receipts import is_revision_conflict
@@ -109,6 +110,30 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 raise RuntimeError("Modern MCP provider is unavailable")
             result = await server.call_tool(tool_name, arguments)
         except ValidationError as exc:
+            if tool_name == "preview_card_work_plan":
+                rejection = exc.__cause__
+                if isinstance(rejection, WorkPlanRejected):
+                    code, message = rejection.code, rejection.message
+                    request_id, next_action = rejection.request_id, rejection.next_action
+                else:
+                    code, message = "WORK_PLAN_INVALID", "Invalid work plan input. Review the plan and preview again."
+                    next_action = "revise_plan"
+                    try:
+                        request_id = UUID(request.headers.get("X-Request-ID", "")).hex
+                    except ValueError:
+                        request_id = uuid4().hex
+                return JsonResponse(
+                    status_code=400,
+                    content={
+                        "code": code,
+                        "message": message,
+                        "request_id": request_id,
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": next_action,
+                    },
+                    headers={"X-Request-ID": request_id},
+                )
             if isinstance(exc.__cause__, CardUnavailableError):
                 return JsonResponse(
                     status_code=400,

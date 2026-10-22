@@ -12,9 +12,9 @@ identity, ownership and project/card ACL checks. Tool annotations describe searc
 as a query and the generic proxy conservatively as a mutation.
 
 Legacy transport and the existing explicit agent/raw transports are unchanged.
-Resources and workflow prompts remain available. This is a catalog byte reduction,
-not proof of a task token/call reduction or the eight-facade roadmap completion.
-External OAuth login, consent, refresh and persistent storage remain separate gates.
+Resources and workflow prompts remain available. OAuth login, consent and
+persistent storage require operator configuration; selecting a smaller discovery
+catalog does not configure authentication or grant access.
 
 Official implementation reference:
 https://gofastmcp.com/servers/transforms/tool-search

@@ -723,6 +723,36 @@ wheels = [
 ]
 
 [[package]]
+name = "elastic-transport"
+version = "9.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "sniffio" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/be/a719a217ed7f179c9e41821dff9dfd28415b21bc94da9d35fff84f7951b2/elastic_transport-9.4.2.tar.gz", hash = "sha256:366f4614f4544c5fb5d780c82f57af8f30492b44a68ed20750390aa81e20c2ea", size = 79310, upload-time = "2026-06-16T15:27:17.182Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/e4/9b7ef7a8e0bb416e0fe1879c92295041cf81e5a47e3c3110744e89b6eb35/elastic_transport-9.4.2-py3-none-any.whl", hash = "sha256:33dc89bb1855faa8b98ae8b036405a39c562778dbcdbe4a00a2eaf753148556c", size = 66314, upload-time = "2026-06-16T15:27:15.875Z" },
+]
+
+[[package]]
+name = "elasticsearch"
+version = "9.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "elastic-transport" },
+    { name = "python-dateutil" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/aa/b7/87bce7be89c822a63608e3c946a80d99fce1066ce9e9691bcb6b8ef57631/elasticsearch-9.5.1.tar.gz", hash = "sha256:98210cd96c256dd9936f58e1c762aba94da7db7d38d058bb0fbaf7e4b9567146", size = 930439, upload-time = "2026-09-09T20:17:03.842Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/78/6e/047d517a64249abd0a1b5b8c9f8244e3bf48c6916d5a68e9c76c52fc266d/elasticsearch-9.5.1-py3-none-any.whl", hash = "sha256:a980d8888ae70c03f0a1db6b2c5e3e39bf4e235abea737f522d2fd1d2d20bb99", size = 1018374, upload-time = "2026-09-09T20:17:00.18Z" },
+]
+
+[[package]]
 name = "email-validator"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1462,6 +1492,12 @@ document-processing = [
 document-retrieval = [
     { name = "langboard-shared", extra = ["document-retrieval"] },
 ]
+image-generation = [
+    { name = "langboard-shared", extra = ["image-generation"] },
+]
+keyword-search = [
+    { name = "langboard-shared", extra = ["keyword-search"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1491,6 +1527,8 @@ requires-dist = [
     { name = "langboard-shared", extras = ["azure-vault"], marker = "extra == 'azure-vault'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["document-processing"], marker = "extra == 'document-processing'", editable = "src/shared/py" },
     { name = "langboard-shared", extras = ["document-retrieval"], marker = "extra == 'document-retrieval'", editable = "src/shared/py" },
+    { name = "langboard-shared", extras = ["image-generation"], marker = "extra == 'image-generation'", editable = "src/shared/py" },
+    { name = "langboard-shared", extras = ["keyword-search"], marker = "extra == 'keyword-search'", editable = "src/shared/py" },
     { name = "orjson", specifier = ">=3.11.0" },
     { name = "psutil", specifier = ">=7.1.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.12" },
@@ -1506,7 +1544,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.41,<2.0.50" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval"]
+provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval", "keyword-search", "image-generation"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1579,10 +1617,17 @@ document-retrieval = [
     { name = "langchain-openai" },
     { name = "langchain-qdrant" },
     { name = "langchain-text-splitters" },
+    { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "sqlite-vec" },
     { name = "tiktoken" },
     { name = "transformers" },
+]
+image-generation = [
+    { name = "pillow" },
+]
+keyword-search = [
+    { name = "elasticsearch" },
 ]
 
 [package.metadata]
@@ -1599,6 +1644,7 @@ requires-dist = [
     { name = "cryptocode", specifier = ">=0.1" },
     { name = "docling-core", extras = ["chunking-openai"], marker = "extra == 'document-retrieval'", specifier = "==2.99.0" },
     { name = "docling-slim", extras = ["convert-core", "format-pdf", "format-office", "format-web"], marker = "extra == 'document-processing'", specifier = "==2.133.0" },
+    { name = "elasticsearch", marker = "extra == 'keyword-search'", specifier = "==9.5.1" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.121.0" },
     { name = "genson", specifier = ">=1.3.0" },
@@ -1611,9 +1657,11 @@ requires-dist = [
     { name = "langchain-openai", marker = "extra == 'document-retrieval'", specifier = "==1.6.7" },
     { name = "langchain-qdrant", marker = "extra == 'document-retrieval'", specifier = "==1.1.0" },
     { name = "langchain-text-splitters", marker = "extra == 'document-retrieval'", specifier = ">=1.1.3,<2" },
+    { name = "langgraph-checkpoint-postgres", marker = "extra == 'document-retrieval'", specifier = "==3.1.3" },
     { name = "langgraph-checkpoint-sqlite", marker = "extra == 'document-retrieval'", specifier = "==3.1.1" },
     { name = "orjson", specifier = ">=3.11.0" },
     { name = "packaging", marker = "extra == 'document-processing'", specifier = ">=24" },
+    { name = "pillow", marker = "extra == 'image-generation'", specifier = "==12.3.0" },
     { name = "psutil", specifier = ">=7.1.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.12" },
     { name = "pydantic", specifier = ">=2.10.0,<2.20.0" },
@@ -1632,7 +1680,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'document-retrieval'", specifier = ">=4.42,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
-provides-extras = ["document-retrieval", "document-processing", "aws", "azure-vault"]
+provides-extras = ["keyword-search", "image-generation", "document-retrieval", "document-processing", "aws", "azure-vault"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1728,15 +1776,30 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint"
-version = "4.2.0"
+version = "4.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "ormsgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/e1/089c4c9e0a2fec7f883f82ae8e6a727138d50074cfeb6644bc2d13b1019b/langgraph_checkpoint-4.2.0.tar.gz", hash = "sha256:51a593b6bee684b0818e5d6e58e28ab340c6db7794575056ce7bd1b746a84ed7", size = 180239, upload-time = "2026-08-07T20:05:03.756Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/69/31fdbdc65a85bbd6178afa193c772bb926620f47b4869638bc2bc80afaaa/langgraph_checkpoint-4.3.0.tar.gz", hash = "sha256:c75965d84cc2c1d549163e910a15bcb577758001b141619d05297c463280b018", size = 182652, upload-time = "2026-10-12T22:26:31.478Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/71/3b475f09bd57d3a5649792c66353312b4432afd843f301739dfcebd157f0/langgraph_checkpoint-4.2.0-py3-none-any.whl", hash = "sha256:0547fd228935a0b758865de3a3d6d7a2537c308895d0f9ab092ce9151b5da942", size = 56833, upload-time = "2026-08-07T20:05:02.655Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/0c/84747e340bf4f29291c84cdd5733fc8d0a822f3d33bb24e664a18afa4a7c/langgraph_checkpoint-4.3.0-py3-none-any.whl", hash = "sha256:bedfafe2f997ded60e4fa593e79f56f436a6e45586392dc382aa810d0c751c64", size = 58063, upload-time = "2026-10-12T22:26:30.429Z" },
+]
+
+[[package]]
+name = "langgraph-checkpoint-postgres"
+version = "3.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langgraph-checkpoint" },
+    { name = "orjson" },
+    { name = "psycopg" },
+    { name = "psycopg-pool" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/bf/d0ab4d6e4d61952de2f77044d7407b7ce09e07d53e7bb448cf9df55c35e5/langgraph_checkpoint_postgres-3.1.3.tar.gz", hash = "sha256:a152a9c0c3d5931bc949b64e01e8c7da20be57a32aa754626446318e90a07650", size = 158122, upload-time = "2026-10-12T23:05:19.759Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/42/659106ed829ee026144e32ddd589735f978d2ed09681020e5965cdfca04c/langgraph_checkpoint_postgres-3.1.3-py3-none-any.whl", hash = "sha256:050ae583223e24d97747f27b9e06e7345bf13c972f1fb6ed33bb3d1f9c11cee4", size = 52048, upload-time = "2026-10-12T23:05:18.854Z" },
 ]
 
 [[package]]
@@ -2379,6 +2442,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/69/8a/72837664e63e3cd3aa145cedcf29e5c21257579739aba78ab7eb668f7d9c/psycopg_binary-3.2.12-cp313-cp313-musllinux_1_2_ppc64le.whl", hash = "sha256:f3bae4be7f6781bf6c9576eedcd5e1bb74468126fa6de991e47cdb1a8ea3a42a", size = 3537428, upload-time = "2025-10-26T00:30:01.465Z" },
     { url = "https://files.pythonhosted.org/packages/cc/7e/1b78ae38e7d69e6d7fb1e2dcce101493f5fa429480bac3a68b876c9b1635/psycopg_binary-3.2.12-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:8ffe75fe6be902dadd439adf4228c98138a992088e073ede6dd34e7235f4e03e", size = 3585981, upload-time = "2025-10-26T00:30:31.635Z" },
     { url = "https://files.pythonhosted.org/packages/a3/f8/245b4868b2dac46c3fb6383b425754ae55df1910c826d305ed414da03777/psycopg_binary-3.2.12-cp313-cp313-win_amd64.whl", hash = "sha256:2598d0e4f2f258da13df0560187b3f1dfc9b8688c46b9d90176360ae5212c3fc", size = 2912929, upload-time = "2025-10-26T00:30:56.413Z" },
+]
+
+[[package]]
+name = "psycopg-pool"
+version = "3.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/5e/c0664b968b102ff68b811d999c728546c48d5c1eec03e3bbaf88c0cb4472/psycopg_pool-3.3.3.tar.gz", hash = "sha256:df87b5d9d0ad7db37f6cdad4fa8ce113d250f5997f6db38e9a99192fb67f9e1d", size = 32006, upload-time = "2026-09-22T15:53:24.947Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/b4/452c6607a0f479465cd8a9b0d9956919fcb150050c1f83f9f11e6b8ee8dc/psycopg_pool-3.3.3-py3-none-any.whl", hash = "sha256:9b9cd6a4fcec47a410f7e82d408540e7f77b478509e91b44c1a5457a13e5ff37", size = 40304, upload-time = "2026-09-22T15:53:23.712Z" },
 ]
 
 [[package]]

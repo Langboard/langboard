@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, TypeAlias, TypeVar, overload, override
-from sqlalchemy import String, and_, cast, false, literal, or_, select, union_all
+from sqlalchemy import String, and_, cast, literal, or_, select, union_all
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.queries.Select import SelectOfScalar
 from ....core.domain import BaseRepository
@@ -22,7 +22,11 @@ from ....domain.models import (
 )
 from ....domain.models.bases import BaseActivityModel
 from ....domain.models.ProjectActivity import ProjectActivityType
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    project_activity_visibility_scope,
+)
 from ....helpers import InfraHelper
 
 
@@ -34,23 +38,6 @@ _TUserOrBotActivityParam: TypeAlias = User | Bot | SnowflakeID | int | str
 
 
 class ActivityRepository(BaseRepository[BaseActivityModel]):
-    @staticmethod
-    def _activity_visibility_scope(contexts: dict[int, CardVisibilityContext]):
-        grouped: dict[CardVisibilityContext, list[int]] = {}
-        for project_id, context in contexts.items():
-            grouped.setdefault(context, []).append(project_id)
-        scopes = []
-        for context, project_ids in grouped.items():
-            card_visible = select(Card.id).where(
-                Card.id == ProjectActivity.card_id, Card.project_id == ProjectActivity.project_id,
-                Card.deleted_at.is_(None), card_visibility_scope(context),
-            ).correlate(ProjectActivity).exists()
-            scopes.append(and_(
-                ProjectActivity.project_id.in_(project_ids),
-                or_(ProjectActivity.card_id.is_(None), card_visible),
-            ))
-        return or_(false(), *scopes)
-
     def get_scoped_project_activities(
         self, project: Project, pagination: TimeBasedPagination, *, context: CardVisibilityContext,
         column: TColumnParam | None = None, card: TCardParam | None = None,
@@ -197,7 +184,7 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
             query = select(*columns).join(Project, Project.column("id") == model.column("project_id"))
             if kind == "project":
                 query = query.outerjoin(Card, Card.column("id") == ProjectActivity.column("card_id"))
-                query = query.where(self._activity_visibility_scope(contexts))
+                query = query.where(project_activity_visibility_scope(contexts))
             else:
                 query = query.join(
                     ProjectWiki, ProjectWiki.column("id") == ProjectWikiActivity.column("project_wiki_id")
@@ -297,7 +284,7 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
                 Project, Project.id == ProjectWikiActivity.project_id,
             ).where(
                 UserActivity.user_id == user_id,
-                or_(self._activity_visibility_scope(contexts), wiki_scope),
+                or_(project_activity_visibility_scope(contexts), wiki_scope),
             )
         with DbSession.use(readonly=False) as db:
             count = db.exec(scoped(SqlBuilder.select.count(UserActivity, UserActivity.id)).where(

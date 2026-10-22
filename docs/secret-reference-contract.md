@@ -1,166 +1,93 @@
 # Secret references and trusted storage
 
-## Supplied credential storage
+Use a Secret Reference to connect a credential without placing its value in a card, wiki, app
+declaration or model conversation. The canonical form is `secret://ref/<uid>`. The URI
+identifies a record; it is not a credential and does not grant its reader permission to use the
+stored value.
 
-The existing host `KeyVault.store_secret(opaque_id, value)` accepts nonempty
-credential text. It returns an **internal locator**, never a public Secret URI.
-Only trusted host code may store and resolve material; no MCP tool exposes these
-operations. `get_key(locator)` uses the existing provider boundary.
+Availability depends on the instance's configured storage provider, installed host version and
+current permissions. See the [external app SDK](external-app-sdk.md) for connection consent and
+[native MCP profiles](native-mcp-profiles.md) for transport authority.
 
-- OpenBao and HashiCorp Vault use the existing KV payload and mount. Imported
-  credentials are not copied to development files by the OpenBao adapter.
-- Local development writes files with mode 0600 and atomic replacement. IDs are
-  bounded opaque filenames; traversal is rejected. This remains a development
-  provider, not a production fallback.
-- AWS KMS and Azure wrap a short random key. The existing authenticated Encryptor
-  encrypts credential text, avoiding direct RSA/KMS plaintext length limits for
-  private keys. A versioned envelope is the internal locator. Legacy API-key
-  ciphertext locators remain readable; their creation semantics are unchanged.
-- Provider failures propagate. Unknown optional provider SDKs do not silently
-  fall back in production. KMS deletion is still a no-op: future reference
-  revocation must deny access in host storage and must not claim cryptographic
-  erasure of copied ciphertext.
+## Reference identity and permissions
 
-Internal locators must be persisted only in host storage excluded from API,
-model, wiki and MCP projections. Storage primitives alone do not authorize a
-caller or create a logical reference. Existing API-key creation return values
-are preserved for compatibility.
+Canonical URIs survive rename and scope moves. Named aliases are `secret://me/<name>`,
+`secret://project/<board-uid>/<name>` and `secret://workspace/<organization-uid>/<name>`.
+Aliases reflect current name and scope and can become dangling after a change. Retain the
+canonical URI in integrations; a display name is not an identity.
 
-## Remaining logical reference contract
+Every metadata read and trusted use rechecks the current active user and scope. Personal
+references belong to their user. Project references require current project update authority and
+membership. Workspace references require the active organization owner. Moves require authority
+over both source and destination. App consumers also require their own current consent;
+disabling apps does not prevent native Secret maintenance or revocation.
 
-Public references such as `secret://me/github/token` and
-`secret://project/<board>/openai` must identify a host-owned stable record rather
-than reveal a vault path or encrypted locator. Personal, project and workspace
-scope authority must be re-evaluated from current host state on every trusted
-resolution. Model-facing reads return URI and metadata only.
+Missing, revoked, unauthorized, dangling-storage and mismatched-provider references cannot
+resolve. Changing a storage provider does not reinterpret an old locator as a path in the new
+provider. Internal storage locators are never valid client inputs. No HTTP or MCP endpoint
+returns credential values.
 
-Stable IDs/aliases, rename and scope moves, dangling-reference status, audit
-source linkage, provider selection/migration and host authorization remain to be
-implemented before GitHub installation stores or consumes these references.
-No connection onboarding route should accept a client-supplied internal locator.
+## Browser credential input
 
-## Persisted logical references
+Enter credential material only on the authenticated secret-input page issued by a supported
+native operation. The one-use input is bound to its current actor and context and requires the
+expected browser origin and session proof. Cancellation and expiry do not save a credential. Do
+not paste values into a card, wiki or chat to complete input.
 
-`SecretReferenceService` is available through the existing `DomainService` factory
-for trusted host callers. `create` returns metadata only; a `SecretStr` is required
-for credential input. Provider locators are excluded from model dumps and repr.
-Records retain a canonical `secret://ref/<uid>` URI through rename and scope move.
-Named lookup forms are `secret://me/<name>`, `secret://project/<board-uid>/<name>`
-and `secret://workspace/<organization-uid>/<name>`. Display names are never used
-to infer an identity; named aliases reflect the current name/scope and may become
-dangling after changes. Consumers should retain the canonical URI.
-
-Every metadata or runtime read rechecks the current active user in the primary
-database. Personal references belong only to their user; project credentials
-require existing project update authority, including current membership and role;
-workspace credentials use the existing active Organization owner boundary.
-Project scope checks lock current board authority and are independent of app-use
-policy. Disabling apps cannot prevent native Secret maintenance or revocation;
-app consumers must still apply their own policy before using a reference.
-Workspace member/delegation policy is not introduced by this unit. Moves require
-both source and destination authority. Rename, move and revoke use locked rows
-and an expected integer revision. Runtime resolution returns `SecretStr` only to
-the trusted caller, with no HTTP/MCP value endpoint.
-
-Revoked, missing, unauthorized, dangling-storage and mismatched-provider references
-cannot resolve. Changing the selected provider fails closed rather than treating
-an old locator as a path in the new provider. Duplicate-record failure rolls back
-the database transaction and removes the newly written KV/local value. KMS may
-retain ciphertext semantics as documented above. The migration refuses populated
-downgrade. No production migration has been applied.
-
-Dedicated wiki secretization and copy UX, richer dangling status,
-model-facing API/MCP/CLI/wiki metadata integration and GitHub onboarding consumers
-remain pending. The earlier remaining-contract section describes those end-state
-requirements; scope/URI/rename/move primitives are now implemented as above.
-
-## Successful operation audit
-
-The host service writes `SecretReferenceAudit` in the same database transaction
-as successful create, trusted resolution, rename, move and revoke operations.
-Each fact records the actor, stable reference ID, action, current scope/revision
-and optional host source kind/identifier. There is no free-form payload, credential,
-locator or provider column. Source kinds are bounded and identifiers reject URLs
-and arbitrary text. Host adapters construct `SecretAuditSource`; client-provided
-source text must not be trusted as identity or provenance.
-
-Audit insert failure prevents a successful operation. Failed credential creation
-rolls back its reference and removes the new KV/local storage value. Successful
-resolution does not return material before its audit insert succeeds. These are
-transactional host facts, not an independent tamper-proof ledger: a surrounding
-transaction rollback also rolls back its audit. Denied/failed request auditing,
-retention/export, admin audit UI and external runtime consumer source binding
-remain pending. No public audit or secret-value endpoint is added.
+A successful completion receipt must contain both `state: completed` and a canonical
+`secret://ref/<uid>` reference. Empty, pending or malformed HTTP 200 responses do not establish
+a save. After an uncertain response, inspect the operation's receipt; never automatically
+resubmit credential material. The browser clears sensitive request material before showing the
+receipt.
 
 ## Native metadata transports
 
-Authenticated metadata and history responses use `Cache-Control: no-store` so
-clients and intermediaries do not retain a projection after authority changes.
+`GET /secret-references/<uid>` returns `{reference: metadata}` under authenticated native user
+authority. Missing and unauthorized references return the same not-found response. Metadata
+reads do not retrieve credential material from storage.
 
-Authenticated native clients can read one canonical reference with
-`GET /secret-references/<uid>`. The endpoint returns `{reference: metadata}` and
-rechecks current host scope authority. Missing and unauthorized references are
-reported uniformly as not found. It never calls the vault backend.
+The read-only MCP command `get_secret_reference_metadata(uri)` accepts canonical or named
+logical URIs and returns metadata under current authenticated scope authority. It does not
+create, rotate or resolve credential values. Clients may use the existing native HTTP/MCP
+transports without a plugin dependency.
 
-The native MCP command `get_secret_reference_metadata(uri)` accepts canonical or
-named logical URIs. Its schema contains only the bounded URI; authenticated
-actor and host service are injected by the existing MCP wrapper. It is annotated
-read-only and returns the same metadata projection. No create, rotate, resolve or
-credential-value command is registered. Standalone SDK and CLI clients can use
-the existing authenticated HTTP/MCP transports without a plugin dependency.
+Metadata and history responses use `Cache-Control: no-store`.
 
-Wiki documents may retain canonical URI text as a non-secret reference. Dedicated
-wiki reference rendering, CLI convenience UX, and real GitHub provider consumers
-remain pending; storing URI text does not imply that those integrations execute.
+## History and copies
 
-## Credential rotation
+`GET /secret-references/<uid>/history` returns bounded per-reference history under current
+reference authority. `limit` defaults to 25 and is at most 50; use the returned cursor for
+another page. History includes actions, revisions and actor attribution, without values, storage
+locators or provider configuration. Links to source cards or wikis additionally require current
+access to those resources. History is transactional host history, not an independent
+tamper-proof ledger.
 
-Trusted `rotate(actor, uri, SecretStr, expected_revision)` preserves the stable
-reference URI and name/scope. It locks the reference, rechecks current authority,
-rejects revoked references and mismatched providers, writes fresh opaque storage,
-updates the locator/revision and records a `rotated` audit fact atomically.
-Stale revision or audit failure preserves the old reference/material. The old
-locator is retired only after the database commit. Cleanup failure preserves a
-valid new reference but leaves an old-material cleanup obligation; KMS deletion
-retains the previously documented limitations.
+`POST /secret-references/<uid>/copy` accepts `name` (1–256 characters) and strict nonnegative
+`expected_revision`, returning `{reference: metadata}` with HTTP 201. A copy remains in the
+source scope and has a separate identity; it does not transfer ownership of the source or expose
+its value. Stale revisions or conflicting names return conflict. Missing or unavailable sources
+return not found. An ambiguous write requires receipt inspection before another attempt.
 
-Create and rotate must own their database transaction. They reject calls within
-an outer host atomic transaction before any vault effect, so a later outer rollback
-cannot orphan an untracked successful storage write. Rotation scheduling, cleanup
-retry jobs and an HTTP/MCP credential write interface remain outside this contract.
-Provider installation adapters must call these trusted units with the returned
-reference URI rather than embedding values in a board.
+Wiki documents may retain a canonical URI and render a reference link. Rendering or copying URI
+text does not itself resolve the credential or authorize an app.
 
-## Trusted provider migration
+## Rotation and provider maintenance
 
-`migrate_provider(actor, uri, expected_revision, source_provider)` is a host-only
-operation. The operator supplies an already authenticated old `VaultProvider`
-instance; the destination is the configured `KeyVault.provider`. It does not take
-provider addresses, credentials, arbitrary locators or plaintext from clients and
-is not registered as an HTTP/MCP command.
+Trusted credential rotation preserves the reference URI and name/scope, advances its revision
+and records history. Stale revisions, revoked references or provider mismatches reject the
+operation. A failed update preserves the old reference. Successful rotation can leave an
+old-storage cleanup obligation if retirement fails. Rotation scheduling and cleanup retries are
+operator responsibilities; no general HTTP/MCP credential rotation command is exposed by this
+guide.
 
-The service owns its transaction, locks the reference, rechecks current scope
-permission and rejects revoked, stale or mismatched source-provider references
-before reading storage. It writes a new opaque locator and verifies destination
-readback before changing the private provider/locator. The reference URI,
-name and scope remain stable; the revision advances once and a `migrated` event
-records the actor, request ID, before/after revision and `provider_migrated` reason.
-History contains no value, locator or provider configuration.
+Trusted provider migration preserves URI, name and scope and advances the revision only after
+destination readback succeeds. An operator must supply authenticated source and destination
+provider configuration through trusted host facilities; there is no public HTTP/MCP migration
+command or automatic provider switch. Write, readback or audit failure preserves the original
+reference. Old storage is retired after commit; retirement failure requires explicit cleanup.
 
-Write/readback/audit failure rolls back the reference and removes the new
-uncommitted destination. Old material is retired only after database commit.
-Retirement failure leaves a valid destination and an explicit old-storage cleanup
-obligation; KMS cannot promise physical deletion of historical ciphertext.
-The caller must arrange cleanup retry; no background migration or automatic
-provider change is introduced. New audit facts prevent a destructive schema
-downgrade. Actual production provider migration has not been performed.
-
-### Browser input completion receipt
-
-The one-shot browser transport accepts success only when the response contains
-`state: completed` and a canonical `secret://ref/<native UID>` reference. Empty,
-pending or malformed HTTP 200 responses leave the input failed; they must not
-show a saved state or trigger automatic resubmission. Sensitive request material
-continues to be cleared before rendering the receipt. Browser regression checks
-cover missing state/reference, pending state and invalid reference alongside
-valid submission, cancellation and HTTP errors.
+OpenBao and HashiCorp Vault use their configured KV storage. Local file storage is for
+development, uses restrictive file permissions and is not a production fallback. Provider
+failures do not silently select a development backend. AWS KMS/Azure-backed encrypted values can
+retain historical ciphertext; reference revocation and cleanup do not promise physical or
+cryptographic erasure of copies.

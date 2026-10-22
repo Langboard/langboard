@@ -15,7 +15,7 @@ export default defineConfig({
     },
     webServer: {
         env: { API_PORT: "5381", SOCKET_PORT: "5382" },
-        command: "yarn vite --host 127.0.0.1 --port 4175 --strictPort",
+        command: "node_modules/.bin/vite --config vite.card-load.config.ts --host 127.0.0.1 --port 4175 --strictPort",
         url: "http://127.0.0.1:4175/src/pages/BoardPage/components/board/CardViewerDeepLink.fixture.html",
         reuseExistingServer: true,
         timeout: 60_000,

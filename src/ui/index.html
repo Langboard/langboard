@@ -8,7 +8,15 @@
     </head>
 
     <body>
-        <div id="root" style="overflow-y: hidden"></div>
+        <div id="root" style="overflow-y: hidden">
+            <div role="status" aria-label="Loading Langboard" aria-busy="true" style="display: grid; place-items: center; min-height: 100svh">
+                <img src="/src/assets/svgs/LangboardLoading.svg" alt="" width="96" height="96" />
+            </div>
+        </div>
+        <script>
+            globalThis.__LANGBOARD_RUNTIME_CONFIG__ = { invalid: true };
+        </script>
+        <script src="/runtime-config.js"></script>
         <script type="module" src="/src/main.tsx"></script>
     </body>
 </html>

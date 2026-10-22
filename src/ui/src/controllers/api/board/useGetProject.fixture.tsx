@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import BoardLoadError from "@/pages/BoardPage/BoardLoadError";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
-import { Project } from "@/core/models";
+import { AuthUser, Project } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import useGetProject from "./useGetProject";
 import useGetCards from "./useGetCards";
 import "@/i18n";
@@ -20,6 +21,7 @@ let release: () => void = () => {};
 let reject: () => void = () => {};
 let reportRequest: (url: string) => void = () => {};
 const base = { created_at: new Date(), updated_at: new Date() };
+useAuthStore.setState({ currentUser: AuthUser.Model.fromOne({ ...base, uid: "fixture-reader" }), state: "loaded" });
 api.defaults.adapter = async (config) => {
     reportRequest(config.url!);
     const response = { status: 200, statusText: "OK", headers: {}, config };

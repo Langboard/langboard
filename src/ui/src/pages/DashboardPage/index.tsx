@@ -2,7 +2,7 @@ import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { memo, useCallback, useMemo, useReducer, useState } from "react";
 import { IHeaderNavItem } from "@/components/Header/types";
 import { DashboardStyledLayout } from "@/components/Layout";
-import { ISidebarNavItem } from "@/components/Sidebar/types";
+import { IActivityRailItem } from "@/components/Layout/ActivityRail";
 import useGetAllStarredProjects from "@/controllers/api/dashboard/useGetAllStarredProjects";
 import { ROUTES } from "@/core/routing/constants";
 import ProjectPage from "@/pages/DashboardPage/ProjectPage";
@@ -16,11 +16,10 @@ import { useAuth } from "@/core/providers/AuthProvider";
 import { Project } from "@/core/models";
 import { useTranslation } from "react-i18next";
 import { SkeletonProjectDiscoveryPage } from "@/pages/DashboardPage/components/ProjectDiscoveryPage";
-import { PROJECT_QUICK_SWITCHER_EVENT } from "@/pages/DashboardPage/components/ProjectDiscovery";
 import ProjectExplorerSidebar from "@/pages/DashboardPage/components/ProjectExplorerSidebar";
 import { WORKBENCH_OPEN_MY_WORK_EVENT, WORKBENCH_TOGGLE_CONTEXT_EVENT } from "@/pages/DashboardPage/components/WorkbenchCommands";
 import { useEffect } from "react";
-import { useWorkbenchContextOpen } from "@/core/stores/UserSettingsStore";
+import { useWorkbenchContextOpen, useUserSettings } from "@/core/stores/UserSettingsStore";
 import useResizeEvent from "@/core/hooks/useResizeEvent";
 import { ScreenMap } from "@/core/utils/VariantUtils";
 
@@ -28,6 +27,8 @@ const DashboardProxy = memo((): React.JSX.Element => {
     const [t] = useTranslation();
     const { currentUser } = useAuth();
     const [isExplorerOpen, setIsExplorerOpen] = useWorkbenchContextOpen(currentUser?.uid);
+    const collapsedPanels = useUserSettings("workbench_sidebar_collapsed");
+    const desktopContextVisible = isExplorerOpen && !collapsedPanels?.[currentUser?.uid ?? ""];
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
     const [isMobileExplorerOpen, setIsMobileExplorerOpen] = useState(false);
     const [contextMode, setContextMode] = useState<"explorer" | "my-work">("explorer");
@@ -39,6 +40,12 @@ const DashboardProxy = memo((): React.JSX.Element => {
         },
         [isMobile, setIsExplorerOpen]
     );
+    const toggleContext = (mode: "explorer" | "my-work") => {
+        if (contextMode === mode && (isMobile ? isMobileExplorerOpen : desktopContextVisible)) {
+            if (isMobile) setIsMobileExplorerOpen(false);
+            else setIsExplorerOpen(false);
+        } else showContext(mode);
+    };
     useResizeEvent({ doneCallback: () => setIsMobile(window.innerWidth < ScreenMap.size.md) }, []);
     const toggleExplorer = useCallback(() => {
         if (isMobile) setIsMobileExplorerOpen((open) => !open);
@@ -109,28 +116,6 @@ const DashboardProxy = memo((): React.JSX.Element => {
         return Object.values(navs);
     }, [pageType, starredProjects]);
 
-    const sidebarNavs: ISidebarNavItem[] = [
-        {
-            icon: "plus",
-            name: t("dashboard.Create New Project"),
-            onClick: () => {
-                navigate(`${location.pathname}/new-project`);
-            },
-        },
-        {
-            icon: "history",
-            name: t("dashboard.My Activity"),
-            onClick: () => {
-                navigate(`${location.pathname}/my-activity`);
-            },
-        },
-        {
-            icon: "search",
-            name: t("dashboard.Quick switcher"),
-            onClick: () => window.dispatchEvent(new Event(PROJECT_QUICK_SWITCHER_EVENT)),
-        },
-    ];
-
     let pageContent;
     let skeletonContent;
     switch (pageType) {
@@ -163,6 +148,62 @@ const DashboardProxy = memo((): React.JSX.Element => {
             return <Navigate to={ROUTES.DASHBOARD.PROJECTS.ALL} />;
     }
 
+    // Dashboard navigation owns its routes and panels; board-scoped actions stay in BoardProxy.
+    const dashboardRailItems: IActivityRailItem[] = [
+        {
+            icon: "house",
+            label: t("dashboard.Projects"),
+            mobile: "primary",
+            onClick: headerNavs[0].onClick!,
+            active: pageType === "projects" && tabName === "all",
+        },
+        {
+            icon: "panel-left",
+            label: t("common.Explorer"),
+            onClick: () => toggleContext("explorer"),
+            active: contextMode === "explorer" && (isMobile ? isMobileExplorerOpen : desktopContextVisible),
+        },
+        { icon: "layout-dashboard", label: t("dashboard.Cards"), onClick: headerNavs[1].onClick!, active: pageType === "cards" },
+        {
+            icon: "list-checks",
+            label: t("dashboard.My Work"),
+            mobile: "primary",
+            onClick: () => toggleContext("my-work"),
+            active: contextMode === "my-work" && (isMobile ? isMobileExplorerOpen : desktopContextVisible),
+        },
+        {
+            icon: "star",
+            label: t("dashboard.Starred"),
+            onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.STARRED, { smooth: true }),
+            active: pageType === "projects" && tabName === "starred",
+        },
+        {
+            icon: "history",
+            label: t("dashboard.Recent work"),
+            onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.RECENT, { smooth: true }),
+            active: pageType === "projects" && tabName === "recent",
+        },
+        { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
+        ...pinnedApps.items,
+        { icon: "store", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
+        {
+            icon: "plus",
+            label: t("dashboard.Create New Project"),
+            onClick: () => navigate(`${location.pathname}/new-project`),
+        },
+        {
+            icon: "history",
+            label: t("dashboard.My Activity"),
+            onClick: () => navigate(`${location.pathname}/my-activity`),
+        },
+        {
+            icon: "settings",
+            label: t("settings.App settings"),
+            onClick: () => navigate(ROUTES.SETTINGS.ROUTE, { smooth: true }),
+            placement: "bottom",
+        },
+    ];
+
     return (
         <DashboardStyledLayout
             headerNavs={headerNavs}
@@ -175,51 +216,7 @@ const DashboardProxy = memo((): React.JSX.Element => {
                         ? t("dashboard.My Work")
                         : t("dashboard.Projects")
             }
-            activityRailItems={[
-                {
-                    icon: "panel-left",
-                    label: t("common.Explorer"),
-                    onClick: () => showContext("explorer"),
-                    active: contextMode === "explorer" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
-                },
-                {
-                    icon: "folder-kanban",
-                    label: t("dashboard.Projects"),
-                    mobile: "primary",
-                    onClick: headerNavs[0].onClick!,
-                    active: pageType === "projects" && tabName === "all",
-                },
-                { icon: "layout-dashboard", label: t("dashboard.Cards"), onClick: headerNavs[1].onClick!, active: pageType === "cards" },
-                {
-                    icon: "list-checks",
-                    label: t("dashboard.My Work"),
-                    mobile: "primary",
-                    onClick: () => showContext("my-work"),
-                    active: contextMode === "my-work" && (isMobile ? isMobileExplorerOpen : isExplorerOpen),
-                },
-                {
-                    icon: "star",
-                    label: t("dashboard.Starred"),
-                    onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.STARRED, { smooth: true }),
-                    active: pageType === "projects" && tabName === "starred",
-                },
-                {
-                    icon: "history",
-                    label: t("dashboard.Recent work"),
-                    onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.RECENT, { smooth: true }),
-                    active: pageType === "projects" && tabName === "recent",
-                },
-                { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
-                ...pinnedApps.items,
-                { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
-                ...sidebarNavs.map((item) => ({ icon: item.icon, label: item.name, onClick: item.onClick! })),
-                {
-                    icon: "settings",
-                    label: t("settings.App settings"),
-                    onClick: () => navigate(ROUTES.SETTINGS.ROUTE, { smooth: true }),
-                    placement: "bottom",
-                },
-            ]}
+            activityRailItems={dashboardRailItems}
             workbenchContext={
                 contextMode === "my-work" ? (
                     <div className="h-full overflow-y-auto">

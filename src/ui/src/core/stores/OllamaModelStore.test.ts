@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getOllamaModelStore, TBaseOllamaModel } from "./OllamaModelStore";
+import { getOllamaModelStore, TBaseOllamaModel, updateProgressCallback } from "./OllamaModelStore";
 
 test("model and pull mutations preserve prior store snapshots", () => {
     const model: TBaseOllamaModel = {
@@ -42,5 +42,31 @@ test("model and pull mutations preserve prior store snapshots", () => {
     } finally {
         getOllamaModelStore().deletePullingModel(model.name);
         getOllamaModelStore().deleteModel(model.name);
+    }
+});
+
+test("a new pull layer resets progress to zero and terminal events remove tracking", () => {
+    const name = "zero-progress-test";
+    const errors: string[] = [];
+    let successes = 0;
+    const receive = updateProgressCallback({
+        onSuccess: () => {
+            successes++;
+        },
+        onError: (message) => errors.push(message),
+    });
+    try {
+        getOllamaModelStore().upsertPullingModel({ name, isTracking: true, progress: 95 });
+        receive({ model: name, status: "downloading", percent: 0 });
+        assert.equal(getOllamaModelStore().pullingModels[name]?.progress, 0);
+        receive({ model: name, status: "error", error: "Preserved diagnostic" });
+        assert.equal(getOllamaModelStore().pullingModels[name], undefined);
+        assert.deepEqual(errors, ["Preserved diagnostic"]);
+        receive({ model: name, status: "downloading", percent: 10 });
+        receive({ model: name, status: "success" });
+        assert.equal(getOllamaModelStore().pullingModels[name], undefined);
+        assert.equal(successes, 1);
+    } finally {
+        getOllamaModelStore().deletePullingModel(name);
     }
 });

@@ -2,6 +2,7 @@
 
 import base64
 import io
+import logging
 import mimetypes
 from binascii import Error as Base64Error
 from typing import Annotated, Any, Literal
@@ -52,7 +53,7 @@ from ..card_workspace.application.projections import (
     public_label,
     public_metadata,
 )
-from ..card_workspace.application.work_plan import WorkPlan, WorkPlanService
+from ..card_workspace.application.work_plan import WorkPlan, WorkPlanRejected, WorkPlanService
 from ..card_workspace.domain import (
     CardBundleInclude,
     CardBundleSection,
@@ -79,7 +80,9 @@ def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card
 def _require_task_card(project_uid: str, card_uid: str) -> tuple[Project, Card]:
     params = _get_card_in_project(project_uid, card_uid)
     if not params:
-        raise ValueError("Card not found")
+        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.") from CardUnavailableError(
+            "Card not found in project"
+        )
     if params[1].is_linked_resource:
         raise ValueError("Linked Wiki cards are read-only references; move or remove the card, or edit the source Wiki")
     return params
@@ -826,7 +829,9 @@ def apply_card_graph_patch(
 
 def _require_work_plan_project(project_uid: str, plan: WorkPlan) -> None:
     if plan.project_uid != project_uid:
-        raise ValueError("Work plan project does not match authorized project")
+        raise WorkPlanRejected(
+            "WORK_PLAN_INVALID", "Work plan project does not match authorized project", "revise_plan"
+        )
 
 
 @McpTool.add(
@@ -836,8 +841,14 @@ def _require_work_plan_project(project_uid: str, plan: WorkPlan) -> None:
 def preview_card_work_plan(
     project_uid: str, plan: WorkPlan, user_or_bot: User | Bot, service: DomainService
 ) -> dict[str, Any]:
-    _require_work_plan_project(project_uid, plan)
-    return WorkPlanService(user_or_bot, service).preview(plan)
+    try:
+        _require_work_plan_project(project_uid, plan)
+        return WorkPlanService(user_or_bot, service).preview(plan)
+    except WorkPlanRejected as exc:
+        logging.getLogger(f"{Env.PROJECT_NAME}.mcp.telemetry").info(
+            "Work plan preview rejected request_id=%s code=%s", exc.request_id, exc.code
+        )
+        raise ValidationError(str(exc)) from exc
 
 
 @McpTool.add(

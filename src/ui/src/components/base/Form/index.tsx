@@ -16,6 +16,7 @@ import { useId } from "@radix-ui/react-id";
 import { Label as LabelPrimitive } from "@radix-ui/react-label";
 import { Primitive } from "@radix-ui/react-primitive";
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 
 type ScopedProps<P> = P & { __scopeForm?: Scope };
 const [createFormContext, createFormScope] = createContextScope("Form");
@@ -421,18 +422,18 @@ const validityMatchers = [
 ] as const;
 type ValidityMatcher = (typeof validityMatchers)[number];
 
-const DEFAULT_INVALID_MESSAGE = "This value is not valid";
+const DEFAULT_INVALID_MESSAGE = "errors.form.invalid";
 const DEFAULT_BUILT_IN_MESSAGES: Record<ValidityMatcher, string | undefined> = {
     badInput: DEFAULT_INVALID_MESSAGE,
-    patternMismatch: "This value does not match the required pattern",
-    rangeOverflow: "This value is too large",
-    rangeUnderflow: "This value is too small",
-    stepMismatch: "This value does not match the required step",
-    tooLong: "This value is too long",
-    tooShort: "This value is too short",
-    typeMismatch: "This value does not match the required type",
+    patternMismatch: "errors.form.patternMismatch",
+    rangeOverflow: "errors.form.rangeOverflow",
+    rangeUnderflow: "errors.form.rangeUnderflow",
+    stepMismatch: "errors.form.stepMismatch",
+    tooLong: "errors.form.tooLong",
+    tooShort: "errors.form.tooShort",
+    typeMismatch: "errors.form.typeMismatch",
     valid: undefined,
-    valueMissing: "This value is missing",
+    valueMissing: "errors.form.valueMissing",
 };
 
 const MESSAGE_NAME = "FormMessage";
@@ -445,6 +446,7 @@ interface FormMessageProps extends Omit<FormMessageImplProps, "name"> {
 }
 
 const FormMessage = React.forwardRef<FormMessageElement, FormMessageProps>((props: ScopedProps<FormMessageProps>, forwardedRef) => {
+    const [t] = useTranslation();
     const { match, name: nameProp, ...messageProps } = props;
     const fieldContext = useFormFieldContext(MESSAGE_NAME, props.__scopeForm);
     const name = nameProp ?? fieldContext.name;
@@ -452,7 +454,7 @@ const FormMessage = React.forwardRef<FormMessageElement, FormMessageProps>((prop
     if (match === undefined) {
         return (
             <FormMessageImpl {...messageProps} ref={forwardedRef} name={name}>
-                {props.children || DEFAULT_INVALID_MESSAGE}
+                {props.children || t(DEFAULT_INVALID_MESSAGE)}
             </FormMessageImpl>
         );
     } else if (typeof match === "function") {
@@ -473,6 +475,7 @@ interface FormBuiltInMessageProps extends FormMessageImplProps {
 
 const FormBuiltInMessage = React.forwardRef<FormBuiltInMessageElement, FormBuiltInMessageProps>(
     (props: ScopedProps<FormBuiltInMessageProps>, forwardedRef) => {
+        const [t] = useTranslation();
         const { match, forceMatch = false, name, children, ...messageProps } = props;
         const validationContext = useValidationContext(MESSAGE_NAME, messageProps.__scopeForm);
         const validity = validationContext.getFieldValidity(name);
@@ -481,7 +484,7 @@ const FormBuiltInMessage = React.forwardRef<FormBuiltInMessageElement, FormBuilt
         if (matches) {
             return (
                 <FormMessageImpl ref={forwardedRef} {...messageProps} name={name}>
-                    {children ?? DEFAULT_BUILT_IN_MESSAGES[match]}
+                    {children ?? (DEFAULT_BUILT_IN_MESSAGES[match] ? t(DEFAULT_BUILT_IN_MESSAGES[match]) : undefined)}
                 </FormMessageImpl>
             );
         }

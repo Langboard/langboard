@@ -302,12 +302,12 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
                     case "color":
                         beforeElement = (
                             <ActivityBadge style={{ backgroundColor: before ?? "#000", color: Utils.Color.getTextColorFromHex(before ?? "#000") }}>
-                                {changes.before?.name ?? history.label?.name ?? "color"}
+                                {changes.before?.name ?? history.label?.name ?? t("activity.changes.color")}
                             </ActivityBadge>
                         );
                         afterElement = (
                             <ActivityBadge style={{ backgroundColor: after ?? "#000", color: Utils.Color.getTextColorFromHex(after ?? "#000") }}>
-                                {changes.after?.name ?? history.label?.name ?? "color"}
+                                {changes.after?.name ?? history.label?.name ?? t("activity.changes.color")}
                             </ActivityBadge>
                         );
                         break;

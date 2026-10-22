@@ -68,12 +68,15 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 text(
                     "CREATE TABLE project (id bigint PRIMARY KEY, created_at timestamptz, updated_at timestamptz, "
                     "deleted_at timestamptz, owner_id bigint, organization_id bigint, title text, description text, "
-                    "ai_description text, project_type text, archive_visible_days integer, dock_revision integer)"
+                    "ai_description text, project_type text, archive_visible_days integer, dock_revision integer, "
+                    "avatar json, previous_avatar json, avatar_revision integer NOT NULL DEFAULT 0)"
                 )
             )
             connection.execute(
                 text(
-                    "INSERT INTO project VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
+                    "INSERT INTO project (id, created_at, updated_at, deleted_at, owner_id, organization_id, title, "
+                    "description, ai_description, project_type, archive_visible_days, dock_revision) "
+                    "VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
                 )
             )
             WorkflowStageDefinition.__table__.create(connection)
@@ -84,6 +87,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                     WorkflowStageDefinition(
                         id=2, key="released", name="Released", counts_as_completed=True
                     ).model_dump(),
+                    WorkflowStageDefinition(id=3, key="active", name="Active", counts_as_completed=False).model_dump(),
                 ],
             )
             with Operations.context(MigrationContext.configure(connection)):
@@ -274,6 +278,19 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             )
         assert len(enqueued) == 5
         assert len(published_work_states) == committed_publications
+        # An explicit legacy ready mapping cannot override completion policy
+        # on the target card's own workflow stage.
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE project_column SET workflow_stage='active' WHERE id=20"))
+        assert (current_execution(102).is_ready, current_execution(102).generation) == (True, 3)
+        active_fields = {**fields, "key": "active", "name": "Active", "counts_as_completed": True}
+        service.save(active_fields, WorkflowStageDefinition(id=3, key="active", name="Active").get_uid())
+        assert (current_execution(102).is_ready, current_execution(102).generation) == (False, 3)
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT state FROM execution_outbox WHERE card_id=102 AND execution_generation=3"
+            )).scalar_one() == "superseded"
+        assert len(enqueued) == 5
     finally:
         engine.dispose()
         replica_engine.dispose()
@@ -284,7 +301,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
 
 
 @pytest.mark.skipif(not DATABASE_URL, reason="dedicated PostgreSQL proof URL not set")
-def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_supersede(
+def test_ready_content_edit_drains_commit_snapshot_and_only_readiness_edges_supersede(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Prove the five READY mutation semantics against a real database."""
@@ -383,7 +400,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         current = current_execution(100)
         assert (current.is_ready, current.generation) == (True, 1)
 
-        # Completion 1: READY-preserving title edit keeps the execution and delivers latest content.
+        # Completion 1: READY-preserving title edit keeps execution and delivers the commit snapshot.
         with engine.begin() as connection:
             connection.execute(text("UPDATE card SET title = 'Edited title', updated_at = now() WHERE id = 100"))
         with engine.begin() as connection:
@@ -392,7 +409,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         assert len(delivered) == 1
         delivered_model = delivered[0][0]
         assert delivered_model.data["execution_generation"] == 1
-        assert delivered_model.data["title"] == "Edited title"
+        assert delivered_model.data["title"] == "Frozen title"
         # The commit-time frozen snapshot stays untouched as provenance.
         with engine.connect() as connection:
             frozen = connection.execute(
@@ -401,7 +418,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
             assert frozen[0]["title"] == "Frozen title"
             assert frozen[1] == "delivered"
 
-        # Completion 2: READY-preserving label change delivers the latest labels.
+        # Completion 2: READY-preserving label change keeps execution and the original labels.
         with engine.begin() as connection:
             connection.execute(
                 text("DELETE FROM card_assigned_project_label WHERE card_id = 100 AND project_label_id = 9")
@@ -414,7 +431,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
             )
         delivered.clear()
         assert asyncio_run(worker.drain_one())
-        assert [delivery[0].data["labels"] for delivery in delivered] == [["reviewer"]]
+        assert [delivery[0].data["labels"] for delivery in delivered] == [["draft-role"]]
 
         # Completion 3: a prerequisite that is not terminal blocks readiness; old generation executes zero.
         with execution_readiness_uow() as execution:

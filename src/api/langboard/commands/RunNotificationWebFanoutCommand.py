@@ -1,9 +1,5 @@
 from langboard_shared.core.bootstrap import BaseCommand, BaseCommandOptions
-from langboard_shared.tasks.notifications.NotificationWebFanoutTask import (
-    purge_terminal_email_deliveries,
-    recover_pending_email_delivery,
-    recover_pending_web_fanout,
-)
+from langboard_shared.tasks.notifications.NotificationWebFanoutTask import recover_notifications
 
 
 class RunNotificationWebFanoutCommandOptions(BaseCommandOptions):
@@ -40,15 +36,4 @@ class RunNotificationWebFanoutCommand(BaseCommand):
         return bool
 
     def execute(self, _: RunNotificationWebFanoutCommandOptions) -> None:
-        from langboard_shared.tasks.notifications.NotificationWorkEventTask import publish_pending_work_events
-
-        try:
-            publish_pending_work_events()
-        finally:
-            try:
-                recover_pending_web_fanout()
-            finally:
-                try:
-                    recover_pending_email_delivery()
-                finally:
-                    purge_terminal_email_deliveries()
+        recover_notifications()

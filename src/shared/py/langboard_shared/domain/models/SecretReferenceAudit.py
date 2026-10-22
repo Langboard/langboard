@@ -9,7 +9,9 @@ from .User import User
 
 class SecretReferenceAudit(BaseDbModel, table=True):
     reference_id: SnowflakeID = SnowflakeIDField(foreign_key=SecretReference, nullable=False, index=True)
-    actor_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False)
+    actor_id: SnowflakeID | None = SnowflakeIDField(foreign_key=User, nullable=True)
+    actor_kind: str = Field(default="user", nullable=False)
+    principal_id: str | None = Field(default=None, nullable=True)
     action: str = Field(nullable=False)
     source_kind: str = Field(nullable=False)
     source_uid: str | None = Field(default=None, nullable=True)

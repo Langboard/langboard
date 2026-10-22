@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     AppConnection,
@@ -82,6 +83,8 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         extension_schema = engine.dialect.identifier_preparer.quote(extension) if extension else "public"
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "langboard/migrations"))
+    current_head = ScriptDirectory.from_config(config).get_current_head()
+    assert current_head is not None
     with engine.begin() as db:
         db.execute(text(f"CREATE SCHEMA {populated_schema}"))
     with engine.connect() as db:
@@ -230,9 +233,17 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         before = snapshot(db, tables)
         command.upgrade(config, "head")
         after = snapshot(db, tables)
-        # Only the two explicit additive defaults may change existing rows.
-        after["board_app_binding"][0].pop("resource_selection_revision")
-        after["app_resource_binding"][0].pop("identity_hash")
+        # Validate every additive value before comparing all retained columns.
+        additive_defaults = {
+            "board_app_binding": {"resource_selection_revision": 0},
+            "app_resource_binding": {"identity_hash": ""},
+            "user": {"previous_avatar": None, "avatar_revision": 0},
+            "project": {"avatar": None, "previous_avatar": None, "avatar_revision": 0},
+        }
+        for table, defaults in additive_defaults.items():
+            for row in after[table]:
+                for column, expected in defaults.items():
+                    assert row.pop(column) == expected, f"Unexpected additive default: {table}.{column}"
         assert after == before, "Retained app evidence changed"
         assert (
             db.execute(text("SELECT execution_generation FROM card_execution_generation WHERE card_id=104")).scalar()
@@ -279,7 +290,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             raise AssertionError("Populated downgrade erased audit history")
         assert db.execute(text("SELECT count(*) FROM card_execution_intent")).scalar() == 1
         assert db.execute(text("SELECT count(*) FROM app_execution_active")).scalar() == 1
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "a31f9e7b402c"
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
         save(
             db,
             UserAppPreference(id=123, user_id=101, revision=7, pinned_apps=[{"key": "example-app", "name": "Example"}]),
@@ -304,7 +315,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         db.commit()
         config.attributes["connection"] = db
         command.upgrade(config, "head")
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "a31f9e7b402c"
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
         inspector = inspect(db)
         assert inspector.get_pk_constraint("card_execution_generation")["constrained_columns"] == ["card_id"]
         assert {tuple(item["column_names"]) for item in inspector.get_unique_constraints("card_execution_intent")} == {

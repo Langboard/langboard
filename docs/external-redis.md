@@ -5,7 +5,8 @@
 Python cache consumers use `CACHE_URL`; Celery uses `BROKER_URL` (falling back
 to `CACHE_URL` for legacy installations). Credentials belong in deployment
 secrets, never in source. Redis client URL parsing also supports `rediss://`;
-this change adds no certificate-validation bypass.
+configure trusted certificates for TLS connections. Langboard does not add a
+certificate-validation bypass.
 
 Set `CACHE_KEY_PREFIX` to a unique, server-owned instance namespace such as
 `langboard:example:cache:`. The value must end in `:`, contain only ASCII
@@ -31,8 +32,6 @@ and SCRIPT LOAD). Do not grant database-wide flush or administrative commands.
 SCAN exposes key names even when key-access ACLs restrict commands. A prefix
 and application filtering are not a hostile-tenant security boundary. Use a
 separate server/security boundary when key names themselves must be hidden.
-The integration regression uses a restricted real Redis user without FLUSHDB
-permission and verifies that unrelated values survive a clear.
 
 ## Optional Compose deployment
 
@@ -51,13 +50,11 @@ Redis services behind an inactive profile, removes their dependency edges, and
 sets API, graph and Celery worker URLs and namespaces together. Existing volumes
 remain declared; configuration rendering creates or deletes no data. Do not
 enable `bundled-redis` alongside external mode. PowerShell selects the same
-override; its runtime was not exercised in the macOS verification.
+override.
 
-The Make entry point must stop when selection fails (for example, a missing
-external broker URL). A failed selector must never become an empty argument list
-for a later `docker compose` build/run/up/down command. The guard supports GNU
-Make 3.81 without relying on newer `.SHELLSTATUS` behavior. Correct the reported
-setting before retrying; it does not silently fall back to bundled services.
+The Make entry point stops when selection fails, for example when an external
+broker URL is missing. Correct the reported setting before retrying; selection
+failure does not silently fall back to bundled services.
 
 Celery uses Kombu's native `global_keyprefix` through `broker_transport_options`,
 including its queue keys and Redis pub/sub channels. `BROKER_KEY_PREFIX` has the
@@ -66,8 +63,7 @@ legacy broker names. Prefixes coordinate names; server ACLs enforce access.
 Broker command and channel ACLs must cover the configured namespace, including
 Kombu control/event traffic; cache command grants alone are not a broker ACL.
 
-Phoenix has no Redis consumer in its current Elixir runtime. Its unused
-`CACHE_URL` and Redis readiness dependency have been removed.
+The Phoenix realtime service does not require a Redis connection.
 
 ## Rollout boundaries
 
@@ -81,26 +77,5 @@ Phoenix has no Redis consumer in its current Elixir runtime. Its unused
 - Drain old Celery workers and outstanding tasks before changing the broker
   prefix. Existing queued tasks are not copied to the new namespace. Preserve
   the previous queue service and prefix for recovery; do not purge them.
-- This document records source compatibility. It does not establish deployed
-  canary behavior, external TLS verification, service capacity or restart safety.
-
-## Focused verification
-
-Against an explicitly disposable Redis server:
-
-```sh
-LANGBOARD_CACHE_TEST_REDIS_URL=redis://127.0.0.1:6379/0 \
-PYTHONPATH=src/shared/py:src/api PROJECT_NAME=langboard \
-uv run --no-sync pytest -q \
-  src/shared/py/langboard_shared/core/caching/RedisCache_test.py \
-  src/shared/py/langboard_shared/core/broker/RedisBroker_test.py \
-  src/api/tests/runtime/test_external_redis_compose.py \
-  src/api/tests/runtime/test_board_chat_attachment_upload.py
-```
-
-Never point this suite at an application database. It creates a temporary ACL
-user and removes only its randomly prefixed fixture keys. Baseline cache code
-fails three isolation/clear regressions. The related suite passes 40 checks,
-including actual Redis queue/pub-sub isolation, cache locking, Compose rendering
-and existing attachment lifecycle checks. External TLS and deployed behavior
-remain separate acceptance gates.
+- Verify TLS trust, queue delivery, namespace isolation, capacity and restart
+  recovery against the selected external services before retiring the previous deployment.

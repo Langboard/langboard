@@ -187,11 +187,11 @@ export const VirtualizedDescriptionContent = memo(
                     })}
                 </Box>
 
-                {chunks.length > 1 &&
-                    railHost &&
+                {railHost &&
                     createPortal(
                         <DescriptionOverviewRail
                             chunks={chunks}
+                            scrollParentRef={scrollParentRef}
                             activeIndex={activeIndex}
                             onNavigate={scrollToChunk}
                             viewportHeight={viewportHeight}

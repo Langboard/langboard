@@ -3,7 +3,6 @@ from json import dumps as json_dumps
 from re import findall as re_findall
 from typing import Any, Literal, NotRequired, TypedDict, cast
 from pydantic import BaseModel
-from ..utils.datamodel.parser.jsonschema import JsonSchemaParser
 from ..utils.decorators import staticclass
 from .ApiPermission import ApiPermission
 from .AppExceptionHandlingRoute import AppExceptionHandlingRoute
@@ -91,6 +90,8 @@ class ApiSchemaHelper:
 
     @staticmethod
     def __parse_model(form_type: Literal["query", "form"], schema: Any):
+        from ..utils.datamodel.parser.jsonschema import JsonSchemaParser
+
         BASE_MODEL_CLASS_PATTERN = r"class (\w+)\(BaseModel\):"
         MODEL_FIELD_INDENT = 4
 

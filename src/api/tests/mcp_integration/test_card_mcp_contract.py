@@ -789,16 +789,22 @@ def test_card_bundle_distinguishes_unavailable_card_from_unexpected_failure(monk
         CardMcp.get_card_bundle("project", "missing", None, None)
 
 
+@pytest.mark.parametrize("tool_name", ["get_card_bundle", "change_card_details"])
 @pytest.mark.asyncio
-async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
+async def test_missing_card_http_response_is_bad_request_before_mutation(monkeypatch, tool_name):
     from fastapi import FastAPI, Request
     from fastmcp import FastMCP
     from httpx import ASGITransport, AsyncClient
     from langboard.card_workspace.domain import CardUnavailableError
 
     route = importlib.import_module("langboard.routes.mcp.McpApi")
-    group = SimpleNamespace(activated_at=True, tools=["get_card_bundle"], user_id=None)
-    service = SimpleNamespace(mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: None)
+    group = SimpleNamespace(activated_at=True, tools=[tool_name], user_id=None)
+    update = MagicMock(side_effect=AssertionError("Unavailable cards must not reach mutation"))
+    service = SimpleNamespace(
+        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
+        card=SimpleNamespace(update=update),
+        close=lambda: None,
+    )
     monkeypatch.setattr(route, "DomainService", lambda: service)
     monkeypatch.setattr(route, "User", SimpleNamespace)
     monkeypatch.setattr(CardMcp, "_adapter", lambda *args: object())
@@ -809,11 +815,16 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
     monkeypatch.setattr(CardMcp, "query_card_bundle", missing)
     mcp = FastMCP("missing-card-http-test")
 
-    @mcp.tool(name="get_card_bundle")
-    def bundle():
-        return CardMcp.get_card_bundle("project", "missing", None, None)
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: None)
+
+    @mcp.tool(name=tool_name)
+    def execute():
+        if tool_name == "get_card_bundle":
+            return CardMcp.get_card_bundle("project", "missing", None, None)
+        return CardMcp.change_card_details("project", "missing", None, service, title="Test")
 
     monkeypatch.setattr(route.McpServer, "agent_mcp", mcp)
+    monkeypatch.setattr(route.McpServer, "mcp", mcp)
     app = FastAPI()
 
     @app.post("/mcp/tools/{tool_name}")
@@ -825,7 +836,7 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
         transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/mcp/tools/get_card_bundle", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"}
+            f"/mcp/tools/{tool_name}", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"}
         )
     assert response.status_code == 400
     assert response.json() == {
@@ -834,6 +845,7 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
         "retryable": False,
     }
     assert "unknown" not in response.text
+    update.assert_not_called()
     assert route.mcp_auth_context.get() is None
 
 

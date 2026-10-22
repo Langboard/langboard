@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type { TOpenCardsByUser } from "@/pages/DashboardPage/components/OpenCardsData";
@@ -15,6 +15,7 @@ export interface IUserSettings {
     graph_view_modes?: Record<string, "columns" | "network">;
     open_cards?: TOpenCardsByUser;
     explorer_open_cards_collapsed?: Record<string, boolean>;
+    explorer_section_order?: Record<string, string[]>;
     wiki_hint_dismissed?: Record<string, boolean>;
     workbench_context_open?: Record<string, boolean>;
     workbench_sidebar_collapsed?: Record<string, boolean>;
@@ -31,16 +32,30 @@ interface IUserSettingsStore {
 
 const USER_SETTINGS_STORE_STORAGE_KEY = "user-settings-store";
 
+const readSettings = (): IUserSettings => {
+    try {
+        const settings = JSON.parse(localStorage.getItem(USER_SETTINGS_STORE_STORAGE_KEY) || "{}");
+        return settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+    } catch {
+        // Browser preferences must not prevent app initialization. Leave the stored value intact.
+        return {};
+    }
+};
+
 const useUserSettingsStore = create(
     immer<IUserSettingsStore>((set, get) => {
         const updateStorage = () => {
             setTimeout(() => {
-                localStorage.setItem(USER_SETTINGS_STORE_STORAGE_KEY, JSON.stringify(get().settings));
+                try {
+                    localStorage.setItem(USER_SETTINGS_STORE_STORAGE_KEY, JSON.stringify(get().settings));
+                } catch {
+                    // Keep this session usable when browser storage is unavailable or full.
+                }
             }, 0);
         };
 
         return {
-            settings: JSON.parse(localStorage.getItem(USER_SETTINGS_STORE_STORAGE_KEY) || "{}"),
+            settings: readSettings(),
             updateSettingsByKey: (key, value) => {
                 set((state) => {
                     state.settings[key] = value;
@@ -74,22 +89,8 @@ const useUserSettingsStore = create(
 
 export const getUserSettingsStore = () => useUserSettingsStore.getState();
 
-export const useUserSettings = <TKey extends keyof IUserSettings>(key: TKey): IUserSettings[TKey] => {
-    const [settings, setSettings] = useState(getUserSettingsStore().settings[key]);
-
-    useEffect(() => {
-        const off = useUserSettingsStore.subscribe((state) => {
-            const newSettings = state.settings[key];
-            if (newSettings !== settings) {
-                setSettings(newSettings);
-            }
-        });
-
-        return off;
-    }, [settings, setSettings, key]);
-
-    return settings;
-};
+export const useUserSettings = <TKey extends keyof IUserSettings>(key: TKey): IUserSettings[TKey] =>
+    useUserSettingsStore((state) => state.settings[key]);
 
 export const useWorkbenchContextOpen = (userUID?: string) => {
     const saved = useUserSettings("workbench_context_open");
@@ -100,10 +101,11 @@ export const useWorkbenchContextOpen = (userUID?: string) => {
             const store = getUserSettingsStore();
             const current = store.settings.workbench_context_open ?? {};
             const previous = current[userUID] ?? true;
-            store.updateSettingsByKey("workbench_context_open", {
-                ...current,
-                [userUID]: typeof value === "function" ? value(previous) : value,
-            });
+            const next = typeof value === "function" ? value(previous) : value;
+            store.updateSettingsByKey("workbench_context_open", { ...current, [userUID]: next });
+            if (next && store.settings.workbench_sidebar_collapsed?.[userUID]) {
+                store.updateSettingsByKey("workbench_sidebar_collapsed", { ...store.settings.workbench_sidebar_collapsed, [userUID]: false });
+            }
         },
         [userUID]
     );
