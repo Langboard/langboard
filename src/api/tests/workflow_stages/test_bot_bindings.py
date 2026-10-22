@@ -1,9 +1,13 @@
 """Workflow bindings preserve native hooks, schedule eligibility and admission receipts."""
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from importlib import import_module
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -35,17 +39,47 @@ from langboard_shared.tasks.bots.WorkflowCompactionTask import (
     _utc,
     run_due_workflow_bots,
 )
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 
 
-@pytest.fixture
-def bots(monkeypatch):
-    engine = create_engine("sqlite://")
+@pytest.fixture(params=["sqlite://", "postgresql-test"])
+def bots(monkeypatch, request):
+    url = request.param
+    if url == "postgresql-test":
+        url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
+    engine = create_engine(url)
+    schema = None
+    if engine.dialect.name == "postgresql":
+        schema = "workflow_bot_test_" + uuid4().hex
+        with engine.begin() as db:
+            db.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine.dispose()
+        engine = create_engine(url, connect_args={
+            "options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=5000",
+        })
+
+    def cleanup():
+        try:
+            if schema:
+                with engine.begin() as db:
+                    db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        finally:
+            engine.dispose()
+
+    request.addfinalizer(cleanup)
     names = ["Bot", "BotSchedule", "CardBotSchedule", "CardBotScope", "ProjectBotScope", "ProjectColumnBotScope",
              "CardBotDefaultScope", "ProjectBotDefaultScope", "ProjectColumnBotDefaultScope", "User", "Project",
              "Card", "ProjectColumn", "WorkflowEffectRun", "WorkflowStageDefinition"]
-    for name in names:
-        getattr(models, name).__table__.create(engine)
+    tables = [getattr(models, name).__table__ for name in names]
+    # SQLite permits absent FK targets; PostgreSQL requires the actual dependency tables.
+    for table in tables:
+        for foreign_key in table.foreign_keys:
+            dependency = foreign_key.column.table
+            if dependency not in tables:
+                tables.append(dependency)
+    tables[0].metadata.create_all(engine, tables=tables)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     now = SafeDateTime.now()
@@ -63,6 +97,9 @@ def bots(monkeypatch):
         card = Card(project_id=project.id, project_column_id=column.id, title="Card", order=0,
                     workflow_stage_entered_key=stage.key, workflow_stage_entered_at=now)
         db.insert(card)
+        # A different valid card preserves association-mismatch semantics with PostgreSQL foreign keys.
+        other_card = Card(project_id=project.id, project_column_id=old.id, title="Other card", order=1)
+        db.insert(other_card)
         bot = Bot(name="Selected", bot_uname="selected", platform=BotPlatform.Default,
                   platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
         db.insert(bot)
@@ -85,7 +122,6 @@ def bots(monkeypatch):
         "card_uid": card.get_uid(), "executor": {"type": "user"}, "project_uid": project.get_uid(),
     })
     yield SimpleNamespace(**locals())
-    engine.dispose()
 
 
 def history():
@@ -162,7 +198,7 @@ async def test_interval_rechecks_native_schedule_eligibility(bots, case):
             f.schedule.start_at, f.schedule.end_at = f.now - timedelta(hours=2), f.now - timedelta(hours=1)
             db.update(f.schedule)
         elif case == "different_card":
-            f.association.card_id = f.card.id + 1
+            f.association.card_id = f.other_card.id
             db.update(f.association)
         elif case == "private":
             f.card.visibility = "PRIVATE"
@@ -355,7 +391,7 @@ async def test_interval_claim_revocation(bots, case):
             f.schedule.status = BotScheduleStatus.Stopped
             db.update(f.schedule)
         elif case == 'association_removed':
-            f.association.card_id = f.card.id + 1
+            f.association.card_id = f.other_card.id
             db.update(f.association)
         elif case == 'bot_deleted':
             f.bot.deleted_at = f.now
@@ -380,3 +416,41 @@ async def test_cancelled_entry_retains_uncertain_history_and_suppresses_replay(b
     assert rows[0].lease_expires_at is None
     assert _claim_workflow_bot(f.stage.id, f.card.id, binding, 'bot_entry', f.now, actor_id=f.actor.id, residency=_utc(f.card.workflow_stage_entered_at).isoformat()) is None
     assert len(history()) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["bot_entry", "bot_interval"])
+async def test_simultaneous_same_card_claims_admit_one_dispatch(bots, source):
+    f = bots
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("Concurrent row-lock admission requires PostgreSQL")
+    binding = f.stage.entry_bots[0] if source == "bot_entry" else f.stage.continuous_effects["bots"][0]
+    kwargs = ({"actor_id": f.actor.id, "residency": _utc(f.card.workflow_stage_entered_at).isoformat()}
+              if source == "bot_entry" else {})
+    competing_claims = Barrier(2)
+    backend_pids = set()
+
+    def synchronize_card_lock(connection, cursor, statement, parameters, context, executemany):
+        # Both independent DB sessions must reach the same card lock before either can acquire it.
+        if "FOR UPDATE" in statement and "FROM card " in statement:
+            backend_pids.add(connection.connection.driver_connection.info.backend_pid)
+            competing_claims.wait(timeout=5)
+
+    event.listen(f.engine, "before_cursor_execute", synchronize_card_lock)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            futures = [workers.submit(_claim_workflow_bot, f.stage.id, f.card.id, binding, source, f.now, **kwargs)
+                       for _ in range(2)]
+            claims = [future.result(timeout=15) for future in futures]
+    finally:
+        event.remove(f.engine, "before_cursor_execute", synchronize_card_lock)
+    assert len(backend_pids) == 2
+    admitted = [claim for claim in claims if claim is not None]
+    assert len(admitted) == 1
+    rows = history()
+    assert len(rows) == 1 and rows[0].status == "running" and rows[0].source == source
+    await _dispatch_workflow_bot(admitted[0], binding)
+    f.execute.assert_awaited_once()
+    rows = history()
+    assert len(rows) == 1 and rows[0].status == "accepted" and rows[0].result == {"accepted": 1}
+    assert _claim_workflow_bot(f.stage.id, f.card.id, binding, source, f.now, **kwargs) is None
