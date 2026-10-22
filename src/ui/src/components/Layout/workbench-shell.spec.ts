@@ -169,7 +169,7 @@ test("split-window Explorer collapses automatically and can be expanded or colla
     await page.goto("/src/components/Layout/workbench-shell.fixture.html");
     const sidebar = page.locator("[id^='resizable-sidebar-']").filter({ has: page.getByText("Sidebar Dashboard", { exact: true }) });
     await expect(sidebar).toHaveAttribute("data-collapsed", "true");
-    await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(52);
+    await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(28);
     const toggle = sidebar.getByRole("button").last();
     await toggle.click();
     await expect(sidebar).toHaveAttribute("data-collapsed", "false");
@@ -1053,7 +1053,7 @@ test("resizing across the minimum threshold collapses and reverse dragging expan
     await page.mouse.move(handle!.x - 220, handle!.y + 100, { steps: 12 });
     await page.mouse.up();
     await expect(sidebar).toHaveAttribute("data-collapsed", "true");
-    await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(52);
+    await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(28);
     const collapsed = await resize.boundingBox();
     await page.mouse.move(collapsed!.x + 1, collapsed!.y + 100);
     await page.mouse.down();

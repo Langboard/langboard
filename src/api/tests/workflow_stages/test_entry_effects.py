@@ -570,7 +570,7 @@ def test_large_checklist_emits_one_summary_and_batches_timer_reads(flow):
     assert sum(row[1] for row in items) == 1004 and timers == 4
 
 
-@pytest.mark.parametrize("case", ["other", "self", "no_author", "disabled", "same_stage", "denied", "unsubscribed", "rollback"])
+@pytest.mark.parametrize("case", ["other", "self", "no_author", "disabled", "same_stage", "denied", "unsubscribed", "rollback", "retry", "reorder"])
 def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flow, monkeypatch, case):
     from langboard_shared.domain.models import UserNotification
     from langboard_shared.domain.models.UserNotification import NotificationType
@@ -603,6 +603,7 @@ def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flo
             f.old.workflow_stage = f.new.workflow_stage
             db.update(f.old)
     actor = recipient.model_copy(update={"id": recipient.id if case == "self" else 2})
+    stale_card = f.card.model_copy(deep=True)
     def move():
         with DbSession.atomic():
             assert f.service.change_order(actor, f.project, f.card, 0, f.new) is True
@@ -615,7 +616,10 @@ def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flo
             move()
     else:
         move()
-    expected = case in {"other", "unsubscribed"}
+    if case in {"retry", "reorder"}:
+        # A request replay may carry the detached card from before entry.
+        assert f.service.change_order(actor, f.project, stale_card, 0, f.new if case == "retry" else None) is True
+    expected = case in {"other", "unsubscribed", "retry", "reorder"}
     with DbSession.use(readonly=False) as db:
         notes = db.exec(SqlBuilder.select.table(UserNotification)).all()
         assert len(notes) == int(expected)
@@ -626,9 +630,10 @@ def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flo
             assert note.message_vars == {"stage_key": "released", "column_name": "Released"}
             assert note.web_visible is (case != "unsubscribed")
             assert note in notification_service.repo.user_notification.get_pending_work_events()
-            run = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).first()
-            assert run.result == {"completed": 0, "stopped": 0, "notified": 1}
-    assert fanout.call_count == int(case == "other")
+            runs = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()
+            assert len(runs) == 1
+            assert runs[0].result == {"completed": 0, "stopped": 0, "notified": 1}
+    assert fanout.call_count == int(case in {"other", "retry", "reorder"})
     assert work.call_count == int(expected)
     # A notify-only effect must never finish checkitems or stop timers.
     assert snapshot(f.engine, f.card.id)[2] == 2
