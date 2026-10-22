@@ -709,3 +709,99 @@ test("native document pagination accepts 4000 Unicode codepoints", async ({ page
     await expect(page.getByLabel("Document text", { exact: true })).toHaveText(text);
     await expect(page.getByRole("button", { name: "Next document page", exact: true })).toBeVisible();
 });
+
+for (const size of [500, 5000]) {
+    test(`large cloud ${size} keeps list/grid bounded and reaches late files and links`, async ({ page }) => {
+        await page.route("**/board/*/cloud?**", (route) => {
+            const links = new URL(route.request().url()).searchParams.get("view") === "links";
+            return route.fulfill({
+                json: response(
+                    Array.from({ length: size }, (_, index) =>
+                        links ? link(`entry-${index}`) : item(`entry-${index}`, index % 2 ? "inbox" : "documents")
+                    )
+                ),
+            });
+        });
+        await page.goto(fixture);
+        for (const kind of ["Attachments", "Links"] as const) {
+            if (kind === "Links") await page.getByLabel("Categories").getByRole("button", { name: "Links", exact: true }).click();
+            const collection = page.getByRole("list", { name: kind, exact: true });
+            for (const layout of ["List", "Grid"] as const) {
+                await page.getByRole("button", { name: layout, exact: true }).click();
+                await expect(collection.getByRole("listitem").first()).toBeVisible();
+                expect(await collection.getByRole("listitem").count()).toBeLessThan(100);
+                const late =
+                    kind === "Links"
+                        ? collection.getByRole("link", { name: `Saved entry-${size - 1}`, exact: true })
+                        : collection.getByRole("button", { name: `entry-${size - 1}.pdf`, exact: true });
+                await expect
+                    .poll(async () => {
+                        await collection.evaluate((element) => {
+                            element.parentElement!.scrollTop = element.parentElement!.scrollHeight;
+                        });
+                        return late.isVisible();
+                    })
+                    .toBe(true);
+                expect(await collection.getByRole("listitem").count()).toBeLessThan(100);
+                if (kind === "Attachments") {
+                    await late.click();
+                    await expect(page.getByRole("dialog")).toBeVisible();
+                    await page.keyboard.press("Escape");
+                }
+            }
+            if (kind === "Attachments") {
+                await page.getByLabel("Folders").getByRole("button", { name: "Documents", exact: true }).click();
+                await expect(collection.getByRole("button", { name: "entry-0.pdf", exact: true })).toBeVisible();
+                await expect(collection.getByRole("button", { name: "entry-1.pdf", exact: true })).toHaveCount(0);
+                await page.getByRole("button", { name: "List", exact: true }).click();
+                await expect
+                    .poll(async () => {
+                        await collection.evaluate((element) => {
+                            element.parentElement!.scrollTop = element.parentElement!.scrollHeight;
+                        });
+                        return collection.getByRole("button", { name: `entry-${size - 2}.pdf`, exact: true }).isVisible();
+                    })
+                    .toBe(true);
+                expect(await collection.getByRole("listitem").count()).toBeLessThan(100);
+            }
+        }
+    });
+}
+
+test("keyboard Tab and Shift Tab cross virtual row boundaries", async ({ page }) => {
+    await page.route("**/board/*/cloud?**", (route) =>
+        route.fulfill({ json: response(Array.from({ length: 500 }, (_, index) => item(`keyboard-${index}`))) })
+    );
+    await page.goto(fixture);
+    const collection = page.getByRole("list", { name: "Attachments" });
+    await collection.getByRole("button", { name: "keyboard-0.pdf", exact: true }).focus();
+    for (let index = 0; index < 60; index++) await page.keyboard.press("Tab");
+    await expect(collection.getByRole("button", { name: "keyboard-20.pdf", exact: true })).toBeFocused();
+    expect(await collection.getByRole("listitem").count()).toBeLessThan(30);
+    for (let index = 0; index < 60; index++) await page.keyboard.press("Shift+Tab");
+    await expect(collection.getByRole("button", { name: "keyboard-0.pdf", exact: true })).toBeFocused();
+});
+
+test("compact panel and responsive grid retain bounded late-item access", async ({ page }) => {
+    await page.route("**/board/*/cloud?**", (route) =>
+        route.fulfill({ json: response(Array.from({ length: 5000 }, (_, index) => item(`responsive-${index}`))) })
+    );
+    await page.goto(`${fixture}?compact=true`);
+    const collection = page.getByRole("list", { name: "Attachments" });
+    await page.getByRole("button", { name: "Grid", exact: true }).click();
+    for (const width of [1100, 390, 1100]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect
+            .poll(async () => {
+                await collection.evaluate((element) => {
+                    const viewport = element.parentElement!;
+                    viewport.parentElement!.scrollTop = viewport.parentElement!.scrollHeight;
+                    viewport.scrollTop = viewport.scrollHeight;
+                });
+                return collection.getByRole("button", { name: "responsive-4999.pdf", exact: true }).isVisible();
+            })
+            .toBe(true);
+        await expect(collection.getByRole("button", { name: "responsive-4999.pdf", exact: true })).toBeInViewport();
+        expect(await collection.getByRole("listitem").count()).toBeLessThan(100);
+    }
+});

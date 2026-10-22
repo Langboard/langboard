@@ -18,7 +18,7 @@ function Fixture() {
     const [panel, setPanel] = useState(true);
     const [uid, setUID] = useState("cloud-board");
     return (
-        <div style={{ height: 820, width: "100%", maxWidth: 900 }}>
+        <div style={{ height: new URLSearchParams(window.location.search).get("compact") === "true" ? 360 : 820, width: "100%", maxWidth: 900 }}>
             <button onClick={() => setPanel((value) => !value)}>Toggle panel</button>
             <button onClick={() => setUID("other-board")}>Switch board</button>
             <button onClick={() => useAuthStore.setState({ currentUser: AuthUser.Model.fromOne({ ...base, uid: "other-reader" }) })}>

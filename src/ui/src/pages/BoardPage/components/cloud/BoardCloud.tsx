@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import CloudUpload from "./CloudUpload";
 import CloudDocument from "./CloudDocument";
 import useAuthStore from "@/core/stores/AuthStore";
@@ -196,28 +197,15 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                             ))}
                         </div>
                     )}
-                    <ul
-                        aria-label={t(category === "links" ? "cloud.Links" : "cloud.Attachments")}
-                        data-layout={layout}
-                        className={layout === "grid" ? "grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2 p-2" : "space-y-1 p-2"}
-                    >
-                        {visible.map((item) =>
-                            item.kind === "link" ? (
-                                <CloudLink key={item.id} item={item} onSource={() => openSource(item)} />
-                            ) : (
-                                <CloudFile
-                                    key={item.id}
-                                    item={item}
-                                    grid={layout === "grid"}
-                                    onPreview={() => setPreview(item)}
-                                    onSource={() => openSource(item)}
-                                    onDocument={
-                                        item.source.kind === "project" && item.attachment_uid ? () => setDocument({ item, scope }) : undefined
-                                    }
-                                />
-                            )
-                        )}
-                    </ul>
+                    <CloudCollection
+                        key={`${scope}:${category}:${folder ?? "all"}:${layout}`}
+                        items={visible}
+                        layout={layout}
+                        label={t(category === "links" ? "cloud.Links" : "cloud.Attachments")}
+                        onPreview={setPreview}
+                        onSource={openSource}
+                        onDocument={(item) => setDocument({ item, scope })}
+                    />
                     {query.hasNextPage && !query.isError && (
                         <div className="p-3">
                             <Button size="sm" variant="outline" disabled={query.isFetching} onClick={() => void query.fetchNextPage()}>
@@ -249,6 +237,101 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     );
 }
 
+function CloudCollection({
+    items,
+    layout,
+    label,
+    onPreview,
+    onSource,
+    onDocument,
+}: {
+    items: CloudItem[];
+    layout: "list" | "grid";
+    label: string;
+    onPreview: (item: CloudItem) => void;
+    onSource: (item: CloudItem) => void;
+    onDocument: (item: CloudItem) => void;
+}) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [columns, setColumns] = useState(1);
+    const [focusedRow, setFocusedRow] = useState<number>();
+    useLayoutEffect(() => {
+        const element = scrollRef.current;
+        if (!element) return;
+        const measure = () => setColumns(layout === "grid" ? Math.max(1, Math.floor((element.clientWidth - 8) / 168)) : 1);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [layout]);
+    const rowCount = Math.ceil(items.length / columns);
+    const virtualizer = useVirtualizer({
+        count: rowCount,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => (layout === "grid" ? 240 : 140),
+        getItemKey: (index) => `${columns}:${items[index * columns].id}`,
+        overscan: 3,
+        gap: 8,
+        rangeExtractor: (range) => {
+            const indexes = defaultRangeExtractor(range);
+            // Keep the focused row and its neighbors mounted so Tab can cross a virtual boundary.
+            if (focusedRow !== undefined) {
+                for (let index = Math.max(0, focusedRow - 1); index <= Math.min(rowCount - 1, focusedRow + 1); index++) indexes.push(index);
+            }
+            return [...new Set(indexes)].sort((a, b) => a - b);
+        },
+    });
+    useLayoutEffect(() => {
+        virtualizer.measure();
+    }, [columns, virtualizer]);
+    return (
+        <div
+            ref={scrollRef}
+            className="min-h-40 flex-1 overflow-auto p-2"
+            onFocusCapture={(event) => {
+                const row = event.target.closest<HTMLElement>("[data-cloud-row]");
+                if (row) setFocusedRow(Number(row.dataset.cloudRow));
+            }}
+            onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setFocusedRow(undefined);
+            }}
+        >
+            <ul aria-label={label} data-layout={layout} className="relative" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualizer.getVirtualItems().map((row) => (
+                    <li
+                        key={row.key}
+                        role="presentation"
+                        data-index={row.index}
+                        data-cloud-row={row.index}
+                        ref={virtualizer.measureElement}
+                        className="absolute left-0 top-0 w-full"
+                        style={{ transform: `translateY(${row.start}px)` }}
+                    >
+                        <ul role="presentation" className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+                            {items
+                                .slice(row.index * columns, (row.index + 1) * columns)
+                                .map((item) =>
+                                    item.kind === "link" ? (
+                                        <CloudLink key={item.id} item={item} onSource={() => onSource(item)} />
+                                    ) : (
+                                        <CloudFile
+                                            key={item.id}
+                                            item={item}
+                                            grid={layout === "grid"}
+                                            onPreview={() => onPreview(item)}
+                                            onSource={() => onSource(item)}
+                                            onDocument={item.source.kind === "project" && item.attachment_uid ? () => onDocument(item) : undefined}
+                                        />
+                                    )
+                                )}
+                        </ul>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
 function CloudFile({
     item,
     grid,
@@ -266,7 +349,7 @@ function CloudFile({
     const [failed, setFailed] = useState(false);
     const { download, isDownloading } = useDownloadFile({ url: item.url, filename: item.name, onError: () => setFailed(true) });
     return (
-        <li className="min-w-0 rounded border p-2">
+        <li role="listitem" className="min-w-0 rounded border p-2">
             {grid && item.media_type.startsWith("image/") && (
                 <button type="button" className="w-full" onClick={onPreview} aria-label={item.name}>
                     <CachedImage src={item.url} alt={item.name} className="h-24 w-full object-contain" />
@@ -319,7 +402,7 @@ function CloudFile({
 function CloudLink({ item, onSource }: { item: CloudItem; onSource: () => void }) {
     const [t] = useTranslation();
     return (
-        <li className="min-w-0 rounded border p-2">
+        <li role="listitem" className="min-w-0 rounded border p-2">
             <a
                 href={item.url}
                 target="_blank"
