@@ -152,12 +152,27 @@ def test_queries_bypass_cache_and_corrupt_vectors_are_rejected(binding_store):  
         assert rows() == []
         cache.embed_documents(["alpha"])
         retain(cache)
+    # A dimension mismatch is valid JSON on both databases and must still be
+    # rejected by the cache reader. PostgreSQL itself rejects Infinity in JSON.
     with DbSession.atomic() as db:
-        db.exec(update(DocumentEmbeddingCache).values(vector=[float("inf"), 2.0, 3.0]))
+        db.exec(update(DocumentEmbeddingCache).values(vector=[1.0, 2.0]))
     with cached_document_embeddings(provider, **config()) as corrupt:
         with pytest.raises(ValueError, match="dimension or numeric"):
             corrupt.embed_documents(["alpha"])
     assert len(provider.calls) == 1
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from sqlalchemy.exc import DataError
+
+    if DbEngine.get_main_engine().dialect.name == "postgresql":
+        with pytest.raises(DataError):
+            with DbSession.atomic() as db:
+                db.exec(update(DocumentEmbeddingCache).values(vector=[float("inf"), 2.0, 3.0]))
+    else:
+        with DbSession.atomic() as db:
+            db.exec(update(DocumentEmbeddingCache).values(vector=[float("inf"), 2.0, 3.0]))
+        with cached_document_embeddings(provider, **config()) as corrupt:
+            with pytest.raises(ValueError, match="dimension or numeric"):
+                corrupt.embed_documents(["alpha"])
 
 
 def test_activation_rollback_keeps_references_pending(binding_store):  # noqa: F811

@@ -19,10 +19,12 @@ from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ...domain.models.DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from .DocumentEmbedding import validated_embeddings
+from .DocumentSplitter import DocumentSplitterSettings
 
 
 PENDING_REFERENCE_HOURS = 8
 INFERENCE_BATCH_SIZE = 32
+CHUNK_VERSION = "v1"
 
 
 class EmbeddingCacheUnavailable(RuntimeError):
@@ -107,7 +109,8 @@ def recover_expired_cache_references(*, limit=100):
 
 class CachedDocumentEmbeddings:
     def __init__(
-        self, embeddings, *, binding_uid, content_hash, fingerprint, dimensions, timeout_seconds
+        self, embeddings, *, binding_uid, content_hash, fingerprint, dimensions, timeout_seconds,
+        splitter=None, chunk_version=CHUNK_VERSION,
     ):
         if not isinstance(binding_uid, str) or not binding_uid:
             raise ValueError("An authoritative embedding binding is required")
@@ -118,7 +121,13 @@ class CachedDocumentEmbeddings:
         if type(timeout_seconds) not in (int, float) or not isfinite(timeout_seconds) or not 1 <= timeout_seconds <= 30:
             raise ValueError("Embedding timeout must be finite and between 1 and 30 seconds")
         self.embeddings = validated_embeddings(embeddings, dimensions)
-        self.namespace = ["v1", binding_uid, content_hash, fingerprint, dimensions]
+        if not isinstance(chunk_version, str) or not chunk_version:
+            raise ValueError("An authoritative chunk version is required")
+        splitter = DocumentSplitterSettings.model_validate(splitter or {})
+        self.namespace = [
+            "v2", binding_uid, content_hash, fingerprint, chunk_version,
+            splitter.model_dump(mode="json"), dimensions,
+        ]
         self.timeout_seconds = timeout_seconds
         self.token = uuid4().hex
         self.retained = False
@@ -349,6 +358,13 @@ def cached_document_embeddings(embeddings, **kwargs):
     cache = CachedDocumentEmbeddings(embeddings, **kwargs)
     try:
         yield cache
+    except BaseException:
+        # Successful inference can precede a failed vector-store write. Keep its
+        # pending references for bounded retry reuse; the normal expiry worker
+        # removes abandoned results. No attachment pointer is published here.
+        if cache._ready:
+            cache.uncertain = True
+        raise
     finally:
         if not cache.retained and not cache.uncertain:
             release_cache_references(cache.token)

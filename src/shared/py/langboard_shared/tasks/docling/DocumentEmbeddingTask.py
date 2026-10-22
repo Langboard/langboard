@@ -9,7 +9,7 @@ from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
 from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
-from .DocumentEmbeddingCache import cached_document_embeddings, release_cache_references
+from .DocumentEmbeddingCache import CHUNK_VERSION, cached_document_embeddings, release_cache_references
 from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrievalSettings
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
@@ -126,6 +126,7 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
         )
         if (
             old.get("status") == "indexed"
+            and old.get("chunk_version", "v1") == CHUNK_VERSION
             and old.get("source_generation") == generation
             and isinstance(old.get("config"), dict)
             and old["config"].get("retrieval", {}).get("splitter") == snapshot.get("retrieval", {}).get("splitter")
@@ -150,6 +151,7 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
         with cached_document_embeddings(
             embeddings, binding_uid=snapshot["binding_uid"], content_hash=content_hash,
             fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
+            splitter=settings.splitter,
         ) as cache:
             context = open_document_vector_store(settings, cache, fingerprint, directory, vector_allowed)
             with context as store:
@@ -196,7 +198,10 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
                         attachment_uid,
                         generation,
                         content_hash,
-                        {"status": "indexed", "pointer": pointer, "source_generation": generation, "config": snapshot},
+                        {
+                            "status": "indexed", "pointer": pointer, "source_generation": generation,
+                            "config": snapshot, "chunk_version": CHUNK_VERSION,
+                        },
                         expected_embedding=old,
                     )
                 except Exception:
