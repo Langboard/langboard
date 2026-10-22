@@ -8,6 +8,10 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.ProjectTemplateService import (
+    ProjectCreationConflict,
+    ProjectCreationUnavailable,
+)
 from langboard_shared.security import Auth
 from .DashboardForm import DashboardPagination, DashboardProjectCreateForm, RecentCardPairsAvailabilityForm
 
@@ -126,7 +130,12 @@ def create_project(
             form.description,
             form.project_type,
             form.template_name,
+            request_uuid=str(form.request_uuid) if form.request_uuid else None,
         )
+    except ProjectCreationConflict as exc:
+        raise ApiException.Conflict_409(ApiErrorCode.VA0000) from exc
+    except ProjectCreationUnavailable as exc:
+        raise ApiException.Forbidden_403(ApiErrorCode.VA0000) from exc
     except ValueError as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     return JsonResponse(content={"project_uid": project.get_uid()}, status_code=status.HTTP_201_CREATED)

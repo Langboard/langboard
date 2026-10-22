@@ -41,12 +41,14 @@ function CreateProjectFormDialogContent({ opened, setOpened, onCreated }: ICreat
     const [templateName, setTemplateName] = useState<string>();
     // Native mutation state survives a dialog close, preventing overlapping source creation.
     const creationPending = useIsMutating({ mutationKey: ["create-project"] }) > 0;
+    const [requestUUID] = useState(() => crypto.randomUUID());
     const projectTypeRef = useRef("");
     const projectTypeInputRef = useRef<HTMLInputElement>(null);
     const { errors, isValidating, handleSubmit, formRef } = useForm({
         errorLangPrefix: "project.errors",
         schema: {
             title: { required: true },
+            request_uuid: {},
             description: {},
             project_type: { required: true },
             ...(templateName ? { template_name: {} } : {}),
@@ -100,6 +102,7 @@ function CreateProjectFormDialogContent({ opened, setOpened, onCreated }: ICreat
                     }}
                     ref={formRef}
                 >
+                    <Input type="hidden" name="request_uuid" value={requestUUID} />
                     <Dialog.Header>
                         <Dialog.Title>{t("dashboard.Create New Project")}</Dialog.Title>
                     </Dialog.Header>

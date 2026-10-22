@@ -252,3 +252,39 @@ for (const action of ["close", "switch account", "complete"] as const) {
         }
     });
 }
+
+for (const width of [1280, 390]) {
+    test(`native creation retry preserves draft UUID and new draft changes it at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        const requests: { request_uuid: string; title: string }[] = [];
+        await page.route("**/account/project-collections", (route) => route.fulfill({ json: { revision: 0, collections: [] } }));
+        await page.route("**/settings/project-templates", (route) => route.fulfill({ json: { templates: [] } }));
+        await page.route("**/dashboard/projects/new", (route) => {
+            requests.push(route.request().postDataJSON());
+            // The server committed the first request, but its response was lost.
+            if (requests.length === 1) return route.abort("failed");
+            return route.fulfill({ json: { project_uid: "00000000003" } });
+        });
+        await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html");
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        await page.getByRole("button", { name: "Create source board", exact: true }).click();
+        let source = page.getByRole("dialog").last();
+        await source.locator("input[name=title]").fill("Retained native source");
+        await source.getByRole("combobox").first().fill("Other");
+        await source.getByRole("button", { name: "Create", exact: true }).click();
+        await expect.poll(() => requests.length).toBe(1);
+        await expect(source.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
+        await source.getByRole("button", { name: "Create", exact: true }).click();
+        await expect.poll(() => requests.length).toBe(2);
+        expect(requests[0].request_uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+        expect(requests[1]).toEqual(requests[0]);
+        await expect(page.getByRole("checkbox", { name: "Created source", exact: true })).toBeChecked();
+        await page.getByRole("button", { name: "Create source board", exact: true }).click();
+        source = page.getByRole("dialog").last();
+        await source.locator("input[name=title]").fill("A new creation draft");
+        await source.getByRole("combobox").first().fill("Other");
+        await source.getByRole("button", { name: "Create", exact: true }).click();
+        await expect.poll(() => requests.length).toBe(3);
+        expect(requests[2].request_uuid).not.toBe(requests[0].request_uuid);
+    });
+}

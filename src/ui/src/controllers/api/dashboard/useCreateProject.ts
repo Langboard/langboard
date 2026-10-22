@@ -7,6 +7,7 @@ interface ICreateProjectForm {
     description?: string;
     project_type: string;
     template_name?: string;
+    request_uuid?: string;
 }
 
 interface ICreateProjectResponse {
