@@ -331,6 +331,7 @@ function ProjectExplorerItem({
     onClick: () => void;
     onNavigate?: () => void;
 }) {
+    const [t] = useTranslation();
     const split = useBoardSplit();
     const title = project.useField("title");
     const starred = project.useField("starred");
@@ -360,7 +361,7 @@ function ProjectExplorerItem({
                     variant="ghost"
                     size="icon"
                     className="hidden size-6 opacity-0 focus:opacity-100 group-hover:opacity-100 md:inline-flex"
-                    aria-label={`Open ${title} in split view`}
+                    aria-label={t("common.Open {{title}} in split view", { title })}
                     disabled={split.panes.length >= 2}
                     onClick={() => split.open(project.uid)}
                 >

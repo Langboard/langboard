@@ -1,5 +1,6 @@
 import { flushSync } from "react-dom";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Outlet } from "react-router";
 import { BoardController } from "@/core/providers/BoardController";
 import { BoardSplitChrome, BoardSplitPaneContext, BoardSplitProvider, useBoardSplitContext } from "@/core/providers/BoardSplitProvider";
@@ -20,6 +21,7 @@ function BoardPane() {
 }
 
 function BoardWorkspace() {
+    const [t] = useTranslation();
     const split = useBoardSplitContext()!;
     const [mobile, setMobile] = useState(window.innerWidth < ScreenMap.size.md);
     useEffect(() => {
@@ -35,7 +37,7 @@ function BoardWorkspace() {
                         key={pane.id}
                         data-board-pane={pane.id}
                         data-board-pane-focused={split.focusedPane === pane.id ? "true" : "false"}
-                        aria-label="Board pane"
+                        aria-label={t("common.Board pane")}
                         hidden={mobile && split.focusedPane !== pane.id}
                         className={cn(
                             "relative min-w-0 flex-1 overflow-hidden",

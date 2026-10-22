@@ -239,7 +239,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                             ]);
                         }}
                     >
-                        <option value="">Select bot</option>
+                        <option value="">{t("settings.Select bot")}</option>
                         {botOptions.bots.map((bot) => (
                             <option
                                 key={bot.uid}
