@@ -147,6 +147,13 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
     finally:
         event.remove(engine, "before_cursor_execute", capture)
     payload = json.loads(response.body)
+    timing_header = response.headers["Server-Timing"]
+    assert "snapshot_rows;dur=" in timing_header
+    assert "snapshot_work_states;dur=" in timing_header
+    assert "snapshot_projection;dur=" in timing_header
+    assert project.get_uid() not in timing_header
+    assert all(card.get_uid() not in timing_header for card in rows.values())
+    assert all(card.title not in timing_header for card in rows.values())
     assert {card["title"] for card in payload["cards"]} == {"Visible", "Recent archive", "Own private"}
     assert {item["title"] for item in payload["checklists"]} == {
         "Visible checklist",
@@ -182,4 +189,6 @@ def test_board_response_reads_checklists_once_and_preserves_scope(board, monkeyp
         event.remove(engine, "before_cursor_execute", capture)
     rejected_payload = json.loads(rejected.body)
     assert rejected_payload["cards"] == rejected_payload["checklists"] == []
+    assert "snapshot_context;dur=" in rejected.headers["Server-Timing"]
+    assert "snapshot_rows;dur=" not in rejected.headers["Server-Timing"]
     assert selects == []

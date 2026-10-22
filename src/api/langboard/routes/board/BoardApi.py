@@ -430,8 +430,9 @@ def get_project_cards(
     columns = service.project_column.get_api_list_by_project(project, context=context)
     archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
     timings.append(perf_counter())
+    snapshot_timings: dict[str, float] = {}
     cards, raw_checklists = service.card.get_board_snapshot(
-        project, user_or_bot, archive_visible_since, channel=channel
+        project, user_or_bot, archive_visible_since, channel=channel, phase_timings=snapshot_timings
     )
     timings.append(perf_counter())
     checklists = [checklist.api_response() for checklist in raw_checklists]
@@ -467,6 +468,10 @@ def get_project_cards(
             timings[1:],
         )
     )
+    if snapshot_timings:
+        response.headers["Server-Timing"] += ", " + ", ".join(
+            f"{name};dur={duration:.3f}" for name, duration in snapshot_timings.items()
+        )
     return response
 
 

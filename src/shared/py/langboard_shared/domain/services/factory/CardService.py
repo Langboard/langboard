@@ -704,9 +704,21 @@ class CardService(BaseDomainService):
         archive_visible_since: SafeDateTime | None = None,
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        phase_timings: dict[str, float] | None = None,
     ) -> tuple[list[dict[str, Any]], list[Checklist]]:
         """Return board cards and their already-read user checklist rows together."""
+        last_phase_at = monotonic_ns() if phase_timings is not None else 0
+
+        def mark_phase(name: str) -> None:
+            nonlocal last_phase_at
+            if phase_timings is None:
+                return
+            now = monotonic_ns()
+            phase_timings[name] = max(0, now - last_phase_at) / 1_000_000
+            last_phase_at = now
+
         resolved = self.resolve_visibility_context(project, user_or_bot, channel)
+        mark_phase("snapshot_context")
         if resolved is None:
             return [], []
 
@@ -714,6 +726,7 @@ class CardService(BaseDomainService):
         if archive_visible_since is None:
             archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
         raw_cards = self.repo.card.get_board_list(project, archive_visible_since, context=context)
+        mark_phase("snapshot_rows")
         if not raw_cards:
             return [], []
         visible_cards = {card.id: card for card, _ in raw_cards}
@@ -723,6 +736,7 @@ class CardService(BaseDomainService):
             if card_assigned_user.card_id not in members:
                 members[card_assigned_user.card_id] = []
             members[card_assigned_user.card_id].append(member.get_uid())
+        mark_phase("snapshot_members")
 
         raw_relationships = self.repo.card_relationship.get_all_by_project(
             project, archive_visible_since, context=context
@@ -749,6 +763,7 @@ class CardService(BaseDomainService):
             projection = CardRelationshipService.public_relationship(relationship, relation_type)
             relationships[relationship.card_id_parent].append(projection)
             relationships[relationship.card_id_child].append(projection)
+        mark_phase("snapshot_relations")
 
         raw_labels = self.repo.project_label.get_all_card_labels_by_project(
             project, archive_visible_since, context=context
@@ -758,8 +773,10 @@ class CardService(BaseDomainService):
             if card_label.card_id not in labels:
                 labels[card_label.card_id] = []
             labels[card_label.card_id].append(label.api_response())
+        mark_phase("snapshot_labels")
 
         creators = self.repo.card.get_board_creators(project, archive_visible_since, context=context)
+        mark_phase("snapshot_creators")
         raw_checklists = self.repo.checklist.get_all_by_project(
             project,
             archive_visible_since=archive_visible_since,
@@ -769,8 +786,11 @@ class CardService(BaseDomainService):
             checklist.card_id: checklist.is_checked for checklist in raw_checklists if checklist.is_system
         }
         user_checklist_card_ids = {checklist.card_id for checklist in raw_checklists if not checklist.is_system}
+        mark_phase("snapshot_checklists")
         active_workers_by_card = self.get_active_workers(project, context=context)
+        mark_phase("snapshot_workers")
         work_states = self.get_work_states([card for card, _ in raw_cards], context=context)
+        mark_phase("snapshot_work_states")
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
         seen_map: dict[int, int] = {}
@@ -783,6 +803,7 @@ class CardService(BaseDomainService):
             board_seq = max((card.last_change_seq for card, _ in raw_cards), default=0)
             if assigned is not None and board_seq > (assigned.board_seen_seq or 0):
                 self.repo.project_assigned_user.advance_board_seen(user, project, board_seq)
+        mark_phase("snapshot_unread")
 
         cards = []
         linked_cards = [card for card, _ in raw_cards if getattr(card, "is_linked_resource", False)]
@@ -791,6 +812,7 @@ class CardService(BaseDomainService):
             if linked_cards
             else {}
         )
+        mark_phase("snapshot_linked")
         for card, count_comment in raw_cards:
             is_check_card = (
                 bool(card.deadline_at) or not card.description.content.strip()
@@ -823,6 +845,7 @@ class CardService(BaseDomainService):
                 }
             cards.append(api_card)
 
+        mark_phase("snapshot_projection")
         return cards, [checklist for checklist in raw_checklists if not checklist.is_system]
 
     def get_active_workers(
