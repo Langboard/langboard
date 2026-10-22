@@ -192,5 +192,17 @@
   "Unavailable": "Unavailable",
   "Incomplete time evidence": "Time evidence is incomplete. Total and running count are unavailable.",
   "Known partial seconds": "Known partial time: {{seconds}} seconds (not the total).",
-  "Unknown time items": "Items with unknown time: {{count, number}}"
+  "Unknown time items": "Items with unknown time: {{count, number}}",
+  "Could not load relationships": "Could not load relationships",
+  "Loading relationships": "Loading relationships",
+  "More relationships": "More relationships",
+  "Collapse relationships for {{title}}": "Collapse relationships for {{title}}",
+  "Expand relationships for {{title}}": "Expand relationships for {{title}}",
+  "Already in this branch": "Already in this branch",
+  "Open this card to continue": "Open this card to continue",
+  "Sign in to view work": "Sign in to view work",
+  "Work groups": "Work groups",
+  "All work": "All work",
+  "Work shown": "{{shown}} of {{total}} work items",
+  "Load more work": "Load more work"
 }

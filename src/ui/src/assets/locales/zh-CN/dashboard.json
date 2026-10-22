@@ -192,5 +192,17 @@
   "Unavailable": "无法确定",
   "Incomplete time evidence": "时间依据不完整，无法确定总时间和运行中项目数量。",
   "Known partial seconds": "已知部分时间：{{seconds}}秒（并非总时间）。",
-  "Unknown time items": "时间未知的项目：{{count, number}}"
+  "Unknown time items": "时间未知的项目：{{count, number}}",
+  "Could not load relationships": "无法加载关系",
+  "Loading relationships": "正在加载关系",
+  "More relationships": "查看更多关系",
+  "Collapse relationships for {{title}}": "收起{{title}}的关系",
+  "Expand relationships for {{title}}": "展开{{title}}的关系",
+  "Already in this branch": "此卡片已在当前路径中",
+  "Open this card to continue": "打开此卡片以继续浏览",
+  "Sign in to view work": "登录以查看工作",
+  "Work groups": "工作分组",
+  "All work": "全部工作",
+  "Work shown": "共 {{total}} 项工作，已显示 {{shown}} 项",
+  "Load more work": "加载更多工作"
 }

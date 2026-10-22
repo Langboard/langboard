@@ -77,6 +77,8 @@ import {
     WORKBENCH_OPEN_RELATIONS_EVENT,
     WORKBENCH_TOGGLE_CONTEXT_EVENT,
 } from "@/pages/DashboardPage/components/WorkbenchCommands";
+import { currentMyWorkWorkspaceFilter, type MyWorkWorkspaceSelection } from "./components/board/MyWorkWorkspaceFilter";
+import type { MyWorkFilter } from "@/pages/DashboardPage/my-work-context/MyWorkContext";
 import { closeProject } from "@/pages/DashboardPage/components/OpenCardsStore";
 
 const BoardAutomationRuns = lazy(() => import("./BoardAutomationRuns"));
@@ -270,6 +272,15 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     const { currentUser } = useAuth();
     const flippedCards = useFlippedCards(currentUser?.uid ?? "", project.uid);
     const navigate = usePageNavigateRef();
+    const myWorkWorkspaceRef = useRef<HTMLDivElement>(null);
+    const identityVersion = useAuthStore((state) => state.getIdentityVersion());
+    const [myWorkSelection, setMyWorkSelection] = useState<MyWorkWorkspaceSelection | null>(null);
+    const myWorkFilter = currentMyWorkWorkspaceFilter(myWorkSelection, currentUser?.uid, identityVersion, project.uid);
+    const selectMyWorkFilter = (filter: MyWorkFilter) => {
+        if (!currentUser) return;
+        setMyWorkSelection({ actorUID: currentUser.uid, identityVersion, projectUID: project.uid, filter });
+        if (isMobile) setActiveSidePanel(undefined);
+    };
     const [isCardExpanded, setIsCardExpanded] = useState(false);
     const [activeSidePanel, setActiveSidePanel] = useState<TBoardSidePanel>();
     const [chatPanelOpened, setChatPanelOpened] = useState(false);
@@ -303,6 +314,11 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     }[workbenchContextMode];
     const [isContextOpen, setIsContextOpen] = useWorkbenchContextOpen(currentUser?.uid);
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
+    useEffect(() => {
+        if (!isMobile || !myWorkFilter) return;
+        const frame = requestAnimationFrame(() => myWorkWorkspaceRef.current?.focus({ preventScroll: true }));
+        return () => cancelAnimationFrame(frame);
+    }, [isMobile, myWorkFilter]);
     const isBotScopeOpened = activeSidePanel === "botScope";
     const collapsedPanels = useUserSettings("workbench_sidebar_collapsed");
     const isWorkbenchContextVisible =
@@ -924,9 +940,15 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                     ) : workbenchContextMode === "my-work" ? (
                                         <div className="h-full overflow-y-auto">
                                             <MyWorkSidebar
+                                                key={`${currentUser?.uid}:${identityVersion}:${project.uid}`}
                                                 compact
                                                 projectUID={project.uid}
-                                                onNavigate={() => isMobile && setActiveSidePanel(undefined)}
+                                                filter={myWorkFilter ?? { projectUID: project.uid, group: null }}
+                                                onFilterChange={selectMyWorkFilter}
+                                                onNavigate={() => {
+                                                    setMyWorkSelection(null);
+                                                    if (isMobile) setActiveSidePanel(undefined);
+                                                }}
                                             />
                                         </div>
                                     ) : workbenchContextMode === "schedule" ? (
@@ -1006,42 +1028,65 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                     >
                         <BoardViewportProvider>
                             <Box className="relative min-w-0 flex-1">
-                                <Box
-                                    className={cn(
-                                        "relative size-full",
-                                        isCardPage &&
-                                            isCardExpanded &&
-                                            !selectCardViewType &&
-                                            "pointer-events-none absolute inset-0 -z-[9999] overflow-hidden"
+                                <div inert={!!myWorkFilter} className={cn("size-full", myWorkFilter && "pointer-events-none invisible")}>
+                                    <Box
+                                        className={cn(
+                                            "relative size-full",
+                                            isCardPage &&
+                                                isCardExpanded &&
+                                                !selectCardViewType &&
+                                                "pointer-events-none absolute inset-0 -z-[9999] overflow-hidden"
+                                        )}
+                                    >
+                                        <Suspense fallback={<SkeletonComponent />}>
+                                            <PageComponent key={project.uid} project={project} currentUser={currentUser} />
+                                        </Suspense>
+                                    </Box>
+                                    {isCardPage && (
+                                        <SuspenseComponent isPage>
+                                            <BoardCardPage
+                                                key={pageRoute}
+                                                projectUID={project.uid}
+                                                cardUID={pageRoute}
+                                                embedded
+                                                isExpanded={isCardExpanded}
+                                                setIsExpanded={setIsCardExpanded}
+                                            />
+                                        </SuspenseComponent>
                                     )}
-                                >
-                                    <Suspense fallback={<SkeletonComponent />}>
-                                        <PageComponent key={project.uid} project={project} currentUser={currentUser} />
-                                    </Suspense>
-                                </Box>
-                                {isCardPage && (
-                                    <SuspenseComponent isPage>
-                                        <BoardCardPage
-                                            key={pageRoute}
-                                            projectUID={project.uid}
-                                            cardUID={pageRoute}
-                                            embedded
-                                            isExpanded={isCardExpanded}
-                                            setIsExpanded={setIsCardExpanded}
-                                        />
-                                    </SuspenseComponent>
+                                    {!isCardPage &&
+                                        !selectCardViewType &&
+                                        (isMobile || boardChat || renderedViewType === "board" || flippedCards.length > 0) && (
+                                            <BoardFloatingNavigation
+                                                key={project.uid}
+                                                project={project}
+                                                currentUser={currentUser}
+                                                dockEnabled={renderedViewType === "board"}
+                                                items={[]}
+                                            />
+                                        )}
+                                </div>
+                                {myWorkFilter && (
+                                    <div
+                                        ref={myWorkWorkspaceRef}
+                                        tabIndex={-1}
+                                        className="absolute inset-0 overflow-y-auto bg-background"
+                                        data-my-work-workspace=""
+                                    >
+                                        <Suspense fallback={<SkeletonBoard />}>
+                                            <MyWorkSidebar
+                                                projectUID={project.uid}
+                                                filter={myWorkFilter}
+                                                onFilterChange={selectMyWorkFilter}
+                                                onClear={() => setMyWorkSelection(null)}
+                                                onNavigate={() => {
+                                                    setMyWorkSelection(null);
+                                                    if (isMobile) setActiveSidePanel(undefined);
+                                                }}
+                                            />
+                                        </Suspense>
+                                    </div>
                                 )}
-                                {!isCardPage &&
-                                    !selectCardViewType &&
-                                    (isMobile || boardChat || renderedViewType === "board" || flippedCards.length > 0) && (
-                                        <BoardFloatingNavigation
-                                            key={project.uid}
-                                            project={project}
-                                            currentUser={currentUser}
-                                            dockEnabled={renderedViewType === "board"}
-                                            items={[]}
-                                        />
-                                    )}
                             </Box>
                         </BoardViewportProvider>
                     </Flex>

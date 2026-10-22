@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
 import Button from "@/components/base/Button";
-import useGetWikis from "@/controllers/api/wiki/useGetWikis";
+import useGetWikiSummaries from "@/controllers/api/wiki/useGetWikiSummaries";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -10,8 +10,8 @@ export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUI
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const location = usePageLocation();
-    const { data, isFetching, error, refetch } = useGetWikis({ project_uid: projectUID });
-    const wikis = data?.wikis.filter((wiki) => !wiki.forbidden && !wiki.isInBin) ?? [];
+    const { data, isFetching, error, refetch, fetchNextPage, hasNextPage, isFetchNextPageError } = useGetWikiSummaries(projectUID);
+    const wikis = data?.pages.flatMap((page) => page.items) ?? [];
     const open = (url: string) => {
         navigate(url);
         onNavigate?.();
@@ -29,7 +29,13 @@ export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUI
                 {error ? (
                     <div role="alert" className="flex flex-wrap items-center gap-2 px-2 py-3">
                         <span className="text-sm text-muted-foreground">{t("dashboard.Could not load wikis")}</span>
-                        <Button type="button" size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isFetching}
+                            onClick={() => void (isFetchNextPageError ? fetchNextPage() : refetch())}
+                        >
                             {t("dashboard.Retry")}
                         </Button>
                     </div>
@@ -42,10 +48,10 @@ export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUI
                     <p className="px-2 py-3 text-sm text-muted-foreground">{t("dashboard.No wikis")}</p>
                 ) : (
                     wikis.map((wiki) => {
-                        const route = ROUTES.BOARD.WIKI_PAGE(projectUID, wiki.uid);
+                        const route = ROUTES.BOARD.WIKI_PAGE(projectUID, wiki.wiki_uid);
                         return (
                             <button
-                                key={wiki.uid}
+                                key={wiki.wiki_uid}
                                 type="button"
                                 aria-current={location.pathname === route ? "page" : undefined}
                                 className={cn(
@@ -60,6 +66,18 @@ export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUI
                         );
                     })
                 )}
+                {data && hasNextPage && !error ? (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="btn btn-sm btn-outline mt-2 w-full"
+                        disabled={isFetching}
+                        onClick={() => void fetchNextPage()}
+                    >
+                        {t("common.More")}
+                    </Button>
+                ) : null}
             </div>
         </nav>
     );

@@ -49,6 +49,10 @@ on:
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.workbench.config.ts
+      - src/ui/playwright.wiki-summary.config.ts
+      - src/ui/playwright.my-work-context.config.ts
+      - src/api/tests/fixtures/my_work_workspace_server.py
+      - src/api/tests/test_dashboard_my_work.py
       - src/ui/playwright.schedule-workload.config.ts
       - src/ui/playwright.board-automation-runs.config.ts
       - src/ui/src/components/Layout/automation-runs.*
@@ -139,6 +143,13 @@ jobs:
         working-directory: src/ui
       - run: yarn test:ollama-model-store
         working-directory: src/ui
+      - name: Verify native socket dispatch and scoped observers
+        run: yarn test:socket-runtime
+        working-directory: src/ui
+      - name: Verify summary invalidation and native relationship sequencing
+        run: |
+          node --experimental-strip-types --test src/controllers/api/WorkspaceSummaryInvalidation.test.ts src/controllers/socket/card/useCardRelationshipsUpdatedHandlers.test.mjs src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs
+        working-directory: src/ui
       - run: yarn playwright install --with-deps chrome
         working-directory: src/ui
       - run: yarn playwright test -c playwright.card-deeplink.config.ts
@@ -203,6 +214,9 @@ jobs:
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts
         working-directory: src/ui
+      - name: Verify My Work response and pane ownership
+        run: node --experimental-strip-types --test src/pages/BoardPage/components/board/MyWorkWorkspaceFilter.test.ts src/pages/DashboardPage/my-work-context/MyWorkContext.test.ts
+        working-directory: src/ui
       - run: yarn playwright test -c playwright.explorer-recovery.config.ts
         if: github.event_name == 'workflow_dispatch'
         working-directory: src/ui
@@ -241,4 +255,25 @@ jobs:
       - name: Verify native Automation run boundaries
         if: github.event_name == 'workflow_dispatch'
         run: yarn playwright test -c playwright.board-automation-runs.config.ts
+        working-directory: src/ui
+      - name: Verify bounded Wiki metadata and lazy Relations trees
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          yarn playwright test -c playwright.wiki-summary.config.ts
+          yarn playwright test -c src/pages/BoardPage/components/board/relations-tree-tests/playwright.config.ts
+        working-directory: src/ui
+      - uses: astral-sh/setup-uv@v6
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          python-version: "3.12"
+      - name: Prepare native My Work fixture dependencies
+        if: github.event_name == 'workflow_dispatch'
+        run: uv sync --locked --extra keyword-search
+      - name: Verify My Work native HTTP and workspace behavior
+        if: github.event_name == 'workflow_dispatch'
+        run: yarn playwright test -c playwright.my-work-context.config.ts
         working-directory: src/ui

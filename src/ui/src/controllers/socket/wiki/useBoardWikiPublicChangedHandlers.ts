@@ -1,3 +1,5 @@
+import { queryClient } from "@/core/helpers/QueryClient";
+import { resetWorkspaceSummaryQueries } from "@/controllers/api/WorkspaceSummaryInvalidation";
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
 import { AuthUser, ProjectWiki } from "@/core/models";
@@ -23,6 +25,7 @@ const useBoardWikiPublicChangedHandlers = ({ callback, projectUID, currentUser, 
             params: { uid: wiki.uid },
             callback,
             responseConverter: (data) => {
+                resetWorkspaceSummaryQueries(queryClient, "wiki-summaries", projectUID, data);
                 ProjectWiki.Model.fromOne(data.wiki, true);
                 if (!wiki.is_public && !currentUser.is_admin) {
                     if (!wiki.assigned_members.some((member) => member.uid === currentUser.uid)) {
