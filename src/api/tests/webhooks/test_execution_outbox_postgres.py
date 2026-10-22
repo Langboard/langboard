@@ -175,7 +175,8 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
     admin = create_engine(DATABASE_URL)
     with admin.begin() as connection:
         connection.execute(text(f"CREATE SCHEMA {schema}"))
-    engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
+    # This fixture persists explicit UTC binding revisions, matching application snapshots.
+    engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema} -ctimezone=UTC"})
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
 
