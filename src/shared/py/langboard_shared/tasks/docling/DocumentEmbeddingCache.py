@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ...domain.models.DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
-from .DocumentEmbedding import validated_embeddings
+from .DocumentEmbedding import embedding_inference_budget_seconds, validated_embeddings
 from .DocumentSplitter import DocumentSplitterSettings
 
 
@@ -129,6 +129,7 @@ class CachedDocumentEmbeddings:
             splitter.model_dump(mode="json"), dimensions,
         ]
         self.timeout_seconds = timeout_seconds
+        self.inference_budget_seconds = embedding_inference_budget_seconds(timeout_seconds)
         self.token = uuid4().hex
         self.retained = False
         self.uncertain = False
@@ -185,7 +186,7 @@ class CachedDocumentEmbeddings:
                             )
                             .values(
                                 lease_token=self.token,
-                                lease_expires_at=now + timedelta(seconds=2 * self.timeout_seconds + 30),
+                                lease_expires_at=now + timedelta(seconds=self.inference_budget_seconds),
                             )
                         )
                         == 1
@@ -218,7 +219,7 @@ class CachedDocumentEmbeddings:
                     DocumentEmbeddingCache.lease_token == self.token,
                     DocumentEmbeddingCache.lease_expires_at > SafeDateTime.now(),
                 )
-                .values(lease_expires_at=SafeDateTime.now() + timedelta(seconds=2 * self.timeout_seconds + 30))
+                .values(lease_expires_at=SafeDateTime.now() + timedelta(seconds=self.inference_budget_seconds))
             )
             if changed != len(identifiers):
                 raise EmbeddingCacheUnavailable("Inference lease no longer belongs to this attempt")
@@ -302,7 +303,7 @@ class CachedDocumentEmbeddings:
                         if changed != 1:
                             raise EmbeddingCacheUnavailable("Inference lease no longer belongs to this attempt")
                         vectors[key] = vector
-            deadline = time.monotonic() + 2 * self.timeout_seconds + 5
+            deadline = time.monotonic() + self.inference_budget_seconds
             while len(vectors) < len(unique):
                 with DbSession.use(readonly=False) as db:
                     rows = db.exec(

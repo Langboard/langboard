@@ -11,6 +11,23 @@ if TYPE_CHECKING:
 
 
 SUPPORTED_PROVIDERS = frozenset({"OpenAI", "OpenAI Compatible", "LiteLLM"})
+EMBEDDING_MAX_RETRIES = 1
+# OpenAI 3.24.0 accepts Retry-After delays up to 120 seconds, including retry-after-ms.
+# Recheck this bound with the official-client regression when upgrading the SDK lock.
+EMBEDDING_MAX_RETRY_DELAY_SECONDS = 120
+EMBEDDING_LEASE_MARGIN_SECONDS = 30
+
+
+def embedding_inference_budget_seconds(timeout_seconds: float) -> float:
+    """Budget configured attempts, supported SDK delays and cache publication margin.
+
+    A finite lease cannot cover arbitrary process suspension or remote ambiguity.
+    """
+    return (
+        (EMBEDDING_MAX_RETRIES + 1) * timeout_seconds
+        + EMBEDDING_MAX_RETRIES * EMBEDDING_MAX_RETRY_DELAY_SECONDS
+        + EMBEDDING_LEASE_MARGIN_SECONDS
+    )
 
 
 def snapshot_embedding_config(value: str, binding_uid: str, *, explicit: bool = False) -> dict | None:
@@ -97,7 +114,7 @@ def create_document_embeddings(value: str, allowed_base_urls: set[str]) -> "Embe
         api_key=config.get("api_key") or "not-required",
         check_embedding_ctx_length=False,
         chunk_size=32,
-        max_retries=1,
+        max_retries=EMBEDDING_MAX_RETRIES,
         request_timeout=settings.timeout_seconds,
     )
 
