@@ -4,6 +4,8 @@ from __future__ import annotations
 from json import dumps
 from typing import Any, Iterable, Sequence
 from langboard_shared.domain.models.bases import REACTION_TYPES
+from langboard_shared.domain.models.CardComment import CardCommentAnchor
+from pydantic import TypeAdapter
 from ..domain import (
     MAX_CHECKITEMS_PER_CHECKLIST,
     MAX_METADATA_VALUE_CHARS,
@@ -45,7 +47,7 @@ _CHECKITEM_KEYS = (
     "created_at",
     "updated_at",
 )
-_ATTACHMENT_KEYS = ("uid", "name", "filename", "order", "created_at", "updated_at")
+_ATTACHMENT_KEYS = ("uid", "name", "filename", "order", "created_at", "updated_at", "image_revision")
 _COMMENT_KEYS = ("uid", "content", "created_at", "updated_at")
 _BOT_SCOPE_KEYS = ("uid", "bot_uid", "card_uid", "is_frozen", "conditions")
 _BOT_SCHEDULE_KEYS = (
@@ -95,6 +97,10 @@ def public_comment(comment: dict[str, Any]) -> dict[str, Any]:
     result["content_format"] = content_format
     result["content_total_chars"] = total_chars
     result["content_truncated"] = total_chars > len(content)
+    if comment.get("anchor") is not None:
+        result["anchor"] = TypeAdapter(CardCommentAnchor).validate_python(comment["anchor"]).model_dump(mode="json")
+    elif "anchor" in comment:
+        result["anchor"] = None
     for actor_type in ("user", "bot"):
         if isinstance(comment.get(actor_type), dict):
             result[actor_type] = public_actor(comment[actor_type])

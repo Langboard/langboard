@@ -100,3 +100,33 @@ def test_real_native_models_preserve_dates_and_comment_fields():
         assert model.model_validate(projection).model_dump(mode="json") == TypeAdapter(dict[str, Any]).dump_python(
             projection, mode="json"
         )
+
+
+def test_comment_selector_projection_is_validated_and_typed():
+    from langboard.card_workspace.application.dtos import CardBundleContinuationDto
+    from langboard.card_workspace.application.projections import public_comment
+    from langboard.mcp_integration.WorkOutputs import CommentOutput
+    from pydantic import ValidationError
+
+    text = public_comment(dict(uid="comment", content="Evidence", anchor={"exact": "legacy text"}))
+    assert text["anchor"]["type"] == "TextQuoteSelector"
+    assert CommentOutput.model_validate(text).model_dump()["anchor"] == text["anchor"]
+    page = dict(items=[text], total_count=1, next_cursor=None, limit=10)
+    continuation = CardBundleContinuationDto(section="comments", page=page)
+    assert continuation.model_dump()["page"]["items"][0]["anchor"] == text["anchor"]
+    with pytest.raises(ValidationError):
+        public_comment(dict(uid="comment", content="Evidence", anchor={"exact": "quote", "url": "private"}))
+
+
+def test_attachment_revision_is_safe_optional_native_evidence():
+    from langboard.card_workspace.application.projections import public_attachment
+    from langboard.mcp_integration.ResourceOutputs import PublicAttachmentOutput
+    from pydantic import ValidationError
+    projected = public_attachment(dict(uid="image", image_revision="a" * 64,
+        url="/private/storage", file={"storage_name": "private"}))
+    assert PublicAttachmentOutput.model_validate(projected).model_dump() == {
+        "uid": "image", "image_revision": "a" * 64}
+    assert PublicAttachmentOutput.model_validate({"uid": "legacy"}).model_dump() == {"uid": "legacy"}
+    for invalid in ("A" * 64, "a" * 63, 1):
+        with pytest.raises(ValidationError):
+            PublicAttachmentOutput.model_validate({"uid": "image", "image_revision": invalid})

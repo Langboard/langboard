@@ -9,14 +9,15 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 from fastapi import UploadFile
 from fastmcp.exceptions import ValidationError
-from langboard_shared.core.db import DbSession, EditorContentModel
+from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
+from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata, Project, ProjectRole, User
+from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import VerificationEvidence, VerificationSubmission
@@ -1252,16 +1253,32 @@ def add_card_comment(
     content: str,
     user_or_bot: User | Bot,
     service: DomainService,
+    anchor: CardCommentAnchor | None = None,
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
 ) -> dict[str, Any]:
-    """Add a native card comment."""
+    """Add a native comment, retaining the caller UUID for image retries."""
 
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Comment is required")
+    if isinstance(anchor, CardCommentImageAnchorModel) and request_uid is None:
+        raise ValueError("Image comments require a caller request UUID")
     comment = service.card_comment.create(
-        user_or_bot, project_uid, card_uid, EditorContentModel(content=content.strip())
+        user_or_bot, project_uid, card_uid, EditorContentModel(content=content.strip()),
+        anchor=anchor, request_uid=str(request_uid) if request_uid is not None else None,
+        channel=CollaborationChannel.Mcp,
     )
     if comment is None:
-        raise ValueError("Card not found in project")
+        raise ValueError("Card or image source unavailable")
+    if isinstance(comment, dict):
+        receipt = comment
+        current = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+        with DbSession.use(readonly=False) as db:
+            comment = db.exec(
+                SqlBuilder.select.table(CardComment).where(CardComment.id == InfraHelper.convert_id(receipt["comment_uid"]))
+            ).first()
+        if current is None or comment is None or comment.card_id != current[1].id:
+            raise ValueError("Created comment unavailable")
+        return {"comment": public_comment(comment.api_response()), "replayed": receipt["replayed"]}
     return {"comment": public_comment(comment.api_response())}
 
 

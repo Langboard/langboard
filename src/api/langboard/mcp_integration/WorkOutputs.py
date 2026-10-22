@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Literal
+from langboard_shared.domain.models.CardComment import CardCommentAnchor
 from pydantic import BaseModel, Field, model_serializer, model_validator
 from .Outputs import CommandOutput
 
@@ -77,12 +78,14 @@ class CommentOutput(ProjectionOutput):
     content_format: Literal["text", "json"]
     content_total_chars: int = Field(ge=0)
     content_truncated: bool
+    anchor: CardCommentAnchor | None = None
     # These commands return comment.api_response(), without author hydration.
     # Query projections with hydrated authors require their own typed contract.
 
 
-class CommentMutationOutput(CommandOutput):
+class CommentMutationOutput(ProjectionOutput):
     comment: CommentOutput
+    replayed: bool | None = None
 
 
 class PublicMetadataOutput(CommandOutput):

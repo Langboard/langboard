@@ -76,6 +76,7 @@ class AttachmentUploadResponse(RootModel[AttachmentUploadOutput | AttachmentConf
 
 class PublicAttachmentOutput(ProjectionOutput):
     uid: str
+    image_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     name: str | None = None
     filename: str | None = None
     order: int | None = Field(default=None, ge=0)
