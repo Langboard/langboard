@@ -49,6 +49,10 @@ on:
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.workbench.config.ts
+      - src/ui/playwright.change-counts.config.ts
+      - src/ui/playwright.changes-native-query.config.ts
+      - src/ui/playwright.cmdk-native-query.config.ts
+      - src/ui/playwright.workbench-status.config.ts
       - src/ui/playwright.wiki-summary.config.ts
       - src/ui/playwright.my-work-context.config.ts
       - src/api/tests/fixtures/my_work_workspace_server.py
@@ -210,6 +214,20 @@ jobs:
         working-directory: src/ui
       - run: yarn playwright test -c playwright.workbench.config.ts
         if: github.event_name == 'workflow_dispatch'
+        working-directory: src/ui
+      - name: Verify authoritative counts and Changes native query lifecycle
+        if: github.event_name == 'workflow_dispatch'
+        # This config includes changes-native-query.spec.ts; do not run its standalone config again.
+        run: yarn playwright test -c playwright.change-counts.config.ts
+        working-directory: src/ui
+      - name: Verify CmdK native query lifecycle
+        if: github.event_name == 'workflow_dispatch'
+        run: yarn playwright test -c playwright.cmdk-native-query.config.ts
+        working-directory: src/ui
+      - name: Verify narrow Workbench status accessibility
+        if: github.event_name == 'workflow_dispatch'
+        # The full Workbench run above already covers the shared transport footer regression.
+        run: yarn playwright test -c playwright.workbench-status.config.ts workbench-status.spec.ts
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts
         working-directory: src/ui
