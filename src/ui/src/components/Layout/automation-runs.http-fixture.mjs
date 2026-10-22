@@ -6,6 +6,7 @@ let fail = false;
 let empty = false;
 let pending = [];
 let generation = 0;
+let mcp = false;
 const server = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:4187");
     res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -28,9 +29,11 @@ const server = http.createServer((req, res) => {
             fail = false;
             empty = false;
             generation = 0;
+            mcp = false;
             pending.forEach((send) => send());
             pending = [];
         }
+        if (url.searchParams.has("mcp")) mcp = true;
         if (url.searchParams.has("hold")) hold = true;
         if (url.searchParams.has("fail")) fail = true;
         if (url.searchParams.has("empty")) empty = true;
@@ -57,11 +60,19 @@ const server = http.createServer((req, res) => {
         const parts = url.pathname.split("/");
         const row = {
             uid: url.searchParams.has("before") ? "page-two" : `run-${board}-${sourceGeneration}`,
-            source: "chat",
-            status: delayedStatus,
+            source: mcp ? "mcp" : "chat",
+            status: mcp ? "unknown" : delayedStatus,
             created_at: "2026-10-22T10:00:00Z",
         };
-        if (parts.length === 7) send({ item: { ...row, detail: { output_text: `PRIVATE DETAIL ${board} ${sourceGeneration}` } } });
+        if (parts.length === 7)
+            send({
+                item: {
+                    ...row,
+                    detail: mcp
+                        ? { tool: "patch_card_description", request_id: "a".repeat(32), payload_available: false }
+                        : { output_text: `PRIVATE DETAIL ${board} ${sourceGeneration}` },
+                },
+            });
         else send({ items: empty ? [] : [row], next_cursor: empty || url.searchParams.has("before") ? null : "chat:fixturepage" });
     };
     if (hold) pending.push(finish);

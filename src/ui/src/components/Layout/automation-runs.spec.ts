@@ -28,10 +28,24 @@ for (const width of [390, 1440]) {
             await expect(page.locator("[data-dialog-overlay=true]")).toHaveCSS("position", "fixed");
             await expect(page.locator("section [role=dialog]")).toHaveCount(0);
             await expect(page.getByRole("dialog").locator("..")).toHaveCSS("opacity", "1");
-            await page.screenshot({ path: `../../.verification/automation-runs/details-${width}.png` });
+            await page.screenshot({ path: `../../.verification/mcp-execution-history/details-${width}.png` });
             await page.keyboard.press("Escape");
             await expect(page.getByRole("dialog")).toHaveCount(0);
             expect((await (await request.get(control)).json()).calls).toHaveLength(3);
+        });
+        test("MCP source shows truthful outcome and payload-free explicit details", async ({ page, request }) => {
+            await request.get(`${control}?mcp`);
+            await page.goto(fixture);
+            await page.getByRole("button", { name: "Toggle automation" }).click();
+            await expect(page.getByText("Native MCP tool", { exact: true })).toBeVisible();
+            await expect(page.getByText("Outcome unknown", { exact: true })).toBeVisible();
+            await expect(page.getByText("patch_card_description", { exact: true })).toHaveCount(0);
+            await page.getByRole("button", { name: "View run details" }).click();
+            const dialog = page.getByRole("dialog");
+            await expect(dialog.getByText("patch_card_description", { exact: true })).toBeVisible();
+            await expect(dialog.getByText("MCP metadata only.", { exact: false })).toBeVisible();
+            await expect(dialog.getByText(/PRIVATE DETAIL/)).toHaveCount(0);
+            expect((await (await request.get(control)).json()).calls).toHaveLength(2);
         });
         test("loading, actual HTTP failure, explicit retry, and empty state", async ({ page, request }) => {
             await request.get(`${control}?hold&fail`);

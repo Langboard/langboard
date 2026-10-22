@@ -16,6 +16,7 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Bot,
+    BotDefaultScopeBranch,
     BotLog,
     BotSchedule,
     BotScheduleRun,
@@ -26,8 +27,10 @@ from langboard_shared.domain.models import (
     ChatSession,
     InternalBot,
     InternalBotRun,
+    McpToolExecution,
     ProjectBotLog,
     ProjectBotSchedule,
+    ProjectBotScope,
     ProjectChatSession,
     ProjectColumnBotLog,
     ProjectColumnBotSchedule,
@@ -54,6 +57,7 @@ def executions(board):
     engine = DbEngine.get_main_engine()
     for model in (
         Bot,
+        BotDefaultScopeBranch,
         BotLog,
         BotSchedule,
         BotScheduleRun,
@@ -64,6 +68,8 @@ def executions(board):
         ChatHistory,
         InternalBot,
         InternalBotRun,
+        McpToolExecution,
+        ProjectBotScope,
         ProjectChatSession,
         ProjectColumnBotLog,
         ProjectColumnBotSchedule,
@@ -226,7 +232,7 @@ def test_mixed_paging_is_stable_metadata_only_and_sql_bounded(executions):
         for statement in statements
         if "ORDER BY" in statement and "bot" in statement or "ORDER BY workflow_effect_run" in statement
     ]
-    assert len(summary_statements) == 4
+    assert len(summary_statements) == 5
     assert all("LIMIT" in statement for statement in summary_statements)
     assert all(
         "output_text" not in statement and "request_payload" not in statement and "message_stack" not in statement
@@ -443,3 +449,365 @@ def test_actual_foreign_cursor_and_detail_are_denied_before_page(executions):
     assert read(executions, source="chat", uid=executions.chat.get_uid()) is None
     with pytest.raises(ValueError):
         read(executions, before=f"chat:{executions.chat.get_uid()}")
+
+
+def add_mcp(executions, **kwargs):
+    values = dict(
+        id=800,
+        request_id="a" * 32,
+        tool="get_card_bundle",
+        user_id=executions.user.id,
+        project_id=executions.project.id,
+        card_id=executions.card.id,
+        outcome="success",
+        started_at=SafeDateTime.now(),
+        finished_at=SafeDateTime.now(),
+        duration_ms=1.5,
+    )
+    values.update(kwargs)
+    row = McpToolExecution(**values)
+    with Session(DbEngine.get_main_engine(), expire_on_commit=False) as db, db.begin():
+        db.add(row)
+    return row
+
+
+def test_mcp_metadata_detail_owner_and_current_private_card_audience(executions):
+    row = add_mcp(executions)
+    assert read(executions)["items"][0]["source"] == "mcp"
+    item = read(executions, source="mcp", uid=row.get_uid())["item"]
+    assert item["status"] == "success"
+    assert item["detail"] == {
+        "tool": "get_card_bundle",
+        "request_id": "a" * 32,
+        "payload_available": False,
+        "card_uid": executions.card.get_uid(),
+    }
+    grant(executions, admin=True)
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(McpToolExecution).values(user_id=2))
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(McpToolExecution).values(user_id=executions.user.id))
+        db.exec(update(Card).values(visibility="PRIVATE", owner_user_id=2, created_by_user_id=2))
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+    with pytest.raises(ValueError):
+        read(executions, before=f"mcp:{row.get_uid()}")
+
+
+def test_mcp_source_ties_revocation_and_column_deletion(executions):
+    row = add_mcp(executions, id=executions.chat.id, card_id=None, project_column_id=40)
+    first = read(executions, limit=1)
+    assert first["items"][0]["source"] == "chat"
+    second = read(executions, limit=1, before=first["next_cursor"])
+    assert second["items"][0]["source"] == "mcp" and second["next_cursor"] is None
+    from langboard_shared.domain.models import ProjectColumn
+
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(ProjectColumn).where(ProjectColumn.id == 40).values(deleted_at=SafeDateTime.now()))
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+    with pytest.raises(ValueError):
+        read(executions, before=f"mcp:{row.get_uid()}")
+
+
+def test_mcp_bot_history_requires_update_and_current_hook(executions):
+    row = add_mcp(executions, user_id=None, bot_id=100, card_id=None)
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+    grant(executions)
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+    with DbSession.use(readonly=False) as db:
+        hook = ProjectBotScope(bot_id=100, project_id=executions.project.id, conditions=[])
+        db.insert(hook)
+    assert read(executions, source="mcp", uid=row.get_uid()) is not None
+    with DbSession.use(readonly=False) as db:
+        db.exec(delete(ProjectBotScope))
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+
+
+@pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
+async def test_native_mcp_producer_durably_records_exactly_once_and_http_reads_metadata(
+    executions, monkeypatch, profile
+):
+    from fastmcp import Client
+    from langboard.mcp_integration import ExecutionHistory
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_integration.Tool import McpTool
+    from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+
+    name = "mark_notification_read" if profile != "raw" else "mark_all_notifications_read"
+
+    def handler(project_uid: str, card_uid: str) -> dict:
+        return {"read": True}
+
+    metadata = {"handler": handler, "description": "Read", "exclude": [], "accessible_type": "all"}
+    monkeypatch.setattr(McpTool, "get_tools", lambda: {name: metadata})
+    monkeypatch.setattr(McpTool, "get_tool", lambda key: metadata if key == name else None)
+    monkeypatch.setattr(McpServer, "_validate_role", lambda *args, **kwargs: True)
+    # Keep the native scope resolver, replace only factory wiring with fixture services.
+    native_card = executions.service._get_service(CardService)
+    factory = SimpleNamespace(
+        workflow_stage=executions.service,
+        card=native_card,
+        close=lambda: None,
+    )
+    monkeypatch.setattr(ExecutionHistory, "DomainService", lambda: factory)
+    _, server = McpServer.get_http_app(profile)
+    token = mcp_auth_context.set(
+        {"user_or_bot": executions.user, "tool_group": SimpleNamespace(activated_at=object(), tools=[name])}
+    )
+    try:
+        async with Client(server) as client:
+            arguments = {"project_uid": executions.project.get_uid(), "card_uid": executions.card.get_uid()}
+            result = await client.call_tool(
+                "call_raw_tool" if profile == "raw" else name,
+                {"name": name, "arguments": arguments} if profile == "raw" else arguments,
+                raise_on_error=False,
+            )
+    finally:
+        mcp_auth_context.reset(token)
+    with Session(DbEngine.get_main_engine()) as db:
+        rows = db.query(McpToolExecution).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.user_id == executions.user.id and row.card_id == executions.card.id
+    assert row.tool == name and row.outcome in {"success", "applied"}
+    assert "PRIVATE" not in str(row.model_dump())
+    if result.meta and result.meta.get("mutation_receipt"):
+        assert row.request_id == result.meta["mutation_receipt"]["request_id"]
+
+    # Exercise actual native HTTP summary/detail middleware with the stored row.
+    def authenticate(scope, **kwargs):
+        scope["auth"] = executions.user
+        return executions.user
+
+    monkeypatch.setattr(MiddlewareHelper, "validate_auth", authenticate)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    for route in AppRouter.api.routes:
+        if isinstance(route, APIRoute) and route.endpoint in (get_board_automation_runs, get_board_automation_run):
+            dependency = next(item.call for item in route.dependant.dependencies if item.name == "service")
+            app.dependency_overrides[dependency] = lambda: SimpleNamespace(workflow_stage=executions.service)
+    client = TestClient(app)
+    path = f"/board/{executions.project.get_uid()}/automation/runs"
+    assert client.get(path).status_code == 200
+    response = client.get(f"{path}/mcp/{row.get_uid()}")
+    assert response.status_code == 200 and response.json()["item"]["detail"]["payload_available"] is False
+    assert "PRIVATE" not in response.text
+    with DbSession.use(readonly=False) as db:
+        executions.role.actions = []
+        db.update(executions.role)
+    assert client.get(f"{path}/mcp/{row.get_uid()}").status_code == 403
+
+
+def test_mcp_migration_preserves_seeded_rows_and_refuses_populated_downgrade(executions, monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from alembic.script import ScriptDirectory
+
+    engine = DbEngine.get_main_engine()
+    McpToolExecution.__table__.drop(engine)
+    migrations = Path(__file__).resolve().parents[2] / "langboard/migrations"
+    spec = importlib.util.spec_from_file_location(
+        "mcp_history_migration", migrations / "versions/20261022233000-b6810c30fe54.py"
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert ScriptDirectory(str(migrations)).get_heads() == ["b6810c30fe54"]
+    with engine.begin() as connection:
+        monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+        migration.upgrade()
+    assert (
+        read(executions, source="chat", uid=executions.chat.get_uid())["item"]["detail"]["output_text"]
+        == "PRIVATE OUTPUT"
+    )
+    row = add_mcp(executions)
+    with pytest.raises(RuntimeError, match="retained MCP execution history"):
+        with engine.begin() as connection:
+            monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+            migration.downgrade()
+    assert read(executions, source="mcp", uid=row.get_uid()) is not None
+    with engine.begin() as connection:
+        connection.execute(delete(McpToolExecution))
+        monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+        migration.downgrade()
+        migration.upgrade()
+    assert read(executions, source="chat", uid=executions.chat.get_uid()) is not None
+
+
+@pytest.mark.parametrize("change", ["move", "delete", "foreign_board"])
+def test_mcp_history_fails_closed_after_scope_changes(executions, change):
+    row = add_mcp(executions)
+    with DbSession.use(readonly=False) as db:
+        if change == "move":
+            db.exec(update(Card).where(Card.id == executions.card.id).values(project_id=11))
+        elif change == "delete":
+            db.exec(update(Card).where(Card.id == executions.card.id).values(deleted_at=SafeDateTime.now()))
+        else:
+            db.exec(update(McpToolExecution).values(project_id=11))
+    assert not any(item["source"] == "mcp" for item in read(executions)["items"])
+    assert read(executions, source="mcp", uid=row.get_uid()) is None
+    with pytest.raises(ValueError):
+        read(executions, before=f"mcp:{row.get_uid()}")
+
+
+@pytest.mark.parametrize("outcome", ["applied", "not_applied", "unknown", "denied", "cancelled", "error", "success"])
+async def test_durable_mcp_outcomes_nested_receipt_identity_and_no_payload(executions, monkeypatch, outcome):
+    from asyncio import CancelledError
+    from fastmcp.exceptions import AuthorizationError
+    from fastmcp.tools import ToolResult
+    from langboard.mcp_integration.ExecutionHistory import execution_scope, persist_execution
+    from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
+    from langboard.mcp_integration.Tool import McpTool
+
+    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": object()})
+    receipt = {"request_id": "b" * 32, "outcome": outcome} if outcome in {"applied", "not_applied", "unknown"} else None
+    result = ToolResult(
+        content="PRIVATE_PAYLOAD", is_error=outcome == "error", meta={"mutation_receipt": receipt} if receipt else {}
+    )
+    context = SimpleNamespace(
+        message=SimpleNamespace(name="patch_card_description", arguments={"token": "PRIVATE_TOKEN"})
+    )
+    scope = dict(user_id=executions.user.id, project_id=executions.project.id, card_id=executions.card.id)
+
+    async def execute(_):
+        execution_scope.get().update(scope)
+        if outcome == "denied":
+            raise AuthorizationError("PRIVATE_ERROR")
+        if outcome == "cancelled":
+            raise CancelledError("PRIVATE_CANCEL")
+        return result
+
+    async def nested(ctx):
+        return await ToolTelemetryMiddleware().on_call_tool(ctx, execute)
+
+    if outcome in {"denied", "cancelled"}:
+        with pytest.raises(AuthorizationError if outcome == "denied" else CancelledError):
+            await ToolTelemetryMiddleware().on_call_tool(context, nested)
+    else:
+        assert await ToolTelemetryMiddleware().on_call_tool(context, nested) is result
+    with Session(DbEngine.get_main_engine()) as db:
+        rows = db.query(McpToolExecution).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert int(row.id) > 0 and row.outcome == ("unknown" if outcome == "cancelled" else outcome)
+    assert "PRIVATE" not in str(row.model_dump())
+    if receipt:
+        assert row.request_id == receipt["request_id"]
+    # Same receipt identity is immutable and cannot create a second execution.
+    persist_execution(
+        scope, request_id=row.request_id, tool=row.tool, outcome="error", started_at=row.started_at, duration_ms=50
+    )
+    with Session(DbEngine.get_main_engine()) as db:
+        rows = db.query(McpToolExecution).all()
+    assert len(rows) == 1 and rows[0].outcome == row.outcome
+
+
+def test_scope_requires_declared_native_resources_and_current_visibility(executions, monkeypatch):
+    from langboard.mcp_integration import ExecutionHistory
+
+    native_card = executions.service._get_service(CardService)
+    factory = SimpleNamespace(workflow_stage=executions.service, card=native_card, close=lambda: None)
+    monkeypatch.setattr(ExecutionHistory, "DomainService", lambda: factory)
+
+    def global_tool(content: str):
+        pass
+
+    arguments = dict(project_uid=executions.project.get_uid(), card_uid=executions.card.get_uid())
+    assert ExecutionHistory.resolve_scope(executions.user, global_tool, arguments) is None
+
+    def card_tool(project_uid: str, card_uid: str):
+        pass
+
+    assert ExecutionHistory.resolve_scope(executions.user, card_tool, arguments)["card_id"] == executions.card.id
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(Card).values(visibility="PRIVATE", owner_user_id=2, created_by_user_id=2))
+    assert ExecutionHistory.resolve_scope(executions.user, card_tool, arguments) is None
+    arguments["project_uid"] = "PRIVATE_FAKE_LABEL"
+    assert ExecutionHistory.safe_scope(executions.user, card_tool, arguments) is None
+
+
+async def test_real_conflict_receipt_is_preserved_in_durable_history(executions, monkeypatch):
+    from fastmcp.tools import ToolResult
+    from langboard.mcp_integration.ExecutionHistory import execution_scope
+    from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
+    from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
+    from langboard.mcp_integration.Tool import McpTool
+    from langboard_shared.domain.contracts.content_blocks import ContentBlockConflictError
+
+    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": object()})
+    context = SimpleNamespace(message=SimpleNamespace(name="patch_card_description", arguments={}))
+
+    async def conflict(_):
+        execution_scope.get().update(
+            user_id=executions.user.id, project_id=executions.project.id, card_id=executions.card.id
+        )
+        raise ContentBlockConflictError("PRIVATE_REVISION")
+
+    async def receipt(ctx):
+        return await MutationReceiptMiddleware().on_call_tool(ctx, conflict)
+
+    result = await ToolTelemetryMiddleware().on_call_tool(context, receipt)
+    assert isinstance(result, ToolResult) and result.is_error
+    with Session(DbEngine.get_main_engine()) as db:
+        row = db.query(McpToolExecution).one()
+        assert row.request_id == result.meta["mutation_receipt"]["request_id"]
+        assert row.outcome == "not_applied" and "PRIVATE" not in str(row.model_dump())
+
+
+async def test_real_missing_history_storage_never_changes_response_or_logs_payload(executions, monkeypatch, caplog):
+    import logging
+    from fastmcp.tools import ToolResult
+    from langboard.mcp_integration.ExecutionHistory import execution_scope
+    from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
+    from langboard.mcp_integration.Tool import McpTool
+
+    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": object()})
+    caplog.set_level(logging.INFO)
+    McpToolExecution.__table__.drop(DbEngine.get_main_engine())
+    result = ToolResult(content="PRIVATE_RESULT")
+    context = SimpleNamespace(message=SimpleNamespace(name="get_card_bundle", arguments={"body": "PRIVATE_BODY"}))
+
+    async def execute(_):
+        execution_scope.get().update(user_id=executions.user.id, project_id=executions.project.id)
+        return result
+
+    assert await ToolTelemetryMiddleware().on_call_tool(context, execute) is result
+    assert any("history storage unavailable" in record.message for record in caplog.records)
+    assert all(
+        "PRIVATE" not in record.message and "SELECT mcp_tool_execution" not in record.message
+        for record in caplog.records
+    )
+
+
+def test_bot_producer_scope_requires_current_hook_live_bot_and_nonprivate_card(executions, monkeypatch):
+    from langboard.mcp_integration import ExecutionHistory
+
+    monkeypatch.setattr(ExecutionHistory, "DomainService", lambda: SimpleNamespace(close=lambda: None))
+    with Session(DbEngine.get_main_engine()) as db:
+        bot = db.get(Bot, 100)
+
+    def handler(project_uid: str, card_uid: str):
+        pass
+
+    arguments = {"project_uid": executions.project.get_uid(), "card_uid": executions.card.get_uid()}
+    assert ExecutionHistory.resolve_scope(bot, handler, arguments) is None
+    with DbSession.use(readonly=False) as db:
+        db.insert(ProjectBotScope(bot_id=100, project_id=executions.project.id, conditions=[]))
+    scope = ExecutionHistory.resolve_scope(bot, handler, arguments)
+    assert scope["bot_id"] == bot.id and scope["user_id"] is None and scope["card_id"] == executions.card.id
+    with DbSession.use(readonly=False) as db:
+        db.exec(
+            update(Card)
+            .where(Card.id == executions.card.id)
+            .values(visibility="PRIVATE", owner_user_id=2, created_by_user_id=2)
+        )
+    assert ExecutionHistory.resolve_scope(bot, handler, arguments) is None
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(Card).where(Card.id == executions.card.id).values(visibility="SHARED", owner_user_id=None))
+    assert ExecutionHistory.resolve_scope(bot, handler, arguments) is not None
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(Bot).where(Bot.id == bot.id).values(deleted_at=SafeDateTime.now()))
+    assert ExecutionHistory.resolve_scope(bot, handler, arguments) is None

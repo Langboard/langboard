@@ -2,12 +2,17 @@
 
 import json
 import logging
+from asyncio import CancelledError
 from contextvars import ContextVar
 from time import perf_counter
 from uuid import uuid4
+from anyio import CancelScope
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.middleware import Middleware
+from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.Env import Env
+from .ExecutionHistory import execution_scope, persist_execution
 from .Tool import McpTool
 
 
@@ -20,6 +25,8 @@ class ToolTelemetryMiddleware(Middleware):
         if _recording.get():
             return await call_next(context)
         token = _recording.set(True)
+        scope_token = execution_scope.set({})
+        started_at = SafeDateTime.now()
         name = context.message.name
         if name == "call_raw_tool":
             name = (context.message.arguments or {}).get("name")
@@ -43,18 +50,37 @@ class ToolTelemetryMiddleware(Middleware):
             else:
                 outcome = "error" if result.is_error else "success"
             return result
+        except CancelledError:
+            outcome = "unknown"
+            raise
         except AuthorizationError:
             outcome = "denied"
             raise
         finally:
+            duration_ms = round((perf_counter() - started) * 1000, 3)
+            scope = execution_scope.get()
+            execution_scope.reset(scope_token)
             _recording.reset(token)
+            try:
+                with CancelScope(shield=True):
+                    await call_sync_fn_in_threadpool(
+                        persist_execution,
+                        scope,
+                        request_id=request_id,
+                        tool=tool,
+                        outcome=outcome,
+                        started_at=started_at,
+                        duration_ms=duration_ms,
+                    )
+            except Exception:
+                logger.warning("Native MCP execution history storage unavailable")
             logger.info(
                 json.dumps(
                     {
                         "event": "mcp_tool_execution",
                         "request_id": request_id,
                         "tool": tool,
-                        "duration_ms": round((perf_counter() - started) * 1000, 3),
+                        "duration_ms": duration_ms,
                         "outcome": outcome,
                     },
                     separators=(",", ":"),

@@ -81,6 +81,7 @@ from .InternalBotRun import InternalBotRun
 from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
 from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
+from .McpToolExecution import McpToolExecution
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
 from .NotificationEmailDelivery import NotificationEmailDelivery
@@ -237,6 +238,7 @@ __all__ = [
     'IdentityProvider',
     'InternalBot',
     'McpToolGroup',
+    'McpToolExecution',
     'McpToolGroupUsage',
     'NotificationScheduleRule',
     'Organization',

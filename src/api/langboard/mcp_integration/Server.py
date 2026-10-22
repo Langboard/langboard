@@ -22,6 +22,7 @@ from ..middlewares.McpAuthMiddleware import mcp_auth_context
 from .AgentPolicy import AGENT_POLICY
 from .Annotations import ToolAnnotationTransform
 from .Dependencies import with_native_dependencies
+from .ExecutionHistory import execution_scope, safe_scope
 from .OAuth import NativeOAuthMiddleware, create_oauth_provider
 from .Providers import (
     create_agent_core_provider,
@@ -148,6 +149,12 @@ class McpServer:
 
             if not self._validate_auth(auth_value, tool_name):
                 raise AuthorizationError("Authentication required")
+
+            scope = execution_scope.get()
+            if scope is not None:
+                resolved = await call_sync_fn_in_threadpool(safe_scope, auth_value, handler, kwargs)
+                if resolved:
+                    scope.update(resolved)
 
             if not await call_sync_fn_in_threadpool(self._validate_role, auth_value, handler, **kwargs):
                 raise AuthorizationError("Insufficient permissions")

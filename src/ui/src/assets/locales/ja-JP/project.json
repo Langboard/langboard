@@ -471,5 +471,11 @@
   "Details reflect your current source permissions.": "現在のソース閲覧権限に基づいて詳細を表示します。",
   "Error code": "エラーコード",
   "Attempts": "試行回数",
-  "Open card": "カードを開く"
+  "Open card": "カードを開く",
+  "Native MCP tool": "ネイティブ MCP ツール",
+  "Applied": "適用済み",
+  "Not applied": "未適用",
+  "Outcome unknown": "結果不明",
+  "Denied": "拒否",
+  "MCP metadata only. Arguments and results are not stored.": "MCP メタデータのみを表示します。引数と結果は保存されません。範囲を検証した登録済みネイティブツールの記録のみ利用できます。"
 }

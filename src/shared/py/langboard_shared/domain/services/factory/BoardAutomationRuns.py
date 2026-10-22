@@ -16,8 +16,10 @@ from ...models import (
     ChatHistory,
     ChatSession,
     InternalBotRun,
+    McpToolExecution,
     ProjectBotLog,
     ProjectBotSchedule,
+    ProjectBotScope,
     ProjectChatSession,
     ProjectColumn,
     ProjectColumnBotLog,
@@ -34,8 +36,8 @@ from ..CardVisibilityPolicy import card_visibility_scope_by_project
 from .CardService import CardService
 
 
-SOURCES = ("chat", "schedule", "workflow", "log")
-MODELS = (InternalBotRun, BotScheduleRun, WorkflowEffectRun, BotLog)
+SOURCES = ("chat", "schedule", "workflow", "log", "mcp")
+MODELS = (InternalBotRun, BotScheduleRun, WorkflowEffectRun, BotLog, McpToolExecution)
 
 
 def _queries(service, db, user, board, channel):
@@ -118,6 +120,42 @@ def _queries(service, db, user, board, channel):
             .join(WorkflowStageDefinition, WorkflowStageDefinition.id == WorkflowEffectRun.stage_id)
             .where(visible_card)
         )
+    mcp_actor = and_(McpToolExecution.user_id == user.id, McpToolExecution.bot_id.is_(None))
+    if service._authorized_app_board(user, board.id, ProjectRoleAction.Update, revocation=True):
+        bot_authority = (
+            select(ProjectBotScope.id)
+            .join(Bot, Bot.id == ProjectBotScope.bot_id)
+            .where(
+                ProjectBotScope.project_id == board.id,
+                ProjectBotScope.bot_id == McpToolExecution.bot_id,
+                Bot.deleted_at.is_(None),
+            )
+            .exists()
+        )
+        mcp_actor = or_(mcp_actor, and_(McpToolExecution.user_id.is_(None), bot_authority))
+    queries["mcp"] = select(McpToolExecution.id).where(
+        McpToolExecution.project_id == board.id,
+        mcp_actor,
+        or_(
+            McpToolExecution.card_id.is_(None),
+            select(Card.id)
+            .where(
+                Card.id == McpToolExecution.card_id,
+                visible_card,
+            )
+            .exists(),
+        ),
+        or_(
+            McpToolExecution.project_column_id.is_(None),
+            select(ProjectColumn.id)
+            .where(
+                ProjectColumn.id == McpToolExecution.project_column_id,
+                ProjectColumn.project_id == board.id,
+                ProjectColumn.deleted_at.is_(None),
+            )
+            .exists(),
+        ),
+    )
     return queries
 
 
@@ -129,6 +167,8 @@ def _metadata(model):
         fields += [model.state, model.attempt, model.lease_expires_at]
     elif model is WorkflowEffectRun:
         fields += [model.status, model.started_at, model.finished_at, model.duration_ms, model.lease_expires_at]
+    elif model is McpToolExecution:
+        fields += [model.outcome, model.started_at, model.finished_at, model.duration_ms]
     else:
         fields += [model.log_type]
     return fields
@@ -140,7 +180,7 @@ def _utc(value):
 
 def _summary(source, row):
     data = dict(zip((column.key for column in _metadata(MODELS[SOURCES.index(source)])), row))
-    state = data.get("status", data.get("state", data.get("log_type")))
+    state = data.get("status", data.get("state", data.get("outcome", data.get("log_type"))))
     state = getattr(state, "value", state)
     lease = data.get("lease_expires_at")
     if (
@@ -201,7 +241,14 @@ def read_runs(service, user, project_uid, channel, *, before=None, limit=20, sou
                 return None
             metadata = db.exec(select(*_metadata(model)).where(model.id == row.id)).first()
             item = _summary(source, metadata)
-            if source == "chat":
+            if source == "mcp":
+                item["detail"] = {
+                    "tool": row.tool,
+                    "request_id": row.request_id,
+                    "payload_available": False,
+                    "card_uid": InfraHelper.convert_uid(row.card_id) if row.card_id else None,
+                }
+            elif source == "chat":
                 item["detail"] = {"output_text": row.output_text, "error_message": row.error_message}
             elif source == "log":
                 item["detail"] = {"messages": [message.model_dump(mode="json") for message in row.message_stack]}

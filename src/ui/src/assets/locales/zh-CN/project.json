@@ -471,5 +471,11 @@
   "Details reflect your current source permissions.": "详情取决于您当前对原始记录的查看权限。",
   "Error code": "错误代码",
   "Attempts": "尝试次数",
-  "Open card": "打开卡片"
+  "Open card": "打开卡片",
+  "Native MCP tool": "原生 MCP 工具",
+  "Applied": "已应用",
+  "Not applied": "未应用",
+  "Outcome unknown": "结果未知",
+  "Denied": "已拒绝",
+  "MCP metadata only. Arguments and results are not stored.": "仅显示 MCP 元数据。不存储参数和结果。仅提供范围已验证的已注册原生工具记录。"
 }

@@ -9,10 +9,13 @@ import useAuthStore from "@/core/stores/AuthStore";
 
 interface Run {
     uid: string;
-    source: "chat" | "schedule" | "workflow" | "log";
+    source: "chat" | "schedule" | "workflow" | "log" | "mcp";
     status: string;
     created_at: string;
     detail?: {
+        tool?: string;
+        request_id?: string;
+        payload_available?: boolean;
         output_text?: string;
         error_message?: string;
         messages?: { message: string; log_type: string; log_date: string }[];
@@ -105,7 +108,7 @@ function Runs({
         staleTime: 0,
     });
     const rows = [...new Map(runs.data?.pages.flatMap((page) => page.items).map((row) => [`${row.source}:${row.uid}`, row])).values()];
-    const sources = { chat: "Owned board chat", schedule: "Schedule dispatch", workflow: "Workflow effect", log: "Bot log" };
+    const sources = { chat: "Owned board chat", schedule: "Schedule dispatch", workflow: "Workflow effect", log: "Bot log", mcp: "Native MCP tool" };
     const statuses: Record<string, string> = {
         accepted: "Dispatch accepted",
         streaming: "Running",
@@ -123,6 +126,14 @@ function Runs({
         info: "Log information",
         success: "Log success",
         error: "Log error",
+        applied: "Applied",
+        not_applied: "Not applied",
+        unknown: "Outcome unknown",
+        denied: "Denied",
+    };
+    const statusLabel = (run: Run) => {
+        const mcpStatuses: Record<string, string> = { success: "Succeeded", error: "Failed" };
+        return (run.source === "mcp" ? mcpStatuses[run.status] : undefined) ?? statuses[run.status] ?? "Unknown status";
     };
     const time = (value: string) => {
         const date = new Date(value);
@@ -157,7 +168,7 @@ function Runs({
                     {rows.map((row) => (
                         <li key={`${row.source}:${row.uid}`} className="rounded border p-2 text-sm">
                             <p>{t(`project.${sources[row.source]}`)}</p>
-                            <p>{t(`project.${statuses[row.status] ?? "Unknown status"}`)}</p>
+                            <p>{t(`project.${statusLabel(row)}`)}</p>
                             <time dateTime={row.created_at} className="block break-words text-xs text-muted-foreground">
                                 {time(row.created_at)}
                             </time>
@@ -194,7 +205,12 @@ function Runs({
                     ) : (
                         selectedDetail && (
                             <div className="space-y-3 break-words text-sm">
-                                <p>{t(`project.${statuses[detail.data.item.status] ?? "Unknown status"}`)}</p>
+                                <p>{t(`project.${statusLabel(detail.data.item)}`)}</p>
+                                {selectedDetail.payload_available === false && (
+                                    <p>{t("project.MCP metadata only. Arguments and results are not stored.")}</p>
+                                )}
+                                {selectedDetail.tool && <p>{selectedDetail.tool}</p>}
+                                {selectedDetail.request_id && <p>{selectedDetail.request_id}</p>}
                                 {selectedDetail.output_text && <pre className="whitespace-pre-wrap break-words">{selectedDetail.output_text}</pre>}
                                 {selectedDetail.error_message && <p>{selectedDetail.error_message}</p>}
                                 {selectedDetail.error_code && (

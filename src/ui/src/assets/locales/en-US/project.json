@@ -471,5 +471,11 @@
   "Details reflect your current source permissions.": "Details reflect your current source permissions.",
   "Error code": "Error code",
   "Attempts": "Attempts",
-  "Open card": "Open card"
+  "Open card": "Open card",
+  "Native MCP tool": "Native MCP tool",
+  "Applied": "Applied",
+  "Not applied": "Not applied",
+  "Outcome unknown": "Outcome unknown",
+  "Denied": "Denied",
+  "MCP metadata only. Arguments and results are not stored.": "MCP metadata only. Arguments and results are not stored. Records exist only for recognized native tools with validated scope."
 }
