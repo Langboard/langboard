@@ -233,17 +233,22 @@ function BoardRouteFixture(): React.JSX.Element {
     );
 }
 
+function ScopedLocation(): React.JSX.Element {
+    const location = useLocation();
+    return query.has("scopedSearch") ? <output data-scoped-location>{location.pathname + location.search}</output> : <></>;
+}
+
 function Harness(): React.JSX.Element {
     const tree = (
         <MemoryRouter
             initialEntries={[
-                query.has("fullDashboard")
+                (query.has("fullDashboard")
                     ? "/dashboard/projects/all"
                     : query.has("fullGraph")
                       ? `/board/${PROJECT_UID}/graph`
                       : query.has("fullBoard")
                         ? `/board/${PROJECT_UID}`
-                        : `/board/${PROJECT_UID}/${CARD_UID}`,
+                        : `/board/${PROJECT_UID}/${CARD_UID}`) + (query.has("scopedSearch") ? "?filters=keyword:pane-only" : ""),
             ]}
         >
             <QueryClientProvider client={queryClient}>
@@ -260,6 +265,7 @@ function Harness(): React.JSX.Element {
                                     />
                                     <Route path="*" element={<div data-fixture-not-found="" />} />
                                 </Routes>
+                                <ScopedLocation />
                                 {LATE_SUSPENSE && <LateSuspenseSibling />}
                             </BoardController>
                         </SocketProvider>

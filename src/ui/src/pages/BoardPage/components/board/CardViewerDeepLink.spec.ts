@@ -894,3 +894,22 @@ test("mobile board rail closes its active Explorer on a second press", async ({ 
     await explorer.press("Enter");
     await expect(panel).toBeVisible();
 });
+
+test("card close and Flip restore preserve pane filters rather than browser-global search", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route("**/dashboard/cards/available", (route) => {
+        const uids = route.request().method() === "OPTIONS" ? [] : route.request().postDataJSON().card_uids;
+        return fulfillWithCors(route, { card_uids: uids });
+    });
+    await page.goto(`${FIXTURE}?scopedSearch=1`);
+    const location = page.locator("[data-scoped-location]");
+    await expect(location).toHaveText("/board/fixture-project/fixture-card?filters=keyword:pane-only");
+    await page.getByRole("button", { name: "Flip card", exact: true }).click();
+    await expect(page.locator("[data-card-viewer]")).toHaveCount(0);
+    await expect(location).toHaveText("/board/fixture-project?filters=keyword:pane-only");
+    await page.getByRole("button", { name: "Restore Fixture card", exact: true }).click();
+    await expect(page.locator("[data-card-viewer]")).toHaveCount(1);
+    await expect(location).toHaveText("/board/fixture-project/fixture-card?filters=keyword:pane-only");
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(location).toHaveText("/board/fixture-project?filters=keyword:pane-only");
+});

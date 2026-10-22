@@ -2,6 +2,7 @@ import { flipDraftKey, useCardFlipDraftStore } from "./CardFlipDraftStore";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
 import { Reorder } from "framer-motion";
+import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import useCardCommentDraftStore from "@/core/stores/CardCommentDraftStore";
 import { captureCardOrigin } from "../board/CardAnimation";
@@ -112,6 +113,7 @@ export default function CardFlipTray({
             drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
         ).trim();
     const navigate = usePageNavigateRef();
+    const location = useLocation();
     const [t, i18n] = useTranslation();
     const didDrag = useRef(false);
     const host = useRef<HTMLDivElement>(null);
@@ -171,7 +173,7 @@ export default function CardFlipTray({
         captureCardOrigin(projectUID, card.uid, element.getBoundingClientRect());
         useCardFlipStore.getState().swap(userUID, projectUID, card.uid, currentCard);
         setOpen(false);
-        navigate({ pathname: ROUTES.BOARD.CARD(projectUID, card.uid), search: window.location.search });
+        navigate({ pathname: ROUTES.BOARD.CARD(projectUID, card.uid), search: location.search });
     };
     const item = (card: IFlippedCard, compact = true) => (
         <FlipDraggableItem
