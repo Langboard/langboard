@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import CloudUpload from "./CloudUpload";
+import CloudDocument from "./CloudDocument";
 import useAuthStore from "@/core/stores/AuthStore";
 import { Tree } from "react-arborist";
 import { useTranslation } from "react-i18next";
@@ -23,9 +24,11 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     const [layout, setLayout] = useState<"list" | "grid">("list");
     const [folder, setFolder] = useState<string>();
     const [preview, setPreview] = useState<CloudItem>();
+    const [document, setDocument] = useState<{ item: CloudItem; scope: string }>();
     const query = useBoardCloud(projectUID, category);
     const actor = useAuthStore((state) => state.currentUser?.uid);
     const identity = useAuthStore((state) => state.getIdentityVersion());
+    const scope = `${projectUID}:${actor}:${identity}`;
     // A failed authorization refresh must not leave previously visible files on screen.
     const items = useMemo(() => {
         if (query.isError) return [];
@@ -208,6 +211,9 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                                     grid={layout === "grid"}
                                     onPreview={() => setPreview(item)}
                                     onSource={() => openSource(item)}
+                                    onDocument={
+                                        item.source.kind === "project" && item.attachment_uid ? () => setDocument({ item, scope }) : undefined
+                                    }
                                 />
                             )
                         )}
@@ -221,6 +227,17 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                     )}
                 </div>
             </>
+            {document &&
+                document.scope === scope &&
+                !query.isError &&
+                items.some((item) => item.id === document.item.id && item.url === document.item.url) && (
+                    <CloudDocument
+                        key={`${scope}:${document.item.id}:${document.item.url}`}
+                        projectUID={projectUID}
+                        item={document.item}
+                        onClose={() => setDocument(undefined)}
+                    />
+                )}
             {preview && items.includes(preview) && !query.isError && (
                 <ImagePreviewDialog
                     files={[{ name: preview.name, url: preview.url, type: preview.media_type }]}
@@ -232,7 +249,19 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     );
 }
 
-function CloudFile({ item, grid, onPreview, onSource }: { item: CloudItem; grid: boolean; onPreview: () => void; onSource: () => void }) {
+function CloudFile({
+    item,
+    grid,
+    onPreview,
+    onSource,
+    onDocument,
+}: {
+    item: CloudItem;
+    grid: boolean;
+    onPreview: () => void;
+    onSource: () => void;
+    onDocument?: () => void;
+}) {
     const [t] = useTranslation();
     const [failed, setFailed] = useState(false);
     const { download, isDownloading } = useDownloadFile({ url: item.url, filename: item.name, onError: () => setFailed(true) });
@@ -273,6 +302,11 @@ function CloudFile({ item, grid, onPreview, onSource }: { item: CloudItem; grid:
                     {t("common.Download")}
                 </Button>
             </div>
+            {onDocument && (
+                <Button size="sm" variant="outline" onClick={onDocument}>
+                    {t("cloud.Document")}
+                </Button>
+            )}
             {failed && (
                 <p role="alert" className="text-xs text-destructive">
                     {t("errors.Download failed.")}

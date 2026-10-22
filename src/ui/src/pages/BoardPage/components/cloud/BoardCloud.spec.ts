@@ -550,3 +550,162 @@ test("ambiguous initial upload retries identical payload with same UUID", async 
     expect(calls[0]).toEqual(calls[1]);
     expect(calls[1].action).toBeUndefined();
 });
+
+// Document responses are labeled HTTP fixtures; these tests do not prove live extraction or inference.
+const nativeDocumentItem = () => ({
+    ...item("native-document"),
+    source: {
+        kind: "project",
+        project_uid: "cloud-board",
+        title: "Cloud fixture",
+        board_url: "/board/cloud-board/cloud",
+        url: "/board/cloud-board/cloud",
+    },
+});
+const nativeDocumentSource = {
+    source_type: "project_attachment",
+    project_uid: "cloud-board",
+    attachment_uid: "native-document",
+    name: "native-document.pdf",
+    url: "/storage/native-document.pdf",
+    board_url: "/board/cloud-board/cloud",
+};
+const documentFixturePage = (extra = {}) => ({
+    source: nativeDocumentSource,
+    generation: "fixture-generation",
+    status: "indexed",
+    text: "Private native fixture text",
+    total_chars: 8000,
+    next_offset: 4000,
+    keywords: { en: ["fixture"] },
+    embedding_status: "indexed",
+    ...extra,
+});
+const documentPath = "**/board/cloud-board/cloud/attachment/native-document/document";
+async function documentCatalog(page: import("@playwright/test").Page, next: string | null = null) {
+    await page.route("**/board/*/cloud?**", (route) => route.fulfill({ json: response([nativeDocumentItem(), item("legacy-card")], next) }));
+    await page.goto(fixture);
+    await expect(page.getByRole("list", { name: "Attachments" }).getByRole("button", { name: "Document", exact: true })).toHaveCount(1);
+    await page.getByRole("button", { name: "Document", exact: true }).click();
+}
+
+test("native document explicit read, bounded pages, process receipt and semantic citations", async ({ page }) => {
+    const reads: URL[] = [];
+    const processes: string[] = [];
+    const searches: unknown[] = [];
+    await page.route(`${documentPath}?**`, (route) => {
+        const url = new URL(route.request().url());
+        reads.push(url);
+        return route.fulfill({
+            json: documentFixturePage(url.searchParams.get("offset") === "4000" ? { text: "Second fixture page", next_offset: null } : {}),
+        });
+    });
+    await page.route(`${documentPath}/process`, (route) => {
+        processes.push(route.request().postData() ?? "");
+        return route.fulfill({ json: { attachment_uid: "native-document", generation: "queued-fixture", status: "pending" } });
+    });
+    await page.route(`${documentPath}/search`, (route) => {
+        searches.push(route.request().postDataJSON());
+        return route.fulfill({
+            json: {
+                source: nativeDocumentSource,
+                generation: "fixture-generation",
+                matches: [
+                    { chunk_id: "fixture-chunk", content: "Native semantic fixture excerpt", source: nativeDocumentSource, pages: [2], page: 2 },
+                ],
+            },
+        });
+    });
+    await documentCatalog(page);
+    expect(reads).toHaveLength(0);
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toHaveText("Private native fixture text");
+    expect(reads[0].searchParams.get("limit")).toBe("4000");
+    await page.getByRole("button", { name: "Next document page", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toHaveText("Second fixture page");
+    expect(reads[1].searchParams.get("offset")).toBe("4000");
+    await page.getByLabel("Document query", { exact: true }).fill("  native query  ");
+    await page.getByRole("button", { name: "Search document", exact: true }).click();
+    await expect(page.getByLabel("Document matches")).toContainText("Native semantic fixture excerpt");
+    await expect(page.getByRole("link", { name: "Source: native-document.pdf" })).toHaveAttribute("href", nativeDocumentSource.url);
+    expect(searches).toEqual([{ query: "native query", max_tokens: 2000 }]);
+    await page.getByRole("button", { name: "Process document", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Processing queued");
+    await expect(page.getByText("Native semantic fixture excerpt", { exact: true })).toHaveCount(0);
+    expect(processes).toEqual([""]);
+});
+
+test("document failed reads clear private results and search unavailable is not success", async ({ page }) => {
+    let reads = 0;
+    await page.route(`${documentPath}?**`, (route) => route.fulfill(++reads === 1 ? { json: documentFixturePage() } : { status: 403, json: {} }));
+    await page.route(`${documentPath}/search`, (route) => route.fulfill({ status: 400, json: { detail: "vectors unavailable" } }));
+    await documentCatalog(page);
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Document unavailable");
+    await expect(page.getByLabel("Document text", { exact: true })).toHaveCount(0);
+    await page.getByLabel("Document query", { exact: true }).fill("query");
+    await page.getByRole("button", { name: "Search document", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Document unavailable");
+    await expect(page.getByLabel("Document matches")).toHaveCount(0);
+});
+
+for (const change of ["Switch actor", "Switch board"] as const) {
+    test(`document late read ignored on ${change}`, async ({ page }) => {
+        let release: () => void = () => {};
+        const delayed = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await page.route(`${documentPath}?**`, async (route) => {
+            await delayed;
+            await route.fulfill({ json: documentFixturePage() }).catch(() => {});
+        });
+        await documentCatalog(page);
+        await page.getByRole("button", { name: "Read document", exact: true }).click();
+        await expect(page.getByRole("status")).toContainText("Loading document");
+        await page.getByRole("button", { name: change, exact: true, includeHidden: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        release();
+        await expect(page.getByText("Private native fixture text", { exact: true })).toHaveCount(0);
+    });
+}
+
+test("failed current Cloud authorization refresh unmounts private document", async ({ page }) => {
+    await page.route(`${documentPath}?**`, (route) => route.fulfill({ json: documentFixturePage() }));
+    await documentCatalog(page, "next");
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toBeVisible();
+    await page.route("**/board/*/cloud?**", (route) => route.fulfill({ status: 403, json: {} }));
+    // Native modal traps pointer interaction; invoke the fixture's actual continuation button.
+    await page.getByRole("button", { name: "Load more", exact: true, includeHidden: true }).evaluate((button: HTMLButtonElement) => button.click());
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("Private native fixture text", { exact: true })).toHaveCount(0);
+});
+
+test("changed document generation never combines pages", async ({ page }) => {
+    await page.route(`${documentPath}?**`, (route) =>
+        route.fulfill({
+            json: documentFixturePage(
+                new URL(route.request().url()).searchParams.get("offset") === "4000"
+                    ? { generation: "changed", text: "Wrong generation content" }
+                    : {}
+            ),
+        })
+    );
+    await documentCatalog(page);
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Next document page", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Document unavailable");
+    await expect(page.getByText("Wrong generation content", { exact: true })).toHaveCount(0);
+});
+
+test("native document pagination accepts 4000 Unicode codepoints", async ({ page }) => {
+    const text = "😀".repeat(4000);
+    await page.route(`${documentPath}?**`, (route) => route.fulfill({ json: documentFixturePage({ text }) }));
+    await documentCatalog(page);
+    await page.getByRole("button", { name: "Read document", exact: true }).click();
+    await expect(page.getByLabel("Document text", { exact: true })).toHaveText(text);
+    await expect(page.getByRole("button", { name: "Next document page", exact: true })).toBeVisible();
+});
