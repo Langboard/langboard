@@ -92,4 +92,91 @@ test("maximum collection tree renders bounded rows and hides unreadable board ti
     await page.getByRole("button", { name: "Board unavailable", exact: true }).first().click();
     await expect(page.getByTestId("destination")).toHaveText("");
     expect(await page.getByRole("treeitem").count()).toBeLessThan(25);
+    await page.getByRole("tree").focus();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("*");
+    await page.keyboard.press("End");
+    const lastBoard = page.getByRole("treeitem").last();
+    await expect(lastBoard).toBeFocused();
+    await expect(lastBoard).toHaveAttribute("aria-level", "2");
+    await expect(lastBoard.locator("[data-collection-uid]")).toHaveAttribute("data-collection-uid", collections[63].uid);
+    expect(await page.getByRole("treeitem").count()).toBeLessThan(25);
+    await page.keyboard.press("Home");
+    await expect(page.getByRole("button", { name: "Group 0", exact: true })).toBeVisible();
+});
+
+test("focused collection controls retain native arrow navigation and board activation", async ({ page }) => {
+    await page.route("**/account/project-collections", (route) =>
+        route.fulfill({
+            json: {
+                revision: 1,
+                collections: [{ uid: first, name: "Keyboard collection", board_uids: ["00000000001"] }],
+            },
+        })
+    );
+    await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html");
+    await page.getByRole("button", { name: "Keyboard collection", exact: true }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("button", { name: "Zulu", exact: true })).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("treeitem").filter({ has: page.getByRole("button", { name: "Zulu", exact: true }) })).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(page.getByTestId("destination")).toHaveText("00000000001");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(0);
+});
+
+test("revoked board access removes titles and favorites and blocks activation", async ({ page }) => {
+    let writes = 0;
+    await page.route("**/account/project-collections", (route) => {
+        if (route.request().method() !== "GET") writes++;
+        return route.fulfill({ json: { revision: 1, collections: [{ uid: first, name: "Permission collection", board_uids: ["00000000001"] }] } });
+    });
+    await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html");
+    await page.getByRole("button", { name: "Permission collection", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Zulu", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Remove board access", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tree").getByRole("button", { name: "Favorites", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Board unavailable", exact: true }).click();
+    await expect(page.getByTestId("destination")).toHaveText("");
+    await page.getByRole("tree").focus();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Space");
+    await expect(page.getByTestId("destination")).toHaveText("");
+    expect(writes).toBe(0);
+});
+
+test.describe("touch collection controls", () => {
+    test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+    test("tap expands, sorts, favorites and opens a linked board", async ({ page }, testInfo) => {
+        let saved = { revision: 1, collections: [{ uid: first, name: "Touch collection", board_uids: ["00000000001", "00000000002"] }] };
+        let stars = 0;
+        await page.route("**/account/project-collections", (route) => {
+            if (route.request().method() === "PUT") saved = { revision: saved.revision + 1, collections: route.request().postDataJSON().collections };
+            return route.fulfill({ json: saved });
+        });
+        await page.route("**/dashboard/projects/*/star", (route) => {
+            stars++;
+            return route.fulfill({ json: {} });
+        });
+        await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html");
+        await page.getByRole("button", { name: "Touch collection", exact: true }).tap();
+        await expect(page.getByRole("button", { name: "Zulu", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Collection actions", exact: true }).tap();
+        await page.getByRole("button", { name: "Sort boards by name", exact: true }).tap();
+        await expect.poll(() => saved.collections[0].board_uids).toEqual(["00000000002", "00000000001"]);
+        await page.keyboard.press("Escape");
+        const favorite = page.getByRole("tree").getByRole("button", { name: "Favorites", exact: true }).first();
+        await favorite.tap();
+        await expect(favorite).toHaveAttribute("aria-pressed", "true");
+        expect(stars).toBe(1);
+        await expect(page.getByTestId("destination")).toHaveText("");
+        await page.getByRole("button", { name: "Alpha", exact: true }).tap();
+        await expect(page.getByTestId("destination")).toHaveText("00000000002");
+        expect(await page.evaluate(() => navigator.maxTouchPoints > 0 && document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath("touch-390.png"), fullPage: true });
+    });
 });

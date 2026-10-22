@@ -173,7 +173,14 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                             }
                         }}
                         onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                            if (
+                                event.target === event.currentTarget.firstElementChild &&
+                                ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)
+                            ) {
+                                node.focus();
+                            } else event.stopPropagation();
+                        }}
                     >
                         <Button
                             type="button"

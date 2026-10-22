@@ -288,3 +288,32 @@ for (const width of [1280, 390]) {
         expect(requests[2].request_uuid).not.toBe(requests[0].request_uuid);
     });
 }
+
+test("late collection save stays isolated after account switch", async ({ page }) => {
+    let pending: import("@playwright/test").Route | undefined;
+    await page.route("**/account/project-collections", (route) => {
+        if (route.request().method() === "PUT") {
+            pending = route;
+            return;
+        }
+        return route.fulfill({ json: { revision: 0, collections: [] } });
+    });
+    await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html");
+    await page.getByRole("button", { name: "Add collection", exact: true }).click();
+    await page.getByLabel("Project name", { exact: true }).fill("Old account private collection");
+    await page.getByRole("checkbox", { name: "ERP board", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => !!pending).toBe(true);
+    await page
+        .getByRole("button", { name: "Switch account", exact: true, includeHidden: true })
+        .evaluate((button: HTMLButtonElement) => button.click());
+    await expect(page.locator("output")).toHaveText("[]");
+    const response = page.waitForResponse("**/account/project-collections");
+    await pending!.fulfill({ json: { revision: 1, collections: pending!.request().postDataJSON().collections } });
+    await response;
+    await expect(page.getByRole("button", { name: "Add collection", exact: true })).toBeEnabled();
+    await expect(page.locator("output")).toHaveText("[]");
+    await page.getByRole("button", { name: "Add collection", exact: true }).click();
+    await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("");
+    await expect(page.getByText("Old account private collection", { exact: true })).toHaveCount(0);
+});

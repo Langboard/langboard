@@ -37,11 +37,21 @@ const projects = Project.Model.fromArray(
 function Fixture() {
     const result = useProjectCollections(actor.uid);
     const [destination, navigate] = useState("");
+    const [availableProjects, setAvailableProjects] = useState(projects);
     const [content, setContent] = useState("Editor and tree share DND");
     return (
         <main className="w-full max-w-sm p-2">
             <ProjectCompactItem project={projects[2]} updateStarredProjects={() => {}} />
-            <ProjectCollectionTree collections={result.collections} projects={projects} busy={result.busy} save={result.save} navigate={navigate} />
+            <button type="button" onClick={() => setAvailableProjects([])}>
+                Remove board access
+            </button>
+            <ProjectCollectionTree
+                collections={result.collections}
+                projects={availableProjects}
+                busy={result.busy}
+                save={result.save}
+                navigate={navigate}
+            />
             <output className="sr-only" data-testid="collections" data-busy={result.busy}>
                 {JSON.stringify(result.collections)}
             </output>
