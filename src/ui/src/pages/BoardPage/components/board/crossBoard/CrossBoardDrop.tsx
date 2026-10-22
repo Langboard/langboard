@@ -12,7 +12,7 @@ import Button from "@/components/base/Button";
 import { useTranslation } from "react-i18next";
 
 export function isCrossBoardSource(card: ProjectCard.TModel) {
-    return !card.source_type;
+    return !card.source_type && card.can_cross_board === true;
 }
 
 export default function CrossBoardDrop({ column, children }: { column: ProjectColumn.TModel; children: React.ReactNode }) {

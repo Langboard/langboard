@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page) {
+async function setup(page: Page, canCrossBoard = true) {
     page.on("pageerror", (error) => console.error("Split fixture page error:", error.message));
     const now = new Date().toISOString();
     const user = {
@@ -70,6 +70,8 @@ async function setup(page: Page) {
                             created_at: now,
                             updated_at: now,
                             order: 0,
+                            can_cross_board: canCrossBoard,
+                            creator: { uid: "ordinary-bot", type: "bot", name: "Ordinary bot", avatar: null, created_at: now },
                             count_comment: 0,
                             member_uids: [],
                             current_auth_role_actions: ["*"],
@@ -119,7 +121,7 @@ async function setup(page: Page) {
     await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
 }
 
-async function dropCard(page: Page) {
+async function dropCard(page: Page, eligible = true) {
     if (!(await page.locator("[data-workbench-explorer]").isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();
     await page.getByRole("button", { name: "Open right board in split view" }).first().click({ force: true });
     const panes = page.locator("[data-board-pane]");
@@ -136,7 +138,7 @@ async function dropCard(page: Page) {
     await page.mouse.move(sourceBox.x + 30, sourceBox.y + 15, { steps: 5 });
     await page.mouse.move(destinationBox.x + 130, destinationBox.y + 180, { steps: 30 });
     await page.mouse.up();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(eligible ? 1 : 0);
 }
 
 function interceptAction(page: Page, handler: (body: Record<string, unknown>, count: number) => { status: number; json: unknown }) {
@@ -329,3 +331,37 @@ test("opening and cancelling native drop selection sends no mutation", async ({ 
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(mutations).toEqual([]);
 });
+
+test("native app-owned cards cannot open cross-board selection", async ({ page }) => {
+    await setup(page, false);
+    const calls = await interceptAction(page, () => ({ status: 201, json: {} }));
+    await dropCard(page, false);
+    expect(calls.requests).toHaveLength(0);
+});
+
+for (const operation of ["Link card", "Clone card"]) {
+    test(`ownership change before ${operation} prevents submission`, async ({ page }) => {
+        await setup(page);
+        const calls = await interceptAction(page, () => ({ status: 201, json: {} }));
+        await dropCard(page);
+        await page.evaluate(async () => {
+            const moduleURL = "/src/core/stores/SocketStore.ts";
+            const sockets = await import(moduleURL);
+            const registryURL = "/src/core/stores/socket/registry.ts";
+            const registry = await import(registryURL);
+            const store = sockets.default.getState();
+            for (const topic of Object.keys(store.getStore().subscribedTopicNotifiers)) {
+                registry.subscribedCallback(topic, ["left"]);
+            }
+            const subscriptions = store.getStore().subscriptions;
+            const callbacks = Object.values(subscriptions).flatMap((boards: any) =>
+                Object.values(boards.left?.["board:card:details:changed:left-card"] ?? {}).flat()
+            ) as Array<(data: unknown) => void>;
+            if (!callbacks.length) throw new Error("Missing native card details subscription");
+            for (const callback of callbacks) callback({ can_cross_board: false });
+        });
+        await page.getByRole("button", { name: operation, exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        expect(calls.requests).toHaveLength(0);
+    });
+}

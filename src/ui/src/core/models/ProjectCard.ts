@@ -37,6 +37,7 @@ export interface Interface extends IBaseModel {
     deadline_at?: Date;
     archived_at?: Date;
     can_delete?: bool;
+    can_cross_board?: boolean;
     can_change_visibility?: bool;
     creator?: {
         uid: string;
@@ -266,6 +267,13 @@ class ProjectCard extends BaseModel<IStore> {
 
     public get creator() {
         return this.getValue("creator");
+    }
+
+    public get can_cross_board() {
+        return this.getValue("can_cross_board");
+    }
+    public set can_cross_board(value) {
+        this.update({ can_cross_board: value });
     }
 
     public get source_type() {

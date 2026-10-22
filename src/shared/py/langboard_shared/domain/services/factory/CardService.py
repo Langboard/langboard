@@ -631,6 +631,22 @@ class CardService(BaseDomainService):
         CardPublisher.updated(project, current, None, {"work_state": state})
         return self._verification_projection(record)
 
+    @staticmethod
+    def cross_board_eligibility(cards: Sequence[Card]) -> dict[int, bool]:
+        """Project ownership only for card rows already authorized by the caller."""
+        card_ids = list(dict.fromkeys(card.id for card in cards))
+        owned = set()
+        with DbSession.use(readonly=False) as db:
+            for offset in range(0, len(card_ids), 200):
+                rows = db.exec(
+                    select(CardAppOwnership.card_id).where(
+                        CardAppOwnership.card_id.in_(card_ids[offset : offset + 200]),
+                        CardAppOwnership.app_key.is_not(None),
+                    )
+                ).all()
+                owned.update(row[0] for row in rows)
+        return {card.id: not card.is_linked_resource and card.id not in owned for card in cards}
+
     def get_details(
         self,
         project: TProjectParam | None,
@@ -650,6 +666,7 @@ class CardService(BaseDomainService):
             return None
 
         api_card = card.api_response(include_body=include_description)
+        api_card["can_cross_board"] = self.cross_board_eligibility([card])[card.id]
         api_card["visibility"] = card.visibility
         api_card["project_column_name"] = column.name
         api_card["work_state"] = self.get_work_states([card], context=context)[card.id]
@@ -732,6 +749,7 @@ class CardService(BaseDomainService):
         if not raw_cards:
             return [], []
         visible_cards = {card.id: card for card, _ in raw_cards}
+        eligibility = self.cross_board_eligibility(list(visible_cards.values()))
         raw_members = self.repo.card_assigned_user.get_all_by_project(project, archive_visible_since, context=context)
         members: dict[int, list[str]] = {}
         for member, card_assigned_user in raw_members:
@@ -832,6 +850,7 @@ class CardService(BaseDomainService):
                 is_check_card=is_check_card,
                 include_body=False,
             )
+            api_card["can_cross_board"] = eligibility[card.id]
             progress = work_states[card.id]["checklist_progress"]
             api_card["checklist_total_count"] = progress["total"]
             api_card["checklist_completed_count"] = progress["completed"]

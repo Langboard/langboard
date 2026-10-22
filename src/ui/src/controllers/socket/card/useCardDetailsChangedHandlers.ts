@@ -7,6 +7,7 @@ import { ESocketTopic } from "@langboard/core/enums";
 
 export interface ICardDetailsChangedRawResponse {
     read_state_changed?: boolean;
+    can_cross_board?: boolean;
     updated_at?: string;
     title?: string;
     description?: IEditorContent;
@@ -32,6 +33,7 @@ const useCardDetailsChangedHandlers = ({ callback, projectUID, cardUID }: IUseCa
                 const card = ProjectCard.Model.getModel(cardUID);
                 if (card) {
                     if (data.read_state_changed) card.read_state_version = (card.read_state_version ?? 0) + 1;
+                    if (data.can_cross_board !== undefined) card.can_cross_board = data.can_cross_board;
                     if (data.title !== undefined) card.title = data.title;
                     if (data.description !== undefined) card.description = data.description;
                     if (data.deadline_at !== undefined) card.deadline_at = data.deadline_at ?? undefined;
