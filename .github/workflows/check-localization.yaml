@@ -48,6 +48,9 @@ on:
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.workbench.config.ts
       - src/ui/playwright.schedule-workload.config.ts
+      - src/ui/playwright.board-automation-runs.config.ts
+      - src/ui/src/components/Layout/automation-runs.*
+      - src/ui/src/pages/BoardPage/BoardAutomationRuns.tsx
       - src/ui/src/components/Layout/schedule-workload.spec.ts
       - src/ui/src/components/Layout/workbench-shell.spec.ts
       - src/ui/playwright.explorer-recovery.config.ts
@@ -230,4 +233,8 @@ jobs:
       - name: Verify Schedule views and session boundaries
         if: github.event_name == 'workflow_dispatch'
         run: yarn playwright test -c playwright.schedule-workload.config.ts
+        working-directory: src/ui
+      - name: Verify native Automation run boundaries
+        if: github.event_name == 'workflow_dispatch'
+        run: yarn playwright test -c playwright.board-automation-runs.config.ts
         working-directory: src/ui

@@ -78,6 +78,7 @@ case "$profile" in
       src/api/tests/dashboard/test_column_visibility_counts.py \
       src/api/tests/card_visibility/test_schedule_calendar.py \
       src/api/tests/card_visibility/test_schedule_workload.py \
+      src/api/tests/runtime/test_board_automation_runs.py \
       src/api/tests/model_providers/test_image_generation.py \
       src/api/tests/model_providers/test_comment_compaction_binding.py \
       src/api/tests/model_providers/test_comment_compaction_snapshot.py \
@@ -137,6 +138,7 @@ case "$profile" in
       src/api/tests/dashboard/test_column_visibility_counts.py \
       src/api/tests/card_visibility/test_schedule_calendar.py \
       src/api/tests/card_visibility/test_schedule_workload.py \
+      src/api/tests/runtime/test_board_automation_runs.py \
       src/api/tests/model_providers/test_image_generation.py \
       src/api/tests/model_providers/test_comment_compaction_binding.py \
       src/api/tests/model_providers/test_comment_compaction_snapshot.py \

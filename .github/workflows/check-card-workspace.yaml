@@ -7,6 +7,9 @@ on:
       - .github/workflows/check-card-workspace.yaml
       - src/api/langboard/card_workspace/**
       - src/api/langboard/routes/dashboard/DashboardApi.py
+      - src/api/langboard/routes/board/BoardAutomationRunsApi.py
+      - src/shared/py/langboard_shared/domain/services/factory/BoardAutomationRuns.py
+      - src/api/tests/runtime/test_board_automation_runs.py
       - src/api/tests/card_visibility/test_schedule*.py
       - src/shared/py/langboard_shared/domain/services/CardScheduleCalendar.py
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/ScheduleWorkloadQuery.py
@@ -115,3 +118,5 @@ jobs:
         run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_calendar.py src/api/tests/card_visibility/test_schedule_workload.py
       - name: Verify Schedule workload on native PostgreSQL
         run: SCHEDULE_WORKLOAD_TEST_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_workload.py
+      - name: Verify native automation summary and detail audiences
+        run: uv run --no-sync pytest -q src/api/tests/runtime/test_board_automation_runs.py src/api/tests/runtime/test_board_automation_loading.py

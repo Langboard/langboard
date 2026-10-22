@@ -79,6 +79,7 @@ import {
 } from "@/pages/DashboardPage/components/WorkbenchCommands";
 import { closeProject } from "@/pages/DashboardPage/components/OpenCardsStore";
 
+const BoardAutomationRuns = lazy(() => import("./BoardAutomationRuns"));
 const ChatSidebar = lazy(() => import("@/pages/BoardPage/components/chat/ChatSidebar"));
 const BoardCardPage = lazy(() => import("@/pages/BoardPage/BoardCardPage"));
 const BoardSettingsPage = lazy(() => import("@/pages/BoardPage/BoardSettingsPage"));
@@ -1056,13 +1057,14 @@ function BoardBotScopeSidebar({ project }: { project: Project.TModel }): React.J
     const currentUserRoleActions = project.useField("current_auth_role_actions");
     const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
 
-    if (!hasRoleAction(ProjectRole.EAction.Update)) {
-        return <></>;
-    }
-
     return (
-        <Box className="h-full">
-            <BoardBotScopeList target={{ target_table: "project", target: project }} className="h-full pb-3" />
+        <Box className="h-full overflow-y-auto">
+            <Suspense fallback={<Skeleton className="m-3 h-24" />}>
+                <BoardAutomationRuns project={project} />
+            </Suspense>
+            {hasRoleAction(ProjectRole.EAction.Update) && (
+                <BoardBotScopeList target={{ target_table: "project", target: project }} className="pb-3" />
+            )}
         </Box>
     );
 }
