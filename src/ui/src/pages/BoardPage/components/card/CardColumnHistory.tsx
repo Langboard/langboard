@@ -78,12 +78,7 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
                 </Button>
             )}
             {nextCursor && (
-                <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-5 px-1 text-[11px]"
-                    onClick={() => setSelection({ key, before: nextCursor })}
-                >
+                <Button type="button" variant="ghost" className="h-5 px-1 text-[11px]" onClick={() => setSelection({ key, before: nextCursor })}>
                     {t("card.Older history")}
                 </Button>
             )}
