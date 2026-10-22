@@ -130,3 +130,77 @@ def test_attachment_revision_is_safe_optional_native_evidence():
     for invalid in ("A" * 64, "a" * 63, 1):
         with pytest.raises(ValidationError):
             PublicAttachmentOutput.model_validate({"uid": "image", "image_revision": invalid})
+
+
+def test_card_bundle_native_output_schema_preserves_frozen_contract():
+    from pathlib import Path
+    from langboard.mcp_integration.Providers import create_native_tool
+    from langboard.mcp_tools import CardMcp
+
+    name = CardMcp.get_card_bundle.__name__
+    baseline = json.loads((Path(__file__).parent / "fixtures" / "legacy-native-v1.json").read_text())
+    expected = next(tool["output_schema"] for tool in baseline["contract"]["tools"] if tool["name"] == name)
+    native = create_native_tool(name, McpTool.get_tool(name), McpServer._wrap_tool, modern_annotations=False)
+    assert native.output_schema == expected
+
+
+@pytest.mark.parametrize("model_page", [False, True])
+def test_comment_continuation_preserves_image_activity_and_compaction(model_page):
+    from langboard.card_workspace.application.dtos import BoundedItemsDto, CardBundleResponse
+    from langboard.card_workspace.application.projections import public_comment
+
+    anchor = {
+        "type": "ImageRegionSelector", "version": 1,
+        "source": {"type": "card_attachment", "attachment_uid": "image", "revision": "a" * 64},
+        "shape": "point", "image_width": 100, "image_height": 100,
+        "x": 10, "y": 20, "width": 0, "height": 0,
+    }
+    comment = public_comment({"uid": "comment", "content": "Image review", "anchor": anchor,
+                              "user": {"uid": "user"}, "reactions": {"like": ["user"]},
+                              "reaction_counts": {"like": 1}})
+    activity = {
+        "kind": "activity", "uid": "move", "evidence_ref": "activity:move",
+        "created_at": None, "actor": {"uid": "user"},
+        "from_column": {"name": "Doing"}, "to_column": {"name": "Review"},
+    }
+    compaction = {
+        "kind": "compaction", "uid": "summary", "evidence_ref": "compaction:summary",
+        "created_at": None,
+        "summary": {
+            "source_revision": "revision", "covered_from": "comment", "covered_through": "move",
+            "evidence_refs": ["comment:comment", "activity:move"],
+            "claims": [{"kind": "decision", "text": "Review image", "evidence_refs": ["comment:comment"]}],
+            "search_metadata": {"source": "comment_compaction", "derived": True,
+                                "keywords": [{"value": "image", "evidence_refs": ["comment:comment"]}],
+                                "entities": []},
+            "generated_by": {"uid": "bot", "display_name": "Summarizer"},
+        },
+    }
+    page = dict(items=[comment, activity, compaction], total_count=9, next_cursor="opaque-next", limit=3)
+    payload = {"card_uid": "card", "continuation": {
+        "section": "comments", "page": BoundedItemsDto(**page) if model_page else page,
+    }}
+    serialized = CardBundleResponse.model_validate(payload).model_dump(mode="json")
+    assert serialized["continuation"]["page"] == page
+    assert serialized["continuation"]["page"]["items"][0]["anchor"] == anchor
+
+
+@pytest.mark.parametrize("model_page", [False, True])
+@pytest.mark.parametrize("malformed", [
+    {"old_generic_field": True},
+    {"uid": 1, "content": "Evidence", "content_format": "text",
+     "content_total_chars": 8, "content_truncated": False},
+    {"uid": "comment", "content": "Evidence", "content_format": "text",
+     "content_total_chars": 8, "content_truncated": False, "anchor": {"exact": "quote", "url": "private"}},
+    {"kind": "activity", "uid": "move"},
+    {"kind": "compaction", "uid": "summary", "evidence_ref": "compaction:summary", "created_at": None},
+])
+def test_comment_continuation_rejects_malformed_entries(model_page, malformed):
+    from langboard.card_workspace.application.dtos import BoundedItemsDto, CardBundleResponse
+    from pydantic import ValidationError
+
+    page = dict(items=[malformed], total_count=1, next_cursor=None, limit=10)
+    with pytest.raises(ValidationError):
+        CardBundleResponse.model_validate({"card_uid": "card", "continuation": {
+            "section": "comments", "page": BoundedItemsDto(**page) if model_page else page,
+        }})

@@ -143,7 +143,7 @@ class CardBundleContinuationDto(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     section: str
-    page: CommentItemsDto | BoundedItemsDto | None = None
+    page: BoundedItemsDto | None = None
     text: BoundedTextDto | None = None
 
     @model_validator(mode="before")
