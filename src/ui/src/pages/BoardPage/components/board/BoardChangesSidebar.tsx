@@ -10,7 +10,22 @@ import { formatDateDistance, formatDateTime } from "@/core/utils/LocaleFormat";
 export default function BoardChangesSidebar({ projectUID, onNavigate }: { projectUID: string; onNavigate?: () => void }) {
     const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
-    const { data, dataUpdatedAt, isFetching, refetch } = useGetCards({ project_uid: projectUID }, { enabled: true });
+    const { data, dataUpdatedAt, isFetching, refetch } = useGetCards(
+        { project_uid: projectUID },
+        {
+            enabled: true,
+            refetchOnMount: function refetchWhenUnowned(query) {
+                // Reuse the active board snapshot; a sole observer must still refresh stale data on remount.
+                return (
+                    query.state.isInvalidated ||
+                    query.state.status === "error" ||
+                    !query.observers.some(
+                        (observer) => observer.options.refetchOnMount !== refetchWhenUnowned && observer.getCurrentResult().isEnabled
+                    )
+                );
+            },
+        }
+    );
     const unreadCards = useBoardUnreadCards(projectUID, data ? dataUpdatedAt : 0);
     const visibleCards = [...unreadCards].sort((a, b) => (b.last_change_seq ?? 0) - (a.last_change_seq ?? 0)).slice(0, 50);
 
