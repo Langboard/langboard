@@ -1,12 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("board work state uses current server reasons without private prerequisite details or extra requests", async ({ page }) => {
+test("board cards omit work state while detail keeps localized server reasons without private details or extra requests", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("lang", "en-US"));
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
     const card = page.getByTestId("board-comment-count");
-    const summary = card.locator("[data-board-card-work-state]");
+    const boardSummary = card.locator("[data-board-card-work-state]");
+    const detail = page.getByTestId("card-work-state-detail");
+    const summary = detail.locator("[data-board-card-work-state]");
     await expect(card.getByRole("button", { name: "User card title", exact: true })).toBeVisible();
     await expect(summary).toHaveCount(0);
+    await expect(boardSummary).toHaveCount(0);
     const requests: string[] = [];
     page.on("request", (request) => {
         if (request.resourceType() === "fetch" || request.resourceType() === "xhr") requests.push(request.url());
@@ -19,8 +22,9 @@ test("board work state uses current server reasons without private prerequisite 
         ["unknown", "In progress · Status details unavailable"],
     ]) {
         await page.getByRole("combobox", { name: "Fixture work state" }).selectOption(scenario);
+        await expect(boardSummary).toHaveCount(0);
         await expect(summary).toContainText(text);
-        await expect(summary).not.toContainText(/SECRET|secret-uid/);
+        await expect(detail).not.toContainText(/SECRET|secret-uid/);
     }
     for (const width of [320, 390, 1920]) {
         await page.setViewportSize({ width, height: 844 });
@@ -36,6 +40,7 @@ test("board work state uses current server reasons without private prerequisite 
         ["zh-CN", "已阻塞 · 无法查看前置任务"],
     ]) {
         await page.getByRole("button", { name: locale, exact: true }).click();
+        await expect(boardSummary).toHaveCount(0);
         await expect(summary).toContainText(text);
     }
     await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("missing");
