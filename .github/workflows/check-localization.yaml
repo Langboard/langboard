@@ -5,6 +5,8 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-localization.yaml
+      - src/ui/src/**/*.ts
+      - src/ui/src/**/*.tsx
       - src/ui/src/assets/locales/**
       - src/ui/src/i18n.ts
       - src/ui/src/constants.ts
@@ -109,7 +111,9 @@ jobs:
         with:
           node-version: "22"
           cache: yarn
-          cache-dependency-path: src/ui/yarn.lock
+          cache-dependency-path: |
+            src/shared/ts/yarn.lock
+            src/ui/yarn.lock
       - run: corepack enable
       - run: yarn install --frozen-lockfile
         working-directory: src/shared/ts
@@ -117,11 +121,11 @@ jobs:
         working-directory: src/shared/ts
       - run: yarn install --frozen-lockfile
         working-directory: src/ui
+      - run: node scripts/verify-ui-strings.mjs
+        working-directory: src/ui
       - run: node --test scripts/i18n-initialization.test.mjs
         working-directory: src/ui
       - run: node --test scripts/verify-ui-strings.test.mjs
-        working-directory: src/ui
-      - run: node scripts/verify-ui-strings.mjs
         working-directory: src/ui
       - run: node scripts/verify-core-package.mjs
         working-directory: src/ui

@@ -31,6 +31,7 @@ on:
       - src/ui/src/pages/BoardPage/components/card/CardColumnHistory.tsx
       - .github/workflows/check-ui-contracts.yaml
       - src/ui/package.json
+      - src/ui/eslint.config.js
       - src/ui/yarn.lock
       - src/ui/src/pages/BoardPage/components/board/BoardSchedule*.ts*
       - src/ui/src/controllers/api/dashboard/useGetSchedule*.ts

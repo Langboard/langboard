@@ -5,6 +5,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-execution-cutover.yaml
+      - pyproject.toml
+      - uv.lock
+      - src/shared/py/pyproject.toml
       - src/api/langboard/routes/board/BoardCardApi.py
       - src/api/langboard/routes/board/ExecutionReceiptApi.py
       - src/api/langboard/routes/schemas/WebhookSchemaApi.py

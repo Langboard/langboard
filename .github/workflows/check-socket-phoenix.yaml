@@ -6,6 +6,8 @@ on:
     paths: &phoenix_paths
       - ".env.example"
       - "Makefile"
+      - "pyproject.toml"
+      - "uv.lock"
       - "docker/**"
       - "scripts/**"
       - "src/api/langboard/**"

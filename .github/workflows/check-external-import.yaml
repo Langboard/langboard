@@ -5,9 +5,13 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-external-import.yaml
+      - pyproject.toml
+      - uv.lock
+      - src/shared/py/pyproject.toml
       - src/api/langboard/external_import/**
       - src/api/tests/external_import/**
       - src/api/tests/card_workspace/test_completion_checklist*.py
+      - src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService_document_test.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
       - src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
   workflow_dispatch:
