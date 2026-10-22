@@ -17,7 +17,7 @@ from langboard.routes.account.AccountApi import update_profile
 from langboard.routes.account.AccountForm import UpdateProfileForm
 from langboard.routes.board import BoardAvatarApi as boards
 from langboard.routes.settings import BotSettingsApi as bots
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import KeyVault
@@ -278,6 +278,8 @@ def avatar_http(avatars, monkeypatch):
         boards.preview_board_avatar,
         bots.bot_avatar_profiles,
         bots.preview_bot_avatar,
+        bots.create_bot,
+        bots.get_bots_in_settings,
     }
     for route in AppRouter.api.routes:
         if getattr(route, "endpoint", None) in handlers:
@@ -569,3 +571,57 @@ def test_bot_draft_avatar_http_routes_enforce_creator_role(avatar_http, monkeypa
     assert client.get(base + "/image-profiles").status_code == 403
     assert client.post(base + "/preview", json=payload).status_code == 403
     assert generated == ["Tag bot"]
+
+
+def test_generated_bot_preview_is_explicitly_uploaded_and_persisted(avatar_http, monkeypatch):
+    """Exercise preview bytes through native multipart, storage and a fresh bot read."""
+    from base64 import b64decode, b64encode
+    from langboard_shared.core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
+    from langboard_shared.domain.models import Bot, BotDefaultScopeBranch
+    from langboard_shared.helpers import BotHelper
+
+    client, _, _, avatars = avatar_http
+    _, service, actor, _, _, binding, folder, _ = avatars
+    for model in (Bot, BotDefaultScopeBranch):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    for target in AVAILABLE_BOT_TARGET_TABLES:
+        model = BotHelper.get_default_scope_model_class(target)
+        if model is not None:
+            model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+    bot_service_module = importlib.import_module("langboard_shared.domain.services.factory.BotService")
+    events = []
+    monkeypatch.setattr(bot_service_module.BotPublisher, "bot_created", lambda bot: events.append(bot.get_uid()))
+    monkeypatch.setattr(bot_service_module.BotDefaultTask, "bot_created", lambda bot: None)
+    data = raster().file.read()
+
+    async def generate(profile, prompt):
+        return "data:image/png;base64," + b64encode(data).decode()
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    preview = client.post("/settings/bot/avatar/preview", json={
+        "profile_uid": binding.get_uid(), "prompt": "A public tag bot symbol", "confirmed": True,
+    })
+    assert preview.status_code == 200
+    assert not events and not list((folder / "files").glob("**/*"))
+    response = client.post("/settings/bot", data={
+        "bot_name": "Tag bot", "bot_uname": "bot-avatar-persisted", "platform": "default",
+        "platform_running_type": "default", "value": '{"model_name":"fixture"}',
+    }, files={"avatar": ("generated.png", b64decode(preview.json()["preview_data_url"].split(",", 1)[1]), "image/png")})
+    assert response.status_code == 201, response.text
+    created = response.json()["bot"]
+    assert created["avatar"] and events == [created["uid"]]
+    with DbSession.use(readonly=False) as db:
+        stored = db.exec(SqlBuilder.select.table(Bot).where(Bot.bot_uname == "bot-avatar-persisted")).first()
+        assert stored is not None
+        assert stored.avatar.path == created["avatar"]
+        asset = stored.avatar
+    files = list((folder / "files").glob("**/" + asset.filename))
+    assert len(files) == 1 and files[0].read_bytes() == data
+    listed = client.get("/settings/bots")
+    assert listed.status_code == 200, listed.text
+    reread = next(bot for bot in listed.json()["bots"] if bot["uid"] == created["uid"])
+    assert reread["avatar"] == created["avatar"]
+    assert service.bot.get_by_id_like(created["uid"]).avatar.path == created["avatar"]
