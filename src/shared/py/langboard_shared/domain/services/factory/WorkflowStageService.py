@@ -3,7 +3,7 @@ import re
 import struct
 from collections.abc import Mapping
 from sqlalchemy import and_, func, or_, select
-from ....ai.comment_compaction import DEFAULT_COMPACTION_CHARACTERS, compaction_character_threshold
+from ....ai.comment_compaction import DEFAULT_COMPACTION_CHARACTERS, compaction_thresholds
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
@@ -531,13 +531,13 @@ class WorkflowStageService(BaseDomainService):
     @staticmethod
     def normalize_continuous_effects(value: dict) -> dict:
         defaults = {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400,
-                    "compact_after_characters": DEFAULT_COMPACTION_CHARACTERS}
+                    "compact_after_characters": DEFAULT_COMPACTION_CHARACTERS, "compact_after_comments": 0, "compact_after_turns": 0}
         if not isinstance(value, dict) or set(value) - set(defaults) - {"bots"}:
             raise ValueError("Unsupported continuous workflow effect")
         result = {**defaults, **value}
         if "bots" in result:
             result["bots"] = WorkflowStageService.normalize_bot_bindings(result["bots"], continuous=True)
-        compaction_character_threshold(result)
+        compaction_thresholds(result)
         if any(type(result[key]) is not bool for key in ("auto_compact", "auto_archive")):
             raise ValueError("Continuous workflow switches must be boolean")
         for key, lower, upper in (("interval_seconds", 60, 86400), ("archive_after_seconds", 0, 31536000)):

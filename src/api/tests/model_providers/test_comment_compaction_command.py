@@ -1323,3 +1323,115 @@ async def test_automatic_second_summary_accumulates_prior_sources_only_after_new
     assert [row["uid"] for row in view["records"] if row["kind"] == "compaction"] == [second["uid"]]
     assert len(view["records"][0]["data"]["evidence_refs"]) == 21
     assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+
+
+@pytest.fixture
+def comment_actor_bot(automatic_command):
+    from langboard_shared.domain.models import Bot
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+
+    with DbSession.atomic() as db:
+        bot = Bot(name="Comment author", bot_uname="comment-author", app_api_token="fixture",
+                  platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default)
+        db.insert(bot)
+    return bot
+
+
+@pytest.mark.parametrize("metric,authors,threshold,expected_turns", [
+    ("comments", ["user", "user", "user"], 3, 1),
+    ("turns", ["user", "user", "user"], 2, 1),
+    ("turns", ["user", "bot", "user"], 3, 3),
+    ("turns", ["user", "user", "bot"], 2, 2),
+])
+async def test_count_turn_boundaries_match_manual_and_automatic(
+    automatic_command, comment_actor_bot, monkeypatch, metric, authors, threshold, expected_turns,
+):
+    (service, actor, project, card, binding, original, move, *_), _, stage = automatic_command
+    provider = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    started = datetime(2025, 1, 1)
+    with DbSession.atomic() as db:
+        db.exec(delete(CardComment).where(CardComment.card_id == card.id))
+        stage.continuous_effects = {"auto_compact": True, "compact_after_characters": 500000,
+                                    f"compact_after_{metric}": threshold}
+        db.update(stage)
+        # Movement between identical actors must not split their comment run.
+        move.created_at = started + timedelta(seconds=1)
+        db.update(move)
+        for index, author in enumerate(authors[:-1]):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id if author == "user" else None,
+                                  bot_id=comment_actor_bot.id if author == "bot" else None,
+                                  created_at=started + timedelta(seconds=index * 2),
+                                  content=EditorContentModel(content="short")))
+    before = service.get_view(actor, project, card)["eligibility"]
+    assert before["needs_compaction"] is False
+    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    provider.assert_not_awaited()
+    with DbSession.atomic() as db:
+        author = authors[-1]
+        db.insert(CardComment(card_id=card.id, user_id=actor.id if author == "user" else None,
+                              bot_id=comment_actor_bot.id if author == "bot" else None,
+                              created_at=started + timedelta(seconds=len(authors) * 2),
+                              content=EditorContentModel(content="short")))
+        db.insert(CardComment(card_id=card.id, user_id=actor.id, deleted_at=SafeDateTime.now(),
+                              content=EditorContentModel(content="deleted")))
+    eligibility = service.get_view(actor, project, card)["eligibility"]
+    assert eligibility["uncompacted_comment_count"] == len(authors)
+    assert eligibility["uncompacted_turn_count"] == expected_turns
+    reached = len(authors) >= threshold if metric == "comments" else expected_turns >= threshold
+    assert eligibility["needs_compaction"] is reached
+    receipt = await service.generate_automatic(project, binding, card)
+    assert receipt["status"] == ("completed" if reached else "skipped")
+    assert provider.await_count == int(reached)
+    if reached:
+        covered = service.get_view(actor, project, card)["eligibility"]
+        assert covered["uncompacted_comment_count"] == covered["uncompacted_turn_count"] == 0
+        assert covered["needs_compaction"] is False
+        with DbSession.atomic() as db:
+            db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="new")))
+        fresh = service.get_view(actor, project, card)["eligibility"]
+        assert fresh["uncompacted_comment_count"] == fresh["uncompacted_turn_count"] == 1
+        assert fresh["needs_compaction"] is False
+        assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+        assert provider.await_count == 1
+
+
+@pytest.mark.parametrize("policy,characters,comments,turns,expected", [
+    ({}, 11999, 100, 100, False),
+    ({}, 12000, 0, 0, True),
+    ({"compact_after_comments": 3, "compact_after_turns": 2}, 1, 3, 1, True),
+    ({"compact_after_comments": 3, "compact_after_turns": 2}, 1, 2, 2, True),
+    ({"compact_after_comments": 3, "compact_after_turns": 2}, 12000, 1, 1, True),
+    ({"compact_after_comments": 3, "compact_after_turns": 2}, 11999, 2, 1, False),
+    ({"compact_after_comments": 100000, "compact_after_turns": 100000}, 1, 99999, 99999, False),
+    ({"compact_after_comments": 100000, "compact_after_turns": 100000}, 1, 100000, 99999, True),
+])
+def test_shared_compaction_predicate_or_and_legacy_boundaries(policy, characters, comments, turns, expected):
+    from langboard_shared.ai.comment_compaction import compaction_threshold_reached, compaction_thresholds
+
+    assert compaction_threshold_reached(compaction_thresholds(policy), characters=characters,
+                                        comments=comments, turns=turns) is expected
+
+
+def test_comment_volume_aggregates_beyond_snapshot_limit_in_one_query(automatic_command, comment_actor_bot):
+    (service, actor, project, card, binding, *_), _, _ = automatic_command
+    same_time = datetime(2025, 1, 1)
+    with DbSession.atomic() as db:
+        db.exec(delete(CardComment).where(CardComment.card_id == card.id))
+        for index in range(102):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id if index < 101 else None,
+                                  bot_id=comment_actor_bot.id if index == 101 else None, created_at=same_time,
+                                  content=EditorContentModel(content="한")))
+    statements = []
+    engine = DbEngine.get_main_engine()
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with DbSession.use(readonly=False) as db:
+            volume = service._uncovered_comment_volume(db, project, card, set())
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert volume == {"comments": 102, "characters": 102, "turns": 2}
+    assert len(statements) == 1
+    assert "lag(" in statements[0].lower() and "count(" in statements[0].lower()

@@ -7,8 +7,9 @@ from sqlalchemy import ARRAY, JSON, Text, and_, case, cast, func, literal, or_, 
 from ....ai.comment_compaction import (
     CommentCompactionSnapshot,
     CompactionSource,
-    compaction_character_threshold,
     compaction_manifest_revision,
+    compaction_threshold_reached,
+    compaction_thresholds,
     validate_compaction_draft,
 )
 from ....core.db import DbSession, SqlBuilder
@@ -300,9 +301,28 @@ class CardCommentCompactionService(BaseDomainService):
         if stage is None or stage.continuous_effects.get("auto_compact") is not True:
             return None
         try:
-            return compaction_character_threshold(stage.continuous_effects)
+            return compaction_thresholds(stage.continuous_effects)
         except ValueError:
             raise CommentCompactionError("policy_changed") from None
+
+    def _uncovered_comment_volume(self, db, project, card, covered):
+        """Aggregate comment volume and actor runs in SQL; never fetch full bodies."""
+        events = self._events(project, card)
+        query = select(events.c.id, events.c.created_at, events.c.user_id, events.c.bot_id,
+                       self._comment_characters(events).label("characters")).where(
+                           events.c.active, events.c.kind == "comment")
+        if covered:
+            query = query.where(tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered]))
+        comments = query.subquery()
+        ordering = (comments.c.created_at, comments.c.id)
+        runs = select(comments.c.characters,
+            case((or_(func.row_number().over(order_by=ordering) == 1,
+                      comments.c.user_id.is_distinct_from(func.lag(comments.c.user_id).over(order_by=ordering)),
+                      comments.c.bot_id.is_distinct_from(func.lag(comments.c.bot_id).over(order_by=ordering))), 1),
+                 else_=0).label("turn")).subquery()
+        count, characters, turns = db.exec(select(func.count(), func.coalesce(func.sum(runs.c.characters), 0),
+                                                  func.coalesce(func.sum(runs.c.turn), 0)).select_from(runs)).first()
+        return {"comments": count, "characters": characters, "turns": turns}
 
     def _eligibility(self, user, project, card, can_generate, blocks):
         """Request-local volume projection over blocks already verified by this caller."""
@@ -320,7 +340,8 @@ class CardCommentCompactionService(BaseDomainService):
             ).select_from(volume)).first()
             binding = self._get_service(InternalBotService).get_comment_compaction_binding()
             threshold = self._configured_threshold(db, card)
-            needs_compaction = (remaining_characters >= threshold if threshold is not None
+            comment_volume = self._uncovered_comment_volume(db, project, card, covered)
+            needs_compaction = (compaction_threshold_reached(threshold, **comment_volume) if threshold is not None
                                 else remaining_count >= 20 or remaining_characters >= 12_000)
             next_key = None
             if needs_compaction and can_generate and binding:
@@ -333,7 +354,8 @@ class CardCommentCompactionService(BaseDomainService):
                 "event_count": count, "source_characters": characters,
                 "uncompacted_event_count": remaining_count, "uncompacted_characters": remaining_characters,
                 "needs_compaction": needs_compaction, "next_request_key": next_key,
-                "compact_after_characters": threshold}
+                "uncompacted_comment_count": comment_volume["comments"], "uncompacted_turn_count": comment_volume["turns"],
+                **(threshold or {"compact_after_characters": None, "compact_after_comments": 0, "compact_after_turns": 0})}
 
     def get_page(self, user, project, card, *, before=None, request_key_filter=None, channel=CollaborationChannel.Api):
         """Expose bounded verified blocks and the caller's in-flight request IDs."""
@@ -590,16 +612,11 @@ class CardCommentCompactionService(BaseDomainService):
                 if block["status"] == "completed" and not covered.intersection(block["evidence_refs"]):
                     covered.update(block["evidence_refs"])
                     blocks.append(block)
-            events = self._events(project, card)
-            remaining = select(self._comment_characters(events).label("characters")).where(events.c.active)
-            if covered:
-                remaining = remaining.where(tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered]))
-            volume = remaining.subquery()
-            characters, = db.exec(select(func.coalesce(func.sum(volume.c.characters), 0)).select_from(volume)).first()
+            volume = self._uncovered_comment_volume(db, project, card, covered)
             threshold = self._configured_threshold(db, card)
             if threshold is None:
                 raise CommentCompactionError("policy_changed")
-            if characters < threshold:
+            if not compaction_threshold_reached(threshold, **volume):
                 return {"status": "skipped", "reason": "below_threshold"}
             snapshot, has_more = self._cumulative_snapshot(project, card, blocks)
             record = self.repo.card_comment_compaction.reserve_automatic(card, binding, snapshot)

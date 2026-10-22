@@ -644,8 +644,30 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                                     }
                                                 />
                                             </label>
+                                            {([
+                                                ["compact_after_comments", "Compact after comments"],
+                                                ["compact_after_turns", "Compact after conversation turns"],
+                                            ] as const).map(([key, label]) => (
+                                                <label key={key} className="block space-y-1">
+                                                    {t(`settings.${label}`)}
+                                                    <Input
+                                                        type="number"
+                                                        required
+                                                        min="0"
+                                                        max="100000"
+                                                        step="1"
+                                                        value={continuous[key]}
+                                                        onChange={(event) =>
+                                                            edit({ continuous_effects: { ...continuous, [key]: Number(event.target.value) } })
+                                                        }
+                                                    />
+                                                </label>
+                                            ))}
                                             <p className="text-xs text-muted-foreground">
-                                                {t("settings.Compaction threshold counts only new uncompressed comment bodies.")}
+                                                {t("settings.Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.")}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                                {t("settings.A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.")}
                                             </p>
                                         </div>
                                     )}

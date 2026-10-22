@@ -384,7 +384,8 @@ def public_workflow_stages(stages: dict[str, dict[str, Any]]) -> dict[str, dict[
             **pick(stage, ("key", "name", "description", "color", "is_active", "counts_as_completed",
                            "active_queue_policy", "overdue_policy", "entry_effects"), 4000),
             **({"continuous_effects": pick(stage["continuous_effects"],
-                ("auto_compact", "auto_archive", "interval_seconds", "archive_after_seconds", "compact_after_characters"))}
+                ("auto_compact", "auto_archive", "interval_seconds", "archive_after_seconds", "compact_after_characters",
+                 "compact_after_comments", "compact_after_turns"))}
                if isinstance(stage.get("continuous_effects"), dict) else {}),
         }
         for key, stage in stages.items()

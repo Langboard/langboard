@@ -467,5 +467,9 @@
   "Card moved hook": "卡片移动触发器",
   "Dispatch accepted": "执行请求已接受",
   "Skipped": "已跳过",
-  "Dispatch accepted; see bot logs for execution details.": "执行请求已接受。实际执行结果请查看机器人日志。"
+  "Dispatch accepted; see bot logs for execution details.": "执行请求已接受。实际执行结果请查看机器人日志。",
+  "Compact after comments": "压缩触发评论数",
+  "Compact after conversation turns": "压缩触发对话轮数",
+  "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.": "达到任一启用的阈值时即触发压缩。仅统计尚未压缩的新有效评论。评论数和轮数阈值设为0时禁用。",
+  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "对话轮次是按创建顺序由同一作者连续发布的一组评论。活动事件和先前摘要不计入。"
 }

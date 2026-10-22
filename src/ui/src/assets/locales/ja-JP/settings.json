@@ -467,5 +467,9 @@
   "Card moved hook": "カード移動フック",
   "Dispatch accepted": "実行リクエスト受付済み",
   "Skipped": "スキップ",
-  "Dispatch accepted; see bot logs for execution details.": "実行リクエストを受け付けました。実際の実行結果はボットログで確認してください。"
+  "Dispatch accepted; see bot logs for execution details.": "実行リクエストを受け付けました。実際の実行結果はボットログで確認してください。",
+  "Compact after comments": "圧縮するコメント数",
+  "Compact after conversation turns": "圧縮する会話ターン数",
+  "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.": "有効な基準のいずれかに達すると圧縮します。未圧縮の新しい有効なコメントのみを数えます。コメント数とターン数の基準は0で無効になります。",
+  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "会話ターンは作成順に同じ投稿者が連続して投稿したコメントのまとまりです。アクティビティイベントと以前の要約は数えません。"
 }

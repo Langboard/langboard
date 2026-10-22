@@ -467,5 +467,9 @@
   "Card moved hook": "카드 이동 트리거",
   "Dispatch accepted": "실행 요청 접수",
   "Skipped": "건너뜀",
-  "Dispatch accepted; see bot logs for execution details.": "실행 요청이 접수되었습니다. 실제 실행 결과는 봇 로그에서 확인하세요."
+  "Dispatch accepted; see bot logs for execution details.": "실행 요청이 접수되었습니다. 실제 실행 결과는 봇 로그에서 확인하세요.",
+  "Compact after comments": "압축 기준 댓글 수",
+  "Compact after conversation turns": "압축 기준 대화 턴 수",
+  "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.": "활성화된 기준 중 하나에 도달하면 압축합니다. 아직 압축되지 않은 새 활성 댓글만 계산합니다. 댓글 수와 턴 수를 0으로 설정하면 해당 기준이 꺼집니다.",
+  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "대화 턴은 생성 순서상 같은 작성자가 연속으로 남긴 댓글 묶음입니다. 활동 이벤트와 이전 요약은 계산하지 않습니다."
 }

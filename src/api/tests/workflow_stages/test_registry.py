@@ -282,7 +282,7 @@ def test_policy_projection_targets_bound_cards_and_same_project_dependents(regis
 
 def test_continuous_policy_roundtrip_preserves_legacy_omission_and_revision_conflict(registry):
     service, _ = registry
-    settings = {"auto_compact": True, "auto_archive": True, "interval_seconds": 120, "archive_after_seconds": 3600, "compact_after_characters": 24000}
+    settings = {"auto_compact": True, "auto_archive": True, "interval_seconds": 120, "archive_after_seconds": 3600, "compact_after_characters": 24000, "compact_after_comments": 25, "compact_after_turns": 10}
     stage = service.save(form(continuous_effects=settings))
     original = stage.edit_revision()
     assert stage.continuous_effects == settings
@@ -294,11 +294,13 @@ def test_continuous_policy_roundtrip_preserves_legacy_omission_and_revision_conf
         service.save({**form(continuous_effects={}), "expected_revision": original}, stage.get_uid())
     assert service.get_api_list()[0]["continuous_effects"] == settings
     cleared = service.save({**form(continuous_effects={}), "expected_revision": updated.edit_revision()}, stage.get_uid())
-    assert cleared.continuous_effects == {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400, "compact_after_characters": 12000}
+    assert cleared.continuous_effects == {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400, "compact_after_characters": 12000, "compact_after_comments": 0, "compact_after_turns": 0}
 
 
 @pytest.mark.parametrize("policy", [
     {"auto_compact": "yes"}, {"auto_archive": 1}, {"interval_seconds": True}, {"interval_seconds": 59},
+    *[{key: value} for key in ("compact_after_comments", "compact_after_turns")
+      for value in (True, False, -1, 100001, "20", 2.5)],
     {"compact_after_characters": True}, {"compact_after_characters": "12000"},
     {"compact_after_characters": 999}, {"compact_after_characters": 500001}, {"compact_after_characters": 12000.5},
     {"interval_seconds": 86401}, {"archive_after_seconds": -1}, {"archive_after_seconds": 31536001}, {"unknown": True},
@@ -323,3 +325,11 @@ def test_workflow_bot_bindings_roundtrip_and_old_clients_preserve_selection(regi
     assert stage.entry_bots == entry and stage.continuous_effects["bots"] == continuous["bots"]
     stage = service.save({**form(entry_bots=[]), "expected_revision": stage.edit_revision()}, stage.get_uid())
     assert stage.entry_bots == []
+
+
+def test_character_only_policy_retains_character_default_and_disables_new_thresholds(registry):
+    service, _ = registry
+    stage = service.save(form(continuous_effects={"auto_compact": True, "compact_after_characters": 24000}))
+    assert stage.continuous_effects["compact_after_characters"] == 24000
+    assert stage.continuous_effects["compact_after_comments"] == 0
+    assert stage.continuous_effects["compact_after_turns"] == 0

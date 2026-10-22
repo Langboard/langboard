@@ -20,6 +20,22 @@ def compaction_character_threshold(effects: dict) -> int:
     return value
 
 
+def compaction_thresholds(effects: dict) -> dict[str, int]:
+    thresholds = {"compact_after_characters": compaction_character_threshold(effects)}
+    for key in ("compact_after_comments", "compact_after_turns"):
+        value = effects.get(key, 0)
+        if type(value) is not int or not 0 <= value <= 100_000:
+            raise ValueError("Invalid compaction count threshold")
+        thresholds[key] = value
+    return thresholds
+
+
+def compaction_threshold_reached(thresholds: dict[str, int], *, characters: int, comments: int, turns: int) -> bool:
+    return any(thresholds[key] > 0 and value >= thresholds[key] for key, value in (
+        ("compact_after_characters", characters), ("compact_after_comments", comments), ("compact_after_turns", turns),
+    ))
+
+
 EvidenceRef = Annotated[str, Field(pattern=r"^(comment|activity):[A-Za-z0-9]{1,64}$")]
 
 
