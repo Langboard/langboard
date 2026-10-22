@@ -8,12 +8,13 @@ from hashlib import sha256
 from time import monotonic_ns
 from typing import Any, Literal, Sequence, cast, get_args, overload
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from sqlalchemy import Text, func, or_, select
+from sqlalchemy import Text, func, or_, select, update
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer, load_only
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.exceptions.CardDeleteForbidden import CardDeleteForbidden
@@ -46,6 +47,7 @@ from ...models import (
     CardAssignedUser,
     CardBotSchedule,
     CardBotScope,
+    CardChangeReceipt,
     CardRelationship,
     CardVerificationRecord,
     CardVisibilityChange,
@@ -70,6 +72,7 @@ from ...models.ProjectRole import ProjectRoleAction
 from ..AppSignalProjection import card_signal_projections
 from ..CardAppMutation import guard_card_app_mutation, require_card_app_mutation
 from ..CardApprovalGate import pending_card_approvals
+from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
 from ..CardVerification import VerificationConflict, VerificationSubmission
 from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
@@ -129,7 +132,11 @@ class CardService(BaseDomainService):
         """Draw the next monotonic cursor from the global change sequence."""
 
         with DbSession.use(readonly=False) as db:
-            row = db.exec(select(func.nextval("content_change_seq"))).first()
+            if DbEngine.get_main_engine().dialect.name == "sqlite":
+                # Called after a card write lock; SQLite serializes database writers.
+                row = db.exec(select(func.coalesce(func.max(Card.last_change_seq), 0) + 1)).first()
+            else:
+                row = db.exec(select(func.nextval("content_change_seq"))).first()
             return int((row[0] if isinstance(row, tuple) else row) or 0)
 
     def mark_card_changed(
@@ -138,15 +145,46 @@ class CardService(BaseDomainService):
         target_type: str,
         target_id: SnowflakeID | None = None,
     ) -> None:
-        """Stamp the newest change snapshot on a card (O(1), no member fan-out)."""
-
-        card.last_change_seq = self.next_change_seq()
-        card.last_change_target_type = target_type
-        card.last_change_target_id = target_id
-        card.last_change_at = SafeDateTime.now()
-        self.repo.card.update(card)
-        changed_card = card.model_copy(deep=True)
-        with DbSession.use(readonly=False) as db:
+        """Serialize native stamps and retain each committed change exactly once."""
+        with DbSession.atomic() as db:
+            if DbEngine.get_main_engine().dialect.name == "sqlite":
+                db.exec(update(Card.__table__).where(Card.id == card.id)
+                        .values(last_change_seq=Card.last_change_seq))
+            current = db.exec(
+                SqlBuilder.select.table(Card).where(Card.id == card.id)
+                # Child INSERTs hold FK KEY SHARE locks. NO KEY UPDATE orders
+                # stamps without deadlocking concurrent comment/attachment writes.
+                .with_for_update(key_share=True).execution_options(populate_existing=True)
+            ).first()
+            if current is None or current.deleted_at is not None:
+                raise ValueError("Card no longer available for change receipt")
+            if current.is_linked_resource:
+                return
+            boundary = current.change_count_since_seq
+            if current.last_change_seq:
+                previous = db.exec(select(CardChangeReceipt.id).where(
+                    CardChangeReceipt.card_id == current.id,
+                    CardChangeReceipt.change_seq == current.last_change_seq,
+                )).first()
+                if previous is None:
+                    # An old writer or imported stamp broke coverage. Never hide
+                    # that gap merely because a new native receipt follows it.
+                    boundary = max(boundary, current.last_change_seq)
+            seq = self.next_change_seq()
+            now = SafeDateTime.now()
+            values = {
+                "last_change_seq": seq, "last_change_target_type": target_type,
+                "last_change_target_id": target_id, "last_change_at": now,
+                "change_count_since_seq": boundary, "updated_at": now,
+            }
+            db.exec(update(Card.__table__).where(Card.id == current.id).values(**values))
+            db.insert(CardChangeReceipt(card_id=current.id, change_seq=seq))
+            for key, value in values.items():
+                setattr(card, key, value)
+            card.clear_changes()
+            # Route invalidation to the current board even when the caller held
+            # an object from before a same-identity cross-board move.
+            changed_card = current.model_copy(update=values, deep=True)
             db.after_commit(lambda: CardPublisher.metadata_changed(changed_card))
 
     def get_card_read_state(
@@ -751,6 +789,7 @@ class CardService(BaseDomainService):
                 api_card["description_content_source"] = "blocks"
         return api_card
 
+    @card_change_snapshot
     def get_board_snapshot(
         self,
         project: TProjectParam | None,
@@ -826,16 +865,18 @@ class CardService(BaseDomainService):
         mark_phase("snapshot_work_states")
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
-        seen_map: dict[int, int] = {}
-        baseline_seq = 0
+        change_states = {}
         if user is not None:
+            change_states = self.repo.user_card_read_state.get_change_state_map(
+                user.id, [card.id for card, _ in raw_cards], context=context
+            )
             assigned = self.repo.project_assigned_user.get_by_user_and_project(user, project)
-            if assigned:
-                baseline_seq = assigned.card_unread_baseline_seq
-            seen_map = self.repo.user_card_read_state.get_seen_seq_map(user.id, [card.id for card, _ in raw_cards])
             board_seq = max((card.last_change_seq for card, _ in raw_cards), default=0)
             if assigned is not None and board_seq > (assigned.board_seen_seq or 0):
-                self.repo.project_assigned_user.advance_board_seen(user, project, board_seq)
+                # Keep the MVCC snapshot read-only; concurrent board visits must
+                # not turn this best-effort dashboard watermark into a 40001.
+                with DbSession.use(readonly=False) as db:
+                    db.after_commit(lambda: self.repo.project_assigned_user.advance_board_seen(user, project, board_seq))
         mark_phase("snapshot_unread")
 
         cards = []
@@ -875,14 +916,9 @@ class CardService(BaseDomainService):
             if getattr(card, "is_linked_resource", False):
                 api_card["linked_resource"] = resource_payloads[card.get_uid()]
             if user is not None:
-                cursor = max(seen_map.get(card.id, 0), baseline_seq)
-                api_card["has_unread_change"] = seen_map.get(card.id, 0) < 0 or card.last_change_seq > cursor
-                api_card["latest_change"] = {
-                    "seq": card.last_change_seq,
-                    "target_type": card.last_change_target_type,
-                    "target_uid": card.last_change_target_id.to_short_code() if card.last_change_target_id else None,
-                    "at": card.last_change_at.isoformat() if card.last_change_at else None,
-                }
+                if card.id not in change_states:
+                    continue
+                api_card.update(change_states[card.id])
             cards.append(api_card)
 
         mark_phase("snapshot_projection")
@@ -2014,10 +2050,8 @@ class CardService(BaseDomainService):
                 if order_override is not None
                 else self.repo.card.get_next_order(column, {"project_id": project.id}),
             )
-            card.last_change_seq = self.next_change_seq()
-            card.last_change_target_type = self.UNREAD_TARGET_CARD
-            card.last_change_at = SafeDateTime.now()
             self.repo.card.insert(card)
+            self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
             execution.watch_new(card.id)
             converted_title = self._apply_title_labels(user_or_bot, project, card, title)
             if converted_title != title:
@@ -2055,8 +2089,8 @@ class CardService(BaseDomainService):
             )
             model = {"card": api_card}
 
-        if dispatch_effects:
-            self.dispatch_created(user_or_bot, project, column, card, model, users)
+            if dispatch_effects:
+                self.dispatch_created(user_or_bot, project, column, card, model, users)
 
         return card, api_card
 
@@ -2072,10 +2106,10 @@ class CardService(BaseDomainService):
         include_bot: bool = True,
         include_notifications: bool = True,
     ) -> None:
-        CardPublisher.created(project, column, model)
-        CardActivityTask.card_created(user_or_bot, project, card)
+        dispatch_after_commit(CardPublisher.created, project, column, model)
+        dispatch_after_commit(CardActivityTask.card_created, user_or_bot, project, card)
         if include_bot:
-            CardBotTask.card_created(user_or_bot, project, card)
+            dispatch_after_commit(CardBotTask.card_created, user_or_bot, project, card)
         if include_notifications and users:
             notification_service = self._get_service(NotificationService)
             for user in users:
@@ -2517,15 +2551,11 @@ class CardService(BaseDomainService):
             self.sync_completion_checkitem_title(card)
 
         target_type = self.UNREAD_TARGET_DESCRIPTION if "description" in old_record else self.UNREAD_TARGET_CARD
-        card.last_change_seq = self.next_change_seq()
-        card.last_change_target_type = target_type
-        card.last_change_target_id = None
-        card.last_change_at = SafeDateTime.now()
-
         if expected_description is None:
             self.repo.card.update(card)
         elif not self.repo.card.update_description_if_current(card, expected_description):
             raise CardDescriptionConflict("Card description changed after review: concurrent update")
+        self.mark_card_changed(card, target_type)
 
         if "description" in old_record or "deadline_at" in old_record:
             if self.is_check_card(card):
@@ -2542,17 +2572,14 @@ class CardService(BaseDomainService):
         changed_card = card.model_copy(deep=True)
         changed_item = checkitem_cardified_from.model_copy(deep=True) if checkitem_cardified_from else None
 
-        def dispatch_updated() -> None:
-            CardPublisher.updated(project, changed_card, changed_item, model)
+        with DbSession.atomic():
+            self._invalidate_source_card_mirrors(card)
+            dispatch_after_commit(CardPublisher.updated, project, changed_card, changed_item, model)
             if "description" in model and changed_card.description:
                 notification_service = self._get_service(NotificationService)
                 notification_service.notify_mentioned_in_card(user_or_bot, project, changed_card)
-            CardActivityTask.card_updated(user_or_bot, project, old_record, changed_card)
-            CardBotTask.card_updated(user_or_bot, project, changed_card)
-
-        with DbSession.atomic() as db:
-            self._invalidate_source_card_mirrors(card)
-            db.after_commit(dispatch_updated)
+            dispatch_after_commit(CardActivityTask.card_updated, user_or_bot, project, old_record, changed_card)
+            dispatch_after_commit(CardBotTask.card_updated, user_or_bot, project, changed_card)
 
         return model
 
@@ -2811,11 +2838,7 @@ class CardService(BaseDomainService):
                 user_or_bot, project, card, old_column, new_column
             )
             if new_column is not None:
-                card.last_change_seq = self.next_change_seq()
-                card.last_change_target_type = self.UNREAD_TARGET_CARD
-                card.last_change_target_id = None
-                card.last_change_at = SafeDateTime.now()
-                self.repo.card.update(card)
+                self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
             if entering_archive:
                 from ..AppCardArchive import record_app_card_archive
 
@@ -2898,6 +2921,7 @@ class CardService(BaseDomainService):
         return {"changed": changed, "member_uids": [assigned.get_uid() for assigned in users]}
 
     @guard_card_app_mutation
+    @card_change_transaction
     def update_assigned_users(
         self,
         user_or_bot: TUserOrBot,
@@ -2933,7 +2957,7 @@ class CardService(BaseDomainService):
                 self.repo.card_assigned_user.insert(card_assigned_user)
                 new_users.append(user)
 
-        CardPublisher.assigned_users_updated(project, card, new_users)
+        dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, new_users)
         self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
 
         notification_service = self._get_service(NotificationService)
@@ -2942,7 +2966,8 @@ class CardService(BaseDomainService):
                 continue
             notification_service.notify_assigned_to_card(user_or_bot, user, project, card)
 
-        CardActivityTask.card_assigned_users_updated(
+        dispatch_after_commit(
+            CardActivityTask.card_assigned_users_updated,
             user_or_bot,
             project,
             card,
@@ -2952,6 +2977,7 @@ class CardService(BaseDomainService):
         return new_users
 
     @guard_card_app_mutation
+    @card_change_transaction
     def update_labels(
         self,
         user_or_bot: TUserOrBot,
@@ -2978,17 +3004,18 @@ class CardService(BaseDomainService):
             self.repo.card_assigned_project_label.insert(card_assigned_label)
 
         if dispatch_effects:
-            CardPublisher.labels_updated(project, card, new_labels)
+            dispatch_after_commit(CardPublisher.labels_updated, project, card, new_labels)
         self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
         if dispatch_effects:
-            CardActivityTask.card_labels_updated(
+            dispatch_after_commit(
+                CardActivityTask.card_labels_updated,
                 user_or_bot,
                 project,
                 card,
                 [label.id for label in old_labels],
                 [label.id for label in new_labels],
             )
-            CardBotTask.card_labels_updated(user_or_bot, project, card)
+            dispatch_after_commit(CardBotTask.card_labels_updated, user_or_bot, project, card)
 
         return True
 

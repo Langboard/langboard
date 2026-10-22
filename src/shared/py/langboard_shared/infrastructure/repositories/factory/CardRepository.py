@@ -131,13 +131,13 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         with DbSession.use(readonly=False) as db:
             current = db.exec(
-                SqlBuilder.select.table(Card)
+                SqlBuilder.select.column(Card.description)
                 .where((Card.column("id") == card.id) & (Card.column("project_id") == card.project_id))
                 .with_for_update()
             ).first()
             if current is None:
                 return False
-            content = current.description.content if current.description is not None else ""
+            content = current.content if current is not None else ""
             if content != expected_content:
                 return False
             updated_at = SafeDateTime.now()
@@ -147,10 +147,6 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 .values(
                     description=card.description,
                     updated_at=updated_at,
-                    last_change_seq=card.last_change_seq,
-                    last_change_target_type=card.last_change_target_type,
-                    last_change_target_id=card.last_change_target_id,
-                    last_change_at=card.last_change_at,
                 )
             )
             if changed != 1:

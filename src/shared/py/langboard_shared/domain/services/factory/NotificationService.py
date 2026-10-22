@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Any, Literal, NotRequired, TypedDict, TypeGuard, TypeVar, cast, get_args, overload
@@ -36,6 +37,7 @@ from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleMode
 from ...models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
 from ...models.UserNotification import NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel
+from ..CardChangeTransaction import dispatch_after_commit
 from .EmailService import EmailService
 from .UserNotificationSettingService import UserNotificationSettingService
 
@@ -658,7 +660,7 @@ class NotificationService(BaseDomainService):
             dumped_models: list[tuple[str, dict[str, Any]]] = []
             for model in models:
                 dumped_models.append((type(model).__tablename__, model.model_dump()))
-            BotDefaultTask.bot_mentioned(notifier, target_bot, mentioned_in, dumped_models)
+            dispatch_after_commit(BotDefaultTask.bot_mentioned, notifier, target_bot, mentioned_in, dumped_models)
 
     def get_dispatch_context(self, user: User, notification_id: int) -> dict[str, Any] | None:
         """Return current recipient facts only for their authorized durable notification."""
@@ -881,7 +883,8 @@ class NotificationService(BaseDomainService):
                 api_notification = self.convert_to_api_response(notification, references, notifier)
                 self._publish_web_notification(notification, target_user, api_notification)
 
-        if defer_delivery:
+        if defer_delivery or DbSession.has_active_transaction():
+            notification, target_user, references, notifier = deepcopy((notification, target_user, references, notifier))
             with DbSession.atomic() as db:
                 db.after_commit(deliver)
         else:

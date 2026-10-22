@@ -1,5 +1,5 @@
 from typing import Any, ClassVar
-from sqlalchemy import TEXT
+from sqlalchemy import TEXT, BigInteger
 from ...core.db import ApiField, DateTimeField, EditorContentModel, Field, ModelColumnType, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -57,6 +57,9 @@ class Card(BaseNotificationScheduleModel, table=True):
     @property
     def is_linked_resource(self) -> bool:
         return self.source_type is not None and self.source_uid is not None
+
+    # Counts are complete only for receipts strictly newer than this legacy boundary.
+    change_count_since_seq: int = Field(default=0, nullable=False, sa_type=BigInteger, sa_column_kwargs={"server_default": "0"})
 
     last_change_seq: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": "0"}, api_field=ApiField())
     last_change_target_type: str = Field(

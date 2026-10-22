@@ -17,6 +17,7 @@ from ....tasks.activities import CardAttachmentActivityTask
 from ....tasks.bots import CardAttachmentBotTask
 from ...models import Bot, Card, CardAttachment, CardMetadata, Project, ProjectColumn, User
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 from .DoclingMetadataService import DoclingMetadataService
 from .InternalBotService import InternalBotService
 
@@ -108,6 +109,7 @@ class CardAttachmentService(BaseDomainService):
         ]
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user: User,
@@ -180,11 +182,13 @@ class CardAttachmentService(BaseDomainService):
             docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
             self._queue_docling_index_task(card_attachment)
 
-        CardAttachmentPublisher.uploaded(user, card, card_attachment)
+        dispatch_after_commit(CardAttachmentPublisher.uploaded, user, card, card_attachment)
         if include_activity:
-            CardAttachmentActivityTask.card_attachment_uploaded(user, project, card, card_attachment)
+            dispatch_after_commit(
+                CardAttachmentActivityTask.card_attachment_uploaded, user, project, card, card_attachment,
+            )
         if include_bot:
-            CardAttachmentBotTask.card_attachment_uploaded(user, project, card, card_attachment)
+            dispatch_after_commit(CardAttachmentBotTask.card_attachment_uploaded, user, project, card, card_attachment)
 
     @staticmethod
     def _snapshot_vision_config(binding) -> dict:
@@ -425,6 +429,7 @@ class CardAttachmentService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_name(
         self,
         user: User,
@@ -445,14 +450,17 @@ class CardAttachmentService(BaseDomainService):
 
         self.repo.card_attachment.update(card_attachment)
 
-        CardAttachmentPublisher.name_changed(card, card_attachment)
+        dispatch_after_commit(CardAttachmentPublisher.name_changed, card, card_attachment)
         self._mark_card_changed_for_unread(card, "attachment", card_attachment.id)
-        CardAttachmentActivityTask.card_attachment_name_changed(user, project, card, old_name, card_attachment)
-        CardAttachmentBotTask.card_attachment_name_changed(user, project, card, card_attachment)
+        dispatch_after_commit(
+            CardAttachmentActivityTask.card_attachment_name_changed, user, project, card, old_name, card_attachment,
+        )
+        dispatch_after_commit(CardAttachmentBotTask.card_attachment_name_changed, user, project, card, card_attachment)
 
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user: User,
@@ -474,10 +482,10 @@ class CardAttachmentService(BaseDomainService):
             self.repo.card_attachment.reoder_after_delete(card, card_attachment.order)
         docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
 
-        CardAttachmentPublisher.deleted(card, card_attachment)
+        dispatch_after_commit(CardAttachmentPublisher.deleted, card, card_attachment)
         self._mark_card_changed_for_unread(card, "attachment")
-        CardAttachmentActivityTask.card_attachment_deleted(user, project, card, card_attachment)
-        CardAttachmentBotTask.card_attachment_deleted(user, project, card, card_attachment)
+        dispatch_after_commit(CardAttachmentActivityTask.card_attachment_deleted, user, project, card, card_attachment)
+        dispatch_after_commit(CardAttachmentBotTask.card_attachment_deleted, user, project, card, card_attachment)
 
         return True
 

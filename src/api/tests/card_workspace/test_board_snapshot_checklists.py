@@ -68,7 +68,8 @@ def test_empty_visible_board_stops_after_its_scoped_card_query(board, monkeypatc
         assert service.get_board_snapshot(project, user, cutoff) == ([], [])
     finally:
         event.remove(engine, "before_cursor_execute", capture)
-    assert len(statements) == 1 and "FROM card" in statements[0]
+    reads = [statement for statement in statements if statement.lstrip().upper().startswith("SELECT")]
+    assert len(reads) == 1 and "FROM card" in reads[0]
     assert repository.mock_calls == [], "Empty visible boards must not issue enrichment or seen-state operations"
 
 

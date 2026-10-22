@@ -42,6 +42,7 @@ from .CardBotDefaultScope import CardBotDefaultScope
 from .CardBotLog import CardBotLog
 from .CardBotSchedule import CardBotSchedule
 from .CardBotScope import CardBotScope
+from .CardChangeReceipt import CardChangeReceipt
 from .CardComment import CardComment
 from .CardCommentCompaction import CardCommentCompaction
 from .CardCommentReaction import CardCommentReaction
@@ -146,6 +147,7 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "CardChangeReceipt",
     'AttachmentStorageObject',
     'AttachmentStorageReference',
     'WhisperThread',

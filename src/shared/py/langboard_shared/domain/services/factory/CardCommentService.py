@@ -13,6 +13,7 @@ from ...models import Bot, Card, CardComment, CardCommentReaction, Project, User
 from ...models.bases import REACTION_TYPES
 from ...models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 from .CardService import CardService
 from .NotificationService import NotificationService
 from .ReactionService import ReactionService
@@ -116,6 +117,7 @@ class CardCommentService(BaseDomainService):
         return api_comment
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user_or_bot: TUserOrBot,
@@ -185,15 +187,16 @@ class CardCommentService(BaseDomainService):
         include_notifications: bool = True,
         include_bot: bool = True,
     ) -> None:
-        CardCommentPublisher.created(user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentPublisher.created, user_or_bot, project, card, comment)
         if include_notifications:
             notification_service = self._get_service(NotificationService)
             notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
-        CardCommentActivityTask.card_comment_added(user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentActivityTask.card_comment_added, user_or_bot, project, card, comment)
         if include_bot:
-            CardCommentBotTask.card_comment_added(user_or_bot, project, card, comment)
+            dispatch_after_commit(CardCommentBotTask.card_comment_added, user_or_bot, project, card, comment)
 
     @guard_card_app_mutation
+    @card_change_transaction
     def update(
         self,
         user_or_bot: TUserOrBot,
@@ -221,17 +224,20 @@ class CardCommentService(BaseDomainService):
         card_service = self._get_service(CardService)
         card_service.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
 
-        CardCommentPublisher.updated(project, card, comment)
+        dispatch_after_commit(CardCommentPublisher.updated, project, card, comment)
 
         notification_service = self._get_service(NotificationService)
         notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
 
-        CardCommentActivityTask.card_comment_updated(user_or_bot, project, card, old_content, comment)
-        CardCommentBotTask.card_comment_updated(user_or_bot, project, card, comment)
+        dispatch_after_commit(
+            CardCommentActivityTask.card_comment_updated, user_or_bot, project, card, old_content, comment,
+        )
+        dispatch_after_commit(CardCommentBotTask.card_comment_updated, user_or_bot, project, card, comment)
 
         return comment
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user_or_bot: TUserOrBot,
@@ -253,9 +259,9 @@ class CardCommentService(BaseDomainService):
         card_service = self._get_service(CardService)
         card_service.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
 
-        CardCommentPublisher.deleted(project, card, comment)
-        CardCommentActivityTask.card_comment_deleted(user_or_bot, project, card, comment)
-        CardCommentBotTask.card_comment_deleted(user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentPublisher.deleted, project, card, comment)
+        dispatch_after_commit(CardCommentActivityTask.card_comment_deleted, user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentBotTask.card_comment_deleted, user_or_bot, project, card, comment)
 
         return comment
 

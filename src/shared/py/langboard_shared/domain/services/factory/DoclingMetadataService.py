@@ -15,6 +15,7 @@ from ....Env import Env
 from ....helpers import InfraHelper
 from ....publishers import MetadataPublisher
 from ....tasks.docling.DocumentKeywords import KEYWORD_LANGUAGES, normalize_keywords
+from ..CardChangeTransaction import dispatch_after_commit
 
 
 DOCLING_DOCUMENTS_METADATA_KEY = "__system.docling_documents"
@@ -756,10 +757,12 @@ class DoclingMetadataService(BaseDomainService):
         )
         topic_uid = foreign_model.get_uid()
         if metadata:
-            MetadataPublisher.updated_metadata(topic, topic_uid, DOCLING_DOCUMENTS_METADATA_KEY, metadata.value)
+            dispatch_after_commit(
+                MetadataPublisher.updated_metadata, topic, topic_uid, DOCLING_DOCUMENTS_METADATA_KEY, metadata.value
+            )
             return
 
-        MetadataPublisher.deleted_metadata(topic, topic_uid, [DOCLING_DOCUMENTS_METADATA_KEY])
+        dispatch_after_commit(MetadataPublisher.deleted_metadata, topic, topic_uid, [DOCLING_DOCUMENTS_METADATA_KEY])
 
     def _load_metadata(self, model_cls: type[BaseMetadataModel], foreign_model: BaseDbModel) -> dict[str, str]:
         # Claims and generation fences need read-after-write consistency too.

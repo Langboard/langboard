@@ -13,6 +13,7 @@ from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ...models import Card, Checkitem, CheckitemTimerRecord, Checklist, Project, ProjectColumn, User
 from ...models.Checkitem import CheckitemStatus
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 
 
 class CheckitemService(BaseDomainService):
@@ -176,6 +177,7 @@ class CheckitemService(BaseDomainService):
         return api_checkitems, list(api_cards.values()), list(api_projects.values())
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user_or_bot: TUserOrBot,
@@ -219,13 +221,14 @@ class CheckitemService(BaseDomainService):
         *,
         include_bot: bool = True,
     ) -> None:
-        CheckitemPublisher.created(card, checklist, checkitem)
-        CheckitemPublisher.board_progress_changed(project, card)
-        CardCheckitemActivityTask.card_checkitem_created(user_or_bot, project, card, checkitem)
+        dispatch_after_commit(CheckitemPublisher.created, card, checklist, checkitem)
+        dispatch_after_commit(CheckitemPublisher.board_progress_changed, project, card)
+        dispatch_after_commit(CardCheckitemActivityTask.card_checkitem_created, user_or_bot, project, card, checkitem)
         if include_bot:
-            CardCheckitemBotTask.card_checkitem_created(user_or_bot, project, card, checkitem)
+            dispatch_after_commit(CardCheckitemBotTask.card_checkitem_created, user_or_bot, project, card, checkitem)
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_title(
         self,
         user_or_bot: TUserOrBot,
@@ -269,6 +272,7 @@ class CheckitemService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_deadline(
         self,
         project: TProjectParam,
@@ -284,12 +288,13 @@ class CheckitemService(BaseDomainService):
         checkitem.deadline_at = deadline_at
         self.repo.checkitem.update(checkitem)
 
-        CheckitemPublisher.deadline_changed(project, card, checkitem)
+        dispatch_after_commit(CheckitemPublisher.deadline_changed, project, card, checkitem)
         self._mark_card_changed_for_unread(card, "checkitem", checkitem.id)
 
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_order(
         self,
         project: TProjectParam,
@@ -330,6 +335,7 @@ class CheckitemService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_status(
         self,
         user_or_bot: TUserOrBot,
@@ -522,6 +528,7 @@ class CheckitemService(BaseDomainService):
         return {"completed": completed, "stopped": stopped}
 
     @guard_card_app_mutation
+    @card_change_transaction
     def toggle_checked(
         self,
         user_or_bot: TUserOrBot,
@@ -642,6 +649,7 @@ class CheckitemService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user_or_bot: TUserOrBot,
@@ -659,11 +667,11 @@ class CheckitemService(BaseDomainService):
 
         self.repo.checkitem.delete(checkitem)
 
-        CheckitemPublisher.deleted(project, card, checkitem)
-        CheckitemPublisher.board_progress_changed(project, card)
+        dispatch_after_commit(CheckitemPublisher.deleted, project, card, checkitem)
+        dispatch_after_commit(CheckitemPublisher.board_progress_changed, project, card)
         self._mark_card_changed_for_unread(card, "checkitem", checkitem.id)
-        CardCheckitemActivityTask.card_checkitem_deleted(user_or_bot, project, card, checkitem)
-        CardCheckitemBotTask.card_checkitem_deleted(user_or_bot, project, card, checkitem)
+        dispatch_after_commit(CardCheckitemActivityTask.card_checkitem_deleted, user_or_bot, project, card, checkitem)
+        dispatch_after_commit(CardCheckitemBotTask.card_checkitem_deleted, user_or_bot, project, card, checkitem)
 
         return True
 
