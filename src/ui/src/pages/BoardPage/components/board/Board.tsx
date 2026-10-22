@@ -25,6 +25,8 @@ import useBoardTouchCardDnd from "@/pages/BoardPage/components/board/useBoardTou
 import BoardCardRelationshipOverlay from "@/pages/BoardPage/components/board/BoardCardRelationshipOverlay";
 import BoardMinimap from "@/pages/BoardPage/components/board/BoardMinimap";
 import useBoardPanning from "./useBoardPanning";
+import useBoardSplit from "@/core/hooks/useBoardSplit";
+import BoardSplitChooser from "@/pages/BoardPage/BoardSplitChooser";
 import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { ProjectRole } from "@/core/models/roles";
 
@@ -104,7 +106,10 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
             { replace: true }
         );
     }, [setSearchParams]);
-    useBoardPanning(scrollableRef, canCreate ? compose : undefined);
+    const split = useBoardSplit();
+    const [splitChooserOpen, setSplitChooserOpen] = useState(false);
+    const chooseSplit = useCallback(() => setSplitChooserOpen(true), []);
+    useBoardPanning(scrollableRef, canCreate ? compose : undefined, split && split.panes.length < 2 ? chooseSplit : undefined);
     const updater = useReducer((x) => x + 1, 0);
     const [_, forceUpdate] = updater;
     const { columns } = useColumnReordered({
@@ -183,6 +188,9 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
 
     return (
         <>
+            {splitChooserOpen && split && split.panes.length < 2 && (
+                <BoardSplitChooser currentProjectUID={project.uid} onClose={() => setSplitChooserOpen(false)} />
+            )}
             <CardFamilyMoveConfirmation {...confirmation} />
             <BoardCardRelationshipOverlay scrollable={scrollable} />
             {columns.map((column) => (

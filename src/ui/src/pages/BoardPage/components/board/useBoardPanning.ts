@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { bindAll } from "bind-event-listener";
 import { BLOCK_BOARD_PANNING_ATTR } from "./BoardConstants";
 
-/** Background panning, with a deliberate outward pull at the left boundary. */
-export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivElement | null>, onPullLeft?: () => void) {
+/** Background panning, with deliberate outward pulls at viewport boundaries. */
+export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivElement | null>, onPullLeft?: () => void, onPullRight?: () => void) {
     useEffect(() => {
         const scrollable = scrollableRef.current;
         if (!scrollable) return;
@@ -15,17 +15,21 @@ export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivEl
                     if (!(start.target instanceof HTMLElement) || start.target.closest(`[${BLOCK_BOARD_PANNING_ATTR}]`)) return;
                     cleanupActive?.();
                     let lastX = start.clientX;
-                    let pull =
-                        !!onPullLeft &&
+                    const bounds = scrollable.getBoundingClientRect();
+                    const canPull =
                         start.isPrimary &&
                         start.button === 0 &&
                         start.pointerType === "mouse" &&
                         window.matchMedia("(min-width: 768px) and (pointer: fine)").matches &&
-                        scrollable.scrollLeft <= 1 &&
-                        start.clientX - scrollable.getBoundingClientRect().left <= 32 &&
                         !start.target.closest("button, a, input, textarea, select, [contenteditable], [role=button]");
+                    let pullLeft = canPull && !!onPullLeft && scrollable.scrollLeft <= 1 && start.clientX - bounds.left <= 32;
+                    let pullRight =
+                        canPull &&
+                        !!onPullRight &&
+                        scrollable.scrollWidth - scrollable.clientWidth - scrollable.scrollLeft <= 1 &&
+                        bounds.right - start.clientX <= 32;
                     // A compose gesture must not submit an existing draft as an outside click.
-                    if (pull) start.stopPropagation();
+                    if (pullLeft || pullRight) start.stopPropagation();
                     const cleanupEvents = bindAll(
                         window,
                         [
@@ -33,7 +37,7 @@ export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivEl
                                 type: "pointermove",
                                 listener(event) {
                                     if (event.pointerId !== start.pointerId) return;
-                                    if (Math.abs(event.clientY - start.clientY) > 32) pull = false;
+                                    if (Math.abs(event.clientY - start.clientY) > 32) pullLeft = pullRight = false;
                                     scrollable.scrollBy({ left: lastX - event.clientX });
                                     lastX = event.clientX;
                                 },
@@ -43,7 +47,9 @@ export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivEl
                                 listener(event) {
                                     if (event.pointerId !== start.pointerId) return;
                                     cleanupEvents();
-                                    if (pull && event.clientX - start.clientX >= 96 && Math.abs(event.clientY - start.clientY) <= 32) onPullLeft?.();
+                                    if (Math.abs(event.clientY - start.clientY) > 32) return;
+                                    if (pullLeft && event.clientX - start.clientX >= 96) onPullLeft?.();
+                                    if (pullRight && start.clientX - event.clientX >= 96) onPullRight?.();
                                 },
                             },
                             ...(["pointercancel", "pointerdown", "keydown", "resize", "click", "visibilitychange"] as const).map((type) => ({
@@ -61,5 +67,5 @@ export default function useBoardPanning(scrollableRef: React.RefObject<HTMLDivEl
             cleanupStart();
             cleanupActive?.();
         };
-    }, [scrollableRef, onPullLeft]);
+    }, [scrollableRef, onPullLeft, onPullRight]);
 }

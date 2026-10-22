@@ -60,7 +60,25 @@ async function setup(page: Page) {
                 json = { project: projects.find((project) => project.uid === uid), project_bot_scopes: [], project_bot_schedules: [] };
             else if (path === `/board/${uid}/cards`)
                 json = {
-                    cards: [],
+                    cards: [
+                        {
+                            uid: `${uid}-card`,
+                            project_uid: uid,
+                            project_column_uid: `${uid}-column-9`,
+                            project_column_name: `${uid} column 9`,
+                            title: `${uid} draggable card`,
+                            created_at: now,
+                            updated_at: now,
+                            order: 0,
+                            count_comment: 0,
+                            member_uids: [],
+                            current_auth_role_actions: ["*"],
+                            project_members: [],
+                            labels: [],
+                            relationships: [],
+                            has_description: false,
+                        },
+                    ],
                     columns: Array.from({ length: 10 }, (_, order) => ({
                         uid: `${uid}-column-${order}`,
                         project_uid: uid,
@@ -237,5 +255,93 @@ test("two board composers retain independent drafts and opposite-pane close neve
     await right.getByRole("button", { name: "Close right board", exact: true }).click();
     await expect(page.locator("[data-board-pane]")).toHaveCount(1);
     await expect(left.getByPlaceholder("Enter a title", { exact: true })).toHaveValue("Left independent draft");
+    expect(submissions).toBe(0);
+});
+
+async function pullBoard(
+    page: Page,
+    options: { edge?: "left" | "right"; inside?: boolean; dx?: number; dy?: number; cancel?: boolean; blocked?: boolean } = {}
+) {
+    const viewport = page.locator("[data-board-pane]").first().locator("[id^=board-scrollport-]").first();
+    const edge = options.edge ?? "right";
+    await viewport.evaluate((element, side) => {
+        element.scrollLeft = side === "right" ? element.scrollWidth : 0;
+    }, edge);
+    const bounds = (await viewport.boundingBox())!;
+    const x = edge === "right" ? bounds.x + bounds.width - (options.inside ? 90 : 12) : bounds.x + 12;
+    const y = bounds.y + bounds.height - 50;
+    if (options.blocked) {
+        await viewport.evaluate((element) => element.setAttribute("data-block-board-panning", "true"));
+    }
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + (options.dx ?? (edge === "right" ? -120 : 120)), y + (options.dy ?? 0), { steps: 8 });
+    if (options.cancel) await viewport.dispatchEvent("pointercancel", { pointerId: 1 });
+    await page.mouse.up();
+    if (options.blocked) await viewport.evaluate((element) => element.removeAttribute("data-block-board-panning"));
+}
+
+test("right boundary pull chooses an accessible board; desktop themes and two-pane ceiling", async ({ page }) => {
+    await setup(page);
+    for (const theme of ["light", "dark"]) {
+        await page.evaluate((value) => {
+            document.documentElement.classList.toggle("dark", value === "dark");
+        }, theme);
+        await pullBoard(page);
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await expect(page.getByRole("option", { name: "left board", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("option", { name: "right board", exact: true })).toBeVisible();
+        await expect.poll(() => page.getByRole("dialog").evaluate((element) => getComputedStyle(element.parentElement!).opacity)).toBe("1");
+        await page.screenshot({ path: `/tmp/langboard-split-chooser-${theme}.png` });
+        if (theme === "light") await page.keyboard.press("Escape");
+    }
+    await page.getByRole("combobox", { name: "Search projects", exact: true }).fill("right");
+    await expect(page.getByRole("option", { name: "third board", exact: true })).toHaveCount(0);
+    await page.getByRole("option", { name: "right board", exact: true }).click();
+    await expect(page.locator("[data-board-pane]")).toHaveCount(2);
+    await expect(page.locator("[data-board-pane]").nth(1).getByText("right column 0", { exact: true }).first()).toBeVisible();
+    await pullBoard(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("right pull ignores inside, vertical, short, reversed, cancelled and card drag starts, and mobile", async ({ page }) => {
+    await setup(page);
+    for (const options of [{ inside: true }, { dy: 45 }, { dx: -60 }, { dx: 120 }, { cancel: true }, { blocked: true }]) {
+        await pullBoard(page, options);
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+    }
+    const viewport = page.locator("[data-board-pane]").first().locator("[id^=board-scrollport-]").first();
+    await viewport.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+    });
+    const card = page.getByText("left draggable card", { exact: true }).first();
+    await expect(card).toBeVisible();
+    const bounds = (await card.boundingBox())!;
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x - 120, bounds.y + bounds.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await pullBoard(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("left pull still opens composer and boundary gestures preserve a draft", async ({ page }) => {
+    let submissions = 0;
+    page.on("request", (request) => {
+        if (request.method() === "POST" && /\/board\/[^/]+\/card$/.test(new URL(request.url()).pathname)) submissions++;
+    });
+    await setup(page);
+    await pullBoard(page, { edge: "left" });
+    const draft = page.getByPlaceholder("Enter a title", { exact: true });
+    await expect(draft).toBeVisible();
+    await draft.fill("Boundary draft retained");
+    await pullBoard(page);
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(draft).toHaveValue("Boundary draft retained");
+    await pullBoard(page, { edge: "left" });
+    await expect(draft).toHaveValue("Boundary draft retained");
     expect(submissions).toBe(0);
 });

@@ -32,6 +32,7 @@ export function BoardSplitProvider({ children }: { children: React.ReactNode }) 
         { id: "board-pane-0", initialEntry: location.pathname + location.search + location.hash },
     ]);
     const [preferredFocus, setFocusedPane] = useState("board-pane-0");
+    const pendingFocus = useRef<string | undefined>(undefined);
     const nextID = useRef(1);
     const locations = useRef(new Map<string, string>());
     const layouts = useRef(new Map<string, TDashboardStyledLayoutProps>());
@@ -41,7 +42,10 @@ export function BoardSplitProvider({ children }: { children: React.ReactNode }) 
     // focus before either scoped location renders; it never duplicates a board.
     const routeProjectUID = location.pathname.split("/")[2];
     const nativeOwner = panes.find((pane) => (locations.current.get(pane.id) ?? pane.initialEntry).split(/[/?#]/)[2] === routeProjectUID);
-    const focusedPane = nativeOwner?.id ?? preferredFocus;
+    // Keep explicit pane focus until BrowserRouter publishes its target URL.
+    // Input in that interval must already use the focused native navigator.
+    if (pendingFocus.current === nativeOwner?.id) pendingFocus.current = undefined;
+    const focusedPane = pendingFocus.current ?? nativeOwner?.id ?? preferredFocus;
     useEffect(() => {
         if (focusedPane !== preferredFocus) setFocusedPane(focusedPane);
     }, [focusedPane, preferredFocus]);
@@ -68,6 +72,7 @@ export function BoardSplitProvider({ children }: { children: React.ReactNode }) 
         (id: string) => {
             const entry = locations.current.get(id) ?? panes.find((pane) => pane.id === id)?.initialEntry;
             if (!entry || id === focusedRef.current) return;
+            pendingFocus.current = id;
             focusedRef.current = id;
             void navigate(entry, { replace: true });
             setFocusedPane(id);
@@ -95,6 +100,7 @@ export function BoardSplitProvider({ children }: { children: React.ReactNode }) 
             if (!window.dispatchEvent(new CustomEvent(BOARD_PANE_BEFORE_CLOSE, { cancelable: true, detail: { paneID: id } }))) return;
             const survivor = panes.find((pane) => pane.id !== id)!;
             const entry = locations.current.get(survivor.id) ?? survivor.initialEntry;
+            pendingFocus.current = survivor.id;
             focusedRef.current = survivor.id;
             void navigate(entry, { replace: true });
             setFocusedPane(survivor.id);

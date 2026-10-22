@@ -362,7 +362,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
 
         return (
             card.title.toLowerCase().includes(keyword.toLowerCase()) ||
-            card.description.content.toLowerCase().includes(keyword.toLowerCase()) ||
+            (card.description?.content ?? "").toLowerCase().includes(keyword.toLowerCase()) ||
             searchableTaskText.includes(keyword.toLowerCase()) ||
             parseDoclingMetadata(cardMetadataMap[card.uid]).some((document) => {
                 const attributes = document.content.search_keywords;
