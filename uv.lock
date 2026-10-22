@@ -1493,6 +1493,9 @@ keyword-search = [
 ]
 
 [package.dev-dependencies]
+avatar-summary-tests = [
+    { name = "langchain-core" },
+]
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1540,6 +1543,7 @@ requires-dist = [
 provides-extras = ["aws", "azure-vault", "document-processing", "document-retrieval", "keyword-search", "image-generation"]
 
 [package.metadata.requires-dev]
+avatar-summary-tests = [{ name = "langchain-core", specifier = ">=1.0.0" }]
 dev = [
     { name = "pytest", specifier = ">=8.3.4,<9" },
     { name = "pytest-asyncio", specifier = ">=0.25.3,<0.26" },
