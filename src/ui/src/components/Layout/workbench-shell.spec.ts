@@ -204,7 +204,8 @@ test("description markers remain within the card viewport and track its internal
     await page.goto("/src/pages/BoardPage/components/card/description/description-scroll.fixture.html");
     const viewport = page.locator("[data-card-content-viewport]");
     const markers = page.getByRole("button", { name: /Go to description|번째 설명으로 이동/ });
-    await expect(markers).toHaveCount(60);
+    // The 360px native viewport groups 60 chunks into 20 bounded markers.
+    await expect(markers).toHaveCount(20);
     const first = markers.first();
     const bounds = await viewport.boundingBox();
     const initial = await first.boundingBox();
@@ -212,14 +213,16 @@ test("description markers remain within the card viewport and track its internal
     expect(initial!.y + initial!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
     await viewport.focus();
     await viewport.press("PageDown");
-    await viewport.press("PageDown");
+    await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    // A page may stay inside one grouped marker; End must reach a different range.
+    await viewport.press("End");
     await expect
         .poll(async () => page.locator("button[aria-current='location']").getAttribute("aria-label"))
         .not.toBe(await first.getAttribute("aria-label"));
-    await markers.nth(35).click();
+    await markers.nth(11).click();
     await expect
         .poll(() => page.locator("button[aria-current='location']").getAttribute("aria-label"))
-        .toBe(await markers.nth(35).getAttribute("aria-label"));
+        .toBe(await markers.nth(11).getAttribute("aria-label"));
     await page.getByRole("button", { name: "Resize card" }).click();
     await page.getByRole("button", { name: "Expand header" }).click();
     await markers.first().click();
@@ -338,7 +341,8 @@ test("mobile description navigator fills a fixed viewport while keyboard scrolli
     const viewport = page.locator("[data-card-content-viewport]");
     const rail = page.locator("[data-card-description-rail]");
     const markers = rail.getByRole("button");
-    await expect(markers).toHaveCount(60);
+    // The 360px native viewport groups 60 chunks into 20 bounded markers.
+    await expect(markers).toHaveCount(20);
     await expect(rail).toBeVisible();
     const initial = await rail.boundingBox();
     await viewport.focus();
@@ -741,7 +745,7 @@ for (const width of [390, 1440]) {
             requests.push(route.request().url());
             expect(route.request().method()).toBe("GET");
             const url = new URL(route.request().url());
-            expect(url.searchParams.get("project_uid")).toBe("2RRwwB5JNm0");
+            expect(url.searchParams.get("project_uid")).toBe("TestBoard01");
             await route.fulfill({
                 json: {
                     items: [
@@ -768,7 +772,7 @@ for (const width of [390, 1440]) {
         await expect(page.getByRole("heading", { name: "GitHub", exact: true })).toBeVisible();
         await expect(page.getByText("panels.render", { exact: true })).toBeVisible();
         expect(requests.some((url) => new URL(url).searchParams.get("key") === "github-panel")).toBe(true);
-        await expect(page.getByRole("link", { name: "Configure on this board" })).toHaveAttribute("href", "/board/2RRwwB5JNm0/settings/apps");
+        await expect(page.getByRole("link", { name: "Configure on this board" })).toHaveAttribute("href", "/board/TestBoard01/settings/apps");
         await page.getByRole("link", { name: "All apps", exact: true }).click();
         await expect(page.getByRole("link", { name: /GitHub/ })).toHaveCount(1);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
