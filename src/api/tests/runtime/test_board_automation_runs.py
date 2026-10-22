@@ -811,3 +811,29 @@ def test_bot_producer_scope_requires_current_hook_live_bot_and_nonprivate_card(e
     with DbSession.use(readonly=False) as db:
         db.exec(update(Bot).where(Bot.id == bot.id).values(deleted_at=SafeDateTime.now()))
     assert ExecutionHistory.resolve_scope(bot, handler, arguments) is None
+
+
+def test_server_generated_mcp_cursor_is_accepted_over_http(executions, monkeypatch):
+    row = add_mcp(executions)
+
+    def authenticate(scope, **kwargs):
+        scope["auth"] = executions.user
+        return executions.user
+
+    monkeypatch.setattr(MiddlewareHelper, "validate_auth", authenticate)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    for route in AppRouter.api.routes:
+        if isinstance(route, APIRoute) and route.endpoint in (get_board_automation_runs, get_board_automation_run):
+            dependency = next(item.call for item in route.dependant.dependencies if item.name == "service")
+            app.dependency_overrides[dependency] = lambda: SimpleNamespace(workflow_stage=executions.service)
+    client = TestClient(app)
+    path = f"/board/{executions.project.get_uid()}/automation/runs"
+    first = client.get(path, params={"limit": 1})
+    assert first.status_code == 200
+    cursor = first.json()["next_cursor"]
+    assert cursor == f"mcp:{row.get_uid()}"
+    second = client.get(path, params={"limit": 1, "before": cursor})
+    assert second.status_code == 200, (cursor, second.status_code, second.text)

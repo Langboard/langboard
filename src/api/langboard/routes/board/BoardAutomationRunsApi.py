@@ -37,7 +37,7 @@ def get_board_automation_runs(
     request: Request,
     project_uid: str,
     before: Annotated[
-        str | None, Query(max_length=32, pattern=r"^(chat|schedule|workflow|log):[a-zA-Z0-9]{11}$")
+        str | None, Query(max_length=32, pattern=r"^(chat|schedule|workflow|log|mcp):[a-zA-Z0-9]{11}$")
     ] = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     user: User = Auth.scope("user"),
