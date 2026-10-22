@@ -61,7 +61,7 @@ function BoardStatusContext({ context }: { context: IWorkbenchStatusContext }) {
         .map((action) => t(`role.project.${action}`));
     return (
         <>
-            <span data-status-project="" className="max-w-48 shrink-0 truncate" title={title}>
+            <span data-status-project="" className="shrink-0" title={title}>
                 {title}
             </span>
             <span>{context.card ? <CardColumnStatus key={context.card.uid} card={context.card} fallback={context.view} /> : context.view}</span>

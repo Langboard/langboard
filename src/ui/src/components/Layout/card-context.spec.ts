@@ -183,19 +183,66 @@ for (const width of [1440, 390])
     test(`comment controls and delayed outline navigation remain usable at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
         const fixture = await prepareDelayedLens(page, { delay: true });
+        const timelineReads: string[] = [];
+        let commentContent = "Initial timeline comment";
+        await page.route("http://localhost:5381/activity/project/fixture/card/fixture-card/timeline?*", async (route) => {
+            timelineReads.push(route.request().url());
+            const timestamp = "2026-10-18T00:00:00Z";
+            await route.fulfill({
+                json: {
+                    records: [
+                        {
+                            kind: "comment",
+                            uid: "timeline-comment",
+                            evidence_ref: "comment:timeline-comment",
+                            created_at: timestamp,
+                            data: {
+                                uid: "timeline-comment",
+                                card_uid: "fixture-card",
+                                created_at: timestamp,
+                                updated_at: timestamp,
+                                content: { content: commentContent },
+                                is_edited: false,
+                                reactions: {},
+                                user: {
+                                    uid: "comment-author",
+                                    firstname: "Comment",
+                                    lastname: "Author",
+                                    created_at: timestamp,
+                                    updated_at: timestamp,
+                                },
+                            },
+                        },
+                    ],
+                    next_cursor: null,
+                },
+            });
+        });
         await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
         await expect(page.locator("[data-card-loading]")).toBeVisible();
         expect(fixture.reads.filter((path) => path.endsWith("/comments"))).toEqual([]);
+        expect(timelineReads).toEqual([]);
         fixture.release();
         await expect(page.getByRole("region", { name: "Lens card", exact: true })).toBeVisible();
         const comments = page.getByRole("button", { name: "Comments", exact: true });
         await expect(comments).toHaveAttribute("aria-pressed", "true");
+        const renderedComment = page.locator("[data-card-comment-uid=timeline-comment]");
+        await expect(renderedComment).toContainText("Initial timeline comment");
+        expect(timelineReads).toHaveLength(1);
+        // Description anchors use /comments; the visible comment list uses /timeline.
         await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBe(1);
         await comments.click();
         await expect(comments).toHaveAttribute("aria-pressed", "false");
+        await expect(renderedComment).toHaveCount(0);
+        expect(timelineReads).toHaveLength(1);
+        commentContent = "Fresh timeline comment after reopening";
         await comments.click();
+        await expect(comments).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("region", { name: "Lens card", exact: true })).toBeVisible();
-        if (width === 1440) await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBe(2);
+        await expect(renderedComment).toHaveCount(1);
+        await expect(renderedComment).toContainText("Fresh timeline comment after reopening");
+        await expect(renderedComment).not.toContainText("Initial timeline comment");
+        expect(timelineReads).toHaveLength(2);
         await page.evaluate(() =>
             window.dispatchEvent(
                 new CustomEvent("langboard:open-card-outline-section", { detail: { cardUID: "fixture-card", section: "description" } })
@@ -204,7 +251,8 @@ for (const width of [1440, 390])
         fixture.release();
         await expect(page.locator("[data-card-outline-section=description]")).toContainText("Delayed history description");
         await expect(page.locator("[data-card-outline-section=description]")).toBeFocused();
-        await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBeGreaterThanOrEqual(1);
+        expect(fixture.reads.filter((path) => path.endsWith("/comments"))).toHaveLength(1);
+        expect(timelineReads).toHaveLength(2);
         if (width === 1440) await expect(page.getByRole("separator", { name: "Comments panel width" })).toBeVisible();
     });
 
