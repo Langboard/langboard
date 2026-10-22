@@ -325,14 +325,21 @@ def test_image_create_passes_authenticated_channel_to_current_visibility(images)
 
 
 def test_outer_rollback_discards_comment_receipt_and_effect(images):
+    from langboard_shared.domain.services.CardChangeTransaction import dispatch_after_commit
+
     b = images
     uid = str(uuid4())
+    transport = Mock()
+    b.comments.dispatch_created.side_effect = lambda *args: dispatch_after_commit(transport)
     with pytest.raises(RuntimeError, match="abort"):
         with DbSession.atomic():
             assert create(b, request_uid=uid)["replayed"] is False
-            b.comments.dispatch_created.assert_not_called()
+            b.comments.dispatch_created.assert_called_once()
+            transport.assert_not_called()
             raise RuntimeError("abort")
     assert comments() == []
-    b.comments.dispatch_created.assert_not_called()
+    transport.assert_not_called()
+    b.comments.dispatch_created.reset_mock()
     assert create(b, request_uid=uid)["replayed"] is False
     b.comments.dispatch_created.assert_called_once()
+    transport.assert_called_once()

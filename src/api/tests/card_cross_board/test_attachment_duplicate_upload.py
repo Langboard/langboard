@@ -407,13 +407,18 @@ def test_receipt_after_deletion_does_not_resurrect_attachment(uploads):
     assert rows(CardAttachment) == [] and len(rows(ProjectActivity)) == 1
 
 
-def test_dispatch_failure_keeps_committed_bytes_and_retry_receipt(uploads):
+def test_transport_failure_keeps_committed_bytes_and_retry_receipt(uploads):
+    from langboard_shared.domain.services.CardChangeTransaction import dispatch_after_commit
+
     b = uploads
-    b.uploads.dispatch_created.side_effect = RuntimeError("Simulated broker failure")
+    transport = Mock(side_effect=RuntimeError("Simulated broker failure"))
+    b.uploads.dispatch_created.side_effect = lambda *args, **kwargs: dispatch_after_commit(transport)
     request_uid = str(uuid4())
     result = upload(b, request_uid=request_uid)
     assert result and Storage.get_file(rows(CardAttachment)[0].file) == b"first"
     assert upload(b, request_uid=request_uid)["replayed"]
+    b.uploads.dispatch_created.assert_called_once()
+    transport.assert_called_once()
 
 
 def test_different_bytes_use_native_cleanup_outbox(uploads, monkeypatch):

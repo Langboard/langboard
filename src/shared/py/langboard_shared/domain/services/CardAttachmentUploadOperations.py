@@ -360,15 +360,13 @@ def upload_attachment(
                 ),
             )
             db.after_commit(lambda: record_project_activity(user, activity))
-            db.after_commit(
-                lambda: service.dispatch_created(
-                    user,
-                    current_project,
-                    current_card,
-                    result,
-                    include_activity=False,
-                    include_document_processing=not same_content,
-                )
+            service.dispatch_created(
+                user,
+                current_project,
+                current_card,
+                result,
+                include_activity=False,
+                include_document_processing=not same_content,
             )
             response = {**_attachment_response(db, result, user), "request_uid": request_uid}
         committed = True

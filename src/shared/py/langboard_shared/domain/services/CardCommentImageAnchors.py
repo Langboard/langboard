@@ -107,5 +107,5 @@ def create_image_comment(
         db.insert(comment)
         cards.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
         if dispatch_effects:
-            db.after_commit(lambda: service.dispatch_created(actor, project, card, comment))
+            service.dispatch_created(actor, project, card, comment)
         return {"comment_uid": comment.get_uid(), "replayed": False}
