@@ -1361,3 +1361,290 @@ test("footer observes actual transport events without adding startup requests", 
     await expect(footer).toContainText("Realtime: Disconnected");
     expect(reads).toEqual([]);
 });
+
+async function scheduleFixture(page: Page) {
+    await page.routeWebSocket(/.*/, () => {});
+    const now = new Date().toISOString();
+    let actor = "fixture-user";
+    const reads: URL[] = [];
+    const exports: URL[] = [];
+    const exportTokens: (string | undefined)[] = [];
+    let fail = false;
+    let exportFail = false;
+    let hold = false;
+    let release: (() => void) | undefined;
+    const user = () => ({ uid: actor, created_at: now, updated_at: now, firstname: "Fixture", lastname: "User", user_groups: [] });
+    const project = (uid = "left") => ({
+        uid,
+        title: `${uid} board`,
+        created_at: now,
+        updated_at: now,
+        owner_uid: actor,
+        project_type: "default",
+        archive_visible_days: 30,
+        all_members: [user()],
+        invited_member_uids: [],
+        internal_bots: [],
+        internal_bot_settings: {},
+        current_auth_role_actions: ["*"],
+        labels: [],
+        description: "",
+    });
+    await page.route(
+        (url) => url.port === "5381",
+        async (route) => {
+            const url = new URL(route.request().url());
+            const path = url.pathname;
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            if (path === "/dashboard/schedule/ical") {
+                exports.push(url);
+                exportTokens.push(route.request().headers().authorization);
+                if (hold)
+                    await new Promise<void>((resolve) => {
+                        release = resolve;
+                    });
+                return route.fulfill({
+                    status: exportFail ? 409 : 200,
+                    contentType: "text/calendar",
+                    body: exportFail ? "export cap" : "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n",
+                });
+            }
+            if (path === "/dashboard/schedule") {
+                reads.push(url);
+                const oldActor = actor;
+                if (hold)
+                    await new Promise<void>((resolve) => {
+                        release = resolve;
+                    });
+                if (fail) return route.fulfill({ status: 400, json: { detail: "invalid range" } });
+                const personal = url.searchParams.get("scope") === "personal";
+                const page2 = url.searchParams.has("cursor");
+                const items = personal
+                    ? []
+                    : (page2 ? [1, 2] : [0, 1]).map((index) => ({
+                          card_uid: `card${index}`,
+                          title: `${oldActor} deadline ${index}`,
+                          project_uid: url.searchParams.get("project_uid") ?? "left",
+                          project_title: `${url.searchParams.get("project_uid") ?? "left"} board`,
+                          column_uid: "column",
+                          column_name: "Doing",
+                          deadline_at: now,
+                          work_state: { workflow_stage: "review", material_kind: "work" },
+                      }));
+                return route.fulfill({
+                    json: {
+                        items,
+                        next_cursor: !personal && !page2 ? "same-deadline-keyset" : null,
+                        start: url.searchParams.get("start"),
+                        end: url.searchParams.get("end"),
+                        scope: url.searchParams.get("scope"),
+                    },
+                });
+            }
+            let json: unknown = {};
+            if (path.startsWith("/auth/")) json = { access_token: "fixture", user: user(), bots: [] };
+            else if (["/board/left", "/board/right"].includes(path)) json = { project: project(path.split("/")[2]) };
+            else if (["/board/left/cards", "/board/right/cards"].includes(path))
+                json = { cards: [], columns: [], checklists: [], global_relationships: [] };
+            else if (path.includes("/column/dock")) json = { column_uids: [] };
+            else if (path.includes("/cards/available")) json = { card_uids: [] };
+            else if (path.includes("project")) json = { projects: [project(), project("right")], columns: [], records: [], collections: [] };
+            else if (path.includes("apps")) json = { apps: [] };
+            await route.fulfill({ json });
+        }
+    );
+    await page.goto("/src/pages/BoardPage/BoardSplit.fixture.html");
+    await expect(page.getByRole("contentinfo", { name: "Workbench status" })).toContainText("left board", { timeout: 45_000 });
+    return {
+        reads,
+        exports,
+        exportTokens,
+        setFail: (value: boolean) => {
+            fail = value;
+        },
+        setExportFail: (value: boolean) => {
+            exportFail = value;
+        },
+        setActor: (value: string) => {
+            actor = value;
+        },
+        hold: () => {
+            hold = true;
+            release = undefined;
+        },
+        release: () => {
+            hold = false;
+            release?.();
+        },
+        held: () => !!release,
+    };
+}
+
+async function openSchedule(page: Page, mobile = false) {
+    if (mobile) {
+        await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "More", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Schedule", exact: true }).click();
+    } else await page.getByRole("button", { name: "Schedule", exact: true }).click();
+    return page.getByRole("navigation", { name: "Schedule", exact: true });
+}
+
+test("Schedule lazy native shell scopes, timezone month, stable pages, errors, card links and full export", async ({ page }) => {
+    const fixture = await scheduleFixture(page);
+    expect(fixture.reads).toHaveLength(0);
+    expect(fixture.exports).toHaveLength(0);
+    const panel = await openSchedule(page);
+    await expect(panel.getByText("fixture-user deadline 0", { exact: true })).toBeVisible();
+    const [first] = fixture.reads;
+    expect(first.searchParams.get("scope")).toBe("board");
+    expect(first.searchParams.get("project_uid")).toBe("left");
+    const range = await page.evaluate(() => {
+        const now = new Date();
+        return [new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()];
+    });
+    expect([first.searchParams.get("start"), first.searchParams.get("end")]).toEqual(range);
+    await panel.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(panel.locator("li")).toHaveCount(3);
+    expect(fixture.reads[1].searchParams.get("cursor")).toBe("same-deadline-keyset");
+    await expect(panel.locator("[data-board-card-work-state]")).toHaveCount(3);
+    await page.screenshot({ path: ".verification/schedule-calendar/schedule-1440.png" });
+    const download = page.waitForEvent("download");
+    await panel.getByRole("button", { name: "Download iCal", exact: true }).click();
+    expect((await download).suggestedFilename()).toBe("schedule-board.ics");
+    expect(fixture.exports[0].searchParams.has("cursor")).toBe(false);
+    expect(fixture.exports[0].searchParams.get("start")).toBe(range[0]);
+    fixture.setExportFail(true);
+    await panel.getByRole("button", { name: "Download iCal", exact: true }).click();
+    await expect(panel.getByRole("alert")).toContainText("Calendar export failed");
+    await panel.getByRole("button", { name: "Personal schedule", exact: true }).click();
+    await expect(panel.getByText("No deadlines in this range.", { exact: true })).toBeVisible();
+    expect(fixture.reads.at(-1)!.searchParams.has("project_uid")).toBe(false);
+    fixture.setFail(true);
+    await panel.getByRole("button", { name: "Board schedule", exact: true }).click();
+    await expect(panel.getByRole("alert").filter({ hasText: "Could not load schedule" })).toBeVisible();
+    await expect(panel.getByText("No deadlines in this range.", { exact: true })).toHaveCount(0);
+    fixture.setFail(false);
+    await panel.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(panel.getByText("fixture-user deadline 0", { exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: /fixture-user deadline 0/ }).click();
+    await expect(page.locator("[data-native-location]")).toHaveText("/board/left/card0");
+});
+
+test("Schedule fences delayed range, actor and token changes, permissions and export cancellation", async ({ page }) => {
+    const fixture = await scheduleFixture(page);
+    const panel = await openSchedule(page);
+    await expect(panel.locator("li")).toHaveCount(2);
+    fixture.hold();
+    await panel.getByLabel("Start date", { exact: true }).fill("2026-03-01");
+    await expect.poll(fixture.held).toBe(true);
+    await panel.getByRole("button", { name: "Personal schedule", exact: true }).click();
+    fixture.release();
+    await expect(panel.getByText("No deadlines in this range.", { exact: true })).toBeVisible();
+    await expect(panel.locator("li")).toHaveCount(0);
+    await panel.getByRole("button", { name: "Today", exact: true }).click();
+    await panel.getByRole("button", { name: "Board schedule", exact: true }).click();
+    await expect(panel.locator("li")).toHaveCount(2);
+    fixture.hold();
+    await panel.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect.poll(fixture.held).toBe(true);
+    fixture.setActor("second-user");
+    await page.evaluate(async () => {
+        const path = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const [{ default: store }, { api }] = await Promise.all([import(/* @vite-ignore */ path), import(/* @vite-ignore */ apiPath)]);
+        await store.getState().updateToken("schedule-second-actor", api);
+    });
+    fixture.release();
+    await expect(page.getByRole("contentinfo", { name: "Workbench status" })).toContainText("left board");
+    if (!(await panel.isVisible())) await openSchedule(page);
+    await expect(panel.getByText("second-user deadline 0", { exact: true })).toBeVisible();
+    await expect(panel.getByText("fixture-user deadline 0", { exact: true })).toHaveCount(0);
+    const before = fixture.reads.length;
+    fixture.hold();
+    await panel.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect.poll(fixture.held).toBe(true);
+    await page.evaluate(async () => {
+        const path = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const [{ default: store }, { api }] = await Promise.all([import(/* @vite-ignore */ path), import(/* @vite-ignore */ apiPath)]);
+        await store.getState().updateToken("schedule-renewed", api);
+    });
+    fixture.release();
+    await expect(page.getByRole("contentinfo", { name: "Workbench status" })).toContainText("left board");
+    if (!(await panel.isVisible())) await openSchedule(page);
+    await expect.poll(() => fixture.reads.length).toBeGreaterThan(before);
+    await expect(panel.locator("li")).toHaveCount(2);
+    const authorizedDownload = page.waitForEvent("download");
+    await panel.getByRole("button", { name: "Download iCal", exact: true }).click();
+    await authorizedDownload;
+    expect(fixture.exportTokens.at(-1)).toBe("Bearer schedule-renewed");
+    fixture.hold();
+    const downloads: string[] = [];
+    page.on("download", (download) => downloads.push(download.suggestedFilename()));
+    await panel.getByRole("button", { name: "Download iCal", exact: true }).click();
+    await expect.poll(fixture.held).toBe(true);
+    await panel.getByRole("button", { name: "Personal schedule", exact: true }).click();
+    fixture.release();
+    await expect(panel.getByRole("button", { name: "Download iCal", exact: true })).toBeEnabled();
+    await expect(panel.getByText("No deadlines in this range.", { exact: true })).toBeVisible();
+    expect(downloads).toEqual([]);
+    await page.evaluate(async () => {
+        const path = "/src/core/models/index.ts";
+        const { Project } = await import(/* @vite-ignore */ path);
+        Project.Model.getModel("left").current_auth_role_actions = [];
+    });
+    await expect(panel.getByRole("button", { name: "Board schedule", exact: true })).toBeDisabled();
+});
+
+for (const width of [390])
+    test(`Schedule actual mobile drawer bounds, focus, calendar and Escape at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        const fixture = await scheduleFixture(page);
+        expect(fixture.reads).toHaveLength(0);
+        const panel = await openSchedule(page, true);
+        await expect(panel.locator("li")).toHaveCount(2);
+        const drawer = page.getByRole("complementary", { name: "Schedule", exact: true });
+        await expect(drawer).toBeFocused();
+        const bounds = await drawer.boundingBox();
+        expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        await page.screenshot({ path: ".verification/schedule-calendar/schedule-390.png" });
+        await panel.getByRole("button", { name: "Choose month", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(panel.getByRole("button", { name: "Choose month", exact: true })).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(drawer).toHaveCount(0);
+        await expect(
+            page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "More", exact: true })
+        ).toBeFocused();
+    });
+
+test.describe("Schedule browser timezone", () => {
+    test.use({ timezoneId: "America/New_York" });
+    test("Schedule local date range preserves DST at both boundaries", async ({ page }) => {
+        const fixture = await scheduleFixture(page);
+        const panel = await openSchedule(page);
+        await expect(panel.locator("li")).toHaveCount(2);
+        await panel.getByLabel("Start date", { exact: true }).fill("2026-03-01");
+        await panel.getByLabel("End date (exclusive)", { exact: true }).fill("2026-04-01");
+        await expect.poll(() => fixture.reads.at(-1)!.searchParams.get("end")).toBe("2026-04-01T04:00:00.000Z");
+        expect(fixture.reads.at(-1)!.searchParams.get("start")).toBe("2026-03-01T05:00:00.000Z");
+        await panel.getByLabel("End date (exclusive)", { exact: true }).fill("2026-03-01");
+        await expect(panel.getByRole("alert")).toContainText("Choose an end date after");
+        await expect(panel.locator("li")).toHaveCount(0);
+    });
+});
+
+test("Schedule closes without requests and reopening follows the current project", async ({ page }) => {
+    const fixture = await scheduleFixture(page);
+    const panel = await openSchedule(page);
+    await expect(panel.locator("li")).toHaveCount(2);
+    await page.getByRole("button", { name: "Explorer", exact: true }).click();
+    await page.locator("[data-workbench-explorer]").getByRole("button", { name: "right board", exact: true }).first().click();
+    await expect(page.getByRole("contentinfo", { name: "Workbench status" })).toContainText("right board");
+    expect(fixture.reads.every((url) => url.searchParams.get("project_uid") === "left")).toBe(true);
+    await openSchedule(page);
+    await expect(panel.getByText("right board · Doing", { exact: true })).toHaveCount(2);
+    expect(fixture.reads.at(-1)!.searchParams.get("project_uid")).toBe("right");
+});

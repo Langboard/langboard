@@ -71,10 +71,13 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         if len(card_uids) > 200:
             raise ValueError("At most 200 recent cards may be checked")
         project_uid = InfraHelper.convert_uid(InfraHelper.convert_id(project))
-        return [uid for _, uid in self.get_existing_pairs(
-            [(project_uid, uid) for uid in card_uids],
-            contexts={int(InfraHelper.convert_id(project)): context},
-        )]
+        return [
+            uid
+            for _, uid in self.get_existing_pairs(
+                [(project_uid, uid) for uid in card_uids],
+                contexts={int(InfraHelper.convert_id(project)): context},
+            )
+        ]
 
     def get_existing_pairs(
         self, pairs: Sequence[tuple[str, str]], *, contexts: dict[int, CardVisibilityContext]
@@ -94,10 +97,15 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 SqlBuilder.select.columns(Card.project_id, Card.id)
                 .join(Project, Project.id == Card.project_id)
                 .where(Project.deleted_at.is_(None), Card.archived_at.is_(None))
-                .where(select(ProjectColumn.id).where(
-                    ProjectColumn.id == Card.project_column_id, ProjectColumn.project_id == Card.project_id,
-                    ProjectColumn.deleted_at.is_(None),
-                ).exists())
+                .where(
+                    select(ProjectColumn.id)
+                    .where(
+                        ProjectColumn.id == Card.project_column_id,
+                        ProjectColumn.project_id == Card.project_id,
+                        ProjectColumn.deleted_at.is_(None),
+                    )
+                    .exists()
+                )
                 .where(tuple_(Card.project_id, Card.id).in_(requested))
                 .where(card_visibility_scope_by_project(contexts))
                 .limit(200)
@@ -298,7 +306,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             return db.exec(query).first() or 0
 
     def get_dashboard_list_scroller(
-        self, user: TUserParam, pagination: TimeBasedPagination, *, contexts: dict[int, CardVisibilityContext],
+        self,
+        user: TUserParam,
+        pagination: TimeBasedPagination,
+        *,
+        contexts: dict[int, CardVisibilityContext],
     ):
         if not contexts:
             return []
@@ -452,22 +464,31 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         statement = (
             select(CardAttachment.id, Card.id, CardAttachment.filename, CardAttachment.document_text)
             .join(Card, Card.id == CardAttachment.card_id)
-            .join(ProjectColumn, (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id))
+            .join(
+                ProjectColumn,
+                (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id),
+            )
             .where(Card.project_id == InfraHelper.convert_id(project), card_visibility_scope(context))
             .where(Card.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None), Card.source_type.is_(None))
             .where(CardAttachment.id.in_(sources), CardAttachment.deleted_at.is_(None))
             .where(CardAttachment.document_text != "", func.length(CardAttachment.document_text) <= 131072)
-            .order_by(CardAttachment.id).limit(20)
+            .order_by(CardAttachment.id)
+            .limit(20)
         )
         result: dict[int, list[dict[str, str]]] = {}
         with DbSession.use(readonly=False) as db:
             for attachment_id, card_id, filename, body in db.exec(statement).all():
                 fingerprint = sha256(body.encode("utf-8")).hexdigest()
-                if not any(source.get("card_uid") == card_id.to_short_code() and source.get("projection_hash") == fingerprint for source in sources[attachment_id]):
+                if not any(
+                    source.get("card_uid") == card_id.to_short_code() and source.get("projection_hash") == fingerprint
+                    for source in sources[attachment_id]
+                ):
                     continue
                 matches = result.setdefault(card_id, [])
                 if len(matches) < 2:
-                    matches.append({"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": body[:500]})
+                    matches.append(
+                        {"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": body[:500]}
+                    )
         return result
 
     def search_document_matches(
@@ -529,6 +550,82 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     )
         return result
 
+    def get_schedule_page(self, user, start, end, limit, *, contexts, personal, after=None):
+        """Authorize before range/keyset pagination; never load card or project bodies."""
+        if not contexts:
+            return []
+        from ....domain.models.UserNotification import NotificationType, UserNotification
+
+        user_id = InfraHelper.convert_id(user)
+        with DbSession.use(readonly=False) as db:
+            mentioned_ids = set()
+            if personal:
+                # Native mention metadata, without the queue's recent-500 truncation.
+                records = db.exec(
+                    select(UserNotification.record_list).where(
+                        UserNotification.receiver_id == user_id,
+                        UserNotification.web_visible.is_(True),
+                        UserNotification.notification_type.in_(
+                            [NotificationType.MentionedInCard, NotificationType.MentionedInComment]
+                        ),
+                    )
+                ).all()
+                mentioned_ids = {
+                    int(record_id)
+                    for (records_list,) in records
+                    for table, record_id in records_list
+                    if table == "card"
+                }
+            query = (
+                SqlBuilder.select.tables(Card, Project, ProjectColumn)
+                .join(Project, Project.id == Card.project_id)
+                .join(
+                    ProjectColumn,
+                    (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id),
+                )
+                .options(
+                    load_only(
+                        Card.id,
+                        Card.project_id,
+                        Card.project_column_id,
+                        Card.title,
+                        Card.deadline_at,
+                        Card.archived_at,
+                        Card.source_type,
+                        Card.source_uid,
+                        Card.last_change_seq,
+                        raiseload=True,
+                    ),
+                    load_only(Project.id, Project.title, raiseload=True),
+                    load_only(ProjectColumn.id, ProjectColumn.name, raiseload=True),
+                )
+                .where(card_visibility_scope_by_project(contexts))
+                .where(
+                    Card.source_type.is_(None),
+                    Card.deleted_at.is_(None),
+                    Project.deleted_at.is_(None),
+                    ProjectColumn.deleted_at.is_(None),
+                )
+                .where(Card.deadline_at >= start, Card.deadline_at < end)
+            )
+            if personal:
+                assigned = (
+                    select(CardAssignedUser.id)
+                    .where(CardAssignedUser.card_id == Card.id, CardAssignedUser.user_id == user_id)
+                    .exists()
+                )
+                query = query.where(or_(assigned, Card.created_by_user_id == user_id, Card.id.in_(mentioned_ids)))
+            if after:
+                deadline, project_id, card_id = after
+                query = query.where(
+                    or_(
+                        Card.deadline_at > deadline,
+                        (Card.deadline_at == deadline) & (Card.project_id > project_id),
+                        (Card.deadline_at == deadline) & (Card.project_id == project_id) & (Card.id > card_id),
+                    )
+                )
+            return db.exec(query.order_by(Card.deadline_at, Card.project_id, Card.id).limit(limit)).all()
+
     def get_my_work_page(
         self,
         user: TUserParam,
@@ -542,7 +639,8 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         until: SafeDateTime | None,
         limit: int,
         before: tuple[SafeDateTime, int, int] | None = None,
-        *, contexts: dict[int, CardVisibilityContext],
+        *,
+        contexts: dict[int, CardVisibilityContext],
     ) -> list[tuple[Card, Project, ProjectColumn, bool]]:
         """Return one bounded cross-project page of user-focused, non-archived cards."""
 
@@ -671,8 +769,12 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         return query
 
     def count_by_project(
-        self, project: TProjectParam, *, context: CardVisibilityContext,
-        include_closed: bool = True, workflow_stages: list[str] | None = None
+        self,
+        project: TProjectParam,
+        *,
+        context: CardVisibilityContext,
+        include_closed: bool = True,
+        workflow_stages: list[str] | None = None,
     ) -> int:
         """Count with the same workflow filters as project pagination."""
         project_id = InfraHelper.convert_id(project)

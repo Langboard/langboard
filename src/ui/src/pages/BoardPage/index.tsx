@@ -91,6 +91,7 @@ const BoardRelationsSidebar = lazy(() => import("@/pages/BoardPage/components/bo
 const BoardOutlineSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardOutlineSidebar"));
 const BoardCloud = lazy(() => import("@/pages/BoardPage/components/cloud/BoardCloud"));
 const BoardCloudPage = lazy(() => import("@/pages/BoardPage/BoardCloudPage"));
+const BoardScheduleSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardScheduleSidebar"));
 const BoardWikiSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardWikiSidebar"));
 const SkeletonBoardWikiPage = () => <Skeleton className="m-4 h-48 w-[min(36rem,calc(100%-2rem))]" />;
 
@@ -112,7 +113,19 @@ const getCurrentPage = (pageRoute?: string): TBoardViewType => {
 };
 
 type TBoardSidePanel = "botScope" | "switchProject";
-type TWorkbenchContext = "explorer" | "my-work" | "changes" | "inbox" | "activity" | "relations" | "outline" | "wiki" | "cloud" | "chat" | "app";
+type TWorkbenchContext =
+    | "explorer"
+    | "my-work"
+    | "changes"
+    | "inbox"
+    | "activity"
+    | "relations"
+    | "outline"
+    | "wiki"
+    | "schedule"
+    | "cloud"
+    | "chat"
+    | "app";
 
 const BoardProxy = memo((): React.JSX.Element => {
     const { setPageAliasRef } = usePageHeader();
@@ -282,6 +295,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         relations: t("dashboard.Relations"),
         outline: t("dashboard.Outline"),
         wiki: t("board.Wiki"),
+        schedule: t("dashboard.Schedule"),
         cloud: t("cloud.Cloud"),
         chat: t("project.Chat with AI"),
         app: selectedApp?.panel?.name ?? t("project.App panel"),
@@ -804,6 +818,12 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         active: isWorkbenchContextVisible && workbenchContextMode === "wiki",
                     },
                     {
+                        icon: "calendar",
+                        label: t("dashboard.Schedule"),
+                        onClick: () => toggleWorkbenchContext("schedule"),
+                        active: isWorkbenchContextVisible && workbenchContextMode === "schedule",
+                    },
+                    {
                         label: t("project.Chat with AI"),
                         icon: "message-circle",
                         onClick: () => toggleWorkbenchContext("chat"),
@@ -908,6 +928,16 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                                 onNavigate={() => isMobile && setActiveSidePanel(undefined)}
                                             />
                                         </div>
+                                    ) : workbenchContextMode === "schedule" ? (
+                                        isWorkbenchContextVisible &&
+                                        !isProjectLoading &&
+                                        currentUser && (
+                                            <BoardScheduleSidebar
+                                                key={`${currentUser.uid}:${project.uid}`}
+                                                project={project}
+                                                onNavigate={() => isMobile && setActiveSidePanel(undefined)}
+                                            />
+                                        )
                                     ) : workbenchContextMode === "inbox" ? (
                                         <BoardSignalInbox project={project} />
                                     ) : workbenchContextMode === "changes" ? (
@@ -955,6 +985,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                         relations: "network",
                                         outline: "list-tree",
                                         wiki: "notebook-pen",
+                                        schedule: "calendar",
                                         cloud: "cloud",
                                         chat: "message-circle",
                                         app: "puzzle",

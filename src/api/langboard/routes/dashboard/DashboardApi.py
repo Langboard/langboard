@@ -1,6 +1,6 @@
 from datetime import timedelta
 from time import perf_counter
-from fastapi import Depends, Query, Request, status
+from fastapi import Depends, Query, Request, Response, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
@@ -195,7 +195,9 @@ def get_card_list(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    cards, projects = service.card.get_dashboard_list(user, pagination, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+    cards, projects = service.card.get_dashboard_list(
+        user, pagination, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    )
 
     return JsonResponse(content={"cards": cards, "projects": projects})
 
@@ -260,6 +262,88 @@ def get_my_work(
 
 
 @AppRouter.api.get(
+    "/dashboard/schedule",
+    tags=["Dashboard"],
+    description="Authorized native card deadlines in a timezone-aware [start,end) range, at most 93 days.",
+    responses=OpenApiSchema()
+    .suc({"items": "object[]", "next_cursor": "string?", "start": "string", "end": "string", "scope": "string"})
+    .auth()
+    .forbidden()
+    .get(),
+)
+@AuthFilter.add("user")
+def get_schedule(
+    request: Request,
+    start: str = Query(max_length=64),
+    end: str = Query(max_length=64),
+    scope: str = Query(default="personal", pattern="^(personal|board)$"),
+    project_uid: str | None = Query(default=None, max_length=64),
+    cursor: str | None = Query(default=None, max_length=512),
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card.list_schedule(
+            user,
+            start,
+            end,
+            scope,
+            project_uid,
+            cursor,
+            limit,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except PermissionError as exc:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from exc
+    except (ValueError, TypeError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    return JsonResponse(content=result)
+
+
+@AppRouter.api.get(
+    "/dashboard/schedule/ical",
+    tags=["Dashboard"],
+    description="Authenticated iCalendar export; ranges over 10000 events must be narrowed.",
+    responses=OpenApiSchema().auth().forbidden().get(),
+)
+@AuthFilter.add("user")
+def get_schedule_ical(
+    request: Request,
+    start: str = Query(max_length=64),
+    end: str = Query(max_length=64),
+    scope: str = Query(default="personal", pattern="^(personal|board)$"),
+    project_uid: str | None = Query(default=None, max_length=64),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> Response:
+    from langboard_shared.domain.services.CardScheduleCalendar import calendar_bytes
+
+    try:
+        result = service.card.list_schedule(
+            user,
+            start,
+            end,
+            scope,
+            project_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            export=True,
+        )
+    except PermissionError as exc:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from exc
+    except (ValueError, TypeError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    return Response(
+        content=calendar_bytes(result["items"]),
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="langboard-schedule.ics"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@AppRouter.api.get(
     "/dashboard/work/assigned",
     tags=["Dashboard"],
     description="Read current user's assigned cards with the same cursor contract as native MCP list_my_work.",
@@ -275,7 +359,13 @@ def get_assigned_work(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     try:
-        result = service.card.list_assigned_work(user, project_uid, cursor, limit, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+        result = service.card.list_assigned_work(
+            user,
+            project_uid,
+            cursor,
+            limit,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
     except ValueError as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     return JsonResponse(content=result)
@@ -368,7 +458,8 @@ def get_available_recent_card_pairs(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     pairs = service.card.get_existing_pairs(
-        [(card.project_uid, card.card_uid) for card in form.cards], user=user,
+        [(card.project_uid, card.card_uid) for card in form.cards],
+        user=user,
         channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
     )
     return JsonResponse(content={"cards": [{"project_uid": project, "card_uid": card} for project, card in pairs]})

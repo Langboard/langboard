@@ -154,5 +154,23 @@
     "MCP": "MCP",
     "Realtime": "リアルタイム",
     "Socket transport only": "ソケット通信の状態です。接続済みでもボード購読の確認は意味しません。"
-  }
+  },
+  "Schedule": "スケジュール",
+  "Schedule scope": "スケジュール範囲",
+  "Board schedule": "ボードの予定",
+  "Personal schedule": "個人の全予定",
+  "Choose month": "月を選択",
+  "Start date": "開始日",
+  "End date exclusive": "終了日（含まない）",
+  "Schedule timezone": "{{timezone}} で表示",
+  "Invalid schedule range": "開始日より後の終了日を選択してください。",
+  "Schedule permission required": "ボードの閲覧権限が必要です。",
+  "Exporting calendar": "カレンダーをエクスポート中…",
+  "Download iCal": "iCal をダウンロード",
+  "Calendar export failed": "エクスポートに失敗しました。再試行するか範囲を短くしてください（最大10,000件）。",
+  "Deadlines": "期限",
+  "Schedule load failed": "予定を読み込めませんでした。93日以内の範囲で再試行してください。",
+  "Loading schedule": "予定を読み込み中…",
+  "No deadlines in range": "この範囲に期限はありません。",
+  "Load more": "さらに表示"
 }

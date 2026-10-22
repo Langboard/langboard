@@ -416,12 +416,16 @@ class CardService(BaseDomainService):
             if not _grant(db, user, project, ProjectRoleAction.Read):
                 return None
             if InfraHelper.convert_id(requested_project) != project.id:
-                receipt = db.exec(SqlBuilder.select.table(ProjectActivity).where(
-                    ProjectActivity.card_id == current.id,
-                    ProjectActivity.activity_type == ProjectActivityType.CardMoved,
-                    ProjectActivity.activity_history["source"]["project_uid"].as_string()
-                    == InfraHelper.convert_uid(InfraHelper.convert_id(requested_project)),
-                ).limit(1)).first()
+                receipt = db.exec(
+                    SqlBuilder.select.table(ProjectActivity)
+                    .where(
+                        ProjectActivity.card_id == current.id,
+                        ProjectActivity.activity_type == ProjectActivityType.CardMoved,
+                        ProjectActivity.activity_history["source"]["project_uid"].as_string()
+                        == InfraHelper.convert_uid(InfraHelper.convert_id(requested_project)),
+                    )
+                    .limit(1)
+                ).first()
                 if receipt is None:
                     return None
         return project, current, context
@@ -832,7 +836,10 @@ class CardService(BaseDomainService):
         linked_cards = [card for card, _ in raw_cards if getattr(card, "is_linked_resource", False)]
         resource_payloads = (
             self._get_linked_resource_payloads(
-                user_or_bot, project, linked_cards, include_content=False,
+                user_or_bot,
+                project,
+                linked_cards,
+                include_content=False,
                 **({"channel": channel} if channel != CollaborationChannel.Api else {}),
             )
             if linked_cards
@@ -960,9 +967,12 @@ class CardService(BaseDomainService):
 
         payloads.update(
             project_card_payloads(
-                self, user_or_bot,
+                self,
+                user_or_bot,
                 [card for card in cards if card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD],
-                include_content=include_content, channel=channel, destination_project=project,
+                include_content=include_content,
+                channel=channel,
+                destination_project=project,
             )
         )
         wiki_cards = [
@@ -1026,30 +1036,70 @@ class CardService(BaseDomainService):
         return payloads
 
     def link_cross_board_card(
-        self, user, source_project, source_card, project, column,
-        *, channel: CollaborationChannel = CollaborationChannel.Api,
+        self,
+        user,
+        source_project,
+        source_card,
+        project,
+        column,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ):
         from ..CardCrossBoardOperations import link_card
 
         return link_card(self, user, source_project, source_card, project, column, channel=channel)
 
     def clone_cross_board_card(
-        self, user, source_project, source_card, project, column,
-        *, request_uid, confirmation_token=None, channel=CollaborationChannel.Api,
+        self,
+        user,
+        source_project,
+        source_card,
+        project,
+        column,
+        *,
+        request_uid,
+        confirmation_token=None,
+        channel=CollaborationChannel.Api,
     ):
         from ..CardCloneOperations import clone_card
 
-        return clone_card(self, user, source_project, source_card, project, column,
-                          request_uid=request_uid, confirmation_token=confirmation_token, channel=channel)
+        return clone_card(
+            self,
+            user,
+            source_project,
+            source_card,
+            project,
+            column,
+            request_uid=request_uid,
+            confirmation_token=confirmation_token,
+            channel=channel,
+        )
 
     def move_cross_board_card(
-        self, user, source_project, source_card, project, column,
-        *, request_uid, confirmation_token=None, channel=CollaborationChannel.Api,
+        self,
+        user,
+        source_project,
+        source_card,
+        project,
+        column,
+        *,
+        request_uid,
+        confirmation_token=None,
+        channel=CollaborationChannel.Api,
     ):
         from ..CardMoveOperations import move_card
 
-        return move_card(self, user, source_project, source_card, project, column,
-                         request_uid=request_uid, confirmation_token=confirmation_token, channel=channel)
+        return move_card(
+            self,
+            user,
+            source_project,
+            source_card,
+            project,
+            column,
+            request_uid=request_uid,
+            confirmation_token=confirmation_token,
+            channel=channel,
+        )
 
     def create_linked_wiki_card(
         self,
@@ -1191,7 +1241,10 @@ class CardService(BaseDomainService):
 
         for project, linked_cards, linked_api_cards in linked_resources_by_project.values():
             payloads = self._get_linked_resource_payloads(
-                user, project, linked_cards, include_content=False,
+                user,
+                project,
+                linked_cards,
+                include_content=False,
                 **({"channel": channel} if channel != CollaborationChannel.Api else {}),
             )
             for card, api_card in zip(linked_cards, linked_api_cards, strict=True):
@@ -1384,6 +1437,76 @@ class CardService(BaseDomainService):
                 }
             )
         return cards
+
+    def list_schedule(
+        self,
+        user,
+        start: str,
+        end: str,
+        scope: str = "personal",
+        project_uid: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+        *,
+        channel=CollaborationChannel.Api,
+        export: bool = False,
+    ):
+        """Deadline calendar independent of the seven-day My Work queue."""
+        from ..CardScheduleCalendar import schedule_cursor, schedule_key, schedule_range
+
+        start_at, end_at = schedule_range(start, end)
+        if scope not in {"board", "personal"} or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Invalid Schedule scope or page size")
+        if (scope == "board") != (project_uid is not None):
+            raise ValueError("Only board scope requires project_uid")
+        contexts = self.resolve_work_visibility_contexts(user, channel)
+        if scope == "board":
+            contexts = {pid: ctx for pid, ctx in contexts.items() if SnowflakeID(pid).to_short_code() == project_uid}
+            if not contexts:
+                raise PermissionError("Project not found or not readable")
+        key = schedule_key(user.id, scope, project_uid, start_at, end_at)
+        after = schedule_cursor(key, cursor=cursor) if cursor is not None else None
+        if export and cursor is not None:
+            raise ValueError("Calendar export requires the complete range")
+        count = 10000 if export else limit
+        records = self.repo.card.get_schedule_page(
+            user, start_at, end_at, count + 1, contexts=contexts, personal=scope == "personal", after=after
+        )
+        if export and len(records) > count:
+            raise ValueError("Calendar exceeds 10000 events; select a smaller range")
+        page = records[:count]
+        states = {}
+        for project_id, context in contexts.items():
+            cards = [card for card, *_ in page if card.project_id == project_id]
+            states.update(self.get_work_states(cards, context=context))
+        items = [
+            {
+                "card_uid": card.get_uid(),
+                "title": card.title,
+                "project_uid": project.get_uid(),
+                "project_title": project.title,
+                "column_uid": column.get_uid(),
+                "column_name": column.name,
+                "deadline_at": (
+                    card.deadline_at if card.deadline_at.tzinfo else card.deadline_at.replace(tzinfo=timezone.utc)
+                )
+                .astimezone(timezone.utc)
+                .isoformat(),
+                "work_state": states[card.id],
+            }
+            for card, project, column in page
+        ]
+        next_cursor = None
+        if len(records) > count:
+            card, project, _ = page[-1]
+            next_cursor = schedule_cursor(key, [items[-1]["deadline_at"], int(project.id), int(card.id)])
+        return {
+            "items": items,
+            "next_cursor": next_cursor,
+            "start": start_at.isoformat(),
+            "end": end_at.isoformat(),
+            "scope": scope,
+        }
 
     def list_assigned_work(
         self,

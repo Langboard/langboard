@@ -179,7 +179,9 @@ def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: p
         CardMcp.add_card_comment("project", "card", " ", None, service)
 
     missing = SimpleNamespace(
-        card_comment=SimpleNamespace(create=lambda *args, **kwargs: None, update=lambda *args: None, delete=lambda *args: False)
+        card_comment=SimpleNamespace(
+            create=lambda *args, **kwargs: None, update=lambda *args: None, delete=lambda *args: False
+        )
     )
     with pytest.raises(ValueError, match="Card or image source unavailable"):
         CardMcp.add_card_comment("project", "card", "hello", None, missing)

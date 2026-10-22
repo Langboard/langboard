@@ -154,5 +154,23 @@
     "MCP": "MCP",
     "Realtime": "实时",
     "Socket transport only": "仅表示套接字传输状态，连接打开不代表已确认看板订阅。"
-  }
+  },
+  "Schedule": "日程",
+  "Schedule scope": "日程范围",
+  "Board schedule": "看板日程",
+  "Personal schedule": "个人全部日程",
+  "Choose month": "选择月份",
+  "Start date": "开始日期",
+  "End date exclusive": "结束日期（不含）",
+  "Schedule timezone": "以 {{timezone}} 显示",
+  "Invalid schedule range": "请选择开始日期之后的结束日期。",
+  "Schedule permission required": "需要看板读取权限。",
+  "Exporting calendar": "正在导出日历…",
+  "Download iCal": "下载 iCal",
+  "Calendar export failed": "导出失败。请重试或缩小范围（最多10,000项）。",
+  "Deadlines": "截止日期",
+  "Schedule load failed": "无法加载日程。请选择不超过93天的范围后重试。",
+  "Loading schedule": "正在加载日程…",
+  "No deadlines in range": "此范围内没有截止日期。",
+  "Load more": "加载更多"
 }

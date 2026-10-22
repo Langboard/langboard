@@ -154,5 +154,23 @@
     "MCP": "MCP",
     "Realtime": "Realtime",
     "Socket transport only": "Socket transport only; board subscription is not confirmed by an open connection."
-  }
+  },
+  "Schedule": "Schedule",
+  "Schedule scope": "Schedule scope",
+  "Board schedule": "Board schedule",
+  "Personal schedule": "Personal schedule",
+  "Choose month": "Choose month",
+  "Start date": "Start date",
+  "End date exclusive": "End date (exclusive)",
+  "Schedule timezone": "Times shown in {{timezone}}",
+  "Invalid schedule range": "Choose an end date after the start date.",
+  "Schedule permission required": "Board read permission is required.",
+  "Exporting calendar": "Exporting calendar…",
+  "Download iCal": "Download iCal",
+  "Calendar export failed": "Calendar export failed. Retry or shorten the range (maximum 10,000 events).",
+  "Deadlines": "Deadlines",
+  "Schedule load failed": "Could not load schedule. Choose a range of at most 93 days, then retry.",
+  "Loading schedule": "Loading schedule…",
+  "No deadlines in range": "No deadlines in this range.",
+  "Load more": "Load more"
 }
