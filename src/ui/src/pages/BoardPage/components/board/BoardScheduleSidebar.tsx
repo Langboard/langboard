@@ -1,5 +1,5 @@
 import BoardCardWorkState from "./BoardCardWorkState";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
@@ -12,16 +12,9 @@ import useGetScheduleCalendar from "@/controllers/api/dashboard/useGetScheduleCa
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { formatDateTime } from "@/core/utils/LocaleFormat";
-
-const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-const monthRange = (date: Date) => ({
-    start: localDate(new Date(date.getFullYear(), date.getMonth(), 1)),
-    end: localDate(new Date(date.getFullYear(), date.getMonth() + 1, 1)),
-});
-const parseLocal = (value: string) => {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Date(year, month - 1, day);
-};
+import useGetScheduleWorkload from "@/controllers/api/dashboard/useGetScheduleWorkload";
+import { dayRange, monthRange, parseLocal, validRange } from "./BoardScheduleRange";
+import BoardScheduleWorkload from "./BoardScheduleWorkload";
 
 export default function BoardScheduleSidebar({ project, onNavigate }: { project: Project.TModel; onNavigate?: () => void }) {
     const [t, i18n] = useTranslation();
@@ -30,16 +23,33 @@ export default function BoardScheduleSidebar({ project, onNavigate }: { project:
     const { hasRoleAction } = useRoleActionFilter(actions);
     const canRead = hasRoleAction(ProjectRole.EAction.Read);
     const [scope, setScope] = useState<"board" | "personal">("board");
+    const [view, setView] = useState<"Today" | "Deadlines" | "Workload">("Today");
+    const [today, setToday] = useState(() => dayRange(new Date()));
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout>;
+        const refresh = () => {
+            clearTimeout(timer);
+            const now = new Date();
+            setToday(dayRange(now));
+            timer = setTimeout(refresh, new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime() + 50);
+        };
+        refresh();
+        document.addEventListener("visibilitychange", refresh);
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener("visibilitychange", refresh);
+        };
+    }, []);
     const [range, setRange] = useState(() => monthRange(new Date()));
     const [calendarOpen, setCalendarOpen] = useState(false);
-    const start = parseLocal(range.start);
-    const end = parseLocal(range.end);
-    const valid = Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end > start;
+    const activeRange = view === "Today" ? today : range;
+    const start = parseLocal(activeRange.start);
+    const end = parseLocal(activeRange.end);
+    const valid = validRange(start, end);
     const allowed = scope === "personal" || canRead;
-    const schedule = useGetScheduleCalendar(
-        { scope, project_uid: project.uid, start: valid ? start.toISOString() : "", end: valid ? end.toISOString() : "" },
-        valid && allowed
-    );
+    const request = { scope, project_uid: project.uid, start: valid ? start.toISOString() : "", end: valid ? end.toISOString() : "" };
+    const schedule = useGetScheduleCalendar(request, valid && allowed && view !== "Workload");
+    const workload = useGetScheduleWorkload(request, valid && allowed && view === "Workload");
     return (
         <nav aria-label={t("dashboard.Schedule")} data-workbench-context="" className="flex h-full w-full min-w-0 flex-col overflow-hidden">
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
@@ -62,47 +72,63 @@ export default function BoardScheduleSidebar({ project, onNavigate }: { project:
                         {t("dashboard.Personal schedule")}
                     </Button>
                 </div>
-                <div className="flex flex-wrap gap-1">
-                    <Button size="sm" variant="outline" onClick={() => setRange(monthRange(new Date()))}>
-                        {t("dashboard.Today")}
-                    </Button>
-                    <Popover.Root open={calendarOpen} onOpenChange={setCalendarOpen}>
-                        <Popover.Trigger asChild>
-                            <Button size="sm" variant="outline">
-                                {t("dashboard.Choose month")}
-                            </Button>
-                        </Popover.Trigger>
-                        <Popover.Content className="w-auto max-w-[calc(100vw-2rem)] p-2" side="bottom">
-                            <Calendar
-                                hideTime
-                                value={valid ? start : new Date()}
-                                onChange={(date) => {
-                                    if (date) setRange(monthRange(date));
-                                    setCalendarOpen(false);
-                                }}
-                            />
-                        </Popover.Content>
-                    </Popover.Root>
+                <div role="group" className="flex flex-wrap gap-1" aria-label={t("dashboard.Schedule view")}>
+                    {(["Today", "Deadlines", "Workload"] as const).map((option) => (
+                        <Button
+                            key={option}
+                            size="sm"
+                            variant={view === option ? "default" : "outline"}
+                            aria-pressed={view === option}
+                            onClick={() => setView(option)}
+                        >
+                            {t(`dashboard.${option}`)}
+                        </Button>
+                    ))}
                 </div>
-                <label className="block min-w-0 text-xs">
-                    {t("dashboard.Start date")}
-                    <Input
-                        className="mt-1 w-full min-w-0"
-                        type="date"
-                        value={range.start}
-                        onChange={(event) => setRange({ ...range, start: event.target.value })}
-                    />
-                </label>
-                <label className="block min-w-0 text-xs">
-                    {t("dashboard.End date exclusive")}
-                    <Input
-                        className="mt-1 w-full min-w-0"
-                        type="date"
-                        value={range.end}
-                        onChange={(event) => setRange({ ...range, end: event.target.value })}
-                    />
-                </label>
-                <p className="text-xs text-muted-foreground">
+                {view === "Today" ? (
+                    <p className="text-sm">{t("dashboard.Today deadlines", { date: start.toLocaleDateString(i18n.language) })}</p>
+                ) : (
+                    <>
+                        <div className="flex flex-wrap gap-1">
+                            <Popover.Root open={calendarOpen} onOpenChange={setCalendarOpen}>
+                                <Popover.Trigger asChild>
+                                    <Button size="sm" variant="outline">
+                                        {t("dashboard.Choose month")}
+                                    </Button>
+                                </Popover.Trigger>
+                                <Popover.Content className="w-auto max-w-[calc(100vw-2rem)] p-2" side="bottom">
+                                    <Calendar
+                                        hideTime
+                                        value={valid ? start : new Date()}
+                                        onChange={(date) => {
+                                            if (date) setRange(monthRange(date));
+                                            setCalendarOpen(false);
+                                        }}
+                                    />
+                                </Popover.Content>
+                            </Popover.Root>
+                        </div>
+                        <label className="block min-w-0 text-xs">
+                            {t("dashboard.Start date")}
+                            <Input
+                                className="mt-1 w-full min-w-0"
+                                type="date"
+                                value={range.start}
+                                onChange={(event) => setRange({ ...range, start: event.target.value })}
+                            />
+                        </label>
+                        <label className="block min-w-0 text-xs">
+                            {t("dashboard.End date exclusive")}
+                            <Input
+                                className="mt-1 w-full min-w-0"
+                                type="date"
+                                value={range.end}
+                                onChange={(event) => setRange({ ...range, end: event.target.value })}
+                            />
+                        </label>
+                    </>
+                )}
+                <p className="break-words text-xs text-muted-foreground">
                     {t("dashboard.Schedule timezone", { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })}
                 </p>
                 {!valid ? (
@@ -113,6 +139,8 @@ export default function BoardScheduleSidebar({ project, onNavigate }: { project:
                     <p role="alert" className="text-sm">
                         {t("dashboard.Schedule permission required")}
                     </p>
+                ) : view === "Workload" ? (
+                    <BoardScheduleWorkload query={workload} />
                 ) : (
                     <>
                         <Button
@@ -129,7 +157,7 @@ export default function BoardScheduleSidebar({ project, onNavigate }: { project:
                                 {t("dashboard.Calendar export failed")}
                             </p>
                         )}
-                        <h3 className="text-xs font-semibold uppercase tracking-wide">{t("dashboard.Deadlines")}</h3>
+                        <h3 className="text-xs font-semibold uppercase tracking-wide">{t(`dashboard.${view}`)}</h3>
                         {schedule.isError && (
                             <div role="alert" className="space-y-2 text-sm">
                                 <p>{t("dashboard.Schedule load failed")}</p>

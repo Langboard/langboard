@@ -47,6 +47,8 @@ on:
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.workbench.config.ts
+      - src/ui/playwright.schedule-workload.config.ts
+      - src/ui/src/components/Layout/schedule-workload.spec.ts
       - src/ui/src/components/Layout/workbench-shell.spec.ts
       - src/ui/playwright.explorer-recovery.config.ts
       - src/ui/playwright.card-description-static.config.ts
@@ -224,4 +226,8 @@ jobs:
 
       - run: yarn playwright test -c playwright.attachment-upload.config.ts
         if: github.event_name == 'workflow_dispatch'
+        working-directory: src/ui
+      - name: Verify Schedule views and session boundaries
+        if: github.event_name == 'workflow_dispatch'
+        run: yarn playwright test -c playwright.schedule-workload.config.ts
         working-directory: src/ui

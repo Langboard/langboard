@@ -363,3 +363,59 @@ def test_repository_does_not_load_bodies_or_project_activity(schedule):
     assert len(card_queries) == 1
     assert "description" not in card_queries[0]
     assert "project_activity" not in " ".join(statements)
+
+
+def test_personal_mentions_stay_in_database_and_preserve_filters(schedule):
+    """Old mentions survive; wrong receivers/types/visibility cannot select cards."""
+    from sqlalchemy import event
+
+    service, actor, project, cards, _ = schedule
+    with DbSession.use(readonly=False) as db:
+        # Put three previously unselected readable cards behind nonqualifying notices.
+        for card, receiver, note_type, visible in (
+            (cards[3], cards[6].owner_user_id, NotificationType.MentionedInCard, True),
+            (cards[4], actor.id, NotificationType.AssignedToCard, True),
+            (cards[5], actor.id, NotificationType.MentionedInComment, False),
+        ):
+            db.insert(
+                UserNotification(
+                    notifier_type="user",
+                    notifier_id=actor.id,
+                    receiver_id=receiver,
+                    notification_type=note_type,
+                    web_visible=visible,
+                    record_list=[("card", int(card.id))],
+                )
+            )
+        # Multiple references and repeated mentions must neither omit nor duplicate a card.
+        for _ in range(2):
+            db.insert(
+                UserNotification(
+                    notifier_type="user",
+                    notifier_id=actor.id,
+                    receiver_id=actor.id,
+                    notification_type=NotificationType.MentionedInComment,
+                    created_at=SafeDateTime.fromisoformat("2025-01-01T00:00:00Z"),
+                    record_list=[("project", int(project.id)), ("card", int(cards[2].id))],
+                )
+            )
+    statements = []
+    engine = DbEngine.get_main_engine()
+
+    def capture(_conn, cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine, "after_cursor_execute", capture)
+    try:
+        page = service.list_schedule(actor, "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z", limit=2)
+        following = service.list_schedule(
+            actor, "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z", cursor=page["next_cursor"], limit=2
+        )
+    finally:
+        event.remove(engine, "after_cursor_execute", capture)
+    assert [item["card_uid"] for item in [*page["items"], *following["items"]]] == [
+        card.get_uid() for card in cards[:3]
+    ]
+    assert following["next_cursor"] is None
+    assert not any(sql.lstrip().startswith("SELECT user_notification.record_list") for sql in statements)
+    assert sum("JOIN project_column" in sql and "user_notification" in sql for sql in statements) == 2

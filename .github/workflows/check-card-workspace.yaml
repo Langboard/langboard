@@ -6,6 +6,10 @@ on:
     paths:
       - .github/workflows/check-card-workspace.yaml
       - src/api/langboard/card_workspace/**
+      - src/api/langboard/routes/dashboard/DashboardApi.py
+      - src/api/tests/card_visibility/test_schedule*.py
+      - src/shared/py/langboard_shared/domain/services/CardScheduleCalendar.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/ScheduleWorkloadQuery.py
       - src/api/langboard/mcp_tools/CardMcp.py
       - src/api/langboard/routes/board/BoardCardApi.py
       - src/api/langboard/routes/mcp/McpApi.py
@@ -107,3 +111,7 @@ jobs:
 
       - run: uv run --no-sync pytest -q src/api/tests/core/test_snowflake_storage_safety.py src/api/tests/project_labels/test_builtin_global_labels.py
       - run: uv run --no-sync pytest -q src/api/tests/search/test_keyword_search_connection.py
+      - name: Verify Schedule calendar and workload
+        run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_calendar.py src/api/tests/card_visibility/test_schedule_workload.py
+      - name: Verify Schedule workload on native PostgreSQL
+        run: SCHEDULE_WORKLOAD_TEST_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_workload.py

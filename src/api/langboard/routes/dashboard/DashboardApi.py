@@ -262,6 +262,36 @@ def get_my_work(
 
 
 @AppRouter.api.get(
+    "/dashboard/schedule/workload",
+    tags=["Dashboard"],
+    description="Current authorized workload and date-clipped all-worker time on selected native cards.",
+    responses=OpenApiSchema().suc({"workload": "object", "time": "object", "as_of": "string"}).auth().get(),
+)
+@AuthFilter.add("user")
+def get_schedule_workload(
+    request: Request,
+    start: str = Query(max_length=64),
+    end: str = Query(max_length=64),
+    scope: str = Query(default="personal", pattern="^(personal|board)$"),
+    project_uid: str | None = Query(default=None, max_length=64),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card.get_schedule_workload(
+            user, start, end, scope, project_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except PermissionError as exc:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from exc
+    except (ValueError, TypeError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    response = JsonResponse(content=result)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@AppRouter.api.get(
     "/dashboard/schedule",
     tags=["Dashboard"],
     description="Authorized native card deadlines in a timezone-aware [start,end) range, at most 93 days.",

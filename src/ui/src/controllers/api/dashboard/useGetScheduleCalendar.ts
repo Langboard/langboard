@@ -21,7 +21,7 @@ interface SchedulePage {
     end: string;
     scope: "board" | "personal";
 }
-interface ScheduleRange {
+export interface ScheduleRange {
     scope: "board" | "personal";
     project_uid: string;
     start: string;

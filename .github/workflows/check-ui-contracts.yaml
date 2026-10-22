@@ -31,6 +31,8 @@ on:
       - .github/workflows/check-ui-contracts.yaml
       - src/ui/package.json
       - src/ui/yarn.lock
+      - src/ui/src/pages/BoardPage/components/board/BoardSchedule*.ts*
+      - src/ui/src/controllers/api/dashboard/useGetSchedule*.ts
       - src/shared/ts/**
   workflow_dispatch:
 
@@ -77,4 +79,7 @@ jobs:
         working-directory: src/ui
       - name: Verify board status, animation and comment resize contracts
         run: node --experimental-strip-types --test src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts
+        working-directory: src/ui
+      - name: Verify local-day Schedule range boundaries
+        run: TZ=America/New_York node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardScheduleRange.test.ts
         working-directory: src/ui

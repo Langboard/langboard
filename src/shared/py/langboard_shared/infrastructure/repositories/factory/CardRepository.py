@@ -1,7 +1,21 @@
 from hashlib import sha256
 from typing import Any, Sequence
-from sqlalchemy import JSON, Text, case, cast, false, func, or_, select, tuple_, update
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Text,
+    case,
+    cast,
+    false,
+    func,
+    literal_column,
+    or_,
+    select,
+    true,
+    tuple_,
+    update,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import defer, load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
@@ -550,6 +564,11 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     )
         return result
 
+    def get_schedule_workload(self, user, start, end, as_of, *, contexts, personal):
+        from .ScheduleWorkloadQuery import schedule_workload
+
+        return schedule_workload(user, start, end, as_of, contexts=contexts, personal=personal)
+
     def get_schedule_page(self, user, start, end, limit, *, contexts, personal, after=None):
         """Authorize before range/keyset pagination; never load card or project bodies."""
         if not contexts:
@@ -558,24 +577,6 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         user_id = InfraHelper.convert_id(user)
         with DbSession.use(readonly=False) as db:
-            mentioned_ids = set()
-            if personal:
-                # Native mention metadata, without the queue's recent-500 truncation.
-                records = db.exec(
-                    select(UserNotification.record_list).where(
-                        UserNotification.receiver_id == user_id,
-                        UserNotification.web_visible.is_(True),
-                        UserNotification.notification_type.in_(
-                            [NotificationType.MentionedInCard, NotificationType.MentionedInComment]
-                        ),
-                    )
-                ).all()
-                mentioned_ids = {
-                    int(record_id)
-                    for (records_list,) in records
-                    for table, record_id in records_list
-                    if table == "card"
-                }
             query = (
                 SqlBuilder.select.tables(Card, Project, ProjectColumn)
                 .join(Project, Project.id == Card.project_id)
@@ -614,7 +615,51 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     .where(CardAssignedUser.card_id == Card.id, CardAssignedUser.user_id == user_id)
                     .exists()
                 )
-                query = query.where(or_(assigned, Card.created_by_user_id == user_id, Card.id.in_(mentioned_ids)))
+                # Keep historical mentions inside the database; transfer only the card page.
+                # Match the native notification reference projection on supported dialects.
+                dialect = DbEngine.get_main_engine().dialect.name
+                if dialect == "sqlite":
+                    refs = (
+                        func.json_each(UserNotification.record_list).table_valued("key", "value").alias("schedule_refs")
+                    )
+                    ref_table = func.json_extract(refs.c.value, "$[0]")
+                    ref_id = func.json_extract(refs.c.value, "$[1]")
+                elif dialect == "postgresql":
+                    refs = (
+                        func.jsonb_array_elements(cast(UserNotification.record_list, JSONB))
+                        .table_valued("value")
+                        .alias("schedule_refs")
+                    )
+                    ref_table = refs.c.value.op("->>")(0)
+                    ref_id = cast(refs.c.value.op("->>")(1), BigInteger)
+                elif dialect in {"mysql", "mariadb"}:
+                    refs = (
+                        func.JSON_TABLE(
+                            UserNotification.record_list,
+                            literal_column(
+                                "'$[*]' COLUMNS (ref_table VARCHAR(64) PATH '$[0]', ref_id BIGINT PATH '$[1]')"
+                            ),
+                        )
+                        .table_valued("ref_table", "ref_id")
+                        .alias("schedule_refs")
+                    )
+                    ref_table, ref_id = refs.c.ref_table, refs.c.ref_id
+                else:
+                    raise ValueError("Unsupported database dialect for Schedule mentions")
+                mentioned = (
+                    select(ref_id)
+                    .select_from(UserNotification)
+                    .join(refs, true())
+                    .where(
+                        UserNotification.receiver_id == user_id,
+                        UserNotification.web_visible.is_(True),
+                        UserNotification.notification_type.in_(
+                            [NotificationType.MentionedInCard, NotificationType.MentionedInComment]
+                        ),
+                        ref_table == "card",
+                    )
+                )
+                query = query.where(or_(assigned, Card.created_by_user_id == user_id, Card.id.in_(mentioned)))
             if after:
                 deadline, project_id, card_id = after
                 query = query.where(

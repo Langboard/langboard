@@ -1438,6 +1438,34 @@ class CardService(BaseDomainService):
             )
         return cards
 
+    def get_schedule_workload(
+        self, user, start: str, end: str, scope: str = "personal", project_uid: str | None = None,
+        *, channel=CollaborationChannel.Api,
+    ):
+        """Current workload and range-clipped all-worker time on currently readable native cards."""
+        from ..CardScheduleCalendar import schedule_range
+
+        start_at, end_at = schedule_range(start, end)
+        if scope not in {"board", "personal"} or (scope == "board") != (project_uid is not None):
+            raise ValueError("Only board scope requires project_uid")
+        as_of = SafeDateTime.now()
+        contexts = self.resolve_work_visibility_contexts(user, channel)
+        if scope == "board":
+            contexts = {pid: ctx for pid, ctx in contexts.items() if SnowflakeID(pid).to_short_code() == project_uid}
+            if not contexts:
+                raise PermissionError("Project not found or not readable")
+        totals = self.repo.card.get_schedule_workload(
+            user, start_at, end_at, as_of, contexts=contexts, personal=scope == "personal"
+        )
+        return {
+            "scope": scope, "project_uid": project_uid,
+            "start": start_at.isoformat(), "end": end_at.isoformat(), "as_of": as_of.isoformat(),
+            "time_attribution": "all_work_on_selected_cards",
+            "time_includes_currently_completed_and_archived_cards": True,
+            "workload": {"open_count": totals["open_count"], "incomplete_count": totals["incomplete_count"]},
+            "time": {key: value for key, value in totals.items() if key not in {"open_count", "incomplete_count"}},
+        }
+
     def list_schedule(
         self,
         user,
