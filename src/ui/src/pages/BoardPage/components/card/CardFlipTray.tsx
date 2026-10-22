@@ -2,7 +2,7 @@ import { flipDraftKey, useCardFlipDraftStore } from "./CardFlipDraftStore";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
 import { Reorder } from "framer-motion";
-import { useLocation } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useTranslation } from "react-i18next";
 import useCardCommentDraftStore from "@/core/stores/CardCommentDraftStore";
 import { captureCardOrigin } from "../board/CardAnimation";
@@ -113,7 +113,7 @@ export default function CardFlipTray({
             drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
         ).trim();
     const navigate = usePageNavigateRef();
-    const location = useLocation();
+    const location = usePageLocation();
     const [t, i18n] = useTranslation();
     const didDrag = useRef(false);
     const host = useRef<HTMLDivElement>(null);

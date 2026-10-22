@@ -25,7 +25,7 @@ import useBoardTouchCardDnd from "@/pages/BoardPage/components/board/useBoardTou
 import BoardCardRelationshipOverlay from "@/pages/BoardPage/components/board/BoardCardRelationshipOverlay";
 import BoardMinimap from "@/pages/BoardPage/components/board/BoardMinimap";
 import useBoardPanning from "./useBoardPanning";
-import { useSearchParams } from "react-router";
+import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { ProjectRole } from "@/core/models/roles";
 
 export function SkeletonBoard() {
@@ -93,7 +93,7 @@ export function Board() {
 function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElement | null; scrollableRef: React.RefObject<HTMLDivElement | null> }) {
     const { chatResizableSidebar } = useBoardController();
     const { project, columns: flatColumns, cardsMap, socket, canDragAndDrop, canDragCards, hasRoleAction } = useBoard();
-    const [, setSearchParams] = useSearchParams();
+    const [, setSearchParams] = usePageSearchParams();
     const canCreate = hasRoleAction(ProjectRole.EAction.CardWrite);
     const compose = useCallback(() => {
         setSearchParams(

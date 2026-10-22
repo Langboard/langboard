@@ -14,7 +14,8 @@ import { flipDraftKey, useCardFlipDraftStore } from "./components/card/CardFlipD
 import { BoardCardSectionSaveProvider, useBoardCardSectionSaveActions } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
 import { EHttpStatus } from "@langboard/core/enums";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Navigate, useLocation, useParams } from "react-router";
+import { Navigate, useParams } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { animate } from "framer-motion";
 import { useBoardController } from "@/core/providers/BoardController";
 import {
@@ -46,7 +47,7 @@ const BoardCardPageComponent = ({
 }: IBoardCardPageProps) => {
     const scrollportId = useBoardViewportId();
     const navigate = usePageNavigateRef();
-    const location = useLocation();
+    const location = usePageLocation();
     const { currentUser } = useAuth();
     const { saveSections } = useBoardCardSectionSaveActions();
     const params = useParams();

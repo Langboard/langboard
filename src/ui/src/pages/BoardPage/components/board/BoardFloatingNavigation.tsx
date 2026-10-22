@@ -1,5 +1,5 @@
 import { useBoardViewportId } from "@/core/providers/BoardViewportProvider";
-import { useSearchParams } from "react-router";
+import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { dropTargetForElements, monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
@@ -36,7 +36,7 @@ export default function BoardFloatingNavigation({
 }) {
     useProjectDockSync(project.uid);
     const [t] = useTranslation();
-    const [, setSearchParams] = useSearchParams();
+    const [, setSearchParams] = usePageSearchParams();
     const roles = project.useField("current_auth_role_actions");
     const isAdmin = currentUser.useField("is_admin");
     const { hasRoleAction } = useRoleActionFilter(roles);
