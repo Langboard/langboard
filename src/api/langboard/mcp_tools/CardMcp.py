@@ -6,13 +6,15 @@ import logging
 import mimetypes
 from binascii import Error as Base64Error
 from typing import Annotated, Any, Literal
+from uuid import UUID
+from fastapi import UploadFile
 from fastmcp.exceptions import ValidationError
 from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.storage import Storage, StorageName
+from langboard_shared.core.storage import Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -661,7 +663,26 @@ def change_card_order_or_move_column(
     return {"message": "Order changed or card moved"}
 
 
-@McpTool.add("user", description="Upload a card attachment. Accepts base64 encoded file data.")
+def _as_upload_request_uid(value: str | UUID) -> UUID:
+    """Parse the UUID's JSON string before native strict parameter validation."""
+    if isinstance(value, UUID):
+        return value
+    if not isinstance(value, str):
+        raise ValueError("A valid upload request UUID is required")
+    try:
+        return UUID(value)
+    except ValueError:
+        raise ValueError("A valid upload request UUID is required") from None
+
+
+@McpTool.add(
+    "user",
+    description=(
+        "Upload base64 file data with a caller-generated request UUID. Duplicate files require explicit add, "
+        "replace of an allowed target, or cancel using the returned current token. Retry an ambiguous result "
+        "with the exact same file, request UUID and chosen action/token; never switch actions automatically."
+    ),
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def upload_card_attachment(
     project_uid: str,
@@ -670,8 +691,12 @@ def upload_card_attachment(
     file_data_base64: str,
     user: User,
     service: DomainService,
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)],
+    duplicate_action: Literal["add", "replace", "cancel"] | None = None,
+    confirmation_token: str | None = None,
+    replacement_uid: str | None = None,
 ) -> dict:
-    _require_task_card(project_uid, card_uid)
+    request_uid = str(_as_upload_request_uid(request_uid))
     max_file_bytes = Env.MAX_FILE_SIZE_MB * 1024 * 1024
     max_base64_length = ((max_file_bytes + 2) // 3) * 4
     if len(file_data_base64) > max_base64_length:
@@ -679,24 +704,42 @@ def upload_card_attachment(
 
     try:
         file_content = base64.b64decode(file_data_base64, validate=True)
-    except (Base64Error, ValueError) as e:
-        raise ValueError(f"Invalid base64 data: {str(e)}")
+    except (Base64Error, ValueError):
+        raise ValueError("Invalid base64 file data") from None
 
     if len(file_content) > max_file_bytes:
         raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
 
-    file_object = io.BytesIO(file_content)
-    file_object.name = filename
-
-    file_model = Storage.upload(file_object, StorageName.CardAttachment)
-    if not file_model:
-        raise ValueError("Failed to upload file")
-
-    result = service.card_attachment.create(user, project_uid, card_uid, file_model)
-    if not result:
-        raise ValueError("Failed to create attachment")
-
-    return result.api_response()
+    with io.BytesIO(file_content) as file_object:
+        try:
+            result = service.card_attachment.upload(
+                user,
+                project_uid,
+                card_uid,
+                UploadFile(file_object, filename=filename),
+                channel=CollaborationChannel.Mcp,
+                request_uid=request_uid,
+                duplicate_action=duplicate_action,
+                confirmation_token=confirmation_token,
+                replacement_uid=replacement_uid,
+            )
+        except Exception:
+            raise ValueError(
+                "Attachment upload unavailable. Retry with the same file, request UUID and decision, or cancel."
+            ) from None
+    if result is None:
+        raise ValueError("Attachment upload unavailable")
+    # Preserve the native actionable contract, excluding actor and storage internals.
+    fields = (
+        ("confirmation_required", "confirmation_token", "request_uid", "conflicts")
+        if result.get("confirmation_required")
+        else (
+            ("cancelled", "request_uid")
+            if result.get("cancelled")
+            else ("uid", "created_at", "updated_at", "card_uid", "name", "url", "order", "request_uid", "replayed")
+        )
+    )
+    return {key: result[key] for key in fields if key in result}
 
 
 # ---------------------------------------------------------------------------
