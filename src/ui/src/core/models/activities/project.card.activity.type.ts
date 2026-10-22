@@ -3,6 +3,7 @@ import { IBaseProjectActivity } from "@/core/models/activities/project.activity.
 import { IProjectColumnActivityHistory } from "@/core/models/activities/project.column.activity.type";
 import { EProjectActivityType } from "@/core/models/activities/enum.type";
 import {
+    IBaseActivity,
     IChangesInActivityHistory,
     IUpdatedAssignedUsersInActivityHistory,
     IUpdatedLabelsInActivityHistory,
@@ -28,6 +29,25 @@ export interface IBaseProjectCardActivity<THistory extends IProjectCardActivityH
 export interface IProjectCardCreatedActivity extends IBaseProjectCardActivity<IProjectCardActivityHistory> {
     activity_type: EProjectActivityType.CardCreated;
 }
+export interface ICardProvenanceActivityHistory {
+    source: {
+        type: "project_card";
+        uid: string;
+        project_uid: string;
+        url: string;
+    };
+}
+
+export interface IProjectCardLinkedActivity extends IBaseActivity<ICardProvenanceActivityHistory> {
+    activity_type: EProjectActivityType.CardLinked;
+    filterable_map: IBaseActivity<ICardProvenanceActivityHistory>["filterable_map"] & { project: string; card: string };
+    references: { project: IBaseModel; card: IBaseModel };
+}
+
+export interface IProjectCardClonedActivity extends IBaseProjectCardActivity<IProjectCardActivityHistory & ICardProvenanceActivityHistory> {
+    activity_type: EProjectActivityType.CardCloned;
+}
+
 export interface IProjectCardUpdatedActivity extends IBaseProjectCardActivity<IProjectCardActivityHistory & Required<IChangesInActivityHistory>> {
     activity_type: EProjectActivityType.CardUpdated;
 }
@@ -48,6 +68,8 @@ export interface IProjectCardDeletedActivity extends IBaseProjectCardActivity<IP
 
 export type TProjectCardActivityInterface =
     | IProjectCardCreatedActivity
+    | IProjectCardLinkedActivity
+    | IProjectCardClonedActivity
     | IProjectCardUpdatedActivity
     | IProjectCardMovedActivity
     | IProjectCardAssignedUsersUpdatedActivity

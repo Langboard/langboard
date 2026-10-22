@@ -211,6 +211,15 @@
     "wiki_deleted": {
       "default": "<Recorder/>がWiki <Wiki/> を削除しました。",
       "user": "あなたがプロジェクト <Project/> でWiki <Wiki/> を削除しました。"
+    },
+    "card_linked": {
+      "default": "<Recorder/> がこのカードを <SourceCard/> にリンクしました。",
+      "user": "このカードを <SourceCard/> にリンクしました。"
+    },
+    "card_cloned": {
+      "default": "<Recorder/> が <SourceCard/> からこのカードを複製しました。",
+      "user": "<SourceCard/> からこのカードを複製しました。"
     }
-  }
+  },
+  "Source card": "元のカード"
 }
