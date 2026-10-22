@@ -86,7 +86,7 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
 
     client.upload_fileobj.side_effect = upload
     client.download_fileobj.side_effect = download
-    client.delete_object.side_effect = lambda *, Bucket, Key: objects.pop((Bucket, Key))
+    client.delete_object.side_effect = lambda *, Bucket, Key: objects.pop((Bucket, Key), None)
     monkeypatch.setattr(S3Storage, "_connect_client", lambda _: client)
     file = Storage.upload_named(BytesIO(b"s3 payload"), StorageName.CardAttachment, "probe.txt", "source.txt")
     assert file and file.storage_type == "s3"

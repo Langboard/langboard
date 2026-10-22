@@ -16,15 +16,15 @@ class S3Storage(BaseStorage):
         return destination.getvalue()
 
     def download(self, storage_name: str, filename: str, destination: IO[bytes]) -> bool:
-        from botocore.exceptions import ClientError
-
         s3_client = None
         try:
             s3_client = self._connect_client()
             try:
                 s3_client.download_fileobj(Bucket=Env.S3_BUCKET_NAME, Key=f"{storage_name}/{filename}", Fileobj=destination)
-            except ClientError as error:
-                if error.response.get("Error", {}).get("Code") not in {"404", "NoSuchKey", "NotFound"}:
+            except Exception as error:
+                from botocore.exceptions import ClientError
+
+                if not isinstance(error, ClientError) or error.response.get("Error", {}).get("Code") not in {"404", "NoSuchKey", "NotFound"}:
                     return False
                 legacy_key = self._legacy_key(storage_name, filename)
                 if legacy_key is None:
