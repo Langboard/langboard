@@ -160,7 +160,7 @@ def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: p
     calls: list[tuple[str, str]] = []
     comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
     native = SimpleNamespace(
-        create=lambda actor, project, card, body: (calls.append(("create", body.content)) or comment),
+        create=lambda actor, project, card, body, **kwargs: (calls.append(("create", body.content)) or comment),
         update=lambda actor, project, card, uid, body: (calls.append(("update", body.content)) or comment),
         delete=lambda actor, project, card, uid: (calls.append(("delete", uid)) or True),
     )
@@ -179,9 +179,9 @@ def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: p
         CardMcp.add_card_comment("project", "card", " ", None, service)
 
     missing = SimpleNamespace(
-        card_comment=SimpleNamespace(create=lambda *args: None, update=lambda *args: None, delete=lambda *args: False)
+        card_comment=SimpleNamespace(create=lambda *args, **kwargs: None, update=lambda *args: None, delete=lambda *args: False)
     )
-    with pytest.raises(ValueError, match="Card not found in project"):
+    with pytest.raises(ValueError, match="Card or image source unavailable"):
         CardMcp.add_card_comment("project", "card", "hello", None, missing)
     with pytest.raises(PermissionError, match="not owned"):
         CardMcp.update_card_comment("project", "card", "comment", "hello", None, missing)
