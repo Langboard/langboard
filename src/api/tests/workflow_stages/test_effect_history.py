@@ -87,9 +87,11 @@ def test_history_filters_before_paging_retains_archived_and_separates_workflows(
 
 
 @pytest.mark.parametrize("revocation", ["membership", "role", "account", "project"])
-def test_history_rechecks_cached_authority(history, revocation):
+@pytest.mark.parametrize("channel", [CollaborationChannel.Api, CollaborationChannel.HumanUI])
+def test_history_rechecks_cached_authority(history, revocation, channel):
     f = history
-    assert f.service.get_effect_history(f.user, f.stages[0].get_uid())["items"]
+    assert f.service.get_effect_history(f.user, f.stages[0].get_uid(), channel=channel)["items"]
+    cached_user = f.user.model_copy(deep=True)
     with DbSession.atomic() as db:
         if revocation == "membership":
             db.delete(f.member)
@@ -102,8 +104,31 @@ def test_history_rechecks_cached_authority(history, revocation):
             else:
                 row.deleted_at = SafeDateTime.now()
             db.update(row)
-    result = f.service.get_effect_history(f.user, f.stages[0].get_uid())
+    result = f.service.get_effect_history(cached_user, f.stages[0].get_uid(), channel=channel)
     assert result is None if revocation == "account" else result == {"items": [], "next_cursor": None}
+
+
+@pytest.mark.parametrize("channel", [CollaborationChannel.Api, CollaborationChannel.HumanUI])
+def test_history_rechecks_admin_status_after_board_role_revocation(history, channel):
+    f = history
+    with DbSession.atomic() as db:
+        f.user.is_admin = True
+        db.update(f.user)
+    cached_admin = f.user.model_copy(deep=True)
+    before = f.service.get_effect_history(cached_admin, f.stages[0].get_uid(), channel=channel)
+    assert before["items"]
+    with DbSession.atomic() as db:
+        f.role.actions = []
+        db.update(f.role)
+    # Native board reads allow a current member administrator without a role grant.
+    assert f.service.get_effect_history(cached_admin, f.stages[0].get_uid(), channel=channel) == before
+    with DbSession.atomic() as db:
+        f.user.is_admin = False
+        db.update(f.user)
+    assert cached_admin.is_admin
+    assert f.service.get_effect_history(cached_admin, f.stages[0].get_uid(), channel=channel) == {
+        "items": [], "next_cursor": None,
+    }
 
 
 @pytest.mark.parametrize("limit", [0, 51, True, "20"])
@@ -147,12 +172,23 @@ def test_authenticated_history_requires_admin_setting_read_and_revalidates_card_
         response = client.get(url, headers=headers)
         assert response.status_code == 200, response.text
         assert response.headers["cache-control"] == "no-store"
-        assert len(response.json()["items"]) == 3
+        assert [row["card_uid"] for row in response.json()["items"]] == [
+            f.cards[5].get_uid(), f.cards[2].get_uid(), f.cards[0].get_uid(),
+        ]
         assert client.get(url + "?limit=51", headers=headers).status_code == 400
         with DbSession.atomic() as db:
             f.role.actions = []
             db.update(f.role)
-        assert client.get(url, headers=headers).json() == {"items": [], "next_cursor": None}
+        # Administrator authority replaces the board role, but never membership
+        # or card visibility. The settings role is independently required below.
+        still_authorized = client.get(url, headers=headers)
+        assert still_authorized.status_code == 200
+        assert still_authorized.json() == response.json()
+        with DbSession.atomic() as db:
+            db.delete(f.member)
+        revoked = client.get(url, headers=headers)
+        assert revoked.status_code == 200
+        assert revoked.json() == {"items": [], "next_cursor": None}
         with DbSession.atomic() as db:
             setting_role.actions = []
             db.update(setting_role)
