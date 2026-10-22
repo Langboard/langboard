@@ -11,7 +11,6 @@
   "Documents": "Documents",
   "Media": "Media",
   "Read only attachments": "Uploaded card and wiki attachments. Folders are automatic views. Upload and replacement are unavailable here.",
-  "Links unavailable": "Saved hyperlinks are not supported by the current cloud service.",
   "Folders": "Folders",
   "All folders": "All folders",
   "Loaded files": "{{count}} loaded files",
@@ -25,5 +24,11 @@
   "No files": "No files in this view.",
   "Attachments": "Attachments",
   "Load more": "Load more",
-  "Source": "Source"
+  "Source": "Source",
+  "Links": "链接",
+  "Read only links": "可读卡片和维基正文中保存的HTTP和HTTPS链接。在外部页面打开，不抓取远程内容。全部和最近仅显示附件。",
+  "Loaded links": "已加载 {{count}} 个链接",
+  "No links in loaded pages": "已检查的来源中没有链接。可继续加载以查看更多。",
+  "No links": "已检查的来源中没有链接。",
+  "Source scan limitations": "{{count}} 个来源超过扫描上限（正文1,000,000字符或编码存储数据8 MiB）。其链接未被包含，请打开来源查看。"
 }

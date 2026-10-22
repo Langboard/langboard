@@ -27,7 +27,9 @@ test("page and panel, folders, list/grid, download, preview and source", async (
     const requests: string[] = [];
     await page.route("**/board/*/cloud?**", (r) => {
         requests.push(r.request().url());
-        return r.fulfill({ json: response([item("report"), item("archive", "inbox")]) });
+        return r.fulfill({
+            json: new URL(r.request().url()).searchParams.get("view") === "links" ? response() : response([item("report"), item("archive", "inbox")]),
+        });
     });
     await page.route("**/storage/report.pdf", (r) => r.fulfill({ contentType: "application/pdf", body: "%PDF fixture" }));
     await page.goto(fixture);
@@ -50,8 +52,8 @@ test("page and panel, folders, list/grid, download, preview and source", async (
     await attachments.getByRole("button", { name: "Source: Source card", exact: true }).click();
     await expect(page.locator("output")).toHaveText("/board/cloud-board/source-card");
     await page.getByRole("button", { name: "Links", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("not supported");
-    expect(requests.some((url) => url.includes("view=links"))).toBe(false);
+    await expect(page.getByRole("status")).toContainText("No links in the scanned sources");
+    expect(requests.some((url) => url.includes("view=links"))).toBe(true);
     await expect(page.getByRole("button", { name: "Upload", exact: true })).toHaveCount(0);
 });
 test("empty filtered continuation keeps opaque cursor and category scope", async ({ page }) => {
@@ -170,3 +172,92 @@ test("failed continuation hides cached files and retry revalidates the first pag
     await expect(files.getByText("revoked.pdf", { exact: true })).toHaveCount(0);
     expect(cursors).toEqual([null, "next", null]);
 });
+
+const link = (id: string, wiki = false) => ({
+    ...item(id, "links"),
+    kind: "link",
+    name: `Saved ${id}`,
+    url: `https://external.invalid/${id}`,
+    media_type: "text/uri-list",
+    source: wiki
+        ? {
+              project_uid: "cloud-board",
+              wiki_uid: "source-wiki",
+              title: "Source wiki",
+              board_url: "/board/cloud-board",
+              url: "/board/cloud-board/wiki/source-wiki",
+          }
+        : item(id).source,
+});
+test("saved links use native tree, list, grid and card/wiki navigation without remote fetch", async ({ page }) => {
+    const external: string[] = [];
+    await page.route("https://external.invalid/**", (route) => {
+        external.push(route.request().url());
+        return route.abort();
+    });
+    await page.route("**/board/*/cloud?**", (route) =>
+        route.fulfill({
+            json: {
+                ...response(),
+                items: new URL(route.request().url()).searchParams.get("view") === "links" ? [link("card"), link("wiki", true)] : [],
+                capabilities: { hyperlinks: true, upload: false, replace: false, all_recent: "attachments_only" },
+            },
+        })
+    );
+    await page.goto(fixture);
+    await page.getByLabel("Categories").getByRole("button", { name: "Links", exact: true }).click();
+    const links = page.getByRole("list", { name: "Links" });
+    await expect(links.getByRole("link", { name: "Saved card", exact: true })).toHaveAttribute("href", "https://external.invalid/card");
+    await expect(links.getByRole("link", { name: "Saved card", exact: true })).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(links.getByRole("link", { name: "Saved card", exact: true })).toHaveAttribute("target", "_blank");
+    await expect(page.getByText("All and Recent show attachments only", { exact: false })).toBeVisible();
+    await page.getByLabel("Folders").getByRole("button", { name: "Links", exact: true }).click();
+    await expect(page.getByLabel("Folders").getByRole("button", { name: "Saved wiki", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Grid", exact: true }).click();
+    await expect(links).toHaveAttribute("data-layout", "grid");
+    await links.getByRole("button", { name: "Source: Source wiki", exact: true }).click();
+    await expect(page.locator("output")).toHaveText("/board/cloud-board/wiki/source-wiki");
+    await page.getByRole("button", { name: "List", exact: true }).click();
+    await links.getByRole("button", { name: "Source: Source card", exact: true }).click();
+    await expect(page.locator("output")).toHaveText("/board/cloud-board/source-card");
+    expect(external).toEqual([]);
+    await expect(links.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+test("link continuation preserves cursor, deduplicates loaded items and exposes oversized source", async ({ page }) => {
+    const requests: URL[] = [];
+    await page.route("**/board/*/cloud?**", (route) => {
+        const url = new URL(route.request().url());
+        requests.push(url);
+        if (url.searchParams.get("view") !== "links") return route.fulfill({ json: response() });
+        const next = url.searchParams.has("cursor");
+        return route.fulfill({
+            json: {
+                ...response([], next ? null : "links+/=opaque"),
+                items: next ? [link("first"), link("second", true)] : [link("first")],
+                limitations: next ? [{ reason: "source_too_large", source: { ...item("large").source, title: "Large source" } }] : [],
+                limitation_count: next ? 1 : 0,
+            },
+        });
+    });
+    await page.goto(fixture);
+    await page.getByLabel("Categories").getByRole("button", { name: "Links", exact: true }).click();
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    const links = page.getByRole("list", { name: "Links" });
+    await expect(links.getByRole("link")).toHaveCount(2);
+    await expect(page.getByRole("status")).toContainText("1 sources exceed the scan budget");
+    await page.getByRole("button", { name: "Source: Large source", exact: true }).click();
+    await expect(page.locator("output")).toHaveText("/board/cloud-board/source-card");
+    expect(requests.find((url) => url.searchParams.has("cursor"))?.searchParams.get("cursor")).toBe("links+/=opaque");
+    await page.getByLabel("Categories").getByRole("button", { name: "Recent", exact: true }).click();
+    await expect(links).toHaveCount(0);
+    expect(requests.at(-1)?.searchParams.get("cursor")).toBeNull();
+});
+for (const url of ["javascript:alert(1)", "https://user:secret@external.invalid/private"]) {
+    test(`unsafe projected link fails closed: ${url}`, async ({ page }) => {
+        await page.route("**/board/*/cloud?**", (route) => route.fulfill({ json: { ...response(), items: [{ ...link("unsafe"), url }] } }));
+        await page.goto(fixture);
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByRole("link")).toHaveCount(0);
+    });
+}

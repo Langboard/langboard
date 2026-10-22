@@ -16,13 +16,14 @@ from ...apps.BoardCloud import read_board_cloud
 def get_board_cloud(
     request: Request,
     project_uid: str,
-    view: Literal["all", "recent", "files", "media"] = Query(default="all"),
+    view: Literal["all", "recent", "files", "media", "links"] = Query(default="all"),
     limit: int = Query(default=100, ge=1, le=200),
     cursor: str | None = Query(default=None, max_length=4096),
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ):
     return JsonResponse(
+        headers={"Cache-Control": "no-store"},
         content=read_board_cloud(
             service,
             user,
@@ -31,5 +32,5 @@ def get_board_cloud(
             view=view,
             limit=limit,
             cursor=cursor,
-        )
+        ),
     )

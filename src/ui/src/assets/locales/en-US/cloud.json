@@ -11,7 +11,6 @@
   "Documents": "Documents",
   "Media": "Media",
   "Read only attachments": "Uploaded card and wiki attachments. Folders are automatic views. Upload and replacement are unavailable here.",
-  "Links unavailable": "Saved hyperlinks are not supported by the current cloud service.",
   "Folders": "Folders",
   "All folders": "All folders",
   "Loaded files": "{{count}} loaded files",
@@ -25,5 +24,11 @@
   "No files": "No files in this view.",
   "Attachments": "Attachments",
   "Load more": "Load more",
-  "Source": "Source"
+  "Source": "Source",
+  "Links": "Links",
+  "Read only links": "Saved HTTP and HTTPS links from readable card and wiki bodies. Links open externally; no remote content is fetched. All and Recent show attachments only.",
+  "Loaded links": "{{count}} loaded links",
+  "No links in loaded pages": "No links in the scanned sources. Continue loading to check more.",
+  "No links": "No links in the scanned sources.",
+  "Source scan limitations": "{{count}} sources exceed the scan budget (1,000,000 content characters or 8 MiB of encoded storage). Their links are not included. Open the source to inspect them."
 }

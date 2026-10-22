@@ -162,18 +162,7 @@ def _candidates(project, context, actor, after, count):
     return sorted(streams, key=lambda row: (row[0].created_at, row[2], int(row[0].id)), reverse=True)[:count]
 
 
-def read_board_cloud(
-    service, actor, project_uid, *, channel=CollaborationChannel.Api, view="all", limit=100, cursor=None
-):
-    """Bounded traversal over native attachments, with current exact authorization.
-
-    Recent means the first 20 visible files in immutable creation order. Counts
-    remain unknown. Empty filtered pages may carry a continuation. UI, uploads,
-    replacement, persisted folders and hyperlinks remain future cloud work.
-    """
-    if view not in {"all", "recent", "files", "media"}:
-        raise ValueError("Unsupported cloud view")
-    limit = max(1, min(200, limit))
+def _resolve_cloud_context(service, actor, project_uid, channel):
     try:
         resolved = service.card.resolve_visibility_context(project_uid, actor, channel)
     except (TypeError, ValueError):
@@ -195,6 +184,26 @@ def read_board_cloud(
             or (not current_actor.is_admin and (role is None or not role.is_granted(ProjectRoleAction.Read)))
         ):
             raise ApiException.NotFound_404()
+    return project, context, current_actor
+
+
+def read_board_cloud(
+    service, actor, project_uid, *, channel=CollaborationChannel.Api, view="all", limit=100, cursor=None
+):
+    """Bounded traversal over native attachments, with current exact authorization.
+
+    Recent means the first 20 visible files in immutable creation order. Counts
+    remain unknown. Empty filtered pages may carry a continuation. UI, uploads,
+    replacement and persisted folders remain unavailable; all/recent contain attachments only.
+    """
+    if view not in {"all", "recent", "files", "media", "links"}:
+        raise ValueError("Unsupported cloud view")
+    limit = max(1, min(200, limit))
+    project, context, current_actor = _resolve_cloud_context(service, actor, project_uid, channel)
+    if view == "links":
+        from .BoardCloudLinks import read_board_links
+
+        return read_board_links(service, project, context, current_actor, channel, limit=limit, cursor=cursor)
     scope = _cursor_scope(actor, project, channel, view)
     state = _decode_cursor(cursor, scope) if cursor else {"after": None, "remaining": 20, "issued": int(time())}
     after, remaining = state["after"], state["remaining"]
@@ -274,5 +283,11 @@ def read_board_cloud(
         "mime_type_source": "filename_extension",
         "has_more": has_more,
         "next_cursor": next_cursor,
-        "capabilities": {"hyperlinks": False, "upload": False, "replace": False},
+        "capabilities": {
+            "hyperlinks": False,
+            "upload": False,
+            "replace": False,
+            "links_view": True,
+            "all_recent": "attachments_only",
+        },
     }

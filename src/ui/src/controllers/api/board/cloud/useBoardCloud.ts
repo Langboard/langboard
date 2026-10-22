@@ -2,14 +2,14 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
 
-export type CloudView = "all" | "recent" | "files" | "media";
+export type CloudView = "all" | "recent" | "files" | "media" | "links";
 export interface CloudItem {
     id: string;
-    attachment_uid: string;
+    attachment_uid?: string;
     name: string;
     url: string;
     media_type: string;
-    kind: "file" | "media";
+    kind: "file" | "media" | "link";
     folder_id: string;
     created_at: string;
     updated_at: string;
@@ -23,7 +23,19 @@ export interface CloudPage {
     recent_limit: number;
     has_more: boolean;
     next_cursor: string | null;
-    capabilities: { hyperlinks: boolean; upload: boolean; replace: boolean };
+    capabilities: { hyperlinks: boolean; upload: boolean; replace: boolean; all_recent?: "attachments_only" };
+    limitations?: { reason: "source_too_large"; source: CloudItem["source"] }[];
+    limitation_count?: number;
+}
+
+function isSafeLink(value: unknown) {
+    if (typeof value !== "string" || value.length > 2048 || /[\s\\]/.test(value) || [...value].some((char) => char.charCodeAt(0) < 32)) return false;
+    try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) && !!url.hostname && !url.username && !url.password;
+    } catch {
+        return false;
+    }
 }
 
 export default function useBoardCloud(projectUID: string, view: CloudView, enabled = true) {
@@ -44,7 +56,8 @@ export default function useBoardCloud(projectUID: string, view: CloudView, enabl
             if (
                 !Array.isArray(data.items) ||
                 !Array.isArray(data.folders) ||
-                data.items.some((item) => item.source?.project_uid !== projectUID) ||
+                data.items.some((item) => item.source?.project_uid !== projectUID || (item.kind === "link" && !isSafeLink(item.url))) ||
+                data.limitations?.some((item) => item.source?.project_uid !== projectUID) ||
                 (data.has_more && (!data.next_cursor || data.next_cursor === pageParam))
             )
                 throw new Error("Invalid cloud response");
