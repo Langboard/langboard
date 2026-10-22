@@ -29,6 +29,8 @@ class CommentDto(TypedDict, total=False):
 
     __pydantic_config__ = ConfigDict(extra="forbid")
     uid: Required[str]
+    kind: Literal["comment"]
+    evidence_ref: str
     created_at: datetime | str | None
     updated_at: datetime | str | None
     content: Required[str]
@@ -42,8 +44,32 @@ class CommentDto(TypedDict, total=False):
     reaction_counts: dict[str, int]
 
 
+class ActivityCommentDto(TypedDict):
+    """A native movement entry in the same bounded comment timeline."""
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+    kind: Literal["activity"]
+    uid: str
+    evidence_ref: str
+    created_at: datetime | str | None
+    actor: dict[str, Any] | None
+    from_column: dict[str, Any]
+    to_column: dict[str, Any]
+
+
+class CompactionCommentDto(TypedDict):
+    """Public summary projection; originals remain behind evidence references."""
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+    kind: Literal["compaction"]
+    uid: str
+    evidence_ref: str
+    created_at: datetime | str | None
+    summary: dict[str, Any]
+
+
 class CommentItemsDto(BoundedItemsDto):
-    items: list[CommentDto]
+    items: list[CommentDto | ActivityCommentDto | CompactionCommentDto]
 
 
 class PeopleDto(BoundedItemsDto):

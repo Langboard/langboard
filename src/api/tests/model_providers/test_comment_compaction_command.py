@@ -1141,6 +1141,13 @@ async def test_real_mcp_compact_defaults_and_scoped_original_fragments(compact_c
             assert stale.is_error and long_text[:100] not in str(stale.content)
             current = await client.call_tool("get_card_timeline", arguments)
             assert not current.is_error and all(item["kind"] != "compaction" for item in current.data["records"])
+            current_bundle = await client.call_tool("get_card_bundle", {**arguments, "include": ["comments"], "comments_limit": 20})
+            current_items = current_bundle.structured_content["card"]["comments"]["items"]
+            assert {item["kind"] for item in current_items} == {"comment", "activity"}
+            restored = next(item for item in current_items if item["uid"] == comment.get_uid())
+            assert json.loads(restored["content"])["content"] == "Changed original"
+            movement = next(item for item in current_items if item["kind"] == "activity")
+            assert movement["from_column"] == {"name": "Request"} and movement["to_column"] == {"name": "Doing"}
             with DbSession.atomic() as db:
                 card.owner_user_id, card.created_by_user_id = 2, 2
                 db.update(card)
