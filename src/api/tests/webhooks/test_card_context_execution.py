@@ -42,7 +42,11 @@ def test_card_context_includes_ready_generation_and_rejects_mixed_revision(
 
 
 def test_unreadable_details_context_and_comments_return_not_found_before_sections(monkeypatch):
-    card_service = SimpleNamespace(resolve_readable_card=Mock(return_value=None), get_details=Mock())
+    card_service = SimpleNamespace(
+        resolve_readable_card=Mock(return_value=None),
+        resolve_canonical_card=Mock(return_value=None),
+        get_details=Mock(),
+    )
     service = SimpleNamespace(card=card_service, card_comment=SimpleNamespace(get_api_list_by_card=Mock()))
     request = SimpleNamespace(scope={})
     bundle = Mock()

@@ -53,8 +53,9 @@ jobs:
           --health-retries 5
     env:
       PROJECT_NAME: langboard
-      LANGBOARD_OUTBOX_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
     steps:
+      - name: Resolve PostgreSQL service address
+        run: echo "LANGBOARD_OUTBOX_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test" >> "$GITHUB_ENV"
       - name: Prepare standard job tools
         env:
           DEBIAN_FRONTEND: noninteractive

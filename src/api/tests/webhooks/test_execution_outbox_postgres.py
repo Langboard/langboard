@@ -194,6 +194,8 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
     try:
         with engine.begin() as connection:
             for statement in (
+                "CREATE TABLE project (id bigint PRIMARY KEY, deleted_at timestamptz)",
+                "INSERT INTO project VALUES (7, NULL)",
                 "CREATE TABLE project_column (id bigint PRIMARY KEY, deleted_at timestamptz, is_archive boolean NOT NULL, workflow_stage text, project_id bigint)",
                 "CREATE TABLE global_card_relationship_type (id bigint PRIMARY KEY, machine_semantic text, is_active boolean)",
                 "CREATE TABLE webhook_setting (id bigint PRIMARY KEY, secret_id bigint, events jsonb NOT NULL)",
