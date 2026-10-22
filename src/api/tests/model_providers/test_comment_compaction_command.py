@@ -41,6 +41,33 @@ from sqlalchemy import delete, event, update
 command = importlib.import_module("langboard_shared.domain.services.factory.CardCommentCompactionService")
 
 
+def test_compaction_snapshot_includes_anchor_and_detects_location_only_change(compact_command):
+    service, actor, project, card, binding, comment, *_ = compact_command
+    original, _ = service._snapshot(project, card)
+    source_ref = f"comment:{comment.get_uid()}"
+    initial_source = next(source for source in original.sources if source.evidence_ref == source_ref)
+    assert "anchor" not in json.loads(initial_source.text)
+    anchor = {"type": "TextQuoteSelector", "version": 1, "exact": "Original private comment"}
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(anchor=anchor, updated_at=comment.updated_at))
+    snapshot, _ = service._snapshot(project, card)
+    located = next(source for source in snapshot.sources if source.evidence_ref == source_ref)
+    assert json.loads(located.text)["anchor"] == anchor
+    assert located.updated_at == initial_source.updated_at
+    assert snapshot.source_revision() != original.source_revision()
+    repository = service.repo.card_comment_compaction
+    record = repository.claim(repository.reserve(card, actor, binding, snapshot))
+    assert repository.complete(record, record.attempt, snapshot, binding, draft(snapshot))
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(
+            anchor={**anchor, "exact": "Different location"}, updated_at=comment.updated_at,
+        ))
+    assert service.get(actor, project, card, record.id)["status"] == "invalidated"
+    with DbSession.use(readonly=False) as db:
+        saved = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.id == comment.id)).first()
+    assert saved.anchor["exact"] == "Different location" and saved.content == comment.content
+
+
 def test_profile_owned_summary_reuses_authorized_read_view_without_user_ownership(compact_command):
     service, actor, project, card, binding, *_ = compact_command
     snapshot, _ = service._snapshot(project, card)

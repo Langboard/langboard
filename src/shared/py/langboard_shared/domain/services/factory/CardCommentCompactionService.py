@@ -113,10 +113,11 @@ class CardCommentCompactionService(BaseDomainService):
             CardComment.created_at.label("created_at"), CardComment.updated_at.label("updated_at"),
             cast(CardComment.content, Text).label("payload"), CardComment.user_id.label("user_id"),
             CardComment.bot_id.label("bot_id"), CardComment.deleted_at.is_(None).label("active"),
+            cast(CardComment.anchor, Text).label("anchor_payload"),
         ).where(CardComment.card_id == card.id)
         moves = select(literal("activity").label("kind"), ProjectActivity.id.label("id"),
             ProjectActivity.created_at, ProjectActivity.updated_at, cast(ProjectActivity.activity_history, Text),
-            ProjectActivity.user_id, ProjectActivity.bot_id, literal(True),
+            ProjectActivity.user_id, ProjectActivity.bot_id, literal(True), cast(literal(None), Text),
         ).where(ProjectActivity.project_id == project.id, ProjectActivity.card_id == card.id,
                 ProjectActivity.activity_type == ProjectActivityType.CardMoved)
         return union_all(comments, moves).subquery()
@@ -147,12 +148,19 @@ class CardCommentCompactionService(BaseDomainService):
         if not rows:
             raise CommentCompactionError("no_sources")
         sources = []
-        for kind, uid, created, updated, payload, user_id, bot_id, _ in rows[:100]:
+        for kind, uid, created, updated, payload, user_id, bot_id, _, anchor_payload in rows[:100]:
             body = json.loads(payload)
             author = f"user:{SnowflakeID(user_id).to_short_code()}" if user_id else f"bot:{SnowflakeID(bot_id).to_short_code()}" if bot_id else None
             if kind == "activity":
                 body = {"from_column": body.get("from_column"), "to_column": body.get("column")}
-            text = json.dumps({"author_ref": author, "content": body}, ensure_ascii=False, sort_keys=True)
+            evidence = {"author_ref": author, "content": body}
+            anchor = json.loads(anchor_payload) if anchor_payload else None
+            if anchor is not None:
+                # Selector changes must invalidate derived summaries even when
+                # comment text and timestamps are unchanged. Original comments
+                # retain the authoritative non-destructive location evidence.
+                evidence["anchor"] = anchor
+            text = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
             sources.append({"evidence_ref": f"{kind}:{SnowflakeID(uid).to_short_code()}",
                             "created_at": _utc(created), "updated_at": _utc(updated), "text": text})
         try:
