@@ -93,6 +93,9 @@ jobs:
           uv python install 3.12
           uv sync --frozen
         working-directory: .
+      - name: Run Python static checks
+        run: make check_socket_phoenix_python
+        working-directory: .
       - name: Enable locked Yarn Classic
         run: |
           corepack enable
@@ -107,7 +110,7 @@ jobs:
         working-directory: src/ui
         run: yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
       - name: Run the cross-runtime migration gate
-        run: make test_socket_phoenix
+        run: make test_socket_phoenix_runtime
         working-directory: .
       - name: Distributed editor recovery
         run: cd src/socket && elixir --sname editor_cluster_probe -S mix run test/integration/editor_cluster_probe.exs
