@@ -1,3 +1,5 @@
+from hashlib import sha256
+from json import dumps
 from typing import Any
 from sqlalchemy import TEXT, Index
 from ...core.db import ApiField, Field, ModelColumnType, SnowflakeIDField, SoftDeleteModel
@@ -25,6 +27,20 @@ class CardAttachment(SoftDeleteModel, table=True):
         default="", nullable=False, exclude=True, sa_type=TEXT, sa_column_kwargs={"server_default": ""}
     )
     order: int = Field(default=0, api_field=ApiField())
+
+    @property
+    def image_revision(self) -> str:
+        # Object keys are immutable; display name, signed URLs and hash backfills
+        # must not change the identity of the same stored image.
+        identity = [self.get_uid(), self.file.storage_type, self.file.storage_name, self.file.filename]
+        return sha256(dumps(identity, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+
+    @classmethod
+    def api_schema(cls, schema: dict | None = None) -> dict[str, Any]:
+        return super().api_schema({"image_revision": "str", **(schema or {})})
+
+    def api_response(self) -> dict[str, Any]:
+        return {**super().api_response(), "image_revision": self.image_revision}
 
     def notification_data(self) -> dict[str, Any]:
         return {}

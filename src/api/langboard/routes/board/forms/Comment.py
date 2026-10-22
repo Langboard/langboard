@@ -1,12 +1,13 @@
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.routing import BaseFormModel, form_model
 from langboard_shared.domain.models.bases import REACTION_TYPES
-from langboard_shared.domain.models.CardComment import CardCommentAnchorModel
+from langboard_shared.domain.models.CardComment import CardCommentAnchor
 from pydantic import Field, field_validator
 
 
 class CreateCardCommentForm(EditorContentModel):
-    anchor: CardCommentAnchorModel | None = None
+    anchor: CardCommentAnchor | None = None
+    request_uid: str | None = None
 
 
 @form_model

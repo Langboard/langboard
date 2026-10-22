@@ -1,6 +1,8 @@
 from typing import Any
+from pydantic import TypeAdapter
 from ....core.db import DbSession, EditorContentModel
 from ....core.domain import BaseDomainService
+from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TCommentParam, TProjectParam, TUserOrBot
 from ....helpers import InfraHelper
@@ -9,7 +11,7 @@ from ....tasks.activities import CardCommentActivityTask
 from ....tasks.bots import CardCommentBotTask
 from ...models import Bot, Card, CardComment, CardCommentReaction, Project, User
 from ...models.bases import REACTION_TYPES
-from ...models.CardComment import CardCommentAnchorModel
+from ...models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from ..CardAppMutation import guard_card_app_mutation
 from .CardService import CardService
 from .NotificationService import NotificationService
@@ -34,7 +36,9 @@ class CardCommentService(BaseDomainService):
             return comment.user_id == user_or_bot.id or user_or_bot.is_admin
         return isinstance(user_or_bot, Bot) and comment.bot_id == user_or_bot.id
 
-    def get_api_list_by_card(self, card: TCardParam | None, *, comment_ids: list[int] | None = None) -> list[dict[str, Any]]:
+    def get_api_list_by_card(
+        self, card: TCardParam | None, *, comment_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
         card = InfraHelper.get_by_id_like(Card, card)
         if not card:
             return []
@@ -118,10 +122,27 @@ class CardCommentService(BaseDomainService):
         project: TProjectParam | None,
         card: TCardParam | None,
         content: EditorContentModel | dict[str, Any],
-        anchor: CardCommentAnchorModel | dict[str, Any] | None = None,
+        anchor: CardCommentAnchor | dict[str, Any] | None = None,
         *,
         dispatch_effects: bool = True,
-    ) -> CardComment | None:
+        request_uid: str | None = None,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> CardComment | dict[str, Any] | None:
+        anchor = TypeAdapter(CardCommentAnchor).validate_python(anchor) if anchor is not None else None
+        if isinstance(anchor, CardCommentImageAnchorModel):
+            from ..CardCommentImageAnchors import create_image_comment
+
+            return create_image_comment(
+                self,
+                user_or_bot,
+                project,
+                card,
+                content,
+                anchor,
+                request_uid=request_uid,
+                dispatch_effects=dispatch_effects,
+                channel=channel,
+            )
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
             return None
@@ -135,7 +156,7 @@ class CardCommentService(BaseDomainService):
         comment_params = {
             "card_id": card.id,
             "content": content,
-            "anchor": CardCommentAnchorModel.model_validate(anchor).model_dump() if anchor else None,
+            "anchor": anchor.model_dump() if anchor else None,
         }
 
         if isinstance(user_or_bot, User):
