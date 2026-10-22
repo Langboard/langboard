@@ -5,7 +5,7 @@ on:
   push:
     branches: ["deploy/**", "review/canary-*"]
     paths:
-      - .github/workflows/request-image-build.yaml
+      - .github/workflows/**
       - scripts/image_build/**
       - Dockerfile
       - docker/ui-production.Dockerfile
