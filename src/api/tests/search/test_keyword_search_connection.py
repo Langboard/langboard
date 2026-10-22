@@ -37,6 +37,8 @@ from langboard_shared.domain.models import (
     CardCommentCompaction,
     CardDocumentArtifact,
     CardMetadata,
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
     DocumentKeywordIndex,
     EmployeeMembershipPolicy,
     InternalBot,
@@ -343,7 +345,7 @@ def configure_document_search(monkeypatch, endpoint):
         monkeypatch.setenv(name, value)
 
 
-def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, monkeypatch):
+def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(document_board, endpoint, monkeypatch):
     configure_document_search(monkeypatch, endpoint)
     _, _, calls, state = endpoint
     board, card, attachment = (SnowflakeID(value).to_short_code() for value in (10, 101, 201))
@@ -385,6 +387,8 @@ def document_board(board, monkeypatch):
         CardMetadata,
         CardDocumentArtifact,
         EmployeeMembershipPolicy,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
         DocumentKeywordIndex,
         KeywordSearchConfiguration,
         KeywordSearchConnection,
@@ -567,9 +571,47 @@ def keyword_job(uid):
 def activate_keyword_source(source, text="Current derived text"):
     service, card, attachment, document, _ = source
     assert service.docling_metadata.mark_document_indexed(
-        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": text}, generation=document["generation"]
+        CardMetadata, card, attachment.get_uid(), "pdf", content_hash=sha256(b"fixture-original-pdf").hexdigest(),
+        content={"markdown": text}, generation=document["generation"]
     )
     return keyword_job(document["keyword_index_job_uid"])
+
+
+def test_keyword_projection_requires_hashed_current_generation(document_board, monkeypatch):
+    service, _, _, sources, _ = document_board
+    card, attachment = sources["Visible"]
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "true")
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT", "https://keyword.example.invalid")
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX", INDEX)
+    monkeypatch.setenv("LANGBOARD_ELASTICSEARCH_API_KEY", SECRET)
+    send = Mock()
+    monkeypatch.setattr(keyword.Broker.celery, "send_task", send)
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}
+    )
+    document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    job = keyword_job(document["keyword_index_job_uid"])
+    assert keyword._payload(job) is None
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": "Unhashed source"},
+        generation=document["generation"],
+    )
+    job = keyword_job(job.get_uid())
+    assert keyword._payload(job) is None
+    job = activate_keyword_source((service, card, attachment, document, send))
+    payload = keyword._payload(job)
+    assert payload["active"] is True and payload["text"] == "Current derived text"
+    assert payload["projection_hash"] == sha256(b"Current derived text").hexdigest()
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}, force=True
+    )
+    assert keyword._payload(job) is None
+    service.docling_metadata.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    removed = keyword_job(job.get_uid())
+    assert removed.operation == "remove" and removed.version > job.version
+    tombstone = keyword._payload(removed)
+    assert tombstone["active"] is False and "text" not in tombstone
 
 
 def test_keyword_snapshot_waits_for_transcription_and_dispatches_after_commit(keyword_source, endpoint, monkeypatch):
@@ -884,6 +926,7 @@ if __name__ == "__main__":
                 card,
                 job.attachment_id.to_short_code(),
                 "pdf",
+                content_hash=sha256(b"fixture-original-pdf").hexdigest(),
                 content={"markdown": "Native broker transcription"},
                 generation=job.source_generation,
             )
