@@ -21,6 +21,23 @@ python3 scripts/image_build/request_validation.py --read
 python3 scripts/image_build/request_validation.py --product --read
 ```
 
+Pushes to `review/canary-*` automatically request validation with the full
+`default` integration profile through the same OIDC broker. Changes to
+`scripts/image_build/**` also trigger this workflow. The validation step uses
+only the ephemeral Actions `GITHUB_TOKEN` with `pull-requests: read` to query the
+standard GitHub REST API. Before requesting OIDC identity, the client requires
+exactly one open PR with the same source repository, branch and current commit;
+missing, ambiguous, stale, fork, incomplete and failed API responses fail closed.
+An open PR must already exist when the push runs; opening it later requires a
+new push or the existing manual validation dispatch. Manual dispatch preserves
+the selected profile and explicit PR number. Product requests remain on
+`deploy/**` and use the separate product endpoint.
+
+PR discovery does not grant release authority: the broker still checks the
+protected canary base, exact source authority and approval. Automatic review
+validation publishes no product image. Candidate promotion and deployment remain
+central GitOps operations, without a per-deployment chat request.
+
 The product endpoint is `/v1/builds/project-images`; the validation endpoint
 remains `/v1/builds/project-validations`. `SOURCE_CHANNEL` is `default` or
 `canary`; the current workflow explicitly selects `canary`. The broker verifies

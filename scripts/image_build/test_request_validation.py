@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import unittest
 import urllib.error
 from pathlib import Path
@@ -17,11 +18,12 @@ spec.loader.exec_module(client)
 
 class Response(io.BytesIO):
     def __init__(self, value):
+        self.headers = {}
         super().__init__(json.dumps(value).encode())
 
 
 class BrokerClientTest(unittest.TestCase):
-    def invoke(self, receipt=None, changes=None, read=False, failure=None, product=False, responses=None):
+    def invoke(self, receipt=None, changes=None, read=False, failure=None, product=False, responses=None, pulls=None):
         env = dict(
             IMAGE_BUILD_BROKER_URL="https://broker.example.invalid",
             IMAGE_BUILD_COMMIT="b" * 40,
@@ -50,8 +52,16 @@ class BrokerClientTest(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()) as output,
         ):
             opener = factory.return_value
-            opener.open.side_effect = [Response({"value": "private-assertion"})] + (
-                responses if responses is not None else [failure, Response(receipt)] if failure else [Response(receipt)]
+            opener.open.side_effect = (
+                ([] if pulls is None else [pulls])
+                + [Response({"value": "private-assertion"})]
+                + (
+                    responses
+                    if responses is not None
+                    else [failure, Response(receipt)]
+                    if failure
+                    else [Response(receipt)]
+                )
             )
             try:
                 status = client.run(read=read, product=product)
@@ -152,15 +162,167 @@ class BrokerClientTest(unittest.TestCase):
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
         request = steps["Request validation through federated identity"]
-        self.assertEqual(request["if"], "inputs.validation_only == true")
+        self.assertIn("inputs.validation_only == true ||", request["if"])
+        self.assertEqual(request["env"], {"GITHUB_TOKEN": "${{ github.token }}"})
+        self.assertEqual(job["permissions"]["pull-requests"], "read")
         self.assertEqual(request["run"], "python3 scripts/image_build/request_validation.py")
         self.assertNotIn("secrets.", json.dumps(request))
         product = steps["Request product through federated identity"]
-        self.assertEqual(product["if"], "inputs.validation_only != true")
+        self.assertEqual(
+            product["if"], "inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')"
+        )
         self.assertEqual(product["run"], "python3 scripts/image_build/request_validation.py --product")
         self.assertNotIn("secrets.", json.dumps(job))
         self.assertEqual(job["env"]["SOURCE_CHANNEL"], "canary")
         self.assertEqual(job["env"]["SOURCE_REF"], "${{ github.ref }}")
+
+    def test_workflow_routes_actual_events_and_profiles(self):
+        workflow = yaml.safe_load(
+            (Path(__file__).resolve().parents[2] / ".github/workflows/request-image-build.yaml").read_text()
+        )
+        trigger = workflow[True]  # PyYAML's YAML 1.1 spelling of `on`.
+        self.assertEqual(trigger["push"]["branches"], ["deploy/**", "review/canary-*"])
+        self.assertIn("scripts/image_build/**", trigger["push"]["paths"])
+        job = workflow["jobs"]["request"]
+        validation, product = job["steps"][-2:]
+        for event, ref, manual, runner, expected in [
+            ("push", "review/canary-ui-followup-20261021", False, "runner", (True, True, False, "default")),
+            ("push", "review/other", False, "runner", (False, False, False, "api")),
+            ("push", "main", False, "runner", (False, False, False, "api")),
+            ("push", "deploy/canary", False, "runner", (True, False, True, "api")),
+            ("workflow_dispatch", "review/other", True, "runner", (True, True, False, "ui")),
+            ("workflow_dispatch", "review/canary-test", False, "runner", (False, False, False, "ui")),
+            ("workflow_dispatch", "deploy/canary", False, "runner", (True, False, True, "ui")),
+            ("push", "review/canary-test", False, "", (False, True, False, "default")),
+        ]:
+            with self.subTest(event=event, ref=ref, runner=runner):
+                values = {
+                    "vars.CI_RUNNER": runner,
+                    "github.ref": "refs/heads/" + ref,
+                    "github.event_name": event,
+                    "inputs.validation_only": manual,
+                    "inputs.profile": "ui" if event == "workflow_dispatch" else "",
+                    "vars.IMAGE_BUILD_PROFILE": "",
+                }
+
+                def evaluate(expression):
+                    expression = expression.removeprefix("${{ ").removesuffix(" }}")
+                    expression = re.sub(
+                        r"vars\.CI_RUNNER|github\.ref|github\.event_name|inputs\.validation_only|inputs\.profile|vars\.IMAGE_BUILD_PROFILE|\btrue\b",
+                        lambda match: repr(True if match[0] == "true" else values[match[0]]),
+                        expression,
+                    )
+                    return eval(
+                        expression.replace("&&", " and ").replace("||", " or "),
+                        {"__builtins__": {}, "startsWith": str.startswith},
+                    )
+
+                self.assertEqual(
+                    (
+                        bool(evaluate(job["if"])),
+                        bool(evaluate(validation["if"])),
+                        bool(evaluate(product["if"])),
+                        evaluate(job["env"]["IMAGE_BUILD_PROFILE"]),
+                    ),
+                    expected,
+                )
+
+    @staticmethod
+    def pull():
+        return {
+            "number": 688,
+            "state": "open",
+            "head": {"ref": "review/canary-test", "sha": "a" * 40, "repo": {"full_name": "example/source"}},
+            "base": {"repo": {"full_name": "example/source"}},
+        }
+
+    def automatic(self, pulls, changes=None):
+        return self.invoke(
+            pulls=pulls,
+            changes={
+                "SOURCE_EVENT": "push",
+                "SOURCE_REF": "refs/heads/review/canary-test",
+                "SOURCE_PR": "999",
+                "GITHUB_TOKEN": "private-ephemeral-token",
+                **(changes or {}),
+            },
+        )
+
+    def test_automatic_validation_resolves_exact_pr_before_identity(self):
+        outcome, calls, output = self.automatic(Response([self.pull()]))
+        self.assertEqual(outcome, "0")
+        lookup = calls[0].args[0]
+        self.assertEqual(lookup.get_method(), "GET")
+        self.assertEqual(
+            lookup.full_url,
+            "https://api.github.com/repos/example/source/pulls?state=open&head=example%3Areview%2Fcanary-test&per_page=100",
+        )
+        self.assertEqual(lookup.get_header("Authorization"), "Bearer private-ephemeral-token")
+        self.assertEqual(calls[0].kwargs["timeout"], 30)
+        payload = json.loads(calls[2].args[0].data)
+        self.assertEqual(payload["sourcePr"], 688)
+        self.assertEqual(payload["sourceCommit"], "a" * 40)
+        self.assertEqual(payload["schemaVersion"], 1)
+        self.assertTrue(calls[2].args[0].full_url.endswith("/project-validations"))
+        self.assertNotIn("private", output)
+
+    def test_automatic_validation_rejects_missing_ambiguous_stale_and_fork_prs(self):
+        invalid = [[], [self.pull(), self.pull()], {}, [None]]
+        for field, value in [("state", "closed"), ("number", True), ("number", 0)]:
+            pull = self.pull()
+            pull[field] = value
+            invalid.append([pull])
+        for field, value in [
+            ("sha", "c" * 40),
+            ("ref", "review/canary-other"),
+            ("repo", {"full_name": "fork/source"}),
+            ("repo", None),
+        ]:
+            pull = self.pull()
+            pull["head"][field] = value
+            invalid.append([pull])
+        pull = self.pull()
+        pull["base"]["repo"]["full_name"] = "other/source"
+        invalid.append([pull])
+        for pulls in invalid:
+            with self.subTest(pulls=pulls):
+                outcome, calls, output = self.automatic(Response(pulls))
+                self.assertIn("pull request unavailable", outcome)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(output, "")
+
+    def test_automatic_validation_api_failures_are_bounded_and_credential_free(self):
+        oversized = io.BytesIO(b" " * 1048577)
+        oversized.headers = {}
+        paginated = Response([self.pull()])
+        paginated.headers["Link"] = '<https://api.github.com/next>; rel="next"'
+        for response in [
+            TimeoutError(),
+            urllib.error.URLError("private"),
+            Response("private"),
+            io.BytesIO(b"invalid private json"),
+            oversized,
+            paginated,
+        ] + [
+            urllib.error.HTTPError("https://api.github.com", code, "private", {}, None)
+            for code in [302, 401, 403, 404, 429, 500]
+        ]:
+            with self.subTest(response=type(response).__name__):
+                outcome, calls, output = self.automatic(response)
+                self.assertIn("pull request unavailable", outcome)
+                self.assertEqual(len(calls), 1)
+                self.assertNotIn("private", outcome + output)
+
+    def test_automatic_validation_requires_narrow_ref_and_ephemeral_token(self):
+        for changes in [
+            {"GITHUB_TOKEN": ""},
+            {"SOURCE_REF": "refs/heads/review/test"},
+            {"SOURCE_REF": "refs/heads/review/canary-../main"},
+        ]:
+            outcome, calls, output = self.automatic(Response([self.pull()]), changes)
+            self.assertNotEqual(outcome, "0")
+            self.assertEqual(calls, [])
+            self.assertEqual(output, "")
 
     def test_product_exact_envelope_omits_pr_and_uses_separate_endpoint(self):
         changes = {"SOURCE_REF": "refs/heads/deploy/canary", "SOURCE_CHANNEL": "canary", "SOURCE_PR": ""}
