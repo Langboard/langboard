@@ -12,6 +12,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Card,
     CardAppOwnership,
+    CardChangeReceipt,
     CardRelationship,
     CardVerificationRecord,
     Checkitem,
@@ -35,7 +36,7 @@ module = importlib.import_module(CardService.__module__)
 def archive_command(compactions, board, monkeypatch):
     _, actor, card, profile, *_ = compactions
     project = board[2]
-    for model in (CardAppOwnership, GlobalCardRelationshipType, CardRelationship, CardVerificationRecord,
+    for model in (CardAppOwnership, CardChangeReceipt, GlobalCardRelationshipType, CardRelationship, CardVerificationRecord,
                   Checklist, Checkitem, CompactorBoardGrant):
         model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     now = SafeDateTime.now()
@@ -85,8 +86,10 @@ def test_archive_uses_existing_move_and_one_profile_receipt(archive_command):
         card = db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first()
         column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)).first()
         runs = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()
+        changes = db.exec(SqlBuilder.select.table(CardChangeReceipt)).all()
     assert column.is_archive and card.archived_at is not None and card.workflow_stage_entered_at is None
     assert len(runs) == 1
+    assert [(change.card_id, change.change_seq) for change in changes] == [(f.card.id, 8)]
     run = runs[0]
     assert (run.actor_type, run.actor_id, run.profile_id, run.source, run.effects, run.result) == (
         "profile", f.profile.id, f.profile.id, "continuous", ["auto_archive"], {"archived": 1})
@@ -259,6 +262,7 @@ def test_archive_and_profile_receipt_roll_back_together(archive_command, monkeyp
         f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, now=f.now)
     with DbSession.use(readonly=False) as db:
         assert db.exec(select(Card.archived_at).where(Card.id == f.card.id)).first() == (None,)
+        assert db.exec(SqlBuilder.select.table(CardChangeReceipt)).all() == []
     f.published.assert_not_called()
 
 
