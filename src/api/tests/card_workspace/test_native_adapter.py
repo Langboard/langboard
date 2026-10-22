@@ -868,23 +868,42 @@ def test_description_repository_rejects_stale_writer_and_preserves_other_fields(
 
 
 @pytest.mark.parametrize("saved", [False, True])
-def test_conditional_description_emits_effects_only_after_save(monkeypatch: pytest.MonkeyPatch, saved: bool) -> None:
-    """Rejected writes emit no notifications, activities, bot events or realtime updates."""
+def test_conditional_description_emits_effects_only_after_save(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, saved: bool
+) -> None:
+    """Rejected writes emit no notifications, activities, bot events or mirror updates."""
 
     from unittest.mock import Mock
-    from langboard_shared.core.db import EditorContentModel
+    from langboard_shared.core.db import DbSession, EditorContentModel
+    from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescriptionConflict
     from langboard_shared.domain.models import Card as NativeCard
+    from langboard_shared.domain.models import Project
     from langboard_shared.domain.services.factory.CardService import CardService
     from langboard_shared.helpers import InfraHelper
     from langboard_shared.publishers import CardPublisher
     from langboard_shared.tasks.activities import CardActivityTask
     from langboard_shared.tasks.bots import CardBotTask
+    from sqlalchemy import create_engine
 
+    # The real post-save mirror query needs both tables in this isolated fixture.
+    engine = create_engine("sqlite://")
+    request.addfinalizer(engine.dispose)
+    for model in (Project, NativeCard):
+        model.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     project = SimpleNamespace(id=1)
     card = NativeCard.model_construct(
         id=7, project_id=1, project_column_id=2, description=EditorContentModel(content="before")
     )
+    destination = Project(owner_id=42, title="Mirror destination")
+    with DbSession.use(readonly=False) as db:
+        db.insert(destination)
+        mirror = NativeCard(
+            project_id=destination.id, project_column_id=3, title="",
+            source_type=NativeCard.LINKED_RESOURCE_PROJECT_CARD, source_uid=card.get_uid(),
+        )
+        db.insert(mirror)
     conditional = Mock(return_value=saved)
     unconditional = Mock()
     service = CardService(
@@ -903,10 +922,11 @@ def test_conditional_description_emits_effects_only_after_save(monkeypatch: pyte
     service.is_check_card = Mock(return_value=False)
     service.remove_completion_checklist = Mock()
     monkeypatch.setattr(InfraHelper, "get_records_with_foreign_by_params", lambda *_args: (project, card))
-    effects = [Mock(), Mock(), Mock()]
+    effects = [Mock(), Mock(), Mock(), Mock()]
     monkeypatch.setattr(CardPublisher, "updated", effects[0])
     monkeypatch.setattr(CardActivityTask, "card_updated", effects[1])
     monkeypatch.setattr(CardBotTask, "card_updated", effects[2])
+    monkeypatch.setattr(CardPublisher, "linked_resource_changed", effects[3])
 
     def execute() -> Any:
         return service.update(
@@ -915,10 +935,15 @@ def test_conditional_description_emits_effects_only_after_save(monkeypatch: pyte
         )
 
     if saved:
-        assert execute() is not None
+        with DbSession.atomic():
+            assert execute() is not None
+            for effect in effects:
+                effect.assert_not_called()
+            notifications.notify_mentioned_in_card.assert_not_called()
         for effect in effects:
             effect.assert_called_once()
         notifications.notify_mentioned_in_card.assert_called_once()
+        assert [row.id for row in effects[3].call_args.args] == [destination.id, mirror.id]
     else:
         with pytest.raises(CardDescriptionConflict, match="concurrent update"):
             execute()
