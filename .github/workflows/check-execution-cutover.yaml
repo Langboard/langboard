@@ -65,6 +65,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

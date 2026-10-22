@@ -1,0 +1,80 @@
+name: Check UI Contracts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/check-card-animation-ui.yaml
+      - src/ui/src/assets/styles/main.css
+      - src/ui/src/components/base/Dialog/index.tsx
+      - src/ui/src/pages/BoardPage/BoardCardPage.tsx
+      - src/ui/src/pages/BoardPage/index.tsx
+      - src/ui/src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx
+      - src/ui/src/pages/BoardPage/components/board/CardAnimation.*
+      - src/ui/src/pages/BoardPage/components/board/CardViewerDeepLink.*
+      - .github/workflows/check-comment-panel-resize.yaml
+      - src/ui/src/core/providers/BoardCardProvider.tsx
+      - src/ui/src/pages/BoardPage/components/card/BoardCard.tsx
+      - src/ui/src/pages/BoardPage/components/card/comment/CommentPanelWidth.*
+      - .github/workflows/check-reaction-ui.yaml
+      - src/ui/src/components/base/Dock/**
+      - src/ui/src/components/ReactionCounter/**
+      - src/ui/src/pages/BoardPage/components/card/comment/BoardCommentReaction.tsx
+      - src/shared/ts/src/constants/SocketEvents.ts
+      - src/ui/src/core/models/ProjectCard.ts
+      - src/ui/src/controllers/socket/card/useCardDetailsChangedHandlers.ts
+      - src/ui/src/core/providers/BoardProvider.tsx
+      - src/ui/src/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers.ts
+      - src/ui/src/pages/BoardPage/components/board/BoardColumnCardStatus.*
+      - src/ui/src/pages/BoardPage/components/card/BoardCardDeadline.tsx
+      - src/ui/src/pages/BoardPage/components/card/CardColumnHistory.tsx
+      - .github/workflows/check-ui-contracts.yaml
+      - src/ui/package.json
+      - src/ui/yarn.lock
+      - src/shared/ts/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-contracts:
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    timeout-minutes: 20
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
+      - uses: actions/checkout@v4
+      - name: Prepare Node.js for Yarn cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Prepare Corepack for Yarn cache
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: src/ui/yarn.lock
+      - run: corepack enable
+      - run: yarn install --frozen-lockfile
+        working-directory: src/ui
+      - name: Lint board, animation, comment resize and reaction contracts
+        run: yarn eslint src/components/base/Dialog/index.tsx src/pages/BoardPage/BoardCardPage.tsx src/pages/BoardPage/index.tsx src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx src/pages/BoardPage/components/board/CardAnimation.ts src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/board/CardViewerDeepLink.fixture.tsx src/pages/BoardPage/components/board/CardViewerDeepLinkLateChunk.fixture.tsx src/pages/BoardPage/components/board/CardViewerDeepLink.spec.ts src/core/providers/BoardCardProvider.tsx src/pages/BoardPage/components/card/BoardCard.tsx src/pages/BoardPage/components/card/comment/CommentPanelWidth.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/components/base/Dock/index.tsx src/components/ReactionCounter/index.tsx src/pages/BoardPage/components/card/comment/BoardCommentReaction.tsx src/core/models/ProjectCard.ts src/core/providers/BoardProvider.tsx src/controllers/socket/card/useCardDetailsChangedHandlers.ts src/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/card/BoardCardDeadline.tsx src/pages/BoardPage/components/card/CardColumnHistory.tsx --max-warnings 0
+        working-directory: src/ui
+      - name: Verify board status, animation and comment resize contracts
+        run: node --experimental-strip-types --test src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts
+        working-directory: src/ui
