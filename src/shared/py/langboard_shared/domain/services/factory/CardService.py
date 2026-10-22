@@ -148,13 +148,14 @@ class CardService(BaseDomainService):
         """Serialize native stamps and retain each committed change exactly once."""
         with DbSession.atomic() as db:
             if DbEngine.get_main_engine().dialect.name == "sqlite":
-                db.exec(update(Card.__table__).where(Card.id == card.id)
-                        .values(last_change_seq=Card.last_change_seq))
+                db.exec(update(Card.__table__).where(Card.id == card.id).values(last_change_seq=Card.last_change_seq))
             current = db.exec(
-                SqlBuilder.select.table(Card).where(Card.id == card.id)
+                SqlBuilder.select.table(Card)
+                .where(Card.id == card.id)
                 # Child INSERTs hold FK KEY SHARE locks. NO KEY UPDATE orders
                 # stamps without deadlocking concurrent comment/attachment writes.
-                .with_for_update(key_share=True).execution_options(populate_existing=True)
+                .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
             ).first()
             if current is None or current.deleted_at is not None:
                 raise ValueError("Card no longer available for change receipt")
@@ -162,10 +163,12 @@ class CardService(BaseDomainService):
                 return
             boundary = current.change_count_since_seq
             if current.last_change_seq:
-                previous = db.exec(select(CardChangeReceipt.id).where(
-                    CardChangeReceipt.card_id == current.id,
-                    CardChangeReceipt.change_seq == current.last_change_seq,
-                )).first()
+                previous = db.exec(
+                    select(CardChangeReceipt.id).where(
+                        CardChangeReceipt.card_id == current.id,
+                        CardChangeReceipt.change_seq == current.last_change_seq,
+                    )
+                ).first()
                 if previous is None:
                     # An old writer or imported stamp broke coverage. Never hide
                     # that gap merely because a new native receipt follows it.
@@ -173,9 +176,12 @@ class CardService(BaseDomainService):
             seq = self.next_change_seq()
             now = SafeDateTime.now()
             values = {
-                "last_change_seq": seq, "last_change_target_type": target_type,
-                "last_change_target_id": target_id, "last_change_at": now,
-                "change_count_since_seq": boundary, "updated_at": now,
+                "last_change_seq": seq,
+                "last_change_target_type": target_type,
+                "last_change_target_id": target_id,
+                "last_change_at": now,
+                "change_count_since_seq": boundary,
+                "updated_at": now,
             }
             db.exec(update(Card.__table__).where(Card.id == current.id).values(**values))
             db.insert(CardChangeReceipt(card_id=current.id, change_seq=seq))
@@ -876,7 +882,9 @@ class CardService(BaseDomainService):
                 # Keep the MVCC snapshot read-only; concurrent board visits must
                 # not turn this best-effort dashboard watermark into a 40001.
                 with DbSession.use(readonly=False) as db:
-                    db.after_commit(lambda: self.repo.project_assigned_user.advance_board_seen(user, project, board_seq))
+                    db.after_commit(
+                        lambda: self.repo.project_assigned_user.advance_board_seen(user, project, board_seq)
+                    )
         mark_phase("snapshot_unread")
 
         cards = []
@@ -1420,9 +1428,16 @@ class CardService(BaseDomainService):
         return cards
 
     def get_my_work_context(
-        self, user: User, mentioned_card_ids: list[int], project_uid: str | None = None,
-        group: MyWorkGroup | None = None, timezone_name: str = "UTC", cursor: str | None = None, limit: int = 50,
-        *, channel: CollaborationChannel = CollaborationChannel.Api,
+        self,
+        user: User,
+        mentioned_card_ids: list[int],
+        project_uid: str | None = None,
+        group: MyWorkGroup | None = None,
+        timezone_name: str = "UTC",
+        cursor: str | None = None,
+        limit: int = 50,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
         contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> dict[str, Any]:
         """Summary-only dashboard population, with counts independent of the selected page/group."""
@@ -1457,10 +1472,18 @@ class CardService(BaseDomainService):
                     raise ValueError
                 as_of = SafeDateTime.fromisoformat(fields["at"])
                 values = fields["before"]
-                if not isinstance(values, list) or len(values) != 3 or not all(isinstance(value, str) for value in values):
+                if (
+                    not isinstance(values, list)
+                    or len(values) != 3
+                    or not all(isinstance(value, str) for value in values)
+                ):
                     raise ValueError
                 before = (SafeDateTime.fromisoformat(values[0]), int(values[1]), int(values[2]))
-                if as_of.utcoffset() is None or before[0].utcoffset() is None or not all(1 <= value <= SnowflakeID.MAX_VALUE for value in before[1:]):
+                if (
+                    as_of.utcoffset() is None
+                    or before[0].utcoffset() is None
+                    or not all(1 <= value <= SnowflakeID.MAX_VALUE for value in before[1:])
+                ):
                     raise ValueError
                 if as_of > now + timedelta(minutes=5) or now - as_of > timedelta(days=2):
                     raise ValueError
@@ -1471,7 +1494,15 @@ class CardService(BaseDomainService):
         day_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
         upcoming_end = (local_start + timedelta(days=8)).astimezone(timezone.utc)
         records, counts = self.repo.card.get_my_work_context_page(
-            user, sorted(readable), mentioned_card_ids, day_start, day_end, upcoming_end, group, limit + 1, before,
+            user,
+            sorted(readable),
+            mentioned_card_ids,
+            day_start,
+            day_end,
+            upcoming_end,
+            group,
+            limit + 1,
+            before,
             contexts=contexts,
         )
         page = records[:limit]
@@ -1482,24 +1513,43 @@ class CardService(BaseDomainService):
                 reasons.append("created")
             if card_group in ("overdue", "today", "upcoming"):
                 reasons.append("overdue" if card_group == "overdue" else "due_soon")
-            cards.append({
-                "uid": card.get_uid(), "title": card.title, "project_uid": project.get_uid(),
-                "project_title": project.title, "project_column_name": column.name,
-                "deadline_at": card.deadline_at.isoformat() if card.deadline_at else None,
-                "updated_at": card.updated_at.isoformat(), "reasons": reasons, "group": card_group,
-                "work_state": {"workflow_stage": column.workflow_stage},
-            })
+            cards.append(
+                {
+                    "uid": card.get_uid(),
+                    "title": card.title,
+                    "project_uid": project.get_uid(),
+                    "project_title": project.title,
+                    "project_column_name": column.name,
+                    "deadline_at": card.deadline_at.isoformat() if card.deadline_at else None,
+                    "updated_at": card.updated_at.isoformat(),
+                    "reasons": reasons,
+                    "group": card_group,
+                    "work_state": {"workflow_stage": column.workflow_stage},
+                }
+            )
         next_cursor = None
         if len(records) > limit:
             card, project, *_ = page[-1]
-            payload = {"context": cursor_context, "at": as_of.isoformat(),
-                       "before": [card.updated_at.isoformat(), str(project.id), str(card.id)]}
-            next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+            payload = {
+                "context": cursor_context,
+                "at": as_of.isoformat(),
+                "before": [card.updated_at.isoformat(), str(project.id), str(card.id)],
+            }
+            next_cursor = (
+                base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+            )
         return {
-            "cards": cards, "counts": {key: counts.get(key, 0) for key in groups}, "total": sum(counts.values()),
-            "next_cursor": next_cursor, "group": group, "project_uid": project_uid,
-            "timezone": timezone_name, "as_of": as_of.isoformat(),
-            "day_start": day_start.isoformat(), "day_end": day_end.isoformat(), "upcoming_end": upcoming_end.isoformat(),
+            "cards": cards,
+            "counts": {key: counts.get(key, 0) for key in groups},
+            "total": sum(counts.values()),
+            "next_cursor": next_cursor,
+            "group": group,
+            "project_uid": project_uid,
+            "timezone": timezone_name,
+            "as_of": as_of.isoformat(),
+            "day_start": day_start.isoformat(),
+            "day_end": day_end.isoformat(),
+            "upcoming_end": upcoming_end.isoformat(),
         }
 
     def get_my_work_cards(
@@ -1564,8 +1614,14 @@ class CardService(BaseDomainService):
         return cards
 
     def get_schedule_workload(
-        self, user, start: str, end: str, scope: str = "personal", project_uid: str | None = None,
-        *, channel=CollaborationChannel.Api,
+        self,
+        user,
+        start: str,
+        end: str,
+        scope: str = "personal",
+        project_uid: str | None = None,
+        *,
+        channel=CollaborationChannel.Api,
     ):
         """Current workload and range-clipped all-worker time on currently readable native cards."""
         from ..CardScheduleCalendar import schedule_range
@@ -1583,8 +1639,11 @@ class CardService(BaseDomainService):
             user, start_at, end_at, as_of, contexts=contexts, personal=scope == "personal"
         )
         return {
-            "scope": scope, "project_uid": project_uid,
-            "start": start_at.isoformat(), "end": end_at.isoformat(), "as_of": as_of.isoformat(),
+            "scope": scope,
+            "project_uid": project_uid,
+            "start": start_at.isoformat(),
+            "end": end_at.isoformat(),
+            "as_of": as_of.isoformat(),
             "time_attribution": "all_work_on_selected_cards",
             "time_includes_currently_completed_and_archived_cards": True,
             "workload": {"open_count": totals["open_count"], "incomplete_count": totals["incomplete_count"]},
