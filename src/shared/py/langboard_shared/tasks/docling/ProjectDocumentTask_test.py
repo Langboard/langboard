@@ -11,7 +11,12 @@ import pytest
 from langchain_core.embeddings import Embeddings
 from sqlalchemy import create_engine
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.domain.models import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
+from langboard_shared.domain.models import (
+    DocumentEmbeddingCache,
+    DocumentEmbeddingCacheReference,
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
+)
 from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.tasks.docling import ProjectDocumentTask as task
 from langboard_shared.tasks.docling.DocumentEmbedding import snapshot_embedding_config
@@ -39,7 +44,8 @@ class FixtureProvider(Embeddings):
 @pytest.fixture
 def worker(monkeypatch, tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'native-cache.db'}")
-    for model in (DocumentEmbeddingCache, DocumentEmbeddingCacheReference):
+    for model in (DocumentEmbeddingCache, DocumentEmbeddingCacheReference,
+                  DocumentExtractionCache, DocumentExtractionCacheReference):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -53,7 +59,7 @@ def worker(monkeypatch, tmp_path):
         embedding_config=snapshot, markdown="Native project text", document_json=None, embedding={},
     )
     attachment = SimpleNamespace(
-        filename="report.pdf", file=object(), content_sha256=sha256(b"source").hexdigest(),
+        filename="report.pdf", file="fixture-source", content_sha256=sha256(b"source").hexdigest(),
     )
     project = SimpleNamespace(get_uid=lambda: "board")
     valid = [True]
@@ -68,7 +74,7 @@ def worker(monkeypatch, tmp_path):
 
     documents.claim.side_effect = claim
 
-    def publish(*_, markdown, keywords, document_json):
+    def publish(*_, markdown, keywords, document_json, extraction_cache_token=None):
         if not valid[0]:
             return False
         document.status = "indexed"
@@ -92,7 +98,7 @@ def worker(monkeypatch, tmp_path):
         internal_bot=SimpleNamespace(get_current_by_id_like=Mock(return_value=binding)),
     )
     monkeypatch.setattr(task, "Env", SimpleNamespace(
-        DATA_DIR=tmp_path, MAX_FILE_SIZE_MB=1, get_from_env=lambda *_: "https://fixture.invalid",
+        DATA_DIR=tmp_path, MAX_FILE_SIZE_MB=1, DOCLING_CONVERSION_TIMEOUT_SECONDS=30, get_from_env=lambda *_: "https://fixture.invalid",
     ))
     monkeypatch.setattr(task, "_current_vision_config", Mock(return_value={"keyword_languages": ["en"]}))
     provider = FixtureProvider()
@@ -105,6 +111,8 @@ def worker(monkeypatch, tmp_path):
     monkeypatch.setattr(task.Storage, "download_file", Mock(side_effect=download))
 
     def convert(path, **kwargs):
+        from langboard_shared.core.db import DbSession
+        assert not DbSession.has_active_transaction()
         with open(path, "rb") as source:
             assert source.read() == b"source"
         kwargs["on_progress"](0, 1)

@@ -254,7 +254,13 @@ def test_visibility_revocation_never_returns_transcription(monkeypatch, phase):
 def binding_store(monkeypatch, request):
     from uuid import uuid4
     from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models import DocumentEmbeddingCache, DocumentEmbeddingCacheReference, InternalBot
+    from langboard_shared.domain.models import (
+        DocumentEmbeddingCache,
+        DocumentEmbeddingCacheReference,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+        InternalBot,
+    )
     from sqlalchemy import create_engine, text
 
     url = request.param
@@ -274,6 +280,8 @@ def binding_store(monkeypatch, request):
     InternalBot.__table__.create(engine)
     DocumentEmbeddingCache.__table__.create(engine)
     DocumentEmbeddingCacheReference.__table__.create(engine)
+    DocumentExtractionCache.__table__.create(engine)
+    DocumentExtractionCacheReference.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 
     def no_replica():

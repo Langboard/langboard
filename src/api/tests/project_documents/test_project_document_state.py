@@ -17,6 +17,8 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
     DocumentVectorCleanup,
     ProjectAssignedUser,
     ProjectAttachment,
@@ -37,7 +39,7 @@ pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test
 @pytest.fixture
 def documents(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
-    for model in (ProjectAttachment, ProjectAttachmentDocument, ProjectAttachmentUploadReceipt, DocumentVectorCleanup):
+    for model in (ProjectAttachment, ProjectAttachmentDocument, ProjectAttachmentUploadReceipt, DocumentVectorCleanup, DocumentExtractionCache, DocumentExtractionCacheReference):
         model.__table__.create(b.engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})

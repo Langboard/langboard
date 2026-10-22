@@ -62,6 +62,7 @@ from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
 from .DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
+from .DocumentExtractionCache import DocumentExtractionCache, DocumentExtractionCacheReference
 from .DocumentKeywordIndex import DocumentKeywordIndex
 from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
@@ -201,6 +202,8 @@ __all__ = [
     'CardContentBlock',
     'CardMetadata',
     'DocumentVectorCleanup',
+    'DocumentExtractionCache',
+    'DocumentExtractionCacheReference',
     'DocumentEmbeddingCache',
     'DocumentEmbeddingCacheReference',
     'DocumentKeywordIndex',

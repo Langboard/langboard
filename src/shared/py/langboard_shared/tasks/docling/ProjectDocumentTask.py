@@ -1,7 +1,6 @@
 """Process authorized native project sources using the shared document facilities."""
 
 from copy import deepcopy
-from hashlib import sha256
 from json import dumps, loads
 from os import unlink
 from pathlib import Path
@@ -12,9 +11,10 @@ from ...core.storage import Storage
 from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
-from .DoclingMetadataTask import _convert_to_markdown, _current_vision_config
+from .DoclingMetadataTask import _BoundedDownload, _convert_to_markdown, _current_vision_config
 from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
 from .DocumentEmbeddingCache import CHUNK_VERSION, cached_document_embeddings
+from .DocumentExtractionCache import cached_document_extraction
 from .DocumentKeywords import keyword_languages, normalize_keywords
 from .DocumentVectorGeneration import embedding_fingerprint
 from .DocumentVectorStore import (
@@ -23,31 +23,6 @@ from .DocumentVectorStore import (
     delete_vector_generation,
     open_document_vector_store,
 )
-
-
-class _BoundedDownload:
-    """Reject an oversized write before any of its bytes reach the temporary file."""
-
-    def __init__(self, destination, limit):
-        self.destination, self.limit = destination, limit
-        self.size = 0
-        self.digest = sha256()
-
-    def write(self, value):
-        if self.size + len(value) > self.limit:
-            raise ValueError("Document download exceeds processing limit")
-        written = self.destination.write(value)
-        if written != len(value):
-            raise OSError("Incomplete document download")
-        self.size += written
-        self.digest.update(value)
-        return written
-
-    def tell(self):
-        return self.size
-
-    def flush(self):
-        return self.destination.flush()
 
 
 def _payload(request):
@@ -110,8 +85,13 @@ def _index_project_attachment(service, attachment_uid, generation):
         document = deepcopy(document)
         private = _current_vision_config(service, document.vision_config)
 
+        attachment = deepcopy(attachment)
+
         def fence(*_):
-            _source_fence(service, attachment_uid, generation, document, status="processing")
+            current = _source_fence(service, attachment_uid, generation, document, status="processing")
+            if any(getattr(current[1], key) != getattr(attachment, key)
+                   for key in ("filename", "file", "content_sha256")):
+                raise InterruptedError("Document source changed")
             _current_vision_config(service, document.vision_config)
 
         fence()
@@ -131,17 +111,27 @@ def _index_project_attachment(service, attachment_uid, generation):
                     {language: keywords.get(language, []) + words}, [language], limit=32
                 ).get(language, [])
 
-        structure = []
-        fence()
-        markdown = _convert_to_markdown(
-            temp_path, on_progress=fence, vision_value=dumps(private),
-            on_keywords=collect, on_document=structure.append,
-        )
-        fence()
-        indexed = service.project_document.publish_extraction(
-            attachment_uid, generation, markdown=markdown, keywords=keywords,
-            document_json=structure[0] if structure else None,
-        )
+        def convert():
+            structure = []
+            markdown = _convert_to_markdown(
+                temp_path, on_progress=fence, vision_value=dumps(private),
+                on_keywords=collect, on_document=structure.append,
+            )
+            return {"markdown": markdown, "keywords": keywords, "document_json": structure[0] if structure else None}
+
+        with cached_document_extraction(
+            binding_uid=document.vision_config["binding_uid"], content_hash=writer.digest.hexdigest(),
+            vision_config=document.vision_config, filename=attachment.filename,
+            timeout_seconds=Env.DOCLING_CONVERSION_TIMEOUT_SECONDS, on_validate=fence,
+        ) as cache:
+            result = cache.get_or_convert(convert)
+            fence()
+            indexed = service.project_document.publish_extraction(
+                attachment_uid, generation, markdown=result["markdown"], keywords=result["keywords"],
+                document_json=result["document_json"], extraction_cache_token=cache.token,
+            )
+            if indexed:
+                cache.retain()
     except Exception:
         service.project_document.mark_failed(attachment_uid, generation, phase="extraction")
     finally:

@@ -68,8 +68,10 @@ def recover_cleanup(*, limit: int = 100) -> int:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Cleanup recovery limit must be between 1 and 100")
     from .DocumentEmbeddingCache import recover_expired_cache_references
+    from .DocumentExtractionCache import recover_expired_extraction_references
 
     recover_expired_cache_references(limit=limit)
+    recover_expired_extraction_references(limit=limit)
     with DbSession.use(readonly=False) as db:
         pending = db.exec(
             SqlBuilder.select.table(DocumentVectorCleanup)

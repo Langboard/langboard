@@ -222,7 +222,10 @@ class DoclingMetadataService(BaseDomainService):
         content: dict[str, Any] | None = None,
         *,
         generation: str | None = None,
+        extraction_cache_token: str | None = None,
     ) -> bool:
+        if extraction_cache_token is not None and (model_cls is not CardMetadata or generation is None):
+            return False
         content = dict(content or {})
         structural = content.pop("docling_document", None)
         current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid) or {}
@@ -240,6 +243,14 @@ class DoclingMetadataService(BaseDomainService):
             document.pop("location_reindex_pending", None)
             document.pop("location_reindex_dispatched_at", None)
         with DbSession.atomic() as db:
+            if model_cls is CardMetadata:
+                project = db.exec(
+                    SqlBuilder.select.table(Project)
+                    .where(Project.id == foreign_model.project_id, Project.deleted_at.is_(None))
+                    .with_for_update()
+                ).first()
+                if project is None:
+                    return False
             db.exec(
                 SqlBuilder.select.table(type(foreign_model))
                 .where(type(foreign_model).column("id") == foreign_model.id)
@@ -249,7 +260,28 @@ class DoclingMetadataService(BaseDomainService):
             if generation is not None and (not latest or latest.get("generation") != generation):
                 return False
             if model_cls is CardMetadata:
+                card = db.exec(
+                    SqlBuilder.select.table(Card)
+                    .where(Card.id == foreign_model.id, Card.project_id == foreign_model.project_id,
+                           Card.deleted_at.is_(None)).with_for_update()
+                    .execution_options(populate_existing=True)
+                ).first()
                 attachment_id = InfraHelper.convert_id(attachment_uid)
+                attachment = db.exec(
+                    SqlBuilder.select.table(CardAttachment)
+                    .where(CardAttachment.id == attachment_id, CardAttachment.card_id == foreign_model.id,
+                           CardAttachment.deleted_at.is_(None)).with_for_update()
+                ).first()
+                if project is None or card is None or attachment is None:
+                    return False
+                if extraction_cache_token is not None:
+                    from ....tasks.docling.DocumentExtractionCache import activate_extraction_reference
+
+                    if not latest or latest.get("location_invalidated") or not activate_extraction_reference(
+                        db, extraction_cache_token, source_type="card_attachment",
+                        source_uid=attachment.get_uid(), generation=latest.get("generation"),
+                    ):
+                        return False
                 result = db.exec(
                     update(CardAttachment)
                     .where(CardAttachment.id == attachment_id)
@@ -501,6 +533,11 @@ class DoclingMetadataService(BaseDomainService):
                     CardAttachment.id == InfraHelper.convert_id(attachment_uid),
                     CardAttachment.card_id == foreign_model.id,
                 )
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(*attachment_scope)).first()
+                if attachment is not None:
+                    from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+                    release_extraction_source(db, "card_attachment", attachment.get_uid())
                 db.exec(update(CardAttachment).where(*attachment_scope).values(document_text=""))
                 db.exec(
                     delete(CardDocumentArtifact).where(
@@ -675,6 +712,20 @@ class DoclingMetadataService(BaseDomainService):
             cards = select(Card.id).where(Card.project_id == project.id)
             if card is not None:
                 cards = cards.where(Card.id == card.id)
+            from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+            attachment_after_id = 0
+            while True:
+                attachments = db.exec(
+                    SqlBuilder.select.table(CardAttachment, with_deleted=True)
+                    .where(CardAttachment.card_id.in_(cards), CardAttachment.id > attachment_after_id)
+                    .order_by(CardAttachment.id).limit(100)
+                ).all()
+                for attachment in attachments:
+                    release_extraction_source(db, "card_attachment", attachment.get_uid())
+                if len(attachments) < 100:
+                    break
+                attachment_after_id = attachments[-1].id
             after_id = 0
             while True:
                 rows = db.exec(

@@ -135,7 +135,7 @@ class ProjectDocumentService(BaseDomainService):
             ):
                 return self._receipt(attachment, document)
             if document is not None:
-                self.invalidate(db, attachment)
+                self.invalidate(db, attachment, preserve_extraction=document.source_revision == revision)
             document = ProjectAttachmentDocument(
                 attachment_id=attachment.id,
                 requested_by_id=user.id,
@@ -216,7 +216,9 @@ class ProjectDocumentService(BaseDomainService):
             db.update(source[2])
             return source
 
-    def publish_extraction(self, attachment_uid, generation, *, markdown, keywords, document_json):
+    def publish_extraction(
+        self, attachment_uid, generation, *, markdown, keywords, document_json, extraction_cache_token=None
+    ):
         if not isinstance(markdown, str) or len(markdown.encode("utf-8")) > MAX_DOCUMENT_BYTES:
             return False
         if document_json is not None:
@@ -231,6 +233,14 @@ class ProjectDocumentService(BaseDomainService):
             source = self._load_source(db, attachment_uid, generation, lock=True)
             if source is None or source[2].status != "processing":
                 return False
+            if extraction_cache_token is not None:
+                from ....tasks.docling.DocumentExtractionCache import activate_extraction_reference
+
+                if not activate_extraction_reference(
+                    db, extraction_cache_token, source_type="project_attachment",
+                    source_uid=source[1].get_uid(), generation=generation,
+                ):
+                    return False
             document = source[2]
             document.markdown = markdown
             document.keywords = normalize_keywords(keywords, list(KEYWORD_LANGUAGES))
@@ -312,8 +322,12 @@ class ProjectDocumentService(BaseDomainService):
             db.update(document)
             return True
 
-    def invalidate(self, db, attachment):
+    def invalidate(self, db, attachment, *, preserve_extraction=False):
         """Caller owns the project/attachment locks and source replacement transaction."""
+        if not preserve_extraction:
+            from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+            release_extraction_source(db, "project_attachment", attachment.get_uid())
         document = self._document(db, attachment, lock=True)
         if document is not None:
             from ....tasks.docling.DocumentCleanupTask import record_cleanup

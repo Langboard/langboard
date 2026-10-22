@@ -13,6 +13,8 @@ from langboard_shared.core.routing import ApiException
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
     InternalBot,
     ProjectAssignedUser,
     ProjectAttachment,
@@ -36,6 +38,8 @@ def cloud(mirror_board, monkeypatch, tmp_path):
     ProjectAttachmentUploadReceipt.__table__.create(b.engine)
     ProjectAttachmentDocument.__table__.create(b.engine)
     InternalBot.__table__.create(b.engine)
+    DocumentExtractionCache.__table__.create(b.engine)
+    DocumentExtractionCacheReference.__table__.create(b.engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
     domain = DomainService()

@@ -202,6 +202,8 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         DocumentKeywordIndex,
         Organization,
         Project,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
         ProjectColumn,
         User,
     )
@@ -212,6 +214,8 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         Organization,
         Project,
         ProjectColumn,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
         Card,
         CardAttachment,
         CardDocumentArtifact,
