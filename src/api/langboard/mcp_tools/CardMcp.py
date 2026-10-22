@@ -633,7 +633,10 @@ def delete_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, servic
     return {"message": "Deleted"}
 
 
-@McpTool.add(description="Change card order or move to another project column.")
+@McpTool.add(
+    description="Change card order or move to another project column.",
+    modern_only=("move_descendants", "confirmation_revision"),
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_order_or_move_column(
     project_uid: str,
@@ -678,6 +681,7 @@ def _as_upload_request_uid(value: str | UUID) -> UUID:
 
 @McpTool.add(
     "user",
+    modern_only=("request_uid", "duplicate_action", "confirmation_token", "replacement_uid"),
     description=(
         "Upload base64 file data with a caller-generated request UUID. Duplicate files require explicit add, "
         "replace of an allowed target, or cancel using the returned current token. Retry an ambiguous result "
@@ -692,12 +696,12 @@ def upload_card_attachment(
     file_data_base64: str,
     user: User,
     service: DomainService,
-    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)],
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
     duplicate_action: Literal["add", "replace", "cancel"] | None = None,
     confirmation_token: str | None = None,
     replacement_uid: str | None = None,
 ) -> dict:
-    request_uid = str(_as_upload_request_uid(request_uid))
+    request_uid = str(_as_upload_request_uid(request_uid)) if request_uid is not None else None
     max_file_bytes = Env.MAX_FILE_SIZE_MB * 1024 * 1024
     max_base64_length = ((max_file_bytes + 2) // 3) * 4
     if len(file_data_base64) > max_base64_length:
@@ -1245,7 +1249,10 @@ def replace_card_description(
         raise ValidationError(f"{exc}. No changes saved; read the description and review the replacement.") from exc
 
 
-@McpTool.add(description="Add a rich-text comment to a card.")
+@McpTool.add(
+    description="Add a rich-text comment to a card.",
+    modern_only=("anchor", "request_uid"),
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def add_card_comment(
     project_uid: str,

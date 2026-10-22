@@ -212,9 +212,8 @@ async def test_actual_registered_mcp_schema_and_typed_union_roundtrip(uploads): 
     metadata = McpTool.get_tool("upload_card_attachment")
     assert metadata["accessible_type"] == "user"
     schema = metadata["input_schema"]
-    assert "request_uid" in schema["required"]
-    assert schema["properties"]["request_uid"]["format"] == "uuid"
-    assert "duplicate_action" in schema["properties"] and "user" not in schema["properties"]
+    assert set(schema["properties"]) == {"project_uid", "card_uid", "filename", "file_data_base64"}
+    assert metadata["modern_only"] == ("request_uid", "duplicate_action", "confirmation_token", "replacement_uid")
 
     def wrap(_name, handler):
         @wraps(handler)
@@ -230,7 +229,8 @@ async def test_actual_registered_mcp_schema_and_typed_union_roundtrip(uploads): 
     server.add_tool(create_native_tool("upload_card_attachment", metadata, wrap, modern_annotations=True))
     async with Client(server) as client:
         tools = await client.list_tools()
-        assert tools[0].inputSchema["properties"]["request_uid"]["format"] == "uuid"
+        assert tools[0].inputSchema["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
+        assert "request_uid" not in tools[0].inputSchema["required"]
         assert tools[0].outputSchema
         payload = dict(
             project_uid=b.source_board.get_uid(),
@@ -241,10 +241,16 @@ async def test_actual_registered_mcp_schema_and_typed_union_roundtrip(uploads): 
         )
         missing = await client.call_tool(
             "upload_card_attachment",
-            {key: value for key, value in payload.items() if key != "request_uid"},
+            {
+                **{key: value for key, value in payload.items() if key != "request_uid"},
+                "filename": "legacy.txt",
+                "file_data_base64": "bGVnYWN5",
+            },
             raise_on_error=False,
         )
-        assert missing.is_error and rows(CardAttachment) == []
+        assert not missing.is_error and len(rows(CardAttachment)) == 1
+        assert missing.structured_content["request_uid"]
+        assert Storage.get_file(rows(CardAttachment)[0].file) == b"legacy"
         created = await client.call_tool("upload_card_attachment", payload)
         assert not created.is_error
         payload["request_uid"] = str(uuid4())
@@ -324,3 +330,38 @@ def test_native_mcp_forbidden_target_and_other_account_token_do_not_replace(uplo
     assert other["confirmation_required"] and other["confirmation_token"] != preview["confirmation_token"]
     storage.assert_not_called()
     assert Storage.get_file(rows(CardAttachment)[0].file) == b"first"
+
+
+async def test_registered_legacy_upload_uses_native_uuid_fallback_and_duplicate_preview(uploads):  # noqa: F811
+    b = uploads
+    metadata = McpTool.get_tool("upload_card_attachment")
+
+    def wrap(_name, handler):
+        @wraps(handler)
+        async def invoke(**kwargs):
+            return handler(user=b.actor, service=b.http_service, **kwargs)
+
+        invoke.__signature__ = signature(handler).replace(
+            parameters=[p for name, p in signature(handler).parameters.items() if name not in metadata["exclude"]]
+        )
+        return invoke
+
+    server = FastMCP("Frozen upload native fallback", strict_input_validation=True)
+    server.add_tool(create_native_tool("upload_card_attachment", metadata, wrap, modern_annotations=False))
+    payload = dict(
+        project_uid=b.source_board.get_uid(),
+        card_uid=b.source.get_uid(),
+        filename="legacy.pdf",
+        file_data_base64="Zmlyc3Q=",
+    )
+    async with Client(server) as client:
+        schema = (await client.list_tools())[0].input_schema
+        assert set(schema["properties"]) == set(payload)
+        first = (await client.call_tool("upload_card_attachment", payload)).structured_content
+        assert first["request_uid"] and len(rows(CardAttachment)) == 1
+        assert Storage.get_file(rows(CardAttachment)[0].file) == b"first"
+        preview = (await client.call_tool("upload_card_attachment", payload)).structured_content
+        assert preview["confirmation_required"] is True
+        assert preview["request_uid"] != first["request_uid"]
+        assert preview["conflicts"][0]["uid"] == first["uid"]
+        assert len(rows(CardAttachment)) == len(rows(ProjectActivity)) == 1

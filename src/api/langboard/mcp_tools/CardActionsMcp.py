@@ -1,12 +1,14 @@
 """Client-independent card actions reuse authorized native commands."""
 
 from typing import Annotated, Any, Literal
+from uuid import UUID
 from langboard_shared.domain.models import ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.security import RoleFinder
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
+from .CardMcp import _as_upload_request_uid
 
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
@@ -56,6 +58,8 @@ class MoveCard(CardAction):
     action: Literal["move"]
     column_uid: Uid
     order: Order
+    move_descendants: Annotated[bool, Field(strict=True)] | None = None
+    confirmation_revision: str | None = None
 
 
 class ArchiveCard(CardAction):
@@ -88,6 +92,10 @@ class UploadCardAttachment(CardAction):
     action: Literal["attachment_upload"]
     filename: Text
     file_data_base64: str
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)]
+    duplicate_action: Literal["add", "replace", "cancel"] | None = None
+    confirmation_token: str | None = None
+    replacement_uid: Uid | None = None
 
 
 CardChange = Annotated[

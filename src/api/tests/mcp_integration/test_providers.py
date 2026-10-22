@@ -127,6 +127,35 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
                 schema = modern[name]["properties"][parameter]
                 assert schema.pop("minimum") == 1
                 assert schema.pop("maximum") == maximum
+        modern_fields = {
+            "add_card_comment": ("anchor", "request_uid"),
+            "change_card_order_or_move_column": ("move_descendants", "confirmation_revision"),
+            "upload_card_attachment": ("request_uid", "duplicate_action", "confirmation_token", "replacement_uid"),
+        }
+        for name, fields in modern_fields.items():
+            assert McpTool.get_tool(name)["modern_only"] == fields
+            for field in fields:
+                assert field in modern[name]["properties"]
+                assert field not in catalogs["compatibility"][name]["properties"]
+                assert field not in modern[name]["required"]
+        for name in ("add_card_comment", "upload_card_attachment"):
+            assert modern[name]["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
+        assert modern["change_card_order_or_move_column"]["properties"]["move_descendants"]["anyOf"][0] == {
+            "type": "boolean"
+        }
+        assert modern["upload_card_attachment"]["properties"]["duplicate_action"]["anyOf"][0]["enum"] == [
+            "add",
+            "replace",
+            "cancel",
+        ]
+        anchors = modern["add_card_comment"]["properties"]["anchor"]["anyOf"]
+        assert [anchor["properties"]["type"]["const"] for anchor in anchors[:2]] == [
+            "TextQuoteSelector",
+            "ImageRegionSelector",
+        ]
+        for name, fields in modern_fields.items():
+            for field in fields:
+                modern[name]["properties"].pop(field)
         assert modern == catalogs["compatibility"]
     finally:
         mcp_auth_context.reset(token)
