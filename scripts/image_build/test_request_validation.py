@@ -154,11 +154,16 @@ class BrokerClientTest(unittest.TestCase):
         self.assertEqual(job["permissions"]["id-token"], "write")
         self.assertEqual(job["runs-on"], "${{ fromJSON(vars.CI_RUNNER || '\"unconfigured\"') }}")
         self.assertIn("vars.CI_RUNNER != '' && (", job["if"])
-        self.assertEqual(job["container"], "ubuntu:24.04")
+        self.assertRegex(job["container"], r"^python:3\.12\.15-slim-bookworm@sha256:[0-9a-f]{64}$")
         self.assertEqual(job["defaults"]["run"]["shell"], "bash")
-        bootstrap = steps["Prepare standard request tools"]
-        self.assertIn("ca-certificates git python3", bootstrap["run"])
+        bootstrap = steps["Verify standard request runtime"]
+        self.assertIn("sys.version_info[:2] == (3, 12)", bootstrap["run"])
+        self.assertIn("ssl.create_default_context().get_ca_certs()", bootstrap["run"])
+        self.assertIn('("tar", "gzip")', bootstrap["run"])
+        self.assertNotIn("apt-get", json.dumps(job))
+        self.assertNotIn("DEBIAN_FRONTEND", json.dumps(job))
         checkout = steps["Checkout federated request client"]
+        self.assertEqual(checkout["uses"], "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1")
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
         request = steps["Request validation through federated identity"]

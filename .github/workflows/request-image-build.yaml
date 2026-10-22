@@ -46,7 +46,7 @@ jobs:
       pull-requests: read
     # Transport only; validation and image builds run in the central executor.
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    container: python:3.12.15-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
     defaults:
       run:
         shell: bash
@@ -64,12 +64,20 @@ jobs:
       IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Prepare standard request tools
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: Verify standard request runtime
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git python3
+          python3 - <<'PYTHON'
+          import json
+          import shutil
+          import ssl
+          import sys
+          import urllib.request
+
+          assert sys.version_info[:2] == (3, 12), "Python 3.12 required"
+          assert ssl.create_default_context().get_ca_certs(), "Trusted CA certificates required"
+          assert all(shutil.which(tool) for tool in ("tar", "gzip")), "Checkout archive tools required"
+          print("Python, trusted CA certificates and checkout archive tools available")
+          PYTHON
       - name: Checkout federated request client
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

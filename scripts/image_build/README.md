@@ -4,10 +4,21 @@ The request workflow uses one standard-library client for review validation and
 product image requests. Both use the current GitHub Actions OIDC identity; the
 source repository does not need a central dispatch token.
 
-The request job uses the operator-configured `CI_RUNNER` in a standard Ubuntu
-job container. It is skipped when no runner is configured; it does not fall back
-to GitHub-hosted compute. The container supplies Python, Git and CA certificates
-for the request client. Validation and image building remain executor operations.
+The request job uses the operator-configured `CI_RUNNER` in the official
+`python:3.12.15-slim-bookworm` container pinned to an immutable image index digest.
+It is skipped when no runner is configured; it does not fall back to GitHub-hosted
+compute. Python and CA certificates are included in the image, so the job installs
+no packages at runtime. A preflight verifies Python 3.12, the default trusted CA
+store, and the image's `tar`/`gzip` tools before checkout. The request client uses
+only the Python standard library.
+
+The pinned official checkout action uses its native REST archive fallback when
+Git is absent, selecting the triggering commit and extracting it with `tar`.
+Credentials are not persisted. This behavior is documented in the
+[pinned checkout README](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/README.md)
+and implemented in its
+[archive helper](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/src/github-api-helper.ts).
+Validation and image building remain executor operations.
 
 ```sh
 # Review validation: v1, current PR required, review ref only.
