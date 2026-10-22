@@ -1010,6 +1010,15 @@ class CardService(BaseDomainService):
 
         return link_card(self, user, source_project, source_card, project, column, channel=channel)
 
+    def clone_cross_board_card(
+        self, user, source_project, source_card, project, column,
+        *, request_uid, confirmation_token=None, channel=CollaborationChannel.Api,
+    ):
+        from ..CardCloneOperations import clone_card
+
+        return clone_card(self, user, source_project, source_card, project, column,
+                          request_uid=request_uid, confirmation_token=confirmation_token, channel=channel)
+
     def create_linked_wiki_card(
         self,
         user_or_bot: TUserOrBot,

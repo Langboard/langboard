@@ -112,3 +112,24 @@ def record_card_linked(user: User, project: Project, mirror: Card, source_projec
                     "url": f"/board/{source_project.get_uid()}/{source.get_uid()}"}},
         **helper.get_card_activity_params(ProjectActivityType.CardLinked, project, mirror),
     )
+
+
+def record_card_cloned(user, project, clone, source_project, source, *, request_uid, identity, excluded):
+    """The clone starts with original address provenance and a persisted retry receipt."""
+    helper = ActivityTaskHelper(ProjectActivity)
+    return helper.record(
+        user,
+        {
+            **helper.create_project_default_history(project, card=clone),
+            "source": {
+                "type": Card.LINKED_RESOURCE_PROJECT_CARD,
+                "uid": source.get_uid(),
+                "project_uid": source_project.get_uid(),
+                "url": f"/board/{source_project.get_uid()}/{source.get_uid()}",
+            },
+            "clone_request_uid": request_uid,
+            "clone_identity": identity,
+            "excluded": excluded,
+        },
+        **helper.get_card_activity_params(ProjectActivityType.CardCloned, project, clone),
+    )

@@ -1,4 +1,4 @@
-"""Native LINK operation; clone and transfer await their separate implementations."""
+"""Native source-authorized cross-board link and independent clone operations."""
 
 from fastapi import Request
 from langboard_shared.core.filter import AuthFilter
@@ -17,13 +17,15 @@ class CrossBoardCardForm(BaseModel):
     source_card_uid: str
     destination_column_uid: str
     operation: str = "link"
+    request_uid: str | None = None
+    confirmation_token: str | None = None
 
 
 @AppRouter.schema(permission=ApiPermission.Create)
 @AppRouter.api.post(
     "/board/{project_uid}/card/cross-board",
     tags=["Board.Card"],
-    description="Create or return a source-authorized card mirror. Only link is supported.",
+    description="Link a source-authorized card, or independently clone it with current audience consent.",
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
 @AuthFilter.add("user")
@@ -34,8 +36,30 @@ def cross_board_card(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    if form.operation != "link":
+    if form.operation not in {"link", "clone"}:
         raise ApiException.BadRequest_400()
+    if form.operation == "clone":
+        if not form.request_uid:
+            raise ApiException.BadRequest_400()
+        try:
+            result = service.card.clone_cross_board_card(
+                user,
+                form.source_project_uid,
+                form.source_card_uid,
+                project_uid,
+                form.destination_column_uid,
+                request_uid=form.request_uid,
+                confirmation_token=form.confirmation_token,
+                channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            )
+        except (TypeError, ValueError):
+            raise ApiException.BadRequest_400() from None
+        if result is None:
+            raise ApiException.NotFound_404(ApiErrorCode.NF2003)
+        return JsonResponse(
+            content=result,
+            status_code=409 if result.get("confirmation_required") else 201 if result["created"] else 200,
+        )
     try:
         result = service.card.link_cross_board_card(
             user,
