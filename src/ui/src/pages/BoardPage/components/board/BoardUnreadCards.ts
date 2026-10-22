@@ -26,7 +26,18 @@ export default function useBoardUnreadCards(projectUID: string, snapshotUpdatedA
                 const bind = () => {
                     fieldCleanup.forEach((off) => off());
                     fieldCleanup = ProjectCard.Model.getModels((card) => card.project_uid === projectUID).map((card) =>
-                        card.subscribeFields(["project_uid", "has_unread_change", "source_type", "last_change_seq", "title"], refresh)
+                        card.subscribeFields(
+                            [
+                                "project_uid",
+                                "has_unread_change",
+                                "source_type",
+                                "last_change_seq",
+                                "last_change_at",
+                                "last_change_target_type",
+                                "title",
+                            ],
+                            refresh
+                        )
                     );
                     refresh();
                 };

@@ -5,9 +5,10 @@ import useBoardUnreadCards from "./BoardUnreadCards";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { useTranslation } from "react-i18next";
+import { formatDateDistance, formatDateTime } from "@/core/utils/LocaleFormat";
 
 export default function BoardChangesSidebar({ projectUID, onNavigate }: { projectUID: string; onNavigate?: () => void }) {
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
     const { data, dataUpdatedAt, isFetching, refetch } = useGetCards({ project_uid: projectUID }, { enabled: true });
     const unreadCards = useBoardUnreadCards(projectUID, data ? dataUpdatedAt : 0);
@@ -45,6 +46,15 @@ export default function BoardChangesSidebar({ projectUID, onNavigate }: { projec
                             <span className="shrink-0 text-xs text-muted-foreground">
                                 {card.last_change_target_type === "comment" ? t("dashboard.Comment change") : t("dashboard.Card change")}
                             </span>
+                            {card.last_change_at && (
+                                <time
+                                    dateTime={card.last_change_at.toISOString()}
+                                    title={formatDateTime(card.last_change_at, i18n.language)}
+                                    className="shrink-0 text-xs text-muted-foreground"
+                                >
+                                    {formatDateDistance(card.last_change_at, i18n.language)}
+                                </time>
+                            )}
                         </button>
                     ))}
                 </div>

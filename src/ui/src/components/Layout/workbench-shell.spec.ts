@@ -7,6 +7,7 @@ test("Changes rail counts all native unread cards and follows model, board and i
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const now = new Date().toISOString();
+    const changedAt = new Date(Date.now() - 120_000).toISOString();
     let actor = "fixture-user";
     let holdCards = false;
     let releaseCards: (() => void) | undefined;
@@ -59,6 +60,7 @@ test("Changes rail counts all native unread cards and follows model, board and i
                         relationships: [],
                         has_unread_change: index !== count + 2,
                         last_change_seq: index + 1,
+                        last_change_at: index === count - 1 ? changedAt : index === count - 2 ? "invalid-date" : null,
                         ...(index === count ? { source_type: "project_card" } : index === count + 1 ? { source_type: "project_wiki" } : {}),
                     })),
                     columns: [{ uid: `${uid}-column`, project_uid: uid, name: `${uid} column`, order: 0, created_at: now, updated_at: now }],
@@ -93,6 +95,17 @@ test("Changes rail counts all native unread cards and follows model, board and i
     const sidebar = page.getByRole("region", { name: "Changes", exact: true }).last();
     await expect(sidebar.getByRole("button").filter({ hasText: "left card" })).toHaveCount(50);
     await expect(sidebar.getByText("Showing the first 50 unread cards.", { exact: true })).toBeVisible();
+    const changedRow = sidebar.getByRole("button").filter({ hasText: "left card 54" });
+    await expect(changedRow.locator("time")).toHaveAttribute("datetime", changedAt);
+    await expect(changedRow.locator("time")).toContainText("minutes ago");
+    await expect(sidebar.locator("time")).toHaveCount(1);
+    const revisedAt = new Date(Date.now() - 300_000).toISOString();
+    await page.evaluate(async (at) => {
+        const path = "/src/core/models/index.ts";
+        const { ProjectCard } = await import(/* @vite-ignore */ path);
+        ProjectCard.Model.fromOne({ uid: "left-54", created_at: new Date(), updated_at: new Date(), last_change_at: new Date(at) });
+    }, revisedAt);
+    await expect(changedRow.locator("time")).toHaveAttribute("datetime", revisedAt);
     await page.evaluate(async () => {
         const path = "/src/core/models/index.ts";
         const { ProjectCard } = await import(/* @vite-ignore */ path);
