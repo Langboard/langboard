@@ -1,4 +1,5 @@
-from fastapi import File, Request, UploadFile, status
+from typing import Annotated
+from fastapi import File, Form, Request, UploadFile, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -13,7 +14,7 @@ from langboard_shared.core.routing import (
 )
 from langboard_shared.core.routing.Exception import MissingException
 from langboard_shared.core.schema import OpenApiSchema
-from langboard_shared.core.storage import Storage, StorageName
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import CardAttachment, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
@@ -27,15 +28,21 @@ from .forms.Attachment import ProcessAttachmentDocumentForm
 @AppRouter.api.post(
     "/board/{project_uid}/card/{card_uid}/attachment",
     tags=["Board.Card.Attachment"],
-    responses=(
-        OpenApiSchema()
-        .suc((CardAttachment, {"schema": {"user": User}}), 201)
-        .auth()
-        .forbidden()
-        .err(404, ApiErrorCode.NF2003)
-        .err(500, ApiErrorCode.OP1002)
-        .get()
-    ),
+    responses={
+        **(
+            OpenApiSchema()
+            .suc((CardAttachment, {"schema": {"user": User}}), 201)
+            .auth()
+            .forbidden()
+            .err(404, ApiErrorCode.NF2003)
+            .err(500, ApiErrorCode.OP1002)
+            .get()
+        ),
+        200: {"description": "Attachment replaced, request replayed, or upload cancelled."},
+        409: {
+            "description": "Duplicate choice required; response includes current conflicts, request_uid, and confirmation_token."
+        },
+    },
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add("user")
@@ -46,23 +53,43 @@ def upload_card_attachment(
     attachment: UploadFile = File(),
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
+    duplicate_action: Annotated[str | None, Form(max_length=7)] = None,
+    confirmation_token: Annotated[str | None, Form(max_length=64)] = None,
+    replacement_uid: Annotated[str | None, Form(max_length=64)] = None,
+    request_uid: Annotated[str | None, Form(max_length=36)] = None,
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user, service)
     if not attachment:
         raise MissingException("body", "attachment")
 
-    file_model = Storage.upload(attachment, StorageName.CardAttachment)
-    if not file_model:
-        raise ApiException.InternalServerError_500(ApiErrorCode.OP1002)
-
-    result = service.card_attachment.create(user, project_uid, card_uid, file_model)
-    if not result:
+    try:
+        result = service.card_attachment.upload(
+            user,
+            project_uid,
+            card_uid,
+            attachment,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            duplicate_action=duplicate_action,
+            confirmation_token=confirmation_token,
+            replacement_uid=replacement_uid,
+            request_uid=request_uid,
+        )
+    except PermissionError:
+        raise ApiException.Forbidden_403(ApiErrorCode.PE2002) from None
+    except ValueError as error:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000, str(error)) from None
+    except RuntimeError:
+        raise ApiException.InternalServerError_500(ApiErrorCode.OP1002) from None
+    if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
-
-    return JsonResponse(
-        content={**result.api_response(), "user": user.api_response()},
-        status_code=status.HTTP_201_CREATED,
+    response_status = (
+        status.HTTP_409_CONFLICT
+        if result.get("confirmation_required")
+        else status.HTTP_200_OK
+        if result.get("cancelled") or result.get("replayed") or duplicate_action == "replace"
+        else status.HTTP_201_CREATED
     )
+    return JsonResponse(content=result, status_code=response_status)
 
 
 @AppRouter.api.put(
@@ -197,9 +224,13 @@ def process_card_attachment_document(
     require_card_child(card, CardAttachment, attachment_uid)
     try:
         if form.mode == "keyword":
-            result = service.card_attachment.request_document_keyword_index(project_uid, card_uid, attachment_uid, user=user)
+            result = service.card_attachment.request_document_keyword_index(
+                project_uid, card_uid, attachment_uid, user=user
+            )
         elif form.mode == "embedding":
-            result = service.card_attachment.request_document_embedding(project_uid, card_uid, attachment_uid, user=user)
+            result = service.card_attachment.request_document_embedding(
+                project_uid, card_uid, attachment_uid, user=user
+            )
         else:
             result = service.card_attachment.request_document_processing(
                 project_uid, card_uid, attachment_uid, user=user, reprocess=form.reprocess

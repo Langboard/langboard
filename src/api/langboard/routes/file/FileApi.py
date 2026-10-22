@@ -39,11 +39,16 @@ def get_file(request: Request, storage_type: str = Path(), storage_name: str = P
         source = _readable_attachment(service, actor, request, backend, storage_name, filename)
         if source is None:
             raise ApiException.NotFound_404()
-    media_type, _ = guess_type(filename)
+    media_type, _ = guess_type(source.filename if source is not None and storage_name == StorageName.CardAttachment.value else filename)
 
     file = SpooledTemporaryFile(max_size=_DOWNLOAD_SPOOL_MEMORY_LIMIT, mode="w+b")
     try:
-        if not Storage.download(storage_type, storage_name, filename, file):
+        downloaded = (
+            Storage.download_file(source.file, file)
+            if source is not None and storage_name == StorageName.CardAttachment.value
+            else Storage.download(storage_type, storage_name, filename, file)
+        )
+        if not downloaded:
             raise ApiException.NotFound_404()
         if protected:
             latest = _readable_attachment(service, actor, request, backend, storage_name, filename)
