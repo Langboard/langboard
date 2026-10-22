@@ -341,7 +341,7 @@ def configure_document_search(monkeypatch, endpoint):
         monkeypatch.setenv(name, value)
 
 
-def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, monkeypatch):
+def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(document_board, endpoint, monkeypatch):
     configure_document_search(monkeypatch, endpoint)
     _, _, calls, state = endpoint
     board, card, attachment = (SnowflakeID(value).to_short_code() for value in (10, 101, 201))
@@ -563,7 +563,13 @@ def keyword_job(uid):
 def activate_keyword_source(source, text="Current derived text"):
     service, card, attachment, document, _ = source
     assert service.docling_metadata.mark_document_indexed(
-        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": text}, generation=document["generation"]
+        CardMetadata,
+        card,
+        attachment.get_uid(),
+        "pdf",
+        content_hash=service.docling_metadata.get_content_hash(b"Keyword fixture source document"),
+        content={"markdown": text},
+        generation=document["generation"],
     )
     return keyword_job(document["keyword_index_job_uid"])
 
@@ -671,6 +677,7 @@ def test_global_keyword_enable_does_not_authorize_an_existing_upload(document_bo
         card,
         attachment.get_uid(),
         "pdf",
+        content_hash=service.docling_metadata.get_content_hash(b"Existing upload source document"),
         content={"markdown": "Existing upload"},
         generation=document["generation"],
     )
@@ -880,6 +887,7 @@ if __name__ == "__main__":
                 card,
                 job.attachment_id.to_short_code(),
                 "pdf",
+                content_hash=service.docling_metadata.get_content_hash(b"Native broker source document"),
                 content={"markdown": "Native broker transcription"},
                 generation=job.source_generation,
             )

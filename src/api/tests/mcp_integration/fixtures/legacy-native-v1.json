@@ -3032,6 +3032,8 @@
             },
             "limit": {
               "default": 20,
+              "maximum": 25,
+              "minimum": 1,
               "type": "integer"
             },
             "project_uid": {
@@ -5121,7 +5123,7 @@
       }
     ]
   },
-  "contract_sha256": "c527f495f20d159d9b025e73b58d9c3ed28d3f4a9726c803e7513df3f4d0f716",
+  "contract_sha256": "a1c059c96b4fa69d03cc1a2f34539408765c31237377d8a56dcafcdd64d801d7",
   "fastmcp_version": "4.0.0b3",
   "format_version": 1,
   "scope": "Portable legacy tool registration contract; no deployment identities or tool-group configuration."

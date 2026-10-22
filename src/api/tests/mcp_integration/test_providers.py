@@ -125,8 +125,12 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
         for name, bounds in READ_PAGE_BOUNDS.items():
             for parameter, maximum in bounds.items():
                 schema = modern[name]["properties"][parameter]
-                assert schema.pop("minimum") == 1
-                assert schema.pop("maximum") == maximum
+                assert schema["minimum"] == 1
+                assert schema["maximum"] == maximum
+                legacy = catalogs["compatibility"][name]["properties"][parameter]
+                for key in ("minimum", "maximum"):
+                    if key not in legacy:
+                        schema.pop(key)
         assert modern == catalogs["compatibility"]
     finally:
         mcp_auth_context.reset(token)

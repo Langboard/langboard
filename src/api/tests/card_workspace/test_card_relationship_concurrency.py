@@ -9,8 +9,8 @@ from threading import Barrier
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
+from sqlalchemy import Column, MetaData, Table, create_engine, select, table, text
 from sqlalchemy import column as sa_column
-from sqlalchemy import create_engine, select, table, text
 
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
@@ -47,7 +47,25 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
     engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
     try:
         with engine.begin() as connection:
-            connection.execute(text("CREATE TABLE project (id bigint PRIMARY KEY)"))
+            # Direct relationship writes lock and reload the complete project.
+            # Use model columns while keeping this graph fixture independent of
+            # unrelated user/organization tables and their foreign keys.
+            project_table = Table(
+                "project",
+                MetaData(),
+                *(
+                    Column(
+                        c.name,
+                        c.type,
+                        nullable=c.nullable,
+                        primary_key=c.primary_key,
+                        default=c.default,
+                        server_default=c.server_default,
+                    )
+                    for c in Project.__table__.columns
+                ),
+            )
+            project_table.create(connection)
             connection.execute(text("CREATE TABLE card (id bigint PRIMARY KEY, project_id bigint NOT NULL)"))
             connection.execute(
                 text(
@@ -56,7 +74,7 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
                     "relationship_type_id bigint NOT NULL)"
                 )
             )
-            connection.execute(text("INSERT INTO project VALUES (1)"))
+            connection.execute(project_table.insert().values(id=1, owner_id=1, title="Graph proof", project_type="Other", archive_visible_days=3))
             connection.execute(text("INSERT INTO card VALUES (10, 1), (20, 1), (30, 1)"))
 
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -107,6 +125,22 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
                             relationship.c.relationship_type_id,
                         )
                     ).all()
+
+            def get_all_by_project(self, project):
+                rows = self.get_graph_snapshot(project)
+                types = self.get_global_relationship_types_map({SnowflakeID(row[3]) for row in rows})
+                return [
+                    (
+                        CardRelationship.model_construct(
+                            id=SnowflakeID(edge_id),
+                            card_id_parent=SnowflakeID(parent),
+                            card_id_child=SnowflakeID(child),
+                            relationship_type_id=SnowflakeID(type_id),
+                        ),
+                        types[SnowflakeID(type_id)],
+                    )
+                    for edge_id, parent, child, type_id in rows
+                ]
 
             def get_global_relationship_types_map(self, _ids):
                 return {
@@ -228,7 +262,7 @@ def test_concurrent_graph_patches_reject_cycle_or_duplicate(graph_service, reque
         start.wait()
         return service.apply_graph_patch(
             User.model_construct(id=1),
-            "project",
+            SnowflakeID(1).to_short_code(),
             "anchor",
             [],
             [(cards[edge[0]].get_uid(), cards[edge[1]].get_uid(), SnowflakeID(1).to_short_code())],
@@ -260,7 +294,7 @@ def test_concurrent_additive_patches_preserve_both_edges(graph_service) -> None:
         start.wait()
         return service.apply_graph_patch(
             User.model_construct(id=1),
-            "project",
+            SnowflakeID(1).to_short_code(),
             "anchor",
             [],
             [(cards[10].get_uid(), cards[child_id].get_uid(), SnowflakeID(1).to_short_code())],
@@ -292,7 +326,7 @@ def test_nonblocking_path_does_not_reject_blocking_back_edge(graph_service, sema
         )
     assert service.apply_graph_patch(
         User.model_construct(id=1),
-        "project",
+        SnowflakeID(1).to_short_code(),
         "anchor",
         [],
         [(cards[30].get_uid(), cards[10].get_uid(), SnowflakeID(1).to_short_code())],
@@ -308,9 +342,21 @@ def test_reciprocal_nonblocking_edges_survive_both_write_paths(graph_service, ty
     service, cards, engine = graph_service
     uid = SnowflakeID(type_id).to_short_code()
     service.apply_graph_patch(
-        User.model_construct(id=1), "project", "anchor", [], [(cards[10].get_uid(), cards[20].get_uid(), uid)], [], dispatch_effects=False
+        User.model_construct(id=1),
+        SnowflakeID(1).to_short_code(),
+        "anchor",
+        [],
+        [(cards[10].get_uid(), cards[20].get_uid(), uid)],
+        [],
+        dispatch_effects=False,
     )
-    service.update(User.model_construct(id=1), "project", cards[20].get_uid(), False, [(cards[10].get_uid(), uid)])
+    service.update(
+        User.model_construct(id=1),
+        SnowflakeID(1).to_short_code(),
+        cards[20].get_uid(),
+        False,
+        [(cards[10].get_uid(), uid)],
+    )
     with engine.connect() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM card_relationship")).scalar_one() == 2
 
@@ -326,7 +372,11 @@ def test_direct_replacement_rejects_three_hop_cycle_without_deleting_old_edge(gr
         )
     with pytest.raises(ValueError, match="blocks cycle"):
         service.update(
-            User.model_construct(id=1), "project", cards[30].get_uid(), False, [(cards[10].get_uid(), SnowflakeID(1).to_short_code())]
+            User.model_construct(id=1),
+            SnowflakeID(1).to_short_code(),
+            cards[30].get_uid(),
+            False,
+            [(cards[10].get_uid(), SnowflakeID(1).to_short_code())],
         )
     with engine.connect() as connection:
         assert (
@@ -346,7 +396,7 @@ def test_direct_and_graph_writers_serialize_block_cycle_validation(graph_service
         start.wait()
         return service.apply_graph_patch(
             User.model_construct(id=1),
-            "project",
+            SnowflakeID(1).to_short_code(),
             "anchor",
             [],
             [(cards[10].get_uid(), cards[20].get_uid(), uid)],
@@ -356,7 +406,13 @@ def test_direct_and_graph_writers_serialize_block_cycle_validation(graph_service
 
     def direct():
         start.wait()
-        return service.update(User.model_construct(id=1), "project", cards[20].get_uid(), False, [(cards[10].get_uid(), uid)])
+        return service.update(
+            User.model_construct(id=1),
+            SnowflakeID(1).to_short_code(),
+            cards[20].get_uid(),
+            False,
+            [(cards[10].get_uid(), uid)],
+        )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(graph), executor.submit(direct)]
@@ -382,7 +438,7 @@ def test_graph_removal_is_applied_before_block_cycle_validation(graph_service):
         )
     assert service.apply_graph_patch(
         User.model_construct(id=1),
-        "project",
+        SnowflakeID(1).to_short_code(),
         "anchor",
         [],
         [(cards[30].get_uid(), cards[10].get_uid(), SnowflakeID(1).to_short_code())],
@@ -396,21 +452,38 @@ def test_graph_removal_is_applied_before_block_cycle_validation(graph_service):
 def test_direct_edit_preserves_unchanged_relationship_identity(graph_service):
     service, cards, engine = graph_service
     with engine.begin() as connection:
-        original_id = connection.execute(text(
-            "INSERT INTO card_relationship (card_id_parent, card_id_child, relationship_type_id) "
-            "VALUES (10, 20, 2) RETURNING id"
-        )).scalar_one()
-    service.update(User.model_construct(id=1), "project", cards[10].get_uid(), False, [
-        (cards[20].get_uid(), SnowflakeID(2).to_short_code()),
-        (cards[30].get_uid(), SnowflakeID(3).to_short_code()),
-    ])
+        original_id = connection.execute(
+            text(
+                "INSERT INTO card_relationship (card_id_parent, card_id_child, relationship_type_id) "
+                "VALUES (10, 20, 2) RETURNING id"
+            )
+        ).scalar_one()
+    service.update(
+        User.model_construct(id=1),
+        SnowflakeID(1).to_short_code(),
+        cards[10].get_uid(),
+        False,
+        [
+            (cards[20].get_uid(), SnowflakeID(2).to_short_code()),
+            (cards[30].get_uid(), SnowflakeID(3).to_short_code()),
+        ],
+    )
     with engine.connect() as connection:
-        assert connection.execute(text(
-            "SELECT id FROM card_relationship WHERE card_id_parent=10 AND card_id_child=20"
-        )).scalar_one() == original_id
+        assert (
+            connection.execute(
+                text("SELECT id FROM card_relationship WHERE card_id_parent=10 AND card_id_child=20")
+            ).scalar_one()
+            == original_id
+        )
         assert connection.execute(text("SELECT count(*) FROM card_relationship")).scalar_one() == 2
-    service.update(User.model_construct(id=1), "project", cards[10].get_uid(), False, [
-        (cards[20].get_uid(), SnowflakeID(2).to_short_code()),
-    ])
+    service.update(
+        User.model_construct(id=1),
+        SnowflakeID(1).to_short_code(),
+        cards[10].get_uid(),
+        False,
+        [
+            (cards[20].get_uid(), SnowflakeID(2).to_short_code()),
+        ],
+    )
     with engine.connect() as connection:
         assert connection.execute(text("SELECT id FROM card_relationship")).scalar_one() == original_id

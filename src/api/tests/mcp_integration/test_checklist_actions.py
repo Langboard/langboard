@@ -105,8 +105,12 @@ async def test_promotion_retains_canonical_update_permission(monkeypatch):
 
     monkeypatch.setattr(McpServer, "_validate_auth", lambda *args: True)
     monkeypatch.setattr(McpServer, "_validate_role", check_role)
+    from langboard.mcp_integration import Dependencies
+
+    resource_factory = Dependencies._factory_dependency
     monkeypatch.setattr(
-        McpServer, "_inject_kwargs", lambda *args: pytest.fail("Denied command must not create services")
+        Dependencies, "_factory_dependency",
+        lambda factory: resource_factory(lambda: pytest.fail("Denied command must not create services")),
     )
     token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture-user"})
     try:
