@@ -14,6 +14,7 @@ from langboard_shared.domain.models import (
     CardAttachment,
     Project,
     ProjectAssignedUser,
+    ProjectAttachment,
     ProjectRole,
     ProjectWiki,
     ProjectWikiAssignedUser,
@@ -21,6 +22,7 @@ from langboard_shared.domain.models import (
     User,
 )
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService
+from langboard_shared.domain.services.factory.ProjectAttachmentService import ProjectAttachmentService
 from langboard_shared.domain.services.factory.ProjectWikiService import ProjectWikiService
 from sqlalchemy import delete, update
 
@@ -32,7 +34,7 @@ pytestmark = pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-t
 def cloud(current_card):
     actor, project, card, card_service = current_card
     engine = DbEngine.get_main_engine()
-    for model in (CardAttachment, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment):
+    for model in (CardAttachment, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, ProjectAttachment):
         model.__table__.create(engine)
     with DbSession.use(readonly=False) as db:
         other = User(
@@ -105,6 +107,7 @@ def cloud(current_card):
     service = SimpleNamespace(
         card=card_service,
         card_attachment=CardAttachmentService(lambda _: None, lambda _: None, SimpleNamespace()),
+        project_attachment=ProjectAttachmentService(lambda _: None, lambda _: None, SimpleNamespace()),
         project_wiki=ProjectWikiService(lambda _: None, lambda _: None, SimpleNamespace()),
     )
     return SimpleNamespace(**locals())

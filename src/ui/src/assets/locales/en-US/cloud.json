@@ -10,7 +10,7 @@
   "Inbox": "Inbox",
   "Documents": "Documents",
   "Media": "Media",
-  "Read only attachments": "Uploaded card and wiki attachments. Folders are automatic views. Upload and replacement are unavailable here.",
+  "Read only attachments": "Project files and readable card and wiki attachments. Upload to Inbox or the selected default folder. Card and wiki replacements remain in their source.",
   "Folders": "Folders",
   "All folders": "All folders",
   "Loaded files": "{{count}} loaded files",
@@ -30,5 +30,10 @@
   "Loaded links": "{{count}} loaded links",
   "No links in loaded pages": "No links in the scanned sources. Continue loading to check more.",
   "No links": "No links in the scanned sources.",
-  "Source scan limitations": "{{count}} sources exceed the scan budget (1,000,000 content characters or 8 MiB of encoded storage). Their links are not included. Open the source to inspect them."
+  "Source scan limitations": "{{count}} sources exceed the scan budget (1,000,000 content characters or 8 MiB of encoded storage). Their links are not included. Open the source to inspect them.",
+  "Upload": "Upload",
+  "Upload files": "Upload files",
+  "Uploading": "Uploading {{name}}…",
+  "Upload failed": "Could not confirm upload of {{name}}. Retry sends the same file and decision. Cancel stops the remaining queue.",
+  "Retry upload": "Retry upload"
 }

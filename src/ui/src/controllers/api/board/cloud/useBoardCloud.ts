@@ -6,6 +6,7 @@ export type CloudView = "all" | "recent" | "files" | "media" | "links";
 export interface CloudItem {
     id: string;
     attachment_uid?: string;
+    can_replace?: boolean;
     name: string;
     url: string;
     media_type: string;
@@ -13,7 +14,15 @@ export interface CloudItem {
     folder_id: string;
     created_at: string;
     updated_at: string;
-    source: { project_uid: string; card_uid?: string; wiki_uid?: string; title: string; board_url: string; url: string };
+    source: {
+        kind?: "project" | "card" | "wiki";
+        project_uid: string;
+        card_uid?: string;
+        wiki_uid?: string;
+        title: string;
+        board_url: string;
+        url: string;
+    };
 }
 export interface CloudPage {
     items: CloudItem[];

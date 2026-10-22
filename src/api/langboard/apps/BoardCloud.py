@@ -13,6 +13,7 @@ from langboard_shared.domain.models import (
     Card,
     CardAttachment,
     ProjectAssignedUser,
+    ProjectAttachment,
     ProjectRole,
     ProjectWiki,
     ProjectWikiAssignedUser,
@@ -54,10 +55,16 @@ def _item(attachment, project, source, source_type):
         if PurePath(filename).suffix.lower() in _DOCUMENT_EXTENSIONS
         else "inbox"
     )
+    if source_type == "project":
+        folder = attachment.folder_id
     project_uid, source_uid = project.get_uid(), source.get_uid()
     board_url = f"/board/{project_uid}"
-    source_url = f"{board_url}/{source_uid}" if source_type == "card" else f"{board_url}/wiki/{source_uid}"
-    return {
+    source_url = (
+        board_url if source_type == "project"
+        else f"{board_url}/{source_uid}" if source_type == "card"
+        else f"{board_url}/wiki/{source_uid}"
+    )
+    item = {
         "id": f"{source_type}_attachment:{attachment.get_uid()}",
         "attachment_uid": attachment.get_uid(),
         "name": filename,
@@ -69,12 +76,14 @@ def _item(attachment, project, source, source_type):
         "updated_at": attachment.updated_at.isoformat(),
         "source": {
             "project_uid": project_uid,
-            f"{source_type}_uid": source_uid,
+            **({f"{source_type}_uid": source_uid} if source_type != "project" else {"kind": "project"}),
             "title": source.title,
             "board_url": board_url,
             "url": source_url,
         },
     }
+
+    return item
 
 
 _CURSOR_TTL = 3600
@@ -83,7 +92,7 @@ _SCAN_LIMIT = 500
 
 
 def _cursor_scope(actor, project, channel, view):
-    return ["board-cloud:1", str(actor.id), str(project.id), channel.value, view]
+    return ["board-cloud:2", str(actor.id), str(project.id), channel.value, view]
 
 
 def _decode_cursor(cursor, scope):
@@ -94,7 +103,7 @@ def _decode_cursor(cursor, scope):
         if data["scope"] != scope or not 0 <= time() - data["issued"] <= _CURSOR_TTL:
             raise ValueError("Invalid cursor scope or expiry")
         stamp, kind, attachment_id = data["after"]
-        if kind not in {"card", "wiki"} or not isinstance(attachment_id, int):
+        if kind not in {"card", "wiki", "project"} or not isinstance(attachment_id, int):
             raise ValueError("Invalid candidate")
         if not isinstance(data["remaining"], int) or not 0 <= data["remaining"] <= 20:
             raise ValueError("Invalid recent allowance")
@@ -107,7 +116,7 @@ def _decode_cursor(cursor, scope):
 
 
 def _candidates(project, context, actor, after, count):
-    """Fetch two bounded streams; SQL applies native source visibility first."""
+    """Fetch three bounded streams; SQL applies native source visibility first."""
     assigned = (
         select(ProjectWikiAssignedUser.id)
         .join(ProjectAssignedUser, ProjectAssignedUser.id == ProjectWikiAssignedUser.project_assigned_id)
@@ -159,6 +168,22 @@ def _candidates(project, context, actor, after, count):
                 )
             rows = db.exec(query.order_by(attachment.created_at.desc(), attachment.id.desc()).limit(count)).all()
             streams.extend((row[0], row[1], kind) for row in rows)
+        query = SqlBuilder.select.table(ProjectAttachment).where(ProjectAttachment.project_id == project.id)
+        if after is not None:
+            stamp, last_kind, last_id = after
+            query = query.where(
+                or_(
+                    ProjectAttachment.created_at < stamp,
+                    and_(
+                        ProjectAttachment.created_at == stamp,
+                        or_("project" < last_kind, and_("project" == last_kind, ProjectAttachment.id < last_id)),
+                    ),
+                )
+            )
+        attachments = db.exec(
+            query.order_by(ProjectAttachment.created_at.desc(), ProjectAttachment.id.desc()).limit(count)
+        ).all()
+        streams.extend((attachment, project, "project") for attachment in attachments)
     return sorted(streams, key=lambda row: (row[0].created_at, row[2], int(row[0].id)), reverse=True)[:count]
 
 
@@ -193,8 +218,8 @@ def read_board_cloud(
     """Bounded traversal over native attachments, with current exact authorization.
 
     Recent means the first 20 visible files in immutable creation order. Counts
-    remain unknown. Empty filtered pages may carry a continuation. UI, uploads,
-    replacement and persisted folders remain unavailable; all/recent contain attachments only.
+    remain unknown. Empty filtered pages may carry a continuation. Native project
+    assets retain persisted folders; all/recent contain attachments only.
     """
     if view not in {"all", "recent", "files", "media", "links"}:
         raise ValueError("Unsupported cloud view")
@@ -229,6 +254,25 @@ def read_board_cloud(
                 if readable is None or readable[1].is_linked_resource:
                     continue
                 source = readable[1]
+            elif kind == "project":
+                if file.storage_name != StorageName.ProjectAttachment.value:
+                    continue
+                owner = service.project_attachment.resolve_readable_file(
+                    current_actor, file.storage_type, file.storage_name, file.filename
+                )
+                if owner is None or owner.id != attachment.id or owner.project_id != project.id or owner.file != file:
+                    continue
+                with DbSession.use(readonly=False) as db:
+                    owner = db.exec(
+                        SqlBuilder.select.table(ProjectAttachment).where(ProjectAttachment.id == owner.id)
+                        .execution_options(populate_existing=True)
+                    ).first()
+                if (
+                    owner is None or owner.project_id != project.id or owner.file != file
+                    or not service.project_attachment.can_upload(current_actor, project)
+                ):
+                    continue
+                source = project
             else:
                 if file.storage_name != StorageName.Wiki.value:
                     continue
@@ -249,6 +293,8 @@ def read_board_cloud(
                 if source is None or source.project_id != project.id:
                     continue
             item = _item(owner, project, source, kind)
+            if kind == "project":
+                item["can_replace"] = service.project_attachment.can_replace(current_actor, project, owner)
             if view in {"files", "media"} and item["kind"] != ("media" if view == "media" else "file"):
                 continue
             items.append(item)
@@ -285,8 +331,8 @@ def read_board_cloud(
         "next_cursor": next_cursor,
         "capabilities": {
             "hyperlinks": False,
-            "upload": False,
-            "replace": False,
+            "upload": service.project_attachment.can_upload(current_actor, project),
+            "replace": True,
             "links_view": True,
             "all_recent": "attachments_only",
         },

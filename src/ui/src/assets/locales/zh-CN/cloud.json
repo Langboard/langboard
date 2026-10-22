@@ -10,7 +10,7 @@
   "Inbox": "Inbox",
   "Documents": "Documents",
   "Media": "Media",
-  "Read only attachments": "Uploaded card and wiki attachments. Folders are automatic views. Upload and replacement are unavailable here.",
+  "Read only attachments": "项目文件及可读的卡片和 Wiki 附件。上传至收件箱或选中的默认文件夹。卡片和 Wiki 附件仍在来源处替换。",
   "Folders": "Folders",
   "All folders": "All folders",
   "Loaded files": "{{count}} loaded files",
@@ -30,5 +30,10 @@
   "Loaded links": "已加载 {{count}} 个链接",
   "No links in loaded pages": "已检查的来源中没有链接。可继续加载以查看更多。",
   "No links": "已检查的来源中没有链接。",
-  "Source scan limitations": "{{count}} 个来源超过扫描上限（正文1,000,000字符或编码存储数据8 MiB）。其链接未被包含，请打开来源查看。"
+  "Source scan limitations": "{{count}} 个来源超过扫描上限（正文1,000,000字符或编码存储数据8 MiB）。其链接未被包含，请打开来源查看。",
+  "Upload": "上传",
+  "Upload files": "上传文件",
+  "Uploading": "正在上传 {{name}}…",
+  "Upload failed": "无法确认 {{name}} 的上传结果。重试将发送相同文件和选择。取消将停止剩余队列。",
+  "Retry upload": "重试上传"
 }

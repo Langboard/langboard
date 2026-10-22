@@ -26,6 +26,7 @@ from .NotificationService import NotificationService
 from .OllamaModelPullService import OllamaModelPullService
 from .OrchestrationTaskService import OrchestrationTaskService
 from .OrganizationService import OrganizationService
+from .ProjectAttachmentService import ProjectAttachmentService
 from .ProjectColumnService import ProjectColumnService
 from .ProjectEmailNotificationService import ProjectEmailNotificationService
 from .ProjectInvitationService import ProjectInvitationService
@@ -73,6 +74,7 @@ __all__ = [
     "OrchestrationTaskService",
     "OrganizationService",
     "SecretReferenceService",
+    "ProjectAttachmentService",
     "ProjectColumnService",
     "ProjectEmailNotificationService",
     "ProjectInvitationService",

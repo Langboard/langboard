@@ -159,6 +159,10 @@ class DomainService(Factory):
         return self._create_or_get_product(factory.CardRelationshipService)
 
     @property
+    def project_attachment(self):
+        return self._create_or_get_product(factory.ProjectAttachmentService)
+
+    @property
     def card_attachment(self):
         return self._create_or_get_product(factory.CardAttachmentService)
 

@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import CloudUpload from "./CloudUpload";
+import useAuthStore from "@/core/stores/AuthStore";
 import { Tree } from "react-arborist";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -22,6 +24,8 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     const [folder, setFolder] = useState<string>();
     const [preview, setPreview] = useState<CloudItem>();
     const query = useBoardCloud(projectUID, category);
+    const actor = useAuthStore((state) => state.currentUser?.uid);
+    const identity = useAuthStore((state) => state.getIdentityVersion());
     // A failed authorization refresh must not leave previously visible files on screen.
     const items = useMemo(() => {
         if (query.isError) return [];
@@ -40,7 +44,11 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     };
     const openSource = (item: Pick<CloudItem, "source">) =>
         navigate(
-            item.source.card_uid ? ROUTES.BOARD.CARD(projectUID, item.source.card_uid) : ROUTES.BOARD.WIKI_PAGE(projectUID, item.source.wiki_uid!)
+            item.source.kind === "project"
+                ? ROUTES.BOARD.CLOUD(projectUID)
+                : item.source.card_uid
+                  ? ROUTES.BOARD.CARD(projectUID, item.source.card_uid)
+                  : ROUTES.BOARD.WIKI_PAGE(projectUID, item.source.wiki_uid!)
         );
     return (
         <section aria-label={t("cloud.Cloud")} data-workbench-context="" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -69,6 +77,12 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                     </Button>
                 ))}
             </div>
+            <CloudUpload
+                key={`${projectUID}:${actor}:${identity}`}
+                projectUID={projectUID}
+                folder={folder === "documents" || folder === "media" ? folder : "inbox"}
+                enabled={!query.isError && query.data?.pages[0]?.capabilities.upload === true}
+            />
             <p className="shrink-0 px-3 py-2 text-xs text-muted-foreground">
                 {t(category === "links" ? "cloud.Read only links" : "cloud.Read only attachments")}
             </p>

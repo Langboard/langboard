@@ -91,6 +91,8 @@ from .ProjectActivity import ProjectActivity
 from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from .ProjectAssignedUser import ProjectAssignedUser
+from .ProjectAttachment import ProjectAttachment
+from .ProjectAttachmentUploadReceipt import ProjectAttachmentUploadReceipt
 from .ProjectBotDefaultScope import ProjectBotDefaultScope
 from .ProjectBotLog import ProjectBotLog
 from .ProjectBotSchedule import ProjectBotSchedule
@@ -237,6 +239,8 @@ __all__ = [
     'ProjectEmailNotificationRecipient',
     'ProjectAssignedInternalBot',
     'ProjectAssignedUser',
+    'ProjectAttachment',
+    'ProjectAttachmentUploadReceipt',
     'ProjectBotLog',
     'ProjectBotSchedule',
     'ProjectBotScope',

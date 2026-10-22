@@ -10,7 +10,7 @@
   "Inbox": "수신함",
   "Documents": "문서",
   "Media": "미디어",
-  "Read only attachments": "카드와 위키에 업로드된 첨부 파일입니다. 폴더는 자동 분류 보기이며, 여기서는 업로드와 교체를 지원하지 않습니다.",
+  "Read only attachments": "프로젝트 파일과 읽을 수 있는 카드·위키 첨부 파일입니다. 받은 파일 또는 선택한 기본 폴더에 업로드합니다. 카드·위키 파일 교체는 원본에서 진행합니다.",
   "Folders": "폴더",
   "All folders": "모든 폴더",
   "Loaded files": "불러온 파일 {{count}}개",
@@ -30,5 +30,10 @@
   "Loaded links": "불러온 링크 {{count}}개",
   "No links in loaded pages": "확인한 출처에 링크가 없습니다. 더 불러와 확인할 수 있습니다.",
   "No links": "확인한 출처에 링크가 없습니다.",
-  "Source scan limitations": "출처 {{count}}개가 검사 한도(본문 1,000,000자 또는 인코딩된 저장 데이터 8 MiB)를 초과했습니다. 해당 링크는 포함되지 않았습니다. 출처를 열어 확인하세요."
+  "Source scan limitations": "출처 {{count}}개가 검사 한도(본문 1,000,000자 또는 인코딩된 저장 데이터 8 MiB)를 초과했습니다. 해당 링크는 포함되지 않았습니다. 출처를 열어 확인하세요.",
+  "Upload": "업로드",
+  "Upload files": "파일 업로드",
+  "Uploading": "{{name}} 업로드 중…",
+  "Upload failed": "{{name}} 업로드 결과를 확인하지 못했습니다. 재시도하면 같은 파일과 선택을 전송합니다. 취소하면 남은 대기열을 중단합니다.",
+  "Retry upload": "업로드 재시도"
 }

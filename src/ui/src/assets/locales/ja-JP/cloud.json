@@ -10,7 +10,7 @@
   "Inbox": "Inbox",
   "Documents": "Documents",
   "Media": "Media",
-  "Read only attachments": "Uploaded card and wiki attachments. Folders are automatic views. Upload and replacement are unavailable here.",
+  "Read only attachments": "プロジェクトファイルと閲覧可能なカード・Wiki添付ファイル。受信箱または選択した既定フォルダーにアップロードします。カード・Wikiの置換は元の場所で行います。",
   "Folders": "Folders",
   "All folders": "All folders",
   "Loaded files": "{{count}} loaded files",
@@ -30,5 +30,10 @@
   "Loaded links": "読み込み済みリンク {{count}}件",
   "No links in loaded pages": "確認したソースにリンクはありません。さらに読み込んで確認できます。",
   "No links": "確認したソースにリンクはありません。",
-  "Source scan limitations": "{{count}}件のソースが走査上限（本文1,000,000文字またはエンコード済み保存データ8 MiB）を超えました。該当リンクは含まれません。ソースを開いて確認してください。"
+  "Source scan limitations": "{{count}}件のソースが走査上限（本文1,000,000文字またはエンコード済み保存データ8 MiB）を超えました。該当リンクは含まれません。ソースを開いて確認してください。",
+  "Upload": "アップロード",
+  "Upload files": "ファイルをアップロード",
+  "Uploading": "{{name}} をアップロード中…",
+  "Upload failed": "{{name}} のアップロード結果を確認できませんでした。再試行は同じファイルと選択を送信します。キャンセルは残りのキューを停止します。",
+  "Retry upload": "アップロードを再試行"
 }

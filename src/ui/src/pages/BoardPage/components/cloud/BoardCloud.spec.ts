@@ -12,7 +12,7 @@ const item = (id: string, folder = "documents", board = "cloud-board") => ({
     updated_at: "2026-10-20T10:00:00",
     source: { project_uid: board, card_uid: "source-card", title: "Source card", board_url: `/board/${board}`, url: `/board/${board}/source-card` },
 });
-const response = (items: ReturnType<typeof item>[] = [], next: string | null = null) => ({
+const response = (items: unknown[] = [], next: string | null = null) => ({
     items,
     folders: ["Inbox", "Documents", "Media"].map((name) => ({ id: name.toLowerCase(), name })),
     total: null,
@@ -261,3 +261,292 @@ for (const url of ["javascript:alert(1)", "https://user:secret@external.invalid/
         await expect(page.getByRole("link")).toHaveCount(0);
     });
 }
+
+// All upload tests below exercise native Chrome with mocked HTTP, not authenticated canary evidence.
+const uploadRoute = "**/board/*/cloud/attachment";
+const field = (body: string, name: string) => body.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]+)`))?.[1];
+const parseUpload = (body: string) => ({
+    uid: field(body, "request_uid"),
+    folder: field(body, "folder_id"),
+    action: field(body, "duplicate_action"),
+    token: field(body, "confirmation_token"),
+    target: field(body, "replacement_uid"),
+    filename: body.match(/filename="([^"]+)"/)?.[1],
+});
+const conflictResponse = (uid: string, token = "first-token") => ({
+    confirmation_required: true,
+    confirmation_token: token,
+    request_uid: uid,
+    conflicts: [
+        { uid: "direct-asset", name: "report.pdf", same_name: true, same_content: true, can_replace: true },
+        { uid: "forbidden-asset", name: "protected.pdf", same_name: false, same_content: true, can_replace: false },
+    ],
+});
+const receipt = (upload: ReturnType<typeof parseUpload>, extra = {}) => ({
+    uid: "new-project-asset",
+    request_uid: upload.uid,
+    project_uid: "cloud-board",
+    folder_id: upload.folder,
+    name: upload.filename,
+    url: "/storage/uploaded",
+    created_at: "2026-10-22T10:00:00Z",
+    updated_at: "2026-10-22T10:00:00Z",
+    replayed: false,
+    ...extra,
+});
+async function uploadCatalog(page: import("@playwright/test").Page) {
+    let reads = 0;
+    await page.route("**/board/*/cloud?**", (route) => {
+        reads++;
+        return route.fulfill({ json: { ...response(), capabilities: { upload: true, replace: true, hyperlinks: true } } });
+    });
+    return () => reads;
+}
+const files = [
+    { name: "report.pdf", mimeType: "application/pdf", buffer: Buffer.from("exact report bytes") },
+    { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second bytes") },
+];
+
+test("serialized multi-file upload uses selected default folder and isolated UUIDs", async ({ page }) => {
+    const reads = await uploadCatalog(page);
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, async (route) => {
+        const upload = parseUpload(route.request().postData()!);
+        calls.push(upload);
+        await route.fulfill({ status: 201, json: receipt(upload) });
+    });
+    await page.goto(fixture);
+    await page.getByRole("button", { name: "Documents", exact: true }).click();
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files);
+    await expect.poll(() => calls.length).toBe(2);
+    expect(calls.map((call) => call.filename)).toEqual(["report.pdf", "second.txt"]);
+    expect(calls.map((call) => call.folder)).toEqual(["documents", "documents"]);
+    expect(calls[0].uid).toMatch(/^[a-f0-9-]{36}$/);
+    expect(calls[1].uid).not.toBe(calls[0].uid);
+    await expect.poll(reads).toBeGreaterThan(1);
+});
+
+test("stale replace requires fresh decision, ambiguous failure replays exact decision and bytes", async ({ page }) => {
+    await uploadCatalog(page);
+    const bodies: string[] = [];
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, async (route) => {
+        const body = route.request().postData()!;
+        bodies.push(body);
+        const upload = parseUpload(body);
+        calls.push(upload);
+        if (calls.length <= 2)
+            return route.fulfill({ status: 409, json: conflictResponse(upload.uid!, calls.length === 1 ? "first-token" : "fresh-token") });
+        if (calls.length === 3) return route.abort("failed");
+        return route.fulfill({ json: receipt(upload, { replayed: true }) });
+    });
+    await page.goto(fixture);
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files[0]);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Replace.*protected/ })).toHaveCount(0);
+    await dialog.getByRole("button", { name: /Replace.*report/ }).click();
+    await expect(dialog).toBeVisible();
+    expect(calls).toHaveLength(2);
+    await dialog.getByRole("button", { name: "Add separate attachment", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Could not confirm upload");
+    await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+    await expect.poll(() => calls.length).toBe(4);
+    expect(calls.map((call) => call.uid)).toEqual(Array(4).fill(calls[0].uid));
+    expect(calls[1]).toMatchObject({ action: "replace", token: "first-token", target: "direct-asset", folder: "inbox" });
+    expect(calls[2]).toEqual(calls[3]);
+    expect(calls[3]).toMatchObject({ action: "add", token: "fresh-token", target: undefined });
+    expect(bodies[2].split("\r\n").filter((line) => !line.startsWith("------WebKitFormBoundary"))).toEqual(
+        bodies[3].split("\r\n").filter((line) => !line.startsWith("------WebKitFormBoundary"))
+    );
+});
+
+test("explicit cancel posts cancellation then proceeds with next file", async ({ page }) => {
+    await uploadCatalog(page);
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, async (route) => {
+        const upload = parseUpload(route.request().postData()!);
+        calls.push(upload);
+        if (calls.length === 1) return route.fulfill({ status: 409, json: conflictResponse(upload.uid!) });
+        return route.fulfill({ json: upload.action === "cancel" ? { cancelled: true, request_uid: upload.uid } : receipt(upload) });
+    });
+    await page.goto(fixture);
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files);
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect.poll(() => calls.length).toBe(3);
+    expect(calls[1]).toMatchObject({ uid: calls[0].uid, action: "cancel", token: "first-token" });
+    expect(calls[2].filename).toBe("second.txt");
+});
+
+for (const change of ["Switch actor", "Switch board"]) {
+    test(`${change} dismisses pending decisions without sending stale actions`, async ({ page }) => {
+        await uploadCatalog(page);
+        let calls = 0;
+        await page.route(uploadRoute, (route) => {
+            calls++;
+            const upload = parseUpload(route.request().postData()!);
+            return route.fulfill({ status: 409, json: conflictResponse(upload.uid!) });
+        });
+        await page.goto(fixture);
+        await page.getByLabel("Upload files", { exact: true }).setInputFiles(files);
+        await expect(page.getByRole("dialog")).toBeVisible();
+        // The native modal intentionally traps interaction; change identity through the fixture's native handler.
+        await page.getByRole("button", { name: change, exact: true, includeHidden: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        expect(calls).toBe(1);
+    });
+}
+
+test.describe("mobile upload", () => {
+    test.use({ hasTouch: true, isMobile: true });
+    test("mobile touch upload and Escape cancellation preserve Cloud layout", async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await uploadCatalog(page);
+        const calls: ReturnType<typeof parseUpload>[] = [];
+        await page.route(uploadRoute, (route) => {
+            const upload = parseUpload(route.request().postData()!);
+            calls.push(upload);
+            return route.fulfill({
+                status: upload.action ? 200 : 409,
+                json: upload.action ? { cancelled: true, request_uid: upload.uid } : conflictResponse(upload.uid!),
+            });
+        });
+        await page.goto(fixture);
+        const chooser = page.waitForEvent("filechooser");
+        await page.getByRole("button", { name: "Upload", exact: true }).tap();
+        await (await chooser).setFiles(files[0]);
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect.poll(() => calls.length).toBe(2);
+        expect(calls[1].action).toBe("cancel");
+        await page.getByRole("button", { name: "Grid", exact: true }).click();
+        await expect(page.getByRole("list", { name: "Attachments" })).toHaveAttribute("data-layout", "grid");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+});
+
+test("wrong-project receipt fails closed without invalidation or queue continuation", async ({ page }) => {
+    const reads = await uploadCatalog(page);
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, (route) => {
+        const upload = parseUpload(route.request().postData()!);
+        calls.push(upload);
+        return route.fulfill({ json: receipt(upload, { project_uid: "foreign-board" }) });
+    });
+    await page.goto(fixture);
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
+    const before = reads();
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files);
+    await expect(page.getByRole("alert")).toContainText("Could not confirm upload");
+    expect(calls).toHaveLength(1);
+    expect(reads()).toBe(before);
+    await page.getByRole("alert").getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("failed cancel retries same cancellation, revoked upload never advances the queue", async ({ page }) => {
+    const reads = await uploadCatalog(page);
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, (route) => {
+        const upload = parseUpload(route.request().postData()!);
+        calls.push(upload);
+        if (calls.length === 1) return route.fulfill({ status: 409, json: conflictResponse(upload.uid!) });
+        if (calls.length === 2) return route.fulfill({ status: 503, json: {} });
+        if (upload.action === "cancel") return route.fulfill({ json: { cancelled: true, request_uid: upload.uid, replayed: true } });
+        return route.fulfill({ status: 403, json: {} });
+    });
+    await page.goto(fixture);
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
+    const before = reads();
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files);
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+    await expect.poll(() => calls.length).toBe(4);
+    expect(calls[1]).toEqual(calls[2]);
+    await expect(page.getByRole("alert")).toContainText("second.txt");
+    expect(reads()).toBe(before);
+});
+
+for (const change of ["Switch actor", "Switch board"]) {
+    test(`${change} rejects late upload completion and remaining queue`, async ({ page }) => {
+        await uploadCatalog(page);
+        let release: () => void = () => {};
+        const delayed = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let calls = 0;
+        await page.route(uploadRoute, async (route) => {
+            calls++;
+            const upload = parseUpload(route.request().postData()!);
+            await delayed;
+            await route.fulfill({ status: 201, json: receipt(upload) }).catch(() => {});
+        });
+        await page.goto(fixture);
+        await page.getByLabel("Upload files", { exact: true }).setInputFiles(files);
+        await expect.poll(() => calls).toBe(1);
+        await page.getByRole("button", { name: change, exact: true }).click();
+        release();
+        await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeEnabled();
+        expect(calls).toBe(1);
+        await expect(page.getByRole("alert")).toHaveCount(0);
+    });
+}
+
+test("project source navigates to Cloud without synthetic card or wiki", async ({ page }) => {
+    await page.route("**/board/*/cloud?**", (route) =>
+        route.fulfill({
+            json: response([
+                {
+                    ...item("direct-project"),
+                    source: {
+                        kind: "project",
+                        project_uid: "cloud-board",
+                        title: "Project files",
+                        board_url: "/board/cloud-board",
+                        url: "/board/cloud-board",
+                    },
+                },
+            ]),
+        })
+    );
+    await page.goto(fixture);
+    await page.getByRole("list", { name: "Attachments" }).getByRole("button", { name: "Source: Project files", exact: true }).click();
+    await expect(page.locator("output")).toHaveText("/board/cloud-board/cloud");
+});
+
+test("successful direct replacement preserves target UID and refreshes only Cloud", async ({ page }) => {
+    const reads = await uploadCatalog(page);
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, (route) => {
+        const upload = parseUpload(route.request().postData()!);
+        calls.push(upload);
+        if (!upload.action) return route.fulfill({ status: 409, json: conflictResponse(upload.uid!) });
+        return route.fulfill({ json: receipt(upload, { uid: upload.target }) });
+    });
+    await page.goto(fixture);
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files[0]);
+    await page
+        .getByRole("dialog")
+        .getByRole("button", { name: /Replace.*report/ })
+        .click();
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeEnabled();
+    expect(calls[1]).toMatchObject({ action: "replace", target: "direct-asset", uid: calls[0].uid });
+    await expect.poll(reads).toBeGreaterThan(1);
+});
+
+test("ambiguous initial upload retries identical payload with same UUID", async ({ page }) => {
+    await uploadCatalog(page);
+    const calls: ReturnType<typeof parseUpload>[] = [];
+    await page.route(uploadRoute, (route) => {
+        const upload = parseUpload(route.request().postData()!);
+        calls.push(upload);
+        return calls.length === 1 ? route.abort("failed") : route.fulfill({ json: receipt(upload, { replayed: true }) });
+    });
+    await page.goto(fixture);
+    await page.getByLabel("Upload files", { exact: true }).setInputFiles(files[0]);
+    await page.getByRole("button", { name: "Retry upload", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeEnabled();
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual(calls[1]);
+    expect(calls[1].action).toBeUndefined();
+});
