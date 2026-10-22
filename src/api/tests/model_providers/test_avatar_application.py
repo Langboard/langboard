@@ -27,6 +27,7 @@ from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
     Card,
     CardAssignedProjectLabel,
+    GlobalLabel,
     InternalBot,
     ProjectLabel,
     SettingRole,
@@ -61,7 +62,7 @@ def raster(color="blue"):
 @pytest.fixture
 def avatars(board, monkeypatch, tmp_path):
     engine = DbEngine.get_main_engine()
-    for model in (InternalBot, Card, UserProfile, ProjectLabel, CardAssignedProjectLabel):
+    for model in (InternalBot, Card, UserProfile, GlobalLabel, ProjectLabel, CardAssignedProjectLabel):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "files"))

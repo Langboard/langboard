@@ -70,7 +70,7 @@ class AvatarSummaryService:
                 .distinct().order_by(ProjectColumn.workflow_stage).limit(6)).all()
             labels = []
             if rows:
-                labels = db.exec(SqlBuilder.select.table(ProjectLabel)
+                labels = db.exec(SqlBuilder.select.columns(ProjectLabel.id, ProjectLabel.name)
                     .join(CardAssignedProjectLabel, CardAssignedProjectLabel.project_label_id == ProjectLabel.id)
                     .where(CardAssignedProjectLabel.card_id.in_([card.id for card in rows]),
                            ProjectLabel.project_id == board.id).distinct().order_by(ProjectLabel.id).limit(12)
@@ -93,8 +93,8 @@ class AvatarSummaryService:
             add("stages", "workflow_stage", ", ".join(stages), 120)
         for card in rows:
             add(f"card:{card.id}", "card_title", card.title, 120)
-        for label in labels:
-            add(f"label:{label.id}", "label", label.name, 60)
+        for label_id, label_name in labels:
+            add(f"label:{label_id}", "label", label_name, 60)
         projected = []
         signatures = []
         for profile in profiles:

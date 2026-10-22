@@ -6,6 +6,11 @@ on:
       - .github/workflows/check-model-providers.yaml
       - src/api/langboard/routes/settings/ModelProviderSettingsApi.py
       - src/api/tests/model_providers/**
+      - src/api/langboard/routes/board/BoardAvatarApi.py
+      - src/shared/py/langboard_shared/ai/avatar_summary.py
+      - src/shared/py/langboard_shared/domain/services/factory/AvatarSummaryService.py
+      - src/graph/langboard_graph/routes/AvatarSummaryApi.py
+      - src/graph/tests/test_avatar_summary_draft.py
       - src/graph/langboard_graph/core/graph/default/chat_model.py
       - src/graph/langboard_graph/core/graph/default/tooling.py
   workflow_dispatch:
@@ -22,6 +27,20 @@ jobs:
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: langboard_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d langboard_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         shell: bash
@@ -44,3 +63,8 @@ jobs:
           python-version: "3.12"
       - run: uv sync --frozen --extra image-generation
       - run: uv run --no-sync pytest -q src/api/tests/model_providers
+      - name: Avatar native PostgreSQL and authenticated semantic draft
+        env:
+          PYTHONPATH: src/api:src/shared/py:src/graph
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q src/api/tests/model_providers/test_avatar_application.py src/graph/tests/test_avatar_summary_draft.py
