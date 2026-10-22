@@ -5,7 +5,7 @@ import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { retainProjects, useOpenCards } from "./OpenCardsStore";
-import { recentOpenCards } from "./OpenCardsData";
+import { presentOpenCards } from "./OpenCardsData";
 import RecentCardsSection from "./RecentCardsSection";
 import ExplorerSection, { EXPLORER_SECTION_LIMIT } from "./ExplorerSection";
 import Input from "@/components/base/Input";
@@ -46,12 +46,24 @@ export default function ProjectExplorerSidebar({
     const wikiHintDismissed = useUserSettings("wiki_hint_dismissed");
     const collapsedByUser = useUserSettings("explorer_open_cards_collapsed");
     const [query, setQuery] = useState("");
+    const [searchCollapsed, setSearchCollapsed] = useState(false);
     const savedSectionOrders = useUserSettings("explorer_section_order");
     const storedOrder = userUID ? savedSectionOrders?.[userUID] : undefined;
     const sectionOrder = [...new Set([...(Array.isArray(storedOrder) ? storedOrder : []), ...SECTION_IDS])].filter((id): id is TSectionID =>
         SECTION_IDS.includes(id as TSectionID)
     );
-    const [collapsedSections, setCollapsedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
+    const savedCollapsedSections = useUserSettings("explorer_sections_collapsed");
+    const collapsedSections = userUID ? savedCollapsedSections?.[userUID] : undefined;
+    const toggleSection = (id: Exclude<TSectionID, "cards">) => {
+        if (!userUID) return;
+        const store = getUserSettingsStore();
+        const current = store.settings.explorer_sections_collapsed ?? {};
+        const sections = current[userUID] ?? {};
+        store.updateSettingsByKey("explorer_sections_collapsed", {
+            ...current,
+            [userUID]: { ...sections, [id]: !sections[id] },
+        });
+    };
     const [expandedSections, setExpandedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
     const reorderSection = (from: TSectionID, to: TSectionID) => {
         if (!userUID || from === to) return;
@@ -98,10 +110,10 @@ export default function ProjectExplorerSidebar({
     useEffect(() => {
         setShowOlderCards(false);
         setCollectionDialog(false);
-        setCollapsedSections({});
+        setSearchCollapsed(false);
         setExpandedSections({});
     }, [userUID]);
-    const visibleOpenCards = recentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
+    const visibleOpenCards = presentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
     const projects = useMemo(() => {
         const all = data?.projects ?? [];
         return currentProject && !all.some((project) => project.uid === currentProject.uid) ? [currentProject, ...all] : all;
@@ -130,7 +142,10 @@ export default function ProjectExplorerSidebar({
             <div className="shrink-0 p-2">
                 <Input
                     value={query}
-                    onChange={(event) => setQuery(event.currentTarget.value)}
+                    onChange={(event) => {
+                        setQuery(event.currentTarget.value);
+                        setSearchCollapsed(false);
+                    }}
                     placeholder={t("dashboard.Search projects...")}
                     aria-label={t("dashboard.Search projects")}
                     leftIcon={<IconComponent icon="search" />}
@@ -232,9 +247,9 @@ export default function ProjectExplorerSidebar({
                             key={id}
                             title={group.title}
                             count={group.projects.length + (id === "projects" ? collections.collections.length : 0)}
-                            collapsed={!!collapsedSections[id]}
+                            collapsed={query.trim() ? searchCollapsed : !!collapsedSections?.[id]}
                             expanded={expanded}
-                            onToggle={() => setCollapsedSections((state) => ({ ...state, [id]: !state[id] }))}
+                            onToggle={() => (query.trim() ? setSearchCollapsed((collapsed) => !collapsed) : toggleSection(id))}
                             onExpand={() => setExpandedSections((state) => ({ ...state, [id]: !state[id] }))}
                             headerProps={query.trim() ? undefined : sectionHeaderProps(id)}
                             actions={
