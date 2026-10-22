@@ -54,6 +54,7 @@ from ...models import (
     IdentityProvider,
     InternalBot,
     Project,
+    ProjectActivity,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
@@ -63,6 +64,7 @@ from ...models import (
     WorkflowStageDefinition,
 )
 from ...models.Checkitem import CheckitemStatus
+from ...models.ProjectActivity import ProjectActivityType
 from ...models.ProjectRole import ProjectRoleAction
 from ..AppSignalProjection import card_signal_projections
 from ..CardAppMutation import guard_card_app_mutation, require_card_app_mutation
@@ -399,6 +401,28 @@ class CardService(BaseDomainService):
             owner_user_id=current.owner_user_id,
         ):
             return None
+        return project, current, context
+
+    def resolve_canonical_card(self, requested_project, card, user, channel=CollaborationChannel.Api):
+        """Authorize current location before returning a historical URL redirect."""
+        from ..CardCrossBoardOperations import _grant
+
+        resolved = self.resolve_readable_card(None, card, user, channel)
+        if resolved is None:
+            return None
+        project, current, context = resolved
+        with DbSession.use(readonly=False) as db:
+            if not _grant(db, user, project, ProjectRoleAction.Read):
+                return None
+            if InfraHelper.convert_id(requested_project) != project.id:
+                receipt = db.exec(SqlBuilder.select.table(ProjectActivity).where(
+                    ProjectActivity.card_id == current.id,
+                    ProjectActivity.activity_type == ProjectActivityType.CardMoved,
+                    ProjectActivity.activity_history["source"]["project_uid"].as_string()
+                    == InfraHelper.convert_uid(InfraHelper.convert_id(requested_project)),
+                ).limit(1)).first()
+                if receipt is None:
+                    return None
         return project, current, context
 
     def get_readable_card_project_uids(
@@ -758,31 +782,9 @@ class CardService(BaseDomainService):
             members[card_assigned_user.card_id].append(member.get_uid())
         mark_phase("snapshot_members")
 
-        raw_relationships = self.repo.card_relationship.get_all_by_project(
-            project, archive_visible_since, context=context
+        relationships = self._get_service(CardRelationshipService).get_readable_incident_by_cards(
+            list(visible_cards.values()), context, board_project_id=project.id
         )
-        relationships: dict[int, list[dict[str, Any]]] = {}
-        for relationship, relation_type in raw_relationships:
-            parent = visible_cards.get(relationship.card_id_parent)
-            child = visible_cards.get(relationship.card_id_child)
-            if (
-                parent is None
-                or child is None
-                or not context.can_link_cards(
-                    CardVisibility(parent.visibility),
-                    CardVisibility(child.visibility),
-                    source_owner_user_id=parent.owner_user_id,
-                    target_owner_user_id=child.owner_user_id,
-                )
-            ):
-                continue
-            if relationship.card_id_parent not in relationships:
-                relationships[relationship.card_id_parent] = []
-            if relationship.card_id_child not in relationships:
-                relationships[relationship.card_id_child] = []
-            projection = CardRelationshipService.public_relationship(relationship, relation_type)
-            relationships[relationship.card_id_parent].append(projection)
-            relationships[relationship.card_id_child].append(projection)
         mark_phase("snapshot_relations")
 
         raw_labels = self.repo.project_label.get_all_card_labels_by_project(
@@ -1038,6 +1040,15 @@ class CardService(BaseDomainService):
 
         return clone_card(self, user, source_project, source_card, project, column,
                           request_uid=request_uid, confirmation_token=confirmation_token, channel=channel)
+
+    def move_cross_board_card(
+        self, user, source_project, source_card, project, column,
+        *, request_uid, confirmation_token=None, channel=CollaborationChannel.Api,
+    ):
+        from ..CardMoveOperations import move_card
+
+        return move_card(self, user, source_project, source_card, project, column,
+                         request_uid=request_uid, confirmation_token=confirmation_token, channel=channel)
 
     def create_linked_wiki_card(
         self,

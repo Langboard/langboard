@@ -129,13 +129,13 @@
   "Move only this card": "仅移动此卡片",
   "Move all descendants": "移动所有后代",
   "Cross-board card": "跨看板卡片",
-  "Link a read-only mirror or create an independent clone.": "链接只读镜像或创建独立副本。",
-  "Move is not supported yet.": "暂不支持移动。",
   "Cross-board action failed. Retry or cancel.": "跨看板操作失败。请重试或取消。",
   "Cloning will expose this card to new readers. Continue?": "复制会向新读者公开此卡片。是否继续？",
   "Confirm exposure": "确认扩大可见范围",
   "Link card": "链接卡片",
   "Clone card": "复制卡片",
   "Cross-board action completed.": "跨看板操作已完成。",
-  "Excluded mappings": "已排除的映射"
+  "Excluded mappings": "已排除的映射",
+  "Link a read-only mirror, create an independent clone, or move this card.": "链接只读镜像、创建独立副本，或移动此卡片。",
+  "Moving will expose this card to new readers. Continue?": "移动后，新的读者将能够查看此卡片。是否继续？"
 }

@@ -161,7 +161,6 @@ def get_available_recent_cards(
         .get()
     ),
 )
-@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
 def get_card_details(
     project_uid: str,
@@ -169,12 +168,21 @@ def get_card_details(
     request: Request,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
+    location_only: bool = False,
 ) -> JsonResponse:
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
-    resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, channel)
+    # This route alone accepts a historical project component. Resolve the
+    # current card audience and current native Read grant before revealing where
+    # it lives; the other card routes retain their exact project-scoped gates.
+    resolved = service.card.resolve_canonical_card(project_uid, card_uid, user_or_bot, channel)
     if resolved is None:
-        raise ApiException.NotFound_404(ApiErrorCode.NF2003)
+        error = ApiException.NotFound_404(ApiErrorCode.NF2003)
+        error.headers = {"Cache-Control": "no-store"}
+        raise error
     project, card, context = resolved
+    if location_only or project.get_uid() != project_uid:
+        return JsonResponse(content={"canonical_project_uid": project.get_uid(), "card_uid": card.get_uid()},
+                            headers={"Cache-Control": "no-store"})
     # A bounded additive selector; no selector retains the complete legacy response.
     allowed = {
         "description",

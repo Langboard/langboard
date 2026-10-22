@@ -57,6 +57,21 @@ class CardRelationshipRepository(BaseRepository[CardRelationship]):
             relationships = result.all()
         return relationships
 
+    def get_incident_by_cards(self, cards: Sequence[TCardParam], *, limit: int | None = None, after_id: int = 0):
+        """Read only edges incident to the requested cards, using the primary."""
+        ids = [InfraHelper.convert_id(card) for card in cards]
+        if not ids:
+            return []
+        with DbSession.use(readonly=False) as db:
+            statement = (SqlBuilder.select.tables(CardRelationship, GlobalCardRelationshipType)
+                .join(GlobalCardRelationshipType, CardRelationship.relationship_type_id == GlobalCardRelationshipType.id)
+                .where(CardRelationship.card_id_parent.in_(ids) | CardRelationship.card_id_child.in_(ids))
+                .where(CardRelationship.id > after_id)
+                .order_by(CardRelationship.id))
+            if limit is not None:
+                statement = statement.limit(limit)
+            return db.exec(statement).all()
+
     def get_all_by_project(
         self,
         project: TProjectParam,

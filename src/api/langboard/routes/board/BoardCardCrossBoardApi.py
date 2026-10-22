@@ -1,4 +1,4 @@
-"""Native source-authorized cross-board link and independent clone operations."""
+"""Native source-authorized cross-board link, clone and same-identity move operations."""
 
 from fastapi import Request
 from langboard_shared.core.filter import AuthFilter
@@ -25,7 +25,7 @@ class CrossBoardCardForm(BaseModel):
 @AppRouter.api.post(
     "/board/{project_uid}/card/cross-board",
     tags=["Board.Card"],
-    description="Link a source-authorized card, or independently clone it with current audience consent.",
+    description="Link, independently clone, or move a source-authorized card with current audience consent.",
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
 @AuthFilter.add("user")
@@ -36,13 +36,15 @@ def cross_board_card(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    if form.operation not in {"link", "clone"}:
+    if form.operation not in {"link", "clone", "move"}:
         raise ApiException.BadRequest_400()
-    if form.operation == "clone":
+    if form.operation in {"clone", "move"}:
         if not form.request_uid:
             raise ApiException.BadRequest_400()
         try:
-            result = service.card.clone_cross_board_card(
+            operation = (service.card.move_cross_board_card if form.operation == "move"
+                         else service.card.clone_cross_board_card)
+            result = operation(
                 user,
                 form.source_project_uid,
                 form.source_card_uid,
@@ -58,7 +60,9 @@ def cross_board_card(
             raise ApiException.NotFound_404(ApiErrorCode.NF2003)
         return JsonResponse(
             content=result,
-            status_code=409 if result.get("confirmation_required") else 201 if result["created"] else 200,
+            status_code=409 if result.get("confirmation_required") else (
+                200 if form.operation == "move" else 201 if result["created"] else 200
+            ),
         )
     try:
         result = service.card.link_cross_board_card(

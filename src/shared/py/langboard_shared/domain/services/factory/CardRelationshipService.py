@@ -28,6 +28,28 @@ class CardRelationshipService(BaseDomainService):
         if not card:
             return []
 
+        if context is not None:
+            if limit is not None:
+                if limit <= 0:
+                    return []
+                # Count authorized rows, never raw edges. Keyset batches keep
+                # hidden prefixes from truncating MCP's visible overflow probe.
+                result, after_id = [], 0
+                batch_size = min(limit, 100)
+                while len(result) < limit:
+                    edges = self.repo.card_relationship.get_incident_by_cards([card], limit=batch_size, after_id=after_id)
+                    if not edges:
+                        break
+                    projected = self.get_readable_incident_by_cards([card], context, edges=edges)
+                    result.extend(projected.get(card.id, []))
+                    after_id = edges[-1][0].id
+                    if len(edges) < batch_size:
+                        break
+                return result[:limit]
+            projected = self.get_readable_incident_by_cards([card], context, limit=limit)
+            rows = projected.get(card.id, [])
+            return rows[:limit] if limit is not None else rows
+
         scope = {"context": context} if context is not None else {}
         raw_relationships = self.repo.card_relationship.get_all_by_card(card, limit=limit, **scope)
         relationships = [
@@ -35,6 +57,56 @@ class CardRelationshipService(BaseDomainService):
             for relationship, relationship_type in raw_relationships
         ]
         return relationships
+
+    def get_readable_incident_by_cards(self, cards, context, *, limit=None, board_project_id=None, edges=None):
+        """Project readable endpoints with their current board location in one bounded batch."""
+        from ..CardVisibilityPolicy import CardVisibility
+        from .CardService import CardService
+
+        if context is None or context.actor_user_id is None:
+            return {}
+        if edges is None:
+            edges = self.repo.card_relationship.get_incident_by_cards(cards, limit=limit)
+        endpoint_ids = {identifier for edge, _ in edges for identifier in (edge.card_id_parent, edge.card_id_child)}
+        if not endpoint_ids:
+            return {}
+        with DbSession.use(readonly=False) as db:
+            actor = db.exec(SqlBuilder.select.table(User).where(User.id == context.actor_user_id)).first()
+            endpoints = db.exec(SqlBuilder.select.table(Card).where(
+                Card.id.in_(endpoint_ids), Card.deleted_at.is_(None)).execution_options(populate_existing=True)).all()
+        service = self._get_service(CardService)
+        contexts = service.resolve_work_visibility_contexts(actor, context.channel,
+                                                            project_ids={row.project_id for row in endpoints})
+        with DbSession.use(readonly=False) as db:
+            projects = {row.id: row for row in db.exec(SqlBuilder.select.table(Project).where(
+                Project.id.in_(contexts), Project.deleted_at.is_(None))).all()}
+        visible = {row.id: row for row in endpoints if row.project_id in projects
+                   and contexts[row.project_id].can_read_card(row.visibility, owner_user_id=row.owner_user_id)}
+        local_ids = {InfraHelper.convert_id(card) for card in cards}
+        result = {}
+        for edge, kind in edges:
+            parent, child = visible.get(edge.card_id_parent), visible.get(edge.card_id_child)
+            if parent is None or child is None:
+                continue
+            if board_project_id is not None and any(
+                row.project_id == board_project_id and row.id not in local_ids for row in (parent, child)
+            ):
+                continue
+            # PRIVATE relationships retain the same-owner rule across locations.
+            if CardVisibility.Private in (parent.visibility, child.visibility) and not (
+                parent.visibility == child.visibility == CardVisibility.Private and parent.owner_user_id == child.owner_user_id
+            ):
+                continue
+            payload = self.public_relationship(edge, kind)
+            if parent.project_id != child.project_id:
+                payload["parent_location"] = {"project_uid": projects[parent.project_id].get_uid(),
+                                               "project_title": projects[parent.project_id].title}
+                payload["child_location"] = {"project_uid": projects[child.project_id].get_uid(),
+                                              "project_title": projects[child.project_id].title}
+            for endpoint in (parent.id, child.id):
+                if endpoint in local_ids:
+                    result.setdefault(endpoint, []).append(payload)
+        return result
 
     def get_api_list_by_by_project(self, project: TProjectParam | None) -> list[dict[str, Any]]:
         project = InfraHelper.get_by_id_like(Project, project)

@@ -129,13 +129,13 @@
   "Move only this card": "Move only this card",
   "Move all descendants": "Move all descendants",
   "Cross-board card": "Cross-board card",
-  "Link a read-only mirror or create an independent clone.": "Link a read-only mirror or create an independent clone.",
-  "Move is not supported yet.": "Move is not supported yet.",
   "Cross-board action failed. Retry or cancel.": "Cross-board action failed. Retry or cancel.",
   "Cloning will expose this card to new readers. Continue?": "Cloning will expose this card to new readers. Continue?",
   "Confirm exposure": "Confirm exposure",
   "Link card": "Link card",
   "Clone card": "Clone card",
   "Cross-board action completed.": "Cross-board action completed.",
-  "Excluded mappings": "Excluded mappings"
+  "Excluded mappings": "Excluded mappings",
+  "Link a read-only mirror, create an independent clone, or move this card.": "Link a read-only mirror, create an independent clone, or move this card.",
+  "Moving will expose this card to new readers. Continue?": "Moving will expose this card to new readers. Continue?"
 }

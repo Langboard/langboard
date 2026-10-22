@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page, canCrossBoard = true) {
+async function setup(page: Page, canCrossBoard = true, location?: { moved: boolean }) {
     page.on("pageerror", (error) => console.error("Split fixture page error:", error.message));
     const now = new Date().toISOString();
     const user = {
@@ -113,6 +113,11 @@ async function setup(page: Page, canCrossBoard = true) {
                     collections: [],
                 };
             else if (path.includes("apps")) json = { apps: [] };
+            if (location?.moved && path === `/board/${uid}/cards`) {
+                const board = json as { cards: Record<string, unknown>[] };
+                if (uid === "left") board.cards = [];
+                if (uid === "right") board.cards.push({ ...board.cards[0], uid: "left-card", title: "left draggable card" });
+            }
             return route.fulfill({ json, headers });
         }
     );
@@ -121,7 +126,7 @@ async function setup(page: Page, canCrossBoard = true) {
     await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
 }
 
-async function dropCard(page: Page, eligible = true) {
+async function dropCard(page: Page, eligible = true, beforeDrop?: () => Promise<void>) {
     if (!(await page.locator("[data-workbench-explorer]").isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();
     await page.getByRole("button", { name: "Open right board in split view" }).first().click({ force: true });
     const panes = page.locator("[data-board-pane]");
@@ -130,6 +135,7 @@ async function dropCard(page: Page, eligible = true) {
     const destination = panes.nth(1).locator("[data-cross-board-column=right-column-0]");
     await expect(source).toBeVisible();
     await expect(destination).toBeVisible();
+    await beforeDrop?.();
     const sourceBox = await source.boundingBox();
     const destinationBox = await destination.boundingBox();
     if (!sourceBox || !destinationBox) throw new Error("Missing native drag surfaces");
@@ -178,7 +184,7 @@ test("native pane drop links without reorder and refreshes only destination", as
     });
     const calls = await interceptAction(page, () => ({ status: 201, json: { card: { uid: "mirror" }, created: true } }));
     await dropCard(page);
-    await expect(page.getByText("Move is not supported yet.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Move card", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Link card", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "Cross-board action completed." })).toBeVisible();
     expect(refreshes.filter((url) => url.includes("/board/right/"))).toHaveLength(2);
@@ -312,8 +318,7 @@ test("stale source removal prevents any API action", async ({ page }) => {
         const cards = await import(moduleURL);
         cards.Model.deleteModel("left-card");
     });
-    await page.getByRole("button", { name: "Clone card", exact: true }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(calls.requests).toHaveLength(0);
 });
 
@@ -339,7 +344,7 @@ test("native app-owned cards cannot open cross-board selection", async ({ page }
     expect(calls.requests).toHaveLength(0);
 });
 
-for (const operation of ["Link card", "Clone card"]) {
+for (const operation of ["Link card", "Clone card", "Move card"]) {
     test(`ownership change before ${operation} prevents submission`, async ({ page }) => {
         await setup(page);
         const calls = await interceptAction(page, () => ({ status: 201, json: {} }));
@@ -354,14 +359,278 @@ for (const operation of ["Link card", "Clone card"]) {
                 registry.subscribedCallback(topic, ["left"]);
             }
             const subscriptions = store.getStore().subscriptions;
-            const callbacks = Object.values(subscriptions).flatMap((boards: any) =>
-                Object.values(boards.left?.["board:card:details:changed:left-card"] ?? {}).flat()
+            const callbacks = Object.values(subscriptions).flatMap((boards) =>
+                Object.values((boards as Record<string, Record<string, unknown>>).left?.["board:card:details:changed:left-card"] ?? {}).flat()
             ) as Array<(data: unknown) => void>;
             if (!callbacks.length) throw new Error("Missing native card details subscription");
             for (const callback of callbacks) callback({ can_cross_board: false });
         });
-        await page.getByRole("button", { name: operation, exact: true }).click();
-        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
         expect(calls.requests).toHaveLength(0);
     });
 }
+
+const movedCard = { uid: "left-card", project_uid: "right", project_column_uid: "right-column-0" };
+const excluded = { member_uids: ["private-member"], label_uids: ["private-label"] };
+
+for (const first of ["left", "right"]) {
+    test(`move retains same model and pane state when ${first} refresh completes first`, async ({ page }) => {
+        const location = { moved: false };
+        await setup(page, true, location);
+        const calls = await interceptAction(page, () => {
+            location.moved = true;
+            return { status: 201, json: { card: movedCard, moved: true, excluded } };
+        });
+        await dropCard(page, true, async () => {
+            const right = page.locator("[data-board-pane]").nth(1);
+            await right.getByRole("button", { name: "Filters", exact: true }).click();
+            await page.getByRole("textbox", { name: "Keyword", exact: true }).fill("draggable");
+            await page.keyboard.press("Escape");
+            await right.getByRole("button", { name: "Add a card", exact: true }).first().click();
+            await right.getByPlaceholder("Enter a title", { exact: true }).fill("Retained destination draft");
+        });
+        const panes = page.locator("[data-board-pane]");
+        const viewport = panes.nth(1).locator("[id^=board-scrollport-]").first();
+        await viewport.evaluate((element) => {
+            element.scrollLeft = 200;
+        });
+        await panes.evaluateAll((elements) => elements.forEach((element) => ((element as HTMLElement).dataset.retained = "true")));
+        await page.evaluate(async () => {
+            const url = "/src/core/models/ProjectCard.ts";
+            const cards = await import(url);
+            (window as unknown as { originalCard: unknown }).originalCard = cards.Model.getModel("left-card");
+        });
+        const refreshes: string[] = [];
+        let release: (() => void) | undefined;
+        const firstDone = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await page.route(
+            (url) => /^\/board\/[^/]+\/cards$/.test(url.pathname),
+            async (route) => {
+                if (route.request().method() !== "GET") return route.fallback();
+                const board = new URL(route.request().url()).pathname.split("/")[2];
+                refreshes.push(board);
+                if (board !== first) await firstDone;
+                await route.fallback();
+                if (board === first) release?.();
+            }
+        );
+        await page.getByRole("button", { name: "Move card", exact: true }).click();
+        await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
+        expect(refreshes).toContain("left");
+        expect(refreshes).toContain("right");
+        expect(calls.requests).toHaveLength(1);
+        expect(calls.requests[0]).toMatchObject({ operation: "move", source_card_uid: "left-card", destination_column_uid: "right-column-0" });
+        expect(calls.changes).toEqual([]);
+        await expect(panes).toHaveCount(2);
+        await expect(panes.first()).toHaveAttribute("data-retained", "true");
+        await expect(panes.nth(1)).toHaveAttribute("data-retained", "true");
+        await expect(panes.first().getByText("left draggable card", { exact: true })).toHaveCount(0);
+        await expect(panes.nth(1).getByText("left draggable card", { exact: true })).toHaveCount(1);
+        await expect(panes.nth(1).getByPlaceholder("Enter a title", { exact: true })).toHaveValue("Retained destination draft");
+        await expect(panes.nth(1).getByRole("button", { name: "Filters", exact: true, includeHidden: true })).toHaveText("Filters (1)");
+        await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBe(200);
+        expect(
+            await page.evaluate(async () => {
+                const url = "/src/core/models/ProjectCard.ts";
+                const cards = await import(url);
+                const current = cards.Model.getModel("left-card");
+                return { same: current === (window as unknown as { originalCard: unknown }).originalCard, project: current?.project_uid };
+            })
+        ).toEqual({ same: true, project: "right" });
+        await expect(page.getByText("private-member", { exact: false })).toHaveCount(0);
+    });
+}
+
+test("move refreshes audience token, requires operation-specific consent and preserves selected retry", async ({ page }) => {
+    const location = { moved: false };
+    await setup(page, true, location);
+    const calls = await interceptAction(page, (_body, count) => {
+        if (count < 3) return { status: 409, json: { confirmation_required: true, confirmation_token: `revision-${count}`, moved: false, excluded } };
+        if (count === 3) return { status: 503, json: { title: "private-error" } };
+        location.moved = true;
+        return { status: 200, json: { card: movedCard, moved: false, excluded } };
+    });
+    await dropCard(page);
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(page.getByText("Moving will expose this card to new readers. Continue?", { exact: true })).toBeVisible();
+    expect(calls.requests).toHaveLength(1);
+    await page.getByRole("button", { name: "Confirm exposure" }).click();
+    await expect.poll(() => calls.requests.length).toBe(2);
+    await expect(page.getByRole("button", { name: "Confirm exposure" })).toBeEnabled();
+    await page.getByRole("button", { name: "Confirm exposure" }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clone card", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Link card", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Confirm exposure" }).click();
+    await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
+    expect(calls.requests.map((body) => body.confirmation_token)).toEqual([undefined, "revision-1", "revision-2", "revision-2"]);
+    expect(new Set(calls.requests.map((body) => body.request_uid)).size).toBe(1);
+    expect(calls.requests.every((body) => body.operation === "move")).toBe(true);
+    await expect(page.getByText("private-error", { exact: false })).toHaveCount(0);
+});
+
+for (const invalid of ["identity", "project", "column", "exclusions", "flag", "conflict"]) {
+    test(`move rejects malformed ${invalid} without model mutation or private payload`, async ({ page }) => {
+        await setup(page);
+        const card = { ...movedCard };
+        if (invalid === "identity") card.uid = "different-card";
+        if (invalid === "project") card.project_uid = "private-board";
+        if (invalid === "column") card.project_column_uid = "private-column";
+        const calls = await interceptAction(page, () => ({
+            status: invalid === "conflict" ? 409 : 201,
+            json: {
+                card,
+                moved: invalid === "flag" ? "true" : true,
+                excluded: invalid === "exclusions" ? { member_uids: "private-payload", label_uids: [] } : excluded,
+                title: "private-payload",
+            },
+        }));
+        await dropCard(page);
+        await page.getByRole("button", { name: "Move card", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByText("private-payload", { exact: false })).toHaveCount(0);
+        await expect(page.getByText("Cross-board action completed.", { exact: true })).toHaveCount(0);
+        expect(
+            await page.evaluate(async () => {
+                const url = "/src/core/models/ProjectCard.ts";
+                return (await import(url)).Model.getModel("left-card")?.project_uid;
+            })
+        ).toBe("left");
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        expect(calls.requests).toHaveLength(1);
+    });
+}
+
+for (const teardown of ["source", "session", "account", "pane"]) {
+    test(`move ${teardown} teardown invalidates an in-flight successful result`, async ({ page }) => {
+        await setup(page);
+        let release: (() => void) | undefined;
+        const wait = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await page.route("**/board/right/card/cross-board", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fallback();
+            await wait;
+            await route
+                .fulfill({
+                    status: 201,
+                    json: { card: movedCard, moved: true, excluded },
+                    headers: { "access-control-allow-origin": "http://127.0.0.1:4197", "access-control-allow-credentials": "true" },
+                })
+                .catch(() => {});
+        });
+        await dropCard(page);
+        const sent = page.waitForRequest((request) => request.method() === "POST" && request.url().includes("/card/cross-board"));
+        await page.getByRole("button", { name: "Move card", exact: true }).click();
+        await sent;
+        if (teardown === "pane") {
+            await page
+                .getByRole("button", { name: "Close left board", exact: true, includeHidden: true })
+                .evaluate((button: HTMLButtonElement) => button.click());
+        } else {
+            await page.evaluate(async (kind) => {
+                if (kind === "source") {
+                    const url = "/src/core/models/ProjectCard.ts";
+                    (await import(url)).Model.deleteModel("left-card");
+                } else {
+                    const url = "/src/core/stores/AuthStore.ts";
+                    const auth = (await import(url)).default;
+                    if (kind === "account") auth.setState({ currentUser: null });
+                    else {
+                        const version = auth.getState().getSessionVersion() + 1;
+                        auth.setState({ getSessionVersion: () => version });
+                    }
+                }
+            }, teardown);
+        }
+        release?.();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(page.getByText("Cross-board action completed.", { exact: true })).toHaveCount(0);
+    });
+}
+
+test("declining move audience exposure sends no mutation beyond preflight", async ({ page }) => {
+    await setup(page);
+    const calls = await interceptAction(page, () => ({
+        status: 409,
+        json: { confirmation_required: true, confirmation_token: "move-token", moved: false, excluded },
+    }));
+    await dropCard(page);
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Confirm exposure" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(calls.requests).toHaveLength(1);
+});
+
+test("source-first native socket refresh recovers same server card UID at destination", async ({ page }) => {
+    const location = { moved: false };
+    await setup(page, true, location);
+    let release: (() => void) | undefined;
+    const wait = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route("**/board/right/card/cross-board", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        await wait;
+        await route
+            .fulfill({
+                status: 201,
+                json: { card: movedCard, moved: true, excluded },
+                headers: { "access-control-allow-origin": "http://127.0.0.1:4197", "access-control-allow-credentials": "true" },
+            })
+            .catch(() => {});
+    });
+    await dropCard(page);
+    const sent = page.waitForRequest((request) => request.method() === "POST" && request.url().includes("/card/cross-board"));
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await sent;
+    location.moved = true;
+    const publish = async (uid: string) =>
+        page.evaluate(async (boardUID) => {
+            const url = "/src/core/stores/SocketStore.ts";
+            const registryURL = "/src/core/stores/socket/registry.ts";
+            const store = (await import(url)).default.getState();
+            const registry = await import(registryURL);
+            for (const topic of Object.keys(store.getStore().subscribedTopicNotifiers)) registry.subscribedCallback(topic, [boardUID]);
+            const callbacks = Object.values(store.getStore().subscriptions).flatMap((boards) =>
+                Object.values((boards as Record<string, Record<string, unknown>>)[boardUID]?.[`board:details:changed:${boardUID}`] ?? {}).flat()
+            ) as Array<(data: unknown) => void>;
+            if (!callbacks.length) throw new Error("Missing native board visibility subscription");
+            for (const callback of callbacks) callback({ card_visibility_changed: true });
+        }, uid);
+    await publish("left");
+    await expect(page.locator("[data-board-pane]").first().getByText("left draggable card", { exact: true })).toHaveCount(0);
+    await publish("right");
+    await expect(page.locator("[data-board-pane]").nth(1).getByText("left draggable card", { exact: true })).toBeVisible();
+    release?.();
+    expect(
+        await page.evaluate(async () => {
+            const url = "/src/core/models/ProjectCard.ts";
+            const card = (await import(url)).Model.getModel("left-card");
+            return { uid: card?.uid, project: card?.project_uid, column: card?.project_column_uid };
+        })
+    ).toEqual({ uid: "left-card", project: "right", column: "right-column-0" });
+    await expect(page.locator("[data-board-pane]")).toHaveCount(2);
+});
+
+test("ambiguous initial move retries same operation and UUID without alternate actions", async ({ page }) => {
+    const location = { moved: false };
+    await setup(page, true, location);
+    const calls = await interceptAction(page, (_body, count) => {
+        if (count === 1) return { status: 503, json: {} };
+        location.moved = true;
+        return { status: 200, json: { card: movedCard, moved: false, excluded } };
+    });
+    await dropCard(page);
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clone card", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Link card", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
+    expect(calls.requests).toHaveLength(2);
+    expect(calls.requests[0]).toEqual(calls.requests[1]);
+});

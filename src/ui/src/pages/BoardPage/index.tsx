@@ -41,6 +41,7 @@ import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
 import useBoardBotStatusMapHandlers from "@/controllers/socket/board/useBoardBotStatusMapHandlers";
 import { BoardBotScopeList } from "@/pages/BoardPage/components/board/BoardBotScope";
 import useGetProject from "@/controllers/api/board/useGetProject";
+import useResolveCardLocation from "@/controllers/api/card/useResolveCardLocation";
 import useGetCards from "@/controllers/api/board/useGetCards";
 import useGetGraphApprovalCount from "@/controllers/api/board/graphApprovals/useGetGraphApprovalCount";
 import ActivityList from "@/components/ActivityList";
@@ -125,12 +126,34 @@ const BoardProxy = memo((): React.JSX.Element => {
         return <Navigate to={ROUTES.ERROR(EHttpStatus.HTTP_404_NOT_FOUND)} replace />;
     }
 
-    const { data, isFetching, error, refetch } = useGetProject({ uid: projectUID }, { placeholderData: keepPreviousData });
+    const isCardRoute = !!pageRoute && !["graph", "wiki", "cloud", "settings"].includes(pageRoute);
+    const cardLocation = useResolveCardLocation(projectUID, isCardRoute ? pageRoute : undefined, paneID, location.key);
+    const canonicalProjectUID = cardLocation.data?.canonical_project_uid;
+    const locationReady = !isCardRoute || canonicalProjectUID === projectUID;
+    const redirectHistory = useRef<{ cardUID: string; actorUID?: string; projects: Set<string> }>({ cardUID: "", projects: new Set() });
+    if (redirectHistory.current.cardUID !== pageRoute || redirectHistory.current.actorUID !== currentUser?.uid) {
+        redirectHistory.current = { cardUID: pageRoute, actorUID: currentUser?.uid, projects: new Set() };
+    }
+    const locationLoop = !!canonicalProjectUID && canonicalProjectUID !== projectUID && redirectHistory.current.projects.has(canonicalProjectUID);
+    useEffect(() => {
+        if (!isCardRoute || !canonicalProjectUID || locationLoop) return;
+        if (canonicalProjectUID === projectUID) {
+            redirectHistory.current.projects.clear();
+            return;
+        }
+        redirectHistory.current.projects.add(projectUID);
+        navigate(`${ROUTES.BOARD.CARD(canonicalProjectUID, pageRoute)}${location.search}${location.hash}`, { replace: true, state: location.state });
+    }, [canonicalProjectUID, isCardRoute, projectUID, pageRoute, locationLoop, location.search, location.hash, location.state, navigate]);
+
+    const { data, isFetching, error, refetch } = useGetProject(
+        { uid: projectUID },
+        { enabled: locationReady, placeholderData: isCardRoute ? undefined : keepPreviousData }
+    );
     const { send: sendBoardBotStatusMap } = useBoardBotStatusMapHandlers({ projectUID });
-    const hasCurrentProject = !!data && data.project.uid === projectUID;
+    const hasCurrentProject = locationReady && !!data && data.project.uid === projectUID;
 
     useEffect(() => {
-        if (!error) {
+        if (!error || !locationReady) {
             return;
         }
 
@@ -150,7 +173,7 @@ const BoardProxy = memo((): React.JSX.Element => {
         });
 
         handle(error);
-    }, [error]);
+    }, [error, locationReady]);
 
     useEffect(() => {
         if (!focused) return;
@@ -179,6 +202,14 @@ const BoardProxy = memo((): React.JSX.Element => {
             socket.unsubscribe(ESocketTopic.BoardSettings, [projectUID]);
         };
     }, [hasCurrentProject, projectUID]);
+
+    if (!locationReady) {
+        return cardLocation.error || locationLoop ? (
+            <BoardLoadError isFetching={cardLocation.isFetching} retry={() => void cardLocation.refetch()} />
+        ) : (
+            <SkeletonBoard />
+        );
+    }
 
     if (!data) {
         return error ? <BoardLoadError isFetching={isFetching} retry={() => void refetch()} /> : <SkeletonBoard />;

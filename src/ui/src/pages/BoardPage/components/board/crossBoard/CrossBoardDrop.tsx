@@ -26,6 +26,7 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
     const [result, setResult] = useState<CrossBoardResult>();
     const [error, setError] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [attempted, setAttempted] = useState(false);
     const busyRef = useRef(false);
     const [over, setOver] = useState(false);
     const abort = useRef<AbortController | undefined>(undefined);
@@ -37,9 +38,39 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
         setPending(undefined);
         setResult(undefined);
         setError(false);
+        setAttempted(false);
+        busyRef.current = false;
+        setBusy(false);
         abort.current?.abort();
+        abort.current = undefined;
         return () => abort.current?.abort();
     }, [column, actor, session, allowed]);
+    useEffect(() => {
+        if (!pending) return;
+        const invalidate = () => {
+            const source = ProjectCard.Model.getModel(pending.source_card_uid);
+            if (
+                source &&
+                isCrossBoardSource(source) &&
+                (source.project_uid === pending.source_project_uid ||
+                    (pendingRef.current?.operation === "move" && source.project_uid === column.project_uid))
+            )
+                return;
+            abort.current?.abort();
+            setPending(undefined);
+            setResult(undefined);
+            setError(false);
+        };
+        const source = ProjectCard.Model.getModel(pending.source_card_uid);
+        const stopFields = source?.subscribeFields(["can_cross_board", "project_uid", "source_type"], invalidate);
+        const stopDeletion = ProjectCard.Model.subscribe("DELETION", `cross-board-${pending.request_uid}`, (uids) => {
+            if (uids.includes(pending.source_card_uid)) invalidate();
+        });
+        return () => {
+            stopFields?.();
+            stopDeletion();
+        };
+    }, [pending?.source_card_uid, pending?.request_uid, column.project_uid]);
     useEffect(() => {
         if (!target.current || !allowed) return;
         return dropTargetForElements({
@@ -64,6 +95,7 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
                 const row = source.data.row as ProjectCard.TModel;
                 setResult(undefined);
                 setError(false);
+                setAttempted(false);
                 setPending({
                     source_project_uid: row.project_uid,
                     source_card_uid: row.uid,
@@ -74,16 +106,19 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
             },
         });
     }, [allowed, column]);
-    const execute = async (operation: "link" | "clone", confirmationToken?: string) => {
+    const execute = async (operation: CrossBoardRequest["operation"], confirmationToken?: string) => {
         if (!pending || busyRef.current || !allowed) return;
+        if (attempted && operation !== pending.operation) return;
         const source = ProjectCard.Model.getModel(pending.source_card_uid);
-        if (!source || source.project_uid !== pending.source_project_uid || !isCrossBoardSource(source)) {
+        const replayAtDestination = attempted && operation === "move" && source?.project_uid === column.project_uid;
+        if (!source || (!replayAtDestination && source.project_uid !== pending.source_project_uid) || !isCrossBoardSource(source)) {
             setError(true);
             return;
         }
         busyRef.current = true;
         setBusy(true);
         setError(false);
+        setAttempted(true);
         const controller = new AbortController();
         abort.current = controller;
         const next = { ...pending, operation, confirmation_token: confirmationToken };
@@ -97,8 +132,10 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
         } catch {
             if (!controller.signal.aborted) setError(true);
         } finally {
-            busyRef.current = false;
-            setBusy(false);
+            if (abort.current === controller) {
+                busyRef.current = false;
+                setBusy(false);
+            }
         }
     };
     return (
@@ -116,25 +153,39 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
                 <Dialog.Content>
                     <Dialog.Header>
                         <Dialog.Title>{t("board.Cross-board card")}</Dialog.Title>
-                        <Dialog.Description>{t("board.Link a read-only mirror or create an independent clone.")}</Dialog.Description>
+                        <Dialog.Description>{t("board.Link a read-only mirror, create an independent clone, or move this card.")}</Dialog.Description>
                     </Dialog.Header>
-                    <p>{t("board.Move is not supported yet.")}</p>
                     {error && <p role="alert">{t("board.Cross-board action failed. Retry or cancel.")}</p>}
                     {result?.confirmation_required ? (
                         <>
-                            <p>{t("board.Cloning will expose this card to new readers. Continue?")}</p>
-                            <Button disabled={busy} onClick={() => void execute("clone", result.confirmation_token)}>
+                            <p>
+                                {t(
+                                    pending?.operation === "move"
+                                        ? "board.Moving will expose this card to new readers. Continue?"
+                                        : "board.Cloning will expose this card to new readers. Continue?"
+                                )}
+                            </p>
+                            <Button disabled={busy} onClick={() => pending && void execute(pending.operation, result.confirmation_token)}>
                                 {t("board.Confirm exposure")}
                             </Button>
                         </>
                     ) : pending ? (
                         <Dialog.Footer>
-                            <Button disabled={busy} onClick={() => void execute("link")}>
-                                {t("board.Link card")}
-                            </Button>
-                            <Button disabled={busy} onClick={() => void execute("clone")}>
-                                {t("board.Clone card")}
-                            </Button>
+                            {(!attempted || pending.operation === "link") && (
+                                <Button disabled={busy} onClick={() => void execute("link", pending.confirmation_token)}>
+                                    {t("board.Link card")}
+                                </Button>
+                            )}
+                            {(!attempted || pending.operation === "clone") && (
+                                <Button disabled={busy} onClick={() => void execute("clone", pending.confirmation_token)}>
+                                    {t("board.Clone card")}
+                                </Button>
+                            )}
+                            {(!attempted || pending.operation === "move") && (
+                                <Button disabled={busy} onClick={() => void execute("move", pending.confirmation_token)}>
+                                    {t("board.Move card")}
+                                </Button>
+                            )}
                         </Dialog.Footer>
                     ) : (
                         <p role="status">{t("board.Cross-board action completed.")}</p>

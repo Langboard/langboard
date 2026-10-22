@@ -334,6 +334,8 @@ def test_ready_content_edit_drains_commit_snapshot_and_only_readiness_edges_supe
             for statement in (
                 "CREATE TABLE project_column (id bigint PRIMARY KEY, deleted_at timestamptz, is_archive boolean NOT NULL, workflow_stage text, project_id bigint)",
                 "CREATE TABLE workflow_stage_definition (key text PRIMARY KEY, counts_as_completed boolean NOT NULL)",
+                "CREATE TABLE project (id bigint PRIMARY KEY, deleted_at timestamptz)",
+                "INSERT INTO project VALUES (7, NULL)",
                 "INSERT INTO workflow_stage_definition VALUES ('closed',true),('released',true)",
                 "CREATE TABLE webhook_setting (id bigint PRIMARY KEY, secret_id bigint, events jsonb NOT NULL)",
                 # Baseline binding shape as the public main history leaves it;

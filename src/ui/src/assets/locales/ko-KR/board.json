@@ -129,13 +129,13 @@
   "Move only this card": "이 카드만 이동",
   "Move all descendants": "모든 하위 카드 함께 이동",
   "Cross-board card": "보드 간 카드",
-  "Link a read-only mirror or create an independent clone.": "읽기 전용 미러를 연결하거나 독립된 카드를 복제합니다.",
-  "Move is not supported yet.": "전이는 아직 지원되지 않습니다.",
   "Cross-board action failed. Retry or cancel.": "보드 간 작업에 실패했습니다. 재시도하거나 취소하세요.",
   "Cloning will expose this card to new readers. Continue?": "복제하면 새로운 독자에게 이 카드가 공개됩니다. 계속할까요?",
   "Confirm exposure": "공개 범위 확대 확인",
   "Link card": "카드 링크",
   "Clone card": "카드 복제",
   "Cross-board action completed.": "보드 간 작업이 완료되었습니다.",
-  "Excluded mappings": "제외된 매핑"
+  "Excluded mappings": "제외된 매핑",
+  "Link a read-only mirror, create an independent clone, or move this card.": "읽기 전용 미러를 연결하거나, 독립적인 복제본을 만들거나, 이 카드를 이동합니다.",
+  "Moving will expose this card to new readers. Continue?": "이동하면 새로운 열람자에게 이 카드가 공개됩니다. 계속하시겠습니까?"
 }

@@ -56,7 +56,7 @@ export interface IGetCardDetailsResponse {
 }
 
 const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<IGetCardDetailsResponse, IGetCardDetailsResponse>) => {
-    const { query } = useQueryMutation();
+    const { query, queryClient } = useQueryMutation();
 
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const sessionVersion = useAuthStore.getState().getSessionVersion();
@@ -77,6 +77,23 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             sessionVersion !== useAuthStore.getState().getSessionVersion()
         ) {
             throw new Error("Card detail request no longer belongs to the current session");
+        }
+
+        if (!res.data?.card || res.data.card.uid !== params.card_uid || res.data.card.project_uid !== params.project_uid) {
+            // A moved card's minimal location response must never enter the detail model stores.
+            void queryClient.invalidateQueries(
+                {
+                    predicate: ({ queryKey, state }) =>
+                        queryKey[0] === "resolve-card-location" &&
+                        queryKey[1] === params.project_uid &&
+                        queryKey[2] === params.card_uid &&
+                        queryKey[3] === actorUID &&
+                        queryKey[4] === sessionVersion &&
+                        (state.data as { canonical_project_uid?: string } | undefined)?.canonical_project_uid === params.project_uid,
+                },
+                { cancelRefetch: false }
+            );
+            throw new Error("Card detail response belongs to another card or board");
         }
 
         const checkitems =

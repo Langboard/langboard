@@ -33,6 +33,7 @@ import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useC
 import useBoardChecklistProgressChangedHandlers from "@/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers";
 import { matchesCardCreator } from "@/core/utils/CardCreatorFilter";
 import { useQueryClient } from "@tanstack/react-query";
+import useAuthStore from "@/core/stores/AuthStore";
 
 import { matchesWorkload } from "@/pages/DashboardPage/components/ProjectWorkload";
 
@@ -199,13 +200,18 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                         void queryClient.invalidateQueries({
                             predicate: ({ queryKey }) =>
                                 typeof queryKey[0] === "string" &&
-                                (queryKey[0] === `get-cards-${project.uid}` || queryKey[0].startsWith(`get-card-details-${project.uid}-`)),
+                                (queryKey[0] === `get-cards-${project.uid}` ||
+                                    queryKey[0].startsWith(`get-card-details-${project.uid}-`) ||
+                                    (queryKey[0] === "resolve-card-location" &&
+                                        queryKey[1] === project.uid &&
+                                        queryKey[3] === currentUser.uid &&
+                                        queryKey[4] === useAuthStore.getState().getSessionVersion())),
                         });
                     },
                 },
             }),
         ],
-        [boardCardMetadataHandlers, linkedResourceHandlers, project, queryClient]
+        [boardCardMetadataHandlers, linkedResourceHandlers, project, currentUser.uid, queryClient]
     );
     const cardMetadataRecords = MetadataModel.Model.useModels((model) => model.type === "card", [cards, metadataUpdated]);
     const forbiddenMessageIdRef = useRef<string | number | null>(null);
