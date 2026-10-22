@@ -86,6 +86,8 @@ const BoardChangesSidebar = lazy(() => import("@/pages/BoardPage/components/boar
 const MyWorkSidebar = lazy(() => import("@/pages/DashboardPage/MyWorkPage"));
 const BoardRelationsSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardRelationsSidebar"));
 const BoardOutlineSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardOutlineSidebar"));
+const BoardCloud = lazy(() => import("@/pages/BoardPage/components/cloud/BoardCloud"));
+const BoardCloudPage = lazy(() => import("@/pages/BoardPage/BoardCloudPage"));
 const BoardWikiSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardWikiSidebar"));
 const SkeletonBoardWikiPage = () => <Skeleton className="m-4 h-48 w-[min(36rem,calc(100%-2rem))]" />;
 
@@ -95,6 +97,8 @@ const getCurrentPage = (pageRoute?: string): TBoardViewType => {
             return "card";
         case "wiki":
             return "wiki";
+        case "cloud":
+            return "cloud";
         case "graph":
             return "graph";
         case "settings":
@@ -105,7 +109,7 @@ const getCurrentPage = (pageRoute?: string): TBoardViewType => {
 };
 
 type TBoardSidePanel = "botScope" | "switchProject";
-type TWorkbenchContext = "explorer" | "my-work" | "changes" | "inbox" | "activity" | "relations" | "outline" | "wiki" | "chat" | "app";
+type TWorkbenchContext = "explorer" | "my-work" | "changes" | "inbox" | "activity" | "relations" | "outline" | "wiki" | "cloud" | "chat" | "app";
 
 const BoardProxy = memo((): React.JSX.Element => {
     const { setPageAliasRef } = usePageHeader();
@@ -245,6 +249,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         relations: t("dashboard.Relations"),
         outline: t("dashboard.Outline"),
         wiki: t("board.Wiki"),
+        cloud: t("cloud.Cloud"),
         chat: t("project.Chat with AI"),
         app: selectedApp?.panel?.name ?? t("project.App panel"),
     }[workbenchContextMode];
@@ -313,7 +318,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     }, [toggleSwitchProject, showWorkbenchContext, focused]);
     const { boardViewType, selectCardViewType, chatSidebarRef, boardChat, setBoardViewType, setChatResizableSidebar, setBoardChat } =
         useBoardController();
-    const isCardPage = !!pageRoute && !["graph", "wiki", "settings"].includes(pageRoute);
+    const isCardPage = !!pageRoute && !["graph", "wiki", "cloud", "settings"].includes(pageRoute);
     // BoardPage owns fetching; the shell only observes its snapshot for the card title.
     const { data: boardCardsData } = useGetCards({ project_uid: project.uid }, { enabled: false });
     const activeCard = boardCardsData && isCardPage ? ProjectCard.Model.getModel(pageRoute) : undefined;
@@ -628,6 +633,12 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             hidden: !!selectCardViewType && !!currentUser && currentUser.is_admin,
         },
     ];
+    headerNavs.push({
+        name: t("cloud.Cloud"),
+        onClick: () => navigate(ROUTES.BOARD.CLOUD(project.uid)),
+        active: boardViewType === "cloud",
+        hidden: !!selectCardViewType,
+    });
     let PageComponent;
     let SkeletonComponent;
     // Route-backed pages must win during the render that observes a location
@@ -642,6 +653,10 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             break;
         case "wiki":
             PageComponent = BoardWikiPage;
+            SkeletonComponent = SkeletonBoardWikiPage;
+            break;
+        case "cloud":
+            PageComponent = BoardCloudPage;
             SkeletonComponent = SkeletonBoardWikiPage;
             break;
         case "settings":
@@ -741,6 +756,13 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         active: workbenchContextMode === "chat" && isWorkbenchContextVisible,
                         hidden: !!selectCardViewType,
                     },
+                    {
+                        icon: "cloud",
+                        label: t("cloud.Cloud"),
+                        onClick: () => toggleWorkbenchContext("cloud"),
+                        active: isWorkbenchContextVisible && workbenchContextMode === "cloud",
+                        hidden: !!selectCardViewType,
+                    },
                     ...pinnedApps.items.map((item) => ({ ...item, hidden: !!selectCardViewType })),
                     {
                         icon: "store",
@@ -749,11 +771,11 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         onClick: () => navigate(`${ROUTES.APPS.ROUTE}?project_uid=${project.uid}`),
                     },
                     ...headerNavs.map((nav, index) => ({
-                        icon: ["columns-3", "notebook-pen", "network", "history", "settings", "bot"][index],
+                        icon: ["columns-3", "notebook-pen", "network", "history", "settings", "bot", "cloud"][index],
                         label: String(nav.name),
                         onClick: nav.onClick!,
                         active: nav.active,
-                        hidden: nav.hidden || index === 0 || index === 1 || index === 2,
+                        hidden: nav.hidden || index === 0 || index === 1 || index === 2 || index === 6,
                         placement: "bottom" as const,
                         badge: index === 5 ? pendingGraphApprovalBadge : undefined,
                     })),
@@ -846,6 +868,8 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                         />
                                     ) : workbenchContextMode === "relations" ? (
                                         <BoardRelationsSidebar projectUID={project.uid} cardUID={activeCard?.uid} />
+                                    ) : workbenchContextMode === "cloud" ? (
+                                        <BoardCloud key={project.uid} projectUID={project.uid} panel />
                                     ) : workbenchContextMode === "outline" ? (
                                         <BoardOutlineSidebar
                                             cardUID={activeCard?.uid}
@@ -877,6 +901,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                         relations: "network",
                                         outline: "list-tree",
                                         wiki: "notebook-pen",
+                                        cloud: "cloud",
                                         chat: "message-circle",
                                         app: "puzzle",
                                     }[workbenchContextMode],
