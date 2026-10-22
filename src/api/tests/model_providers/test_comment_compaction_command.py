@@ -3,7 +3,7 @@
 import asyncio
 import importlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 import httpx
 import pytest
@@ -451,7 +451,10 @@ async def test_server_collects_original_comments_and_moves_and_keeps_new_comment
     with DbSession.use(readonly=False) as db:
         current = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.id == comment.id)).first()
         comments = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.card_id == card.id)).all()
-    assert current.model_dump(mode="json") == before and len(comments) == 2
+    after = current.model_dump(mode="json")
+    for field in ("created_at", "updated_at"):
+        assert datetime.fromisoformat(after.pop(field)) == datetime.fromisoformat(before.pop(field))
+    assert after == before and len(comments) == 2
     # An explicit next range reaches the new original comment, not the old range.
     next_snapshot, more = service._snapshot(project, card, after=result["range_end"])
     assert len(next_snapshot.sources) == 1 and not more
