@@ -2069,6 +2069,28 @@ class CardService(BaseDomainService):
         next_cursor = page[-1].get_uid() if has_more and page else None
         return {"entries": entries, "has_more": has_more, "next_cursor": next_cursor}
 
+    def _invalidate_source_card_mirrors(self, card: Card) -> None:
+        """Refresh only native references after the source transaction commits."""
+        if card.is_linked_resource:
+            return
+        with DbSession.atomic() as db:
+            references = db.exec(
+                select(Card, Project)
+                .join(Project, Project.id == Card.project_id)
+                .where(
+                    Card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD,
+                    Card.source_uid == card.get_uid(),
+                    Card.deleted_at.is_(None),
+                    Project.deleted_at.is_(None),
+                )
+            ).all()
+            for mirror, destination in references:
+                db.after_commit(
+                    lambda destination=destination, mirror=mirror: CardPublisher.linked_resource_changed(
+                        destination, mirror
+                    )
+                )
+
     @guard_card_app_mutation
     def change_visibility(
         self,
@@ -2118,6 +2140,7 @@ class CardService(BaseDomainService):
             )
             current.visibility = target.value
             db.update(current)
+            self._invalidate_source_card_mirrors(current)
             # No card identifiers or content in the board-wide invalidation.
             from ....publishers import ProjectPublisher
 
@@ -2218,6 +2241,7 @@ class CardService(BaseDomainService):
             CardBotTask.card_updated(user_or_bot, project, changed_card)
 
         with DbSession.atomic() as db:
+            self._invalidate_source_card_mirrors(card)
             db.after_commit(dispatch_updated)
 
         return model
@@ -2833,6 +2857,7 @@ class CardService(BaseDomainService):
             if not is_linked_resource:
                 self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project, card)
             self.repo.card.delete(card, purge=is_linked_resource)
+            self._invalidate_source_card_mirrors(card)
             self.repo.card.reoder_after_delete(card.project_column_id, card.order)
 
         CardPublisher.deleted(project, card)
