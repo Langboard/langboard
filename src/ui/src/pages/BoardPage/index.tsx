@@ -36,6 +36,7 @@ import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
 import useBoardAssignedInternalBotChangedHandlers from "@/controllers/socket/board/useBoardAssignedInternalBotChangedHandlers";
 import useInternalBotUpdatedHandlers from "@/controllers/socket/global/useInternalBotUpdatedHandlers";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
+import useAuthStore from "@/core/stores/AuthStore";
 import { InternalBotModel, Project, ProjectCard } from "@/core/models";
 import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
 import useBoardBotStatusMapHandlers from "@/controllers/socket/board/useBoardBotStatusMapHandlers";
@@ -706,6 +707,25 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         <>
             <BoardPaneLayout
                 boardTitle={boardTitle}
+                workbenchStatus={
+                    !isProjectLoading && currentUser && boardCardsData
+                        ? {
+                              userUID: currentUser.uid,
+                              sessionVersion: useAuthStore.getState().getSessionVersion(),
+                              card: activeCard?.project_uid === project.uid ? activeCard : undefined,
+                              project,
+                              view: {
+                                  board: t("board.Board"),
+                                  card: t("board.Board"),
+                                  wiki: t("board.Wiki"),
+                                  graph: t("board.Relationship graph"),
+                                  cloud: t("cloud.Cloud"),
+                                  settings: t("board.Settings"),
+                              }[renderedViewType],
+                              unreadCount: boardCardsData ? unreadCards.length : undefined,
+                          }
+                        : undefined
+                }
                 inert={isProjectLoading}
                 aria-busy={isProjectLoading}
                 headerNavs={[
@@ -950,10 +970,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         position="relative"
                         w="full"
                         h="full"
-                        className={cn(
-                            "h-[calc(100dvh-2.75rem)] min-h-[calc(100dvh-2.75rem)]",
-                            pageRoute === "settings" ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden"
-                        )}
+                        className={cn("h-full min-h-0", pageRoute === "settings" ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden")}
                     >
                         <BoardViewportProvider>
                             <Box className="relative min-w-0 flex-1">

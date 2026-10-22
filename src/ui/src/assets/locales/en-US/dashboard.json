@@ -138,5 +138,21 @@
   "Collection actions": "Collection actions",
   "Sort boards by name": "Sort boards by name",
   "Move collection up": "Move collection up",
-  "Move collection down": "Move collection down"
+  "Move collection down": "Move collection down",
+  "status": {
+    "Workbench status": "Workbench status",
+    "Disconnected": "Disconnected",
+    "Connecting": "Connecting",
+    "Socket open": "Socket open",
+    "Connection error": "Connection error",
+    "Connection closed": "Connection closed",
+    "Unread": "Unread",
+    "Unverified": "Unverified",
+    "Members": "Members",
+    "Permissions": "Permissions",
+    "None": "None",
+    "MCP": "MCP",
+    "Realtime": "Realtime",
+    "Socket transport only": "Socket transport only; board subscription is not confirmed by an open connection."
+  }
 }

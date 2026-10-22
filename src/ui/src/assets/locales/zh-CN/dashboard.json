@@ -138,5 +138,21 @@
   "Collection actions": "项目组操作",
   "Sort boards by name": "按看板名称排序",
   "Move collection up": "上移项目组",
-  "Move collection down": "下移项目组"
+  "Move collection down": "下移项目组",
+  "status": {
+    "Workbench status": "工作状态",
+    "Disconnected": "未连接",
+    "Connecting": "连接中",
+    "Socket open": "套接字已打开",
+    "Connection error": "连接错误",
+    "Connection closed": "连接已关闭",
+    "Unread": "未读",
+    "Unverified": "未验证",
+    "Members": "成员",
+    "Permissions": "权限",
+    "None": "无",
+    "MCP": "MCP",
+    "Realtime": "实时",
+    "Socket transport only": "仅表示套接字传输状态，连接打开不代表已确认看板订阅。"
+  }
 }

@@ -138,5 +138,21 @@
   "Collection actions": "프로젝트 묶음 작업",
   "Sort boards by name": "보드 이름순 정렬",
   "Move collection up": "묶음 위로 이동",
-  "Move collection down": "묶음 아래로 이동"
+  "Move collection down": "묶음 아래로 이동",
+  "status": {
+    "Workbench status": "작업 상태",
+    "Disconnected": "연결 안 됨",
+    "Connecting": "연결 중",
+    "Socket open": "소켓 열림",
+    "Connection error": "연결 오류",
+    "Connection closed": "연결 종료",
+    "Unread": "미열람",
+    "Unverified": "미확인",
+    "Members": "멤버",
+    "Permissions": "권한",
+    "None": "없음",
+    "MCP": "MCP",
+    "Realtime": "실시간",
+    "Socket transport only": "소켓 전송 상태입니다. 열린 연결은 보드 구독 확인을 의미하지 않습니다."
+  }
 }

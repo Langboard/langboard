@@ -138,5 +138,21 @@
   "Collection actions": "プロジェクトグループの操作",
   "Sort boards by name": "ボード名順に並べ替え",
   "Move collection up": "グループを上へ移動",
-  "Move collection down": "グループを下へ移動"
+  "Move collection down": "グループを下へ移動",
+  "status": {
+    "Workbench status": "作業状態",
+    "Disconnected": "未接続",
+    "Connecting": "接続中",
+    "Socket open": "ソケット接続済み",
+    "Connection error": "接続エラー",
+    "Connection closed": "接続終了",
+    "Unread": "未読",
+    "Unverified": "未確認",
+    "Members": "メンバー",
+    "Permissions": "権限",
+    "None": "なし",
+    "MCP": "MCP",
+    "Realtime": "リアルタイム",
+    "Socket transport only": "ソケット通信の状態です。接続済みでもボード購読の確認は意味しません。"
+  }
 }

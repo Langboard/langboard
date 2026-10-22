@@ -1,9 +1,10 @@
 import { hasPanelAccess } from "../../core/apps/PanelAccess";
 import type { CatalogApp } from "../../controllers/api/board/useBoardAppCatalog";
-import type { Page, Route } from "@playwright/test";
+import type { Page, Route, WebSocketRoute } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
 test("Changes rail counts all native unread cards and follows model, board and identity transitions", async ({ page }) => {
+    await page.routeWebSocket(/.*/, () => {});
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const now = new Date().toISOString();
@@ -77,6 +78,11 @@ test("Changes rail counts all native unread cards and follows model, board and i
     await page.goto("/src/pages/BoardPage/BoardSplit.fixture.html");
     const changes = page.getByRole("button", { name: "Changes", exact: true });
     await expect(changes).toContainText("55", { timeout: 45_000 });
+    const statusFooter = page.getByRole("contentinfo", { name: "Workbench status" });
+    await expect(statusFooter).toContainText("left board");
+    await expect(statusFooter).toContainText("Unread: 55");
+    await expect(statusFooter).toContainText("Members: 1");
+    await expect(statusFooter).toContainText("Permissions: Read, Update, Card Write, Card Update, Card Delete");
     expect(cardReads).toEqual(["fixture-user/left"]);
     await expect(page.getByRole("region", { name: "Changes", exact: true })).toHaveCount(0);
     await page.evaluate(async () => {
@@ -85,6 +91,7 @@ test("Changes rail counts all native unread cards and follows model, board and i
         ProjectCard.Model.getModel("left-0").has_unread_change = false;
     });
     await expect(changes).toContainText("54");
+    await expect(statusFooter).toContainText("Unread: 54");
     await page.evaluate(async () => {
         const path = "/src/core/models/index.ts";
         const { ProjectCard } = await import(/* @vite-ignore */ path);
@@ -122,9 +129,12 @@ test("Changes rail counts all native unread cards and follows model, board and i
     await page.locator("[data-workbench-explorer]").getByRole("button", { name: "right board", exact: true }).first().click();
     await expect.poll(() => releaseCards !== undefined).toBe(true);
     await expect(changes).toHaveText("");
+    await expect(statusFooter).not.toContainText("Unread: 55");
     holdCards = false;
     releaseCards!();
     await expect(changes).toContainText("2");
+    await expect(statusFooter).toContainText("right board");
+    await expect(statusFooter).toContainText("Unread: 2");
     // Both boards are cached: switching must synchronously select the current board's unread projection.
     const explorer = page.locator("[data-workbench-explorer]");
     await explorer.getByRole("button", { name: "left board", exact: true }).first().click();
@@ -143,9 +153,12 @@ test("Changes rail counts all native unread cards and follows model, board and i
     });
     await expect.poll(() => releaseCards !== undefined).toBe(true);
     await expect(changes).toHaveText("");
+    await expect(statusFooter.locator("[data-status-project]")).toHaveCount(0);
     holdCards = false;
     releaseCards!();
     await expect(changes).toContainText("3");
+    await expect(statusFooter).toContainText("Unread: 3");
+    await expect(statusFooter).toContainText("Realtime: Socket open");
     releaseCards = undefined;
     holdCards = true;
     await page.evaluate(async () => {
@@ -156,10 +169,50 @@ test("Changes rail counts all native unread cards and follows model, board and i
     });
     await expect.poll(() => releaseCards !== undefined).toBe(true);
     await expect(changes).toHaveText("");
+    await expect(statusFooter.locator("[data-status-project]")).toHaveCount(0);
     holdCards = false;
     releaseCards!();
     await expect(changes).toContainText("3");
     expect(cardReads).toEqual(["fixture-user/left", "fixture-user/right", "other-user/right", "other-user/right"]);
+    const transfer = await page.evaluateHandle(() => {
+        const data = new DataTransfer();
+        data.setData("application/x-langboard-board-reference", "left");
+        return data;
+    });
+    await page.locator("[data-board-pane]").first().dispatchEvent("drop", { dataTransfer: transfer });
+    const panes = page.locator("[data-board-pane]");
+    await expect(panes).toHaveCount(2);
+    await panes.nth(1).dispatchEvent("pointerdown");
+    await expect(statusFooter).toContainText("left board");
+    for (const paneFooter of await page.locator("[data-board-pane-footer]").all()) {
+        const bounds = await paneFooter.boundingBox();
+        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual((await statusFooter.boundingBox())!.y);
+    }
+    await panes.first().dispatchEvent("pointerdown");
+    await expect(statusFooter).toContainText("right board");
+    await page.getByRole("button", { name: "Close left board", exact: true }).click();
+    await expect(panes).toHaveCount(1);
+    for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(statusFooter).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        const bounds = await statusFooter.boundingBox();
+        expect(bounds!.width).toBe(width);
+        const realtime = await statusFooter.locator("[data-status-realtime]").boundingBox();
+        expect(realtime!.x).toBeGreaterThanOrEqual(0);
+        expect(realtime!.x + realtime!.width).toBeLessThanOrEqual(width);
+        const dock = page.locator("[data-floating-nav-content]").first();
+        await expect(dock).toBeVisible();
+        expect((await dock.boundingBox())!.y + (await dock.boundingBox())!.height).toBeLessThanOrEqual(bounds!.y);
+        await page.screenshot({ path: `.verification/workbench-status/board-${width}.png` });
+    }
+
+    await page.evaluate(async () => {
+        const path = "/src/core/stores/AuthStore.ts";
+        const { default: store } = await import(/* @vite-ignore */ path);
+        store.getState().removeToken();
+    });
+    await expect(statusFooter.locator("[data-status-project]")).toHaveCount(0);
     expect(errors).toEqual([]);
 });
 
@@ -1251,4 +1304,60 @@ test("approved header orbit plays once on hover and respects reduced motion", as
     await expect(home).toBeFocused();
     await expect(home.locator("g[id$=animated-star]")).toBeHidden();
     await expect(home.locator("g[id$=reduced-star]")).toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+    test(`status footer shares the shell without covering the dock at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+        const footer = page.getByRole("contentinfo", { name: "Workbench status" });
+        await expect(footer).toBeVisible();
+        await expect(footer).toContainText("MCP: Unverified");
+        await expect(footer).toContainText("Realtime: Disconnected");
+        const dock = page.locator("[data-floating-nav-content]");
+        expect((await dock.boundingBox())!.y + (await dock.boundingBox())!.height).toBeLessThanOrEqual((await footer.boundingBox())!.y);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        await page.getByRole("link", { name: "Open Board", exact: true }).click();
+        await expect(footer).toHaveCount(1);
+        await page.getByRole("link", { name: "Open Dashboard", exact: true }).click();
+        await expect(footer.locator("[data-status-project]")).toHaveCount(0);
+    });
+}
+
+test("footer observes actual transport events without adding startup requests", async ({ page }) => {
+    let peer: WebSocketRoute | undefined;
+    await page.routeWebSocket(/.*/, (socket) => {
+        peer = socket;
+    });
+    const reads: string[] = [];
+    page.on("request", (request) => {
+        if (["fetch", "xhr"].includes(request.resourceType())) reads.push(request.url());
+    });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const footer = page.getByRole("contentinfo", { name: "Workbench status" });
+    await expect(footer).toContainText("Realtime: Disconnected");
+    expect(reads).toEqual([]);
+    await page.evaluate(async () => {
+        const path = "/src/core/stores/socket/transport.ts";
+        const { createSocketConnection } = await import(/* @vite-ignore */ path);
+        createSocketConnection({
+            props: {
+                accessToken: "fixture",
+                userUID: "sidebar-user-a",
+                onOpen: async () => {},
+                onMessage: async () => {},
+                onClose: async () => {},
+                onError: async () => {},
+            },
+            subscribe: () => {},
+            onSubscribed: () => {},
+            onUnsubscribed: () => {},
+        });
+    });
+    await expect(footer).toContainText("Realtime: Socket open");
+    peer!.close({ code: 1006 });
+    await expect(footer).toContainText("Realtime: Connection closed");
+    await page.getByRole("button", { name: "Use second user", exact: true }).click();
+    await expect(footer).toContainText("Realtime: Disconnected");
+    expect(reads).toEqual([]);
 });

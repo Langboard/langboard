@@ -120,7 +120,7 @@ export function BoardSplitChrome({ children }: { children: React.ReactNode }) {
     const split = useBoardSplitContext()!;
     const props = useSyncExternalStore(split.subscribeLayout, split.getLayout);
     return (
-        <DashboardStyledLayout workbench {...props} className="!p-0 md:!h-[calc(100dvh-2.75rem)]">
+        <DashboardStyledLayout workbench {...props} className="!h-full !p-0">
             {children}
         </DashboardStyledLayout>
     );

@@ -16,6 +16,25 @@ const socketMap: ISocketMap = createSocketMap();
 
 let socket: WebSocket | null = null;
 
+export interface ISocketConnectionStatus {
+    status: "disconnected" | "connecting" | "open" | "error" | "closed";
+    userUID?: string;
+}
+let connectionStatus: ISocketConnectionStatus = { status: "disconnected" };
+const connectionListeners = new Set<() => void>();
+export const getSocketConnectionStatus = () => connectionStatus;
+export const subscribeSocketConnectionStatus = (listener: () => void) => {
+    connectionListeners.add(listener);
+    return () => {
+        connectionListeners.delete(listener);
+    };
+};
+export const setSocketConnectionStatus = (next: ISocketConnectionStatus) => {
+    if (next.status === connectionStatus.status && next.userUID === connectionStatus.userUID) return;
+    connectionStatus = next;
+    connectionListeners.forEach((listener) => listener());
+};
+
 export const getSocketMap = () => {
     return socketMap;
 };
@@ -26,6 +45,7 @@ export const getSocket = () => {
 
 export const setSocket = (nextSocket: WebSocket | null) => {
     socket = nextSocket;
+    if (!nextSocket) setSocketConnectionStatus({ status: "disconnected" });
 };
 
 export const isSocketOpenOrConnecting = (targetSocket: WebSocket | null = socket) => {
