@@ -127,5 +127,15 @@
   "Move child cards too?": "子カードも移動しますか？",
   "All descendants will move to the same column. Relationships will be preserved.": "すべての子孫を同じ列へ移動します。関係は維持されます。",
   "Move only this card": "このカードのみ移動",
-  "Move all descendants": "すべての子孫を移動"
+  "Move all descendants": "すべての子孫を移動",
+  "Cross-board card": "ボード間カード",
+  "Link a read-only mirror or create an independent clone.": "読み取り専用ミラーをリンクするか、独立したカードを複製します。",
+  "Move is not supported yet.": "移動はまだサポートされていません。",
+  "Cross-board action failed. Retry or cancel.": "ボード間の操作に失敗しました。再試行するかキャンセルしてください。",
+  "Cloning will expose this card to new readers. Continue?": "複製すると新しい閲覧者にこのカードが公開されます。続行しますか？",
+  "Confirm exposure": "公開範囲の拡大を確認",
+  "Link card": "カードをリンク",
+  "Clone card": "カードを複製",
+  "Cross-board action completed.": "ボード間の操作が完了しました。",
+  "Excluded mappings": "除外された割り当て"
 }

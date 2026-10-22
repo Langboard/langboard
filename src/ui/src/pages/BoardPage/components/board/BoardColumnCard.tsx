@@ -72,7 +72,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
 
         return columnRowDndHelpers.row({
             row: card,
-            canDropRow: (row) => mode === "manual" || row.project_column_uid !== columnUID,
+            canDropRow: (row) => row.project_uid === card.project_uid && (mode === "manual" || row.project_column_uid !== columnUID),
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: inner,
             dropTarget: outer,

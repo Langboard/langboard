@@ -1,5 +1,6 @@
 "use client";
 
+import CrossBoardDrop from "./crossBoard/CrossBoardDrop";
 import { useTranslation } from "react-i18next";
 
 import useColumnCardSort from "./useColumnCardSort";
@@ -103,7 +104,10 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
         return columnRowDndHelpers.column({
             canDrag: canDragAndDrop,
-            canDropRows: (row) => mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid),
+            canDropRows: (row) =>
+                "project_uid" in row &&
+                row.project_uid === column.project_uid &&
+                (mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid)),
             column,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: header,
@@ -128,40 +132,46 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
     return (
         <BoardAddCardProvider column={column} viewportRef={scrollableRef} toLastPage={() => {}} isDefaultCardColumn={isDefaultCardColumn}>
-            <Card.Root
-                ref={outerFullHeightRef}
-                data-board-column-sort={mode}
-                {...{ [BOARD_COLUMN_TOUCH_DND_ATTR]: column.uid }}
-                className={cn(
-                    BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
-                    "relative my-1 grid w-72 flex-shrink-0 snap-center grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl",
-                    "border-border/60 bg-muted/40 shadow-sm ring-primary dark:bg-background/60 sm:w-80",
-                    stateStyles[state.type]
-                )}
-            >
-                {hasRunningBot && <ShineBorder />}
-                <BoardColumnHeader isDragging={state.type !== "idle"} column={column} headerProps={{ ref: headerRef }} />
-                <ScrollArea.Root
-                    className="min-h-0 flex-1"
-                    viewportRef={scrollableRef}
-                    viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
-                    mutable={`${state.type}:${cardCount}`}
+            <CrossBoardDrop column={column}>
+                <Card.Root
+                    ref={outerFullHeightRef}
+                    data-board-column-sort={mode}
+                    {...{ [BOARD_COLUMN_TOUCH_DND_ATTR]: column.uid }}
+                    className={cn(
+                        BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
+                        "relative my-1 grid w-72 flex-shrink-0 snap-center grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl",
+                        "border-border/60 bg-muted/40 shadow-sm ring-primary dark:bg-background/60 sm:w-80",
+                        stateStyles[state.type]
+                    )}
                 >
-                    <Card.Content className="flex min-h-0 touch-pan-y flex-col gap-2 p-3" {...{ [BLOCK_BOARD_PANNING_ATTR]: true }} ref={innerRef}>
-                        <BoardColumnCardList
-                            column={column}
-                            updateBoard={updateBoard}
-                            scrollableRef={scrollableRef}
-                            onCardCountChange={setCardCount}
-                        />
-                        {state.type === "is-row-over" && !state.isOverChildRow && <BoardColumnCardShadow dragging={state.dragging} />}
-                        <BoardColumnAddCard />
-                    </Card.Content>
-                </ScrollArea.Root>
-                <Card.Footer className="shrink-0 px-3 py-2">
-                    <BoardColumnAddCardButton />
-                </Card.Footer>
-            </Card.Root>
+                    {hasRunningBot && <ShineBorder />}
+                    <BoardColumnHeader isDragging={state.type !== "idle"} column={column} headerProps={{ ref: headerRef }} />
+                    <ScrollArea.Root
+                        className="min-h-0 flex-1"
+                        viewportRef={scrollableRef}
+                        viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
+                        mutable={`${state.type}:${cardCount}`}
+                    >
+                        <Card.Content
+                            className="flex min-h-0 touch-pan-y flex-col gap-2 p-3"
+                            {...{ [BLOCK_BOARD_PANNING_ATTR]: true }}
+                            ref={innerRef}
+                        >
+                            <BoardColumnCardList
+                                column={column}
+                                updateBoard={updateBoard}
+                                scrollableRef={scrollableRef}
+                                onCardCountChange={setCardCount}
+                            />
+                            {state.type === "is-row-over" && !state.isOverChildRow && <BoardColumnCardShadow dragging={state.dragging} />}
+                            <BoardColumnAddCard />
+                        </Card.Content>
+                    </ScrollArea.Root>
+                    <Card.Footer className="shrink-0 px-3 py-2">
+                        <BoardColumnAddCardButton />
+                    </Card.Footer>
+                </Card.Root>
+            </CrossBoardDrop>
         </BoardAddCardProvider>
     );
 }
