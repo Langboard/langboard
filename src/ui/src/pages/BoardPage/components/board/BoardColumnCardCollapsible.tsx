@@ -1,3 +1,4 @@
+import BoardColumnCardMirror from "../card/mirror/BoardColumnCardMirror";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Button from "@/components/base/Button";
 import CardTypeBadges from "@/components/CardTypeBadges";
@@ -52,6 +53,10 @@ export interface IBoardColumnCardCollapsibleProps {
 
 function BoardColumnCardCollapsible({ isDragging, compact = false }: IBoardColumnCardCollapsibleProps) {
     const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
+
+    if (card.source_type === "project_card") {
+        return <BoardColumnCardMirror isDragging={isDragging} compact={compact} />;
+    }
 
     if (card.source_type === "project_wiki") {
         return <BoardColumnWikiCard isDragging={isDragging} />;

@@ -51,7 +51,8 @@ const outerStyles: { [Key in TRowState["type"]]?: string } = {
 };
 
 function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: ProjectCard.TModel; hierarchyDepth?: number; grouped?: boolean }) {
-    const { canDragCards } = useBoard();
+    const { canDragCards: boardCanDragCards } = useBoard();
+    const canDragCards = boardCanDragCards && card.source_type !== "project_card";
     const { mode } = useColumnCardSort(card.project_uid, card.project_column_uid);
     const outerRef = useRef<HTMLDivElement | null>(null);
     const innerRef = useRef<HTMLDivElement | null>(null);
@@ -174,7 +175,7 @@ function BoardColumnCardDisplay({
                 <Box
                     className={cardClassName}
                     ref={outerRef}
-                    {...{ [BOARD_CARD_TOUCH_DND_ATTR]: card.uid }}
+                    {...{ [BOARD_CARD_TOUCH_DND_ATTR]: card.source_type === "project_card" ? undefined : card.uid }}
                     style={relationshipSelectionActor ? ({ "--tw-ring-color": relationshipSelectionActor.color } as React.CSSProperties) : undefined}
                 >
                     {relationshipSelectionActor ? (

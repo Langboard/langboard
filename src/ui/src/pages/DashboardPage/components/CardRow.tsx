@@ -24,11 +24,11 @@ function CardRow({ card, ...props }: ICardRowProps): React.JSX.Element | null {
     const createdAt = card.useField("created_at");
     const [t] = useTranslation();
     const displayTitle =
-        card.source_type === "project_wiki"
+        card.source_type === "project_wiki" || card.source_type === "project_card"
             ? linkedResource?.status === "available"
                 ? linkedResource.title
                 : linkedResource?.status === "forbidden"
-                  ? t("wiki.Restricted wiki")
+                  ? t(card.source_type === "project_wiki" ? "wiki.Restricted wiki" : "wiki.Source unavailable")
                   : t("wiki.Source unavailable")
             : title;
 

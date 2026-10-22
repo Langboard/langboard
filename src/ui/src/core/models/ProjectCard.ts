@@ -45,13 +45,16 @@ export interface Interface extends IBaseModel {
         avatar: string | null;
         created_at: string;
     };
-    source_type?: "project_wiki" | (string & {});
+    source_type?: "project_wiki" | "project_card" | (string & {});
     source_uid?: string;
     linked_resource?: {
-        type: "project_wiki" | (string & {});
+        type: "project_wiki" | "project_card" | (string & {});
         uid: string;
         status: "available" | "forbidden" | "missing";
         title?: string;
+        project_uid?: string;
+        url?: string;
+        allowed_actions?: ("open_original" | "remove_mirror")[];
         preview?: string;
         content?: IEditorContent;
     };
@@ -187,7 +190,7 @@ class ProjectCard extends BaseModel<IStore> {
         super(model);
 
         const cardSocketHandlers =
-            this.source_type === "project_wiki"
+            this.source_type === "project_wiki" || this.source_type === "project_card"
                 ? [useCardColumnChangedHandlers, useCardDeletedHandlers]
                 : [
                       useCardDetailsChangedHandlers,
@@ -215,7 +218,7 @@ class ProjectCard extends BaseModel<IStore> {
             card: this,
         });
 
-        if (this.source_type !== "project_wiki") {
+        if (this.source_type !== "project_wiki" && this.source_type !== "project_card") {
             this.subscribeSocketEvents([useMetadataUpdatedHandlers, useMetadataDeletedHandlers], {
                 type: "card",
                 uid: this.uid,
@@ -224,7 +227,7 @@ class ProjectCard extends BaseModel<IStore> {
     }
 
     public static convertModel(model: IStore): IStore {
-        if (model.source_type === "project_wiki") {
+        if (model.source_type === "project_wiki" || model.source_type === "project_card") {
             model.title = model.linked_resource?.status === "available" ? (model.linked_resource.title ?? "") : "";
         }
         if (Utils.Type.isString(model.deadline_at)) {

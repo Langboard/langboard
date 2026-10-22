@@ -11,7 +11,8 @@ export default function BoardChangesSidebar({ projectUID, onNavigate }: { projec
     const navigate = usePageNavigateRef();
     const { dataUpdatedAt, isFetching, refetch } = useGetCards({ project_uid: projectUID }, { enabled: true });
     const unreadCards = ProjectCard.Model.useModels(
-        (card) => card.project_uid === projectUID && card.has_unread_change && card.source_type !== "project_wiki",
+        (card) =>
+            card.project_uid === projectUID && card.has_unread_change && card.source_type !== "project_wiki" && card.source_type !== "project_card",
         [projectUID, dataUpdatedAt]
     );
     const visibleCards = [...unreadCards].sort((a, b) => (b.last_change_seq ?? 0) - (a.last_change_seq ?? 0)).slice(0, 50);

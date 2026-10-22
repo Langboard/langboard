@@ -91,7 +91,9 @@ const ProjectQuickSwitcherCards = memo(
         const [t] = useTranslation();
         const { currentUser } = useAuth();
         const openCards = useOpenCards(currentUser?.uid);
-        const boardCards = ProjectCard.Model.useModels((card) => card.project_uid === currentProjectUID && card.source_type !== "project_wiki");
+        const boardCards = ProjectCard.Model.useModels(
+            (card) => card.project_uid === currentProjectUID && card.source_type !== "project_wiki" && card.source_type !== "project_card"
+        );
         const projectTitles = useMemo(() => new Map(projects.map((project) => [project.uid, project.title])), [projects]);
         const cards = useMemo(
             () =>

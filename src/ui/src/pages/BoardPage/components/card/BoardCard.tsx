@@ -57,6 +57,7 @@ import { useHasRunningBot } from "@/core/stores/BotStatusStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import { useBoardChat } from "@/core/providers/BoardChatProvider";
 import BoardTaskMetadataSection from "@/pages/BoardPage/components/task/BoardTaskMetadataSection";
+import BoardCardMirror from "./mirror/BoardCardMirror";
 import BoardLinkedWikiCard from "@/pages/BoardPage/components/card/BoardLinkedWikiCard";
 import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useCardLinkedResourceChangedHandlers";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
@@ -381,6 +382,10 @@ interface IBoardCardResultProps {
 
 function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
     const { card } = useBoardCard();
+
+    if (card.source_type === "project_card") {
+        return <BoardCardMirror {...props} />;
+    }
 
     if (card.source_type === "project_wiki" && card.linked_resource) {
         return <BoardLinkedWikiCard {...props} />;

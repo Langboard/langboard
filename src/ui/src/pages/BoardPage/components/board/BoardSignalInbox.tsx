@@ -13,7 +13,7 @@ export default function BoardSignalInbox({ project }: { project: Project.TModel 
     const columns = ProjectColumn.Model.useModels((column) => column.project_uid === projectUID, [projectUID]);
     const client = useQueryClient();
     const cards = ProjectCard.Model.useModels(
-        (card) => card.project_uid === projectUID && !card.archived_at && card.source_type !== "project_wiki",
+        (card) => card.project_uid === projectUID && !card.archived_at && card.source_type !== "project_wiki" && card.source_type !== "project_card",
         [projectUID]
     );
     return (
