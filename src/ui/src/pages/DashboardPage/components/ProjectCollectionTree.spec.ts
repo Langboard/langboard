@@ -37,6 +37,10 @@ for (const width of [1280, 390]) {
         await page.getByRole("button", { name: "Sort boards by name", exact: true }).click();
         await expect.poll(() => saved.collections[0].board_uids).toEqual(["00000000002", "00000000001"]);
         await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Alpha", exact: true }).dragTo(page.getByRole("button", { name: "Zulu", exact: true }), {
+            targetPosition: { x: 50, y: 31 },
+        });
+        await expect.poll(() => saved.collections[0].board_uids).toEqual(["00000000001", "00000000002"]);
         await page.getByRole("button", { name: "Alpha", exact: true }).click();
         await expect(page.getByTestId("destination")).toHaveText("00000000002");
         const favorite = page.getByRole("button", { name: "Favorites", exact: true }).first();

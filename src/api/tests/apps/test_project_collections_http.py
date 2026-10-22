@@ -15,7 +15,9 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SnowflakeID
+from langboard_shared.domain.models import Project, ProjectAssignedUser, ProjectRole, UserAppPreference
 from langboard_shared.Env import Env
+from sqlalchemy import select
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
@@ -23,6 +25,18 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
     _, actor, project, _, role, *_ = board
     engine = DbEngine.get_main_engine()
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    UserAppPreference.__table__.create(engine)
+    with DbSession.atomic() as db:
+        db.insert(UserAppPreference(user_id=actor.id, pinned_apps=[{"key": "existing-app", "name": "Existing pin"}]))
+
+    def existing_data():
+        with engine.connect() as connection:
+            return {
+                model.__tablename__: connection.execute(select(model.__table__)).all()
+                for model in (Project, ProjectAssignedUser, ProjectRole, UserAppPreference)
+            }
+
+    before = existing_data()
     path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261022040000-f86d4ce73a02.py"
     spec = importlib.util.spec_from_file_location("collections_migration", path)
     migration = importlib.util.module_from_spec(spec)
@@ -30,6 +44,7 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
     with engine.begin() as connection:
         monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
         migration.upgrade()
+    assert existing_data() == before
     app = FastAPI()
     app.include_router(AppRouter.api)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
@@ -47,6 +62,7 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
         saved = client.put(endpoint, json={"expected_revision": 0, "collections": [collection]}, headers=headers)
         assert saved.status_code == 200, saved.text
         assert saved.json() == {"revision": 1, "collections": [collection]}
+        assert existing_data() == before
         with TestClient(app) as device:
             device.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             assert device.get(endpoint, headers=headers).json() == saved.json()
@@ -77,6 +93,7 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
         retained = client.put(endpoint, json={"expected_revision": 1, "collections": [renamed]}, headers=headers)
         assert retained.status_code == 200, retained.text
         assert retained.json() == {"revision": 2, "collections": [renamed]}
+        assert client.get(endpoint, headers=headers).json() == retained.json()
         with engine.begin() as connection:
             monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
             with pytest.raises(RuntimeError, match="Cannot discard"):
@@ -90,7 +107,8 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
-def test_concurrent_first_collection_save_has_one_winner(board):
+@pytest.mark.parametrize("existing", [False, True])
+def test_concurrent_collection_save_has_one_winner(board, existing):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
     from langboard_shared.domain.models import UserProjectCollection
@@ -99,12 +117,15 @@ def test_concurrent_first_collection_save_has_one_winner(board):
 
     _, actor, *_ = board
     UserProjectCollection.__table__.create(DbEngine.get_main_engine())
+    revision = 0
+    if existing:
+        revision = project_collections(actor, collections=[], expected_revision=0)["revision"]
     barrier = Barrier(2)
 
     def save(name):
         barrier.wait(timeout=10)
         try:
-            return project_collections(actor, collections=[{"uid": str(uuid4()), "name": name, "board_uids": []}], expected_revision=0)
+            return project_collections(actor, collections=[{"uid": str(uuid4()), "name": name, "board_uids": []}], expected_revision=revision)
         except PreferenceConflict:
             return "conflict"
 
@@ -112,5 +133,5 @@ def test_concurrent_first_collection_save_has_one_winner(board):
         results = list(pool.map(save, ["Device A", "Device B"]))
     assert results.count("conflict") == 1
     winner = next(item for item in results if isinstance(item, dict))
-    assert winner["revision"] == 1
+    assert winner["revision"] == revision + 1
     assert project_collections(actor) == winner

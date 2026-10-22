@@ -39,7 +39,7 @@ for (const [width, commitBeforeFailure] of [
         await expect(page.getByRole("dialog")).toHaveCount(1);
         await expect(page.getByRole("checkbox", { name: "Created source", exact: true })).toBeChecked();
         await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("ERP project");
-        if (width === 390) await page.screenshot({ path: ".verification/project-collection-390.png", fullPage: true });
+        if (width === 390) await page.screenshot({ path: "/tmp/langboard-project-collection-390.png", fullPage: true });
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect(page.getByRole("alert")).toContainText("Could not save");
         await expect(page.locator("output")).toHaveAttribute("data-busy", "false");
@@ -56,6 +56,76 @@ for (const [width, commitBeforeFailure] of [
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
 }
+
+for (const createBoard of [false, true]) {
+    test(`canceling collection does not save a bundle after source creation: ${createBoard}`, async ({ page }) => {
+        let puts = 0;
+        let creates = 0;
+        await page.route("**/account/project-collections", (route) => {
+            if (route.request().method() !== "GET") puts++;
+            return route.fulfill({ json: { revision: 0, collections: [] } });
+        });
+        await page.route("**/settings/project-templates", (route) => route.fulfill({ json: { templates: [] } }));
+        await page.route("**/dashboard/projects/new", (route) => {
+            creates++;
+            return route.fulfill({ json: { project_uid: "00000000003" } });
+        });
+        await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html");
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        await page.getByLabel("Project name", { exact: true }).fill("Canceled draft");
+        await page.getByRole("checkbox", { name: "ERP board", exact: true }).click();
+        await page.getByRole("button", { name: "Create source board", exact: true }).click();
+        const sourceDialog = page.getByRole("dialog").last();
+        if (createBoard) {
+            await sourceDialog.locator("input[name=title]").fill("Created source");
+            await sourceDialog.getByRole("combobox").first().fill("Other");
+            await sourceDialog.getByRole("button", { name: "Create", exact: true }).click();
+            await expect(page.getByRole("checkbox", { name: "Created source", exact: true })).toBeChecked();
+        } else {
+            await sourceDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+        }
+        await expect(page.getByRole("dialog")).toHaveCount(1);
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("");
+        await expect(page.getByRole("checkbox", { name: "ERP board", exact: true })).not.toBeChecked();
+        if (createBoard) await expect(page.getByRole("checkbox", { name: "Created source", exact: true })).not.toBeChecked();
+        expect(creates).toBe(createBoard ? 1 : 0);
+        expect(puts).toBe(0);
+        await expect(page.locator("output")).toHaveText("[]");
+    });
+}
+
+test("a revision conflict refreshes existing collections before retrying the same draft", async ({ page }) => {
+    const other = { uid: "00000000-0000-4000-8000-000000000001", name: "Other device", board_uids: ["00000000002"] };
+    let saved = { revision: 0, collections: [] as object[] };
+    let puts = 0;
+    await page.route("**/account/project-collections", (route) => {
+        if (route.request().method() === "GET") return route.fulfill({ json: saved });
+        const input = route.request().postDataJSON();
+        if (++puts === 1) {
+            expect(input.expected_revision).toBe(0);
+            saved = { revision: 1, collections: [other] };
+            return route.fulfill({ status: 409, json: {} });
+        }
+        expect(input.expected_revision).toBe(1);
+        saved = { revision: 2, collections: input.collections };
+        return route.fulfill({ json: saved });
+    });
+    await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html");
+    await page.getByRole("button", { name: "Add collection", exact: true }).click();
+    await page.getByLabel("Project name", { exact: true }).fill("My draft");
+    await page.getByRole("checkbox", { name: "ERP board", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Could not save");
+    await expect(page.locator("output")).toContainText("Other device");
+    await expect(page.locator("output")).toHaveAttribute("data-busy", "false");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(saved.collections).toEqual([other, { uid: expect.any(String), name: "My draft", board_uids: ["00000000001"] }]);
+    expect(puts).toBe(2);
+});
 
 test("late collection response does not cross an account switch", async ({ page }) => {
     let first: import("@playwright/test").Route | undefined;
