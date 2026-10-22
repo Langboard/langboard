@@ -4,8 +4,9 @@
 from types import SimpleNamespace
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.domain.models import Bot, Card, CardAppOwnership
+from langboard_shared.domain.models import Bot, Card, CardAppOwnership, CardChangeReceipt, UserCardReadState
 from langboard_shared.domain.services.factory.CardRelationshipService import CardRelationshipService
+from langboard_shared.infrastructure.repositories.factory.UserCardReadStateRepository import UserCardReadStateRepository
 from sqlalchemy import event, update
 from test_card_clones import clone, clone_board  # noqa: F401
 from test_card_mirrors import link, mirror_board  # noqa: F401
@@ -24,12 +25,39 @@ def snapshot(b, monkeypatch, visible):
     repo.project_label = SimpleNamespace(get_all_card_labels_by_project=lambda *a, **kw: [])
     repo.checklist = SimpleNamespace(get_all_by_project=lambda *a, **kw: [])
     repo.project_assigned_user = SimpleNamespace(get_by_user_and_project=lambda *a: None)
-    repo.user_card_read_state = SimpleNamespace(get_seen_seq_map=lambda *a: {})
+    for model in (UserCardReadState, CardChangeReceipt):
+        model.__table__.create(b.engine, checkfirst=True)
+    repo.user_card_read_state = UserCardReadStateRepository(None, None)
     monkeypatch.setattr(service, "get_active_workers", lambda *a, **kw: {})
     monkeypatch.setattr(service, "get_work_states", lambda cards, **kw: {
         card.id: {"checklist_progress": {"total": 0, "completed": 0}} for card in cards
     })
     return service.get_board_snapshot(b.source_board, b.actor)[0]
+
+
+def test_snapshot_projects_persisted_change_count_and_read_cursor(mirror_board, monkeypatch):
+    b = mirror_board
+    assert snapshot(b, monkeypatch, [b.source])[0]["unread_change_count"] == 0
+    with DbSession.use(readonly=False) as db:
+        b.source.last_change_seq = 8
+        b.source.last_change_target_type = "card"
+        b.source.last_change_target_id = b.source.id
+        db.update(b.source)
+        db.insert(UserCardReadState(user_id=b.actor.id, card_id=b.source.id, seen_change_seq=2))
+        for seq in (2, 5, 8):
+            db.insert(CardChangeReceipt(card_id=b.source.id, change_seq=seq))
+    payload = snapshot(b, monkeypatch, [b.source])[0]
+    assert payload["can_cross_board"] is True
+    assert payload["has_unread_change"] is True
+    assert payload["unread_change_count"] == 2
+    assert payload["unread_change_count_status"] == "exact"
+    assert payload["latest_change"]["seq"] == 8
+    assert payload["latest_change"]["target_uid"] == b.source.get_uid()
+    b.service.repo.user_card_read_state.set_read_state(b.actor, b.source, True)
+    payload = snapshot(b, monkeypatch, [b.source])[0]
+    assert payload["has_unread_change"] is False
+    assert payload["unread_change_count"] == 0
+    assert payload["unread_change_count_status"] == "exact"
 
 
 def test_snapshot_projects_true_owner_not_bot_creator_and_queries_only_visible_ids(mirror_board, monkeypatch):
@@ -42,7 +70,8 @@ def test_snapshot_projects_true_owner_not_bot_creator_and_queries_only_visible_i
         b.source.created_by_user_id = None
         b.source.created_by_bot_id = bot.id
         db.update(b.source)
-        app = Card(project_id=b.source_board.id, project_column_id=b.source.project_column_id, title="Owned")
+        app = Card(project_id=b.source_board.id, project_column_id=b.source.project_column_id,
+                   title="Owned", visibility="SHARED")
         hidden = Card(project_id=b.source_board.id, project_column_id=b.source.project_column_id,
                       title="Hidden", visibility="PRIVATE", owner_user_id=b.outsider.id, created_by_user_id=b.outsider.id)
         db.insert(app)
