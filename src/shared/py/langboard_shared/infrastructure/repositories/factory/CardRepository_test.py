@@ -432,8 +432,8 @@ def test_recent_availability_excludes_missing_deleted_and_foreign_project_cards(
             assert repo.get_existing_uids(project, [valid.get_uid(), removed_uid, foreign.get_uid()], context=context) == [valid.get_uid()]
         finally:
             event.remove(engine, "before_cursor_execute", capture_projection)
-        # Availability needs one bounded ID projection, never editor bodies or other card payloads.
-        assert projections == [[("card", "id")]]
+        # Availability needs only bounded project/card identifiers, never card payloads.
+        assert projections == [[("card", "project_id"), ("card", "id")]]
         assert repo.get_existing_uids(project, [], context=context) == []
         with pytest.raises(ValueError):
             repo.get_existing_uids(project, [valid.get_uid()] * 201, context=context)
