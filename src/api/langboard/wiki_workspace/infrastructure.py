@@ -1,12 +1,22 @@
 """Native authorized wiki storage, bounded searches and existing activity snapshots."""
 
+from json import dumps, loads
 from typing import Any
 from fastmcp.exceptions import AuthorizationError
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConflict
-from langboard_shared.domain.models import ProjectWiki, ProjectWikiActivity, ProjectWikiAssignedUser, User
+from langboard_shared.core.utils.Encryptor import Encryptor
+from langboard_shared.domain.models import (
+    ProjectAssignedUser,
+    ProjectWiki,
+    ProjectWikiActivity,
+    ProjectWikiAssignedUser,
+    User,
+)
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.ProjectAttachmentService import current_authority
+from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 from sqlalchemy import JSON, cast, func, or_, select
 from .domain import WikiRepository, WikiSnapshot, content_page
@@ -101,16 +111,7 @@ class NativeWikiRepository(WikiRepository):
         columns = [ProjectWiki.column("id"), ProjectWiki.column("title"), ProjectWiki.column("is_public")]
         if query:
             columns.append(ProjectWiki.column("content"))
-        statement = SqlBuilder.select.columns(*columns).where(
-            (ProjectWiki.column("project_id") == project.id) & ProjectWiki.column("deleted_at").is_(None)
-        )
-        if not self.user.is_admin and project.owner_id != self.user.id:
-            assigned = select(ProjectWikiAssignedUser.project_wiki_id).where(
-                ProjectWikiAssignedUser.user_id == self.user.id
-            )
-            statement = statement.where(
-                or_(ProjectWiki.column("is_public").is_(True), ProjectWiki.column("id").in_(assigned))
-            )
+        statement = self._readable_list_statement(project, self.user, columns)
         if after_uid:
             statement = statement.where(ProjectWiki.column("id") > InfraHelper.convert_id(after_uid))
         if query:
@@ -147,6 +148,61 @@ class NativeWikiRepository(WikiRepository):
             "search_mode": "literal",
             "limit": limit,
         }
+
+    @staticmethod
+    def _readable_list_statement(project, user, columns):
+        statement = SqlBuilder.select.columns(*columns).where(
+            (ProjectWiki.column("project_id") == project.id) & ProjectWiki.column("deleted_at").is_(None)
+        )
+        if not user.is_admin and project.owner_id != user.id:
+            assigned = (
+                select(ProjectWikiAssignedUser.project_wiki_id)
+                .join(ProjectAssignedUser, ProjectAssignedUser.id == ProjectWikiAssignedUser.project_assigned_id)
+                .where(
+                    ProjectWikiAssignedUser.user_id == user.id,
+                    ProjectAssignedUser.user_id == user.id,
+                    ProjectAssignedUser.project_id == project.id,
+                )
+            )
+            statement = statement.where(
+                or_(ProjectWiki.column("is_public").is_(True), ProjectWiki.column("id").in_(assigned))
+            )
+        return statement
+
+    def list_summaries(self, project_uid: str, cursor: str | None, limit: int = 25) -> dict[str, Any]:
+        """Read one body-free page using current authority and an actor/project-bound cursor."""
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("limit must be 1..50")
+        with DbSession.use(readonly=False) as db:
+            authority = current_authority(db, self.user, project_uid)
+            if authority is None:
+                raise AuthorizationError("Current user cannot read this project")
+            user, project, _ = authority
+            scope = ["wiki-summaries:1", user.get_uid(), project.get_uid()]
+            after = None
+            if cursor is not None:
+                try:
+                    if not cursor or len(cursor) > 2048:
+                        raise ValueError("Invalid cursor length")
+                    payload = loads(Encryptor.decrypt(cursor, Env.JWT_SECRET_KEY))
+                    if payload["scope"] != scope or not isinstance(payload["after"], str):
+                        raise ValueError("Invalid cursor scope")
+                    after = InfraHelper.convert_id(payload["after"])
+                    if after <= 0 or after.to_short_code() != payload["after"]:
+                        raise ValueError("Invalid cursor position")
+                except (ValueError, TypeError, KeyError, UnicodeError, AttributeError):
+                    raise ValueError("Invalid wiki summary cursor") from None
+            statement = self._readable_list_statement(
+                project, user, [ProjectWiki.column("id"), ProjectWiki.column("title"), ProjectWiki.column("is_public")]
+            )
+            if after is not None:
+                statement = statement.where(ProjectWiki.column("id") > after)
+            rows = db.exec(statement.order_by(ProjectWiki.column("id").asc()).limit(limit + 1)).all()
+        items = [{"wiki_uid": row[0].to_short_code(), "title": row[1], "is_public": row[2]} for row in rows[:limit]]
+        next_cursor = None
+        if len(rows) > limit:
+            next_cursor = Encryptor.encrypt(dumps({"scope": scope, "after": items[-1]["wiki_uid"]}), Env.JWT_SECRET_KEY)
+        return {"items": items, "next_cursor": next_cursor, "limit": limit}
 
     def revisions(self, project_uid: str, wiki_uid: str, before_uid: str | None, limit: int) -> dict[str, Any]:
         """List existing audit revisions without emitting unbounded body snapshots."""

@@ -20,6 +20,11 @@ on:
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/ScheduleWorkloadQuery.py
       - src/api/langboard/mcp_tools/CardMcp.py
       - src/api/langboard/routes/board/BoardCardApi.py
+      - src/api/langboard/routes/board/BoardApi.py
+      - src/api/langboard/routes/board/BoardWikiApi.py
+      - src/api/langboard/wiki_workspace/**
+      - src/api/tests/test_dashboard_my_work.py
+      - src/api/tests/dashboard/test_column_visibility_counts.py
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
       - src/api/tests/core/test_snowflake_storage_safety.py
@@ -43,6 +48,7 @@ on:
       - src/api/tests/mcp_integration/test_card_workspace_transport.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
       - src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRelationshipRepository.py
       - src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py
       - src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
       - src/api/tests/card_workspace/timers/**
@@ -125,3 +131,9 @@ jobs:
         run: SCHEDULE_WORKLOAD_TEST_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_workload.py
       - name: Verify native automation summary and detail audiences
         run: uv run --no-sync pytest -q src/api/tests/runtime/test_board_automation_runs.py src/api/tests/runtime/test_board_automation_loading.py
+      - name: Verify bounded Wiki, Relations and My Work contracts
+        run: uv run --no-sync pytest -q src/api/langboard/wiki_workspace src/api/tests/card_workspace/test_card_relation_summaries.py src/api/tests/card_workspace/test_card_relationship_graph.py src/api/tests/test_dashboard_my_work.py
+      - name: Verify My Work snapshot and relation authority on native PostgreSQL
+        run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/test_dashboard_my_work.py src/api/tests/card_workspace/test_card_relation_summaries.py
+      - name: Verify bounded legacy work query counts
+        run: uv run --no-sync pytest -q src/api/tests/dashboard/test_column_visibility_counts.py -k multipurpose

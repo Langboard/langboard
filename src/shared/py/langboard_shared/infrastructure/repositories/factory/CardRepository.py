@@ -671,6 +671,85 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 )
             return db.exec(query.order_by(Card.deadline_at, Card.project_id, Card.id).limit(limit)).all()
 
+    @staticmethod
+    def _my_work_query(project_uids, contexts, *entities):
+        """One authorized native work population for pages and aggregate counts."""
+        return (
+            select(*entities)
+            .select_from(Card)
+            .join(Project, Card.project_id == Project.id)
+            .join(ProjectColumn, (Card.project_column_id == ProjectColumn.id) & (Card.project_id == ProjectColumn.project_id))
+            .outerjoin(WorkflowStageDefinition, WorkflowStageDefinition.key == ProjectColumn.workflow_stage)
+            .where(Project.id.in_([InfraHelper.convert_id(project) for project in project_uids]))
+            .where(card_visibility_scope_by_project(contexts))
+            .where(Card.deleted_at.is_(None), Project.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None))
+            .where(Card.archived_at.is_(None), ProjectColumn.is_archive.is_(False), Card.source_type.is_(None))
+            .where(or_(WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.counts_as_completed.is_(False)))
+            .where(or_(WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.active_queue_policy != "exclude"))
+        )
+
+    def get_my_work_context_page(
+        self, user, project_uids, mentioned_card_ids, day_start, day_end, upcoming_end, group, limit, before,
+        *, contexts,
+    ):
+        """Count and page one statement snapshot without transferring card bodies."""
+        if not contexts or not project_uids:
+            return [], {}
+        user_id = InfraHelper.convert_id(user)
+        assigned = select(CardAssignedUser.id).where(
+            CardAssignedUser.card_id == Card.id, CardAssignedUser.user_id == user_id
+        ).exists()
+        mentioned = Card.id.in_(set(mentioned_card_ids)) if mentioned_card_ids else false()
+        overdue = (Card.deadline_at < day_start) & or_(
+            WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.overdue_policy != "suppress"
+        )
+        work_group = case(
+            (overdue, "overdue"),
+            ((Card.deadline_at >= day_start) & (Card.deadline_at < day_end), "today"),
+            ((Card.deadline_at >= day_end) & (Card.deadline_at < upcoming_end), "upcoming"),
+            (ProjectColumn.workflow_stage == "review", "review"),
+            (assigned, "assigned"),
+            (mentioned, "mentioned"),
+            else_="created",
+        )
+        population = self._my_work_query(
+            project_uids, contexts, Card.id, Card.project_id, Card.updated_at, assigned.label("is_assigned"),
+            mentioned.label("is_mentioned"), work_group.label("work_group"),
+        ).where(or_(assigned, mentioned, Card.created_by_user_id == user_id)).cte("my_work_population")
+        groups = ("overdue", "today", "upcoming", "review", "assigned", "mentioned", "created")
+        counts_query = select(*(
+            func.count(case((population.c.work_group == key, 1))).label(key) for key in groups
+        )).cte("my_work_counts")
+        page = select(population)
+        if group is not None:
+            page = page.where(population.c.work_group == group)
+        if before is not None:
+            updated_at, project_id, card_id = before
+            page = page.where(or_(
+                population.c.updated_at < updated_at,
+                (population.c.updated_at == updated_at) & (population.c.project_id < project_id),
+                (population.c.updated_at == updated_at) & (population.c.project_id == project_id) & (population.c.id < card_id),
+            ))
+        page = page.order_by(
+            population.c.updated_at.desc(), population.c.project_id.desc(), population.c.id.desc()
+        ).limit(limit).cte("my_work_page")
+        # The aggregate always emits one row, including empty groups or exhausted cursors.
+        query = select(
+            Card, Project, ProjectColumn, page.c.is_assigned, page.c.is_mentioned, page.c.work_group,
+            *counts_query.c,
+        ).select_from(counts_query).outerjoin(page, true()).outerjoin(Card, Card.id == page.c.id).outerjoin(
+            Project, Project.id == Card.project_id
+        ).outerjoin(ProjectColumn, ProjectColumn.id == Card.project_column_id).options(
+            load_only(Card.id, Card.title, Card.project_id, Card.project_column_id, Card.created_by_user_id,
+                      Card.deadline_at, Card.updated_at, raiseload=True),
+            load_only(Project.id, Project.title, raiseload=True),
+            load_only(ProjectColumn.id, ProjectColumn.name, ProjectColumn.workflow_stage, raiseload=True),
+        ).order_by(page.c.updated_at.desc(), page.c.project_id.desc(), page.c.id.desc())
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(query).all()
+        counts = {key: int(count) for key, count in zip(groups, rows[0][6:])}
+        return [row[:6] for row in rows if row[0] is not None], counts
+
     def get_my_work_page(
         self,
         user: TUserParam,
@@ -728,22 +807,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             raise ValueError("since must be earlier than until")
         date_column = Card.column(date_field)
 
-        query = (
-            SqlBuilder.select.tables(Card, Project, ProjectColumn, assigned.label("is_assigned"))
-            .join(Project, Card.column("project_id") == Project.column("id"))
-            .join(ProjectColumn, Card.column("project_column_id") == ProjectColumn.column("id"))
-            .where(Project.column("id").in_([InfraHelper.convert_id(project) for project in project_uids]))
-            .where(card_visibility_scope_by_project(contexts))
-            .where(Project.column("deleted_at") == None)  # noqa: E711
-            .where(Card.column("archived_at") == None)  # noqa: E711
-            .where(ProjectColumn.column("is_archive").is_(False))
-            .outerjoin(WorkflowStageDefinition, WorkflowStageDefinition.key == ProjectColumn.workflow_stage)
-            .where(ProjectColumn.project_id == Card.project_id)
-            .where(Card.source_type.is_(None))
-            .where(or_(WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.counts_as_completed.is_(False)))
-            .where(or_(WorkflowStageDefinition.id.is_(None), WorkflowStageDefinition.active_queue_policy != "exclude"))
-            .where(or_(*conditions))
-        )
+        query = self._my_work_query(
+            project_uids, contexts, Card, Project, ProjectColumn, assigned.label("is_assigned")
+        ).where(or_(*conditions))
         if since is not None:
             query = query.where(date_column >= since)
         if until is not None:

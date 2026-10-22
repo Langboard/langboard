@@ -1,4 +1,5 @@
 from fastapi import File, Query, UploadFile, status
+from fastmcp.exceptions import AuthorizationError
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
@@ -48,6 +49,30 @@ def search_project_wikis(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     return JsonResponse(content=NativeWikiRepository(user, service).list_wikis(project_uid, query, cursor, 20))
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/wikis/summaries",
+    tags=["Board.Wiki"],
+    description="Get one readable wiki metadata page without bodies.",
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_project_wiki_summaries(
+    project_uid: str,
+    cursor: str | None = Query(default=None, max_length=2048),
+    limit: int = Query(default=25, ge=1, le=50),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        page = NativeWikiRepository(user, service).list_summaries(project_uid, cursor, limit)
+    except AuthorizationError:
+        raise ApiException.Forbidden_403() from None
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+    return JsonResponse(content=page, headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.schema(permission=ApiPermission.Read)

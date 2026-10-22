@@ -1,13 +1,14 @@
-from datetime import timedelta
 from time import perf_counter
+from typing import Annotated
 from fastapi import Depends, Query, Request, Response, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime, SnowflakeID
+from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.CardService import MyWorkGroup
 from langboard_shared.domain.services.factory.ProjectTemplateService import (
     ProjectCreationConflict,
     ProjectCreationUnavailable,
@@ -218,8 +219,12 @@ def get_card_list(
                     "deadline_at": "string?",
                     "updated_at": "string",
                     "reasons": ["string"],
+                    "group": "string",
                 }
-            ]
+            ],
+            "counts": "object", "total": "integer", "next_cursor": "string?",
+            "day_start": "string", "day_end": "string", "upcoming_end": "string",
+            "timezone": "string", "group": "string?", "project_uid": "string?", "as_of": "string",
         }
     )
     .auth()
@@ -229,36 +234,27 @@ def get_card_list(
 @AuthFilter.add("user")
 def get_my_work(
     request: Request,
-    project_uid: str | None = None,
+    project_uid: Annotated[str | None, Query(max_length=64)] = None,
     limit: int = Query(default=50, ge=1, le=50),
+    group: MyWorkGroup | None = None,
+    timezone_name: Annotated[str, Query(max_length=64)] = "UTC",
+    cursor: Annotated[str | None, Query(max_length=1024)] = None,
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
     contexts = service.card.resolve_work_visibility_contexts(user, channel)
-    projects = [{"uid": SnowflakeID(project_id).to_short_code()} for project_id in contexts]
-    if project_uid is not None:
-        projects = [project for project in projects if project["uid"] == project_uid]
-        if not projects:
-            raise ApiException.NotFound_404(ApiErrorCode.NF2001)
-
-    if not projects:
-        return JsonResponse(content={"cards": []})
-
-    cards = service.card.get_my_work_cards(
-        user,
-        projects,
-        {"assigned", "mentioned", "due_soon", "overdue", "created"},
-        service.notification.get_mentioned_card_ids(user),
-        SafeDateTime.now() + timedelta(days=7),
-        "updated_at",
-        None,
-        None,
-        limit,
-        channel=channel,
-        contexts=contexts,
-    )
-    return JsonResponse(content={"cards": cards})
+    if project_uid is not None and project_uid not in {SnowflakeID(project_id).to_short_code() for project_id in contexts}:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    try:
+        result = service.card.get_my_work_context(
+            user, service.notification.get_mentioned_card_ids(user) if contexts else [],
+            project_uid=project_uid, group=group, timezone_name=timezone_name, cursor=cursor, limit=limit,
+            channel=channel, contexts=contexts,
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(str(exc)) from exc
+    return JsonResponse(content=result)
 
 
 @AppRouter.api.get(

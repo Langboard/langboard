@@ -6,7 +6,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from time import monotonic_ns
-from typing import Any, Literal, Sequence, cast, overload
+from typing import Any, Literal, Sequence, cast, get_args, overload
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import Text, func, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError
@@ -88,6 +89,9 @@ from .ProjectService import ProjectService
 from .ProjectWikiService import ProjectWikiService
 from .ScimProvisioningService import ScimProvisioningService
 from .WorkflowStagePolicyService import WorkflowStagePolicyService
+
+
+MyWorkGroup = Literal["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"]
 
 
 class CardService(BaseDomainService):
@@ -303,7 +307,9 @@ class CardService(BaseDomainService):
         if not isinstance(user, User) or project_ids == set():
             return {}
         with DbSession.use(readonly=False) as db:
-            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+            current = db.exec(
+                SqlBuilder.select.table(User).where(User.id == user.id).execution_options(populate_existing=True)
+            ).first()
             if current is None or current.deleted_at is not None or not current.activated_at:
                 return {}
             membership = (
@@ -325,7 +331,7 @@ class CardService(BaseDomainService):
                 .exists()
             )
             query = SqlBuilder.select.column(Project.id).where(
-                or_(Project.owner_id == current.id, membership & read_grant),
+                or_(Project.owner_id == current.id, membership & or_(current.is_admin, read_grant)),
             )
             if project_ids is not None:
                 query = query.where(Project.id.in_(project_ids))
@@ -1376,6 +1382,89 @@ class CardService(BaseDomainService):
                 }
             )
         return cards
+
+    def get_my_work_context(
+        self, user: User, mentioned_card_ids: list[int], project_uid: str | None = None,
+        group: MyWorkGroup | None = None, timezone_name: str = "UTC", cursor: str | None = None, limit: int = 50,
+        *, channel: CollaborationChannel = CollaborationChannel.Api,
+        contexts: dict[int, CardVisibilityContext] | None = None,
+    ) -> dict[str, Any]:
+        """Summary-only dashboard population, with counts independent of the selected page/group."""
+        groups = get_args(MyWorkGroup)
+        if group is not None and group not in groups:
+            raise ValueError("Invalid My Work group")
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("limit must be between 1 and 50")
+        try:
+            if not isinstance(timezone_name, str) or len(timezone_name) > 64:
+                raise ValueError
+            zone = ZoneInfo(timezone_name)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise ValueError("Invalid My Work timezone") from exc
+        if contexts is None:
+            contexts = self.resolve_work_visibility_contexts(user, channel)
+        readable = {SnowflakeID(project_id).to_short_code() for project_id in contexts}
+        if project_uid is not None:
+            if project_uid not in readable:
+                raise ValueError("Project not found or not readable")
+            readable = {project_uid}
+        now = SafeDateTime.now().astimezone(timezone.utc)
+        as_of = now
+        before = None
+        cursor_context = [str(user.id), project_uid, group, timezone_name]
+        if cursor is not None:
+            try:
+                if not isinstance(cursor, str) or len(cursor) > 1024:
+                    raise ValueError
+                fields = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+                if not isinstance(fields, dict) or fields.get("context") != cursor_context:
+                    raise ValueError
+                as_of = SafeDateTime.fromisoformat(fields["at"])
+                values = fields["before"]
+                if not isinstance(values, list) or len(values) != 3 or not all(isinstance(value, str) for value in values):
+                    raise ValueError
+                before = (SafeDateTime.fromisoformat(values[0]), int(values[1]), int(values[2]))
+                if as_of.utcoffset() is None or before[0].utcoffset() is None or not all(1 <= value <= SnowflakeID.MAX_VALUE for value in before[1:]):
+                    raise ValueError
+                if as_of > now + timedelta(minutes=5) or now - as_of > timedelta(days=2):
+                    raise ValueError
+            except (ValueError, TypeError, KeyError, Base64Error) as exc:
+                raise ValueError("Invalid My Work cursor") from exc
+        local_start = as_of.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_start = local_start.astimezone(timezone.utc)
+        day_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
+        upcoming_end = (local_start + timedelta(days=8)).astimezone(timezone.utc)
+        records, counts = self.repo.card.get_my_work_context_page(
+            user, sorted(readable), mentioned_card_ids, day_start, day_end, upcoming_end, group, limit + 1, before,
+            contexts=contexts,
+        )
+        page = records[:limit]
+        cards = []
+        for card, project, column, assigned, mentioned, card_group in page:
+            reasons = (["assigned"] if assigned else []) + (["mentioned"] if mentioned else [])
+            if card.created_by_user_id == user.id:
+                reasons.append("created")
+            if card_group in ("overdue", "today", "upcoming"):
+                reasons.append("overdue" if card_group == "overdue" else "due_soon")
+            cards.append({
+                "uid": card.get_uid(), "title": card.title, "project_uid": project.get_uid(),
+                "project_title": project.title, "project_column_name": column.name,
+                "deadline_at": card.deadline_at.isoformat() if card.deadline_at else None,
+                "updated_at": card.updated_at.isoformat(), "reasons": reasons, "group": card_group,
+                "work_state": {"workflow_stage": column.workflow_stage},
+            })
+        next_cursor = None
+        if len(records) > limit:
+            card, project, *_ = page[-1]
+            payload = {"context": cursor_context, "at": as_of.isoformat(),
+                       "before": [card.updated_at.isoformat(), str(project.id), str(card.id)]}
+            next_cursor = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+        return {
+            "cards": cards, "counts": {key: counts.get(key, 0) for key in groups}, "total": sum(counts.values()),
+            "next_cursor": next_cursor, "group": group, "project_uid": project_uid,
+            "timezone": timezone_name, "as_of": as_of.isoformat(),
+            "day_start": day_start.isoformat(), "day_end": day_end.isoformat(), "upcoming_end": upcoming_end.isoformat(),
+        }
 
     def get_my_work_cards(
         self,

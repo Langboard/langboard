@@ -12,7 +12,7 @@ from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ...models import Bot, Card, CardRelationship, Project, ProjectColumn, User
 from ..CardAppMutation import require_card_app_mutation
-from ..CardVisibilityPolicy import CardVisibilityContext
+from ..CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 
 
 class CardRelationshipService(BaseDomainService):
@@ -20,6 +20,58 @@ class CardRelationshipService(BaseDomainService):
     def name() -> str:
         """DO NOT EDIT THIS METHOD"""
         return "card_relationship"
+
+    def get_api_relation_summaries(
+        self,
+        project: TProjectParam,
+        card: TCardParam,
+        user_or_bot: TUserOrBot,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+        limit: int = 25,
+        cursor: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return one authorized node and a bounded page of its immediate edges."""
+        from .CardService import CardService
+
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("Invalid relationship summary limit")
+        service = self._get_service(CardService)
+        resolved = service.resolve_readable_card(project, card, user_or_bot, channel, metadata_only=True)
+        if resolved is None:
+            return None
+        project, card, _ = resolved
+        contexts = service.resolve_work_visibility_contexts(user_or_bot, channel)
+        if project.id not in contexts:
+            return None
+        after_id = 0
+        if cursor is not None:
+            parts = cursor.split(".")
+            if len(cursor) != 25 or len(parts) != 3 or parts[:2] != ["1", card.get_uid()]:
+                raise ValueError("Invalid relationship summary cursor")
+            after_id = SnowflakeID.from_short_code(parts[2])
+            if after_id <= 0 or after_id.to_short_code() != parts[2]:
+                raise ValueError("Invalid relationship summary cursor")
+        rows = self.repo.card_relationship.get_summary_page(card, contexts, limit=limit + 1, after_id=after_id)
+        items = []
+        for edge, kind, target_id, title, project_id, project_title in rows[:limit]:
+            items.append(
+                {
+                    "relationship": self.public_relationship(edge, kind),
+                    "target": {
+                        "uid": SnowflakeID(target_id).to_short_code(),
+                        "title": title,
+                        "project_uid": SnowflakeID(project_id).to_short_code(),
+                        "project_title": project_title,
+                    },
+                }
+            )
+        return {
+            "card": {"uid": card.get_uid(), "title": card.title, "project_uid": project.get_uid()},
+            "items": items,
+            "next_cursor": f"1.{card.get_uid()}.{rows[limit - 1][0].get_uid()}" if len(rows) > limit else None,
+            "limit": limit,
+        }
 
     def get_api_list_by_card(self, card: TCardParam | None, limit: int | None = None, *, context: CardVisibilityContext | None = None) -> list[dict[str, Any]]:
         """Return relationships, optionally enforcing a repository row limit."""
