@@ -21,3 +21,15 @@ For OAuth deployment requirements and restart/refresh limitations, see
 [OAuth storage and operation](native-oauth-durable-storage.md). For a current
 permission snapshot, use [capability diagnostics](native-capability-diagnostics.md).
 A successful snapshot does not reserve authorization for a later command.
+
+## Card-list page bounds
+
+Both compatibility and modern profiles advertise integer `limit` values from
+1 through 25, with a default of 20. Invalid values are rejected before domain
+dispatch. The portable contract fixture records only this intentional input
+constraint; all other frozen schemas and annotations remain unchanged.
+
+Compatibility retains the flat card index. Modern profiles retain their tree
+default and accept `format="normal"` for a flat index. The transport tests verify
+both profiles; source validation does not establish deployed discovery or client
+migration.

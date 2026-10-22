@@ -1,7 +1,48 @@
+from functools import wraps
 import pytest
 from fastmcp import Client, FastMCP
 from langboard.card_workspace.application.dtos import ProjectCardIndexResponse, ProjectCardListResponse
 from langboard.mcp_integration.Providers import create_native_tool
+
+
+@pytest.mark.parametrize("modern", [False, True])
+@pytest.mark.parametrize("limit", [0, 26, 50, True])
+async def test_native_page_bounds_reject_before_domain_dispatch(modern, limit):
+    from langboard.mcp_integration import McpTool
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_tools import CardMcp  # noqa: F401
+
+    dispatched = False
+
+    def track_dispatch(name, handler):
+        handler = McpServer._wrap_tool(name, handler)
+
+        @wraps(handler)
+        def tracked(*args, **kwargs):
+            nonlocal dispatched
+            dispatched = True
+            raise AssertionError("Invalid page size reached domain dispatch")
+
+        return tracked
+
+    server = FastMCP("page-bounds-proof", strict_input_validation=True)
+    server.add_tool(
+        create_native_tool(
+            "list_project_cards",
+            McpTool.get_tool("list_project_cards"),
+            track_dispatch,
+            modern_annotations=modern,
+        )
+    )
+    async with Client(server) as client:
+        catalog = await client.list_tools()
+        field = catalog[0].inputSchema["properties"]["limit"]
+        assert (field["minimum"], field["maximum"], field["default"]) == (1, 25, 20)
+        result = await client.call_tool(
+            "list_project_cards", {"project_uid": "board", "limit": limit}, raise_on_error=False
+        )
+        assert result.is_error
+    assert not dispatched
 
 
 async def test_tree_survives_modern_fastmcp_output_serialization():

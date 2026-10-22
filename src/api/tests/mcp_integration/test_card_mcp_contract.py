@@ -890,3 +890,18 @@ def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.Monk
     assert repository.card.update_row_order.call_args.args[-1] is None
     published.assert_called_once_with(project, card, column, None)
     moved.assert_not_called()
+
+
+@pytest.mark.parametrize("limit", [0, 26, 50, True])
+def test_project_card_page_rejects_invalid_limit_before_native_dispatch(limit) -> None:
+    from inspect import signature
+    from pydantic import TypeAdapter, ValidationError
+
+    schema = McpTool.get_tool("list_project_cards")["input_schema"]
+    field = schema["properties"]["limit"]
+    assert (field["minimum"], field["maximum"], field["default"]) == (1, 25, 20)
+    adapter = TypeAdapter(signature(CardMcp.list_project_cards).parameters["limit"].annotation)
+    assert adapter.validate_python(1) == 1
+    assert adapter.validate_python(25) == 25
+    with pytest.raises(ValidationError):
+        adapter.validate_python(limit)

@@ -75,6 +75,17 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
     monkeypatch.setenv("COMMON_SECRET_KEY", "fixture-only-local-storage")
     monkeypatch.setattr(type(Env), "S3_ACCESS_KEY_ID", property(lambda _: "fixture-only"))
     monkeypatch.setattr(type(Env), "S3_SECRET_ACCESS_KEY", property(lambda _: "fixture-only"))
+    from types import ModuleType
+
+    class ClientError(Exception):
+        pass
+
+    botocore = ModuleType("botocore")
+    exceptions = ModuleType("botocore.exceptions")
+    exceptions.ClientError = ClientError
+    botocore.exceptions = exceptions
+    monkeypatch.setitem(sys.modules, "botocore", botocore)
+    monkeypatch.setitem(sys.modules, "botocore.exceptions", exceptions)
     client = Mock()
     objects = {}
 
@@ -86,7 +97,7 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
 
     client.upload_fileobj.side_effect = upload
     client.download_fileobj.side_effect = download
-    client.delete_object.side_effect = lambda *, Bucket, Key: objects.pop((Bucket, Key))
+    client.delete_object.side_effect = lambda *, Bucket, Key: objects.pop((Bucket, Key), None)
     monkeypatch.setattr(S3Storage, "_connect_client", lambda _: client)
     file = Storage.upload_named(BytesIO(b"s3 payload"), StorageName.CardAttachment, "probe.txt", "source.txt")
     assert file and file.storage_type == "s3"
@@ -96,6 +107,9 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
     assert Storage.download(file.path.split("/")[2], file.storage_name, file.filename, destination)
     assert destination.getvalue() == b"s3 payload"
     assert Storage.delete(file) and not objects
+    assert {call.kwargs["Key"] for call in client.delete_object.call_args_list} == {
+        f"{file.storage_name}/{file.filename}", S3Storage._legacy_key(file.storage_name, file.filename),
+    }
     client.close.assert_called()
     client.download_fileobj.side_effect = RuntimeError("fixture cloud unavailable")
     assert Storage.get_file(file) is None
