@@ -55,7 +55,7 @@ def test_native_source_folder_capabilities_and_no_internal_fields(cloud):
     assert item["folder_id"] == "inbox"  # Persisted folder overrides the PDF extension.
     assert item["can_replace"] is True
     assert data["capabilities"]["upload"] is True and data["capabilities"]["replace"] is True
-    assert data["capabilities"]["all_recent"] == "attachments_only"
+    assert data["capabilities"]["all_recent"] == "attachments_and_links"
     assert not ({"content_sha256", "storage_name", "storage_type", "confirmation_token"} & item.keys())
     assert len(data["items"]) == 5
 

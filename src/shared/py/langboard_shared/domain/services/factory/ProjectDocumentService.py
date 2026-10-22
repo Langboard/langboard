@@ -1,5 +1,6 @@
 """Native project document authorization, generation fencing and publication."""
 
+from copy import deepcopy
 from hashlib import sha256
 from json import dumps
 from uuid import uuid4
@@ -81,7 +82,7 @@ class ProjectDocumentService(BaseDomainService):
             .execution_options(populate_existing=True)
         )
         source = db.exec(source_query.with_for_update() if lock else source_query).first()
-        if source is None:
+        if source is None or source.replaced_by_id is not None:
             return None
         from ....core.storage import StorageName
 
@@ -146,18 +147,27 @@ class ProjectDocumentService(BaseDomainService):
                 and document.status in {"pending", "processing", "indexed"}
             ):
                 return self._receipt(attachment, document)
-            if document is not None:
-                self.invalidate(db, attachment, preserve_extraction=document.source_revision == revision)
-            document = self.document_model(
-                attachment_id=attachment.id,
-                requested_by_id=user.id,
-                source_revision=revision,
-                generation=uuid4().hex,
-                status="pending",
-                vision_config=vision,
-                embedding_config=embedding_config,
-            )
-            db.insert(document)
+            if document is None:
+                document = self.document_model(
+                    attachment_id=attachment.id,
+                    requested_by_id=user.id,
+                    source_revision=revision,
+                    generation=uuid4().hex,
+                    status="pending",
+                    vision_config=vision,
+                    embedding_config=embedding_config,
+                )
+                db.insert(document)
+            else:
+                self._preserve_published(attachment, document)
+                document.requested_by_id = user.id
+                document.source_revision = revision
+                document.generation = uuid4().hex
+                document.status = "pending"
+                document.vision_config = vision
+                document.embedding_config = embedding_config
+                document.error = None
+                db.update(document)
             attachment_uid, generation = attachment.get_uid(), document.generation
             args, kwargs = TaskParameters(dumps({"attachment_uid": attachment_uid, "generation": generation})).pack()
 
@@ -256,7 +266,12 @@ class ProjectDocumentService(BaseDomainService):
                     generation=generation,
                 ):
                     return False
+            if extraction_cache_token is None:
+                from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+                release_extraction_source(db, self.source_type, source[1].get_uid())
             document = source[2]
+            document.text_source = self._published_source(source[1], document)
             document.markdown = markdown
             document.keywords = normalize_keywords(keywords, list(KEYWORD_LANGUAGES))
             document.document_json = document_json
@@ -290,6 +305,7 @@ class ProjectDocumentService(BaseDomainService):
                 from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
 
                 activate_cache_references(db, (pointer.get("storage") or {}).get("cache_use_token"))
+                document.vector_source = self._published_source(attachment, document)
                 if previous != pointer:
                     record_cleanup(db, previous)
             elif previous and embedding.get("pointer") != previous:
@@ -311,17 +327,16 @@ class ProjectDocumentService(BaseDomainService):
                 if document.status not in ({"pending"} if only_pending else {"pending", "processing"}):
                     return False
                 document.status = "failed"
-                document.markdown = ""
-                document.document_json = None
-                document.keywords = {}
                 document.error = "Document extraction failed; request processing again"
             else:
                 # Dispatch failure can arrive after an ambiguously accepted task finishes.
                 # Only an unstarted request may be failed without an expected-state CAS.
-                if (
-                    document.status != "indexed"
-                    or (document.embedding or {}).get("status") not in {None, "pending"}
-                    or (document.embedding or {}).get("pointer")
+                if document.status != "indexed" or (
+                    (document.embedding or {}).get("status") not in {None, "pending"}
+                    and (
+                        (document.vector_source or {}).get("generation") == generation
+                        or not (document.embedding or {}).get("pointer")
+                    )
                 ):
                     return False
                 document.embedding = {
@@ -331,6 +346,36 @@ class ProjectDocumentService(BaseDomainService):
                 }
             db.update(document)
             return True
+
+    def _published_source(self, attachment, document):
+        return {
+            "file": attachment.file.model_dump(mode="json"),
+            "filename": attachment.filename,
+            "content_sha256": attachment.content_sha256,
+            "source_revision": document.source_revision,
+            "generation": document.generation,
+            "vision_config": deepcopy(document.vision_config),
+            "embedding_config": deepcopy(document.embedding_config),
+        }
+
+    def _preserve_published(self, attachment, document):
+        # Nullable snapshots preserve compatibility with rows predating this lifecycle.
+        if document.status == "indexed" and document.text_source is None:
+            document.text_source = self._published_source(attachment, document)
+        if (document.embedding or {}).get("pointer") and document.vector_source is None:
+            document.vector_source = deepcopy(document.text_source) or self._published_source(attachment, document)
+
+    def supersede(self, db, attachment):
+        """Fence old workers inside byte replacement, retaining last successful outputs."""
+        document = self._document(db, attachment, lock=True)
+        if document is not None:
+            # Published snapshots are captured before replacement by every publication;
+            # migration backfills legacy rows before this method can run.
+            document.source_revision = self.source_revision(attachment)
+            document.generation = uuid4().hex
+            document.status = "pending"
+            document.error = None
+            db.update(document)
 
     def invalidate(self, db, attachment, *, preserve_extraction=False):
         """Caller owns the project/attachment locks and source replacement transaction."""

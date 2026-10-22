@@ -21,6 +21,10 @@ class ProjectAttachment(SoftDeleteModel, table=True):
     content_sha256: str = Field(nullable=False, max_length=64, exclude=True)
     folder_id: str = Field(default="inbox", nullable=False, max_length=16, api_field=ApiField())
 
+    replaced_by_id: SnowflakeID | None = SnowflakeIDField(
+        nullable=True, index=True, foreign_key="project_attachment.id"
+    )
+
     def notification_data(self) -> dict[str, Any]:
         return {}
 

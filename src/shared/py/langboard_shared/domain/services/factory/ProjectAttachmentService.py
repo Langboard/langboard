@@ -109,7 +109,31 @@ class ProjectAttachmentService(BaseDomainService):
                 .limit(2)
                 .execution_options(populate_existing=True)
             ).all()
-            return matches[0] if len(matches) == 1 and matches[0].deleted_at is None else None
+            if len(matches) != 1:
+                return None
+            owner = matches[0]
+            if owner.deleted_at is None:
+                return owner if owner.replaced_by_id is None else None
+            if owner.replaced_by_id is None or owner.replaced_by_id == owner.id:
+                return None
+            target = db.exec(
+                SqlBuilder.select.table(ProjectAttachment)
+                .where(
+                    ProjectAttachment.id == owner.replaced_by_id,
+                    ProjectAttachment.project_id == owner.project_id,
+                    ProjectAttachment.user_id == owner.user_id,
+                    ProjectAttachment.replaced_by_id.is_(None),
+                )
+                .execution_options(populate_existing=True)
+            ).first()
+            if target is None or target.file.storage_name != StorageName.ProjectAttachment.value:
+                return None
+            owners = db.exec(
+                SqlBuilder.select.table(ProjectAttachment, with_deleted=True)
+                .where(*file_identity(target.file.storage_type, target.file.storage_name, target.file.filename))
+                .limit(2)
+            ).all()
+            return target if len(owners) == 1 and owners[0].id == target.id else None
 
     def resolve_readable_file(self, user, storage_type, storage_name, filename):
         attachment = self.resolve_file_owner(storage_type, storage_name, filename)

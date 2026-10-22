@@ -23,6 +23,8 @@ class WikiAttachmentDocument(BaseDbModel, table=True):
     keywords: dict = Field(default_factory=dict, nullable=False, sa_type=JSON, exclude=True)
     document_json: dict | None = Field(default=None, nullable=True, sa_type=JSON(none_as_null=True), exclude=True)
     embedding: dict = Field(default_factory=dict, nullable=False, sa_type=JSON, exclude=True)
+    text_source: dict | None = Field(default=None, nullable=True, sa_type=JSON(none_as_null=True), exclude=True)
+    vector_source: dict | None = Field(default=None, nullable=True, sa_type=JSON(none_as_null=True), exclude=True)
     error: str | None = Field(default=None, nullable=True, max_length=128, exclude=True)
 
     def api_response(self):

@@ -99,7 +99,7 @@ def test_native_upload_exact_delivery_and_no_context(cloud):
     )
 
 
-def test_replace_stable_id_receipt_snapshot_and_old_key_denied(cloud):
+def test_replace_stable_id_receipt_snapshot_and_old_key_follows_current(cloud):
     first = upload(cloud)
     original = rows(ProjectAttachment)[0].file
     proposal = upload(cloud, data=b"second")
@@ -107,16 +107,20 @@ def test_replace_stable_id_receipt_snapshot_and_old_key_denied(cloud):
     replaced = choose(cloud, proposal)
     assert replaced["uid"] == first["uid"] and replaced["url"] != first["url"]
     assert download(cloud, rows(ProjectAttachment)[0].file)[0] == b"second"
-    with pytest.raises(ApiException.NotFound_404):
-        download(cloud, original)
+    assert download(cloud, original)[0] == b"second"
+    retained = BytesIO()
+    assert Storage.download_file(original, retained) and retained.getvalue() == b"first"
     later = upload(cloud, data=b"third")
     choose(cloud, later, data=b"third")
+    assert download(cloud, original)[0] == b"third"
     replay = choose(cloud, proposal)
     assert replay == {**replaced, "replayed": True}
     with DbSession.use(readonly=False) as db:
         db.delete(rows(ProjectAttachment)[0])
     assert choose(cloud, proposal) == replay
     assert not rows(ProjectAttachment)
+    with pytest.raises(ApiException.NotFound_404):
+        download(cloud, original)
 
 
 def test_same_bytes_do_not_allocate_and_explicit_add(cloud, monkeypatch):
@@ -304,6 +308,7 @@ def test_migration_up_down_and_populated_guard(cloud):
     from pathlib import Path
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
+    from sqlalchemy import BigInteger, Column
 
     path = Path(__file__).parents[2] / "langboard/migrations/versions/20261022160000-4f25ab639e87.py"
     spec = spec_from_file_location("project_cloud_migration", path)
@@ -316,6 +321,10 @@ def test_migration_up_down_and_populated_guard(cloud):
         ProjectAttachment.__table__.drop(connection)
         with Operations.context(MigrationContext.configure(connection)):
             module.upgrade()
+            # Restore the additive alias field for current-model use of this old migration fixture.
+            Operations(MigrationContext.configure(connection)).add_column(
+                "project_attachment", Column("replaced_by_id", BigInteger(), nullable=True)
+            )
         ProjectAttachmentDocument.__table__.create(connection)
     upload(cloud)
     with cloud.engine.begin() as connection:
@@ -328,5 +337,9 @@ def test_migration_up_down_and_populated_guard(cloud):
         with Operations.context(MigrationContext.configure(connection)):
             module.downgrade()
             module.upgrade()
+            # Restore the additive alias field for current-model use of this old migration fixture.
+            Operations(MigrationContext.configure(connection)).add_column(
+                "project_attachment", Column("replaced_by_id", BigInteger(), nullable=True)
+            )
         ProjectAttachmentDocument.__table__.create(connection)
     assert upload(cloud)["uid"]

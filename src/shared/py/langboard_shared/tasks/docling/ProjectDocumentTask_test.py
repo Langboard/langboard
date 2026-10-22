@@ -485,3 +485,46 @@ def test_native_rejected_stage_failed_delete_uses_durable_cleanup(native_worker,
     with DbSession.use(readonly=False) as db:
         assert db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all() == []
         assert db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference)).all() == []
+
+
+@pytest.mark.parametrize("failure", ["download", "conversion", "dispatch"])
+def test_replacement_worker_failure_retains_published_outputs(native_worker, monkeypatch, failure):
+    from langboard_shared.core.db import DbSession, SqlBuilder
+    from langboard_shared.domain.models import DocumentVectorCleanup
+    from langboard_shared.Env import Env
+
+    w = native_worker
+    native_index(w)
+    native_embed(w)
+    old = w.service.project_document.load_source(w.attachment.get_uid())[2]
+    pointer = old.embedding["pointer"]
+    old_generation = old.generation
+    replacement = w.attachment.file.model_copy(update={"filename": "replacement.pdf"})
+    (Env.LOCAL_STORAGE_DIR / replacement.storage_name / replacement.filename).write_bytes(b"replacement")
+    with DbSession.atomic() as db:
+        w.attachment.file = replacement
+        w.attachment.content_sha256 = sha256(b"replacement").hexdigest()
+        db.update(w.attachment)
+        w.service.project_document.supersede(db, w.attachment)
+    w.document = w.service.project_document.load_source(w.attachment.get_uid())[2]
+    task._convert_to_markdown.side_effect = None
+    task._convert_to_markdown.return_value = "Replacement extracted text"
+    if failure == "download":
+        monkeypatch.setattr(task.Storage, "download_file", lambda *_: False)
+    elif failure == "conversion":
+        task._convert_to_markdown.side_effect = RuntimeError("fixture conversion failure")
+    else:
+        task.Broker.celery.send_task.side_effect = RuntimeError("fixture queue failure")
+    native_index(w)
+    result = w.service.project_document.get_readable(w.actor, w.project, w.attachment)[2]
+    assert result.embedding["pointer"] == pointer
+    assert result.vector_source["generation"] == old_generation
+    if failure == "dispatch":
+        assert result.markdown == "Replacement extracted text" and result.status == "indexed"
+        assert result.text_source["generation"] == w.document.generation
+        assert result.embedding["status"] == "failed"
+    else:
+        assert result.markdown == "Native project text" and result.status == "failed"
+        assert result.text_source["generation"] == old_generation
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()

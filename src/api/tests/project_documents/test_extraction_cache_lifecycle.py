@@ -261,8 +261,11 @@ def test_concurrent_source_deletion_and_publication_leave_no_private_orphan(life
         def removal():
             with DbSession.atomic() as db:
                 # Native SQLite source mutation reserves the writer before reading.
-                db.exec(update(ProjectAttachment).where(ProjectAttachment.id == attachment.id)
-                        .values(deleted_at=SafeDateTime.now()))
+                db.exec(
+                    update(ProjectAttachment)
+                    .where(ProjectAttachment.id == attachment.id)
+                    .values(deleted_at=SafeDateTime.now())
+                )
                 b.documents.invalidate(db, attachment)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -272,3 +275,45 @@ def test_concurrent_source_deletion_and_publication_leave_no_private_orphan(life
             deleted.result()
     assert not rows(Reference) and not rows(Cache)
     assert b.documents.load_source(attachment.get_uid(), generation) is None
+
+
+def test_explicit_duplicate_add_reuses_extraction_and_deletes_independently(lifecycle):
+    from unittest.mock import Mock
+    from langboard_shared.domain.models import ProjectAttachment
+
+    b = lifecycle
+    upload(b)
+    first = source(b)
+    converter = Mock(side_effect=converted)
+    with extraction(first) as cache:
+        generation = b.documents.load_source(first.get_uid())[2].generation
+        assert b.documents.claim(first.get_uid(), generation)
+        assert b.documents.publish_extraction(
+            first.get_uid(), generation, extraction_cache_token=cache.token, **cache.get_or_convert(converter)
+        )
+        cache.retain()
+    proposal = upload(b)
+    result = upload(
+        b,
+        duplicate_action="add",
+        confirmation_token=proposal["confirmation_token"],
+        request_uid=proposal["request_uid"],
+    )
+    with DbSession.use(readonly=False) as db:
+        second = db.exec(SqlBuilder.select.table(ProjectAttachment).where(ProjectAttachment.id != first.id)).first()
+    assert second.get_uid() == result["uid"] and second.file != first.file
+    with extraction(second) as cache:
+        generation = b.documents.load_source(second.get_uid())[2].generation
+        assert b.documents.claim(second.get_uid(), generation)
+        assert b.documents.publish_extraction(
+            second.get_uid(), generation, extraction_cache_token=cache.token, **cache.get_or_convert(converter)
+        )
+        cache.retain()
+    assert converter.call_count == 1 and len(rows(Reference)) == 2
+    with DbSession.atomic() as db:
+        b.documents.invalidate(db, first)
+    assert len(rows(Reference)) == 1 and len(rows(Cache)) == 1
+    assert b.documents.get_readable(b.actor, b.source_board, second)[2].markdown == "Shared private extraction"
+    with DbSession.atomic() as db:
+        b.documents.invalidate(db, second)
+    assert not rows(Reference) and not rows(Cache)

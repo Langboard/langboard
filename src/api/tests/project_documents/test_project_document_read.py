@@ -232,3 +232,48 @@ async def test_actual_fastmcp_transport_strict_inputs_and_native_output(document
         for invalid in ({**args, "limit": "40"}, {**args, "limit": 8001}, {**args, "offset": -1}):
             response = await client.call_tool("read_project_document", invalid, raise_on_error=False)
             assert response.is_error
+
+
+def test_pending_failed_and_new_text_keep_last_vector_source(document):
+    b = document
+    old_generation = b.state.generation
+    text_source = b.documents._published_source(b.attachment, b.state)
+    replacement = b.attachment.file.model_copy(
+        update={"filename": "replacement.pdf", "path": "/file/local/project_attachment/replacement.pdf"}
+    )
+    with DbSession.atomic() as db:
+        b.attachment.file = replacement
+        b.attachment.content_sha256 = "c" * 64
+        db.update(b.attachment)
+        db.exec(
+            update(ProjectAttachmentDocument).values(
+                text_source=text_source,
+                vector_source=text_source,
+                generation="d" * 32,
+                source_revision=b.documents.source_revision(b.attachment),
+                status="pending",
+            )
+        )
+    assert read(b).generation == old_generation
+    assert read(b).text == b.state.markdown[:4000]
+    found = search(b)
+    assert found.generation == old_generation and found.matches
+    assert found.source.url == text_source["file"]["path"]
+    with DbSession.atomic() as db:
+        db.exec(update(ProjectAttachmentDocument).values(status="failed"))
+    assert read(b).text and search(b).matches
+    with DbSession.atomic() as db:
+        db.exec(
+            update(ProjectAttachmentDocument).values(
+                status="indexed",
+                markdown="Replacement text",
+                text_source={
+                    **text_source,
+                    "generation": "d" * 32,
+                    "file": replacement.model_dump(mode="json"),
+                    "content_sha256": "c" * 64,
+                },
+            )
+        )
+    assert read(b).generation == "d" * 32 and read(b).text == "Replacement text"
+    assert search(b).generation == old_generation

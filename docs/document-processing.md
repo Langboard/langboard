@@ -443,3 +443,41 @@ Migration downgrade refuses retained ownership/native grants, instance secret
 scope or workload audit history where discarding them would lose authority or
 cleanup records. Preserve them for explicit repair and cleanup. A functioning
 optional index still requires live primary-source authorization for every read.
+
+## Cloud replacement publication and retained references
+
+A project attachment keeps its logical UID when its bytes are replaced. Each changed
+upload receives an independent immutable storage object. The previous object and an
+internal deleted provenance row remain retained; the row points directly to the same
+live owner. Existing protected embed URLs resolve through that exact same-project,
+same-owner provenance to the current attachment. Revoked membership, deletion,
+foreign ownership, ambiguous object keys, orphan aliases and alias cycles deny access.
+Downloads still recheck current authority and object identity after bounded spooling.
+There is no public version browser or physical byte deduplication.
+
+The document row separates the requested immutable source/generation/configuration
+from its last published text and vector source snapshots. A replacement or reprocessing
+request fences earlier workers immediately. Pending conversion, queue failure and
+extraction failure preserve readable published text and searchable published vectors.
+Successful extraction advances text and its source label independently; vectors keep
+their previous source/generation/configuration until a successful compare-and-swap
+publication replaces them. Reads and search label the source and generation of the
+output they actually return. Vector cleanup is recorded only when a successful vector
+publication retires the previous pointer or the logical document is deleted. Extraction
+cache references advance with successful extraction publication and release at terminal
+deletion. Old physical objects remain retained internally under native storage ownership.
+
+Same-byte replacement leaves storage and processing unchanged. Explicit duplicate add
+creates separate logical and physical file ownership while reusing the existing private
+conversion and embedding caches. Removing one logical document releases only its own
+cache references. The additive `9460fa18ec32` migration follows `8359ef07db21`, preserves
+and labels populated project/wiki published state, and refuses destructive downgrade
+while retained provenance or published source snapshots exist. Wiki processing continues
+to use the shared lifecycle with nullable source snapshots.
+
+Terminal project deletion retains the existing soft deletion and physical byte retention
+policy. Current authority checks deny downloads after deletion; authoritative extraction
+references and published vector pointers are retired. Unpublished cache uses retain the
+existing bounded lease/expiry recovery. Internal historical objects have no purge or
+version-selection UI, and an old native URL follows the current file rather than selecting
+the historical bytes.

@@ -80,8 +80,22 @@ def _identity(attachment, document):
             document.status,
             document.embedding_config,
             document.embedding,
+            document.text_source,
+            document.vector_source,
         )
     )
+
+
+def _published_attachment(attachment, snapshot):
+    if not snapshot:
+        return attachment
+    from ...core.storage import FileModel
+
+    published = deepcopy(attachment)
+    published.file = FileModel.model_validate(snapshot["file"])
+    published.filename = snapshot["filename"]
+    published.content_sha256 = snapshot["content_sha256"]
+    return published
 
 
 def read_project_document(
@@ -99,14 +113,14 @@ def read_project_document(
         raise ValueError("Invalid project document read bounds")
     project, attachment, document = _readable(service, user, project_uid, attachment_uid)
     identity = _identity(attachment, document)
-    text = document.markdown if document.status == "indexed" else ""
+    text = document.markdown if document.text_source or document.status == "indexed" else ""
     text = text or ""
     end = min(offset + limit, len(text))
     keywords = document.keywords or {}
     response = read_model(
-        source=source_factory(project, attachment),
+        source=source_factory(project, _published_attachment(attachment, document.text_source)),
         status=document.status,
-        generation=document.generation,
+        generation=(document.text_source or {}).get("generation", document.generation),
         text=text[offset:end],
         total_chars=len(text),
         next_offset=end if end < len(text) else None,
@@ -188,25 +202,30 @@ def search_project_document(
     identity = _identity(attachment, document)
     embedding = deepcopy(document.embedding or {})
     pointer = embedding.get("pointer")
-    if document.status != "indexed" or not isinstance(pointer, dict) or not pointer.get("chunk_ids"):
+    if not isinstance(pointer, dict) or not pointer.get("chunk_ids"):
         raise ValueError("Project document vectors unavailable")
+    published_attachment = _published_attachment(attachment, document.vector_source)
+    published_generation = (document.vector_source or {}).get("generation", document.generation)
     expected_source = (
-        source_identity(project, attachment)
+        source_identity(project, published_attachment)
         if source_identity
         else {
             "source_type": "project_attachment",
             "board_uid": project.get_uid(),
             "attachment_uid": attachment.get_uid(),
-            "content_hash": attachment.content_sha256,
+            "content_hash": published_attachment.content_sha256,
         }
     )
     if (
         any(pointer.get(key) != value for key, value in expected_source.items())
         or any(key in pointer for key in ("card_uid", "wiki_uid") if key not in expected_source)
-        or embedding.get("source_generation") != document.generation
+        or embedding.get("source_generation") != published_generation
     ):
         raise ValueError("Project document vectors do not match current source")
-    snapshot = deepcopy(embedding.get("config") or document.embedding_config or {})
+    published_config = (
+        document.vector_source.get("embedding_config") if document.vector_source else document.embedding_config
+    )
+    snapshot = deepcopy(embedding.get("config") or published_config or {})
     try:
         private, settings, fingerprint = _binding(service, snapshot, pointer)
         embeddings = create_document_embeddings(
@@ -234,10 +253,10 @@ def search_project_document(
             raise ValueError("Binding changed")
     except Exception:
         raise ValueError("Project document embedding binding unavailable") from None
-    source = source_factory(latest_project, latest_attachment)
+    source = source_factory(latest_project, _published_attachment(latest_attachment, latest.vector_source))
     return search_model(
         source=source,
-        generation=document.generation,
+        generation=published_generation,
         matches=[
             match_model(
                 chunk_id=hit["chunk_id"],

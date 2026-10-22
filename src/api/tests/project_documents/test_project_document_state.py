@@ -30,7 +30,7 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
 from langboard_shared.Env import Env
-from sqlalchemy import delete, text, update
+from sqlalchemy import JSON, Column, delete, text, update
 
 
 pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test"], indirect=True)
@@ -293,7 +293,7 @@ def test_changed_upload_invalidates_generation_same_bytes_replays_do_not_dispatc
     )
     current = b.documents.load_source(attachment.get_uid())
     assert current[1].content_sha256 == sha256(b"changed").hexdigest()
-    assert current[2].generation != generation and current[2].markdown == "" and b.sent.call_count == 2
+    assert current[2].generation != generation and current[2].markdown == "Private extracted text" and b.sent.call_count == 2
     assert not b.documents.publish_extraction(
         attachment.get_uid(), generation, markdown="stale inference", keywords={}, document_json=None
     )
@@ -325,6 +325,9 @@ def test_migration_preserves_populated_state(documents):
     with b.engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
         migration.upgrade()
+        # Apply the additive publication fields introduced after this historical migration.
+        for name in ("text_source", "vector_source"):
+            migration.op.add_column("project_attachment_document", Column(name, JSON(none_as_null=True), nullable=True))
     upload(b)
     with b.engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
@@ -433,3 +436,260 @@ def test_ambiguous_extraction_dispatch_failure_preserves_claimed_conversion(docu
         attachment.get_uid(), receipt["generation"], markdown="Conversion finished", keywords={}, document_json=None
     )
     assert b.documents.load_source(attachment.get_uid())[2].status == "indexed"
+
+
+def test_replacement_preserves_published_text_vectors_urls_and_bytes(documents):
+    b = documents
+    upload(b)
+    attachment, generation = index(b)
+    old_file = attachment.file
+    published = {"status": "indexed", "pointer": pointer(b, attachment), "source_generation": generation}
+    assert b.documents.publish_embedding(attachment.get_uid(), generation, expected_embedding={}, embedding=published)
+    proposal = upload(b, data=b"replacement")
+    upload(
+        b,
+        data=b"replacement",
+        duplicate_action="replace",
+        confirmation_token=proposal["confirmation_token"],
+        replacement_uid=attachment.get_uid(),
+        request_uid=proposal["request_uid"],
+    )
+    current = b.documents.get_readable(b.actor, b.source_board, attachment)[2]
+    assert current.markdown == "Private extracted text"
+    assert current.embedding["pointer"] == published["pointer"]
+    assert current.generation != generation and current.status == "pending"
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()
+    output = BytesIO()
+    assert Storage.download_file(old_file, output) and output.getvalue() == b"source"
+    historical = b.domain.project_attachment.resolve_readable_file(
+        b.actor, old_file.storage_type, old_file.storage_name, old_file.filename
+    )
+    assert historical is not None and historical.id == attachment.id
+
+
+def replace_bytes(b, attachment, data):
+    proposal = upload(b, data=data)
+    return upload(
+        b,
+        data=data,
+        duplicate_action="replace",
+        confirmation_token=proposal["confirmation_token"],
+        replacement_uid=attachment.get_uid(),
+        request_uid=proposal["request_uid"],
+    )
+
+
+def test_independent_publication_failure_and_stale_generations(documents):
+    b = documents
+    upload(b)
+    attachment, generation_a = index(b)
+    embedding_a = {"status": "indexed", "pointer": pointer(b, attachment), "source_generation": generation_a}
+    assert b.documents.publish_embedding(
+        attachment.get_uid(), generation_a, expected_embedding={}, embedding=embedding_a
+    )
+    replace_bytes(b, attachment, b"B")
+    current = b.documents.load_source(attachment.get_uid())[2]
+    generation_b = current.generation
+    assert b.sent.call_count == 2
+    assert current.text_source["generation"] == current.vector_source["generation"] == generation_a
+    assert b.documents.mark_failed(attachment.get_uid(), generation_b, phase="extraction")
+    assert b.documents.get_readable(b.actor, b.source_board, attachment)[2].markdown == "Private extracted text"
+    retry = b.documents.request(b.actor, b.source_board, attachment)["generation"]
+    assert b.documents.claim(attachment.get_uid(), retry)
+    assert b.documents.publish_extraction(
+        attachment.get_uid(), retry, markdown="B published", keywords={}, document_json=None
+    )
+    current = b.documents.load_source(attachment.get_uid())[2]
+    assert current.markdown == "B published" and current.text_source["generation"] == retry
+    assert current.vector_source["generation"] == generation_a
+    assert b.documents.mark_failed(attachment.get_uid(), retry, phase="embedding")
+    current = b.documents.load_source(attachment.get_uid())[2]
+    assert current.embedding["pointer"] == embedding_a["pointer"]
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()
+    fresh_attachment = b.documents.load_source(attachment.get_uid())[1]
+    embedding_b = {"status": "indexed", "pointer": pointer(b, fresh_attachment), "source_generation": retry}
+    assert b.documents.publish_embedding(
+        attachment.get_uid(), retry, expected_embedding=current.embedding, embedding=embedding_b
+    )
+    with DbSession.use(readonly=False) as db:
+        cleanup = db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()
+        assert len(cleanup) == 1 and cleanup[0].pointer == embedding_a["pointer"]
+    replace_bytes(b, attachment, b"C")
+    assert not b.documents.publish_extraction(
+        attachment.get_uid(), generation_a, markdown="stale A", keywords={}, document_json=None
+    )
+    assert not b.documents.publish_extraction(
+        attachment.get_uid(), generation_b, markdown="stale B", keywords={}, document_json=None
+    )
+    assert not b.documents.publish_embedding(
+        attachment.get_uid(), retry, expected_embedding=embedding_b, embedding=embedding_a
+    )
+    assert b.documents.get_readable(b.actor, b.source_board, attachment)[2].markdown == "B published"
+    b.documents.record_scope_embedding_cleanup(b.source_board)
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(ProjectAttachmentDocument)).all()
+        assert len(db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()) == 2
+
+
+@pytest.mark.parametrize("corruption", ["revoked", "deleted", "foreign", "self", "chain", "ambiguous", "orphan"])
+def test_historical_url_uses_exact_current_authority(documents, corruption):
+    b = documents
+    upload(b)
+    attachment = source(b)
+    old_file = attachment.file
+    replace_bytes(b, attachment, b"B")
+    with DbSession.atomic() as db:
+        alias = db.exec(
+            SqlBuilder.select.table(ProjectAttachment, with_deleted=True).where(
+                ProjectAttachment.replaced_by_id == attachment.id
+            )
+        ).first()
+        if corruption == "revoked":
+            db.exec(delete(ProjectAssignedUser).where(ProjectAssignedUser.user_id == b.actor.id))
+        elif corruption == "deleted":
+            from langboard_shared.core.types import SafeDateTime
+
+            db.exec(
+                update(ProjectAttachment)
+                .where(ProjectAttachment.id == attachment.id)
+                .values(deleted_at=SafeDateTime.now())
+            )
+        elif corruption == "foreign":
+            db.exec(
+                update(ProjectAttachment).where(ProjectAttachment.id == alias.id).values(project_id=b.destination.id)
+            )
+        elif corruption == "self":
+            db.exec(update(ProjectAttachment).where(ProjectAttachment.id == alias.id).values(replaced_by_id=alias.id))
+        elif corruption == "chain":
+            db.exec(
+                update(ProjectAttachment).where(ProjectAttachment.id == attachment.id).values(replaced_by_id=alias.id)
+            )
+        elif corruption == "orphan":
+            db.exec(update(ProjectAttachment).where(ProjectAttachment.id == alias.id).values(replaced_by_id=None))
+        else:
+            db.insert(
+                ProjectAttachment(
+                    project_id=attachment.project_id,
+                    user_id=attachment.user_id,
+                    filename=attachment.filename,
+                    file=old_file,
+                    content_sha256=attachment.content_sha256,
+                )
+            )
+    assert (
+        b.domain.project_attachment.resolve_readable_file(
+            b.actor, old_file.storage_type, old_file.storage_name, old_file.filename
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("legacy_embedding", [None, {}, '{"pointer":{"generation":"legacy"}}'])
+def test_retention_successor_populated_upgrade_and_guarded_downgrade(documents, legacy_embedding):
+    from json import dumps
+    import sqlalchemy as sa
+
+    b = documents
+    upload(b)
+    attachment, generation = index(b)
+    published = {"status": "indexed", "pointer": pointer(b, attachment), "source_generation": generation}
+    assert b.documents.publish_embedding(attachment.get_uid(), generation, expected_embedding={}, embedding=published)
+    migration_path = Path(__file__).parents[2] / "langboard/migrations/versions/20261022223000-9460fa18ec32.py"
+    spec = spec_from_file_location("cloud_retention_migration", migration_path)
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "8359ef07db21"
+    metadata = sa.MetaData()
+    wiki_attachment = sa.Table(
+        "project_wiki_attachment",
+        metadata,
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("filename", sa.Text),
+        sa.Column("file", sa.Text),
+        sa.Column("content_sha256", sa.Text),
+    )
+    wiki_document = sa.Table(
+        "wiki_attachment_document",
+        metadata,
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("attachment_id", sa.BigInteger),
+        sa.Column("source_revision", sa.Text),
+        sa.Column("generation", sa.Text),
+        sa.Column("status", sa.Text),
+        sa.Column("vision_config", sa.JSON),
+        sa.Column("embedding_config", sa.JSON),
+        sa.Column("embedding", sa.JSON),
+        sa.Column("markdown", sa.Text),
+    )
+    metadata.create_all(b.engine)
+    with b.engine.begin() as connection:
+        operations = Operations(MigrationContext.configure(connection))
+        # Reconstruct the populated predecessor shape without rewriting its migration.
+        for name in ("text_source", "vector_source"):
+            operations.drop_column("project_attachment_document", name)
+        operations.drop_index("ix_project_attachment_replaced_by_id", table_name="project_attachment")
+        with operations.batch_alter_table("project_attachment", reflect_kwargs={"resolve_fks": False}) as batch:
+            for constraint in sa.inspect(connection).get_foreign_keys("project_attachment"):
+                if constraint["constrained_columns"] == ["replaced_by_id"] and constraint["name"]:
+                    # SQLite model metadata names this constraint through its naming convention.
+                    batch.drop_constraint(constraint["name"], type_="foreignkey")
+            batch.drop_column("replaced_by_id")
+        connection.execute(
+            wiki_attachment.insert().values(
+                id=1,
+                filename="wiki.pdf",
+                file=dumps(attachment.file.model_dump(mode="json")),
+                content_sha256=attachment.content_sha256,
+            )
+        )
+        connection.execute(
+            wiki_document.insert().values(
+                id=1,
+                attachment_id=1,
+                source_revision="e" * 64,
+                generation="f" * 32,
+                status="indexed",
+                vision_config={"binding_uid": "wiki"},
+                embedding_config=None,
+                embedding=legacy_embedding,
+                markdown="Published wiki",
+            )
+        )
+        migration.op = operations
+        migration.upgrade()
+        project_state = sa.Table(
+            "project_attachment_document", sa.MetaData(), autoload_with=connection, resolve_fks=False
+        )
+        wiki_state = sa.Table("wiki_attachment_document", sa.MetaData(), autoload_with=connection, resolve_fks=False)
+        row = connection.execute(sa.select(project_state)).mappings().one()
+        assert row["markdown"] == "Private extracted text" and row["embedding"] == published
+        assert row["text_source"]["generation"] == row["vector_source"]["generation"] == generation
+        assert row["text_source"]["file"] == attachment.file.model_dump(mode="json")
+        wiki = connection.execute(sa.select(wiki_state)).mappings().one()
+        assert wiki["markdown"] == "Published wiki" and wiki["text_source"]["generation"] == "f" * 32
+        assert (wiki["vector_source"] is not None) == isinstance(legacy_embedding, str)
+        with pytest.raises(RuntimeError, match="Cannot discard"):
+            migration.downgrade()
+        for table in (project_state, wiki_state):
+            connection.execute(table.update().values(text_source=sa.null(), vector_source=sa.null()))
+        connection.execute(sa.text("UPDATE project_attachment SET replaced_by_id = id"))
+        with pytest.raises(RuntimeError, match="provenance"):
+            migration.downgrade()
+        connection.execute(sa.text("UPDATE project_attachment SET replaced_by_id = NULL"))
+        migration.downgrade()
+        assert "replaced_by_id" not in {c["name"] for c in sa.inspect(connection).get_columns("project_attachment")}
+        assert connection.execute(sa.select(wiki_state.c.markdown)).scalar_one() == "Published wiki"
+
+
+def test_force_reprocessing_failure_preserves_published_document(documents):
+    b = documents
+    upload(b)
+    attachment, previous = index(b)
+    pending = b.documents.request(b.actor, b.source_board, attachment, force=True)["generation"]
+    assert pending != previous
+    document = b.documents.get_readable(b.actor, b.source_board, attachment)[2]
+    assert document.markdown == "Private extracted text" and document.text_source["generation"] == previous
+    assert b.documents.mark_failed(attachment.get_uid(), pending, phase="extraction", only_pending=True)
+    assert b.documents.get_readable(b.actor, b.source_board, attachment)[2].markdown == "Private extracted text"

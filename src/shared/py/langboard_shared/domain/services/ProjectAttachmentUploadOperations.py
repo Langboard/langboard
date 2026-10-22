@@ -178,16 +178,29 @@ def upload_attachment(
                         raise RuntimeError("Attachment storage did not allocate an independent object")
                 if duplicate_action == "replace":
                     if not same_content:
+                        from ...core.types import SafeDateTime
                         from .factory.ProjectDocumentService import ProjectDocumentService
 
-                        service._get_service(ProjectDocumentService).invalidate(db, target)
-                        old_file = target.file
+                        # Keep exact provenance and bytes for existing native embed URLs.
+                        db.insert(
+                            ProjectAttachment(
+                                project_id=target.project_id,
+                                user_id=target.user_id,
+                                filename=target.filename,
+                                file=target.file,
+                                content_sha256=target.content_sha256,
+                                folder_id=target.folder_id,
+                                replaced_by_id=target.id,
+                                deleted_at=SafeDateTime.now(),
+                            )
+                        )
                         target.file = stored
-                        db.after_commit(lambda: Storage.delete(old_file))
                     target.filename = filename
                     target.content_sha256 = content_hash
                     target.folder_id = folder_id
                     db.update(target)
+                    if not same_content:
+                        service._get_service(ProjectDocumentService).supersede(db, target)
                     result = target
                 else:
                     result = ProjectAttachment(
@@ -203,7 +216,9 @@ def upload_attachment(
                     from .factory.ProjectDocumentService import ProjectDocumentService
 
                     db.after_commit(
-                        lambda: service._get_service(ProjectDocumentService).request(actor, board, result, automatic=True)
+                        lambda: service._get_service(ProjectDocumentService).request(
+                            actor, board, result, automatic=True, force=duplicate_action == "replace"
+                        )
                     )
                 response = {**result.api_response(), "request_uid": request_uid, "replayed": False}
             # Store JSON-safe final result, never resolve a later mutable asset on retry.
