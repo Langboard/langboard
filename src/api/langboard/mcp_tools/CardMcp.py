@@ -1545,7 +1545,9 @@ def update_card_checkitem(
         if title is not None and item.title != title.strip():
             if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
                 raise ValueError("Checkitem not found in card")
-        if deadline_at is not None and not service.checkitem.change_deadline(project_uid, card_uid, item, deadline):
+        if deadline_at is not None and not service.checkitem.change_deadline(
+            user_or_bot, project_uid, card_uid, item, deadline
+        ):
             raise ValueError("Checkitem not found in card")
         if is_checked is not None and not service.checkitem.toggle_checked(
             user_or_bot, project_uid, card_uid, item, desired_checked=is_checked

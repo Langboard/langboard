@@ -549,7 +549,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 deadline = SafeDateTime.fromisoformat(item.deadline_at)
                 if deadline.tzinfo is None:
                     deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-                if not self._service.checkitem.change_deadline(project_uid, card_uid, item_uid, deadline):
+                if not self._service.checkitem.change_deadline(self._actor, project_uid, card_uid, item_uid, deadline):
                     raise ValueError("Checkitem not found in card")
                 changed = True
             if bool(actual.get("is_checked")) != item.is_checked:

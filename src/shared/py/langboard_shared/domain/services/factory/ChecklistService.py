@@ -196,6 +196,7 @@ class ChecklistService(BaseDomainService):
     @card_change_transaction
     def change_order(
         self,
+        user_or_bot: TUserOrBot,
         project: TProjectParam | None,
         card: TCardParam | None,
         checklist: TChecklistParam | None,

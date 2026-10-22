@@ -275,6 +275,7 @@ class CheckitemService(BaseDomainService):
     @card_change_transaction
     def change_deadline(
         self,
+        user_or_bot: TUserOrBot,
         project: TProjectParam,
         card: TCardParam,
         checkitem: TCheckitemParam,
@@ -297,6 +298,7 @@ class CheckitemService(BaseDomainService):
     @card_change_transaction
     def change_order(
         self,
+        user_or_bot: TUserOrBot,
         project: TProjectParam,
         card: TCardParam,
         checkitem: TCheckitemParam,
