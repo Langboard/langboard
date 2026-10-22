@@ -1039,11 +1039,6 @@ def test_created_card_projects_authenticated_creator_before_publish(
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     module = import_module(CardService.__module__)
-    from langboard_shared.core.types import SafeDateTime
-
-    # Keep complete event/payload equality deterministic across timestamp snapshots.
-    now = SafeDateTime.now()
-    monkeypatch.setattr(import_module(SafeDateTime.__module__), "time", lambda: now.timestamp())
     actor = actor_type.model_construct(id=42)
     monkeypatch.setattr(actor_type, "get_fullname", lambda _: "Creator")
     monkeypatch.setattr(actor_type, "api_response", lambda _: {"avatar": None, "email": "private", "api_key": "secret"})
