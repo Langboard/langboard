@@ -296,7 +296,11 @@ def test_failed_publication_pending_use_survives_source_release_then_expires(sto
     assert len(rows(Cache)) == len(rows(Reference)) == 1
     pending = rows(Reference)[0]
     assert pending.use_token == failed.token
-    remaining = pending.expires_at.replace(tzinfo=timezone.utc) - SafeDateTime.now()
+    assert pending.expires_at is not None
+    expiry = pending.expires_at
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    remaining = expiry - SafeDateTime.now()
     assert timedelta() < remaining <= timedelta(hours=module.PENDING_REFERENCE_HOURS)
     with cached_document_extraction(**settings()) as retry:
         assert retry.get_or_convert(converter)["markdown"] == "private result"
