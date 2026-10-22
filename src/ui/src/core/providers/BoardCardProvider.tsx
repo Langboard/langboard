@@ -1,3 +1,4 @@
+import { NativeImageCommentProvider } from "@/components/ImagePreviewDialog/NativeImageCommentProvider";
 import { flipDraftKey, useCardFlipDraftStore } from "@/pages/BoardPage/components/card/CardFlipDraftStore";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AuthUser, ProjectCard } from "@/core/models";
@@ -115,7 +116,7 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
         observer.observe(surface);
         updateLayoutMode();
         return () => observer.disconnect();
-    }, [isActionPanelOpen]);
+    }, [isActionPanelOpen, currentUser.uid, projectUID, card.uid]);
 
     const toggleCommentPanel = useCallback(() => setIsCommentPanelOpen((prev) => !prev), []);
     const toggleActionPanel = useCallback(() => setIsActionPanelOpen((prev) => !prev), []);
@@ -188,7 +189,17 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
 
     return (
         <BoardCardContext.Provider value={contextValue}>
-            <BoardCardPanelContext.Provider value={panelContextValue}>{children}</BoardCardPanelContext.Provider>
+            <BoardCardPanelContext.Provider value={panelContextValue}>
+                <NativeImageCommentProvider
+                    key={`${currentUser.uid}-${projectUID}-${card.uid}`}
+                    cardUID={card.uid}
+                    anchoredCommentRef={anchoredCommentRef}
+                    surfaceRef={commentSurfaceRef}
+                    openComments={() => setIsCommentPanelOpen(true)}
+                >
+                    {children}
+                </NativeImageCommentProvider>
+            </BoardCardPanelContext.Provider>
         </BoardCardContext.Provider>
     );
 };

@@ -455,5 +455,12 @@
   "Same file content": "Same file content",
   "Replace this attachment": "Replace {{name}}",
   "Add separate attachment": "Add separate attachment",
-  "Attachment upload failed. Retry the same file or cancel.": "Attachment upload failed. Retry the same file or cancel."
+  "Attachment upload failed. Retry the same file or cancel.": "Attachment upload failed. Retry the same file or cancel.",
+  "Place image annotation": "Place image annotation",
+  "Image point": "Image point",
+  "Image region": "Image region",
+  "Image annotation": "Image annotation",
+  "Image unavailable": "Image unavailable",
+  "Image changed or missing": "Image changed or missing",
+  "Fit image": "Fit image"
 }

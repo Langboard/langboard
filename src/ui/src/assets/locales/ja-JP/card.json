@@ -455,5 +455,12 @@
   "Same file content": "ファイルの内容が同じです",
   "Replace this attachment": "{{name}} を置き換える",
   "Add separate attachment": "別の添付ファイルとして追加",
-  "Attachment upload failed. Retry the same file or cancel.": "添付ファイルをアップロードできませんでした。同じファイルで再試行するか、キャンセルしてください。"
+  "Attachment upload failed. Retry the same file or cancel.": "添付ファイルをアップロードできませんでした。同じファイルで再試行するか、キャンセルしてください。",
+  "Place image annotation": "画像注釈を配置",
+  "Image point": "画像の点",
+  "Image region": "画像の領域",
+  "Image annotation": "画像注釈",
+  "Image unavailable": "画像を利用できません",
+  "Image changed or missing": "画像が変更または削除されました",
+  "Fit image": "画像に合わせる"
 }

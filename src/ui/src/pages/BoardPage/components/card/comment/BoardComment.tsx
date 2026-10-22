@@ -1,3 +1,6 @@
+import { useNativeImageComments } from "@/components/ImagePreviewDialog/NativeImageCommentContext";
+import { isImageCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
+import { useBoardCardPanel } from "@/core/providers/BoardCardProvider";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import Skeleton from "@/components/base/Skeleton";
@@ -42,6 +45,9 @@ export interface IBoardCommentProps {
 
 const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): React.JSX.Element => {
     const { projectUID, card, currentUser } = useBoardCard();
+    const nativeImages = useNativeImageComments();
+    const { commentSurfaceRef } = useBoardCardPanel();
+    const [t] = useTranslation();
     const editorName = `${card.uid}-comment-${comment.uid}`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
     const projectMembers = card.useForeignFieldArray("project_members");
@@ -79,9 +85,13 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                                 "max-w-full truncate rounded-md border-l-2 border-brand bg-brand/10 px-2 py-1 text-left text-xs",
                                 "text-muted-foreground hover:bg-brand/15"
                             )}
-                            title={anchor.exact}
+                            title={isImageCommentAnchor(anchor) ? t("card.Image annotation") : anchor.exact}
                             onClick={() => {
-                                const description = document.querySelector<HTMLElement>("[data-card-description]");
+                                if (isImageCommentAnchor(anchor)) {
+                                    nativeImages?.jump(anchor, comment.uid);
+                                    return;
+                                }
+                                const description = commentSurfaceRef.current?.querySelector<HTMLElement>("[data-card-description]");
                                 if (!description) {
                                     return;
                                 }
@@ -91,7 +101,9 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                                 });
                             }}
                         >
-                            “{anchor.exact}”
+                            {isImageCommentAnchor(anchor)
+                                ? t(nativeImages?.isCurrent(anchor) ? "card.Image annotation" : "card.Image changed or missing")
+                                : `“${anchor.exact}”`}
                         </button>
                     )}
                     <Flex

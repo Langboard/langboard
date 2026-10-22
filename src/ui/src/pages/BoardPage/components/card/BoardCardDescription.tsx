@@ -49,7 +49,7 @@ function AnchorCommentSubscription({ comment, onChange }: IAnchorCommentSubscrip
     const content = comment.useField("content")?.content ?? "";
 
     useEffect(() => {
-        onChange(comment.uid, { anchor, content });
+        onChange(comment.uid, { anchor: anchor?.type === "ImageRegionSelector" ? null : anchor, content });
     }, [anchor, comment.uid, content, onChange]);
 
     useEffect(() => () => onChange(comment.uid, null), [comment.uid, onChange]);
@@ -73,7 +73,7 @@ export function SkeletonBoardCardDescription() {
 
 const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionProps): React.JSX.Element => {
     const { projectUID, card, currentUser, hasRoleAction, isCardEditing, anchoredCommentRef } = useBoardCard();
-    const { setIsCommentPanelOpen } = useBoardCardPanel();
+    const { setIsCommentPanelOpen, commentSurfaceRef } = useBoardCardPanel();
     const [t] = useTranslation();
     const editorRef = useRef<TEditor>(null);
     const descriptionRef = useRef<HTMLDivElement>(null);
@@ -291,13 +291,13 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
         (commentUID: string) => {
             setIsCommentPanelOpen(true);
             window.setTimeout(() => {
-                document.querySelector<HTMLElement>(`[data-card-comment-uid="${CSS.escape(commentUID)}"]`)?.scrollIntoView({
+                commentSurfaceRef.current?.querySelector<HTMLElement>(`[data-card-comment-uid="${CSS.escape(commentUID)}"]`)?.scrollIntoView({
                     behavior: "smooth",
                     block: "center",
                 });
             }, 100);
         },
-        [setIsCommentPanelOpen]
+        [setIsCommentPanelOpen, commentSurfaceRef]
     );
 
     useEffect(() => registerSectionSaveHandler("description", handleSave), [handleSave, registerSectionSaveHandler]);

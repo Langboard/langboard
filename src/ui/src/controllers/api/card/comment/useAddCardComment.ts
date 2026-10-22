@@ -11,6 +11,7 @@ export interface IAddCardCommentForm {
     card_uid: string;
     content: IEditorContent;
     anchor?: ICardCommentAnchor | null;
+    request_uid?: string;
 }
 
 const useAddCardComment = (options?: TMutationOptions<IAddCardCommentForm>) => {
@@ -23,6 +24,7 @@ const useAddCardComment = (options?: TMutationOptions<IAddCardCommentForm>) => {
             {
                 ...sanitizeEditorValue(params.content),
                 anchor: params.anchor ?? null,
+                ...(params.request_uid ? { request_uid: params.request_uid } : {}),
             },
             {
                 env: {

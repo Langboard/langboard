@@ -455,5 +455,12 @@
   "Same file content": "文件内容相同",
   "Replace this attachment": "替换 {{name}}",
   "Add separate attachment": "添加独立附件",
-  "Attachment upload failed. Retry the same file or cancel.": "附件上传失败。请重试同一文件或取消。"
+  "Attachment upload failed. Retry the same file or cancel.": "附件上传失败。请重试同一文件或取消。",
+  "Place image annotation": "放置图片批注",
+  "Image point": "图片标记点",
+  "Image region": "图片区域",
+  "Image annotation": "图片批注",
+  "Image unavailable": "图片不可用",
+  "Image changed or missing": "图片已更改或删除",
+  "Fit image": "适应图片"
 }

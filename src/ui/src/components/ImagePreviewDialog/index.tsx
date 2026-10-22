@@ -1,3 +1,5 @@
+import ImageAnnotations, { type ImageAnnotationContext } from "./ImageAnnotations";
+import { useNativeImageComments } from "./NativeImageCommentContext";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
@@ -6,7 +8,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Input from "@/components/base/Input";
 import Label from "@/components/base/Label";
 import CachedImage from "@/components/CachedImage";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import mimeTypes from "react-native-mime-types";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useTranslation } from "react-i18next";
@@ -20,16 +22,25 @@ interface ImagePreviewDialogProps {
     files: { name: string; url: string; type?: string }[];
     initialIndex: number;
     onClose: () => void;
+    annotationContext?: ImageAnnotationContext;
 }
 
-const ImagePreviewDialog = ({ files, initialIndex, onClose }: ImagePreviewDialogProps) => {
+const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }: ImagePreviewDialogProps) => {
     const [t, i18n] = useTranslation();
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [zoom, setZoom] = useState(1);
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const panStart = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+    const [image, setImage] = useState<{ element: HTMLImageElement; url: string | undefined } | null>(null);
+    const native = useNativeImageComments();
     const currentFile = useMemo(() => files[currentIndex], [files, currentIndex]);
     const currentFileUrl = useMemo(() => currentFile?.url, [currentFile]);
     const currentFileName = useMemo(() => currentFile?.name, [currentFile]);
+    const annotations = annotationContext ?? native?.contextForURL(currentFileUrl, onClose);
     const mimeType = useMemo(() => currentFile?.type || (!!currentFile && mimeTypes.lookup(currentFile.url)), [currentFile]);
+    useEffect(() => {
+        setPan({ x: 0, y: 0 });
+    }, [currentFileUrl]);
     const updateZoom = (type: "in" | "out") => {
         setZoom((prev) => {
             if (type === "in") {
@@ -43,6 +54,11 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose }: ImagePreviewDialog
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) return;
+            if (
+                e.defaultPrevented ||
+                (e.target instanceof Element && e.key !== "Escape" && e.target.closest("input, textarea, [contenteditable=true]"))
+            )
+                return;
             e.preventDefault();
             e.stopPropagation();
 
@@ -118,17 +134,59 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose }: ImagePreviewDialog
                         e.stopPropagation();
                     }}
                 >
-                    <Flex items="center" justify="center" p="4" style={{ transform: `scale(${zoom})`, transition: "transform 0.2s ease-in-out" }}>
+                    <Flex
+                        items="center"
+                        justify="center"
+                        p="4"
+                        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, touchAction: zoom > 1 ? "none" : "auto" }}
+                        onPointerDown={(event) => {
+                            if (zoom <= 1 || !(event.target instanceof HTMLImageElement)) return;
+                            event.preventDefault();
+                            panStart.current = { x: event.clientX, y: event.clientY, left: pan.x, top: pan.y };
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                        }}
+                        onPointerMove={(event) => {
+                            const start = panStart.current;
+                            if (start) setPan({ x: start.left + event.clientX - start.x, y: start.top + event.clientY - start.y });
+                        }}
+                        onPointerUp={() => {
+                            panStart.current = null;
+                        }}
+                        onPointerCancel={() => {
+                            panStart.current = null;
+                        }}
+                    >
                         {!!mimeType && mimeType.startsWith("image/") ? (
-                            <CachedImage
-                                src={currentFileUrl}
-                                alt={currentFileName ?? t("editor.Image")}
-                                className="h-auto max-h-[calc(100dvh-4rem)] w-auto max-w-[calc(100vw-2rem)] object-contain"
-                                onDragStart={handleDrag}
-                                onDragOver={handleDrag}
-                                onDragEnd={handleDrag}
-                                onDrag={handleDrag}
-                            />
+                            <div className="relative inline-flex" data-image-annotation-layer>
+                                <CachedImage
+                                    key={currentFileUrl}
+                                    onLoad={(e) => setImage({ element: e.currentTarget, url: currentFileUrl })}
+                                    src={currentFileUrl}
+                                    alt={currentFileName ?? t("editor.Image")}
+                                    className={
+                                        annotations
+                                            ? "h-auto max-h-[calc(100dvh-10rem)] w-auto max-w-[calc(100vw-4rem)] object-contain"
+                                            : "h-auto max-h-[calc(100dvh-4rem)] w-auto max-w-[calc(100vw-2rem)] object-contain"
+                                    }
+                                    onDragStart={handleDrag}
+                                    onDragOver={handleDrag}
+                                    onDragEnd={handleDrag}
+                                    onDrag={handleDrag}
+                                />
+                                {annotations &&
+                                    image?.element.isConnected &&
+                                    image.url === currentFileUrl &&
+                                    image.element.naturalWidth > 0 &&
+                                    image.element.naturalWidth <= 100000 &&
+                                    image.element.naturalHeight > 0 &&
+                                    image.element.naturalHeight <= 100000 && (
+                                        <ImageAnnotations
+                                            key={`${currentFileUrl}-${annotations.source.revision}`}
+                                            context={annotations}
+                                            image={image.element}
+                                        />
+                                    )}
+                            </div>
                         ) : (
                             <Flex items="center" direction="col">
                                 <Box textSize="2xl" weight="semibold" mb="2" className="text-gray-500">
@@ -154,7 +212,7 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose }: ImagePreviewDialog
                                 value={currentIndex + 1}
                                 min={1}
                                 max={files.length}
-                                onChange={(e) => setCurrentIndex(Number(e.target.value) - 1)}
+                                onChange={(e) => setCurrentIndex(Math.max(0, Math.min(files.length - 1, Number(e.target.value) - 1)))}
                                 variant="ghost"
                                 className="h-auto w-10 p-0 text-center"
                             />
@@ -174,12 +232,22 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose }: ImagePreviewDialog
                                 value={Math.round(zoom * 100)}
                                 min={50}
                                 max={150}
-                                onChange={(e) => setZoom(Number(e.target.value) / 100)}
+                                onChange={(e) => setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)))}
                                 variant="ghost"
                                 className="h-auto w-10 p-0 text-center"
                             />
                             <span className="text-xs text-gray-500">%</span>
                         </Label>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                setZoom(1);
+                                setPan({ x: 0, y: 0 });
+                            }}
+                        >
+                            {t("card.Fit image")}
+                        </Button>
                         <Button variant="ghost" size="icon-sm" onClick={onClose}>
                             <IconComponent icon="x" size="4" />
                         </Button>

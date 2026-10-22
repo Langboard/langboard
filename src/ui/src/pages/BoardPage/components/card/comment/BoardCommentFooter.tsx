@@ -176,7 +176,14 @@ function BoardCommentFooterActions() {
             {canEdit && (
                 <>
                     <Separator orientation="vertical" className="h-1/2" />
-                    <Button variant="link" size="sm" className="h-5 p-0 text-accent-foreground/50" onClick={startEditing} disabled={isValidating}>
+                    <Button
+                        variant="link"
+                        size="sm"
+                        className="h-5 p-0 text-accent-foreground/50"
+                        data-comment-edit
+                        onClick={startEditing}
+                        disabled={isValidating}
+                    >
                         {t("common.Edit")}
                     </Button>
                     <Separator orientation="vertical" className="h-1/2" />
