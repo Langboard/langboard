@@ -148,3 +148,107 @@ test("late collection response does not cross an account switch", async ({ page 
     await expect(page.locator("output")).toHaveText(JSON.stringify([]));
     await expect(page.getByText("Private old group")).toHaveCount(0);
 });
+
+test("closing a pending source dialog prevents its response from changing the reopened dialog", async ({ page }) => {
+    let pending: import("@playwright/test").Route | undefined;
+    await page.route("**/account/project-collections", (route) => route.fulfill({ json: { revision: 0, collections: [] } }));
+    await page.route("**/settings/project-templates", (route) => route.fulfill({ json: { templates: [] } }));
+    await page.route("**/dashboard/projects/new", (route) => {
+        pending = route;
+    });
+    await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html");
+    await page.getByRole("button", { name: "Add collection", exact: true }).click();
+    await page.getByRole("button", { name: "Create source board", exact: true }).click();
+    const sourceDialog = page.getByRole("dialog").last();
+    await sourceDialog.locator("input[name=title]").fill("Old source");
+    await sourceDialog.getByRole("combobox").first().fill("Other");
+    await sourceDialog.getByRole("button", { name: "Create", exact: true }).click();
+    await expect.poll(() => !!pending).toBe(true);
+    await sourceDialog.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Create source board", exact: true }).click();
+    await expect(sourceDialog.locator("input[name=title]")).toBeDisabled();
+    await expect(sourceDialog.locator("button[type=submit]")).toBeDisabled();
+    await pending!.fulfill({ json: { project_uid: "00000000003" } });
+    await expect(sourceDialog.locator("input[name=title]")).toBeEnabled();
+    await sourceDialog.locator("input[name=title]").fill("New source draft");
+    await expect(sourceDialog.locator("input[name=title]")).toHaveValue("New source draft");
+    await sourceDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "Created source", exact: true })).toHaveCount(0);
+    await expect(page.locator("output")).toHaveText("[]");
+});
+
+for (const action of ["close parent", "switch account"] as const) {
+    test(`a late source response after ${action} cannot change a new collection draft`, async ({ page }) => {
+        let pending: import("@playwright/test").Route | undefined;
+        let writes = 0;
+        await page.route("**/account/project-collections", (route) => {
+            if (route.request().method() !== "GET") writes++;
+            return route.fulfill({ json: { revision: 0, collections: [] } });
+        });
+        await page.route("**/settings/project-templates", (route) => route.fulfill({ json: { templates: [] } }));
+        await page.route("**/dashboard/projects/new", (route) => {
+            pending = route;
+        });
+        await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html");
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        await page.getByRole("button", { name: "Create source board", exact: true }).click();
+        const sourceDialog = page.getByRole("dialog").last();
+        await sourceDialog.locator("input[name=title]").fill("Old account source");
+        await sourceDialog.getByRole("combobox").first().fill("Other");
+        await sourceDialog.getByRole("button", { name: "Create", exact: true }).click();
+        await expect.poll(() => !!pending).toBe(true);
+        if (action === "switch account") {
+            // Account changes originate outside the modal, such as another authenticated surface.
+            await page
+                .getByRole("button", { name: "Switch account", exact: true, includeHidden: true })
+                .evaluate((button: HTMLButtonElement) => button.click());
+        } else {
+            await sourceDialog.getByRole("button", { name: "Close", exact: true }).click();
+            await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        }
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        await page.getByLabel("Project name", { exact: true }).fill("Fresh draft");
+        const response = page.waitForResponse("**/dashboard/projects/new");
+        await pending!.fulfill({ json: { project_uid: "00000000003" } });
+        await response;
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("Fresh draft");
+        await expect(page.getByRole("checkbox", { name: "Created source", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+        await expect(page.locator("[data-path]")).toHaveText("/");
+        expect(writes).toBe(0);
+    });
+}
+
+for (const action of ["close", "switch account", "complete"] as const) {
+    test(`native board creation ${action} preserves navigation lifetime`, async ({ page }) => {
+        let pending: import("@playwright/test").Route | undefined;
+        await page.route("**/account/project-collections", (route) => route.fulfill({ json: { revision: 0, collections: [] } }));
+        await page.route("**/settings/project-templates", (route) => route.fulfill({ json: { templates: [] } }));
+        await page.route("**/dashboard/projects/new", (route) => {
+            pending = route;
+        });
+        await page.goto("/src/pages/DashboardPage/components/ProjectCollection.fixture.html?native&keep-open-on-account-switch");
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        const sourceDialog = page.getByRole("dialog");
+        await sourceDialog.locator("input[name=title]").fill("Native source");
+        await sourceDialog.getByRole("combobox").first().fill("Other");
+        await sourceDialog.getByRole("button", { name: "Create", exact: true }).click();
+        await expect.poll(() => !!pending).toBe(true);
+        if (action === "close") await sourceDialog.getByRole("button", { name: "Close", exact: true }).click();
+        if (action === "switch account") {
+            await page
+                .getByRole("button", { name: "Switch account", exact: true, includeHidden: true })
+                .evaluate((button: HTMLButtonElement) => button.click());
+        }
+        const response = page.waitForResponse("**/dashboard/projects/new");
+        await pending!.fulfill({ json: { project_uid: "00000000003" } });
+        await response;
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await expect(page.locator("[data-path]")).toHaveText(action === "complete" ? /00000000003/ : "/");
+        if (action === "switch account") {
+            await expect(sourceDialog.locator("input[name=title]")).toBeEnabled();
+            await expect(sourceDialog.locator("input[name=title]")).toHaveValue("");
+        }
+    });
+}

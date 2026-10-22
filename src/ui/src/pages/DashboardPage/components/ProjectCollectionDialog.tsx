@@ -128,7 +128,7 @@ export default function ProjectCollectionDialog({
                 </Dialog.Content>
             </Dialog.Root>
             <CreateProjectFormDialog
-                opened={creating}
+                opened={opened && creating}
                 setOpened={setCreating}
                 onCreated={(uid) => {
                     setCreated((items) => [...new Set([...items, uid])]);

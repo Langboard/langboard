@@ -135,3 +135,83 @@ def test_concurrent_collection_save_has_one_winner(board, existing):
     winner = next(item for item in results if isinstance(item, dict))
     assert winner["revision"] == revision + 1
     assert project_collections(actor) == winner
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_native_source_creation_survives_collection_save_rollback_and_retry(board, monkeypatch):
+    import langboard.routes.dashboard.DashboardApi  # noqa: F401
+    from langboard_shared.domain import models
+    from langboard_shared.publishers import ProjectColumnPublisher
+    from langboard_shared.tasks.activities import ProjectActivityTask, ProjectColumnActivityTask
+    from langboard_shared.tasks.bots import ProjectColumnBotTask
+
+    _, actor, *_ = board
+    engine = DbEngine.get_main_engine()
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    required = {model.__table__ for model in (
+        models.UserProjectCollection, models.ProjectTemplate, models.ProjectLabel, models.InternalBot,
+        models.ProjectAssignedInternalBot, models.ProjectEmailNotificationPolicy,
+        models.ProjectEmailNotificationRecipient, models.Card,
+    )}
+    pending = list(required)
+    while pending:
+        for key in pending.pop().foreign_keys:
+            if key.column.table not in required:
+                required.add(key.column.table)
+                pending.append(key.column.table)
+    models.Project.metadata.create_all(engine, tables=list(required))
+    for owner, method in (
+        (ProjectActivityTask, "project_created"), (ProjectColumnPublisher, "created"),
+        (ProjectColumnActivityTask, "project_column_created"), (ProjectColumnBotTask, "project_column_created"),
+    ):
+        monkeypatch.setattr(owner, method, lambda *_args: None)
+    with DbSession.atomic() as db:
+        db.insert(models.ProjectTemplate(name="Collection source", columns=[{"name": "Inbox", "workflow_stage": "active"}]))
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    headers = {"Authorization": f"Bearer {access}"}
+    endpoint = "/account/project-collections"
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        created = client.post("/dashboard/projects/new", json={
+            "title": "Created source", "description": "Keep original body", "project_type": "Other",
+            "template_name": "Collection source",
+        }, headers=headers)
+        assert created.status_code == 201, created.text
+        source_uid = created.json()["project_uid"]
+        assert client.get(endpoint, headers=headers).json() == {"revision": 0, "collections": []}
+
+        def source_snapshot():
+            with engine.connect() as connection:
+                return {
+                    model.__tablename__: connection.execute(select(model.__table__)).all()
+                    for model in (Project, models.ProjectColumn, models.ProjectLabel, ProjectAssignedUser, ProjectRole)
+                }
+
+        snapshot = source_snapshot()
+        source = next(row for row in snapshot["project"] if row.id == SnowflakeID.from_short_code(source_uid))
+        assert source.title == "Created source" and source.description == "Keep original body"
+        collection = {"uid": str(uuid4()), "name": "Personal source", "board_uids": [source_uid]}
+        payload = {"expected_revision": 0, "collections": [collection]}
+        original_insert = DbSession.insert
+
+        def fail_after_insert(session, row, *args, **kwargs):
+            result = original_insert(session, row, *args, **kwargs)
+            if isinstance(row, models.UserProjectCollection):
+                raise RuntimeError("collection persistence failed after insert")
+            return result
+
+        with monkeypatch.context() as failure:
+            failure.setattr(DbSession, "insert", fail_after_insert)
+            assert client.put(endpoint, json=payload, headers=headers).status_code == 500
+        assert client.get(endpoint, headers=headers).json() == {"revision": 0, "collections": []}
+        assert source_snapshot() == snapshot
+        saved = client.put(endpoint, json=payload, headers=headers)
+        assert saved.status_code == 200, saved.text
+        assert saved.json() == {"revision": 1, "collections": [collection]}
+        assert source_snapshot() == snapshot
+        assert client.put(endpoint, json=payload, headers=headers).status_code == 409
+        assert client.get(endpoint, headers=headers).json() == saved.json()
+        assert source_snapshot() == snapshot
