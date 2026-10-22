@@ -22,6 +22,11 @@ interface Profile {
     display_name: string;
     model_name: string;
 }
+export interface AvatarGenerationRequest {
+    id: number;
+    prompt: string;
+    onGenerate: () => void;
+}
 interface BaseProps {
     base: string;
     canUpdate: boolean;
@@ -31,7 +36,7 @@ interface BaseProps {
 type Props = BaseProps &
     (
         | { onPersisted: (snapshot: AvatarSnapshot) => void; onDraftApplied?: never; generationRequest?: never }
-        | { onPersisted?: never; onDraftApplied: (file: File) => void; generationRequest?: { id: number; prompt: string } }
+        | { onPersisted?: never; onDraftApplied: (file: File) => void; generationRequest?: AvatarGenerationRequest }
     );
 const instruction = [
     "Create a single symbolic icon. Flat vector style, strong silhouette, simple geometry, high contrast at 32–48px.",
@@ -41,6 +46,7 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
     const [t] = useTranslation();
     const actor = useAuthStore((state) => state.currentUser);
     const [open, setOpen] = useState(false);
+    const [activeRequest, setActiveRequest] = useState<AvatarGenerationRequest>();
     const [snapshot, setSnapshot] = useState<AvatarSnapshot | null>(null);
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [profileUID, setProfileUID] = useState("");
@@ -78,12 +84,19 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
     }, [identity, actor]);
     useEffect(() => {
         setPrompt(instruction);
+        setActiveRequest(undefined);
         setSnapshot(null);
         setProfiles([]);
         setProfileUID("");
         setFields([]);
     }, [actor, base]);
     const handledRequest = useRef<number | undefined>(undefined);
+    const startedRequest = useRef<number | undefined>(undefined);
+    const startAssistant = () => {
+        if (!activeRequest || startedRequest.current === activeRequest.id) return;
+        startedRequest.current = activeRequest.id;
+        activeRequest.onGenerate();
+    };
     useEffect(() => {
         if (!generationRequest) {
             handledRequest.current = undefined;
@@ -91,6 +104,7 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
         }
         if (handledRequest.current === generationRequest.id || !actor || !canUpdate || disabled) return;
         handledRequest.current = generationRequest.id;
+        setActiveRequest(generationRequest);
         setPrompt(`${instruction} ${generationRequest.prompt}`.slice(0, 2000));
         setOpen(true);
     }, [generationRequest, actor, canUpdate, disabled]);
@@ -139,6 +153,7 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
             let response;
             if (action === "context") response = await api.post(`${base}/context`, {}, options(controller.signal));
             else if (action === "preview") {
+                startAssistant();
                 setPreview("");
                 response = await api.post(
                     `${base}/preview`,
@@ -213,7 +228,15 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
     };
     return (
         <>
-            <Button type="button" variant="outline" disabled={!canUpdate || disabled || !actor} onClick={() => setOpen(true)}>
+            <Button
+                type="button"
+                variant="outline"
+                disabled={!canUpdate || disabled || !actor}
+                onClick={() => {
+                    setActiveRequest(undefined);
+                    setOpen(true);
+                }}
+            >
                 {t("internalBot.avatar.generate")}
             </Button>
             <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -299,8 +322,21 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
                         disabled={busy || !canUpdate || !selected || !consent || !prompt.trim() || !snapshot}
                         onClick={() => void operate("preview")}
                     >
-                        {t("internalBot.avatar.generate")}
+                        {t(activeRequest ? "bot.agent.Generate draft and avatar" : "internalBot.avatar.generate")}
                     </Button>
+                    {activeRequest && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            disabled={busy || !canUpdate}
+                            onClick={() => {
+                                startAssistant();
+                                setOpen(false);
+                            }}
+                        >
+                            {t("bot.agent.Create text draft only")}
+                        </Button>
+                    )}
                     {preview && (
                         <>
                             <div className="flex flex-wrap items-end gap-3">

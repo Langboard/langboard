@@ -9,6 +9,7 @@ export interface IBotDraftForm {
     selected_api_names: string[];
     selected_comfort_tool_names: string[];
     include_mcp?: bool;
+    signal?: AbortSignal;
 }
 
 export interface IBotDraft {
@@ -21,8 +22,9 @@ export interface IBotDraft {
 const useDraftBotFromInstruction = (options?: TMutationOptions<IBotDraftForm, IBotDraft>) => {
     const { mutate } = useQueryMutation();
 
-    const draftBotFromInstruction = async (form: IBotDraftForm) => {
+    const draftBotFromInstruction = async ({ signal, ...form }: IBotDraftForm) => {
         const res = await api.post(Routing.API.SETTINGS.BOTS.DRAFT, form, {
+            signal,
             env: {
                 interceptToast: options?.interceptToast,
             } as never,

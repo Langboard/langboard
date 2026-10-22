@@ -22,7 +22,37 @@ const actor = AuthUser.Model.fromOne({
 useAuthStore.setState({ currentUser: actor, state: "loaded" });
 function Fixture() {
     const [opened, setOpened] = useState(true);
-    return <BotCreateFormDialog opened={opened} setOpened={setOpened} currentUser={actor} />;
+    const currentUser = useAuthStore((state) => state.currentUser)!;
+    return (
+        <>
+            <button onClick={() => setOpened(true)}>Reopen creation</button>
+            <button
+                onClick={() =>
+                    useAuthStore.setState({
+                        currentUser: AuthUser.Model.fromOne({ uid: "another-creator", created_at: new Date(), updated_at: new Date() }),
+                    })
+                }
+            >
+                Change actor
+            </button>
+            <button
+                onClick={() =>
+                    useAuthStore.setState({
+                        currentUser: AuthUser.Model.fromOne({
+                            uid: actor.uid,
+                            created_at: new Date(),
+                            updated_at: new Date(),
+                            is_admin: false,
+                            setting_role_actions: [],
+                        }),
+                    })
+                }
+            >
+                Revoke authority
+            </button>
+            <BotCreateFormDialog opened={opened} setOpened={setOpened} currentUser={currentUser} />
+        </>
+    );
 }
 createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
