@@ -41,6 +41,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
     const [isValidating, setIsValidating] = useState(false);
     const [revealedToken, setRevealedToken] = useState<string>();
     const [generatedAvatar, setGeneratedAvatar] = useState<File>();
+    const [avatarRevision, setAvatarRevision] = useState(0);
     const [avatarRequest, setAvatarRequest] = useState<{ id: number; prompt: string }>();
     const [draftActionSuggestions, setDraftActionSuggestions] = useState<IBotActionSuggestion[]>([]);
     const dialogContentRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +76,6 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         return JSON.parse(valueRef.current) as Record<string, unknown>;
     };
     const applyBotDraft = (draft: IBotDraft) => {
-        setAvatarRequest((previous) => ({ id: (previous?.id ?? 0) + 1, prompt: draft.bot_name.slice(0, 200) }));
         setDraftActionSuggestions(draft.suggestions);
         if (inputsRef.current.name) {
             inputsRef.current.name.value = draft.bot_name;
@@ -239,7 +239,12 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                 {!revealedToken && (
                     <Form.Root className="mt-4">
                         <Box mb="4">
-                            <BotCreateAssistantPanel disabled={isValidating} getCurrentValue={getCurrentBotValue} onApplyDraft={applyBotDraft} />
+                            <BotCreateAssistantPanel
+                                disabled={isValidating}
+                                getCurrentValue={getCurrentBotValue}
+                                onApplyDraft={applyBotDraft}
+                                onRequestAvatar={(prompt) => setAvatarRequest((previous) => ({ id: (previous?.id ?? 0) + 1, prompt }))}
+                            />
                         </Box>
                         <AvatarUploader
                             isBot
@@ -248,6 +253,8 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                             errorMessage={errors.avatar}
                             avatarSize="3xl"
                             selectedFile={generatedAvatar}
+                            onChange={() => setAvatarRevision((revision) => revision + 1)}
+                            onDeleted={() => setAvatarRevision((revision) => revision + 1)}
                         />
                         <Flex justify="center" mt="3">
                             <AvatarGeneration
@@ -256,6 +263,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                                 disabled={isValidating}
                                 onDraftApplied={setGeneratedAvatar}
                                 generationRequest={avatarRequest}
+                                revisionKey={String(avatarRevision)}
                             />
                         </Flex>
                         <Box mt="10">

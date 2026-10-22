@@ -14,6 +14,7 @@ interface IBotCreateAssistantPanelProps {
     disabled?: bool;
     getCurrentValue: () => Record<string, unknown>;
     onApplyDraft: (draft: IBotDraft) => void;
+    onRequestAvatar: (instruction: string) => void;
 }
 
 interface IBotCreateAssistantMessage {
@@ -21,7 +22,7 @@ interface IBotCreateAssistantMessage {
     content: string;
 }
 
-function BotCreateAssistantPanel({ disabled, getCurrentValue, onApplyDraft }: IBotCreateAssistantPanelProps): React.JSX.Element {
+function BotCreateAssistantPanel({ disabled, getCurrentValue, onApplyDraft, onRequestAvatar }: IBotCreateAssistantPanelProps): React.JSX.Element {
     const [t] = useTranslation();
     const [instruction, setInstruction] = useState("");
     const [messages, setMessages] = useState<IBotCreateAssistantMessage[]>([]);
@@ -42,6 +43,7 @@ function BotCreateAssistantPanel({ disabled, getCurrentValue, onApplyDraft }: IB
 
         setMessages((prevMessages) => [...prevMessages, { role: "user", content: nextInstruction }]);
         setInstruction("");
+        onRequestAvatar(nextInstruction);
         mutate(
             {
                 instruction: nextInstruction,
