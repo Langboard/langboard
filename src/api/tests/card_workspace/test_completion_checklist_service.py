@@ -211,8 +211,8 @@ def test_explicit_checked_state_emits_once_across_replay(monkeypatch: pytest.Mon
     assert checklist.is_checked is True and item.is_checked is True
     assert calls == [
         "checklist_update",
-        "checklist_publish",
         "checklist_unread",
+        "checklist_publish",
         "checklist_activity",
         "checklist_bot",
         "checkitem_update",

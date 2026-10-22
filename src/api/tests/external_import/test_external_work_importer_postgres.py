@@ -79,6 +79,7 @@ def test_imported_card_shares_native_creation_invariants(
         needed = {
             "user", "user_identity_link", "project", "project_column", "project_label", "project_assigned_user",
             "card", "card_assigned_user", "card_assigned_project_label", "card_attachment", "card_comment", "checklist",
+            "card_change_receipt",
             "checkitem", "external_import_record", "project_execution_binding",
             "webhook_setting", "card_relationship", "workflow_stage_definition",
             "attachment_storage_object", "attachment_storage_reference",

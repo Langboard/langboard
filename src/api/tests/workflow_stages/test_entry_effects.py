@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 from importlib import import_module
+from itertools import count
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -83,8 +84,8 @@ def flow(monkeypatch, request):
         engine.dispose()
     # Both database backends exercise the real project lock before moving cards.
     with engine.begin() as connection:
-        connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY)"))
-        connection.execute(text("INSERT INTO project VALUES (1)"))
+        connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY, deleted_at TIMESTAMP)"))
+        connection.execute(text("INSERT INTO project(id) VALUES (1)"))
         connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY, activated_at TIMESTAMP, deleted_at TIMESTAMP, is_admin BOOLEAN NOT NULL DEFAULT FALSE)'))
         connection.execute(text('INSERT INTO "user"(id, activated_at) VALUES (1, CURRENT_TIMESTAMP)'))
     for model in (
@@ -149,7 +150,8 @@ def flow(monkeypatch, request):
     service = get(CardService)
     notifications = []
     service.notify_order_changed = lambda *_: notifications.append(snapshot(engine, card.id))
-    service.next_change_seq = lambda: 99
+    change_sequences = count(99)
+    service.next_change_seq = lambda: next(change_sequences)
     summary = Mock()
     monkeypatch.setattr(CheckitemPublisher, "workflow_effects_applied", summary)
 
