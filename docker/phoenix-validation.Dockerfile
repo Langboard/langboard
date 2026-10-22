@@ -53,6 +53,9 @@ RUN mix local.hex --force && mix local.rebar --force
 COPY --chown=validation:validation pyproject.toml uv.lock README.md alembic.ini ./
 COPY --chown=validation:validation src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
 COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
+COPY --chown=validation:validation src/graph/pyproject.toml src/graph/uv.lock ./src/graph/
+# Reject stale graph metadata before installing the other runtime dependencies.
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv lock --project src/graph --check
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --no-install-project --no-install-package langboard-shared
 COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
 RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get && mix deps.compile
