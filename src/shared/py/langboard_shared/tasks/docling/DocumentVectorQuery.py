@@ -2,6 +2,7 @@
 
 from math import isfinite
 import tiktoken
+from .DocumentSource import document_source_identity
 from .DocumentVectorGeneration import MAX_ATTACHMENT_CHUNKS
 from .DocumentVectorStore import document_source_filter
 
@@ -13,16 +14,13 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
     if type(max_tokens) is not int or not 128 <= max_tokens <= 4000:
         raise ValueError("Invalid excerpt token budget")
     ids = pointer.get("chunk_ids")
-    fields = ("board_uid", "card_uid", "attachment_uid", "content_hash", "embedding_fingerprint", "generation")
     if (
         not isinstance(ids, list)
         or not 1 <= len(ids) <= MAX_ATTACHMENT_CHUNKS
         or not all(isinstance(i, str) and i for i in ids)
     ):
         raise ValueError("Reindex this attachment before vector retrieval")
-    if not all(isinstance(pointer.get(key), str) and pointer[key] for key in fields):
-        raise ValueError("Incomplete vector source")
-    source = {key: pointer[key] for key in fields}
+    source = document_source_identity(pointer, require_generation=True)
     filter = document_source_filter(pointer.get("storage") or {}, source)
     if settings.search_type == "mmr":
         if settings.score_threshold is not None:
@@ -39,7 +37,17 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
     for document, score in hits[: settings.k]:
         metadata = document.metadata
         identifier = document.id or metadata.get("_id")
-        if str(identifier) not in ids or any(metadata.get(key) != value for key, value in source.items()):
+        try:
+            actual_source = document_source_identity(metadata, require_generation=True)
+        except ValueError:
+            continue
+        expected_kind = source.get("source_type", "card_attachment")
+        actual_kind = actual_source.get("source_type", "card_attachment")
+        if (
+            str(identifier) not in ids
+            or actual_kind != expected_kind
+            or any(actual_source.get(key) != value for key, value in source.items() if key != "source_type")
+        ):
             continue
         if score is not None and (type(score) not in (int, float) or not isfinite(score)):
             continue

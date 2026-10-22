@@ -21,6 +21,7 @@ def record_cleanup(db, pointer: dict | None, *, dispatch: bool = True) -> bool:
     recorded = {
         key: pointer[key]
         for key in (
+            "source_type",
             "board_uid",
             "card_uid",
             "attachment_uid",

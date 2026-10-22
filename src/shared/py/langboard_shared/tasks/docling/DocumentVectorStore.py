@@ -4,6 +4,7 @@ import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from uuid import uuid4
+from .DocumentSource import document_source_identity
 from .DocumentSplitter import split_document, split_structural_document
 from .DocumentVectorGeneration import MAX_ATTACHMENT_CHUNKS
 
@@ -145,11 +146,7 @@ async def astage_vector_generation(
 
 
 def _prepare_vector_generation(*, source, text, splitter, storage, document_json):
-    if not all(
-        isinstance(source.get(key), str) and source[key]
-        for key in ("board_uid", "card_uid", "attachment_uid", "content_hash", "embedding_fingerprint")
-    ):
-        raise ValueError("Complete authoritative attachment source is required")
+    document_source_identity(source)
     if not text.strip():
         raise ValueError("An empty transcription cannot replace a searchable generation")
     generation = uuid4().hex
