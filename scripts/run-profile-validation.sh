@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 profile=${PROFILE:?PROFILE is required}
 export PROJECT_NAME="${PROJECT_NAME:-langboard}"
@@ -162,7 +162,7 @@ case "$profile" in
 esac
 
 status=0
-if ("${command[@]}") >"/result/artifacts/${profile}-validation.log" 2>&1; then
+if ("${command[@]}") 2>&1 | tee "/result/artifacts/${profile}-validation.log"; then
   status=0
 else
   status=$?
