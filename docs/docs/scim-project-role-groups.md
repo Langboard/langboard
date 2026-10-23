@@ -43,3 +43,34 @@ A retry preserves the public group identity and effective membership and roles;
 internal membership row identifiers and relationship timestamps may change.
 After a failed delete readback, the group remains absent and its grants remain
 revoked. Retrying the operation does not recreate the deleted group.
+
+## Inventory before the singleton tenant migration
+
+Before assigning existing boards and directory records to a singleton tenant,
+run the read-only audit against the intended primary database or its restored
+snapshot, using the normal application database configuration:
+
+```sh
+PROJECT_NAME=langboard PYTHONPATH=src/api:src/shared/py \
+  uv run --no-sync python scripts/audit_instance_directory.py
+```
+
+The JSON report contains aggregate counts and review codes, without names,
+email addresses, external IDs, issuer URLs, or credentials. PostgreSQL uses one
+repeatable-read, read-only transaction; SQLite uses a read-only snapshot for the
+audit and restores the connection's normal write policy afterward. Schema or
+connection failures propagate as errors rather than an empty inventory.
+
+Exit status `2` means review is required: multiple organizations (including
+inactive ones), no active canonical organization, unbound or orphaned boards,
+orphaned memberships/address books, unresolved identity issuers, or legacy group
+provenance. Exit status `0` only means these inventory checks found no blocker;
+`migration_authorized` remains false. No records are merged, deleted, assigned,
+or granted access by this command.
+
+Existing SCIM groups have no stored source/issuer discriminator. The configured
+`SCIM_ISSUER`, a matching name, or a user's identity issuer cannot establish each
+group's historical provenance. Preserve group UIDs and membership until an
+explicit source mapping and reversible migration are reviewed. Personal
+`UserGroup`/`UserGroupAssignedEmail` address books remain separate and must not be
+promoted into global UID membership by matching email or group names.
