@@ -149,6 +149,9 @@ jobs:
       - name: Verify native Markdown attachment roundtrip and text fallback
         run: node --experimental-strip-types --test src/components/Editor/plugins/markdown/escape-angles.test.ts src/components/Editor/plugins/markdown/escape.test.ts
         working-directory: src/ui
+      - name: Verify board deadline calendar and warning policies
+        run: node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardDeadlineFilter.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts
+        working-directory: src/ui
       - run: yarn test:card-draft-store
         working-directory: src/ui
       - run: yarn test:store-snapshots
