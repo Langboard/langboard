@@ -54,6 +54,12 @@ class ReplaceCardDescription(CardAction):
     expected_revision: Annotated[str, Field(pattern=r"^[0-9a-fA-F]{64}$")]
 
 
+class ChangeCardVisibility(CardAction):
+    action: Literal["visibility"]
+    visibility: Literal["INTERNAL", "SHARED"]
+    expected_visibility: Literal["INTERNAL", "SHARED"]
+
+
 class MoveCard(CardAction):
     action: Literal["move"]
     column_uid: Uid
@@ -105,6 +111,7 @@ CardChange = Annotated[
     | DeadlineCard
     | CompleteCard
     | ReplaceCardDescription
+    | ChangeCardVisibility
     | MoveCard
     | ArchiveCard
     | DeleteCard
@@ -121,6 +128,7 @@ CARD_ACTION_COMMANDS = {
     "deadline": "change_card_details",
     "completion": "set_card_completed",
     "description_replace": "replace_card_description",
+    "visibility": "change_card_visibility",
     "move": "change_card_order_or_move_column",
     "archive": "archive_card",
     "delete": "delete_card",
@@ -131,7 +139,7 @@ CARD_ACTION_COMMANDS = {
 
 
 @McpTool.add(
-    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only."
+    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only. Visibility requires expected_visibility; SHARED requires the human card-detail confirmation UI and never executes through MCP."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 async def update_card(project_uid: str, card_uid: str, change: CardChange) -> dict[str, Any]:

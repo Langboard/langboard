@@ -30,6 +30,11 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
             "replace_card_description",
             {"description": "    code\n", "expected_revision": "a" * 64},
         ),
+        (
+            {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
+            "change_card_visibility",
+            {"visibility": "INTERNAL", "expected_visibility": "SHARED"},
+        ),
         ({"action": "archive"}, "archive_card", {}),
         ({"action": "delete"}, "delete_card", {}),
         (

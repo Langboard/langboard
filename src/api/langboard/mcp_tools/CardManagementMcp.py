@@ -1,24 +1,89 @@
 """Card management forwards existing native owners without granting app authority."""
 
+from dataclasses import replace
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
 from fastmcp.exceptions import ToolError
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.models import User
+from langboard_shared.domain.models import Card, ProjectRole, User
+from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
 from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes, request_human_runtime_stop
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.Env import Env
+from langboard_shared.security import RoleFinder
 from pydantic import BaseModel, ConfigDict, Field
 from ..apps.CardSignal import CardSignalConflict, bind_check, list_card_resources, read_checks, unlink_check
 from ..apps.GitHubManifest import GitHubManifestUnavailable
 from ..apps.SignalInbox import list_board_signals
-from ..mcp_integration import McpTool
+from ..mcp_integration import McpRoleFilter, McpTool
 from .CardAppResourcesMcp import Uid
+
+
+@McpTool.add(
+    "user",
+    description="Change SHARED to INTERNAL using the current expected_visibility. SHARED disclosure only returns a read-only handoff to the existing human card-detail visibility confirmation UI; a person must review and confirm there. MCP cannot confirm or execute sharing. PRIVATE transitions are unavailable.",
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
+def change_card_visibility(
+    project_uid: Uid,
+    card_uid: Uid,
+    visibility: Literal["INTERNAL", "SHARED"],
+    expected_visibility: Literal["INTERNAL", "SHARED"],
+    user: User,
+    service: DomainService,
+) -> dict[str, Any]:
+    try:
+        if not isinstance(user, User):
+            raise PermissionError()
+        target = CardVisibility(visibility)
+        if target == CardVisibility.Shared:
+            resolved = service.card.resolve_readable_card(
+                project_uid, card_uid, user, CollaborationChannel.Mcp, metadata_only=True
+            )
+            if resolved is None:
+                raise PermissionError()
+            project, card, context = resolved
+            # Match the mutation owner's current primary-database role check.
+            with DbSession.use(readonly=False) as db:
+                actor = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+                role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                    ProjectRole.user_id == user.id, ProjectRole.project_id == project.id,
+                )).first()
+                roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
+            context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
+            if (
+                card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD
+                or card.visibility != expected_visibility
+                or not context.can_change_visibility(CardVisibility(card.visibility), CardVisibility.Internal)
+            ):
+                raise PermissionError()
+            if card.visibility == target.value:
+                return {"status": "unchanged", "changed": False, "visibility": card.visibility}
+            url = f"{Env.PUBLIC_UI_URL.rstrip('/')}/board/{quote(project_uid, safe='')}/{quote(card_uid, safe='')}"
+            return {
+                "status": "human_action_required",
+                "changed": False,
+                "visibility": visibility,
+                "expected_visibility": expected_visibility,
+                "card_url": url,
+                "message": "A human must open the card detail, review the visibility disclosure, and confirm in the existing visibility UI. This MCP request does not change visibility.",
+            }
+        result = service.card.change_visibility(
+            user, project_uid, card_uid, target,
+            channel=CollaborationChannel.Mcp, confirmed=False, expected_visibility=expected_visibility,
+        )
+        if result is None:
+            raise PermissionError()
+        return result
+    except (PermissionError, ValueError):
+        raise ToolError("Card visibility transition unavailable; read current state and verify access") from None
 
 
 class CrossBoardExclusionCounts(BaseModel):
