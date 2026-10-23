@@ -13,7 +13,9 @@ rewrite the peer before authentication. Trusted HTTPS forwarding remains enabled
 
 A direct untrusted peer ignores forwarded headers. A trusted peer requires a
 valid X-Forwarded-For chain; the first untrusted hop from the right is the client.
-Missing peers and malformed forwarded IPs cannot authorize an IP-restricted key.
+Missing peers, malformed forwarded IPs, and duplicate X-Forwarded-For field lines
+cannot authorize an IP-restricted key. Duplicate fields are rejected because
+Uvicorn and Starlette select different entries when duplicates are present.
 Existing development and explicitly exempt bot-platform behavior is unchanged.
 
 ## Deployment acceptance

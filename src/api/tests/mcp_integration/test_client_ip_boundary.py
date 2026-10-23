@@ -36,13 +36,27 @@ def test_resolver(peer, forwarded, trusted, expected):
 
 
 @pytest.mark.parametrize("credential", ["api_key", "bot"])
+@pytest.mark.parametrize("through_runner", [False, True])
 @pytest.mark.parametrize(
-    "peer,valid,allowed",
-    [("198.51.100.20", True, False), ("203.0.113.7", True, True), ("203.0.113.7", False, False), (None, True, False)],
+    "peer,forwarded,trusted,valid,allowed",
+    [
+        ("198.51.100.20", ["203.0.113.7"], [], True, False),
+        ("203.0.113.7", ["203.0.113.7"], [], True, True),
+        ("203.0.113.7", ["203.0.113.7"], [], False, False),
+        (None, ["203.0.113.7"], [], True, False),
+        ("10.0.0.2", ["203.0.113.7"], ["10.0.0.0/24"], True, True),
+        ("10.0.0.2", ["203.0.113.7, 10.0.0.3"], ["10.0.0.0/24"], True, True),
+        ("10.0.0.2", ["203.0.113.7, 198.51.100.20"], ["10.0.0.0/24"], True, False),
+        ("10.0.0.2", [""], ["10.0.0.0/24"], True, False),
+        ("10.0.0.2", ["203.0.113.7, invalid-hop"], ["10.0.0.0/24"], True, False),
+        ("10.0.0.2", ["198.51.100.20", "203.0.113.7"], ["10.0.0.0/24"], True, False),
+    ],
 )
-def test_native_credentials_ignore_forged_headers(monkeypatch, credential, peer, valid, allowed):
+def test_native_credentials_ignore_forged_headers(
+    monkeypatch, credential, through_runner, peer, forwarded, trusted, valid, allowed
+):
     monkeypatch.setattr(type(Env), "ENVIRONMENT", property(lambda _: "production"))
-    monkeypatch.setattr(type(Env), "TRUSTED_PROXY_IPS", property(lambda _: []))
+    monkeypatch.setattr(type(Env), "TRUSTED_PROXY_IPS", property(lambda _: trusted))
     user = User.model_construct(id=SnowflakeID(701))
     key = ApiKeySetting.model_construct(
         id=SnowflakeID(702), user_id=user.id, value="fixture-ref", ip_whitelist=["203.0.113.7"]
@@ -71,10 +85,22 @@ def test_native_credentials_ignore_forged_headers(monkeypatch, credential, peer,
     )
     scope = {
         "type": "http",
-        "headers": [credential_header, (b"x-real-ip", b"203.0.113.7"), (b"x-forwarded-for", b"203.0.113.7")],
+        "headers": [credential_header, (b"x-real-ip", b"203.0.113.7")]
+        + [(b"x-forwarded-for", value.encode()) for value in forwarded],
+        "scheme": "http",
         "client": (peer, 1234) if peer else None,
     }
-    result = MiddlewareHelper.validate_auth(scope)
+    if through_runner:
+        observed = []
+
+        async def app(scope, receive, send):
+            observed.append(MiddlewareHelper.validate_auth(scope))
+
+        config = _native_config(monkeypatch, app)
+        asyncio.run(config.loaded_app(scope, None, None))
+        result = observed[0]
+    else:
+        result = MiddlewareHelper.validate_auth(scope)
     assert (result is (user if credential == "api_key" else bot)) is allowed
     if not allowed:
         assert result == 401
@@ -84,28 +110,12 @@ def test_native_credentials_ignore_forged_headers(monkeypatch, credential, peer,
 def test_native_runner_does_not_inherit_uvicorn_wildcard_proxy_trust(monkeypatch, trusted, expected):
     monkeypatch.setenv("FORWARDED_ALLOW_IPS", "*")
     monkeypatch.setattr(type(Env), "TRUSTED_PROXY_IPS", property(lambda _: trusted))
-    options = SimpleNamespace(
-        host="127.0.0.1",
-        port=0,
-        uds=None,
-        lifespan="off",
-        ssl_options={},
-        workers=1,
-        healthcheck_interval=30,
-        watch=False,
-    )
-    monkeypatch.setattr(FastAPIRunner, "FastAPIAppConfig", lambda _: SimpleNamespace(load=lambda: options))
-    captured = []
-    monkeypatch.setattr(FastAPIRunner, "run_server", captured.append)
     observed = []
 
     async def app(scope, receive, send):
         observed.append(AuthSecurity.resolve_client_ip(scope["client"][0], {"x-forwarded-for": "203.0.113.7"}))
 
-    FastAPIRunner.run(app, "unused-config", "/private/tmp")
-    assert len(captured) == 1
-    config = captured[0]
-    config.load()
+    config = _native_config(monkeypatch, app)
     scope = {
         "type": "http",
         "client": ("198.51.100.20", 1234),
@@ -127,3 +137,25 @@ def test_trusted_proxy_setting_rejects_non_ip_trust(monkeypatch, setting):
 def test_trusted_proxy_setting_accepts_explicit_ip_boundaries(monkeypatch, setting, expected):
     monkeypatch.setattr(type(Env), "_Env__get_from_cache", lambda self, name, default=None: setting)
     assert Env.TRUSTED_PROXY_IPS == expected
+
+
+def _native_config(monkeypatch, app):
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "*")
+    options = SimpleNamespace(
+        host="127.0.0.1",
+        port=0,
+        uds=None,
+        lifespan="off",
+        ssl_options={},
+        workers=1,
+        healthcheck_interval=30,
+        watch=False,
+    )
+    monkeypatch.setattr(FastAPIRunner, "FastAPIAppConfig", lambda _: SimpleNamespace(load=lambda: options))
+    captured = []
+    monkeypatch.setattr(FastAPIRunner, "run_server", captured.append)
+    FastAPIRunner.run(app, "unused-config", "/private/tmp")
+    assert len(captured) == 1
+    config = captured[0]
+    config.load()
+    return config
