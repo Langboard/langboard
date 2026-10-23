@@ -72,6 +72,7 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_cleanup_outbox.py \
       src/api/tests/card_workspace/test_document_scope_cleanup.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
+      src/api/tests/card_workspace/test_unread_card_summaries.py \
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
@@ -102,6 +103,7 @@ case "$profile" in
   api-postgres)
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
     export SCHEDULE_WORKLOAD_TEST_URL="$LANGBOARD_FILE_TEST_DATABASE_URL"
+    export LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_FILE_TEST_DATABASE_URL"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
       src/api/tests/scim/test_project_role_projection_database.py \
       src/api/tests/project_labels/test_title_label_integration.py \
@@ -133,6 +135,7 @@ case "$profile" in
       src/api/tests/mcp_integration/test_card_timeline_mcp.py \
       src/api/tests/card_visibility/test_card_activity_visibility.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
+      src/api/tests/card_workspace/test_unread_card_summaries.py \
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \

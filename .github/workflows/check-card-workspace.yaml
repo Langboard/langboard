@@ -141,6 +141,6 @@ jobs:
       - name: Verify My Work snapshot and relation authority on native PostgreSQL
         run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/test_dashboard_my_work.py src/api/tests/card_workspace/test_card_relation_summaries.py
       - name: Verify authoritative card change counts on native PostgreSQL
-        run: LANGBOARD_COUNT_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_workspace/test_card_change_counts.py
+        run: LANGBOARD_COUNT_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_workspace/test_card_change_counts.py src/api/tests/card_workspace/test_unread_card_summaries.py
       - name: Verify bounded legacy work query counts
         run: uv run --no-sync pytest -q src/api/tests/dashboard/test_column_visibility_counts.py -k multipurpose
