@@ -7,6 +7,7 @@ export enum ENotificationType {
     ReactedToComment = "reacted_to_comment",
     NotifiedFromChecklist = "notified_from_checklist",
     ScheduledRule = "scheduled_rule",
+    BotScheduleFailed = "bot_schedule_failed",
     WorkflowStageEntered = "workflow_stage_entered",
 }
 export enum ENotificationScope {
@@ -55,6 +56,7 @@ export const DEEP_NOTIFICATION_TYPE_MAP = {
                 ENotificationType.ReactedToComment,
                 ENotificationType.NotifiedFromChecklist,
                 ENotificationType.ScheduledRule,
+                ENotificationType.BotScheduleFailed,
                 ENotificationType.WorkflowStageEntered,
             ],
         },
@@ -70,6 +72,7 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.ReactedToComment,
         ENotificationType.NotifiedFromChecklist,
         ENotificationType.ScheduledRule,
+        ENotificationType.BotScheduleFailed,
         ENotificationType.WorkflowStageEntered,
         ENotificationType.MentionedInWiki,
     ],
@@ -80,6 +83,7 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.ReactedToComment,
         ENotificationType.NotifiedFromChecklist,
         ENotificationType.ScheduledRule,
+        ENotificationType.BotScheduleFailed,
         ENotificationType.WorkflowStageEntered,
     ],
     card: [
@@ -89,6 +93,7 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.ReactedToComment,
         ENotificationType.NotifiedFromChecklist,
         ENotificationType.ScheduledRule,
+        ENotificationType.BotScheduleFailed,
         ENotificationType.WorkflowStageEntered,
     ],
     wiki: [ENotificationType.MentionedInWiki],

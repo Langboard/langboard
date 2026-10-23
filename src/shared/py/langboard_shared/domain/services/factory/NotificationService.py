@@ -417,6 +417,45 @@ class NotificationService(BaseDomainService):
         self, notification: UserNotification, recipient: User, api_notification: dict[str, Any]
     ) -> bool:
         try:
+            if notification.notification_type == NotificationType.BotScheduleFailed:
+                # Recheck delayed/recovered delivery using current authority and source.
+                references = []
+                for table, record_id in notification.record_list:
+                    model = {"project": Project, "card": Card}.get(table)
+                    if model is None:
+                        self.repo.user_notification.complete_web_fanout(notification)
+                        return True
+                    reference = InfraHelper.get_by_id_like(model, record_id)
+                    if reference is None:
+                        self.repo.user_notification.complete_web_fanout(notification)
+                        return True
+                    references.append(reference)
+                resolved = self._resolve_notification_recipient(
+                    recipient, NotificationType.BotScheduleFailed, references,
+                )
+                if resolved is None:
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                recipient, references = resolved
+                project = next(record for record in references if isinstance(record, Project))
+                column_uid = notification.message_vars.get("project_column_uid")
+                column = InfraHelper.get_by_id_like(ProjectColumn, column_uid) if isinstance(column_uid, str) else None
+                if column is None or column.deleted_at or column.project_id != project.id:
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                scopes = [("project", int(project.id)), ("project_column", int(column.id))]
+                for record in references:
+                    if isinstance(record, Card):
+                        if record.project_column_id != column.id:
+                            self.repo.user_notification.complete_web_fanout(notification)
+                            return True
+                        scopes.append(("card", int(record.id)))
+                if project.owner_id != recipient.id or self._get_service(
+                    UserNotificationSettingService
+                ).has_unsubscription(recipient, NotificationType.BotScheduleFailed, scopes, NotificationChannel.Web):
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                api_notification = self.convert_to_api_response(notification, references)
             UserPublisher.notified(recipient, api_notification)
             self.repo.user_notification.complete_web_fanout(notification)
         except Exception:
@@ -607,6 +646,18 @@ class NotificationService(BaseDomainService):
                 "rule_name": rule_name,
             },
             allow_self=True,
+        )
+
+    def notify_bot_schedule_failed(self, owner: User, project: Project, model: Card | ProjectColumn,
+                                   message_vars: dict[str, Any]) -> bool:
+        """Use the current project owner as the operational recipient; authorize every source."""
+        references = [project, model] if isinstance(model, Card) else [project]
+        scopes = [project, model]
+        if isinstance(model, Card):
+            scopes.insert(1, self.__get_column_by_card(model))
+        return self.__notify(
+            owner, owner, NotificationType.BotScheduleFailed, scopes, references,
+            message_vars, allow_self=True, defer_delivery=True,
         )
 
     def create_record_list(self, record_list: Sequence[_TModel]) -> list[tuple[str, SnowflakeID]]:

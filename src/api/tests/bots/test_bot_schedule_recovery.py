@@ -11,7 +11,7 @@ from crontab import CronTab
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Bot, Project, ProjectColumn
+from langboard_shared.domain.models import Bot, Project, ProjectColumn, User
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.BotLog import BotLog
 from langboard_shared.domain.models.BotSchedule import BotSchedule, BotScheduleRunningType, BotScheduleStatus
@@ -44,6 +44,7 @@ def scheduled(monkeypatch, tmp_path, request):
     else:
         engine = create_engine(f"sqlite:///{tmp_path / 'scheduler.sqlite'}")
     for model in (
+        User,
         Bot,
         Project,
         ProjectColumn,

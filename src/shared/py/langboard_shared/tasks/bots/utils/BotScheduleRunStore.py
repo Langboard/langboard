@@ -184,7 +184,10 @@ def finish_schedule_run(lease, outcome, *, now):
                 BotScheduleRun.attempt == lease.attempt,
                 BotScheduleRun.lease_expires_at > now,
             )
-            .values(state=state, next_attempt_at=due, lease_token=None, lease_expires_at=None, error_code=error)
+            .values(
+                state=state, next_attempt_at=now if state in {"failed", "uncertain"} else due,
+                lease_token=None, lease_expires_at=None, error_code=error,
+            )
         )
         return changed == 1
 

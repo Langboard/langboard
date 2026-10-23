@@ -10,6 +10,7 @@ from ...domain.models.BotScheduleRun import BotScheduleRun
 from ...helpers import BotHelper, ModelHelper
 from ...publishers import ProjectBotPublisher
 from .utils import BotTaskHelper, BotTaskSchemaHelper
+from .utils.BotScheduleFailureNotification import notify_schedule_failure, recover_schedule_failure_notifications
 from .utils.BotScheduleRunStore import (
     claim_schedule_run,
     finish_schedule_run,
@@ -228,6 +229,8 @@ async def _run_scheduler(
         lease = claim_schedule_run(run.id, now=SafeDateTime.now())
         if lease is None:
             saved = get_schedule_run(run.id)
+            if saved.state in {"failed", "uncertain"}:
+                notify_schedule_failure(saved.id)
             if saved.state == "accepted":
                 BotScheduleHelper.change_status(schedule_model.__class__, schedule_model, BotScheduleStatus.Stopped)
             elif saved.state != run.state and saved.state in {"failed", "uncertain"}:
@@ -255,6 +258,7 @@ async def _run_scheduler(
     except Exception:
         if lease:
             finish_schedule_run(lease, BotRequestOutcome.Uncertain, now=SafeDateTime.now())
+            notify_schedule_failure(lease.run_id)
         raise
     if lease:
         outcome = outcomes[0] if len(outcomes) == 1 else BotRequestOutcome.Skipped
@@ -288,6 +292,8 @@ async def _run_scheduler(
 
 
 async def _record_admission_failure(bot, data, project, model, run):
+    if run.state in {"failed", "uncertain"}:
+        notify_schedule_failure(run.id)
     request = create_request(bot, BotDefaultTrigger.BotCronScheduled.value, data, project, model)
     if request and request._can_dispatch_scope():
         await request._create_log(
@@ -300,6 +306,7 @@ async def _record_admission_failure(bot, data, project, model, run):
 
 async def recover_due_onetime_schedules():
     """Recover existing admissions; only the original cron tick may create a first occurrence."""
+    recover_schedule_failure_notifications()
     now = SafeDateTime.now()
     records = []
     with DbSession.use(readonly=True) as db:
