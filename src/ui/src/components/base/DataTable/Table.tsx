@@ -252,25 +252,22 @@ function DataTableColumnFilter<T extends Record<string, any>>({ column }: { colu
     const { columnFilters, paginate } = useDataTable();
     const [inputValue, setInputValue] = useState(columnFilters[String(column.key)] || "");
     const lastInputValueRef = useRef(columnFilters[String(column.key)] || "");
+    const columnFiltersRef = useRef(columnFilters);
+    columnFiltersRef.current = columnFilters;
+    const currentFilter = columnFilters[String(column.key)] || "";
     const throttleSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    useEffect(
+        () => () => {
+            if (throttleSearchTimeoutRef.current) clearTimeout(throttleSearchTimeoutRef.current);
+        },
+        []
+    );
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(e.currentTarget.value);
         lastInputValueRef.current = e.currentTarget.value;
-    };
-    const handleKeyDown = () => {
-        if (throttleSearchTimeoutRef.current) {
-            clearTimeout(throttleSearchTimeoutRef.current);
-            throttleSearchTimeoutRef.current = null;
-        }
-    };
-    const handleKeyUp = () => {
-        if (throttleSearchTimeoutRef.current) {
-            clearTimeout(throttleSearchTimeoutRef.current);
-            throttleSearchTimeoutRef.current = null;
-        }
-
+        if (throttleSearchTimeoutRef.current) clearTimeout(throttleSearchTimeoutRef.current);
         throttleSearchTimeoutRef.current = setTimeout(() => {
-            const newFilters = { ...columnFilters, [column.key]: lastInputValueRef.current };
+            const newFilters = { ...columnFiltersRef.current, [column.key]: lastInputValueRef.current };
             if (!lastInputValueRef.current) {
                 delete newFilters[column.key as string];
             }
@@ -282,6 +279,7 @@ function DataTableColumnFilter<T extends Record<string, any>>({ column }: { colu
         }, 500);
     };
     const clearColumnFilter = () => {
+        if (throttleSearchTimeoutRef.current) clearTimeout(throttleSearchTimeoutRef.current);
         const newFilters = { ...columnFilters };
         delete newFilters[column.key as string];
 
@@ -291,17 +289,15 @@ function DataTableColumnFilter<T extends Record<string, any>>({ column }: { colu
     };
 
     useEffect(() => {
-        setInputValue(columnFilters[column.key as string] || "");
-        lastInputValueRef.current = columnFilters[column.key as string] || "";
-    }, [columnFilters]);
+        setInputValue(currentFilter);
+        lastInputValueRef.current = currentFilter;
+    }, [currentFilter]);
 
     return (
         <Input
             placeholder={t("common.Filter...")}
             value={inputValue}
             onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onKeyUp={handleKeyUp}
             leftIcon={<Filter className="h-3 w-3 text-muted-foreground/50" />}
             clearable
             onClear={clearColumnFilter}
