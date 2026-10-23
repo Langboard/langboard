@@ -34,8 +34,6 @@ MAX_NATIVE_SECTION_SOURCE = 100
 _SOURCE_QUERY_LIMIT = MAX_NATIVE_SECTION_SOURCE + 1
 
 
-
-
 class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPort):
     """Implement card workspace ports using native services and native validation."""
 
@@ -336,6 +334,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             },
         }
 
+    def card_query_actor(self) -> str:
+        return f"{type(self._actor).__name__}:{self._actor.id}:{self._channel.value}"
+
     def get_project_card_page(
         self,
         project_uid: str,
@@ -345,6 +346,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         *,
         include_closed: bool = False,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
     ) -> ProjectCardPageSource:
         before = SafeDateTime.fromisoformat(before_updated_at) if before_updated_at else None
         result = self._service.card.get_api_page_by_project(
@@ -356,6 +360,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             channel=self._channel,
             include_closed=include_closed,
             workflow_stages=workflow_stages,
+            visibility=visibility,
+            created_by=created_by,
+            assigned_to=assigned_to,
         )
         if result is None:
             raise ValueError("Project not found")

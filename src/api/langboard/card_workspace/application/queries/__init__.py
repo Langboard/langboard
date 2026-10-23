@@ -227,6 +227,9 @@ def list_project_cards(
     include_closed: bool = False,
     workflow_stages: list[str] | None = None,
     format: str = "normal",
+    visibility: list[str] | None = None,
+    created_by: list[str] | None = None,
+    assigned_to: list[str] | None = None,
 ) -> ProjectCardListResponse:
     """List a bounded, newest-updated-first project card page."""
 
@@ -234,12 +237,19 @@ def list_project_cards(
         raise ValueError("format must be tree or normal")
     if isinstance(limit, bool) or not 1 <= limit <= 25:
         raise ValueError("limit must be between 1 and 25")
-    if workflow_stages is not None:
-        if len(workflow_stages) > 30 or any(
-            not isinstance(stage, str) or not stage or len(stage) > 64 for stage in workflow_stages
-        ):
-            raise ValueError("workflow_stages must contain at most 30 nonempty stage keys of at most 64 characters")
+    from ...domain import CardQueryFilters
+
+    filters = CardQueryFilters.normalize(
+        include_closed=include_closed,
+        workflow_stages=workflow_stages,
+        visibility=visibility,
+        created_by=created_by,
+        assigned_to=assigned_to,
+    )
+    context = filters.binding(port.card_query_actor(), project_uid)
     decoded = ProjectCardCursor.decode(cursor) if cursor else None
+    if decoded and decoded.context != context:
+        raise ValueError("Card cursor context changed or legacy cursor is unbound; restart without cursor")
     page = port.get_project_card_page(
         project_uid,
         limit,
@@ -247,8 +257,15 @@ def list_project_cards(
         decoded.card_uid if decoded else None,
         include_closed=include_closed,
         workflow_stages=workflow_stages,
+        **(
+            {"visibility": visibility, "created_by": created_by, "assigned_to": assigned_to}
+            if any(value is not None for value in (visibility, created_by, assigned_to))
+            else {}
+        ),
     )
-    next_cursor = ProjectCardCursor(*page.next_cursor_fields).encode() if page.next_cursor_fields else None
+    next_cursor = (
+        ProjectCardCursor(*page.next_cursor_fields, context=context).encode() if page.next_cursor_fields else None
+    )
     items = [public_card_summary(item, compact_workflow=True) for item in page.items]
     presentation = {}
     if format == "tree":
@@ -256,8 +273,12 @@ def list_project_cards(
 
         relationships = port.get_project_card_relationships(project_uid, [item["uid"] for item in items])
         items, edges = card_tree(items, relationships[:625])
-        presentation = {"format": "tree", "relationships": edges, "relationship_scope": "current_page",
-                        "relationships_truncated": len(relationships) > 625}
+        presentation = {
+            "format": "tree",
+            "relationships": edges,
+            "relationship_scope": "current_page",
+            "relationships_truncated": len(relationships) > 625,
+        }
     return ProjectCardIndexResponse(
         **presentation,
         project_uid=project_uid,

@@ -66,6 +66,9 @@ class CardWorkspaceQueryPort(Protocol):
     def get_project_identity(self, project_uid: str) -> dict[str, Any] | None:
         """Load the minimal identity of one accessible project."""
 
+    def card_query_actor(self) -> str:
+        """Return the server-resolved actor and transport identity for query binding."""
+
     def get_project_card_page(
         self,
         project_uid: str,
@@ -75,6 +78,9 @@ class CardWorkspaceQueryPort(Protocol):
         *,
         include_closed: bool = False,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
     ) -> ProjectCardPageSource:
         """Load one bounded project-card keyset page."""
 

@@ -128,6 +128,7 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
                 assert schema.pop("minimum") == 1
                 assert schema.pop("maximum") == maximum
         modern_fields = {
+            "list_project_cards": ("visibility", "created_by", "assigned_to"),
             "add_card_comment": ("anchor", "request_uid"),
             "change_card_order_or_move_column": ("move_descendants", "confirmation_revision"),
             "upload_card_attachment": ("request_uid", "duplicate_action", "confirmation_token", "replacement_uid"),
@@ -413,6 +414,7 @@ async def test_project_card_list_compatibility_preserves_frozen_flat_contract(mo
         columns={"column": {"name": "In progress"}},
     )
     port = SimpleNamespace(
+        card_query_actor=lambda: "User:fixture:mcp",
         get_project_card_page=Mock(return_value=page),
         get_project_card_relationships=Mock(
             return_value=[{"parent_card_uid": "a", "child_card_uid": "b", "machine_semantic": "contains"}]

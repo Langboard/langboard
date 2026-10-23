@@ -1186,6 +1186,7 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
 
 
 @McpTool.add(
+    modern_only=("visibility", "created_by", "assigned_to"),
     description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
@@ -1198,6 +1199,9 @@ def list_project_cards(
     include_closed: bool = False,
     workflow_stages: list[str] | None = None,
     format: Literal["tree", "normal"] = "tree",
+    visibility: list[str] | None = None,
+    created_by: list[str] | None = None,
+    assigned_to: list[str] | None = None,
 ) -> ProjectCardListResponse:
     """Read one safe project card page with an opaque keyset cursor."""
 
@@ -1208,6 +1212,9 @@ def list_project_cards(
         cursor,
         include_closed=include_closed,
         workflow_stages=workflow_stages,
+        visibility=visibility,
+        created_by=created_by,
+        assigned_to=assigned_to,
         format=format,
     )
 

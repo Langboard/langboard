@@ -385,7 +385,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
     def search_context_by_project(
         self,
-        project: TProjectParam,
+        project: TProjectParam | None,
         input_value: str,
         limit: int = 20,
         date_field: str = "updated_at",
@@ -395,9 +395,16 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         context: CardVisibilityContext,
         include_closed: bool = True,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
         additional_card_ids: Sequence[int] = (),
-    ) -> list[tuple[Card, ProjectColumn]]:
-        project_id = InfraHelper.convert_id(project)
+        before_updated_at: SafeDateTime | None = None,
+        before_card: TCardParam | None = None,
+        paginated: bool = False,
+        contexts: dict[int, CardVisibilityContext] | None = None,
+    ) -> list[tuple[Card, ProjectColumn]] | tuple[list[tuple[Card, ProjectColumn]], int]:
+        project_id = InfraHelper.convert_id(project) if project is not None else None
         escaped_input = input_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         title = Card.column("title")
         pattern = f"%{escaped_input}%"
@@ -427,10 +434,12 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .join(
                 ProjectColumn,
                 (Card.column("project_column_id") == ProjectColumn.column("id"))
-                & (ProjectColumn.column("project_id") == project_id),
+                & (ProjectColumn.column("project_id") == Card.project_id),
             )
-            .where(Card.column("project_id") == project_id)
-            .where(card_visibility_scope(context))
+            .where(Card.project_id == project_id if project_id is not None else true())
+            .where(
+                card_visibility_scope_by_project(contexts) if contexts is not None else card_visibility_scope(context)
+            )
             .where(Card.column("source_type") == None)  # noqa: E711
             .where(
                 or_(
@@ -441,10 +450,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     attachments,
                 )
             )
-            .order_by(Card.column("updated_at").desc(), Card.column("id").desc())
-            .limit(limit)
         )
         query = self._filter_project_workflow(query, include_closed, workflow_stages)
+        query = self._filter_card_groups(query, context, visibility, created_by, assigned_to)
         if date_field not in {"created_at", "updated_at"}:
             raise ValueError("date_field must be created_at or updated_at")
         if since is not None and until is not None and since >= until:
@@ -454,8 +462,16 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             query = query.where(date_column >= since)
         if until is not None:
             query = query.where(date_column < until)
+        count_query = select(func.count()).select_from(query.subquery())
+        if before_updated_at is not None:
+            query = query.where(
+                (Card.updated_at < before_updated_at)
+                | ((Card.updated_at == before_updated_at) & (Card.id < InfraHelper.convert_id(before_card)))
+            )
+        query = query.order_by(Card.updated_at.desc(), Card.id.desc()).limit(limit + int(paginated))
         with DbSession.use(readonly=False) as db:
-            return db.exec(query).all()
+            records = list(db.exec(query).all())
+            return (records, db.exec(count_query).first()[0]) if paginated else records
 
     def validate_document_candidates(
         self, project: TProjectParam, candidates: list[dict[str, str]], *, context: CardVisibilityContext
@@ -837,6 +853,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         context: CardVisibilityContext,
         include_closed: bool = True,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
     ) -> list[tuple[Card, ProjectColumn]]:
         """Return a bounded newest-updated-first project-card keyset page."""
 
@@ -849,6 +868,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .where(card_visibility_scope(context))
         )
         query = self._filter_project_workflow(query, include_closed, workflow_stages)
+        query = self._filter_card_groups(query, context, visibility, created_by, assigned_to)
         if before_updated_at is not None:
             if before_card is None:
                 raise ValueError("before_card is required with before_updated_at")
@@ -875,6 +895,27 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             query = query.where(ProjectColumn.workflow_stage.in_(workflow_stages))
         return query
 
+    @staticmethod
+    def _filter_card_groups(query, context, visibility=None, created_by=None, assigned_to=None):
+        if visibility is not None:
+            query = query.where(Card.visibility.in_(visibility))
+
+        def user_ids(values):
+            return [context.actor_user_id if value == "me" else InfraHelper.convert_id(value) for value in values]
+
+        if created_by is not None:
+            query = query.where(Card.created_by_user_id.in_(user_ids(created_by)))
+        if assigned_to is not None:
+            query = query.where(
+                select(CardAssignedUser.id)
+                .where(
+                    CardAssignedUser.card_id == Card.id,
+                    CardAssignedUser.user_id.in_(user_ids(assigned_to)),
+                )
+                .exists()
+            )
+        return query
+
     def count_by_project(
         self,
         project: TProjectParam,
@@ -882,6 +923,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         context: CardVisibilityContext,
         include_closed: bool = True,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
     ) -> int:
         """Count with the same workflow filters as project pagination."""
         project_id = InfraHelper.convert_id(project)
@@ -895,6 +939,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .where(ProjectColumn.column("deleted_at").is_(None))
         )
         query = self._filter_project_workflow(query, include_closed, workflow_stages)
+        query = self._filter_card_groups(query, context, visibility, created_by, assigned_to)
         with DbSession.use(readonly=False) as db:
             return db.exec(query).first() or 0
 

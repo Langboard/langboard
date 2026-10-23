@@ -1398,40 +1398,66 @@ class CardService(BaseDomainService):
         include_closed: bool = False,
         workflow_stages: list[str] | None = None,
         include_work_state: bool = False,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
+        limit: int = 20,
+        before_updated_at: SafeDateTime | None = None,
+        before_card: TCardParam | None = None,
+        paginated: bool = False,
         user: User,
         channel: CollaborationChannel = CollaborationChannel.Api,
-    ) -> list[dict[str, Any]]:
-        resolved = self.resolve_visibility_context(project, user, channel)
-        if resolved is None:
-            return []
-        project, context = resolved
-
-        if not context.active or not context.project_member:
-            return []
-        cards = []
-        candidates = search_document_candidates(project.get_uid(), input_value)
-        external_matches = {}
-        if candidates is not None:
-            # A remote request may outlive membership or employee-policy revocation.
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        contexts = self.resolve_work_visibility_contexts(user, channel) if project is None else None
+        if (
+            project is not None
+            and paginated
+            and not self.resolve_work_visibility_contexts(
+                user, channel, project_ids={int(InfraHelper.convert_id(project))}
+            )
+        ):
+            return {"cards": [], "total_count": 0, "next_fields": None}
+        if project is not None:
             resolved = self.resolve_visibility_context(project, user, channel)
-            if resolved is None:
-                return []
+            if resolved is None or not resolved[1].active or not resolved[1].project_member:
+                return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
             project, context = resolved
-            if not context.active or not context.project_member:
-                return []
-            external_matches = self.repo.card.validate_document_candidates(project, candidates, context=context)
+            scopes = {int(project.id): context}
+        else:
+            scopes = contexts
+        external_matches, semantic_matches = {}, {}
         from .CardCommentCompactionService import CardCommentCompactionService
 
-        semantic_matches = self._get_service(CardCommentCompactionService).search_metadata_candidates(
-            user, project, context, input_value, channel=channel
-        )
-        # Semantic inference can outlive card membership or visibility policy.
-        resolved = self.resolve_visibility_context(project, user, channel)
-        if resolved is None:
-            return []
-        project, context = resolved
-        if not context.active or not context.project_member:
-            return []
+        for project_id, scoped_context in scopes.items():
+            project_code = SnowflakeID(project_id).to_short_code()
+            candidates = search_document_candidates(project_code, input_value)
+            # External requests and inference can outlive source or audience grants.
+            current = self.resolve_visibility_context(project_id, user, channel)
+            if current is None or not current[1].project_member:
+                continue
+            scoped_project, scoped_context = current
+            if candidates is not None:
+                external_matches.update(
+                    self.repo.card.validate_document_candidates(scoped_project, candidates, context=scoped_context)
+                )
+            semantic_matches.update(
+                self._get_service(CardCommentCompactionService).search_metadata_candidates(
+                    user, scoped_project, scoped_context, input_value, channel=channel
+                )
+            )
+        if project is None:
+            contexts = self.resolve_work_visibility_contexts(user, channel)
+            context = next(iter(contexts.values()), None)
+        else:
+            current = self.resolve_visibility_context(project, user, channel)
+            context = current[1] if current else None
+            if paginated and not self.resolve_work_visibility_contexts(
+                user, channel, project_ids={int(project.id)}
+            ):
+                context = None
+        if context is None or not context.active or not context.project_member:
+            return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
+        cards = []
         records = self.repo.card.search_context_by_project(
             project,
             input_value,
@@ -1440,6 +1466,14 @@ class CardService(BaseDomainService):
             until=until,
             include_closed=include_closed,
             workflow_stages=workflow_stages,
+            visibility=visibility,
+            created_by=created_by,
+            assigned_to=assigned_to,
+            limit=limit,
+            before_updated_at=before_updated_at,
+            before_card=before_card,
+            paginated=paginated,
+            contexts=contexts,
             context=context,
             **(
                 {"additional_card_ids": list(dict.fromkeys([*external_matches, *semantic_matches]))}
@@ -1447,9 +1481,24 @@ class CardService(BaseDomainService):
                 else {}
             ),
         )
-        document_matches = self.repo.card.search_document_matches(
-            project, [card.id for card, _ in records], input_value, context=context
-        )
+        total_count = 0
+        next_fields = None
+        if paginated:
+            records, total_count = records
+            if len(records) > limit:
+                last = records[limit - 1][0]
+                next_fields = (last.updated_at.isoformat(), last.get_uid())
+            records = records[:limit]
+        document_matches = {}
+        for project_id, scoped_context in (contexts or {int(project.id): context}).items():
+            document_matches.update(
+                self.repo.card.search_document_matches(
+                    project_id,
+                    [card.id for card, _ in records if int(card.project_id) == project_id],
+                    input_value,
+                    context=scoped_context,
+                )
+            )
         for card, _ in records:
             if card.id not in external_matches:
                 continue
@@ -1467,6 +1516,7 @@ class CardService(BaseDomainService):
             cards.append(
                 {
                     "uid": card.get_uid(),
+                    "project_uid": SnowflakeID(card.project_id).to_short_code(),
                     "visibility": card.visibility,
                     "title": card.title,
                     "description": description if include_work_state else {"content": description},
@@ -1480,7 +1530,7 @@ class CardService(BaseDomainService):
                     ),
                 }
             )
-        return cards
+        return {"cards": cards, "total_count": total_count, "next_fields": next_fields} if paginated else cards
 
     def get_my_work_context(
         self,
@@ -1861,6 +1911,9 @@ class CardService(BaseDomainService):
         channel: CollaborationChannel = CollaborationChannel.Api,
         include_closed: bool = False,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
     ) -> tuple[list[dict[str, Any]], int, tuple[str, str] | None] | None:
         """Return a bounded newest-updated-first card page and opaque cursor fields."""
 
@@ -1876,6 +1929,9 @@ class CardService(BaseDomainService):
             context=context,
             include_closed=include_closed,
             workflow_stages=workflow_stages,
+            visibility=visibility,
+            created_by=created_by,
+            assigned_to=assigned_to,
         )
         has_more = len(records) > limit
         page = records[:limit]
@@ -1902,7 +1958,13 @@ class CardService(BaseDomainService):
         return (
             cards,
             self.repo.card.count_by_project(
-                project, context=context, include_closed=include_closed, workflow_stages=workflow_stages
+                project,
+                context=context,
+                include_closed=include_closed,
+                workflow_stages=workflow_stages,
+                visibility=visibility,
+                created_by=created_by,
+                assigned_to=assigned_to,
             ),
             next_fields,
         )
