@@ -130,7 +130,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                         header: (users) => (
                             <Checkbox
                                 disabled={loading}
-                            checked={!!users.length && users.length === selectedUsers.length}
+                                checked={!!users.length && users.length === selectedUsers.length}
                                 onClick={() => {
                                     setSelectedUsers((prev) => {
                                         if (prev.length === users.length) {
@@ -147,7 +147,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                         render: ({ value: uid }) => (
                             <Checkbox
                                 disabled={loading}
-                            checked={selectedUsers.some((value) => value === uid)}
+                                checked={selectedUsers.some((value) => value === uid)}
                                 onClick={() => {
                                     setSelectedUsers((prev) => {
                                         if (prev.some((value) => value === uid)) {
