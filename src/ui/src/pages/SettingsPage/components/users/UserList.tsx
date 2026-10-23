@@ -15,7 +15,8 @@ import UserApiKeyRole from "@/pages/SettingsPage/components/users/UserApiKeyRole
 import UserMcpRole from "@/pages/SettingsPage/components/users/UserMcpRole";
 import UserMoreMenu from "@/pages/SettingsPage/components/users/UserMoreMenu";
 import DateDistance from "@/components/DateDistance";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export interface IUserListProps {
     selectedUsers: string[];
@@ -38,6 +39,44 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [error, setError] = useState(false);
     const [revision, setRevision] = useState(0);
     const pageLimit = 15;
+    const queryClient = useQueryClient();
+    const subscriptionKey = useId();
+    const applyingPage = useRef(false);
+    const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    useEffect(() => () => clearTimeout(refreshTimer.current), []);
+
+    useEffect(() => {
+        const refresh = () => {
+            if (applyingPage.current) return;
+            clearTimeout(refreshTimer.current);
+            refreshTimer.current = setTimeout(() => setRevision((value) => value + 1), 0);
+        };
+        const unsubscribeCreation = User.Model.subscribe("CREATION", subscriptionKey, refresh, () => true);
+        const unsubscribeDeletion = User.Model.subscribe("DELETION", subscriptionKey, refresh);
+        const unsubscribeRows = rows.map((row) =>
+            row.subscribeFields(["type", "firstname", "lastname", "email", "username", "activated_at"], refresh)
+        );
+        const unsubscribeMutations = queryClient.getMutationCache().subscribe((event) => {
+            if (event.type !== "updated" || event.action.type !== "success") return;
+            const key = event.mutation.options.mutationKey?.[0];
+            if (
+                typeof key === "string" &&
+                (key === "create-user-in-settings" ||
+                    key === "update-user-in-settings" ||
+                    key === "delete-selected-users-in-settings" ||
+                    key.startsWith("delete-user-in-settings-"))
+            ) {
+                refresh();
+            }
+        });
+        return () => {
+            unsubscribeCreation();
+            unsubscribeDeletion();
+            unsubscribeRows.forEach((unsubscribe) => unsubscribe());
+            unsubscribeMutations();
+        };
+    }, [rows, queryClient, subscriptionKey]);
 
     useEffect(() => {
         const abort = new AbortController();
@@ -64,7 +103,13 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                     setPage(lastPage);
                     return;
                 }
-                setRows(User.Model.fromArray(data.records, true));
+                // Page hydration updates cached models; only external changes invalidate the page.
+                applyingPage.current = true;
+                try {
+                    setRows(User.Model.fromArray(data.records, true));
+                } finally {
+                    applyingPage.current = false;
+                }
                 setTotal(data.total_records);
                 setFullAccessEmails(data.full_access_emails ?? []);
             })
