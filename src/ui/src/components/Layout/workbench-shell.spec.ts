@@ -1526,7 +1526,7 @@ async function openSchedule(page: Page, mobile = false) {
     return page.getByRole("navigation", { name: "Schedule", exact: true });
 }
 
-test("Schedule lazy native shell scopes, timezone month, stable pages, errors, card links and full export", async ({ page }) => {
+test("Schedule lazy native shell scopes, today and timezone month, stable pages, errors, card links and full export", async ({ page }) => {
     const fixture = await scheduleFixture(page);
     expect(fixture.reads).toHaveLength(0);
     expect(fixture.exports).toHaveLength(0);
@@ -1535,16 +1535,26 @@ test("Schedule lazy native shell scopes, timezone month, stable pages, errors, c
     const [first] = fixture.reads;
     expect(first.searchParams.get("scope")).toBe("board");
     expect(first.searchParams.get("project_uid")).toBe("left");
+    const day = await page.evaluate(() => {
+        const now = new Date();
+        return [
+            new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString(),
+            new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString(),
+        ];
+    });
+    expect([first.searchParams.get("start"), first.searchParams.get("end")]).toEqual(day);
+    await expect(panel.getByLabel("Start date", { exact: true })).toHaveCount(0);
+    await panel.getByRole("button", { name: "Deadlines", exact: true }).click();
     const range = await page.evaluate(() => {
         const now = new Date();
         return [new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()];
     });
-    expect([first.searchParams.get("start"), first.searchParams.get("end")]).toEqual(range);
+    await expect.poll(() => [fixture.reads.at(-1)!.searchParams.get("start"), fixture.reads.at(-1)!.searchParams.get("end")]).toEqual(range);
     await panel.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(panel.locator("li")).toHaveCount(3);
-    expect(fixture.reads[1].searchParams.get("cursor")).toBe("same-deadline-keyset");
+    expect(fixture.reads.at(-1)!.searchParams.get("cursor")).toBe("same-deadline-keyset");
     await expect(panel.locator("[data-board-card-work-state]")).toHaveCount(3);
-    await page.screenshot({ path: ".verification/schedule-calendar/schedule-1440.png" });
+    await page.screenshot({ path: test.info().outputPath("schedule-1440.png") });
     const download = page.waitForEvent("download");
     await panel.getByRole("button", { name: "Download iCal", exact: true }).click();
     expect((await download).suggestedFilename()).toBe("schedule-board.ics");
@@ -1571,8 +1581,11 @@ test("Schedule fences delayed range, actor and token changes, permissions and ex
     const fixture = await scheduleFixture(page);
     const panel = await openSchedule(page);
     await expect(panel.locator("li")).toHaveCount(2);
+    await panel.getByRole("button", { name: "Deadlines", exact: true }).click();
+    await expect(panel.getByLabel("Start date", { exact: true })).toBeVisible();
+    const monthStart = await panel.getByLabel("Start date", { exact: true }).inputValue();
     fixture.hold();
-    await panel.getByLabel("Start date", { exact: true }).fill("2026-03-01");
+    await panel.getByLabel("Start date", { exact: true }).fill(`${monthStart.slice(0, 8)}02`);
     await expect.poll(fixture.held).toBe(true);
     await panel.getByRole("button", { name: "Personal schedule", exact: true }).click();
     fixture.release();
@@ -1646,7 +1659,8 @@ for (const width of [390])
         expect(bounds!.x).toBeGreaterThanOrEqual(0);
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-        await page.screenshot({ path: ".verification/schedule-calendar/schedule-390.png" });
+        await page.screenshot({ path: test.info().outputPath("schedule-390.png") });
+        await panel.getByRole("button", { name: "Deadlines", exact: true }).click();
         await panel.getByRole("button", { name: "Choose month", exact: true }).click();
         await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
         await page.keyboard.press("Escape");
@@ -1664,6 +1678,7 @@ test.describe("Schedule browser timezone", () => {
         const fixture = await scheduleFixture(page);
         const panel = await openSchedule(page);
         await expect(panel.locator("li")).toHaveCount(2);
+        await panel.getByRole("button", { name: "Deadlines", exact: true }).click();
         await panel.getByLabel("Start date", { exact: true }).fill("2026-03-01");
         await panel.getByLabel("End date (exclusive)", { exact: true }).fill("2026-04-01");
         await expect.poll(() => fixture.reads.at(-1)!.searchParams.get("end")).toBe("2026-04-01T04:00:00.000Z");
