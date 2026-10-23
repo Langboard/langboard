@@ -229,10 +229,11 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert other_resource.get_uid() not in {row["resource_uid"] for row in inbox(scoped)["items"]}
     if DbEngine.get_main_engine().dialect.name == "postgresql":
         from langboard.routes.board.SignalInboxApi import create_inbox_card
-        from langboard_shared.domain.models import Card, CardAppOwnership, CardSignalCreation
+        from langboard_shared.domain.models import Card, CardAppOwnership, CardChangeReceipt, CardSignalCreation
         from test_signal_card_creation import prepare_native_creation
         _, _, dispatches = prepare_native_creation(state[0], state[1], monkeypatch)
         CardAppOwnership.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+        CardChangeReceipt.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
         # Register the native router after importing the card-creation endpoint.
         creation_app = FastAPI()
         creation_app.include_router(AppRouter.api)
