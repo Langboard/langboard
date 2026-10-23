@@ -39,7 +39,7 @@ USER 10001:10001
 
 EXPOSE 5020
 
-HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=24 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --start-interval=5s --retries=4 \
     CMD python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:5020/health", timeout=2)'
 
 CMD ["graph", "run", "--workers", "1"]
