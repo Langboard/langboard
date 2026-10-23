@@ -38,6 +38,8 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
     let actor = "fixture-user";
     let hold = false;
     const held: { route: Route; json: unknown }[] = [];
+    const heldSummaries: { route: Route; json: unknown }[] = [];
+    const summaryReads: string[] = [];
     const pendingSeen: Route[] = [];
     const reads: { actor: string; token?: string }[] = [];
     const wire: unknown[] = [];
@@ -145,6 +147,32 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
                     held.push({ route, json });
                     return;
                 }
+            } else if (path === "/board/left/unread-card-summaries") {
+                summaryReads.push(path);
+                json = structuredClone({
+                    items: cards
+                        .filter((card) => card.has_unread_change && !card.source_type)
+                        .map((card) => ({
+                            uid: card.uid,
+                            project_uid: card.project_uid,
+                            title: card.title,
+                            has_unread_change: true,
+                            unread_change_count: card.unread_change_count ?? null,
+                            unread_change_count_status: card.unread_change_count_status ?? "unknown_history",
+                            latest_change: {
+                                seq: card.last_change_seq,
+                                target_type: card.last_change_target_type ?? null,
+                                target_uid: card.last_change_target_uid ?? null,
+                                at: card.last_change_at,
+                            },
+                        })),
+                    next_cursor: null,
+                    limit: 50,
+                });
+                if (hold) {
+                    heldSummaries.push({ route, json });
+                    return;
+                }
             } else if (path === "/board/left/card/left-card/seen") {
                 pendingSeen.push(route);
                 return;
@@ -162,6 +190,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
     return {
         cards,
         reads,
+        summaryReads,
         held,
         pendingSeen,
         errors,
@@ -170,7 +199,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
         hold: () => (hold = true),
         release: async () => {
             hold = false;
-            for (const pending of held.splice(0)) await pending.route.fulfill({ json: pending.json });
+            for (const pending of [...held.splice(0), ...heldSummaries.splice(0)]) await pending.route.fulfill({ json: pending.json });
         },
         replySeen: async (json: unknown, index = 0) => pendingSeen.splice(index, 1)[0].fulfill({ json }),
         emit: (data: Record<string, unknown>, board = "left") => {
@@ -184,7 +213,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
                     page.evaluate(async () => {
                         const path = "/src/core/helpers/QueryClient.ts";
                         const { queryClient } = await import(/* @vite-ignore */ path);
-                        return queryClient.isFetching({ queryKey: ["get-cards-left"] });
+                        return queryClient.isFetching();
                     })
                 )
                 .toBe(0);
@@ -195,7 +224,14 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
             await writeFile(
                 path,
                 JSON.stringify(
-                    { scope: "Local labelled HTTP/WebSocket fixtures with native client boundaries; not live E2E", reads, wire, readerReads, errors },
+                    {
+                        scope: "Local labelled HTTP/WebSocket fixtures with native client boundaries; not live E2E",
+                        reads,
+                        wire,
+                        readerReads,
+                        summaryReads,
+                        errors,
+                    },
                     null,
                     2
                 )
@@ -219,6 +255,7 @@ test("authoritative exact/null states survive native snapshot conversion, four l
         await openChanges(page);
         await fixture.settle();
         expect(fixture.reads).toHaveLength(1);
+        expect(fixture.summaryReads).toHaveLength(1);
         const titleBox = await row(page).getByText("Exact card", { exact: true }).boundingBox();
         expect(titleBox?.width).toBeGreaterThan(150);
         expect(titleBox?.height).toBeLessThan(30);

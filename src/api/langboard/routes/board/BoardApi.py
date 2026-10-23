@@ -254,6 +254,36 @@ def get_project_labels(project_uid: str, service: DomainService = DomainService.
 
 @AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
+    "/board/{project_uid}/unread-card-summaries",
+    tags=["Board"],
+    description="Get a bounded body-free page of the current reader's unread native cards.",
+    responses=OpenApiSchema().suc({"items": "object[]", "next_cursor": ["string", None], "limit": "integer"})
+    .auth().forbidden().err(400, ApiErrorCode.VA0000).err(404, ApiErrorCode.NF2001).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_unread_card_summaries(
+    project_uid: str, request: Request, user: User = Auth.scope("user"),
+    limit: int = Query(default=50, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=512),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card.get_unread_card_summaries(
+            project_uid, user, limit=limit, cursor=cursor,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    response = JsonResponse(content=result)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
     "/board/{project_uid}/card/{card_uid}/relation-summaries",
     tags=["Board"],
     description="Get a bounded, body-free page of the selected card's readable immediate relationships.",

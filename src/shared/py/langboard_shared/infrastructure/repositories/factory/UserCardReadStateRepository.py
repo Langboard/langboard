@@ -3,7 +3,15 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TCardParam, TUserParam
-from ....domain.models import Card, CardChangeReceipt, Project, ProjectAssignedUser, User, UserCardReadState
+from ....domain.models import (
+    Card,
+    CardChangeReceipt,
+    Project,
+    ProjectAssignedUser,
+    ProjectColumn,
+    User,
+    UserCardReadState,
+)
 from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
 from ....helpers import InfraHelper
 
@@ -98,6 +106,42 @@ class UserCardReadStateRepository(BaseRepository[UserCardReadState]):
                                   "at": at.isoformat() if at else None},
             }
         return result
+
+    def get_unread_summary_page(
+        self, user_id: SnowflakeID, project_id: SnowflakeID, *, context: CardVisibilityContext,
+        limit: int, archive_visible_since: SafeDateTime, before: tuple[int, int] | None = None,
+    ) -> list:
+        """Select summary scalars; current authority and unread filtering precede LIMIT."""
+        seen = func.coalesce(UserCardReadState.seen_change_seq, 0)
+        baseline = func.coalesce(ProjectAssignedUser.card_unread_baseline_seq, 0)
+        cursor = case((seen > baseline, seen), else_=baseline)
+        query = (
+            select(Card.id, Card.title, Card.last_change_seq).select_from(Card)
+            .join(Project, Project.id == Card.project_id)
+            .join(ProjectColumn, (ProjectColumn.id == Card.project_column_id)
+                  & (ProjectColumn.project_id == Card.project_id))
+            .join(User, User.id == user_id)
+            .outerjoin(ProjectAssignedUser, (ProjectAssignedUser.project_id == Card.project_id)
+                       & (ProjectAssignedUser.user_id == user_id))
+            .outerjoin(UserCardReadState, (UserCardReadState.card_id == Card.id)
+                       & (UserCardReadState.user_id == user_id))
+            .where(Card.project_id == project_id, Card.deleted_at.is_(None),
+                   Project.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None),
+                   User.deleted_at.is_(None), User.activated_at.is_not(None),
+                   or_(Project.owner_id == user_id, ProjectAssignedUser.id.is_not(None)),
+                   card_visibility_scope(context),
+                   or_(Card.source_type.is_(None), Card.source_type.not_in(("project_wiki", "project_card"))),
+                   or_(Card.source_type.is_(None), Card.source_uid.is_(None)),
+                   or_(Card.archived_at.is_(None), Card.archived_at >= archive_visible_since),
+                   or_(seen < 0, Card.last_change_seq > cursor))
+        )
+        if before is not None:
+            seq, card_id = before
+            query = query.where(or_(Card.last_change_seq < seq,
+                                   (Card.last_change_seq == seq) & (Card.id < card_id)))
+        query = query.order_by(Card.last_change_seq.desc(), Card.id.desc()).limit(limit + 1)
+        with DbSession.use(readonly=False) as db:
+            return list(db.exec(query).all())
 
     def get_readers(self, card: Card) -> list[dict]:
         """Expose existing read receipts only for current board members."""

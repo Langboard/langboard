@@ -30,7 +30,10 @@ async function queryReceipt(page: Page) {
             defaults: queryClient.getDefaultOptions(),
             snapshots: queryClient
                 .getQueryCache()
-                .findAll({ predicate: (query: { queryKey: unknown[] }) => String(query.queryKey[0]).startsWith("get-cards-") })
+                .findAll({
+                    predicate: (query: { queryKey: unknown[] }) =>
+                        String(query.queryKey[0]).startsWith("get-cards-") || query.queryKey[0] === "unread-card-summaries",
+                })
                 .map(
                     (query: {
                         queryKey: unknown[];
@@ -50,6 +53,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
     let hold = false;
     let failNext = false;
     const held: { route: Route; json: unknown }[] = [];
+    const boardReads: { actor: string; board: string; token: string | undefined; revision: number }[] = [];
     const reads: { actor: string; board: string; token: string | undefined; revision: number }[] = [];
     const http: { method: string; path: string }[] = [];
     const wire: { direction: string; payload: unknown }[] = [];
@@ -117,11 +121,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
             if (path.startsWith("/auth/")) json = { access_token: "fixture-user-session", user: user(), bots: [] };
             else if (path === `/board/${board}`) json = { project: projects().find((project) => project.uid === board) };
             else if (path === `/board/${board}/cards`) {
-                reads.push({ actor, board, token: route.request().headers().authorization, revision });
-                if (failNext) {
-                    failNext = false;
-                    return route.fulfill({ status: 503, json: { detail: "Labelled snapshot failure" } });
-                }
+                boardReads.push({ actor, board, token: route.request().headers().authorization, revision });
                 json = {
                     cards: [
                         {
@@ -144,6 +144,27 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
                     checklists: [],
                     global_relationships: [],
                 };
+            } else if (path === `/board/${board}/unread-card-summaries`) {
+                reads.push({ actor, board, token: route.request().headers().authorization, revision });
+                if (failNext) {
+                    failNext = false;
+                    return route.fulfill({ status: 503, json: { detail: "Labelled summary failure" } });
+                }
+                json = {
+                    items: [
+                        {
+                            uid: `${board}-card`,
+                            project_uid: board,
+                            title: `${actor} ${board} revision ${revision}`,
+                            has_unread_change: true,
+                            unread_change_count: revision,
+                            unread_change_count_status: "exact",
+                            latest_change: { seq: revision, target_type: "card", target_uid: null, at: now },
+                        },
+                    ],
+                    next_cursor: null,
+                    limit: 50,
+                };
                 if (hold) {
                     held.push({ route, json });
                     return;
@@ -158,6 +179,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
     );
     return {
         reads,
+        boardReads,
         held,
         errors,
         stages,
@@ -199,6 +221,7 @@ async function nativeFixture(page: Page, testInfo: TestInfo) {
                     {
                         scope: "Local native QueryClient with labelled HTTP and WebSocket fixtures; not production or authenticated E2E",
                         reads,
+                        boardReads,
                         http,
                         wire,
                         stages,
@@ -239,7 +262,8 @@ test("native board panel mounts reuse its active snapshot; refresh, wire invalid
         await expect(sidebar(page)).toBeVisible();
         await fixture.settle();
         await fixture.record("remount Changes after Explorer");
-        expect.soft(fixture.stages.map(({ reads }) => reads)).toEqual([1, 1, 1, 1, 1]);
+        expect(fixture.stages.map(({ reads }) => reads)).toEqual([0, 1, 1, 2, 3]);
+        expect(fixture.boardReads).toHaveLength(1);
 
         const beforeRefresh = fixture.reads.length;
         fixture.setRevision(2);
@@ -247,6 +271,7 @@ test("native board panel mounts reuse its active snapshot; refresh, wire invalid
         await expect(sidebar(page).getByRole("button", { name: /fixture-user left revision 2/ })).toBeVisible();
         await fixture.settle();
         expect(fixture.reads.length).toBe(beforeRefresh + 1);
+        expect(fixture.boardReads).toHaveLength(1);
         await fixture.record("explicit Refresh");
 
         fixture.setRevision(3);
@@ -265,7 +290,8 @@ test("native board panel mounts reuse its active snapshot; refresh, wire invalid
         await navigate(page, "/board/left");
         await expect(page.getByText("fixture-user left revision 4", { exact: true }).first()).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads.length).toBe(beforeRefresh + 3);
+        expect(fixture.reads.length).toBe(beforeRefresh + 2);
+        expect(fixture.boardReads).toHaveLength(3);
         await fixture.record("meaningful board route remount");
         expect(fixture.errors).toEqual([]);
     } finally {
@@ -279,7 +305,8 @@ test("Changes fetches without a cache and refreshes a stale snapshot when it is 
         await page.goto(`${fixtureURL}?initial=/changes/left`);
         await expect(sidebar(page).getByRole("button", { name: /fixture-user left revision 1/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(1);
+        expect(fixture.reads).toHaveLength(2);
+        expect(fixture.boardReads).toHaveLength(0);
         await fixture.record("standalone cold cache");
         await navigate(page, "/empty");
         await expect(sidebar(page)).toHaveCount(0);
@@ -287,7 +314,8 @@ test("Changes fetches without a cache and refreshes a stale snapshot when it is 
         await navigate(page, "/changes/left");
         await expect(sidebar(page).getByRole("button", { name: /fixture-user left revision 2/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(2);
+        expect(fixture.reads).toHaveLength(3);
+        expect(fixture.boardReads).toHaveLength(0);
         await fixture.record("standalone stale remount");
         expect(fixture.errors).toEqual([]);
     } finally {
@@ -312,48 +340,51 @@ test("native board snapshots remain isolated across delayed actor, session and b
         fixture.setActor("other-user");
         fixture.setRevision(3);
         await updateSession(page, "other-user-session");
-        await expect.poll(() => fixture.held.length).toBe(2);
         // Identity replacement remounts the workspace and resets its selected panel to Explorer.
         await rail(page).click();
         await expect(sidebar(page)).toBeVisible();
+        await expect.poll(() => fixture.held.length).toBe(3);
         await expect(sidebar(page).getByRole("button", { name: /fixture-user/ })).toHaveCount(0);
         await fixture.releaseOldest();
         await expect(sidebar(page).getByRole("button", { name: /fixture-user/ })).toHaveCount(0);
         await fixture.release();
         await expect(sidebar(page).getByRole("button", { name: /other-user left revision 3/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(3);
+        expect(fixture.reads).toHaveLength(4);
         await fixture.record("actor replacement rejects delayed previous actor");
 
         fixture.hold();
         fixture.setRevision(4);
         await updateSession(page, "renewed-user-session");
-        await expect.poll(() => fixture.held.length).toBe(1);
+        await expect(page.getByText("other-user left revision 4", { exact: true }).first()).toBeVisible();
         if (!(await sidebar(page).isVisible())) await rail(page).click();
         await expect(sidebar(page)).toBeVisible();
+        await expect.poll(() => fixture.held.length).toBe(2);
         await expect(sidebar(page).getByRole("button", { name: /revision 3/ })).toHaveCount(0);
         await fixture.release();
         await expect(sidebar(page).getByRole("button", { name: /other-user left revision 4/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(4);
+        expect(fixture.reads).toHaveLength(6);
         await fixture.record("same actor new session fetches independently");
 
         await page.getByRole("button", { name: "Explorer", exact: true }).click();
         fixture.hold();
         fixture.setRevision(5);
         await page.locator("[data-workbench-explorer]").getByRole("button", { name: "right board", exact: true }).first().click();
-        await expect.poll(() => fixture.held.length).toBe(1);
         await rail(page).click();
+        await expect.poll(() => fixture.held.length).toBe(1);
         await expect(sidebar(page).getByRole("button", { name: /left revision/ })).toHaveCount(0);
         await fixture.release();
         await expect(sidebar(page).getByRole("button", { name: /other-user right revision 5/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(5);
+        expect(fixture.reads).toHaveLength(7);
         await fixture.record("new board excludes previous board snapshot");
         expect(fixture.reads.map(({ actor, board, token }) => ({ actor, board, token }))).toEqual([
             { actor: "fixture-user", board: "left", token: "Bearer fixture-user-session" },
             { actor: "fixture-user", board: "left", token: "Bearer fixture-user-session" },
             { actor: "other-user", board: "left", token: "Bearer other-user-session" },
+            { actor: "other-user", board: "left", token: "Bearer other-user-session" },
+            { actor: "other-user", board: "left", token: "Bearer renewed-user-session" },
             { actor: "other-user", board: "left", token: "Bearer renewed-user-session" },
             { actor: "other-user", board: "right", token: "Bearer renewed-user-session" },
         ]);
@@ -384,18 +415,25 @@ test("an invalidated or failed cached snapshot still refetches on Changes mount 
             const { queryClient } = await import(/* @vite-ignore */ path);
             await queryClient.invalidateQueries({ queryKey: ["get-cards-left"], refetchType: "none" });
         });
-        expect(fixture.reads).toHaveLength(1);
+        expect(fixture.boardReads).toHaveLength(1);
+        expect(fixture.reads).toHaveLength(0);
         await rail(page).click();
         await expect(sidebar(page).getByRole("button", { name: /fixture-user left revision 2/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(2);
+        expect(fixture.reads).toHaveLength(1);
+        expect(fixture.boardReads).toHaveLength(1);
         await fixture.record("explicit invalidation survives active owner optimization");
 
         fixture.failNext();
         await sidebar(page).getByRole("button", { name: "Refresh", exact: true }).click();
-        await expect.poll(async () => (await queryReceipt(page)).snapshots[0]?.status).toBe("error");
+        await expect
+            .poll(
+                async () => (await queryReceipt(page)).snapshots.find((query: { key: unknown[] }) => query.key[0] === "unread-card-summaries")?.status
+            )
+            .toBe("error");
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(3);
+        expect(fixture.reads).toHaveLength(2);
+        expect(fixture.boardReads).toHaveLength(1);
         await fixture.record("failed refresh has zero automatic retries");
         fixture.setRevision(4);
         await page.getByRole("button", { name: "Explorer", exact: true }).click();
@@ -403,7 +441,8 @@ test("an invalidated or failed cached snapshot still refetches on Changes mount 
         await rail(page).click();
         await expect(sidebar(page).getByRole("button", { name: /fixture-user left revision 4/ })).toBeVisible();
         await fixture.settle();
-        expect(fixture.reads).toHaveLength(4);
+        expect(fixture.reads).toHaveLength(3);
+        expect(fixture.boardReads).toHaveLength(1);
         await fixture.record("failed cached query refetches on remount");
         expect(fixture.errors).toEqual([]);
     } finally {

@@ -796,6 +796,53 @@ class CardService(BaseDomainService):
         return api_card
 
     @card_change_snapshot
+    def get_unread_card_summaries(
+        self, project: TProjectParam, user_or_bot: User | None = None, *,
+        channel: CollaborationChannel = CollaborationChannel.Api, limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict | None:
+        """Project unread summaries in the native authority/read snapshot."""
+        if not isinstance(user_or_bot, User):
+            return None
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("Invalid unread summary limit")
+        resolved = self.resolve_visibility_context(project, user_or_bot, channel)
+        if resolved is None or not resolved[1].project_member:
+            return None
+        project, context = resolved
+        binding = [str(user_or_bot.id), project.get_uid(), channel.value]
+        before = None
+        if cursor is not None:
+            try:
+                if not isinstance(cursor, str) or len(cursor) > 512:
+                    raise ValueError()
+                fields = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+                before = fields["before"]
+                if (fields.get("context") != binding or not isinstance(before, list) or len(before) != 2
+                        or any(type(value) is not int or value < 0 or value > 2**63 - 1 for value in before)
+                        or before[1] == 0):
+                    raise ValueError()
+            except (ValueError, TypeError, KeyError, AttributeError, Base64Error, UnicodeDecodeError) as exc:
+                raise ValueError("Invalid unread summary cursor") from exc
+        rows = self.repo.user_card_read_state.get_unread_summary_page(
+            user_or_bot.id, project.id, context=context, limit=limit, before=before,
+            archive_visible_since=SafeDateTime.now() - timedelta(days=project.archive_visible_days),
+        )
+        page = rows[:limit]
+        states = self.repo.user_card_read_state.get_change_state_map(
+            user_or_bot.id, [row[0] for row in page], context=context,
+        )
+        items = [{"uid": card_id.to_short_code(), "project_uid": project.get_uid(), "title": title,
+                  **states[card_id]} for card_id, title, _ in page if card_id in states]
+        next_cursor = None
+        if len(rows) > limit and page:
+            card_id, _, seq = page[-1]
+            next_cursor = base64.urlsafe_b64encode(json.dumps({
+                "context": binding, "before": [seq, int(card_id)],
+            }).encode()).decode().rstrip("=")
+        return {"items": items, "next_cursor": next_cursor, "limit": limit}
+
+    @card_change_snapshot
     def get_board_snapshot(
         self,
         project: TProjectParam | None,

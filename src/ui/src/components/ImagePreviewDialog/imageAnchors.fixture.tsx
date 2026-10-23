@@ -147,7 +147,7 @@ function Surface() {
             <BoardCommentForm variant="mobile" />
             <button
                 onClick={() => {
-                    currentCard.current_auth_role_actions = ["read"];
+                    currentCard.current_auth_role_actions = ["Read"];
                 }}
             >
                 Read only
