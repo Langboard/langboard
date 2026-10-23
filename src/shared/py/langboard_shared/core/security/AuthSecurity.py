@@ -130,6 +130,17 @@ class AuthSecurity:
         return ips
 
     @staticmethod
+    def resolve_client_ip(peer_ip: str | None, headers: Headers | dict[str, str]) -> str | None:
+        """Resolve the client IP from the unforgeable peer address plus forwarded
+        headers that are only honored when the peer is a trusted proxy."""
+        from ...core.utils.IpAddress import resolve_client_ip as _resolve
+
+        forwarded_for = headers.get(
+            AuthSecurity.FORWARDED_FOR_HEADER, headers.get(AuthSecurity.FORWARDED_FOR_HEADER.lower(), "")
+        )
+        return _resolve(peer_ip, forwarded_for or "", Env.TRUSTED_PROXY_IPS)
+
+    @staticmethod
     def create_access_token(user_id: int) -> str:
         payload = AuthSecurity.__create_payload(user_id, timedelta(seconds=Env.JWT_AT_EXPIRATION))
         return jwt_encode(payload=payload, key=Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
