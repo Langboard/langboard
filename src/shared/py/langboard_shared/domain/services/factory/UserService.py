@@ -41,10 +41,26 @@ class UserService(BaseDomainService):
         return f"{cache_type}:{email}"
 
     def get_api_list_in_settings(
-        self, *, offset: int = 0, limit: int | None = None, query: str = "", account_status: str = "all"
+        self,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        query: str = "",
+        account_status: str = "all",
+        column_filters: dict[str, str] | None = None,
+        exclude_user_uid: str | None = None,
+        sort_by: str = "created_at",
+        sort_direction: str = "desc",
     ) -> list[dict[str, Any]]:
         users = self.repo.user.get_all_with_profile_in_settings(
-            offset=offset, limit=limit, query=query, account_status=account_status
+            offset=offset,
+            limit=limit,
+            query=query,
+            account_status=account_status,
+            column_filters=column_filters,
+            exclude_user_uid=exclude_user_uid,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
         )
         if not users:
             return []
@@ -88,8 +104,17 @@ class UserService(BaseDomainService):
 
         return api_list
 
-    def count_in_settings(self, query: str = "", account_status: str = "all") -> int:
-        return self.repo.user.count_in_settings(query=query, account_status=account_status)
+    def count_in_settings(
+        self,
+        query: str = "",
+        account_status: str = "all",
+        *,
+        column_filters: dict[str, str] | None = None,
+        exclude_user_uid: str | None = None,
+    ) -> int:
+        return self.repo.user.count_in_settings(
+            query=query, account_status=account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid
+        )
 
     def count_not_deleted(self) -> int:
         return self.repo.user.count_not_deleted()

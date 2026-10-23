@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useDataTable } from "@/components/base/DataTable/Provider";
+import { IRemoteDataTable, useDataTable } from "@/components/base/DataTable/Provider";
 import { TDataTableColumn } from "@/components/base/DataTable/types";
 import Input from "@/components/base/Input";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -10,6 +10,8 @@ import { useTranslation } from "react-i18next";
 
 export type TDataTableTableProps<T> = {
     data: T[];
+    loading?: bool;
+    remote?: IRemoteDataTable;
     columns: TDataTableColumn<T>[];
     searchable?: bool;
     showPagination?: bool;
@@ -24,6 +26,8 @@ export type TDataTableTableProps<T> = {
 
 function DataTableTable<T extends Record<string, any>>({
     data,
+    loading,
+    remote,
     columns,
     searchable,
     showPagination = true,
@@ -39,6 +43,7 @@ function DataTableTable<T extends Record<string, any>>({
     const { currentPage, itemsPerPage, sortConfig, searchText, columnFilters, paginate, setTotalRecords } = useDataTable();
 
     const filteredData = useMemo(() => {
+        if (remote) return data;
         let filtered = [...data];
 
         // Global search
@@ -62,11 +67,11 @@ function DataTableTable<T extends Record<string, any>>({
         });
 
         return filtered;
-    }, [data, searchText, columnFilters, columns]);
+    }, [data, searchText, columnFilters, columns, remote]);
 
     // Sort data
     const sortedData = useMemo(() => {
-        if (!sortConfig.key) return filteredData;
+        if (remote || !sortConfig.key) return filteredData;
 
         return [...filteredData].sort((a, b) => {
             const aValue = a[sortConfig.key!];
@@ -80,19 +85,19 @@ function DataTableTable<T extends Record<string, any>>({
             }
             return 0;
         });
-    }, [filteredData, sortConfig]);
+    }, [filteredData, sortConfig, remote]);
 
     useEffect(() => {
-        setTotalRecords(sortedData.length);
-    }, [setTotalRecords, sortedData.length]);
+        if (!remote) setTotalRecords(sortedData.length);
+    }, [setTotalRecords, sortedData.length, remote]);
 
     // Pagination
     const paginatedData = useMemo(() => {
-        if (!showPagination) return sortedData;
+        if (remote || !showPagination) return sortedData;
 
         const startIndex = (currentPage - 1) * itemsPerPage;
         return sortedData.slice(startIndex, startIndex + itemsPerPage);
-    }, [sortedData, currentPage, itemsPerPage, showPagination]);
+    }, [sortedData, currentPage, itemsPerPage, showPagination, remote]);
 
     const handleSort = useCallback(
         (key: keyof T) => {
@@ -178,7 +183,13 @@ function DataTableTable<T extends Record<string, any>>({
                         </tr>
                     </thead>
                     <tbody className="bg-card">
-                        {paginatedData.length === 0 ? (
+                        {loading ? (
+                            <tr>
+                                <td colSpan={columns.length} className="p-6 text-center text-muted-foreground" role="status">
+                                    {t("common.Loading...")}
+                                </td>
+                            </tr>
+                        ) : paginatedData.length === 0 ? (
                             <tr>
                                 <td
                                     colSpan={columns.length}

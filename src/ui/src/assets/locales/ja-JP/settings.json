@@ -474,5 +474,7 @@
   "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "会話ターンは作成順に同じ投稿者が連続して投稿したコメントのまとまりです。アクティビティイベントと以前の要約は数えません。",
   "Account status": "アカウント状態",
   "Last successful sign-in": "最終ログイン成功",
-  "No recorded sign-in": "ログイン記録なし"
+  "No recorded sign-in": "ログイン記録なし",
+  "All accounts": "すべてのアカウント",
+  "User list failed": "ユーザーを読み込めませんでした。更新して再試行してください。"
 }

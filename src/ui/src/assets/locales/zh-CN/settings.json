@@ -474,5 +474,7 @@
   "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "对话轮次是按创建顺序由同一作者连续发布的一组评论。活动事件和先前摘要不计入。",
   "Account status": "账户状态",
   "Last successful sign-in": "最近成功登录",
-  "No recorded sign-in": "无登录记录"
+  "No recorded sign-in": "无登录记录",
+  "All accounts": "全部账户",
+  "User list failed": "无法加载用户。请刷新重试。"
 }

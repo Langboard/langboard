@@ -166,14 +166,32 @@ def get_users_page_in_settings(
     limit: Annotated[int, Query(ge=1, le=100)] = 15,
     query: Annotated[str, Query(max_length=200)] = "",
     account_status: Literal["all", "active", "inactive"] = "all",
+    email: Annotated[str, Query(max_length=200)] = "",
+    firstname: Annotated[str, Query(max_length=200)] = "",
+    lastname: Annotated[str, Query(max_length=200)] = "",
+    exclude_user_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    sort_by: Literal["email", "firstname", "lastname", "created_at"] = "created_at",
+    sort_direction: Literal["asc", "desc"] = "desc",
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     return JsonResponse(
         content={
             "records": service.user.get_api_list_in_settings(
-                offset=(page - 1) * limit, limit=limit, query=query, account_status=account_status
+                offset=(page - 1) * limit,
+                limit=limit,
+                query=query,
+                account_status=account_status,
+                column_filters={"email": email, "firstname": firstname, "lastname": lastname},
+                exclude_user_uid=exclude_user_uid,
+                sort_by=sort_by,
+                sort_direction=sort_direction,
             ),
-            "total_records": service.user.count_in_settings(query=query, account_status=account_status),
+            "total_records": service.user.count_in_settings(
+                query=query,
+                account_status=account_status,
+                column_filters={"email": email, "firstname": firstname, "lastname": lastname},
+                exclude_user_uid=exclude_user_uid,
+            ),
             "page": page,
             "limit": limit,
             "full_access_emails": list(Env.FULL_ADMIN_ACCESS_EMAILS),

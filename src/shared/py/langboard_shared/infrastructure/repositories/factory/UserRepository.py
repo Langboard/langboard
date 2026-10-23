@@ -43,7 +43,13 @@ class UserRepository(BaseRepository[User]):
             )
 
     @staticmethod
-    def _settings_filters(query: str = "", account_status: str = "all"):
+    def _settings_filters(
+        query: str = "",
+        account_status: str = "all",
+        *,
+        column_filters: dict[str, str] | None = None,
+        exclude_user_uid: str | None = None,
+    ):
         filters = [User.column("deleted_at").is_(None)]
         if account_status == "active":
             filters.append(User.column("activated_at").is_not(None))
@@ -51,6 +57,13 @@ class UserRepository(BaseRepository[User]):
             filters.append(User.column("activated_at").is_(None))
         elif account_status != "all":
             raise ValueError("Invalid account status")
+        if exclude_user_uid:
+            filters.append(User.column("id") != SnowflakeID.from_short_code(exclude_user_uid))
+        for field, value in (column_filters or {}).items():
+            if field not in ("email", "firstname", "lastname"):
+                raise ValueError("Invalid user filter")
+            if value.strip():
+                filters.append(func.lower(User.column(field)).contains(value.strip().lower(), autoescape=True))
         query = query.strip()
         if query:
             matches = [
@@ -66,26 +79,46 @@ class UserRepository(BaseRepository[User]):
             filters.append(or_(*matches))
         return filters
 
-    def count_in_settings(self, query: str = "", account_status: str = "all") -> int:
+    def count_in_settings(
+        self,
+        query: str = "",
+        account_status: str = "all",
+        *,
+        column_filters: dict[str, str] | None = None,
+        exclude_user_uid: str | None = None,
+    ) -> int:
         with DbSession.use(readonly=True) as db:
             return (
                 db.exec(
                     SqlBuilder.select.count(User, User.column("id")).where(
-                        *self._settings_filters(query, account_status)
+                        *self._settings_filters(
+                            query, account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid
+                        )
                     )
                 ).first()
                 or 0
             )
 
     def get_all_with_profile_in_settings(
-        self, *, offset: int = 0, limit: int | None = None, query: str = "", account_status: str = "all"
+        self,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        query: str = "",
+        account_status: str = "all",
+        column_filters: dict[str, str] | None = None,
+        exclude_user_uid: str | None = None,
+        sort_by: str = "created_at",
+        sort_direction: str = "desc",
     ):
-        filters = self._settings_filters(query, account_status)
-        page_ids = (
-            select(User.column("id"))
-            .where(*filters)
-            .order_by(User.column("created_at").desc(), User.column("id").desc())
+        filters = self._settings_filters(
+            query, account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid
         )
+        if sort_by not in ("email", "firstname", "lastname", "created_at") or sort_direction not in ("asc", "desc"):
+            raise ValueError("Invalid user sort")
+        sort_column = User.column(sort_by)
+        ordering = (sort_column.asc() if sort_direction == "asc" else sort_column.desc(), User.column("id").desc())
+        page_ids = select(User.column("id")).where(*filters).order_by(*ordering)
         if limit is not None:
             page_ids = page_ids.offset(offset).limit(limit)
 
@@ -107,7 +140,7 @@ class UserRepository(BaseRepository[User]):
             .outerjoin(UserProfile, User.column("id") == UserProfile.column("user_id"))
             .outerjoin(last_sign_ins, User.column("id") == last_sign_ins.c.user_id)
             .where(User.column("id").in_(page_ids))
-            .order_by(User.column("created_at").desc(), User.column("id").desc())
+            .order_by(*ordering)
         )
 
         records = []

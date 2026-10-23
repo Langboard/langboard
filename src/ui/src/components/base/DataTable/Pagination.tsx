@@ -42,7 +42,7 @@ function DataTablePagination() {
         }
 
         return pageNumbers;
-    }, [totalPages]);
+    }, [currentPage, totalPages]);
 
     return (
         <div className="flex flex-col items-center justify-between gap-4 border-t border-border bg-card p-6 pt-4 sm:flex-row">

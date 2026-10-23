@@ -474,5 +474,7 @@
   "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.",
   "Account status": "Account status",
   "Last successful sign-in": "Last successful sign-in",
-  "No recorded sign-in": "No recorded sign-in"
+  "No recorded sign-in": "No recorded sign-in",
+  "All accounts": "All accounts",
+  "User list failed": "Unable to load users. Refresh to retry."
 }

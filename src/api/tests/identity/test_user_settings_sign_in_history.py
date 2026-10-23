@@ -76,6 +76,18 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
         assert service.get_api_list_in_settings(query="%") == []
         assert service.count_in_settings(query="_") == 0
         assert service.get_api_list_in_settings(query=users[3].get_uid()) == []
+        ascending = service.get_api_list_in_settings(sort_by="email", sort_direction="asc", limit=2)
+        assert [row["email"] for row in ascending] == [users[0].email, users[1].email]
+        assert (
+            service.get_api_list_in_settings(column_filters={"email": "LOGIN-1", "firstname": "fixture"})[0]["uid"]
+            == users[1].get_uid()
+        )
+        assert service.count_in_settings(column_filters={"email": "LOGIN-1"}) == 1
+        assert service.count_in_settings(exclude_user_uid=users[0].get_uid()) == 2
+        assert all(
+            row["uid"] != users[0].get_uid()
+            for row in service.get_api_list_in_settings(exclude_user_uid=users[0].get_uid())
+        )
         statements.clear()
         assert service.get_api_list_in_settings(limit=1)[0]["uid"] == result[0]["uid"]
         assert len(statements) == 1, "Pagination must not add per-user queries"
