@@ -30,6 +30,8 @@ case "$profile" in
       src/api/tests/scim/test_group_identity.py \
       src/api/tests/scim/test_instance_directory_audit.py \
       src/api/tests/scim/test_group_provenance.py \
+      src/api/tests/identity/test_group_directory.py \
+      src/api/tests/identity/test_group_directory_http.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_graph_creation_authority.py \
       src/api/tests/card_visibility/test_card_timeline.py \
@@ -121,6 +123,8 @@ case "$profile" in
       src/api/tests/scim/test_project_role_projection_database.py \
       src/api/tests/scim/test_instance_directory_audit.py \
       src/api/tests/scim/test_group_provenance.py \
+      src/api/tests/identity/test_group_directory.py \
+      src/api/tests/identity/test_group_directory_http.py \
       src/api/tests/project_labels/test_title_label_integration.py \
       src/api/tests/apps/test_user_app_preferences_http.py \
       src/api/tests/apps/test_board_filter_preferences_http.py \

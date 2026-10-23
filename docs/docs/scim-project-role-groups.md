@@ -127,3 +127,39 @@ to be disabled by the runner before its migration transaction; the migration
 blocks otherwise to prevent membership cascades. Run `PRAGMA foreign_key_check`
 afterward and restore foreign key enforcement. PostgreSQL needs no such suspension.
 No production migration or operational cutover is authorized by these changes.
+
+## Native installation-wide directory reads
+
+`GET /settings/groups` and `GET /settings/groups/{group_uid}/members` expose
+read-only directory inspection through the existing native authentication and
+settings-role middleware. Callers must be active installation administrators
+with the distinct `group_read` setting action. This action is excluded from
+default settings roles; existing `*` grants and explicit full-administrator
+email overrides retain their normal behavior. Ordinary group membership grants
+no directory access, employee classification, or project role.
+
+Both endpoints accept `page` (1–1,000,000), `limit` (1–100, default 15), and
+`query` (at most 200 characters), returning `records`, `total_records`, `page`,
+and `limit`. Counts and pagination execute in SQL. Search terms are literal,
+case-insensitive substrings, including `%`, `_`, and `/`. Groups are ordered by
+display name and immutable ID; members are ordered by immutable user ID.
+
+Group search covers display name, issuer, and external ID across every stored
+source and issuer. Each group returns its UID, display name, explicit stored
+source, issuer, external ID, `source_status` (`local`, `legacy-unresolved`,
+`current_authority`, or `other_authority`), and `managed` metadata. Only stored
+SCIM groups are marked externally managed. Every group is `read_only` in this
+increment, with `read_members=true` and update/delete/manage-members abilities
+false. Source status uses the current normalized SCIM issuer without rewriting
+stored provenance. SCIM protocol routes continue to show only their configured
+authority; the native directory does not change that boundary.
+
+Membership search covers firstname, lastname, and username. Each member returns
+only immutable UID, firstname, lastname, username, and `account_status`
+(`active`, `inactive`, or `deleted`). Deleted members retain their UID/status
+with names and username redacted. Passwords, tokens, email addresses, and private
+profiles are neither selected nor returned by the member page query. Counts
+include inactive and deleted users, matching the page projection. Personal
+`UserGroup` and `UserGroupAssignedEmail` address books are never queried or
+promoted into this directory. Native group CRUD, editing external membership,
+UI delivery, and singleton tenant cutover remain subsequent increments.

@@ -6,6 +6,11 @@ on:
     paths:
       - .github/workflows/check-board-card-status.yaml
       - src/api/tests/identity/test_user_owner_postgres.py
+      - src/api/tests/identity/test_group_directory.py
+      - src/api/tests/identity/test_group_directory_http.py
+      - src/api/langboard/routes/settings/GroupDirectoryApi.py
+      - src/shared/py/langboard_shared/domain/services/factory/GroupDirectoryService.py
+      - src/shared/py/langboard_shared/domain/models/SettingRole.py
       - src/api/tests/scim/test_instance_directory_audit.py
       - src/api/tests/scim/test_project_role_projection_database.py
       - src/api/tests/scim/test_group_provenance.py
@@ -122,5 +127,5 @@ jobs:
       - name: Verify native cross-board permissions and recovery
         run: uv run --no-sync pytest -q src/api/tests/card_cross_board/test_card_mirrors.py src/api/tests/card_cross_board/test_card_clones.py src/api/tests/card_cross_board/test_card_moves.py src/api/tests/card_cross_board/test_card_cross_board_eligibility.py
       - name: Verify organization owner lifecycle on native PostgreSQL
-        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/identity/test_user_owner_postgres.py src/api/tests/scim/test_instance_directory_audit.py src/api/tests/scim/test_project_role_projection_database.py src/api/tests/scim/test_group_provenance.py
+        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/identity/test_user_owner_postgres.py src/api/tests/scim/test_instance_directory_audit.py src/api/tests/scim/test_project_role_projection_database.py src/api/tests/scim/test_group_provenance.py src/api/tests/identity/test_group_directory.py src/api/tests/identity/test_group_directory_http.py
       - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardService_board_progress_test.py src/api/tests/card_workspace/timers/ src/shared/py/langboard_shared/domain/services/CardApprovalGate_test.py src/shared/py/langboard_shared/domain/services/ExecutionGeneration_test.py src/shared/py/langboard_shared/domain/services/CardWorkState_test.py src/api/tests/card_workspace/test_archive_cold_store.py src/api/tests/card_workspace/test_verification_evidence_route.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/shared/py/langboard_shared/domain/services/CardVerification_test.py src/shared/py/langboard_shared/domain/services/factory/CardService_verification_test.py src/shared/py/langboard_shared/domain/services/factory/CardService_work_state_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardVerificationRepository_test.py

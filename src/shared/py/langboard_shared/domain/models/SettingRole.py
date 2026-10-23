@@ -9,6 +9,9 @@ class SettingRoleAction(Enum):
     UserUpdate = "user_update"
     UserDelete = "user_delete"
 
+    # Global Group Directory
+    GroupRead = "group_read"
+
     # Bot Management
     BotRead = "bot_read"
     BotCreate = "bot_create"
@@ -62,6 +65,7 @@ class SettingRoleAction(Enum):
 
 class SettingRoleCategory(Enum):
     User = "user"
+    Group = "group"
     Bot = "bot"
     InternalBot = "internal_bot"
     GlobalRelationship = "global_relationship"

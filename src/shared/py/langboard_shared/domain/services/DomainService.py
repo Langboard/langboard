@@ -3,6 +3,7 @@ from typing import cast
 from ...core.types import Factory, IFactoryProduct
 from ...infrastructure.repositories import Repository
 from . import factory
+from .factory.GroupDirectoryService import GroupDirectoryService
 
 
 class DomainService(Factory):
@@ -137,6 +138,10 @@ class DomainService(Factory):
     @property
     def identity_link(self):
         return self._create_or_get_product(factory.IdentityLinkService)
+
+    @property
+    def group_directory(self):
+        return self._create_or_get_product(GroupDirectoryService)
 
     @property
     def scim_provisioning(self):

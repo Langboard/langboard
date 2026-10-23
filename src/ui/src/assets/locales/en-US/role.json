@@ -7,6 +7,7 @@
     "card_delete": "Card Delete"
   },
   "setting": {
+    "group_read": "Read",
     "user_read": "Read",
     "user_create": "Create",
     "user_update": "Update",
@@ -38,6 +39,7 @@
     "ollama_read": "Read"
   },
   "setting_categories": {
+    "group": "Groups",
     "user": "User Management",
     "bot": "Bot Management",
     "internal_bot": "Internal Bot Management",
