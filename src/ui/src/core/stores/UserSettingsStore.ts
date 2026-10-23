@@ -10,6 +10,7 @@ export interface IPinnedApp {
 }
 export const MAX_PINNED_APPS = 32;
 export interface IUserSettings {
+    child_card_collapsed?: Record<string, true>;
     column_card_sorts?: Record<string, string>;
     notifications_time_range?: (typeof NOTIFICATIONS_TIME_RANGE_OPTIONS)[number];
     graph_view_modes?: Record<string, "columns" | "network">;
