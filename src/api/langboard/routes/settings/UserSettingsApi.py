@@ -105,6 +105,8 @@ def link_user_oidc_identity(
                     {
                         "schema": {
                             "activated_at": "string?",
+                            "account_status": "string",
+                            "last_signed_in_at": "string?",
                             "is_admin": "bool",
                             "setting_role_actions": [ALL_GRANTED, SettingRoleAction],
                             "api_key_role_actions": [ALL_GRANTED, ApiKeyRoleAction],

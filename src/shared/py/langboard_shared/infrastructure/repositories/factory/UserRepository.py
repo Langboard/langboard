@@ -12,6 +12,7 @@ from ....domain.models import (
     UserEmail,
     UserIdentityLink,
     UserProfile,
+    UserSignInHistory,
 )
 from ....helpers import InfraHelper
 
@@ -42,9 +43,20 @@ class UserRepository(BaseRepository[User]):
             )
 
     def get_all_with_profile_in_settings(self):
+        # Aggregate once for the list; failed attempts never advance last login.
+        last_sign_ins = (
+            select(
+                UserSignInHistory.column("user_id"),
+                func.max(UserSignInHistory.column("signed_in_at")).label("last_signed_in_at"),
+            )
+            .where(UserSignInHistory.column("is_success").is_(True))
+            .group_by(UserSignInHistory.column("user_id"))
+            .subquery()
+        )
         query = (
-            SqlBuilder.select.tables(User, UserProfile)
+            SqlBuilder.select.tables(User, UserProfile, last_sign_ins.c.last_signed_in_at)
             .outerjoin(UserProfile, User.column("id") == UserProfile.column("user_id"))
+            .outerjoin(last_sign_ins, User.column("id") == last_sign_ins.c.user_id)
             .where(User.column("deleted_at") == None)  # noqa
             .order_by(User.column("created_at").desc(), User.column("id").desc())
         )

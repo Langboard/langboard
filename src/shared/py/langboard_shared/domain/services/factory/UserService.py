@@ -1,3 +1,4 @@
+from datetime import timezone
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import TYPE_CHECKING, Any, Sequence, cast
@@ -44,17 +45,17 @@ class UserService(BaseDomainService):
         if not users:
             return []
 
-        api_key_roles = self.repo.role.api_key.get_list(user_id=cast(SnowflakeID, [user.id for user, _ in users]))
+        api_key_roles = self.repo.role.api_key.get_list(user_id=cast(SnowflakeID, [user.id for user, _, _ in users]))
         api_key_role_actions_dicts = {role.user_id: role.actions for role in api_key_roles}
 
-        setting_roles = self.repo.role.setting.get_list(user_id=cast(SnowflakeID, [user.id for user, _ in users]))
+        setting_roles = self.repo.role.setting.get_list(user_id=cast(SnowflakeID, [user.id for user, _, _ in users]))
         setting_role_actions_dicts = {role.user_id: role.actions for role in setting_roles}
 
-        mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [user.id for user, _ in users]))
+        mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [user.id for user, _, _ in users]))
         mcp_role_actions_dicts = {role.user_id: role.actions for role in mcp_roles}
 
         api_list = []
-        for user, profile in users:
+        for user, profile, last_signed_in_at in users:
             api_user = user.api_response()
             if profile:
                 api_user.update(profile.api_response())
@@ -69,6 +70,12 @@ class UserService(BaseDomainService):
                 )
             api_user["created_at"] = user.created_at
             api_user["activated_at"] = user.activated_at
+            api_user["account_status"] = "active" if user.activated_at else "inactive"
+            api_user["last_signed_in_at"] = (
+                last_signed_in_at.replace(tzinfo=timezone.utc)
+                if last_signed_in_at and last_signed_in_at.tzinfo is None
+                else last_signed_in_at
+            )
             api_user["is_admin"] = user.is_admin
             api_user["setting_role_actions"] = setting_role_actions_dicts.get(user.id, [])
             api_user["api_key_role_actions"] = api_key_role_actions_dicts.get(user.id, [])
