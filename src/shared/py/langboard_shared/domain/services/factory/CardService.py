@@ -1425,8 +1425,8 @@ class CardService(BaseDomainService):
             scopes = {int(project.id): context}
         else:
             scopes = contexts
-        external_matches, semantic_matches = {}, {}
-        from .CardCommentCompactionService import CardCommentCompactionService
+        external_candidates, semantic_matches = {}, {}
+        from .CardCommentCompactionService import CardCommentCompactionService, CommentCompactionError
 
         for project_id, scoped_context in scopes.items():
             project_code = SnowflakeID(project_id).to_short_code()
@@ -1437,9 +1437,7 @@ class CardService(BaseDomainService):
                 continue
             scoped_project, scoped_context = current
             if candidates is not None:
-                external_matches.update(
-                    self.repo.card.validate_document_candidates(scoped_project, candidates, context=scoped_context)
-                )
+                external_candidates[project_id] = candidates
             semantic_matches.update(
                 self._get_service(CardCommentCompactionService).search_metadata_candidates(
                     user, scoped_project, scoped_context, input_value, channel=channel
@@ -1457,6 +1455,42 @@ class CardService(BaseDomainService):
                 context = None
         if context is None or not context.active or not context.project_member:
             return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
+        # All board providers have completed. Revalidate source identities locally
+        # before source-only candidates influence SQL counts/pages or projections.
+        from types import SimpleNamespace
+        from ....tasks.docling.CompactionMetadataIndexTask import validate_metadata_hits
+        from .InternalBotService import InternalBotService
+
+        final_scopes = contexts if project is None else {int(project.id): context}
+        external_matches = {}
+        for project_id, scoped_context in final_scopes.items():
+            external_matches.update(self.repo.card.validate_document_candidates(
+                project_id, external_candidates.get(project_id, []), context=scoped_context
+            ))
+        compactions = self._get_service(CardCommentCompactionService)
+        facade = SimpleNamespace(card_comment_compaction=compactions, card=self,
+                                 internal_bot=self._get_service(InternalBotService))
+        for card_id, matched in list(semantic_matches.items()):
+            with DbSession.use(readonly=False) as db:
+                current_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card_id)
+                    .execution_options(populate_existing=True)).first()
+                scoped_project = db.exec(SqlBuilder.select.table(Project).where(Project.id == current_card.project_id)
+                    .execution_options(populate_existing=True)).first() if current_card else None
+            if scoped_project is None or int(scoped_project.id) not in final_scopes:
+                del semantic_matches[card_id]
+                continue
+            try:
+                fresh = compactions.get_search_metadata(user, scoped_project, current_card, channel=channel)
+                similarity = validate_metadata_hits(facade, user, scoped_project, current_card,
+                    matched.get("similarity", []), channel=channel)
+                terms = [item["value"] for item in fresh["keywords"]]
+                terms.extend(term for item in fresh["entities"] for term in [item["name"], *item.get("aliases", [])])
+                if similarity or any(input_value.casefold() in term.casefold() for term in terms):
+                    semantic_matches[card_id] = {**fresh, **({"similarity": similarity} if similarity else {})}
+                else:
+                    del semantic_matches[card_id]
+            except CommentCompactionError:
+                del semantic_matches[card_id]
         cards = []
         records = self.repo.card.search_context_by_project(
             project,
