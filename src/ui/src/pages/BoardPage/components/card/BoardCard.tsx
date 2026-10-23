@@ -972,11 +972,11 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
     return null;
 }
 
-function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
+export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
     const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
-    const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
-    const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
+    const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode, getCardEditSession } = useBoardCard();
+    const { cancelSections, saveSections, getSectionDraftSnapshot } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
     const [isSaving, setIsSaving] = useState(false);
     const { mutateAsync: changeCardDetailsMutateAsync } = useChangeCardDetails({ interceptToast: true });
@@ -987,6 +987,8 @@ function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool
             return;
         }
 
+        const session = getCardEditSession();
+        const draftSnapshot = getSectionDraftSnapshot();
         setIsSaving(true);
 
         try {
@@ -1037,11 +1039,25 @@ function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool
                 }
             }
 
-            leaveCardEditMode();
+            // A completed request owns only the draft and edit session it submitted.
+            if (getSectionDraftSnapshot() === draftSnapshot) {
+                leaveCardEditMode(session);
+            }
         } finally {
             setIsSaving(false);
         }
-    }, [card, changeCardDetailsMutateAsync, isSaving, leaveCardEditMode, projectUID, replaceContentBlocksAsync, saveSections, sectionLoading]);
+    }, [
+        card,
+        changeCardDetailsMutateAsync,
+        isSaving,
+        leaveCardEditMode,
+        projectUID,
+        replaceContentBlocksAsync,
+        saveSections,
+        sectionLoading,
+        getCardEditSession,
+        getSectionDraftSnapshot,
+    ]);
 
     const handleCancelEditing = useCallback(() => {
         try {

@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/pages/BoardPage/components/card",
-    testMatch: "InlineDeadline.spec.ts",
+    testMatch: ["InlineDeadline.spec.ts", "fullEditSave.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4204", channel: "chrome", headless: true },

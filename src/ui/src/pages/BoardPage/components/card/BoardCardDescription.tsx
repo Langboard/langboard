@@ -383,7 +383,14 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
         [setIsCommentPanelOpen, commentSurfaceRef]
     );
 
-    useEffect(() => registerSectionSaveHandler("description", handleSave), [handleSave, registerSectionSaveHandler]);
+    const readDraftDescription = useCallback(
+        () => sanitizeEditorContent(editorRef.current?.api.markdown.serialize() ?? description?.content ?? ""),
+        [description]
+    );
+    useEffect(
+        () => registerSectionSaveHandler("description", handleSave, readDraftDescription),
+        [handleSave, registerSectionSaveHandler, readDraftDescription]
+    );
     useEffect(() => registerSectionCancelHandler("description", handleCancel), [handleCancel, registerSectionCancelHandler]);
 
     return (

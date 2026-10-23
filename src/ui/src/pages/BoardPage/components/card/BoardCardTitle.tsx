@@ -187,7 +187,8 @@ function BoardCardTitle({ className, useDialogTitle = true }: { className?: stri
 
     useResizeEvent({ doneCallback: updateShowCollapse }, [updateShowCollapse]);
 
-    useEffect(() => registerSectionSaveHandler("title", saveTitle), [registerSectionSaveHandler, saveTitle]);
+    const readDraftTitle = useCallback(() => draftTitle.trim() || title.trim(), [draftTitle, title]);
+    useEffect(() => registerSectionSaveHandler("title", saveTitle, readDraftTitle), [registerSectionSaveHandler, saveTitle, readDraftTitle]);
     useEffect(() => registerSectionCancelHandler("title", cancelTitle), [cancelTitle, registerSectionCancelHandler]);
 
     const Title = useDialogTitle ? Dialog.Title : "div";
