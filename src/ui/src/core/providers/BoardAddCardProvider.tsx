@@ -6,7 +6,9 @@ import useChangeEditMode from "@/core/hooks/useChangeEditMode";
 import { ProjectColumn } from "@/core/models";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoard } from "@/core/providers/BoardProvider";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import useAuthStore from "@/core/stores/AuthStore";
+import { getCardDraftStore, type IDraftScope } from "@/core/stores/CardDraftStore";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 
@@ -19,6 +21,7 @@ export interface IBoardAddCardContext {
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     disableChangeModeAttr: string;
     canWrite: bool;
+    saveTitleDraft: (content: string) => void;
 }
 
 interface IBoardAddCardProviderProps {
@@ -38,6 +41,7 @@ const initialContext = {
     textareaRef: { current: null! },
     disableChangeModeAttr: "data-disable-change-mode",
     canWrite: false,
+    saveTitleDraft: () => {},
 };
 
 const BoardAddCardContext = createContext<IBoardAddCardContext>(initialContext);
@@ -50,7 +54,7 @@ export const BoardAddCardProvider = ({
     children,
 }: IBoardAddCardProviderProps): React.ReactNode => {
     const paneID = useBoardSplitPane();
-    const { project, hasRoleAction } = useBoard();
+    const { project, currentUser, hasRoleAction } = useBoard();
     const [t] = useTranslation();
     const [isValidating, setIsValidating] = useState(false);
     const [searchParams, setSearchParams] = usePageSearchParams();
@@ -59,6 +63,31 @@ export const BoardAddCardProvider = ({
     const canWrite = hasRoleAction(ProjectRole.EAction.CardWrite) && !column.is_archive;
     const { mutateAsync: createCardMutateAsync } = useCreateCard({ interceptToast: true });
     const editorName = `${column.uid}-add-card`;
+    const titleDraftScope: IDraftScope = { userUID: currentUser.uid, projectUID: project.uid, kind: "card-new", scopeUID: column.uid };
+    const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingDraft = useRef<{ scope: IDraftScope; content: string } | null>(null);
+    const flushTitleDraft = useCallback(() => {
+        if (draftTimer.current) clearTimeout(draftTimer.current);
+        draftTimer.current = null;
+        const pending = pendingDraft.current;
+        pendingDraft.current = null;
+        if (pending && useAuthStore.getState().currentUser?.uid === pending.scope.userUID) {
+            getCardDraftStore().saveDraft(pending.scope, pending.content);
+        }
+    }, []);
+    const saveTitleDraft = (content: string) => {
+        if (useAuthStore.getState().currentUser?.uid !== currentUser.uid) return;
+        pendingDraft.current = { scope: { ...titleDraftScope }, content };
+        if (draftTimer.current) clearTimeout(draftTimer.current);
+        draftTimer.current = setTimeout(flushTitleDraft, 600);
+    };
+    useEffect(() => {
+        window.addEventListener("pagehide", flushTitleDraft);
+        return () => {
+            window.removeEventListener("pagehide", flushTitleDraft);
+            flushTitleDraft();
+        };
+    }, [flushTitleDraft]);
 
     const scrollToCreatedCard = (cardUID: string, attemptsLeft = 40) => {
         if (document.getElementById(`board-card-${cardUID}`)) {
@@ -80,7 +109,9 @@ export const BoardAddCardProvider = ({
             toLastPage();
 
             setTimeout(() => {
-                if (valueRef.current) {
+                if (valueRef.current && useAuthStore.getState().currentUser?.uid === currentUser.uid) {
+                    const draft = getCardDraftStore().getDraft(titleDraftScope);
+                    if (draft && !valueRef.current.value) valueRef.current.value = draft.content;
                     valueRef.current.focus();
                     valueRef.current.scrollIntoView({ block: "nearest", inline: "nearest" });
                     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -94,6 +125,10 @@ export const BoardAddCardProvider = ({
             }, 0);
         },
         save: (value, endCallback) => {
+            if (useAuthStore.getState().currentUser?.uid !== currentUser.uid) return;
+            const submittedScope = { ...titleDraftScope };
+            saveTitleDraft(value);
+            flushTitleDraft();
             setIsValidating(true);
 
             const promise = createCardMutateAsync({
@@ -112,6 +147,10 @@ export const BoardAddCardProvider = ({
                     return messageRef.message;
                 },
                 success: ({ uid }) => {
+                    getCardDraftStore().clearDraft(submittedScope);
+                    if (useAuthStore.getState().currentUser?.uid !== submittedScope.userUID) {
+                        return t("successes.Card added successfully.");
+                    }
                     // Card creation stays lightweight: insert into the board without opening the viewer.
                     // The user opens the viewer only through an explicit card or widget interaction.
                     toLastPage();
@@ -126,6 +165,17 @@ export const BoardAddCardProvider = ({
             });
         },
     });
+
+    useEffect(() => {
+        flushTitleDraft();
+        if (valueRef.current) {
+            valueRef.current.value =
+                useAuthStore.getState().currentUser?.uid === currentUser.uid
+                    ? (getCardDraftStore().getDraft({ userUID: currentUser.uid, projectUID: project.uid, kind: "card-new", scopeUID: column.uid })
+                          ?.content ?? "")
+                    : "";
+        }
+    }, [currentUser.uid, project.uid, column.uid, flushTitleDraft, valueRef]);
 
     useEffect(() => {
         if (searchParams.get("new-card") !== "1") {
@@ -183,6 +233,7 @@ export const BoardAddCardProvider = ({
                 textareaRef: valueRef,
                 disableChangeModeAttr,
                 canWrite,
+                saveTitleDraft,
             }}
         >
             {children}

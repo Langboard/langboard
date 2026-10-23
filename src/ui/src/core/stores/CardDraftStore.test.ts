@@ -24,9 +24,12 @@ class MemoryLocalStorage {
 }
 
 const storage = new MemoryLocalStorage();
+const session = new MemoryLocalStorage();
+Object.defineProperty(globalThis, "sessionStorage", { value: session, configurable: true });
 Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
 
 const { default: useCardDraftStore, DRAFT_TTL_MS, getCardDraftStore } = await import("./CardDraftStore.ts");
+const { default: useCommentDraftStore, getCardCommentDraftStore } = await import("./CardCommentDraftStore.ts");
 type IDraftScope = import("./CardDraftStore.ts").IDraftScope;
 
 const userA = "user-a";
@@ -164,5 +167,224 @@ describe("CardDraftStore", () => {
         } finally {
             Object.defineProperty(globalThis, "localStorage", originalStorage);
         }
+    });
+});
+
+describe("CardCommentDraftStore persistence", () => {
+    const key = "lb-draft-v1:user-a:project-1:comment-new:card-1";
+    const legacyKey = "comment-user-a-project-1-card-1";
+    const image = {
+        type: "ImageRegionSelector" as const,
+        version: 1 as const,
+        source: { type: "card_attachment" as const, attachment_uid: "attachment", revision: "revision" },
+        shape: "point" as const,
+        image_width: 1200,
+        image_height: 800,
+        x: 40,
+        y: 60,
+        width: 0,
+        height: 0,
+    };
+    const snapshot = { content: "Retained image draft", anchor: image, request_uid: "retry-uuid" };
+    const store = () => getCardCommentDraftStore();
+    const read = () => store().getSnapshot(userA, project1, card1);
+    const recreate = () => {
+        useCardDraftStore.setState({ cache: {} });
+        useCommentDraftStore.setState({ draftMap: {}, snapshotMap: {} });
+    };
+    beforeEach(() => {
+        storage.clear();
+        session.clear();
+        recreate();
+    });
+
+    it("restores image metadata and failed-submit retry identity after session/cache recreation", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        session.clear();
+        recreate();
+        assert.deepEqual(read(), snapshot);
+        store().saveDraft(userA, project1, card1, "Retried content");
+        recreate();
+        assert.deepEqual(read(), { ...snapshot, content: "Retried content" });
+    });
+
+    it("persists anchor-only and text-anchor snapshots exactly", () => {
+        store().saveSnapshot(userA, project1, card1, { ...snapshot, content: "" });
+        recreate();
+        assert.deepEqual(read(), { ...snapshot, content: "" });
+        const text = {
+            version: 1 as const,
+            exact: "quote",
+            prefix: "before",
+            suffix: "after",
+            start_block: "a",
+            end_block: "b",
+            start_path: [0],
+            end_path: [1],
+        };
+        store().saveSnapshot(userA, project1, card1, { content: "text", anchor: text });
+        recreate();
+        assert.deepEqual(read().anchor, text);
+    });
+
+    it("migrates plain legacy strings, JSON editor text and version 1 metadata", () => {
+        for (const legacy of ["legacy text", JSON.stringify({ content: "literal JSON" }), JSON.stringify({ draft_version: 1, ...snapshot })]) {
+            storage.clear();
+            recreate();
+            session.setItem(legacyKey, legacy);
+            const expected = legacy.includes("draft_version") ? snapshot : { content: legacy };
+            assert.equal(read().content, expected.content);
+            assert.equal(session.getItem(legacyKey), null);
+            recreate();
+            assert.equal(read().content, expected.content);
+            if (expected === snapshot) assert.deepEqual(read(), snapshot);
+        }
+    });
+
+    it("prefers persistent metadata over session drafts and isolates actor, project and card", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        session.setItem(legacyKey, "older draft");
+        recreate();
+        assert.deepEqual(read(), snapshot);
+        for (const args of [
+            [userB, project1, card1],
+            [userA, project2, card1],
+            [userA, project1, "other-card"],
+        ]) {
+            assert.equal(store().getSnapshot(args[0], args[1], args[2]).content, "");
+        }
+    });
+
+    it("discards expired cached metadata and stale migration content", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        const payload = JSON.parse(storage.getItem(key)!);
+        payload.savedAt = Date.now() - DRAFT_TTL_MS - 1;
+        storage.setItem(key, JSON.stringify(payload));
+        recreate();
+        session.setItem(legacyKey, "stale legacy");
+        assert.equal(read().content, "");
+        recreate();
+        assert.equal(read().content, "");
+        useCardDraftStore.setState({ cache: { [key]: payload } });
+        assert.equal(read().anchor, undefined);
+    });
+
+    it("clears both storage generations and persists tombstones when removal fails", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        session.setItem(legacyKey, JSON.stringify({ draft_version: 1, ...snapshot }));
+        const removeLocal = storage.removeItem;
+        const removeSession = session.removeItem;
+        storage.removeItem = session.removeItem = () => {
+            throw new Error("denied");
+        };
+        try {
+            store().clearDraft(userA, project1, card1);
+            recreate();
+            assert.equal(read().content, "");
+            assert.equal(read().anchor, undefined);
+        } finally {
+            storage.removeItem = removeLocal;
+            session.removeItem = removeSession;
+        }
+        store().clearDraft(userA, project1, card1);
+        recreate();
+        assert.equal(read().content, "");
+    });
+
+    it("empty snapshots remove legacy backups even after a failed migration write", () => {
+        session.setItem(legacyKey, "backup");
+        const setItem = storage.setItem;
+        storage.setItem = () => {
+            throw new Error("quota");
+        };
+        try {
+            assert.equal(read().content, "backup");
+            store().saveSnapshot(userA, project1, card1, { content: "" });
+            recreate();
+            assert.equal(read().content, "");
+        } finally {
+            storage.setItem = setItem;
+        }
+    });
+
+    it("never remigrates a cleared session copy when session cleanup is fully denied", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        session.setItem(legacyKey, JSON.stringify({ draft_version: 1, ...snapshot }));
+        const removeSession = session.removeItem;
+        const writeSession = session.setItem;
+        session.removeItem = session.setItem = () => {
+            throw new Error("session denied");
+        };
+        try {
+            store().clearDraft(userA, project1, card1);
+            assert.equal(read().content, "");
+            recreate();
+            assert.equal(read().content, "");
+            const marker = JSON.parse(storage.getItem(key)!);
+            marker.savedAt = Date.now() - DRAFT_TTL_MS - 1;
+            storage.setItem(key, JSON.stringify(marker));
+            recreate();
+            assert.equal(read().content, "");
+            assert.equal(session.getItem(legacyKey), JSON.stringify({ draft_version: 1, ...snapshot }));
+            storage.setItem(key, JSON.stringify({ ...snapshot, savedAt: Date.now() - DRAFT_TTL_MS - 1 }));
+            recreate();
+            assert.equal(read().content, "");
+            recreate();
+            assert.equal(read().content, "", "expired snapshots cannot remigrate a denied session copy");
+        } finally {
+            session.removeItem = removeSession;
+            session.setItem = writeSession;
+        }
+    });
+
+    it("does not notify render subscribers during synchronous legacy migration", () => {
+        session.setItem(legacyKey, JSON.stringify({ draft_version: 1, ...snapshot }));
+        let notifications = 0;
+        const unsubscribeComment = useCommentDraftStore.subscribe(() => {
+            notifications += 1;
+        });
+        const unsubscribeDraft = useCardDraftStore.subscribe(() => {
+            notifications += 1;
+        });
+        try {
+            assert.deepEqual(read(), snapshot);
+            assert.equal(notifications, 0);
+            recreate();
+            assert.deepEqual(read(), snapshot);
+        } finally {
+            unsubscribeComment();
+            unsubscribeDraft();
+        }
+    });
+
+    it("keeps typing and retry metadata in memory when persistence fails", () => {
+        session.setItem(legacyKey, "legacy backup");
+        const setItem = storage.setItem;
+        storage.setItem = () => {
+            throw new Error("quota");
+        };
+        try {
+            assert.equal(read().content, "legacy backup");
+            assert.equal(session.getItem(legacyKey), "legacy backup");
+            store().saveSnapshot(userA, project1, card1, snapshot);
+            assert.deepEqual(read(), snapshot);
+            assert.equal(session.getItem(legacyKey), "legacy backup");
+            store().clearDraft(userA, project1, card1);
+            assert.equal(read().content, "");
+        } finally {
+            storage.setItem = setItem;
+        }
+    });
+
+    it("handles malformed payloads and legacy versioned data without throwing", () => {
+        for (const malformed of ["null", "[]", "{", JSON.stringify({ content: "bad", savedAt: "yesterday" })]) {
+            storage.setItem(key, malformed);
+            recreate();
+            assert.doesNotThrow(read);
+            assert.equal(read().content, "");
+        }
+        session.setItem(legacyKey, JSON.stringify({ draft_version: 1, content: 42 }));
+        recreate();
+        assert.equal(read().content, "");
     });
 });
