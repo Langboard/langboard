@@ -68,3 +68,111 @@ test("filtered counts and translated controls preserve the filtered hierarchy", 
     await expect(row(page, "sibling")).toHaveCount(0);
     await expect(row(page, "root").getByRole("button", { name: "하위 카드 펼치기", exact: true })).toHaveText("2");
 });
+
+type TUpdateBridge = {
+    order: (column: string, data: Record<string, unknown>) => Promise<void>;
+    relationships: (data: Record<string, unknown>) => Promise<void>;
+    snapshot: () => {
+        uid: string;
+        order: number;
+        column: string;
+        relationships: { uid: string; parent: string; child: string; semantic: string }[];
+    }[];
+};
+const orderEvent = (page: import("@playwright/test").Page, column: string, data: Record<string, unknown>) =>
+    page.evaluate(({ column, data }) => (window as unknown as { collapseUpdates: TUpdateBridge }).collapseUpdates.order(column, data), {
+        column,
+        data,
+    });
+const relationEvent = (page: import("@playwright/test").Page, data: Record<string, unknown>) =>
+    page.evaluate((data) => (window as unknown as { collapseUpdates: TUpdateBridge }).collapseUpdates.relationships(data), data);
+const snapshot = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => (window as unknown as { collapseUpdates: TUpdateBridge }).collapseUpdates.snapshot());
+const edge = (parent: string, child: string, semantic = "contains") => ({
+    uid: `${parent}-${child}`,
+    parent_card_uid: parent,
+    child_card_uid: child,
+    machine_semantic: semantic,
+});
+
+test("native order converters move cards away and back while preserving nested collapse", async ({ page }) => {
+    await page.goto(`${fixture}?updates`);
+    await expect(control(page, "root")).toHaveText("4");
+    await control(page, "child").click();
+    await control(page, "root").click();
+    await expect.poll(() => saved(page)).toEqual({ "user:board:child": true, "user:board:root": true });
+    const initialRelationships = (await snapshot(page)).map(({ uid, relationships }) => ({ uid, relationships }));
+    await orderEvent(page, "column", { uid: "unrelated", move_type: "in_column", order: 0 });
+    await expect.poll(async () => (await snapshot(page)).find(({ uid }) => uid === "unrelated")?.order).toBe(0);
+    await expect(page.getByTestId("scrollport").locator("[data-board-card-touch-dnd-uid]").first()).toHaveAttribute(
+        "data-board-card-touch-dnd-uid",
+        "unrelated"
+    );
+    await expect(control(page, "root")).toHaveText("4");
+    await expect(row(page, "child")).toHaveCount(0);
+    const move = async (uid: string, from: string, to: string) => {
+        await orderEvent(page, from, { uid, move_type: "from_column", column_uid: from, order: 0 });
+        await orderEvent(page, to, { uid, move_type: "to_column", column_uid: to, order: 0 });
+        await expect.poll(async () => (await snapshot(page)).find((card) => card.uid === uid)?.column).toBe(to);
+    };
+    await move("child", "column", "other-column");
+    await expect(control(page, "root")).toHaveText("2");
+    await expect(page.getByTestId("other-scrollport").locator('[data-board-card-touch-dnd-uid="child"]')).toHaveCount(1);
+    await expect(row(page, "grandchild")).toHaveCount(1);
+    await move("grandchild", "column", "other-column");
+    await expect(control(page, "child")).toHaveText("1");
+    await expect(control(page, "child")).toHaveAttribute("aria-expanded", "false");
+    await expect(row(page, "grandchild")).toHaveCount(0);
+    await move("child", "other-column", "column");
+    await expect(control(page, "root")).toHaveText("3");
+    await expect(row(page, "child")).toHaveCount(0);
+    await expect(row(page, "grandchild")).toHaveCount(1);
+    await move("grandchild", "other-column", "column");
+    await expect(control(page, "root")).toHaveText("4");
+    await expect(page.getByTestId("other-scrollport").locator("[data-board-card-touch-dnd-uid]")).toHaveCount(0);
+    expect(await saved(page)).toEqual({ "user:board:child": true, "user:board:root": true });
+    expect((await snapshot(page)).map(({ uid, relationships }) => ({ uid, relationships }))).toEqual(initialRelationships);
+    await control(page, "root").click();
+    await expect(control(page, "child")).toHaveAttribute("aria-expanded", "false");
+    await expect(row(page, "grandchild")).toHaveCount(0);
+});
+
+test("native relationship sync updates hidden counts and semantic grouping under sort and filters", async ({ page }) => {
+    await page.goto(`${fixture}?updates`);
+    await expect(control(page, "root")).toHaveText("4");
+    await control(page, "child").click();
+    await control(page, "root").click();
+    await expect.poll(() => saved(page)).toEqual({ "user:board:child": true, "user:board:root": true });
+    const before = await saved(page);
+    await relationEvent(page, { card_uid: "root", relationships: [edge("root", "child"), edge("root", "sibling"), edge("root", "unrelated")] });
+    await expect(control(page, "root")).toHaveText("5");
+    await expect(row(page, "unrelated")).toHaveCount(0);
+    await relationEvent(page, { card_uid: "root", relationships: [edge("root", "child"), edge("root", "unrelated")] });
+    await expect(control(page, "root")).toHaveText("3");
+    await expect(row(page, "sibling")).toHaveCount(1);
+    await expect(row(page, "cousin")).toHaveCount(1);
+    await relationEvent(page, { card_uid: "root", relationships: [edge("root", "child", "references"), edge("root", "unrelated")] });
+    await expect(control(page, "root")).toHaveText("1");
+    expect((await snapshot(page)).find(({ uid }) => uid === "root")?.relationships).toEqual([
+        { uid: "root-child", parent: "root", child: "child", semantic: "references" },
+        { uid: "root-unrelated", parent: "root", child: "unrelated", semantic: "contains" },
+    ]);
+    await expect(control(page, "child")).toHaveAttribute("aria-expanded", "false");
+    await expect(row(page, "grandchild")).toHaveCount(0);
+    await relationEvent(page, { card_uid: "root", relationships: [edge("root", "child"), edge("root", "sibling")] });
+    await expect(control(page, "root")).toHaveText("4");
+    await page.getByRole("combobox", { name: "Sort cards" }).selectOption("updated_newest");
+    await orderEvent(page, "column", { uid: "unrelated", move_type: "in_column", order: 5, updated_at: "2030-01-01T00:00:00Z" });
+    await expect(page.getByTestId("scrollport").locator("[data-board-card-touch-dnd-uid]").first()).toHaveAttribute(
+        "data-board-card-touch-dnd-uid",
+        "unrelated"
+    );
+    await expect(control(page, "root")).toHaveText("4");
+    expect(await saved(page)).toEqual(before);
+    await page.goto(`${fixture}?updates&filtered`);
+    await expect(control(page, "root")).toHaveText("2");
+    await relationEvent(page, { card_uid: "root", relationships: [edge("root", "child"), edge("root", "sibling"), edge("root", "unrelated")] });
+    await expect(control(page, "root")).toHaveText("3");
+    await expect(row(page, "unrelated")).toHaveCount(0);
+    expect(await saved(page)).toEqual(before);
+});

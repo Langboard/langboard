@@ -9,6 +9,13 @@ import { AuthUser, Project, ProjectCard, ProjectColumn } from "@/core/models";
 import { AuthProvider, useAuth } from "@/core/providers/AuthProvider";
 import { BoardProvider } from "@/core/providers/BoardProvider";
 import useAuthStore from "@/core/stores/AuthStore";
+import { installNativeSocketFixture } from "./wiki-summary-tests/nativeSocket.fixture";
+import { useSocketOutsideProvider } from "@/core/providers/SocketProvider";
+import useCardRelationshipsUpdatedHandlers from "@/controllers/socket/card/useCardRelationshipsUpdatedHandlers";
+import { ESocketTopic } from "@langboard/core/enums";
+import useColumnCardSort from "./useColumnCardSort";
+import type { TRowOrderChangedResponse } from "@/controllers/socket/shared/useRowOrderChangedHandlers";
+import type { ICardRelationshipsUpdatedRawResponse } from "@/controllers/socket/card/syncCardRelationships";
 import { BoardColumnCardList } from "./BoardColumn";
 import { BOARD_CARD_FOCUS_EVENT, BOARD_CARD_LOCATION_EVENT } from "./BoardConstants";
 
@@ -50,6 +57,15 @@ const column = ProjectColumn.Model.fromOne({
     is_archive: false,
     count: 6,
 });
+const otherColumn = ProjectColumn.Model.fromOne({
+    ...base,
+    uid: "other-column",
+    project_uid: boardUID,
+    name: "Other column",
+    order: 1,
+    is_archive: false,
+    count: 0,
+});
 const edges = [
     ["root", "child"],
     ["child", "grandchild"],
@@ -78,13 +94,55 @@ ProjectCard.Model.fromArray(
             })),
     }))
 );
+// Controlled wire; native runtime registry and handler converters receive the exact server event names.
+installNativeSocketFixture();
+useSocketOutsideProvider().subscribe(ESocketTopic.Board, [boardUID]);
+useCardRelationshipsUpdatedHandlers({ projectUID: boardUID }).on();
+const emit = (event: string, data: unknown) =>
+    (
+        window as unknown as {
+            emitNativeSummaryEvent: (topic: ESocketTopic, topicID: string, event: string, data: unknown) => unknown;
+        }
+    ).emitNativeSummaryEvent(ESocketTopic.Board, boardUID, event, data);
+Object.assign(window, {
+    collapseUpdates: {
+        order: (columnUID: string, data: TRowOrderChangedResponse) => emit(`board:card:order:changed:${columnUID}`, data),
+        relationships: (data: ICardRelationshipsUpdatedRawResponse) => emit(`board:card:relationships:updated:${boardUID}`, data),
+        snapshot: () =>
+            ProjectCard.Model.getModels((card) => card.project_uid === boardUID).map((card) => ({
+                uid: card.uid,
+                order: card.order,
+                column: card.project_column_uid,
+                relationships: card.relationships.map((edge) => ({
+                    uid: edge.uid,
+                    parent: edge.parent_card_uid,
+                    child: edge.child_card_uid,
+                    semantic: edge.machine_semantic,
+                })),
+            })),
+    },
+});
+function OtherColumnList() {
+    const scrollableRef = useRef<HTMLDivElement>(null);
+    const updateBoard = useCallback(() => {}, []);
+    return (
+        <div ref={scrollableRef} data-testid="other-scrollport" className="h-96 w-80 overflow-y-auto p-3">
+            <BoardColumnCardList column={otherColumn} updateBoard={updateBoard} scrollableRef={scrollableRef} onCardCountChange={updateBoard} />
+        </div>
+    );
+}
 function List() {
     const scrollableRef = useRef<HTMLDivElement>(null);
     const [count, setCount] = useState(0);
+    const { mode, setMode } = useColumnCardSort(boardUID, column.uid);
     const updateBoard = useCallback(() => {}, []);
     return (
         <>
             <p data-testid="count">{count}</p>
+            <select aria-label="Sort cards" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
+                <option value="manual">Manual</option>
+                <option value="updated_newest">Recently updated</option>
+            </select>
             <button
                 onClick={() =>
                     document.dispatchEvent(
@@ -129,6 +187,7 @@ function Fixture() {
     return (
         <BoardProvider project={project} currentUser={currentUser!}>
             <List />
+            {params.has("updates") && <OtherColumnList />}
         </BoardProvider>
     );
 }
