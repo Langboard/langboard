@@ -160,3 +160,14 @@ def test_stage_and_closed_filters_apply_to_page_and_same_count(query_cards):
     assert repo.count_by_project(project, include_closed=True, **{**filters, "workflow_stages": ["closed"]}) == 0
     found, count = repo.search_context_by_project(project, "needle", 1, paginated=True, include_closed=False, **filters)
     assert count == 1 and [card.id for card, _ in found] == [rows[1].id]
+
+
+def test_cross_board_candidates_do_not_drop_later_boards_after_first_twenty(query_cards):
+    _, project, _, context, repo = query_cards
+    found, count = repo.search_context_by_project(
+        None, "not-in-card-text", 1, context=context,
+        contexts={int(project.id): context, 11: context}, paginated=True,
+        additional_card_ids=[*range(1000, 1020), 200],
+    )
+    assert [card.id for card, _ in found] == [200]
+    assert count == 1

@@ -443,7 +443,10 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .where(Card.column("source_type") == None)  # noqa: E711
             .where(
                 or_(
-                    Card.id.in_(additional_card_ids[:20]) if additional_card_ids else false(),
+                    # Cross-board lookups contribute at most 20 validated candidates per board.
+                    # Apply the global page limit after matching every readable board.
+                    Card.id.in_(additional_card_ids if contexts is not None else additional_card_ids[:20])
+                    if additional_card_ids else false(),
                     title.ilike(pattern, escape="\\"),
                     _editor_search_text(Card.column("description"), dialect).ilike(pattern, escape="\\"),
                     comments,
