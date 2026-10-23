@@ -284,3 +284,66 @@ test("hover Edit activates only the authorized native editor while Open stays di
     await hover.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(comment.getByRole("button", { name: "Save", exact: true })).toBeVisible();
 });
+
+test("secondary touch cannot replace or finish an active rectangle", async ({ browser }) => {
+    const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 800 } });
+    const page = await context.newPage();
+    await page.route("**/image-anchor.svg*", (route) =>
+        route.fulfill({
+            contentType: "image/svg+xml",
+            body: "<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'><rect width='1200' height='800' fill='lightblue'/></svg>",
+        })
+    );
+    await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
+    await page.getByRole("button", { name: "Native evidence" }).tap();
+    await page.getByRole("button", { name: "Image region", exact: true }).tap();
+    const box = (await page.getByRole("button", { name: "Place image annotation" }).boundingBox())!;
+    await page.evaluate(() => {
+        const events: { type: string; pointerId: number; primary: boolean }[] = [];
+        Object.assign(window, { imageTouchEvents: events });
+        for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
+            document.addEventListener(
+                type,
+                (event) => {
+                    const pointer = event as PointerEvent;
+                    events.push({ type, pointerId: pointer.pointerId, primary: pointer.isPrimary });
+                },
+                true
+            );
+        }
+    });
+    const first = { id: 1, x: box.x + box.width * 0.2, y: box.y + box.height * 0.2 };
+    const second = { id: 2, x: box.x + box.width * 0.8, y: box.y + box.height * 0.8 };
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [first] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [first, second] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [second] });
+    await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ ...first, x: box.x + box.width * 0.5, y: box.y + box.height * 0.5 }],
+    });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const events = await page.evaluate(
+        () => (window as unknown as { imageTouchEvents: { type: string; pointerId: number; primary: boolean }[] }).imageTouchEvents
+    );
+    console.log("Native multi-touch pointer trace:", JSON.stringify(events));
+    expect(events.map(({ type, primary }) => ({ type, primary }))).toEqual([
+        { type: "pointerdown", primary: true },
+        { type: "pointerdown", primary: false },
+        { type: "pointerup", primary: false },
+        { type: "pointermove", primary: true },
+        { type: "pointerup", primary: true },
+    ]);
+    expect(events[3].pointerId).toBe(events[0].pointerId);
+    expect(events[4].pointerId).toBe(events[0].pointerId);
+    await expect(page.getByRole("button", { name: "Comment", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Comment", exact: true }).tap();
+    await page.locator("[contenteditable=true]:visible").fill("Primary touch rectangle");
+    await page.getByRole("button", { name: "Save", exact: true }).tap();
+    const { anchor } = JSON.parse(await page.locator("#request").innerText());
+    expect(anchor.x).toBeCloseTo(240, 0);
+    expect(anchor.y).toBeCloseTo(160, 0);
+    expect(anchor.width).toBeCloseTo(360, 0);
+    expect(anchor.height).toBeCloseTo(240, 0);
+    await context.close();
+});

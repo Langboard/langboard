@@ -18,7 +18,7 @@ export default function ImageAnnotations({ context, image }: { context: ImageAnn
     const [t] = useTranslation();
     const [mode, setMode] = useState<"point" | "rectangle" | null>(null);
     const [pending, setPending] = useState<ICardCommentImageAnchor | null>(null);
-    const start = useRef<{ x: number; y: number } | null>(null);
+    const start = useRef<{ x: number; y: number; pointerId: number } | null>(null);
     const coordinates = (x: number, y: number) => {
         const rect = image.getBoundingClientRect();
         return {
@@ -56,23 +56,24 @@ export default function ImageAnnotations({ context, image }: { context: ImageAnn
                 tabIndex={mode ? 0 : undefined}
                 aria-label={mode ? t("card.Place image annotation") : undefined}
                 onPointerDown={(e) => {
-                    if (!mode) return;
+                    if (!mode || !e.isPrimary || e.button !== 0 || start.current) return;
                     e.preventDefault();
                     e.stopPropagation();
                     e.currentTarget.setPointerCapture(e.pointerId);
-                    start.current = coordinates(e.clientX, e.clientY);
+                    start.current = { ...coordinates(e.clientX, e.clientY), pointerId: e.pointerId };
                     select(start.current);
                 }}
                 onPointerMove={(e) => {
-                    if (start.current && mode === "rectangle") select(start.current, coordinates(e.clientX, e.clientY));
+                    if (start.current?.pointerId === e.pointerId && mode === "rectangle") select(start.current, coordinates(e.clientX, e.clientY));
                 }}
                 onPointerUp={(e) => {
-                    if (!start.current) return;
+                    if (start.current?.pointerId !== e.pointerId) return;
                     select(start.current, mode === "rectangle" ? coordinates(e.clientX, e.clientY) : start.current);
                     start.current = null;
                     e.currentTarget.releasePointerCapture(e.pointerId);
                 }}
-                onPointerCancel={() => {
+                onPointerCancel={(e) => {
+                    if (start.current?.pointerId !== e.pointerId) return;
                     start.current = null;
                     setPending(null);
                 }}
