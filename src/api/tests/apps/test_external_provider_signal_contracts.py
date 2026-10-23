@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 import pytest
 from fastapi import FastAPI
@@ -37,18 +38,26 @@ CONTRACTS = json.loads((Path(__file__).parent / "vendor/provider-signal-contract
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
-@pytest.mark.parametrize("contract", CONTRACTS, ids=lambda value: value["definition"]["key"])
+@pytest.mark.parametrize("contract", CONTRACTS, ids=lambda value: f'{value["definition"]["key"]}-{value["evidence"]["event_type"]}')
 def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeypatch, contract):
     import langboard.routes.settings.AppSignalApi as signal_api
     from langboard.apps.SignalInbox import list_board_signals
     from langboard_shared.domain.services import DomainService
 
-    state, _, _, _ = scoped
+    state, card, link, _ = scoped
     service, actor, project = state[0], state[1][1], state[1][2]
     with DbSession.use(readonly=False) as db:
         cards_before = {row.id for row in db.exec(SqlBuilder.select.table(Card)).all()}
         links_before = {row.id for row in db.exec(SqlBuilder.select.table(CardAppSignalBinding)).all()}
     definition = validate_app_definition(contract["definition"])
+    basis_policy = definition["signal_policy"]["time_basis"]
+    expected_basis = (
+        basis_policy[contract["evidence"]["event_type"]] if isinstance(basis_policy, dict) else basis_policy
+    )
+    expected_kind = "external_observation" if expected_basis == "observation" else "external_event"
+    expected_time = datetime.fromisoformat(contract["evidence"]["occurred_at"].replace("Z", "+00:00")).astimezone(
+        timezone.utc
+    ).isoformat(timespec="microseconds")
     AppConnectionCredential.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     with DbSession.atomic() as db:
         registered = AppDefinition(key=definition["key"], declaration=definition, approved_by=actor.id)
@@ -120,12 +129,35 @@ def test_provider_contract_signed_http_sql_replay_and_revocation(scoped, monkeyp
         assert len(rows) == 1
         stored = rows[0]
         assert stored.provider == definition["key"]
+        assert stored.occurred_at == expected_time
         for field in ("event_id", "event_type", "external_id", "outcome", "commit_sha"):
             assert getattr(stored, field) == envelope[field]
     visible = list_board_signals(service, actor, project.get_uid(), provider=definition["key"])
     assert len(visible["items"]) == 1
-    assert visible["items"][0]["outcome"] == envelope["outcome"]
-    assert visible["items"][0]["time_basis"] == definition["signal_policy"]["time_basis"]
+    selected = visible["items"][0]
+    assert selected["signal_uid"] == first.json()["signal_uid"]
+    assert selected["time_basis"] == expected_basis and selected["evidence_kind"] == expected_kind
+    assert selected["occurred_at"] == expected_time and selected["resource_uid"] == resource.get_uid()
+    for field in ("event_type", "external_id", "outcome", "commit_sha"):
+        assert selected[field] == envelope[field]
+    # Explicitly bind this emitted source event to a card, then read its exact proof.
+    # Restore the existing link before checking publication cannot mutate card authority.
+    from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
+
+    original_link = (link.resource_id, link.external_id, link.commit_sha, link.is_enabled)
+    with DbSession.atomic() as db:
+        link.resource_id, link.external_id, link.commit_sha, link.is_enabled = (
+            resource.id, envelope["external_id"], envelope["commit_sha"], True
+        )
+        db.update(link)
+    proof = card_signal_projections([card])[card.id][0]
+    for field in ("signal_uid", "event_type", "external_id", "outcome", "commit_sha",
+                  "occurred_at", "resource_uid", "time_basis", "evidence_kind"):
+        assert proof[field] == selected[field]
+    assert proof["state"] == definition["signal_policy"]["outcome_states"][envelope["outcome"]]
+    with DbSession.atomic() as db:
+        link.resource_id, link.external_id, link.commit_sha, link.is_enabled = original_link
+        db.update(link)
     from langboard_shared.domain.services.AppPanel import get_panel, set_panel
 
     closed = set_panel(service.workflow_stage, actor, project.get_uid(), definition["key"],
