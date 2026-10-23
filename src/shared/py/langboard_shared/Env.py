@@ -45,6 +45,10 @@ class Env:
         return self.__get_from_cache("PROJECT_NAME")
 
     @property
+    def INSTANCE_DEFAULT_LANGUAGE(self) -> str:
+        return self.__get_from_cache("INSTANCE_DEFAULT_LANGUAGE", "")
+
+    @property
     def PROJECT_SHORT_NAME(self) -> str:
         return self.__get_from_cache("PROJECT_SHORT_NAME", self.PROJECT_NAME)
 

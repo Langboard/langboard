@@ -127,3 +127,32 @@ for (const width of [1280, 390]) {
         expect(writes).toBe(1);
     });
 }
+
+test("explicitly selecting the inherited current language persists once while both controls are pending", async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem("lang", "ko-KR");
+        localStorage.setItem("fixture-preferred-lang", "ko-KR");
+    });
+    let release: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    let writes = 0;
+    await page.route("**/account/preferred-language", async (route) => {
+        writes++;
+        expect(route.request().postDataJSON()).toEqual({ lang: "ko-KR" });
+        await pending;
+        await route.fulfill({ json: {} });
+    });
+    await page.goto("/src/pages/AccountPage/components/preference/PreferenceLanguage.fixture.html");
+    await page.getByRole("button", { name: "한국어", exact: true }).click();
+    await page.getByRole("menuitem", { name: "한국어" }).click();
+    await expect.poll(() => writes).toBe(1);
+    await expect(page.getByRole("button", { name: "한국어", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Language Fixture" }).click();
+    const avatar = page.getByRole("dialog").getByRole("button", { name: "한국어", exact: true });
+    await expect(avatar).toBeDisabled();
+    release();
+    await expect(avatar).toBeEnabled();
+    expect(writes).toBe(1);
+});
