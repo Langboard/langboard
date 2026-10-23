@@ -20,7 +20,7 @@ from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from ....core.exceptions.CardDescriptionConflict import CardDescriptionConflict
 from ....core.schema import TimeBasedPagination
-from ....core.search.ElasticsearchKeywordSearch import search_document_candidates
+from ....core.search.ElasticsearchKeywordSearch import search_document_candidates, search_document_candidates_many
 from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import (
@@ -1426,23 +1426,32 @@ class CardService(BaseDomainService):
         else:
             scopes = contexts
         external_candidates, semantic_matches = {}, {}
+        from ....tasks.docling.CompactionMetadataIndexTask import SemanticSearchRequest
         from .CardCommentCompactionService import CardCommentCompactionService, CommentCompactionError
 
-        for project_id, scoped_context in scopes.items():
-            project_code = SnowflakeID(project_id).to_short_code()
-            candidates = search_document_candidates(project_code, input_value)
-            # External requests and inference can outlive source or audience grants.
-            current = self.resolve_visibility_context(project_id, user, channel)
-            if current is None or not current[1].project_member:
-                continue
-            scoped_project, scoped_context = current
-            if candidates is not None:
-                external_candidates[project_id] = candidates
-            semantic_matches.update(
-                self._get_service(CardCommentCompactionService).search_metadata_candidates(
-                    user, scoped_project, scoped_context, input_value, channel=channel
+        board_candidates = (
+            search_document_candidates_many([SnowflakeID(project_id).to_short_code() for project_id in scopes], input_value)
+            if project is None else None
+        )
+        with SemanticSearchRequest() as semantic_request:
+            for project_id, scoped_context in scopes.items():
+                project_code = SnowflakeID(project_id).to_short_code()
+                candidates = (
+                    (board_candidates or {}).get(project_code)
+                    if project is None else search_document_candidates(project_code, input_value)
                 )
-            )
+                # External requests and inference can outlive source or audience grants.
+                current = self.resolve_visibility_context(project_id, user, channel)
+                if current is None or not current[1].project_member:
+                    continue
+                scoped_project, scoped_context = current
+                if candidates is not None:
+                    external_candidates[project_id] = candidates
+                semantic_matches.update(
+                    self._get_service(CardCommentCompactionService).search_metadata_candidates(
+                        user, scoped_project, scoped_context, input_value, channel=channel, request=semantic_request
+                    )
+                )
         if project is None:
             contexts = self.resolve_work_visibility_contexts(user, channel)
             context = next(iter(contexts.values()), None)

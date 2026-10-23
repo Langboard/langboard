@@ -5,6 +5,7 @@ Exact serialized-value CAS fences competing deliveries without changing attachme
 """
 
 import json
+from contextlib import ExitStack
 from datetime import timedelta
 from hashlib import sha256
 from uuid import uuid4
@@ -262,10 +263,17 @@ def _query_embeddings(provider):
         """Request-local query inference reuse without persistent text or vectors."""
         def __init__(self):
             self.vectors = {}
+            self.failed = False
 
         def embed_query(self, text):
+            if self.failed:
+                raise ValueError("Query provider unavailable for this request")
             if text not in self.vectors:
-                self.vectors[text] = provider.embed_query(text)
+                try:
+                    self.vectors[text] = provider.embed_query(text)
+                except Exception:
+                    self.failed = True
+                    raise
             return self.vectors[text]
 
         def embed_documents(self, texts):
@@ -275,14 +283,60 @@ def _query_embeddings(provider):
     return QueryEmbeddings()
 
 
-def search_metadata(service, user, project, card, query, *, channel):
+class SemanticSearchRequest(ExitStack):
+    """Own verified query providers and native stores for one search request."""
+
+    def __init__(self):
+        super().__init__()
+        self.stores = {}
+
+    def store(self, binding, snapshot, revision, private, settings, fingerprint):
+        provider_urls = set(Env.get_from_env("MODEL_PROVIDER_ALLOWED_BASE_URLS", "").split(","))
+        store_urls = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
+        directory = Env.DATA_DIR / "document-retrieval"
+        # Include current credentials in this ephemeral identity without hashing,
+        # persisting, or exposing them. A settings write also changes revision.
+        key = (binding.get_uid(), revision, binding.value, json.dumps(snapshot, sort_keys=True),
+               fingerprint, str(directory), Env.MAIN_DATABASE_URL if settings.store == "postgres" else None,
+               tuple(sorted(provider_urls)), tuple(sorted(store_urls)))
+        if key not in self.stores:
+            # Failures are request-local too: another board must not retry the
+            # same unavailable provider/store once per readable board.
+            self.stores[key] = None
+            provider = create_document_embeddings(private, provider_urls)
+            close = getattr(provider, "close", None) or getattr(getattr(provider, "root_client", None), "close", None)
+            if close:
+                self.callback(close)
+            self.stores[key] = self.enter_context(open_document_vector_store(
+                settings, _query_embeddings(provider), fingerprint, directory, store_urls, create=False))
+        return self.stores[key]
+
+    def close(self):
+        try:
+            super().close()
+        finally:
+            self.stores.clear()
+
+    def __exit__(self, *exc):
+        try:
+            return super().__exit__(*exc)
+        except Exception:
+            # ExitStack still attempts every cleanup. Optional provider/store
+            # teardown must not remove native SQL search coverage or expose
+            # provider errors. False preserves any original request exception.
+            return False
+        finally:
+            self.stores.clear()
+
+
+def search_metadata(service, user, project, card, query, *, channel, request=None):
     """Query every indexed generation on one currently authorized card."""
     if card is None:
         return []
-    return search_board_metadata(service, user, project, query, channel=channel, card=card).get(card.id, [])
+    return search_board_metadata(service, user, project, query, channel=channel, card=card, request=request).get(card.id, [])
 
 
-def search_board_metadata(service, user, project, query, *, channel, card=None):
+def search_board_metadata(service, user, project, query, *, channel, card=None, request=None):
     """One bounded native board query ranks every indexed card age before ACL checks.
 
     Vector payloads are internal candidates. Only current authorized source
@@ -326,10 +380,10 @@ def search_board_metadata(service, user, project, query, *, channel, card=None):
         import tiktoken
         from .DocumentVectorQuery import project_vector_hits
 
-        embeddings = _query_embeddings(create_document_embeddings(
-            private, set(Env.get_from_env("MODEL_PROVIDER_ALLOWED_BASE_URLS", "").split(","))))
-        with open_document_vector_store(settings, embeddings, fingerprint, Env.DATA_DIR / "document-retrieval",
-            set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(",")), create=False) as store:
+        with ExitStack() as local:
+            if request is None:
+                request = local.enter_context(SemanticSearchRequest())
+            store = request.store(binding, snapshot, revision, private, settings, fingerprint)
             if store is None:
                 return {}
             constraints = {"source_type": "comment_compaction", "board_uid": project.get_uid(),

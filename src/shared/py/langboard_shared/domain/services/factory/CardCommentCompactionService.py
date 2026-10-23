@@ -440,7 +440,7 @@ class CardCommentCompactionService(BaseDomainService):
             self._authorize(user, project, card, channel)
             return self._search_metadata(blocks)
 
-    def search_metadata_candidates(self, user, project, context, query, *, channel=CollaborationChannel.Api):
+    def search_metadata_candidates(self, user, project, context, query, *, channel=CollaborationChannel.Api, request=None):
         from ..CardVisibilityPolicy import card_visibility_scope
 
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -492,7 +492,7 @@ class CardCommentCompactionService(BaseDomainService):
 
         facade = SimpleNamespace(card_comment_compaction=self, internal_bot=self._get_service(InternalBotService),
                                  card=self._get_service(CardService))
-        semantic = search_board_metadata(facade, user, project, query, channel=channel)
+        semantic = search_board_metadata(facade, user, project, query, channel=channel, request=request)
         for card_id, similarity in semantic.items():
             try:
                 metadata = self.get_search_metadata(user, project, card_id, channel=channel)
