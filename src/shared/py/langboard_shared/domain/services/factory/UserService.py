@@ -18,13 +18,17 @@ from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
 from ....publishers import AppSettingPublisher, UserPublisher
 from ....security import Auth
-from ...models import SettingRole, User, UserEmail, UserProfile, UserSignInHistory
+from ...models import Organization, SettingRole, User, UserEmail, UserProfile, UserSignInHistory
 from ...models.SettingRole import SettingRoleAction, SettingRoleCategory
 from ...models.UserSignInHistory import SignInErrorCode
 
 
 if TYPE_CHECKING:
     from .ProjectInvitationService import ProjectInvitationService
+
+
+class UserOwnershipError(ValueError):
+    """Account lifecycle changes require transferring existing organizations first."""
 
 
 class UserService(BaseDomainService):
@@ -234,6 +238,8 @@ class UserService(BaseDomainService):
             current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
             if current is None:
                 return False
+            if from_setting and "activated_at" in form and form["activated_at"] is None:
+                self._assert_no_organization_ownership([current.id], db)
             expected = form.get("expected_avatar_revision")
             if (form.get("avatar") is not None or form.get("delete_avatar")) and expected is not None:
                 from .AvatarService import AvatarError
@@ -453,23 +459,42 @@ class UserService(BaseDomainService):
 
         return role
 
-    def delete(self, user: User) -> None:
-        self.repo.user.delete(user)
+    def _assert_no_organization_ownership(self, user_ids: list[SnowflakeID], db: DbSession) -> None:
+        owned = db.exec(
+            SqlBuilder.select.table(Organization).where(Organization.owner_user_id.in_(user_ids)).limit(1)
+        ).first()
+        if owned is not None:
+            raise UserOwnershipError("Transfer organization ownership before deactivating or deleting its owner.")
 
-        Auth.reset_user(user)
-        UserPublisher.deleted(user)
+    def delete(self, user: User) -> None:
+        with DbSession.atomic() as db:
+            db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            self._assert_no_organization_ownership([user.id], db)
+            self.repo.user.delete(user)
+
+            def publish():
+                Auth.reset_user(user)
+                UserPublisher.deleted(user)
+
+            db.after_commit(publish)
 
     def delete_selected(self, users: Sequence[TUserParam]) -> None:
         if not isinstance(users, Sequence) or isinstance(users, str):
             users = [users]
 
-        self.repo.user.delete(users)
-
         ids = [InfraHelper.convert_id(user) for user in users]
         uids = [InfraHelper.convert_uid(user) for user in users]
-        AppSettingPublisher.selected_users_deleted(uids)
-        for user_id in ids:
-            UserPublisher.deleted(user_id)
+        with DbSession.atomic() as db:
+            db.exec(SqlBuilder.select.table(User).where(User.id.in_(ids)).order_by(User.id).with_for_update()).all()
+            self._assert_no_organization_ownership(ids, db)
+            self.repo.user.delete(users)
+
+            def publish():
+                AppSettingPublisher.selected_users_deleted(uids)
+                for user_id in ids:
+                    UserPublisher.deleted(user_id)
+
+            db.after_commit(publish)
 
     def log_sign_in(
         self,

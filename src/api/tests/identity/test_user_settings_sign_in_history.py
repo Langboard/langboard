@@ -3,6 +3,7 @@
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
+import pytest
 from langboard.routes.settings.UserSettingsApi import get_users_page_in_settings
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -111,13 +112,24 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
     from langboard.middlewares.RoleMiddleware import RoleMiddleware
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.domain.models import ApiKeyRole, Card, CardComment, McpRole, SettingRole
+    from langboard_shared.domain.models import ApiKeyRole, Card, CardComment, McpRole, Organization, SettingRole
+    from langboard_shared.domain.services import DomainService
     from langboard_shared.Env import Env
     from langboard_shared.publishers import AppSettingPublisher, UserPublisher
     from sqlalchemy import select, update
 
     engine = create_engine(f"sqlite:///{tmp_path / 'settings-http.sqlite'}")
-    for model in (User, UserProfile, UserSignInHistory, SettingRole, ApiKeyRole, McpRole, Card, CardComment):
+    for model in (
+        User,
+        UserProfile,
+        UserSignInHistory,
+        SettingRole,
+        ApiKeyRole,
+        McpRole,
+        Card,
+        CardComment,
+        Organization,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -217,18 +229,15 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                     .values(actions=["user_read", "user_update", "user_delete"])
                 )
             # A sole administrator must not remove their own administrator access.
-            self_demoted = client.put(
-                f"/settings/users/{actor.get_uid()}", json={"is_admin": False}, headers=headers
-            )
+            self_demoted = client.put(f"/settings/users/{actor.get_uid()}", json={"is_admin": False}, headers=headers)
             assert self_demoted.status_code == 409, self_demoted.text
+            assert self_demoted.json()["code"] == "OP1005"
             with engine.connect() as db:
                 assert db.execute(select(User.is_admin).where(User.id == actor.id)).scalar_one() is True
             assert client.get(endpoint, headers=headers).status_code == 200
             assert UserPublisher.updated.call_count == 0
             assert AppSettingPublisher.user_updated.call_count == 0
-            self_unchanged = client.put(
-                f"/settings/users/{actor.get_uid()}", json={"is_admin": True}, headers=headers
-            )
+            self_unchanged = client.put(f"/settings/users/{actor.get_uid()}", json={"is_admin": True}, headers=headers)
             assert self_unchanged.status_code == 200, self_unchanged.text
             # An authorized administrator may still demote another administrator.
             with engine.begin() as db:
@@ -306,5 +315,95 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert AppSettingPublisher.selected_users_deleted.call_args.args[0] == [bulk_target.get_uid()]
             assert UserPublisher.deactivated.call_count == 1
             assert UserPublisher.deleted.call_count == 2
+
+            with DbSession.atomic() as db:
+                owner = User(
+                    firstname="Organization",
+                    lastname="Owner",
+                    username="org-owner",
+                    email="owner@example.invalid",
+                    password="fixture-only",
+                    activated_at=SafeDateTime.now(),
+                )
+                bystander = User(
+                    firstname="Ordinary",
+                    lastname="User",
+                    username="org-bystander",
+                    email="bystander@example.invalid",
+                    password="fixture-only",
+                    activated_at=SafeDateTime.now(),
+                )
+                db.insert(owner)
+                db.insert(bystander)
+                organization = Organization(name="Preserved tenant", slug="preserved-tenant", owner_user_id=owner.id)
+                db.insert(organization)
+            owner_url = f"/settings/users/{owner.get_uid()}"
+            renamed_owner = client.put(owner_url, json={"firstname": "Renamed owner"}, headers=headers)
+            assert renamed_owner.status_code == 200, renamed_owner.text
+            for publisher in (
+                UserPublisher.updated,
+                UserPublisher.deactivated,
+                UserPublisher.deleted,
+                AppSettingPublisher.user_updated,
+                AppSettingPublisher.selected_users_deleted,
+            ):
+                publisher.reset_mock()
+            for organization_active in (True, False):
+                with engine.begin() as db:
+                    db.execute(
+                        update(Organization)
+                        .where(Organization.id == organization.id)
+                        .values(is_active=organization_active)
+                    )
+                blocked = (
+                    client.put(owner_url, json={"activate": False}, headers=headers),
+                    client.delete(owner_url, headers=headers),
+                    client.request(
+                        "DELETE",
+                        "/settings/users",
+                        headers=headers,
+                        json={"user_uids": [bystander.get_uid(), owner.get_uid()]},
+                    ),
+                )
+                assert [response.status_code for response in blocked] == [409, 409, 409]
+                assert all(response.json()["code"] == "OP1004" for response in blocked)
+                with engine.connect() as db:
+                    assert db.execute(select(User.activated_at).where(User.id == owner.id)).scalar_one() is not None
+                    assert db.execute(select(User.deleted_at).where(User.id == owner.id)).scalar_one() is None
+                    assert db.execute(select(User.deleted_at).where(User.id == bystander.id)).scalar_one() is None
+                    assert (
+                        db.execute(
+                            select(Organization.owner_user_id).where(Organization.id == organization.id)
+                        ).scalar_one()
+                        == owner.id
+                    )
+            for publisher in (
+                UserPublisher.updated,
+                UserPublisher.deactivated,
+                UserPublisher.deleted,
+                AppSettingPublisher.user_updated,
+                AppSettingPublisher.selected_users_deleted,
+            ):
+                assert publisher.call_count == 0
+            # Fixture ownership transfer: normal lifecycle operations become available afterward.
+            with engine.begin() as db:
+                db.execute(
+                    update(Organization).where(Organization.id == organization.id).values(owner_user_id=actor.id)
+                )
+            assert client.put(owner_url, json={"activate": False}, headers=headers).status_code == 200
+            with pytest.raises(ValueError, match="owner must be an active account"):
+                DomainService().organization.create(owner, "Inactive owner", slug="inactive-owner")
+            assert client.delete(owner_url, headers=headers).status_code == 200
+            with pytest.raises(ValueError, match="owner must be an active account"):
+                DomainService().organization.create(owner, "Deleted owner", slug="deleted-owner")
+            created = DomainService().organization.create(actor, "Active owner", slug="active-owner")
+            assert created.owner_user_id == actor.id
+            with engine.connect() as db:
+                assert (
+                    db.execute(
+                        select(Organization.owner_user_id).where(Organization.id == organization.id)
+                    ).scalar_one()
+                    == actor.id
+                )
     finally:
         engine.dispose()

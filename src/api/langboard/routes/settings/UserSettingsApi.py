@@ -21,6 +21,7 @@ from langboard_shared.domain.models.bases.BaseRoleModel import ALL_GRANTED
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.UserService import UserOwnershipError
 from langboard_shared.Env import Env
 from langboard_shared.filter import RoleFilter
 from langboard_shared.publishers import AppSettingPublisher
@@ -247,7 +248,13 @@ def create_user_in_settings(form: CreateUserForm, service: DomainService = Domai
 @AppRouter.api.put(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).err(409, ApiErrorCode.OP1003).get(),
+    responses=OpenApiSchema()
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .err(409, ApiErrorCode.OP1005)
+    .err(409, ApiErrorCode.OP1004)
+    .get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserUpdate], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -259,7 +266,7 @@ def update_user_in_settings(
         raise ApiException.NotFound_404(ApiErrorCode.NF1004)
 
     if user.id == target_user.id and form.is_admin is False:
-        raise ApiException.Conflict_409(ApiErrorCode.OP1003)
+        raise ApiException.Conflict_409(ApiErrorCode.OP1005)
 
     form_dict = form.model_dump(exclude_unset=True)
     if user.id != target_user.id:
@@ -268,7 +275,10 @@ def update_user_in_settings(
         elif form.activate is False:
             form_dict["activated_at"] = None
 
-    service.user.update(target_user, form_dict, from_setting=True)
+    try:
+        service.user.update(target_user, form_dict, from_setting=True)
+    except UserOwnershipError:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
 
     if form.password:
         service.user.change_password(target_user, form.password)
@@ -284,7 +294,13 @@ def update_user_in_settings(
 @AppRouter.api.delete(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).err(409, ApiErrorCode.OP1003).get(),
+    responses=OpenApiSchema()
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .err(409, ApiErrorCode.OP1003)
+    .err(409, ApiErrorCode.OP1004)
+    .get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserDelete], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -298,7 +314,10 @@ def delete_user_in_settings(
     if target_user.id == user.id:
         raise ApiException.Conflict_409(ApiErrorCode.OP1003)
 
-    service.user.delete(target_user)
+    try:
+        service.user.delete(target_user)
+    except UserOwnershipError:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
 
     return JsonResponse()
 
@@ -308,7 +327,11 @@ def delete_user_in_settings(
         create_editor_collaboration_document_id(EEditorCollaborationType.AppSettings, "{user_uids}", "user")
     )
 )
-@AppRouter.api.delete("/settings/users", tags=["AppSettings.User"], responses=OpenApiSchema().auth().forbidden().get())
+@AppRouter.api.delete(
+    "/settings/users",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema().auth().forbidden().err(409, ApiErrorCode.OP1004).get(),
+)
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserDelete], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
 def delete_selected_users_in_settings(
@@ -317,7 +340,10 @@ def delete_selected_users_in_settings(
     user_uid = user.get_uid()
     form.user_uids = [uid for uid in form.user_uids if uid != user_uid]
 
-    service.user.delete_selected(form.user_uids)
+    try:
+        service.user.delete_selected(form.user_uids)
+    except UserOwnershipError:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
 
     return JsonResponse()
 

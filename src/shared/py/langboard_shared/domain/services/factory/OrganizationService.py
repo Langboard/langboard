@@ -1,5 +1,6 @@
 import re
 from typing import Any
+from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TUserParam
@@ -45,17 +46,22 @@ class OrganizationService(BaseDomainService):
         """Create an organization owned by the requesting user."""
 
         normalized_slug = slugify(slug or name)
-        if self.repo.organization.get_by_slug(normalized_slug) is not None:
-            raise ValueError(f"organization slug '{normalized_slug}' already exists")
+        with DbSession.atomic() as db:
+            # Serialize creation with account deactivation/deletion, using the same owner row lock.
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            if current is None or current.activated_at is None:
+                raise ValueError("organization owner must be an active account")
+            if self.repo.organization.get_by_slug(normalized_slug) is not None:
+                raise ValueError(f"organization slug '{normalized_slug}' already exists")
 
-        organization = Organization(
-            name=name.strip(),
-            slug=normalized_slug,
-            owner_user_id=user.id,
-            is_active=True,
-        )
-        self.repo.organization.insert(organization)
-        return organization
+            organization = Organization(
+                name=name.strip(),
+                slug=normalized_slug,
+                owner_user_id=current.id,
+                is_active=True,
+            )
+            self.repo.organization.insert(organization)
+            return organization
 
     def set_active(self, user: User, organization: TUserParam | None, is_active: bool) -> Organization | None:
         """Suspend or reactivate an organization; owners only."""
