@@ -391,14 +391,17 @@ def create_card(
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    result = service.card.create(
-        user_or_bot,
-        project_uid,
-        form.project_column_uid,
-        form.title,
-        form.description,
-        form.assign_users,
-    )
+    try:
+        result = service.card.create(
+            user_or_bot,
+            project_uid,
+            form.project_column_uid,
+            form.title,
+            form.description,
+            form.assign_users,
+        )
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2004)
     _, api_card = result
@@ -536,7 +539,10 @@ def update_card_assigned_users(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card.update_assigned_users(user_or_bot, project_uid, card_uid, form.assigned_users)
+    try:
+        result = service.card.update_assigned_users(user_or_bot, project_uid, card_uid, form.assigned_users)
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
@@ -565,6 +571,8 @@ def add_card_assignee(
         result = service.card.assign_member(user_or_bot, project_uid, card_uid, assignee_uid)
     except LookupError as exc:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003) from exc
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
     except ValueError as exc:
         raise ApiException.NotFound_404(ApiErrorCode.NF2005) from exc
     return JsonResponse(content=result)

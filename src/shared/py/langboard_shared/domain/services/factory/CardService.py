@@ -98,6 +98,12 @@ MyWorkGroup = Literal["overdue", "today", "upcoming", "review", "assigned", "men
 
 
 class CardService(BaseDomainService):
+    @staticmethod
+    def _reject_private_assignment(card: Card) -> None:
+        """Private cards are immutable solo ownership boundaries."""
+        if getattr(card, "visibility", None) == CardVisibility.Private.value:
+            raise PermissionError("Private cards do not support assignees")
+
     CONTEXT_DESCRIPTION_MAX_LENGTH = 1200
     LINKED_RESOURCE_PREVIEW_MAX_LENGTH = 240
     MIRROR_INVALIDATION_BATCH_SIZE = 200
@@ -2285,6 +2291,8 @@ class CardService(BaseDomainService):
 
         with execution_readiness_uow() as execution:
             visibility = self.default_creation_visibility(project, user_or_bot, app_owned=app_owned)
+            if visibility == CardVisibility.Private and assign_user_uids:
+                raise PermissionError("Private cards do not support assignees")
             card = Card(
                 visibility=visibility.value,
                 owner_user_id=user_or_bot.id if visibility == CardVisibility.Private else None,
@@ -3151,6 +3159,7 @@ class CardService(BaseDomainService):
         project, card = params
         if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
             raise ValueError("Card mirrors are read-only")
+        self._reject_private_assignment(card)
         member = self.repo.project_assigned_user.find_by_user_and_project(user, project)
         if member is None:
             raise ValueError("Current user must first be onboarded to this project")
@@ -3175,6 +3184,7 @@ class CardService(BaseDomainService):
         project, card = params
         if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
             raise ValueError("Card mirrors are read-only")
+        self._reject_private_assignment(card)
         assignee = InfraHelper.get_by_id_like(User, assignee_uid)
         if assignee is None or assignee.deleted_at is not None or assignee.activated_at is None:
             raise ValueError("Select an active member of this project")
@@ -3207,6 +3217,7 @@ class CardService(BaseDomainService):
         project, card = params
         if card.is_linked_resource:
             return None
+        self._reject_private_assignment(card)
 
         old_assigned_users = self.repo.card_assigned_user.get_all_by_card(card, only_ids=True)
         old_assigned_user_ids = [user_id for user_id, _ in old_assigned_users]
