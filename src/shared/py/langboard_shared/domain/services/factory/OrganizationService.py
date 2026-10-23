@@ -78,32 +78,59 @@ class OrganizationService(BaseDomainService):
     def assign_project(self, user: User, organization: TUserParam | None, project) -> Organization:
         """Map a project into this organization; owners only."""
 
-        from ...models import Project  # local import avoids model-registration ordering issues
+        with DbSession.atomic() as db:
+            binding = self._get_owned_project_binding(db, user, organization, project)
+            if binding is None:
+                raise ValueError("organization or project not found")
+            current_organization, current_project = binding
+            if current_project.organization_id == current_organization.id:
+                return current_organization
+            if current_project.organization_id is not None:
+                raise ValueError("project already belongs to a different organization")
 
-        organization = InfraHelper.get_by_id_like(Organization, organization)
-        project = InfraHelper.get_by_id_like(Project, project)
-        if not organization or not project or organization.owner_user_id != user.id:
-            raise ValueError("organization or project not found")
-
-        project.organization_id = organization.id
-        self.repo.project.update(project)
-        return organization
+            current_project.organization_id = current_organization.id
+            db.update(current_project)
+            return current_organization
 
     def unassign_project(self, user: User, organization: TUserParam | None, project) -> Organization | None:
         """Detach a project from its organization; owners only."""
 
-        from ...models import Project
+        with DbSession.atomic() as db:
+            binding = self._get_owned_project_binding(db, user, organization, project)
+            if binding is None:
+                return None
+            current_organization, current_project = binding
+            if current_project.organization_id != current_organization.id:
+                return None
 
-        organization = InfraHelper.get_by_id_like(Organization, organization)
-        project = InfraHelper.get_by_id_like(Project, project)
-        if not organization or not project or organization.owner_user_id != user.id:
-            return None
-        if project.organization_id != organization.id:
-            return None
+            current_project.organization_id = None
+            db.update(current_project)
+            return current_organization
 
-        project.organization_id = None
-        self.repo.project.update(project)
-        return organization
+    def _get_owned_project_binding(self, db: DbSession, user: User, organization, project):
+        from ...models import Project  # local import avoids model-registration ordering issues
+
+        # Match account lifecycle lock order; authority comes only from current primary rows.
+        current_user = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+        if current_user is None or current_user.activated_at is None or current_user.deleted_at is not None:
+            return None
+        current_organization = db.exec(
+            SqlBuilder.select.table(Organization)
+            .where(Organization.id == InfraHelper.convert_id(organization))
+            .with_for_update()
+        ).first()
+        if (
+            current_organization is None
+            or current_organization.owner_user_id != current_user.id
+            or not current_organization.is_active
+        ):
+            return None
+        current_project = db.exec(
+            SqlBuilder.select.table(Project).where(Project.id == InfraHelper.convert_id(project)).with_for_update()
+        ).first()
+        if current_project is None or current_project.owner_id != current_user.id:
+            return None
+        return current_organization, current_project
 
     def get_api_project_list(self, user: User, organization: TUserParam | None) -> list[dict[str, Any]]:
         """List an organization's projects as API payloads; owners only."""
