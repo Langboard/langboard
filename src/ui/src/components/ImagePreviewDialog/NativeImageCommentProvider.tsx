@@ -1,11 +1,12 @@
 import { NativeImageContext, type NativeImageComments } from "./NativeImageCommentContext";
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { ProjectCardAttachment, ProjectCardComment } from "@/core/models";
+import { AuthUser, ProjectCardAttachment, ProjectCardComment } from "@/core/models";
 import type { ICardCommentAnchor, ICardCommentImageAnchor } from "@/core/models/types/card-comment-anchor.type";
 import { isImageCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
 import type { ImageAnnotationContext } from "./ImageAnnotations";
 import ImagePreviewDialog from ".";
+import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import Button from "@/components/base/Button";
 import { useTranslation } from "react-i18next";
 
@@ -18,12 +19,23 @@ function AttachmentSubscription({ attachment, changed }: { attachment: ProjectCa
 }
 
 type Snapshot = ImageAnnotationContext["comments"][number];
-function Subscription({ comment, update }: { comment: ProjectCardComment.TModel; update: (uid: string, snapshot: Snapshot | null) => void }) {
+function Subscription({
+    comment,
+    update,
+    currentUser,
+}: {
+    comment: ProjectCardComment.TModel;
+    update: (uid: string, snapshot: Snapshot | null) => void;
+    currentUser: AuthUser.TModel;
+}) {
     const anchor = comment.useField("anchor");
     const content = comment.useField("content");
+    const author = comment.useForeignFieldOne("user");
+    const isAdmin = currentUser.useField("is_admin");
+    const canEdit = currentUser.uid === author?.uid || isAdmin;
     useEffect(() => {
-        update(comment.uid, isImageCommentAnchor(anchor) ? { uid: comment.uid, anchor, preview: content.content.slice(0, 240) } : null);
-    }, [anchor, content, comment.uid, update]);
+        update(comment.uid, isImageCommentAnchor(anchor) ? { uid: comment.uid, anchor, preview: content.content.slice(0, 240), canEdit } : null);
+    }, [anchor, content, comment.uid, canEdit, update]);
     useEffect(() => () => update(comment.uid, null), [comment.uid, update]);
     return null;
 }
@@ -41,6 +53,8 @@ export function NativeImageCommentProvider({
     children: React.ReactNode;
 }) {
     const [t] = useTranslation();
+    const { currentUser } = useBoardCard();
+    const [commentAction, setCommentAction] = useState<{ uid: string; edit: boolean; cardUID: string } | null>(null);
     const attachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === cardUID, [cardUID]);
     const comments = ProjectCardComment.Model.useModels((model) => model.card_uid === cardUID, [cardUID]);
     const [, refresh] = useState(0);
@@ -57,6 +71,23 @@ export function NativeImageCommentProvider({
             }),
         []
     );
+    useEffect(() => {
+        if (!commentAction || commentAction.cardUID !== cardUID) return;
+        const reveal = () => {
+            const comment = surfaceRef.current?.querySelector<HTMLElement>(`[data-card-comment-uid="${CSS.escape(commentAction.uid)}"]`);
+            if (!comment) return;
+            observer.disconnect();
+            comment.scrollIntoView({ behavior: "smooth", block: "center" });
+            const edit = comment.querySelector<HTMLButtonElement>("[data-comment-edit]");
+            if (commentAction.edit && snapshots[commentAction.uid]?.canEdit) edit?.click();
+            else edit?.focus();
+            setCommentAction(null);
+        };
+        const observer = new MutationObserver(reveal);
+        observer.observe(document.body, { childList: true, subtree: true });
+        reveal();
+        return () => observer.disconnect();
+    }, [commentAction, cardUID, surfaceRef, snapshots]);
     const isCurrent = (anchor: ICardCommentImageAnchor) =>
         attachments.some((attachment) => attachment.uid === anchor.source.attachment_uid && attachment.image_revision === anchor.source.revision);
     const contextForURL: NativeImageComments["contextForURL"] = (url, close) => {
@@ -75,11 +106,14 @@ export function NativeImageCommentProvider({
             onOpenComment: (uid) => {
                 close();
                 openComments();
-                window.setTimeout(() => {
-                    const comment = surfaceRef.current?.querySelector<HTMLElement>(`[data-card-comment-uid="${CSS.escape(uid)}"]`);
-                    comment?.scrollIntoView({ behavior: "smooth", block: "center" });
-                    comment?.querySelector<HTMLElement>("[data-comment-edit]")?.focus();
-                }, 100);
+                setCommentAction({ uid, edit: false, cardUID });
+            },
+            onEditComment: (uid) => {
+                const snapshot = snapshots[uid];
+                if (!snapshot?.canEdit || !isCurrent(snapshot.anchor)) return;
+                close();
+                openComments();
+                setCommentAction({ uid, edit: true, cardUID });
             },
         };
     };
@@ -90,7 +124,7 @@ export function NativeImageCommentProvider({
                 <AttachmentSubscription key={attachment.uid} attachment={attachment} changed={changed} />
             ))}
             {comments.map((comment) => (
-                <Subscription key={comment.uid} comment={comment} update={update} />
+                <Subscription key={comment.uid} comment={comment} update={update} currentUser={currentUser} />
             ))}
             {children}
             {selection &&

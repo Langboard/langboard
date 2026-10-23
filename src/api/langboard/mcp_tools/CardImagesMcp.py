@@ -1,7 +1,6 @@
 """Card-scoped native image content; no arbitrary URL fetching or credentials."""
 
 import base64
-import io
 import json
 from html.parser import HTMLParser
 from typing import Annotated
@@ -12,6 +11,13 @@ from langboard_shared.core.storage import Storage
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardCommentImageAnchors import (
+    MAX_IMAGE_BYTES,
+    image_metadata,
+)
+from langboard_shared.domain.services.CardCommentImageAnchors import (
+    BoundedImageBuffer as _BoundedBuffer,
+)
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
 from markdown_it import MarkdownIt
@@ -22,7 +28,7 @@ from ..mcp_integration.Tool import McpTool
 
 
 MAX_IMAGES = 10
-MAX_TOTAL_BYTES = 25 * 1024 * 1024
+MAX_TOTAL_BYTES = MAX_IMAGE_BYTES
 
 
 class _ImageHTML(HTMLParser):
@@ -90,31 +96,6 @@ def _stored_image_path(url):
     if not parts[2] or parts[4] in {"", ".", ".."} or "\\" in path:
         return None
     return parts[2], parts[3], parts[4]
-
-
-class _BoundedBuffer(io.BytesIO):
-    def __init__(self, limit):
-        super().__init__()
-        self.limit = limit
-        self.exceeded = False
-
-    def write(self, data):
-        if self.tell() + len(data) > self.limit:
-            self.exceeded = True
-            raise OSError("Image byte limit")
-        return super().write(data)
-
-
-def _image_type(data):
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if data.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 @McpTool.add(
@@ -189,7 +170,11 @@ def read_card_images(
                 except OSError:
                     found = False
                 payload = buffer.getvalue()
-                mime = _image_type(payload)
+                try:
+                    mime, image_width, image_height = image_metadata(payload)
+                    media_error = None
+                except ValueError as exc:
+                    media_error = str(exc)
                 if buffer.exceeded:
                     reason = "byte_limit"
                 elif (
@@ -204,8 +189,8 @@ def read_card_images(
                     reason = "source_changed"
                 elif not found:
                     reason = "content_unavailable"
-                elif mime is None:
-                    reason = "unsupported_type"
+                elif media_error is not None:
+                    reason = media_error
                 else:
                     total += len(payload)
                     images.append(
@@ -218,6 +203,8 @@ def read_card_images(
                             "image_revision": revision,
                             "bytes": len(payload),
                             "mime_type": mime,
+                            "image_width": image_width,
+                            "image_height": image_height,
                         }
                     )
         if reason:

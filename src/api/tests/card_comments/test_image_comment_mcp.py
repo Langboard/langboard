@@ -2,6 +2,7 @@
 
 from functools import wraps
 from inspect import signature
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
@@ -15,19 +16,29 @@ from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import CardImagesMcp, CardMcp
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.core.storage import FileModel
+from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.domain.models import Card, CardAttachment, CardComment
 from langboard_shared.domain.models.CardComment import CardCommentImageAnchorModel
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
+from PIL import Image
 from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
 
 
 @pytest.fixture
 def image_board(mirror_board, monkeypatch):  # noqa: F811 - imported native fixture
     b = mirror_board
+    output = BytesIO()
+    Image.new("RGB", (1920, 1080)).save(output, format="PNG")
+    b.image_bytes = output.getvalue()
+
+    def download(storage, name, filename, destination):
+        destination.write(b.image_bytes)
+        return True
+
+    monkeypatch.setattr(Storage, "download", download)
     for model in (CardComment, CardAttachment):
         model.__table__.create(b.engine)
     b.service.mark_card_changed = Mock()
@@ -185,7 +196,7 @@ async def test_registered_image_read_uses_real_native_three_value_resolver(image
 
     def download(storage, name, filename, destination):
         calls.append((storage, name, filename))
-        destination.write(b"\x89PNG\r\n\x1a\nfixture")
+        destination.write(b.image_bytes)
         return True
 
     monkeypatch.setattr(CardImagesMcp.Storage, "download", download)
@@ -204,3 +215,28 @@ async def test_registered_image_read_uses_real_native_three_value_resolver(image
     assert calls == [("local", "card_attachment", "immutable.png")]
     assert result.structured_content["included"][0]["attachment_uid"] == b.attachment.get_uid()
     assert result.structured_content["included"][0]["image_revision"] == b.attachment.image_revision
+    assert result.structured_content["included"][0]["image_width"] == 1920
+    assert result.structured_content["included"][0]["image_height"] == 1080
+
+
+async def test_registered_mismatched_dimensions_rejected_then_valid_retry(image_board):
+    b = image_board
+    payload = dict(
+        project_uid=b.source_board.get_uid(),
+        card_uid=b.source.get_uid(),
+        content="Review pixels",
+        anchor={**selector(b), "image_height": 1079},
+        request_uid=str(uuid4()),
+    )
+    async with Client(registered(b, "add_card_comment")) as client:
+        with pytest.raises(ToolError):
+            await client.call_tool("add_card_comment", payload)
+        with DbSession.use(readonly=False) as db:
+            assert db.exec(SqlBuilder.select.table(CardComment)).all() == []
+        b.comments.dispatch_created.assert_not_called()
+        payload["anchor"] = selector(b)
+        first = (await client.call_tool("add_card_comment", payload)).structured_content
+        again = (await client.call_tool("add_card_comment", payload)).structured_content
+        assert first["replayed"] is False and again["replayed"] is True
+        assert first["comment"] == again["comment"]
+    b.comments.dispatch_created.assert_called_once()

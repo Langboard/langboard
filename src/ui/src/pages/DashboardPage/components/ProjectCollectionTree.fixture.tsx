@@ -1,6 +1,9 @@
+import "@/core/injection";
+import { AuthProvider } from "@/core/providers/AuthProvider";
+import ProjectExplorerSidebar from "./ProjectExplorerSidebar";
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { AuthUser, Project } from "@/core/models";
 import useAuthStore from "@/core/stores/AuthStore";
@@ -20,7 +23,7 @@ const actor = AuthUser.Model.fromOne({
     created_at: new Date(),
     updated_at: new Date(),
 });
-useAuthStore.setState({ currentUser: actor });
+useAuthStore.setState({ currentUser: actor, state: "loaded", pageLoaded: true });
 const projects = Project.Model.fromArray(
     ["Zulu", "Alpha", "New"].map((title, index) => ({
         uid: `0000000000${index + 1}`,
@@ -34,6 +37,19 @@ const projects = Project.Model.fromArray(
         all_members: [],
     }))
 );
+function ExplorerFixture() {
+    const client = useQueryClient();
+    return (
+        <AuthProvider>
+            <div className="h-screen max-w-sm">
+                <button onClick={() => void client.invalidateQueries({ queryKey: ["get-dashboard-projects", actor.uid] })}>
+                    Refresh board permissions
+                </button>
+                <ProjectExplorerSidebar currentProject={projects[0]} />
+            </div>
+        </AuthProvider>
+    );
+}
 function Fixture() {
     const result = useProjectCollections(actor.uid);
     const [destination, navigate] = useState("");
@@ -72,8 +88,8 @@ function Fixture() {
 }
 createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={new QueryClient()}>
-        <MemoryRouter>
-            <Fixture />
+        <MemoryRouter initialEntries={["/board/00000000001"]}>
+            {new URLSearchParams(location.search).has("explorer") ? <ExplorerFixture /> : <Fixture />}
         </MemoryRouter>
     </QueryClientProvider>
 );

@@ -180,3 +180,65 @@ test.describe("touch collection controls", () => {
         await page.screenshot({ path: testInfo.outputPath("touch-390.png"), fullPage: true });
     });
 });
+
+for (const empty of [false, true]) {
+    test(`production Explorer honors completed ${empty ? "empty" : "partial"} permission refresh over cached current board`, async ({ page }) => {
+        let pending: import("@playwright/test").Route | undefined;
+        let requests = 0;
+        let writes = 0;
+        await page.route("**/account/project-collections", (route) => {
+            if (route.request().method() !== "GET") writes++;
+            return route.fulfill({
+                json: { revision: 1, collections: [{ uid: first, name: "Permission collection", board_uids: ["00000000001"] }] },
+            });
+        });
+        const board = (uid: string, title: string) => ({
+            uid,
+            title,
+            starred: true,
+            project_type: "Other",
+            owner_uid: "collection-tree",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            all_members: [],
+            current_auth_role_actions: [],
+        });
+        await page.route("**/dashboard/projects", (route) => {
+            requests++;
+            if (requests === 1) {
+                pending = route;
+                return;
+            }
+            return route.fulfill({ json: { projects: empty ? [] : [board("00000000002", "Alpha")], columns: [] } });
+        });
+        await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html?explorer");
+        const explorer = page.getByRole("navigation", { name: "Explorer", exact: true });
+        const tree = explorer.getByRole("tree");
+        const header = explorer.getByRole("region", { name: "Zulu", exact: true });
+        await expect(explorer.getByRole("status")).toBeVisible();
+        await expect(header.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-current", "page");
+        await explorer.getByRole("button", { name: "Permission collection", exact: true }).click();
+        await expect(tree.getByRole("button", { name: "Zulu", exact: true })).toBeVisible();
+        await explorer.getByRole("button", { name: "Add project collection", exact: true }).click();
+        await expect(page.getByRole("dialog").getByRole("checkbox", { name: "Zulu", exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect.poll(() => !!pending).toBe(true);
+        await pending!.fulfill({ json: { projects: [board("00000000001", "Zulu"), board("00000000002", "Alpha")], columns: [] } });
+        await expect(explorer.getByRole("status")).toHaveCount(0);
+        await expect(
+            explorer.getByRole("region", { name: "Favorites", exact: true }).getByRole("button", { name: "Zulu", exact: true })
+        ).toBeVisible();
+        await page.getByRole("button", { name: "Refresh board permissions", exact: true }).click();
+        await expect.poll(() => requests).toBe(2);
+        await expect(tree.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(0);
+        await expect(tree.getByRole("button", { name: "Favorites", exact: true })).toHaveCount(0);
+        await tree.getByRole("button", { name: "Board unavailable", exact: true }).click();
+        await expect(header.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(explorer.locator("button[draggable=true]").filter({ hasText: "Zulu" })).toHaveCount(0);
+        if (!empty) await expect(explorer.getByRole("button", { name: "Alpha", exact: true })).toBeVisible();
+        await explorer.getByRole("button", { name: "Add project collection", exact: true }).click();
+        await expect(page.getByRole("dialog").getByRole("checkbox", { name: "Zulu", exact: true })).toHaveCount(0);
+        if (!empty) await expect(page.getByRole("dialog").getByRole("checkbox", { name: "Alpha", exact: true })).toBeVisible();
+        expect(writes).toBe(0);
+    });
+}

@@ -115,9 +115,10 @@ export default function ProjectExplorerSidebar({
     }, [userUID]);
     const visibleOpenCards = presentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
     const projects = useMemo(() => {
-        const all = data?.projects ?? [];
-        return currentProject && !all.some((project) => project.uid === currentProject.uid) ? [currentProject, ...all] : all;
-    }, [currentProject, data]);
+        // A completed dashboard response is authoritative for Explorer references.
+        if (!data && isPending && currentProject) return [currentProject];
+        return data?.projects ?? [];
+    }, [currentProject, data, isPending]);
     useEffect(() => {
         if (!data || !userUID) return;
         if (openCards.some((card) => !authorizedProjectUIDs.has(card.projectUID))) {

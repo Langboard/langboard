@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from importlib.util import module_from_spec, spec_from_file_location
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -14,11 +15,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.routes.board.forms.Comment import CreateCardCommentForm
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
-from langboard_shared.core.storage import FileModel
+from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Card, CardAttachment, CardComment, ProjectAssignedUser, ProjectRole, User
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
+from PIL import Image
 from pydantic import ValidationError
 from test_attachment_duplicate_upload import choose, rows, upload
 from test_attachment_duplicate_upload import uploads as uploads
@@ -43,6 +45,16 @@ def anchor(attachment):
 @pytest.fixture
 def images(mirror_board, monkeypatch):  # noqa: F811 - imported native fixture
     b = mirror_board
+    output = BytesIO()
+    Image.new("RGB", (1920, 1080)).save(output, format="PNG")
+    b.image_bytes = output.getvalue()
+
+    def download(storage, name, filename, destination):
+        destination.write(b.image_bytes)
+        return True
+
+    b.download = Mock(side_effect=download)
+    monkeypatch.setattr(Storage, "download", b.download)
     CardAttachment.__table__.create(b.engine)
     CardComment.__table__.create(b.engine)
     with DbSession.use(readonly=False) as db:
@@ -343,3 +355,95 @@ def test_outer_rollback_discards_comment_receipt_and_effect(images):
     assert create(b, request_uid=uid)["replayed"] is False
     b.comments.dispatch_created.assert_called_once()
     transport.assert_called_once()
+
+
+def test_actual_source_dimensions_reject_mismatch_without_receipt_or_effect(images):
+    b = images
+    uid = str(uuid4())
+    assert create(b, request_uid=uid, image_anchor={**anchor(b.image), "image_width": 1919}) is None
+    assert comments() == []
+    b.comments.dispatch_created.assert_not_called()
+    first = create(b, request_uid=uid)
+    assert first["replayed"] is False
+    assert create(b, request_uid=uid) == {**first, "replayed": True}
+    assert len(comments()) == 1
+    b.comments.dispatch_created.assert_called_once()
+
+
+@pytest.mark.parametrize("kind", ["unsupported", "truncated", "pixel_limit", "byte_limit", "missing"])
+def test_invalid_source_bytes_rejected_without_side_effect(images, monkeypatch, kind):
+    from langboard_shared.domain.services import CardCommentImageAnchors as native
+
+    b = images
+    if kind == "unsupported":
+        b.image_bytes = b"<svg xmlns='http://www.w3.org/2000/svg' width='1920' height='1080'/>"
+    elif kind == "truncated":
+        b.image_bytes = b"\x89PNG\r\n\x1a\nfixture"
+    elif kind == "pixel_limit":
+        monkeypatch.setattr(native, "MAX_IMAGE_PIXELS", 100)
+    elif kind == "byte_limit":
+        monkeypatch.setattr(native, "MAX_IMAGE_BYTES", len(b.image_bytes) - 1)
+    else:
+        b.download.side_effect = lambda *args: False
+    assert create(b) is None
+    assert comments() == []
+    b.comments.dispatch_created.assert_not_called()
+    b.service.mark_card_changed.assert_not_called()
+
+
+@pytest.mark.parametrize("format", ["PNG", "JPEG", "GIF", "WEBP"])
+def test_supported_source_formats_use_real_intrinsic_dimensions(images, format):
+    b = images
+    output = BytesIO()
+    Image.new("RGB", (40, 30)).save(output, format=format)
+    b.image_bytes = output.getvalue()
+    value = {**anchor(b.image), "image_width": 40, "image_height": 30}
+    assert create(b, image_anchor=value)["replayed"] is False
+    assert comments()[0].anchor == value
+
+
+@pytest.mark.parametrize("mutation", ["source", "role"])
+def test_storage_download_revalidates_source_and_access(images, mutation):
+    b = images
+    download = b.download.side_effect
+
+    def mutate(*args):
+        found = download(*args)
+        with DbSession.use(readonly=False) as db:
+            if mutation == "source":
+                image = db.exec(SqlBuilder.select.table(CardAttachment)).first()
+                image.file = image.file.model_copy(update={"filename": "replacement-key"})
+                db.update(image)
+            else:
+                db.exec(sa.update(ProjectRole).values(actions=[]))
+        return found
+
+    b.download.side_effect = mutate
+    assert create(b) is None
+    assert comments() == []
+    b.comments.dispatch_created.assert_not_called()
+
+
+@pytest.mark.parametrize("orientation", [1, 3, 6, 8])
+def test_exif_oriented_jpeg_matches_browser_natural_dimensions(images, orientation):
+    b = images
+    output = BytesIO()
+    exif = Image.Exif()
+    exif[274] = orientation
+    Image.new("RGB", (40, 30)).save(output, format="JPEG", exif=exif)
+    b.image_bytes = output.getvalue()
+    width, height = (30, 40) if orientation in {6, 8} else (40, 30)
+    value = {**anchor(b.image), "image_width": width, "image_height": height}
+    assert create(b, image_anchor=value)["replayed"] is False
+    assert comments()[0].anchor == value
+
+
+def test_dimension_validation_does_not_decode_raster(images, monkeypatch):
+    from PIL import PngImagePlugin
+
+    def forbidden(*args):
+        pytest.fail("Dimension validation must not decode raster pixels")
+
+    monkeypatch.setattr(Image.Image, "load", forbidden)
+    monkeypatch.setattr(PngImagePlugin.PngImageFile, "load", forbidden)
+    assert create(images)["replayed"] is False

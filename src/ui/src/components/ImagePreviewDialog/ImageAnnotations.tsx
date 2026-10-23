@@ -7,10 +7,11 @@ import { useTranslation } from "react-i18next";
 
 export interface ImageAnnotationContext {
     source: ICardCommentImageAnchor["source"];
-    comments: { uid: string; anchor: ICardCommentImageAnchor; preview: string }[];
+    comments: { uid: string; anchor: ICardCommentImageAnchor; preview: string; canEdit?: boolean }[];
     highlightedCommentUID?: string;
     onCreate: (anchor: ICardCommentImageAnchor) => void;
     onOpenComment: (uid: string) => void;
+    onEditComment?: (uid: string) => void;
 }
 
 export default function ImageAnnotations({ context, image }: { context: ImageAnnotationContext; image: HTMLImageElement }) {
@@ -119,7 +120,7 @@ export default function ImageAnnotations({ context, image }: { context: ImageAnn
                             anchor.image_width === image.naturalWidth &&
                             anchor.image_height === image.naturalHeight
                     )
-                    .map(({ uid, anchor, preview }, i) => (
+                    .map(({ uid, anchor, preview, canEdit }, i) => (
                         <HoverCard.Root key={uid} openDelay={150}>
                             <HoverCard.Trigger asChild>
                                 <Button
@@ -147,6 +148,11 @@ export default function ImageAnnotations({ context, image }: { context: ImageAnn
                                     <Button size="sm" onClick={() => context.onOpenComment(uid)}>
                                         {t("card.Open anchored comment")}
                                     </Button>
+                                    {canEdit && context.onEditComment && (
+                                        <Button size="sm" onClick={() => context.onEditComment?.(uid)}>
+                                            {t("common.Edit")}
+                                        </Button>
+                                    )}
                                 </HoverCard.Content>
                             </HoverCard.Portal>
                         </HoverCard.Root>

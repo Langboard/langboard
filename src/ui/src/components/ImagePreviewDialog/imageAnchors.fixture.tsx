@@ -147,6 +147,20 @@ function Surface() {
             <BoardCommentForm variant="mobile" />
             <button
                 onClick={() => {
+                    currentCard.current_auth_role_actions = ["read"];
+                }}
+            >
+                Read only
+            </button>
+            <button
+                onClick={() => {
+                    currentUser.is_admin = !currentUser.is_admin;
+                }}
+            >
+                Toggle admin
+            </button>
+            <button
+                onClick={() => {
                     fail = true;
                 }}
             >

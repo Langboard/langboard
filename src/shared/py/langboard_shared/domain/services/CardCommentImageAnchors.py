@@ -1,5 +1,7 @@
 """Version-bound image comments in the existing native comment transaction."""
 
+import io
+import warnings
 from hashlib import sha256
 from json import dumps
 from uuid import UUID
@@ -7,11 +9,57 @@ from sqlalchemy import update
 from ...core.db import DbSession, EditorContentModel, SqlBuilder
 from ...core.db.DbEngine import DbEngine
 from ...core.security.CollaborationChannel import CollaborationChannel
+from ...core.storage import Storage
 from ...helpers import InfraHelper
 from ..models import Card, CardAttachment, CardComment, Project, ProjectAssignedUser, ProjectRole, User
 from ..models.ProjectRole import ProjectRoleAction
 from .AppGovernance import lock_policy_mutation
 from .CardCrossBoardOperations import _grant
+
+
+# Match native MCP image transport and image-generation pixel protections.
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
+MAX_IMAGE_PIXELS = 16_777_216
+
+
+class BoundedImageBuffer(io.BytesIO):
+    def __init__(self, limit):
+        super().__init__()
+        self.limit = limit
+        self.exceeded = False
+
+    def write(self, data):
+        if self.tell() + len(data) > self.limit:
+            self.exceeded = True
+            raise OSError("Image byte limit")
+        return super().write(data)
+
+
+def image_metadata(data):
+    """Verify supported raster headers within byte/pixel limits, without raster decoding."""
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ValueError("byte_limit")
+    try:
+        # Pillow is an existing optional native decoder. Missing support fails closed.
+        from PIL import Image
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data), formats=("PNG", "JPEG", "GIF", "WEBP")) as image:
+                width, height = image.size
+                if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                    raise ValueError("pixel_limit")
+                # Use header metadata only; PNG.getexif() would load raster pixels.
+                # Browser natural dimensions follow EXIF orientation.
+                if Image.Image.getexif(image).get(274) in {5, 6, 7, 8}:
+                    width, height = height, width
+                mime = Image.MIME[image.format]
+                image.verify()
+                return mime, width, height
+    except (ImportError, OSError, SyntaxError, Warning) as exc:
+        raise ValueError("unsupported_type") from exc
+    except Image.DecompressionBombError as exc:
+        raise ValueError("pixel_limit") from exc
 
 
 def create_image_comment(
@@ -96,6 +144,36 @@ def create_image_comment(
             return None
         if receipt is not None:
             return {"comment_uid": receipt.get_uid(), "replayed": True}
+        stored = (attachment.file.storage_type, attachment.file.storage_name, attachment.file.filename)
+        with BoundedImageBuffer(MAX_IMAGE_BYTES) as buffer:
+            try:
+                found = Storage.download(*stored, buffer)
+                if not found or buffer.exceeded:
+                    return None
+                _, width, height = image_metadata(buffer.getvalue())
+            except (OSError, ValueError):
+                return None
+        if (width, height) != (anchor.image_width, anchor.image_height):
+            return None
+        # Storage I/O can yield control. Recheck source and authority before persistence.
+        attachment = db.exec(
+            SqlBuilder.select.table(CardAttachment)
+            .where(
+                CardAttachment.id == InfraHelper.convert_id(anchor.source.attachment_uid),
+                CardAttachment.card_id == card.id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).first()
+        if (
+            attachment is None
+            or attachment.replaced_by_id is not None
+            or attachment.image_revision != anchor.source.revision
+            or (attachment.file.storage_type, attachment.file.storage_name, attachment.file.filename) != stored
+            or not _grant(db, actor, project, ProjectRoleAction.Read)
+            or cards.resolve_readable_card(project, card, actor, channel) is None
+        ):
+            return None
         comment = CardComment(
             card_id=card.id,
             user_id=actor.id,

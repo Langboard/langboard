@@ -1,11 +1,13 @@
 """Native image results retain card ancestry, content boundaries and budgets."""
 
+from io import BytesIO
 from types import SimpleNamespace
 import pytest
 from fastmcp.tools import ToolResult
 from langboard.mcp_integration.ResponseBudget import ReadResponseBudgetMiddleware
 from langboard.mcp_tools import CardImagesMcp as images
 from mcp.types import ImageContent
+from PIL import Image
 
 
 @pytest.fixture
@@ -51,10 +53,13 @@ def image_card(monkeypatch):
         ),
     )
     calls = []
+    output = BytesIO()
+    Image.new("RGB", (40, 30)).save(output, format="PNG")
+    service.image_bytes = output.getvalue()
 
     def download(storage, name, filename, destination):
         calls.append((storage, name, filename))
-        destination.write(b"\x89PNG\r\n\x1a\nfixture")
+        destination.write(service.image_bytes)
         return True
 
     monkeypatch.setattr(images.Storage, "download", download)
@@ -68,7 +73,9 @@ def test_native_images_return_content_deduplicate_and_reject_foreign_attachment(
     assert result.content[1].mime_type == "image/png"
     assert calls == [("key", "card_attachment", "a.png")]
     assert len(result.structured_content["omitted"]) == 2
-    assert result.structured_content["total_bytes"] == 15
+    assert result.structured_content["total_bytes"] == len(service.image_bytes)
+    assert result.structured_content["included"][0]["image_width"] == 40
+    assert result.structured_content["included"][0]["image_height"] == 30
 
 
 def test_attachment_only_does_not_read_body_image(image_card):
@@ -180,3 +187,19 @@ def test_authority_revoked_during_download_discards_image(image_card, monkeypatc
     assert len(calls) == 1 and result.structured_content["included"] == []
     assert result.structured_content["total_bytes"] == 0
     assert result.structured_content["omitted"][0]["reason"] == "source_changed"
+
+
+@pytest.mark.parametrize(
+    "payload, reason",
+    [
+        (b"\x89PNG\r\n\x1a\nfixture", "unsupported_type"),
+        (b"<svg width='40' height='30'/>", "unsupported_type"),
+    ],
+)
+def test_invalid_or_unsupported_image_is_reported(image_card, payload, reason):
+    service, calls = image_card
+    service.image_bytes = payload
+    result = images.read_card_images("p", "c", object(), service)
+    assert len(calls) == 1
+    assert result.structured_content["included"] == []
+    assert result.structured_content["omitted"][0]["reason"] == reason

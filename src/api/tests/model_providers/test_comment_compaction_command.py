@@ -1247,6 +1247,61 @@ async def test_cumulative_summary_exceeds_one_original_batch_without_resending_o
     assert recovered["total_count"] == 103
 
 
+async def test_large_comment_backlog_compacts_bounded_prefix_then_remaining_sources(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    with DbSession.atomic() as db:
+        for index in range(6):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id,
+                                  content=EditorContentModel(content=f"Long evidence {index}: " + "x" * 96_000)))
+    inputs = []
+
+    async def summarize(_, snapshot):
+        inputs.append(snapshot)
+        assert sum(len(source.text) for source in snapshot.sources) + sum(
+            len(previous.draft.model_dump_json()) for previous in snapshot.prior_summaries
+        ) <= 500_000
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", summarize)
+    first = await service.generate(actor, project, card)
+    assert first["status"] == "completed" and first["has_more_sources"]
+    second = await service.generate(actor, project, card)
+    assert second["status"] == "completed" and not second["has_more_sources"]
+    assert len(inputs) == 2 and len(inputs[1].prior_summaries) == 1
+    first_refs = {source.evidence_ref for source in inputs[0].sources}
+    second_refs = {source.evidence_ref for source in inputs[1].sources}
+    assert not first_refs.intersection(second_refs)
+    assert len(first_refs | second_refs) == 8  # Six long comments, original comment and movement.
+    assert set(second["evidence_refs"]) == first_refs | second_refs
+    view = service.get_view(actor, project, card)
+    assert [row["kind"] for row in view["records"]] == ["compaction"]
+
+
+async def test_large_new_comment_batch_reserves_space_for_prior_summary(compact_command, monkeypatch):
+    service, actor, project, card, _, original, *_ = compact_command
+    prior = CompactionDraft(claims=[{"text": "x" * 1000, "kind": "unresolved",
+                                    "evidence_refs": [f"comment:{original.get_uid()}"]} for _ in range(12)])
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(return_value=prior))
+    first = await service.generate(actor, project, card)
+    with DbSession.atomic() as db:
+        for _ in range(5):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="x" * 99_000)))
+    inputs = []
+
+    async def summarize(_, snapshot):
+        inputs.append(snapshot)
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", summarize)
+    second = await service.generate(actor, project, card)
+    assert second["status"] == "completed" and second["has_more_sources"]
+    assert len(inputs[0].sources) == 4 and inputs[0].prior_summaries[0].draft == prior
+    third = await service.generate(actor, project, card)
+    assert third["status"] == "completed" and not third["has_more_sources"]
+    assert len(inputs[1].sources) == 1
+    assert len(third["evidence_refs"]) == len(first["evidence_refs"]) + 5
+
+
 async def test_invalid_latest_summary_keeps_prior_valid_block_and_restores_new_original(compact_command, monkeypatch):
     service, actor, project, card, *_ = compact_command
     monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))

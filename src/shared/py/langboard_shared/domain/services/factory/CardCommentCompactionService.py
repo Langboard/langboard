@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import ARRAY, JSON, Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
 from ....ai.comment_compaction import (
     CommentCompactionSnapshot,
+    CompactionDraft,
     CompactionSource,
     compaction_manifest_revision,
     compaction_threshold_reached,
@@ -123,7 +124,8 @@ class CardCommentCompactionService(BaseDomainService):
                 ProjectActivity.activity_type == ProjectActivityType.CardMoved)
         return union_all(comments, moves).subquery()
 
-    def _snapshot(self, project, card, *, after=None, refs=None, omit_refs=None, manifest_only=False):
+    def _snapshot(self, project, card, *, after=None, refs=None, omit_refs=None, manifest_only=False,
+                  character_budget=500_000):
         """Read identities, timestamps and payloads in one primary SQL statement."""
         events = self._events(project, card)
         query = select(events).where(events.c.active)
@@ -148,7 +150,7 @@ class CardCommentCompactionService(BaseDomainService):
             raise CommentCompactionError("source_changed")
         if not rows:
             raise CommentCompactionError("no_sources")
-        sources = []
+        sources, characters = [], 0
         for kind, uid, created, updated, payload, user_id, bot_id, _, anchor_payload in rows[:100]:
             body = json.loads(payload)
             author = f"user:{SnowflakeID(user_id).to_short_code()}" if user_id else f"bot:{SnowflakeID(bot_id).to_short_code()}" if bot_id else None
@@ -162,15 +164,22 @@ class CardCommentCompactionService(BaseDomainService):
                 # retain the authoritative non-destructive location evidence.
                 evidence["anchor"] = anchor
             text = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+            if not manifest_only and refs is None and characters + len(text) > character_budget:
+                # Keep an ordered, whole-source prefix. Remaining originals stay
+                # visible and are picked up with the prior summary next time.
+                if not sources:
+                    raise CommentCompactionError("range_too_large", 413)
+                break
             sources.append({"evidence_ref": f"{kind}:{SnowflakeID(uid).to_short_code()}",
                             "created_at": _utc(created), "updated_at": _utc(updated), "text": text})
+            characters += len(text)
         try:
             if manifest_only:
                 # Verification streams bounded batches, not a model request.
                 # Validate each original while avoiding the aggregate input cap.
                 checked = [CompactionSource.model_validate(source) for source in sources]
                 return CommentCompactionSnapshot.model_construct(sources=checked, prior_summaries=[]), len(rows) > 100
-            return CommentCompactionSnapshot(sources=sources), len(rows) > 100
+            return CommentCompactionSnapshot(sources=sources), len(rows) > len(sources)
         except ValueError:
             raise CommentCompactionError("range_too_large", 413) from None
 
@@ -205,8 +214,11 @@ class CardCommentCompactionService(BaseDomainService):
                 raise CommentCompactionError("source_changed")
             previous.append({"draft": block["draft"], "evidence_manifest": record.source_manifest})
             covered.update(block["evidence_refs"])
+        character_budget = 500_000 - sum(len(CompactionDraft.model_validate(item["draft"]).model_dump_json())
+                                        for item in previous)
         snapshot, more = self._snapshot(project, card, after=after,
-            refs=list(required_refs - covered) if required_refs is not None else None, omit_refs=covered)
+            refs=list(required_refs - covered) if required_refs is not None else None, omit_refs=covered,
+            character_budget=character_budget)
         try:
             return CommentCompactionSnapshot(sources=snapshot.sources, prior_summaries=previous), more
         except ValueError:
