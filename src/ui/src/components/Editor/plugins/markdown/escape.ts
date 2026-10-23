@@ -121,6 +121,7 @@ export const deserialize = (isInline: bool) => (editor: SlateEditor, text: strin
         "em",
         "figcaption",
         "figure",
+        "file",
         "font",
         "h1",
         "h2",

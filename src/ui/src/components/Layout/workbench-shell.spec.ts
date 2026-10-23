@@ -1,9 +1,11 @@
+import { SocketEvents } from "@langboard/core/constants";
+import { ESocketTopic } from "@langboard/core/enums";
 import { hasPanelAccess } from "../../core/apps/PanelAccess";
 import type { CatalogApp } from "../../controllers/api/board/useBoardAppCatalog";
 import type { Page, Route, WebSocketRoute } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
-test("Changes rail counts all native unread cards and follows model, board and identity transitions", async ({ page }) => {
+test("Changes rail counts native unread cards and reads summary pages across board and identity transitions", async ({ page }) => {
     await page.routeWebSocket(/.*/, () => {});
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -68,6 +70,26 @@ test("Changes rail counts all native unread cards and follows model, board and i
                     checklists: [],
                     global_relationships: [],
                 };
+            } else if (path === `/board/${uid}/unread-card-summaries`) {
+                const cursor = new URL(route.request().url()).searchParams.get("cursor");
+                const count = actor === "fixture-user" ? (uid === "left" ? 55 : 2) : 3;
+                const start = cursor ? 50 : 0;
+                json = {
+                    items: Array.from({ length: Math.min(50, count - start) }, (_, offset) => {
+                        const index = start + offset;
+                        return {
+                            uid: `${uid}-${index}`,
+                            project_uid: uid,
+                            title: `${uid} card ${index}`,
+                            has_unread_change: true,
+                            unread_change_count: index === 0 ? null : index + 1,
+                            unread_change_count_status: index === 0 ? "manual_unread" : "exact",
+                            latest_change: { seq: index + 1, target_type: "comment", target_uid: `comment-${index}`, at: changedAt },
+                        };
+                    }),
+                    next_cursor: count > 50 && !cursor ? "page-two" : null,
+                    limit: 50,
+                };
             } else if (path.includes("/column/dock")) json = { column_uids: [] };
             else if (path.includes("/cards/available")) json = { card_uids: [] };
             else if (path.includes("project")) json = { projects: projects(), columns: [], records: [], collections: [] };
@@ -101,18 +123,16 @@ test("Changes rail counts all native unread cards and follows model, board and i
     await changes.click();
     const sidebar = page.getByRole("region", { name: "Changes", exact: true }).last();
     await expect(sidebar.getByRole("button").filter({ hasText: "left card" })).toHaveCount(50);
-    await expect(sidebar.getByText("Showing the first 50 unread cards.", { exact: true })).toBeVisible();
+    await expect(sidebar.getByText("Marked unread", { exact: true })).toBeVisible();
+    await expect(sidebar.getByText("Comment", { exact: true })).toHaveCount(50);
+    await sidebar.getByRole("button", { name: "More", exact: true }).click();
+    await expect(sidebar.getByRole("button").filter({ hasText: "left card" })).toHaveCount(5);
+    await expect(sidebar.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
     const changedRow = sidebar.getByRole("button").filter({ hasText: "left card 54" });
     await expect(changedRow.locator("time")).toHaveAttribute("datetime", changedAt);
     await expect(changedRow.locator("time")).toContainText("minutes ago");
-    await expect(sidebar.locator("time")).toHaveCount(1);
-    const revisedAt = new Date(Date.now() - 300_000).toISOString();
-    await page.evaluate(async (at) => {
-        const path = "/src/core/models/index.ts";
-        const { ProjectCard } = await import(/* @vite-ignore */ path);
-        ProjectCard.Model.fromOne({ uid: "left-54", created_at: new Date(), updated_at: new Date(), last_change_at: new Date(at) });
-    }, revisedAt);
-    await expect(changedRow.locator("time")).toHaveAttribute("datetime", revisedAt);
+    await expect(changedRow.locator("[data-unread-change-count]")).toContainText("55");
+    // Native model totals and server summary pages have independent authority.
     await page.evaluate(async () => {
         const path = "/src/core/models/index.ts";
         const { ProjectCard } = await import(/* @vite-ignore */ path);
@@ -123,7 +143,7 @@ test("Changes rail counts all native unread cards and follows model, board and i
         });
     });
     await expect(changes).toHaveText("");
-    await expect(sidebar.getByText("No unread changes in this board.", { exact: true })).toBeVisible();
+    await expect(changedRow).toBeVisible();
     await page.getByRole("button", { name: "Explorer", exact: true }).click();
     holdCards = true;
     await page.locator("[data-workbench-explorer]").getByRole("button", { name: "right board", exact: true }).first().click();
@@ -135,13 +155,13 @@ test("Changes rail counts all native unread cards and follows model, board and i
     await expect(changes).toContainText("2");
     await expect(statusFooter).toContainText("right board");
     await expect(statusFooter).toContainText("Unread: 2");
-    // Both boards are cached: switching must synchronously select the current board's unread projection.
+    // Cached models select the current board immediately; the application cache also refreshes stale requests.
     const explorer = page.locator("[data-workbench-explorer]");
     await explorer.getByRole("button", { name: "left board", exact: true }).first().click();
     await expect(changes).toHaveText("");
     await explorer.getByRole("button", { name: "right board", exact: true }).first().click();
     await expect(changes).toContainText("2");
-    expect(cardReads).toEqual(["fixture-user/left", "fixture-user/right"]);
+    expect(cardReads).toEqual(["fixture-user/left", "fixture-user/right", "fixture-user/left", "fixture-user/right"]);
     releaseCards = undefined;
     holdCards = true;
     actor = "other-user";
@@ -173,7 +193,14 @@ test("Changes rail counts all native unread cards and follows model, board and i
     holdCards = false;
     releaseCards!();
     await expect(changes).toContainText("3");
-    expect(cardReads).toEqual(["fixture-user/left", "fixture-user/right", "other-user/right", "other-user/right"]);
+    expect(cardReads).toEqual([
+        "fixture-user/left",
+        "fixture-user/right",
+        "fixture-user/left",
+        "fixture-user/right",
+        "other-user/right",
+        "other-user/right",
+    ]);
     const transfer = await page.evaluateHandle(() => {
         const data = new DataTransfer();
         data.setData("application/x-langboard-board-reference", "left");
@@ -204,7 +231,7 @@ test("Changes rail counts all native unread cards and follows model, board and i
         const dock = page.locator("[data-floating-nav-content]").first();
         await expect(dock).toBeVisible();
         expect((await dock.boundingBox())!.y + (await dock.boundingBox())!.height).toBeLessThanOrEqual(bounds!.y);
-        await page.screenshot({ path: `.verification/workbench-status/board-${width}.png` });
+        await page.screenshot({ path: test.info().outputPath(`board-${width}.png`) });
     }
 
     await page.evaluate(async () => {
@@ -1206,6 +1233,15 @@ test("account shortcuts restore on an isolated device and recover conflicts with
     }
 });
 
+async function authenticateAddCardFixture(page: Page) {
+    await page.evaluate(async () => {
+        const storePath = "/src/core/stores/AuthStore.ts";
+        const modelsPath = "/src/core/models/index.ts";
+        const [{ default: store }, { AuthUser }] = await Promise.all([import(/* @vite-ignore */ storePath), import(/* @vite-ignore */ modelsPath)]);
+        store.setState({ currentUser: AuthUser.Model.getModel("me"), state: "loaded", pageLoaded: true });
+    });
+}
+
 for (const width of [1440, 390]) {
     for (const failure of ["abort", "server"] as const) {
         test(`card creation retains the draft after ${failure} at ${width}px`, async ({ page }) => {
@@ -1220,6 +1256,7 @@ for (const width of [1440, 390]) {
                 return route.fulfill({ status: 201, json: { card: { uid: "created" } } });
             });
             await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+            await authenticateAddCardFixture(page);
             await page.getByRole("button", { name: "Add a card", exact: true }).click();
             const title = "고객 요청 초안 — preserve on failure";
             const input = page.locator("textarea");
@@ -1245,6 +1282,7 @@ test("compose dock opens the first column editor and preserves a draft without s
         await route.fulfill({ json: { active_work: [], columns: [], pinned_apps: [], revision: 0 } });
     });
     await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?add-card=1");
+    await authenticateAddCardFixture(page);
     const compose = page.getByRole("button", { name: "Compose", exact: true });
     await expect(compose).toBeVisible();
     await compose.click();
@@ -1647,4 +1685,284 @@ test("Schedule closes without requests and reopening follows the current project
     await openSchedule(page);
     await expect(panel.getByText("right board · Doing", { exact: true })).toHaveCount(2);
     expect(fixture.reads.at(-1)!.searchParams.get("project_uid")).toBe("right");
+});
+
+// Local API fixtures exercise the production card and Plate editors; no provider or canary acceptance is implied.
+async function responsiveCommentFixture(page: Page) {
+    const now = "2026-10-18T00:00:00Z";
+    const member = (uid: string) => ({
+        uid,
+        type: "user",
+        username: uid,
+        firstname: uid === "reply-author" ? "Reply" : "Fixture",
+        lastname: "Reader",
+        created_at: now,
+        updated_at: now,
+    });
+    const comments = Array.from({ length: 26 }, (_, index) => ({
+        uid: `responsive-${index}`,
+        card_uid: "fixture-card",
+        created_at: now,
+        updated_at: now,
+        content: { content: index === 0 ? "Reply target" : `Thread comment ${index}` },
+        is_edited: false,
+        reactions: {},
+        user: member(index === 0 ? "reply-author" : "sidebar-user-a"),
+    }));
+    const requests: string[] = [];
+    const writes: { method: string; path: string; body: { content: string } }[] = [];
+    let realtime = false;
+    let submitted: (typeof comments)[number] | undefined;
+    await page.route(
+        (url) => url.port === "5381",
+        async (route) => {
+            const url = new URL(route.request().url());
+            const path = url.pathname;
+            requests.push(path + url.search);
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            if (route.request().method() === "POST" && path.includes("/attachment")) {
+                const requestUID = route
+                    .request()
+                    .postData()
+                    ?.match(/name="request_uid"\r\n\r\n([^\r]+)/)?.[1];
+                return route.fulfill({
+                    json: {
+                        request_uid: requestUID,
+                        card_uid: "fixture-card",
+                        uid: "responsive-upload",
+                        name: "responsive.txt",
+                        url: "/file/responsive.txt",
+                        order: 0,
+                        created_at: now,
+                        updated_at: now,
+                    },
+                });
+            }
+            if (["POST", "PUT"].includes(route.request().method()) && path.includes("/comment")) {
+                const body = route.request().postDataJSON();
+                writes.push({ method: route.request().method(), path, body });
+                if (route.request().method() === "PUT") comments[1].content = { content: body.content };
+                else submitted = { ...comments[1], uid: "submitted", content: { content: body.content } };
+                return route.fulfill({ json: { updated_at: now } });
+            }
+            if (path.endsWith("/timeline")) {
+                const currentCard = path.includes("other-card") ? "other-card" : "fixture-card";
+                const visible = currentCard === "other-card" ? [] : url.searchParams.has("before") ? comments.slice(20) : comments.slice(0, 20);
+                const records = visible.map((comment) => ({
+                    kind: "comment",
+                    uid: comment.uid,
+                    evidence_ref: `comment:${comment.uid}`,
+                    created_at: now,
+                    data: comment,
+                }));
+                if (submitted && currentCard === "fixture-card" && !url.searchParams.has("before"))
+                    records.unshift({ kind: "comment", uid: submitted.uid, evidence_ref: "comment:submitted", created_at: now, data: submitted });
+                if (realtime && currentCard === "fixture-card" && !url.searchParams.has("before"))
+                    records.unshift({
+                        kind: "comment",
+                        uid: "realtime",
+                        evidence_ref: "comment:realtime",
+                        created_at: now,
+                        data: { ...comments[0], uid: "realtime", content: { content: "Realtime arrival" } },
+                    });
+                return route.fulfill({
+                    json: { records, next_cursor: currentCard === "fixture-card" && !url.searchParams.has("before") ? "older" : null },
+                });
+            }
+            if (/\/board\/fixture\/card\/[^/]+$/.test(path)) {
+                const uid = path.split("/").at(-1)!;
+                return route.fulfill({
+                    json: {
+                        card: {
+                            uid,
+                            project_uid: "fixture",
+                            project_column_uid: "column",
+                            title: uid,
+                            created_at: now,
+                            updated_at: now,
+                            order: 0,
+                            description: { content: "Responsive native card" },
+                            visibility: "SHARED",
+                            count_comment: uid === "fixture-card" ? 26 : 0,
+                            member_uids: [],
+                            project_members: [member("sidebar-user-a"), member("reply-author")],
+                            labels: [],
+                            relationships: [],
+                            current_auth_role_actions: ["read", "card_update", "card_write"],
+                        },
+                        attachments: [],
+                        checklists: [],
+                        global_relationships: [],
+                        project_columns: [],
+                        project_labels: [],
+                        linked_wikis: [],
+                        bot_scopes: [],
+                    },
+                });
+            }
+            return route.fulfill({ json: { records: [], next_cursor: null, items: [], executions: [] } });
+        }
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1&comments=1");
+    await expect(page.locator("[data-card-comment-uid='responsive-0']")).toContainText("Reply target", { timeout: 45_000 });
+    return {
+        requests,
+        writes,
+        arrive: () => {
+            realtime = true;
+            return { ...comments[0], uid: "realtime", content: { content: "Realtime arrival" } };
+        },
+    };
+}
+
+async function resizeCommentCard(page: Page, width: number) {
+    // Resize the fixture container without an outside click that intentionally closes the editor.
+    await page.locator("main > [role=dialog]").evaluate((element, next) => {
+        element.style.width = `${next}px`;
+    }, width);
+    const panel = page.getByRole("separator", { name: /comment/i });
+    if (width === 1120) await expect(panel).toBeVisible();
+    else await expect(panel).toHaveCount(0);
+    await expect(page.locator("[data-card-comment-uid='responsive-0']")).toHaveCount(1);
+}
+
+test("responsive native comments preserve reply mention and composer draft across container widths and identity boundaries", async ({ page }) => {
+    test.setTimeout(60_000);
+    page.setDefaultTimeout(10_000);
+    const fixture = await responsiveCommentFixture(page);
+    await page.locator("[data-card-comment-uid='responsive-0']").getByRole("button", { name: "Reply", exact: true }).click();
+    const editor = page.locator("[data-card-comment-form] [contenteditable='true']");
+    await expect(editor).toHaveCount(1);
+    await expect(editor).toContainText("Reply Reader");
+    await editor.press("End");
+    await page.keyboard.type(" Reply draft survives");
+    for (const width of [720, 360, 1120]) {
+        await resizeCommentCard(page, width);
+        await expect(editor).toHaveCount(1);
+        await expect(editor).toContainText("Reply Reader");
+        await expect(editor).toContainText("Reply draft survives");
+    }
+    await page.getByText("Switch card", { exact: true }).click();
+    await expect(page.getByRole("region", { name: "other-card", exact: true })).toBeVisible();
+    await expect(page.locator("[data-card-comment-uid='responsive-0']")).toHaveCount(0);
+    await expect(editor).toHaveCount(0);
+    await page.getByText("Switch card", { exact: true }).click();
+    await expect(page.locator("[data-card-comment-uid='responsive-0']")).toBeVisible();
+    await page.getByRole("button", { name: /Add a comment as/ }).click();
+    await expect(editor).toContainText("Reply draft survives");
+    await page.getByText("Switch account", { exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    await page.getByRole("button", { name: /Add a comment as/ }).click();
+    await expect(editor).not.toContainText("Reply draft survives");
+    await editor.click();
+    await page.keyboard.type("@reply");
+    await page.getByRole("option", { name: /Reply Reader/ }).click();
+    await expect(editor).toContainText("Reply Reader");
+    await resizeCommentCard(page, 720);
+    await expect(editor).toContainText("Reply Reader");
+    expect(fixture.writes).toEqual([]);
+});
+
+test("responsive native comments preserve edits across layout switches and paginate long threads without duplicates", async ({ page }) => {
+    test.setTimeout(60_000);
+    page.setDefaultTimeout(10_000);
+    const fixture = await responsiveCommentFixture(page);
+    const comment = page.locator("[data-card-comment-uid='responsive-1']");
+    await comment.getByRole("button", { name: "Edit", exact: true }).click();
+    const editor = comment.locator("[contenteditable='true']");
+    await editor.press("End");
+    await page.keyboard.type(" unsaved edit");
+    for (const width of [720, 360, 1120]) {
+        await resizeCommentCard(page, width);
+        await expect(editor).toContainText("unsaved edit");
+        await expect(page.locator("[contenteditable='true']")).toHaveCount(1);
+    }
+    await comment.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    await expect(comment).toContainText("unsaved edit");
+    expect(fixture.writes).toHaveLength(1);
+    expect(fixture.writes[0].method).toBe("PUT");
+    expect(fixture.writes[0].body.content).toContain("unsaved edit");
+    await page.getByRole("button", { name: "Older history", exact: true }).click();
+    await expect(page.locator("[data-card-comment-uid]")).toHaveCount(26);
+    for (const width of [720, 360, 1120]) {
+        await resizeCommentCard(page, width);
+        if (await page.getByRole("button", { name: "Older history", exact: true }).count())
+            await page.getByRole("button", { name: "Older history", exact: true }).click();
+        await expect(page.locator("[data-card-comment-uid]")).toHaveCount(26);
+        expect(
+            await page
+                .locator("[data-card-comment-uid]")
+                .evaluateAll((elements) => new Set(elements.map((element) => element.getAttribute("data-card-comment-uid"))).size)
+        ).toBe(26);
+    }
+});
+
+async function emitResponsiveCommentEvent(page: Page, comment?: unknown) {
+    await page.evaluate(
+        async (event) => {
+            const fixturePath = "/src/components/Editor/collaborative-socket.fixture.ts";
+            const { emitCollaborativeFixtureEvent } = await import(/* @vite-ignore */ fixturePath);
+            emitCollaborativeFixtureEvent(event);
+        },
+        comment
+            ? {
+                  topic: ESocketTopic.Board,
+                  topicId: "fixture",
+                  event: SocketEvents.SERVER.BOARD.CARD.COMMENT.ADDED.replace("{uid}", "fixture-card"),
+                  data: { comment },
+              }
+            : { event: "open", data: {} }
+    );
+}
+
+test("responsive native comments retain uploaded attachments and reconcile realtime refresh around an active edit", async ({ page }) => {
+    test.setTimeout(90_000);
+    page.setDefaultTimeout(10_000);
+    const fixture = await responsiveCommentFixture(page);
+    await page.getByRole("button", { name: /Add a comment as/ }).click();
+    const composer = page.locator("[data-card-comment-form] [contenteditable='true']");
+    await expect(composer).toBeVisible();
+    await composer.press("End");
+    await page.keyboard.type("Attachment draft");
+    const fileChooser = page.waitForEvent("filechooser");
+    await page.locator("[data-card-comment-form] [role=radio]:has(svg.lucide-file-up)").first().click();
+    await (await fileChooser).setFiles({ name: "responsive.txt", mimeType: "text/plain", buffer: Buffer.from("native attachment fixture") });
+    const attachment = page.locator("[data-card-comment-form] .slate-file");
+    await expect(attachment).toContainText("responsive.txt");
+    for (const width of [720, 360, 1120]) {
+        await resizeCommentCard(page, width);
+        await expect(composer).toHaveCount(1);
+        await expect(composer).toContainText("Attachment draft");
+        await expect(attachment).toContainText("responsive.txt");
+    }
+    await page.locator("[data-card-comment-form]").getByRole("button", { name: "Save", exact: true }).click();
+    await expect(composer).toHaveCount(0);
+    expect(fixture.writes).toHaveLength(1);
+    expect(fixture.writes[0].method).toBe("POST");
+    expect(fixture.writes[0].body.content).toContain("responsive.txt");
+    expect(fixture.writes[0].body.content).toContain("/file/responsive.txt");
+    await expect(page.locator("[data-card-comment-uid='submitted'] .slate-file")).toContainText("responsive.txt");
+    await page.reload();
+    await expect(page.locator("[data-card-comment-uid='submitted'] .slate-file")).toContainText("responsive.txt");
+    const comment = page.locator("[data-card-comment-uid='responsive-1']");
+    await comment.getByRole("button", { name: "Edit", exact: true }).click();
+    const editor = comment.locator("[contenteditable='true']");
+    await editor.press("End");
+    await page.keyboard.type(" guarded draft");
+    const reads = fixture.requests.filter((path) => path.includes("/timeline")).length;
+    const arrival = fixture.arrive();
+    await emitResponsiveCommentEvent(page, arrival);
+    // The production listener debounces by 100ms; allow it to attempt refresh while edit remains open.
+    await page.waitForTimeout(250);
+    expect(fixture.requests.filter((path) => path.includes("/timeline"))).toHaveLength(reads);
+    await expect(editor).toContainText("guarded draft");
+    await comment.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.locator("[data-card-comment-uid='realtime']")).toContainText("Realtime arrival");
+    await expect(page.locator("[data-card-comment-uid='realtime']")).toHaveCount(1);
+    await emitResponsiveCommentEvent(page);
+    await expect.poll(() => fixture.requests.filter((path) => path.includes("/timeline")).length).toBe(reads + 2);
+    await expect(page.locator("[data-card-comment-uid='realtime']")).toHaveCount(1);
+    expect(fixture.writes).toHaveLength(1);
 });

@@ -62,8 +62,10 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
     const commentUser = comment.useForeignFieldOne("user");
     const commentBot = comment.useForeignFieldOne("bot");
     const commentAuthor = commentUser || commentBot;
-    const valueRef = useRef<IEditorContent>(content);
-    const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const editDraft = isCurrentEditor
+        ? getCardDraftStore().getDraft({ userUID: currentUser.uid, projectUID, kind: "comment-edit", scopeUID: comment.uid })
+        : null;
+    const valueRef = useRef<IEditorContent>(editDraft ? { content: editDraft.content } : content);
     const pendingDraftRef = useRef<{ scope: IDraftScope; content: string } | null>(null);
     const currentUserUIDRef = useRef(currentUser.uid);
     currentUserUIDRef.current = currentUser.uid;
@@ -73,10 +75,6 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
     const flushDraftAutosave = () => {
         const pending = pendingDraftRef.current;
         pendingDraftRef.current = null;
-        if (draftSaveTimerRef.current) {
-            clearTimeout(draftSaveTimerRef.current);
-            draftSaveTimerRef.current = null;
-        }
         if (!pending) {
             return;
         }
@@ -89,10 +87,6 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
 
     const cancelDraftAutosave = () => {
         pendingDraftRef.current = null;
-        if (draftSaveTimerRef.current) {
-            clearTimeout(draftSaveTimerRef.current);
-            draftSaveTimerRef.current = null;
-        }
         const scope = commentEditDraftScope();
         if (scope) {
             getCardDraftStore().clearDraft(scope);
@@ -106,10 +100,9 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
             return;
         }
         pendingDraftRef.current = { scope, content: value.content };
-        if (draftSaveTimerRef.current) {
-            clearTimeout(draftSaveTimerRef.current);
-        }
-        draftSaveTimerRef.current = setTimeout(flushDraftAutosave, 600);
+        // Layout changes can remount the list before a debounce fires. Capture the
+        // scoped draft immediately, as the new-comment composer already does.
+        flushDraftAutosave();
     };
     const editorValue = isCurrentEditor ? valueRef.current : content;
 

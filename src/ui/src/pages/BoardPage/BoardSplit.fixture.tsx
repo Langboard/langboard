@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "@/core/helpers/QueryClient";
 import "@/core/injection";
 import "@/i18n";
 import "@/assets/styles/main.css";
@@ -31,7 +32,6 @@ const user = AuthUser.Model.fromOne({
     purpose: "",
 } as never);
 useAuthStore.setState({ currentUser: user, state: "loaded" });
-const client = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity } } });
 function LocationReceipt() {
     const location = useLocation();
     return (
@@ -44,7 +44,7 @@ window.history.replaceState(null, "", "/board/left");
 createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
         <LocationReceipt />
-        <QueryClientProvider client={client}>
+        <QueryClientProvider client={queryClient}>
             <PageHeaderProvider>
                 <AuthProvider>
                     <SocketProvider>

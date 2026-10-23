@@ -25,7 +25,15 @@ const selectFixtureUser = (uid: string) => {
     useAuthStore.setState({
         state: "loaded",
         pageLoaded: true,
-        currentUser: AuthUser.Model.fromOne({ uid, created_at: new Date(), updated_at: new Date() }),
+        currentUser: AuthUser.Model.fromOne({
+            uid,
+            type: "user",
+            firstname: "Fixture",
+            lastname: "Reader",
+            username: uid,
+            created_at: new Date(),
+            updated_at: new Date(),
+        }),
     });
 };
 selectFixtureUser("sidebar-user-a");
@@ -161,6 +169,7 @@ function LensFixture() {
     const viewportRef = useRef<HTMLDivElement>(null);
     const [cardUID, setCardUID] = useState("fixture-card");
     const [flippedUID, setFlippedUID] = useState("");
+    const responsiveComments = new URLSearchParams(location.search).has("comments");
     const currentUser = useAuthStore((state) => state.currentUser)!;
     return (
         <MemoryRouter>
@@ -174,7 +183,11 @@ function LensFixture() {
                                 Switch account
                             </button>
                             <Dialog.Root open modal={false}>
-                                <div role="dialog" className="flex h-[90vh] max-w-6xl flex-col p-1">
+                                <div
+                                    role="dialog"
+                                    className="flex h-[90vh] max-w-6xl flex-col p-1"
+                                    style={responsiveComments ? { width: 1120 } : undefined}
+                                >
                                     <BoardCardSectionSaveProvider>
                                         <BoardCard
                                             projectUID="fixture"

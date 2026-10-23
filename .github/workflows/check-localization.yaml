@@ -48,6 +48,7 @@ on:
       - src/ui/playwright.retrieval.config.ts
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
+      - src/ui/playwright.responsive-comments.config.ts
       - src/ui/playwright.workbench.config.ts
       - src/ui/playwright.change-counts.config.ts
       - src/ui/playwright.changes-native-query.config.ts
@@ -142,6 +143,9 @@ jobs:
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
         working-directory: src/ui
+      - name: Verify native Markdown attachment roundtrip and text fallback
+        run: node --experimental-strip-types --test src/components/Editor/plugins/markdown/escape-angles.test.ts src/components/Editor/plugins/markdown/escape.test.ts
+        working-directory: src/ui
       - run: yarn test:card-draft-store
         working-directory: src/ui
       - run: yarn test:store-snapshots
@@ -216,6 +220,9 @@ jobs:
         working-directory: src/ui
       - run: yarn playwright test -c playwright.workbench.config.ts
         if: github.event_name == 'workflow_dispatch'
+        working-directory: src/ui
+      - name: Verify native responsive comment editing and attachment preservation
+        run: yarn playwright test -c playwright.responsive-comments.config.ts
         working-directory: src/ui
       - name: Verify authoritative counts and Changes native query lifecycle
         if: github.event_name == 'workflow_dispatch'
