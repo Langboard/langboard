@@ -124,7 +124,7 @@ function DataTablePaginationPage({ type, totalPages }: { type: "previous" | "nex
     };
 
     return (
-        <Button variant={variant} size="icon-sm" onClick={handleClick} disabled={isDisabled} title={title}>
+        <Button variant={variant} size="icon-sm" onClick={handleClick} disabled={isDisabled} title={title} aria-label={title}>
             {content}
         </Button>
     );

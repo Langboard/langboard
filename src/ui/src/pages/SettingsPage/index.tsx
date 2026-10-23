@@ -208,7 +208,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             onClick: () => {
                 navigate(ROUTES.SETTINGS.USERS);
             },
-            hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User),
+            hidden: !currentUser.is_admin || !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User, SettingRole.EAction.GroupRead),
         },
         [ROUTES.SETTINGS.BOTS]: {
             icon: "bot",

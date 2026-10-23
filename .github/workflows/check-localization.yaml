@@ -50,6 +50,7 @@ on:
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
       - src/ui/playwright.responsive-comments.config.ts
       - src/ui/playwright.workbench.config.ts
+      - src/ui/playwright.group-directory.config.ts
       - src/ui/playwright.change-counts.config.ts
       - src/ui/playwright.changes-native-query.config.ts
       - src/ui/playwright.cmdk-native-query.config.ts
@@ -220,6 +221,9 @@ jobs:
         working-directory: src/ui
       - run: yarn playwright test -c playwright.workbench.config.ts
         if: github.event_name == 'workflow_dispatch'
+        working-directory: src/ui
+      - name: Verify native Users and Groups permission isolation
+        run: yarn playwright test -c playwright.group-directory.config.ts
         working-directory: src/ui
       - name: Verify native responsive comment editing and attachment preservation
         run: yarn playwright test -c playwright.responsive-comments.config.ts

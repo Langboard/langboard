@@ -481,5 +481,19 @@
   "User ID": "User ID",
   "User details failed": "Unable to load this user. Check your access and refresh to retry.",
   "Configured permissions": "Configured permissions",
-  "Configured permissions description": "Stored account roles. Access to each board or resource is evaluated separately by the server."
+  "Configured permissions description": "Stored account roles. Access to each board or resource is evaluated separately by the server.",
+  "Groups": "Groups",
+  "Search groups": "Search groups",
+  "Search members": "Search members",
+  "Members": "Members",
+  "Management": "Management",
+  "Read only": "Read only",
+  "Externally managed": "Externally managed",
+  "Current authority": "Current authority",
+  "Other authority": "Other authority",
+  "Directory forbidden": "Directory access denied",
+  "Deleted": "Deleted",
+  "Local": "Local",
+  "SCIM": "SCIM",
+  "Unresolved": "Unresolved"
 }
