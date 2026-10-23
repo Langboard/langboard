@@ -25,7 +25,8 @@ def _current(db, model, identity, *, lock=False):
     except (ValueError, TypeError):
         raise CompactorAuthorityError("not_found", 404) from None
     query = SqlBuilder.select.table(model).where(model.id == identity).execution_options(populate_existing=True)
-    return db.exec(query.with_for_update() if lock else query).first()
+    # Project policy stays serialized without blocking a native card edit's FK KEY SHARE.
+    return db.exec(query.with_for_update(key_share=model is Project) if lock else query).first()
 
 
 def _require_manager(db, actor, project):
