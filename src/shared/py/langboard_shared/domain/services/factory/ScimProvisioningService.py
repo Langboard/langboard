@@ -1,5 +1,6 @@
 from re import IGNORECASE, search
 from typing import Any
+from sqlalchemy.exc import IntegrityError
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.exceptions import ScimProvisioningException
@@ -461,7 +462,18 @@ class ScimProvisioningService(BaseDomainService):
             self.apply_group_mutations(group, payload)
             return group
 
-        return self.create_group(payload)
+        try:
+            return self.create_group(payload)
+        except ScimProvisioningException.Conflict:
+            # Another request may have committed the same external ID after our
+            # lookup. Only recover after its failed create transaction rolled back.
+            if not external_id or DbSession.has_active_transaction():
+                raise
+            group = self.repo.scim_group.get_by_external_id(external_id, consistent=True)
+            if group is None:
+                raise
+            self.apply_group_mutations(group, payload)
+            return group
 
     def create_group(self, payload: dict[str, Any]) -> ScimGroup:
         display_name = self._extract_display_name(payload)
@@ -476,9 +488,21 @@ class ScimProvisioningService(BaseDomainService):
         self._validate_project_role_members(external_id, user_ids)
 
         group = ScimGroup(display_name=display_name, external_id=external_id or None)
-        self.repo.scim_group.insert(group)
-        if "members" in payload:
-            self.repo.scim_group_member.replace_group_members(group, user_ids)
+        try:
+            with DbSession.atomic():
+                self.repo.scim_group.insert(group)
+                if "members" in payload:
+                    self.repo.scim_group_member.replace_group_members(group, user_ids)
+        except IntegrityError as error:
+            if (
+                external_id
+                and not DbSession.has_active_transaction()
+                and self.repo.scim_group.get_by_external_id(external_id, consistent=True) is not None
+            ):
+                raise ScimProvisioningException.Conflict() from error
+            raise
+        # Keep the desired directory state committed when entitlement verification
+        # is temporarily unavailable; the existing retry contract relies on it.
         self._reconcile_bound_external_ids(external_id)
         return group
 

@@ -44,6 +44,14 @@ internal membership row identifiers and relationship timestamps may change.
 After a failed delete readback, the group remains absent and its grants remain
 revoked. Retrying the operation does not recreate the deleted group.
 
+Group creation stores the group and its requested membership in one transaction;
+a membership write failure leaves neither a partial group nor partial members.
+Overlapping upserts for the same `externalId` converge on the existing group UID
+after a creation conflict. This does not match groups by display name or merge
+different external identities. Entitlement reconciliation follows the committed
+directory write: a readback failure preserves that desired state for retry, and
+unrelated database errors from reconciliation are not treated as creation races.
+
 ## Inventory before the singleton tenant migration
 
 Before assigning existing boards and directory records to a singleton tenant,

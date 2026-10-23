@@ -6,6 +6,7 @@ from threading import Barrier
 from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
@@ -20,6 +21,7 @@ from langboard_shared.Env import Env  # noqa: E402
 from langboard_shared.infrastructure.repositories.factory.ProjectAssignedUserRepository import (  # noqa: E402
     ProjectAssignedUserRepository,
 )
+from langboard_shared.infrastructure.repositories.factory.ScimGroupRepository import ScimGroupRepository  # noqa: E402
 
 
 DATABASE_URL = os.getenv("LANGBOARD_TEST_DATABASE_URL") or os.getenv("LANGBOARD_FILE_TEST_DATABASE_URL")
@@ -126,6 +128,108 @@ def snapshot(engine):
             table: sorted(connection.execute(text(f"SELECT {columns} FROM {table}")).all())
             for table, columns in fields.items()
         }
+
+
+@pytest.mark.parametrize("role_binding", [False, True])
+def test_concurrent_group_upsert_preserves_one_identity_and_members(role_database, monkeypatch, role_binding):
+    engine, project, _, employee = role_database
+    ready_to_insert = Barrier(2)
+    insert = ScimGroupRepository.insert
+
+    def concurrent_insert(repository, group):
+        ready_to_insert.wait(timeout=5)
+        return insert(repository, group)
+
+    monkeypatch.setattr(ScimGroupRepository, "insert", concurrent_insert)
+    payload = {
+        "externalId": f"project-role:{project.get_uid()}:contributor" if role_binding else "directory-stable-group",
+        "displayName": "Engineering",
+        "members": [{"value": employee.get_uid()}],
+    }
+
+    def upsert():
+        service = DomainService()
+        try:
+            return service.scim_provisioning.create_or_upsert_group(payload).id
+        finally:
+            service.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = [future.result(timeout=10) for future in (executor.submit(upsert), executor.submit(upsert))]
+    assert results[0] == results[1]
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT id, external_id FROM scim_group")).all() == [
+            (results[0], payload["externalId"])
+        ]
+        assert connection.execute(text("SELECT group_id, user_id FROM scim_group_member")).all() == [
+            (results[0], employee.id)
+        ]
+        assert connection.execute(text("SELECT count(*) FROM project_role")).scalar_one() == int(role_binding)
+        assert connection.execute(text("SELECT count(*) FROM project_assigned_user")).scalar_one() == int(role_binding)
+    if role_binding:
+        service = DomainService()
+        try:
+            role = service.scim_provisioning.repo.role.project.get_one(
+                user_id=employee.id, project_id=project.id, consistent=True
+            )
+            assert set(role.actions) == {"read", "card_write", "card_update"}
+        finally:
+            service.close()
+
+
+def test_failed_group_member_write_does_not_leave_partial_group(role_database, monkeypatch):
+    engine, project, _, employee = role_database
+    service = DomainService()
+    provisioning = service.scim_provisioning
+    before = snapshot(engine)
+    replace = provisioning.repo.scim_group_member.replace_group_members
+
+    def fail_after_members(group, user_ids):
+        replace(group, user_ids)
+        raise RuntimeError("fixture member write failure")
+
+    monkeypatch.setattr(provisioning.repo.scim_group_member, "replace_group_members", fail_after_members)
+    try:
+        with pytest.raises(RuntimeError, match="fixture member write failure"):
+            provisioning.create_or_upsert_group(
+                {
+                    "externalId": provisioning._project_role_external_id(project, "contributor"),
+                    "displayName": "Engineering",
+                    "members": [{"value": employee.get_uid()}],
+                }
+            )
+        assert snapshot(engine) == before
+    finally:
+        service.close()
+
+
+def test_entitlement_integrity_error_is_not_retried_as_a_group_creation_race(role_database, monkeypatch):
+    engine, _, _, employee = role_database
+    service = DomainService()
+    provisioning = service.scim_provisioning
+    calls = []
+
+    def fail_entitlements(*external_ids):
+        calls.append(external_ids)
+        raise IntegrityError("fixture entitlement failure", {}, RuntimeError("unrelated constraint"))
+
+    monkeypatch.setattr(provisioning, "_reconcile_bound_external_ids", fail_entitlements)
+    try:
+        with pytest.raises(IntegrityError):
+            provisioning.create_or_upsert_group(
+                {
+                    "externalId": "directory-entitlement-failure",
+                    "displayName": "Engineering",
+                    "members": [{"value": employee.get_uid()}],
+                }
+            )
+        assert len(calls) == 1
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM scim_group")).scalar_one() == 1
+            assert connection.execute(text("SELECT count(*) FROM scim_group_member")).scalar_one() == 1
+            assert connection.execute(text("SELECT count(*) FROM project_role")).scalar_one() == 0
+    finally:
+        service.close()
 
 
 @pytest.mark.parametrize("operation", ["create", "upsert", "replace", "patch", "delete"])
