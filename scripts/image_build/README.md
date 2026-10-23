@@ -49,6 +49,16 @@ protected canary base, exact source authority and approval. Automatic review
 validation publishes no product image. Candidate promotion and deployment remain
 central GitOps operations, without a per-deployment chat request.
 
+Automatic `review/canary-*` pushes replace older request transports in the same
+branch/profile concurrency group, so an obsolete job waiting for a runner does
+not prevent validation of the current PR head. Deployment pushes and manual
+dispatches do not cancel preceding transports. A later automatic review push
+can supersede a manual validation in the same review branch/profile group;
+product requests use deployment refs and remain serialized. Cancelling a validation transport
+does not revoke a request already admitted by the broker: retain that run's
+request ID and receipt for reconciliation instead of resubmitting it. Shared
+runner admission, exact-source verification and product release gates still apply.
+
 The product endpoint is `/v1/builds/project-images`; the validation endpoint
 remains `/v1/builds/project-validations`. `SOURCE_CHANNEL` is `default` or
 `canary`; the current workflow explicitly selects `canary`. The broker verifies

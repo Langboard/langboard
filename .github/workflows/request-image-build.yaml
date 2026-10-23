@@ -35,7 +35,9 @@ permissions:
 
 concurrency:
   group: image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}
-  cancel-in-progress: false
+  # Review pushes submit validation only. Do not let an obsolete queued
+  # transport hold the latest PR head; product requests remain serialized.
+  cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-') }}
 
 jobs:
   request:

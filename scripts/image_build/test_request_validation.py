@@ -191,15 +191,19 @@ class BrokerClientTest(unittest.TestCase):
         self.assertIn(".github/workflows/**", trigger["push"]["paths"])
         job = workflow["jobs"]["request"]
         validation, product = job["steps"][-2:]
+        self.assertEqual(
+            workflow["concurrency"]["group"], "image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}"
+        )
         for event, ref, manual, runner, expected in [
-            ("push", "review/canary-ui-followup-20261021", False, "runner", (True, True, False, "default")),
-            ("push", "review/other", False, "runner", (False, False, False, "api")),
-            ("push", "main", False, "runner", (False, False, False, "api")),
-            ("push", "deploy/canary", False, "runner", (True, False, True, "api")),
-            ("workflow_dispatch", "review/other", True, "runner", (True, True, False, "ui")),
-            ("workflow_dispatch", "review/canary-test", False, "runner", (False, False, False, "ui")),
-            ("workflow_dispatch", "deploy/canary", False, "runner", (True, False, True, "ui")),
-            ("push", "review/canary-test", False, "", (False, True, False, "default")),
+            ("push", "review/canary-ui-followup-20261021", False, "runner", (True, True, False, "default", True)),
+            ("push", "review/other", False, "runner", (False, False, False, "api", False)),
+            ("push", "main", False, "runner", (False, False, False, "api", False)),
+            ("push", "deploy/canary", False, "runner", (True, False, True, "api", False)),
+            ("workflow_dispatch", "review/other", True, "runner", (True, True, False, "ui", False)),
+            ("workflow_dispatch", "review/canary-test", True, "runner", (True, True, False, "ui", False)),
+            ("workflow_dispatch", "review/canary-test", False, "runner", (False, False, False, "ui", False)),
+            ("workflow_dispatch", "deploy/canary", False, "runner", (True, False, True, "ui", False)),
+            ("push", "review/canary-test", False, "", (False, True, False, "default", True)),
         ]:
             with self.subTest(event=event, ref=ref, runner=runner):
                 values = {
@@ -229,6 +233,7 @@ class BrokerClientTest(unittest.TestCase):
                         bool(evaluate(validation["if"])),
                         bool(evaluate(product["if"])),
                         evaluate(job["env"]["IMAGE_BUILD_PROFILE"]),
+                        bool(evaluate(workflow["concurrency"]["cancel-in-progress"])),
                     ),
                     expected,
                 )
