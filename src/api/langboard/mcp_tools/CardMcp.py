@@ -261,6 +261,30 @@ def _require_readable_document(project_uid, card_uid, attachment_uid, user, serv
 
 @McpTool.add(
     "user",
+    description=("Find semantic keyword/entity matches in one readable card's current comment compactions. "
+                 "Returns similarity scores, compaction/source revisions and original evidence references. "
+                 "Use get_card_timeline with compaction_uid and evidence_ref to inspect originals."),
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def search_card_compaction_metadata(
+    project_uid: str,
+    card_uid: str,
+    query: Annotated[str, Field(min_length=1, max_length=1000)],
+    user: User,
+    service: DomainService,
+) -> dict:
+    from langboard_shared.tasks.docling.CompactionMetadataIndexTask import search_metadata
+
+    resolved = service.card.resolve_readable_card(project_uid, card_uid, user, CollaborationChannel.Mcp)
+    if resolved is None:
+        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.")
+    project, card, _ = resolved
+    hits = search_metadata(service, user, project, card, query, channel=CollaborationChannel.Mcp)
+    return {"card_uid": card.get_uid(), "source": "comment_compaction", "derived": True, "matches": hits}
+
+
+@McpTool.add(
+    "user",
     description="Search one readable attachment's active vectors; bounded excerpts, current ACL and source checks.",
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)

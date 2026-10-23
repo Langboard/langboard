@@ -1378,6 +1378,13 @@ class CardService(BaseDomainService):
         semantic_matches = self._get_service(CardCommentCompactionService).search_metadata_candidates(
             user, project, context, input_value, channel=channel
         )
+        # Semantic inference can outlive card membership or visibility policy.
+        resolved = self.resolve_visibility_context(project, user, channel)
+        if resolved is None:
+            return []
+        project, context = resolved
+        if not context.active or not context.project_member:
+            return []
         records = self.repo.card.search_context_by_project(
             project,
             input_value,

@@ -135,13 +135,18 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             if changed:
                 # The fenced completion owns this immutable, server-derived metadata row.
                 # Public reads must validate the source and current reader through the compaction service.
-                db.insert(CardMetadata(card_id=current.card_id,
+                metadata = CardMetadata(card_id=current.card_id,
                     key=f"internal.comment_compaction.{current.get_uid()}.search",
                     value=json.dumps({"source": "comment_compaction", "derived": True,
                         "compaction_uid": current.get_uid(), "source_revision": current.source_revision,
                         "policy_version": current.policy_version,
                         "keywords": [item.model_dump(mode="json") for item in validated.keywords],
-                        "entities": [item.model_dump(mode="json") for item in validated.entities]}, ensure_ascii=False)))
+                        "entities": [item.model_dump(mode="json") for item in validated.entities],
+                        "index": {"status": "pending"}}, ensure_ascii=False))
+                db.insert(metadata)
+                from ....tasks.docling.CompactionMetadataIndexTask import enqueue_index
+
+                db.after_commit(lambda: enqueue_index(metadata.id))
                 finish_compaction_history(db, current, attempt, "succeeded", now=now)
             return changed
 

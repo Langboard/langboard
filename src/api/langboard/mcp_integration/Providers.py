@@ -79,6 +79,7 @@ AGENT_CORE_TOOLS = frozenset(
         "read_card_attachment",
         "read_card_document",
         "search_card_document",
+        "search_card_compaction_metadata",
         "read_card_images",
         "get_project_label_catalog",
         "get_shared_user_activities",

@@ -474,7 +474,37 @@ class CardCommentCompactionService(BaseDomainService):
                         break
             if len(candidates) < 20:
                 break
-        return matches
+        # Native board similarity ranks all indexed card ages in one bounded query.
+        from types import SimpleNamespace
+        from ....tasks.docling.CompactionMetadataIndexTask import search_board_metadata, validate_metadata_hits
+
+        facade = SimpleNamespace(card_comment_compaction=self, internal_bot=self._get_service(InternalBotService),
+                                 card=self._get_service(CardService))
+        semantic = search_board_metadata(facade, user, project, query, channel=channel)
+        for card_id, similarity in semantic.items():
+            try:
+                metadata = self.get_search_metadata(user, project, card_id, channel=channel)
+            except CommentCompactionError:
+                continue
+            matches[card_id] = {**metadata, "similarity": similarity}
+        # Later inference may revoke an earlier result. Recheck all accumulated
+        # sources and readers locally after the last remote operation.
+        for card_id, matched in list(matches.items()):
+            try:
+                fresh = self.get_search_metadata(user, project, card_id, channel=channel)
+                with DbSession.use(readonly=False) as db:
+                    current_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card_id)).first()
+                similarity = validate_metadata_hits(facade, user, project, current_card,
+                    matched.get("similarity", []), channel=channel)
+                terms = [item["value"] for item in fresh["keywords"]]
+                terms.extend(term for item in fresh["entities"] for term in [item["name"], *item.get("aliases", [])])
+                if similarity or any(query.casefold() in term.casefold() for term in terms):
+                    matches[card_id] = {**fresh, **({"similarity": similarity} if similarity else {})}
+                else:
+                    del matches[card_id]
+            except CommentCompactionError:
+                del matches[card_id]
+        return dict(list(matches.items())[:20])
 
     def get_view(self, user, project, card, *, before=None, channel=CollaborationChannel.Api):
         """One canonical page of current summaries and uncovered original events."""

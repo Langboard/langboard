@@ -26,6 +26,8 @@ def record_cleanup(db, pointer: dict | None, *, dispatch: bool = True) -> bool:
             "card_uid",
             "wiki_uid",
             "attachment_uid",
+            "compaction_uid",
+            "source_revision",
             "content_hash",
             "embedding_fingerprint",
             "generation",

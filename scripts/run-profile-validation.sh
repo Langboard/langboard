@@ -84,6 +84,7 @@ case "$profile" in
       src/api/tests/model_providers/test_comment_compaction_snapshot.py \
       src/api/tests/model_providers/test_comment_compaction_store.py \
       src/api/tests/model_providers/test_comment_compaction_command.py \
+      src/api/tests/model_providers/test_compaction_semantic_index.py \
       src/api/tests/model_providers/test_avatar_application.py \
       src/api/langboard/mcp_tools/UserMcp_search_test.py \
       src/api/tests/card_workspace/test_work_plan_receipt_metadata.py \
@@ -144,6 +145,7 @@ case "$profile" in
       src/api/tests/model_providers/test_comment_compaction_snapshot.py \
       src/api/tests/model_providers/test_comment_compaction_store.py \
       src/api/tests/model_providers/test_comment_compaction_command.py \
+      src/api/tests/model_providers/test_compaction_semantic_index.py \
       src/api/tests/model_providers/test_avatar_application.py \
       src/api/langboard/mcp_tools/UserMcp_search_test.py \
       src/api/tests/card_workspace/timers/ \

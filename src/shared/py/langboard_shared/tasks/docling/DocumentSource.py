@@ -3,6 +3,15 @@
 
 def document_source_identity(source: dict, *, require_generation: bool = False) -> dict:
     kind = source.get("source_type", "card_attachment")
+    if kind == "comment_compaction":
+        fields = ["board_uid", "card_uid", "compaction_uid", "source_revision", "content_hash", "embedding_fingerprint"]
+        if require_generation:
+            fields.append("generation")
+        if "attachment_uid" in source or "wiki_uid" in source or not all(
+            isinstance(source.get(key), str) and source[key] for key in fields
+        ):
+            raise ValueError("Incomplete compaction vector source")
+        return {"source_type": kind, **{key: source[key] for key in fields}}
     if kind not in ("card_attachment", "project_attachment", "wiki_attachment"):
         raise ValueError("Unknown vector source type")
     forbidden = (

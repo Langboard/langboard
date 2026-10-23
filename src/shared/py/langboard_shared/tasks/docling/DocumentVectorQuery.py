@@ -31,6 +31,18 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
         hits = [(document, None) for document in documents]
     else:
         hits = store.similarity_search_with_score(query, k=settings.k, filter=filter)
+    return project_vector_hits(pointer, hits, settings, max_tokens=max_tokens)
+
+
+def project_vector_hits(pointer: dict, hits, settings, *, max_tokens: int = 4000) -> list[dict]:
+    """Project already retrieved native hits against one authoritative active pointer."""
+    if type(max_tokens) is not int or not 1 <= max_tokens <= 4000:
+        raise ValueError("Invalid excerpt token budget")
+    ids = pointer.get("chunk_ids")
+    if (not isinstance(ids, list) or not 1 <= len(ids) <= MAX_ATTACHMENT_CHUNKS
+        or not all(isinstance(identifier, str) and identifier for identifier in ids)):
+        raise ValueError("Invalid active vector generation")
+    source = document_source_identity(pointer, require_generation=True)
     encoding = tiktoken.get_encoding("cl100k_base")
     remaining = min(max_tokens, settings.max_return_tokens)
     result = []
@@ -67,6 +79,7 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
                 "chunk_id": str(identifier),
                 "content": content,
                 "source": source,
+                **({"similarity_score": score} if source.get("source_type") == "comment_compaction" else {}),
                 **({"pages": pages, "provenance_scope": metadata.get("provenance_scope", "unknown")} if pages else {}),
                 **({"page": metadata["page"]} if type(metadata.get("page")) is int and metadata["page"] > 0 else {}),
             }
