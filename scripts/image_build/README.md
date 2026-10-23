@@ -90,3 +90,29 @@ commands, automatic archive scheduling, and their migrations. This report is
 separate from the workflow, graph and app reports. All declared commands must
 succeed for the integration result to pass; a prior image signature alone does
 not establish these tests or an application rollout.
+
+
+## Signed migration input identity
+
+The five runtime profiles declare the same versioned `migrationIdentity` input
+selection in `.fractalops/image-build.json`. The central producer hashes exact
+committed Git blobs and signs the resulting identity in its existing schema2
+manifest. This allows an independently approved consumer to reuse compatibility
+review across commits whose database inputs are unchanged. It does not establish
+a live schema, backup, drain, deployment, or application acceptance result.
+
+The selection covers the entire Alembic graph and environment, ORM models and
+custom DB types, database configuration, model discovery, migration CLI, startup
+bootstrap definitions, dependency locks, and the runtime Dockerfile. Runtime
+profiles share one selection because they are deployed against the same retained
+database. Ordinary UI and service/task changes are outside this identity.
+The Dockerfile and shared CLI/bootstrap/type roots deliberately invalidate the
+baseline even for some non-schema edits; changing the runtime dependency or
+startup boundary requires renewed review. No source commit is hardcoded.
+
+A new migration, selected model/type/loader change, dependency update, or selection
+change must renew the genuine compatibility baseline with the existing backup and
+drain evidence. The producer never creates that baseline automatically. The
+consumer must verify the original signature and the complete version, selection
+hash, tree hash, and file count before reusing it. Changes that introduce another
+schema loader or migration input must extend this explicit selection in review.
