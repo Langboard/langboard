@@ -162,6 +162,8 @@ def project_work_state(
                     if external_observation
                     else "external_event_"
                     if external_event
+                    else "external_signal_"
+                    if kind is None
                     else "external_check_"
                 )
                 + item["state"],
@@ -173,6 +175,8 @@ def project_work_state(
                 if external_observation
                 else "External event evidence does not grant reviewer approval or change workflow."
                 if external_event
+                else "External signal semantics are unavailable or ambiguous; evidence does not grant reviewer approval or change workflow."
+                if kind is None
                 else "External check evidence does not grant reviewer approval or change workflow.",
                 "source_ref": "app_signal_binding:" + item["binding_uid"],
             }

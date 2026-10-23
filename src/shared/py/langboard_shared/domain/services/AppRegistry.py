@@ -196,7 +196,9 @@ def approved_manifests(*, retained_keys=()):
                 event_types=tuple(declared_policy["event_types"]), resource_types=tuple(declared_policy["resource_types"]),
                 requires_empty_commit=declared_policy["commit_mode"] == "empty",
                 requires_commit=declared_policy["commit_mode"] == "required",
-                time_basis=declared_policy["time_basis"],
+                time_basis=declared_policy["time_basis"] if isinstance(declared_policy["time_basis"], str) else None,
+                event_time_bases=tuple(sorted(declared_policy["time_basis"].items()))
+                if isinstance(declared_policy["time_basis"], dict) else (),
                 evidence_kind="external_observation" if declared_policy["time_basis"] == "observation" else "external_event",
                 outcome_states=tuple(declared_policy["outcome_states"].items()),
             )

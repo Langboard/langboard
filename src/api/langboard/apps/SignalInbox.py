@@ -20,6 +20,7 @@ from langboard_shared.domain.services.AppSignalProjection import (
     authorized_signal_rows,
     provider_resource_condition,
     signal_resource_name,
+    signal_time_basis_expression,
     supported_signal_condition,
 )
 from langboard_shared.domain.services.CardVisibilityPolicy import card_visibility_scope
@@ -66,11 +67,14 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
         .group_by(*identity)
         .subquery()
     )
+    time_basis = signal_time_basis_expression(manifests)
     occurrences = (
         select(
             func.max(AppSignal.id).label("signal_id"),
             func.min(AppSignal.outcome).label("minimum"),
             func.max(AppSignal.outcome).label("maximum"),
+            func.min(time_basis).label("min_basis"),
+            func.max(time_basis).label("max_basis"),
         )
         .join(
             latest,
@@ -102,7 +106,8 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
         .exists()
     )
     query = (
-        select(AppSignal, AppResourceBinding, AppConnection, occurrences.c.minimum, occurrences.c.maximum)
+        select(AppSignal, AppResourceBinding, AppConnection, occurrences.c.minimum, occurrences.c.maximum,
+               occurrences.c.min_basis, occurrences.c.max_basis)
         .join(occurrences, occurrences.c.signal_id == AppSignal.id)
         .join(AppResourceBinding, AppResourceBinding.id == AppSignal.resource_id)
         .join(BoardAppBinding, BoardAppBinding.id == AppResourceBinding.board_binding_id)
@@ -131,7 +136,7 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
         allowed = {
             row.id
             for row in authorized_signal_rows(
-                db, [(resource, connection, None) for _, resource, connection, _, _ in rows[:page_size]]
+                db, [(resource, connection, None) for _, resource, connection, _, _, _, _ in rows[:page_size]]
             )
         }
         return {
@@ -150,9 +155,11 @@ def list_board_signals(service, actor, project_uid, after=None, *, channel=Colla
                     "outcome": minimum if minimum == maximum else None,
                     "conflict": minimum != maximum,
                     "can_bind_card": manifests[signal.provider].signal_policy is not None,
-                    "time_basis": manifests[signal.provider].signal_policy.time_basis,
+                    "time_basis": minimum_basis if minimum_basis == maximum_basis else None,
+                    "evidence_kind": manifests[signal.provider].signal_policy.kind_for_basis(
+                        minimum_basis if minimum_basis == maximum_basis else None),
                 }
-                for signal, resource, connection, minimum, maximum in rows[:page_size]
+                for signal, resource, connection, minimum, maximum, minimum_basis, maximum_basis in rows[:page_size]
                 if resource.id in allowed
             ],
             "next_cursor": rows[page_size - 1][0].get_uid() if len(rows) > page_size else None,
