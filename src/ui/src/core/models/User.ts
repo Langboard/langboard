@@ -30,6 +30,7 @@ export interface Interface extends IBaseModel {
     affiliation?: string;
     position?: string;
     activated_at?: Date;
+    last_signed_in_at?: Date | null;
     setting_role_actions: SettingRole.TActions[];
     mcp_role_actions: McpRole.TActions[];
 }
@@ -151,6 +152,9 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
         if (Utils.Type.isString(model.activated_at)) {
             model.activated_at = new Date(model.activated_at);
         }
+        if (Utils.Type.isString(model.last_signed_in_at)) {
+            model.last_signed_in_at = new Date(model.last_signed_in_at);
+        }
         return model;
     }
 
@@ -172,6 +176,7 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
             username: "",
             avatar: undefined,
             activated_at: undefined,
+            last_signed_in_at: undefined,
             is_admin: undefined,
             industry: "",
             purpose: "",
@@ -269,6 +274,10 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
     }
     public set activated_at(value: string | Date | undefined) {
         this.update({ activated_at: value as unknown as Date });
+    }
+
+    public get last_signed_in_at(): Date | null | undefined {
+        return this.getValue("last_signed_in_at");
     }
 
     public get api_key_role_actions() {

@@ -471,5 +471,8 @@
   "Compact after comments": "压缩触发评论数",
   "Compact after conversation turns": "压缩触发对话轮数",
   "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.": "达到任一启用的阈值时即触发压缩。仅统计尚未压缩的新有效评论。评论数和轮数阈值设为0时禁用。",
-  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "对话轮次是按创建顺序由同一作者连续发布的一组评论。活动事件和先前摘要不计入。"
+  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "对话轮次是按创建顺序由同一作者连续发布的一组评论。活动事件和先前摘要不计入。",
+  "Account status": "账户状态",
+  "Last successful sign-in": "最近成功登录",
+  "No recorded sign-in": "无登录记录"
 }

@@ -471,5 +471,8 @@
   "Compact after comments": "압축 기준 댓글 수",
   "Compact after conversation turns": "압축 기준 대화 턴 수",
   "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.": "활성화된 기준 중 하나에 도달하면 압축합니다. 아직 압축되지 않은 새 활성 댓글만 계산합니다. 댓글 수와 턴 수를 0으로 설정하면 해당 기준이 꺼집니다.",
-  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "대화 턴은 생성 순서상 같은 작성자가 연속으로 남긴 댓글 묶음입니다. 활동 이벤트와 이전 요약은 계산하지 않습니다."
+  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "대화 턴은 생성 순서상 같은 작성자가 연속으로 남긴 댓글 묶음입니다. 활동 이벤트와 이전 요약은 계산하지 않습니다.",
+  "Account status": "계정 상태",
+  "Last successful sign-in": "최종 로그인 성공",
+  "No recorded sign-in": "로그인 기록 없음"
 }

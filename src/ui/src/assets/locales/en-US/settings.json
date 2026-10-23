@@ -471,5 +471,8 @@
   "Compact after comments": "Compact after comments",
   "Compact after conversation turns": "Compact after conversation turns",
   "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.": "Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.",
-  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count."
+  "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.": "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.",
+  "Account status": "Account status",
+  "Last successful sign-in": "Last successful sign-in",
+  "No recorded sign-in": "No recorded sign-in"
 }

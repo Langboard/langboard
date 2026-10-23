@@ -96,7 +96,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 },
                 {
                     key: "activated_at",
-                    header: t("settings.Activation"),
+                    header: t("settings.Account status"),
                     align: "center",
                     width: "w-1/12",
                     render: ({ row }) => <UserActivation user={row} />,
@@ -131,6 +131,13 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                     render: ({ row }) => <UserListItemCreatedAt user={row} />,
                 },
                 {
+                    key: "last_signed_in_at",
+                    header: t("settings.Last successful sign-in"),
+                    align: "center",
+                    width: "min-w-40",
+                    render: ({ row }) => <UserListItemLastSignIn user={row} />,
+                },
+                {
                     key: "type",
                     header: t("common.More"),
                     align: "center",
@@ -150,6 +157,12 @@ function UserListItemEmail({ user }: { user: User.TModel }) {
 function UserListItemCreatedAt({ user }: { user: User.TModel }) {
     const createdAt = user.useField("created_at");
     return <DateDistance date={createdAt} />;
+}
+
+function UserListItemLastSignIn({ user }: { user: User.TModel }) {
+    const [t] = useTranslation();
+    const signedInAt = user.useField("last_signed_in_at");
+    return signedInAt ? <DateDistance date={signedInAt} /> : <span className="text-muted-foreground">{t("settings.No recorded sign-in")}</span>;
 }
 
 export default UserList;
