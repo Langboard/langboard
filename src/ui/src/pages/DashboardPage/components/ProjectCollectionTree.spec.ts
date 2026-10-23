@@ -242,3 +242,103 @@ for (const empty of [false, true]) {
         expect(writes).toBe(0);
     });
 }
+
+for (const touch of [false, true]) {
+    test.describe(`${touch ? "touch" : "keyboard"} board ordering menus`, () => {
+        test.use({ hasTouch: touch, viewport: { width: touch ? 390 : 1280, height: 950 } });
+        test("move references without dragging, reject boundaries and duplicates, and lock pending saves", async ({ page }) => {
+            let saved = {
+                revision: 1,
+                collections: [
+                    { uid: first, name: "First collection", board_uids: ["00000000001", "00000000002", "00000000003"] },
+                    { uid: second, name: "Second collection", board_uids: ["00000000001"] },
+                ],
+            };
+            let pending: import("@playwright/test").Route | undefined;
+            let writes = 0;
+            await page.route("**/account/project-collections", (route) => {
+                if (route.request().method() === "GET") return route.fulfill({ json: saved });
+                writes++;
+                pending = route;
+            });
+            const invoke = async (button: import("@playwright/test").Locator) => {
+                if (touch) await button.tap();
+                else {
+                    await button.focus();
+                    await page.keyboard.press("Enter");
+                }
+            };
+            const complete = async (expected: string[][]) => {
+                await expect.poll(() => !!pending).toBe(true);
+                const route = pending!;
+                pending = undefined;
+                const input = route.request().postDataJSON();
+                expect(input.expected_revision).toBe(saved.revision);
+                expect(input.collections.map((item: { board_uids: string[] }) => item.board_uids)).toEqual(expected);
+                saved = { revision: saved.revision + 1, collections: input.collections };
+                await route.fulfill({ json: saved });
+                await expect(page.getByTestId("collections")).toHaveAttribute("data-busy", "false");
+            };
+            await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html");
+            await invoke(page.getByRole("button", { name: "First collection", exact: true }));
+            const row = (title: string) => page.getByRole("treeitem").filter({ has: page.getByRole("button", { name: title, exact: true }) });
+            const actions = (title: string) => row(title).getByRole("button", { name: "Board actions", exact: true });
+            const up = page.getByRole("button", { name: "Move board up", exact: true });
+            const down = page.getByRole("button", { name: "Move board down", exact: true });
+            const target = page.getByRole("button", { name: "Move to collection: Second collection", exact: true });
+            if (touch) await invoke(actions("Zulu"));
+            else {
+                await row("Zulu").getByRole("button", { name: "Zulu", exact: true }).focus();
+                await page.keyboard.press("Tab");
+                await page.keyboard.press("Tab");
+                await expect(actions("Zulu")).toBeFocused();
+                await page.keyboard.press("Enter");
+            }
+            await expect(up).toBeDisabled();
+            await expect(target).toBeDisabled();
+            await expect(down).toBeEnabled();
+            await page.keyboard.press("Escape");
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+            await invoke(actions("New"));
+            await expect(down).toBeDisabled();
+            await page.keyboard.press("Escape");
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+            expect(writes).toBe(0);
+            await invoke(actions("Alpha"));
+            await invoke(down);
+            await expect(page.getByTestId("collections")).toHaveAttribute("data-busy", "true");
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+            await expect(actions("Zulu")).toBeDisabled();
+            await expect(actions("Alpha")).toBeDisabled();
+            await expect(actions("New")).toBeDisabled();
+            await complete([["00000000001", "00000000003", "00000000002"], ["00000000001"]]);
+            await invoke(actions("Alpha"));
+            await invoke(up);
+            await complete([["00000000001", "00000000002", "00000000003"], ["00000000001"]]);
+            await invoke(actions("Alpha"));
+            await invoke(up);
+            await complete([["00000000002", "00000000001", "00000000003"], ["00000000001"]]);
+            await invoke(actions("Alpha"));
+            await expect(up).toBeDisabled();
+            if (touch) await page.screenshot({ path: "/private/tmp/board-menu-touch-390.png", fullPage: true, animations: "disabled" });
+            await invoke(target);
+            await complete([
+                ["00000000001", "00000000003"],
+                ["00000000001", "00000000002"],
+            ]);
+            await page.keyboard.press("Escape");
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+            await expect(page.getByTestId("destination")).toHaveText("");
+            expect(writes).toBe(4);
+            await page.reload();
+            await invoke(page.getByRole("button", { name: "Second collection", exact: true }));
+            await expect(row("Alpha")).toBeVisible();
+            await invoke(page.getByRole("button", { name: "Remove board access", exact: true }));
+            await expect(page.getByRole("tree").getByRole("button", { name: "Board actions", exact: true })).toHaveCount(0);
+            await expect(page.getByRole("tree").getByRole("button", { name: "Favorites", exact: true })).toHaveCount(0);
+            expect(writes).toBe(4);
+            await expect(page.getByTestId("destination")).toHaveText("");
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        });
+    });
+}

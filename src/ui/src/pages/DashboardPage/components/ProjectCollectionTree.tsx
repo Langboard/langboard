@@ -83,6 +83,22 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
         [next[index], next[index + offset]] = [next[index + offset], next[index]];
         void persist(next);
     };
+    const moveBoard = (sourceUID: string, boardUID: string, targetUID: string, index: number) => {
+        if (busy || !projectMap.has(boardUID)) return;
+        const source = collections.find((item) => item.uid === sourceUID);
+        const target = collections.find((item) => item.uid === targetUID);
+        if (!source || !target || (source !== target && target.board_uids.includes(boardUID))) return;
+        const from = source.board_uids.indexOf(boardUID);
+        if (from < 0 || index < 0 || index > target.board_uids.length) return;
+        const destination = index - (source === target && from < index ? 1 : 0);
+        if (source === target && from === destination) return;
+        const next = collections.map((item) => ({
+            ...item,
+            board_uids: item.board_uids.filter((uid) => item.uid !== sourceUID || uid !== boardUID),
+        }));
+        next.find((item) => item.uid === targetUID)!.board_uids.splice(destination, 0, boardUID);
+        void persist(next);
+    };
     return (
         <div
             onDragOver={(event) => {
@@ -121,7 +137,7 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                 dndManager={manager}
                 disableMultiSelection
                 disableEdit
-                disableDrag={busy}
+                disableDrag={(node) => busy || (!!node.boardUID && !projectMap.has(node.boardUID))}
                 disableDrop={({ parentNode, dragNodes }) =>
                     busy ||
                     (dragNodes.some((node) => !node.data.boardUID)
@@ -143,20 +159,7 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                         next.splice(index - (from < index ? 1 : 0), 0, collections[from]);
                         void persist(next);
                     } else if (dragged.boardUID && parentId) {
-                        const source = collections.find((item) => item.uid === dragged.collectionUID);
-                        const target = collections.find((item) => item.uid === parentId);
-                        if (!source || !target || (source !== target && target.board_uids.includes(dragged.boardUID))) return;
-                        const from = source.board_uids.indexOf(dragged.boardUID);
-                        const next = collections.map((item) => ({
-                            ...item,
-                            board_uids: item.board_uids.filter((uid) => item.uid !== source.uid || uid !== dragged.boardUID),
-                        }));
-                        next.find((item) => item.uid === parentId)!.board_uids.splice(
-                            index - (source === target && from < index ? 1 : 0),
-                            0,
-                            dragged.boardUID
-                        );
-                        void persist(next);
+                        moveBoard(dragged.collectionUID, dragged.boardUID, parentId, index);
                     }
                 }}
             >
@@ -195,7 +198,67 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                             <span className="truncate">{node.data.name}</span>
                         </Button>
                         {node.data.boardUID && projectMap.has(node.data.boardUID) ? (
-                            <BoardFavorite project={projectMap.get(node.data.boardUID)!} />
+                            <>
+                                <BoardFavorite project={projectMap.get(node.data.boardUID)!} />
+                                <Popover.Root>
+                                    <Popover.Trigger asChild>
+                                        <Button
+                                            type="button"
+                                            size="icon"
+                                            variant="ghost"
+                                            className="size-6"
+                                            aria-label={t("dashboard.Board actions")}
+                                            disabled={busy}
+                                        >
+                                            <IconComponent icon="ellipsis" size="3" />
+                                        </Button>
+                                    </Popover.Trigger>
+                                    <Popover.Content className="w-60 space-y-1 p-2">
+                                        {[-1, 1].map((offset) => {
+                                            const source = collections.find((item) => item.uid === node.data.collectionUID)!;
+                                            const index = source.board_uids.indexOf(node.data.boardUID!);
+                                            return (
+                                                <Button
+                                                    key={offset}
+                                                    type="button"
+                                                    variant="ghost"
+                                                    disabled={busy || index + offset < 0 || index + offset >= source.board_uids.length}
+                                                    onClick={() =>
+                                                        moveBoard(source.uid, node.data.boardUID!, source.uid, index + (offset < 0 ? -1 : 2))
+                                                    }
+                                                >
+                                                    {t(offset < 0 ? "dashboard.Move board up" : "dashboard.Move board down")}
+                                                </Button>
+                                            );
+                                        })}
+                                        <div className="max-h-48 overflow-y-auto">
+                                            {collections
+                                                .filter((item) => item.uid !== node.data.collectionUID)
+                                                .map((target) => (
+                                                    <Button
+                                                        key={target.uid}
+                                                        type="button"
+                                                        variant="ghost"
+                                                        className="w-full justify-start"
+                                                        disabled={busy || target.board_uids.includes(node.data.boardUID!)}
+                                                        onClick={() =>
+                                                            moveBoard(
+                                                                node.data.collectionUID,
+                                                                node.data.boardUID!,
+                                                                target.uid,
+                                                                target.board_uids.length
+                                                            )
+                                                        }
+                                                    >
+                                                        <span className="truncate">
+                                                            {t("dashboard.Move to collection {{name}}", { name: target.name })}
+                                                        </span>
+                                                    </Button>
+                                                ))}
+                                        </div>
+                                    </Popover.Content>
+                                </Popover.Root>
+                            </>
                         ) : (
                             !node.data.boardUID && (
                                 <Popover.Root>
