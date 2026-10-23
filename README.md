@@ -24,6 +24,7 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 - PostgreSQL is bundled by default. To use an existing database, set `POSTGRES_EXTERNAL_MAIN_URL` (for example, `postgresql://user:password@host:5432/database`) and optionally `POSTGRES_EXTERNAL_REPLICA_URL`. Without a replica URL, reads use the external main database. External mode excludes the bundled PostgreSQL services and pooler; ensure the application can reach the external database before starting. URL diagnostics go to stderr so Compose argument capture remains valid. Selecting an external database does not migrate existing data.
 
 - For Windows users
+  - PowerShell and GNU Make (`make`) must be available in PATH.
   - You can run one of `quickstart.ps1`, `quickstart-ollama-cpu.ps1`, and `quickstart-ollama-gpu.ps1` in `scripts` directory with powershell
     - If the system opens Notepad when you double-click the files, you should select 'Run with powershell' by right-click menu.
   - You can run powershell scripts below

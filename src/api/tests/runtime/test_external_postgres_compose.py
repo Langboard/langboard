@@ -90,3 +90,37 @@ def test_postgres_warning_keeps_stdout_empty_on_declined_confirmation(tmp_path):
     assert result.stdout == ""
     assert "Warning: POSTGRES_EXTERNAL_MAIN_URL" in result.stderr
     assert "primary.invalid" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "url,valid",
+    [
+        ("postgresql://fixture:fixture@primary.invalid:5432/main", True),
+        ("https://private.invalid/secret", False),
+        ("postgresql://fixture@primary.invalid/main", False),
+    ],
+)
+def test_powershell_postgres_diagnostics_do_not_pollute_compose_arguments(tmp_path, url, valid):
+    shell = shutil.which("pwsh")
+    if not shell:
+        pytest.skip("PowerShell is required for executable PostgreSQL selection checks")
+    selected_args(tmp_path, {"POSTGRES_EXTERNAL_MAIN_URL": url})
+    result = subprocess.run(
+        [shell, "-NoProfile", "-File", str(ROOT / "scripts/utils/get-compose-args.ps1"), "-WithDbBackup", "false"],
+        cwd=tmp_path,
+        input="n\n",
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert (result.returncode == 0) is valid
+    assert "POSTGRES_EXTERNAL_MAIN_URL" in result.stderr
+    assert "private.invalid" not in result.stderr
+    assert "primary.invalid" not in result.stderr
+    if valid:
+        assert result.stdout.startswith("-f\n")
+        assert "valid" not in result.stdout
+        assert ".pg.yaml" not in result.stdout
+    else:
+        assert result.stdout == ""
