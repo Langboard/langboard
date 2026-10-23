@@ -140,6 +140,8 @@ jobs:
         working-directory: src/ui
       - run: node --experimental-strip-types scripts/verify-locale-resources.mjs --complete
         working-directory: src/ui
+      - run: yarn test:schedule-admission
+        working-directory: src/ui
       - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts

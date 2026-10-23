@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "Cron start time is required.",
       "Cron end time is required.": "Cron end time is required."
+    },
+    "admission": {
+      "Title": "Admission status",
+      "Attempts": "Attempts: {{count}} / {{max}}",
+      "Next attempt": "Next attempt",
+      "Expires": "Retry window ends",
+      "Reason": "Reason",
+      "Admission is not completion": "Admission does not confirm execution success.",
+      "states": {
+        "pending": "Waiting to retry",
+        "dispatching": "Requesting admission",
+        "accepted": "Accepted for execution",
+        "failed": "Admission failed",
+        "uncertain": "Admission uncertain — check logs before retrying",
+        "cancelled": "Cancelled",
+        "unknown": "Unknown admission status"
+      }
     }
   },
   "logs": {

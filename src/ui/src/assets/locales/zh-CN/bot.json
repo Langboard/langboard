@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "必须设置 Cron 开始时间。",
       "Cron end time is required.": "必须设置 Cron 结束时间。"
+    },
+    "admission": {
+      "Title": "受理状态",
+      "Attempts": "尝试：{{count}} / {{max}}",
+      "Next attempt": "下次尝试",
+      "Expires": "重试截止时间",
+      "Reason": "原因",
+      "Admission is not completion": "受理不代表执行成功。",
+      "states": {
+        "pending": "等待重试",
+        "dispatching": "正在请求受理",
+        "accepted": "已受理执行",
+        "failed": "受理失败",
+        "uncertain": "受理结果不确定 — 重试前请检查日志",
+        "cancelled": "已取消",
+        "unknown": "未知受理状态"
+      }
     }
   },
   "logs": {

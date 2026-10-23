@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "Cron 시작 시간이 필요합니다.",
       "Cron end time is required.": "Cron 종료 시간이 필요합니다."
+    },
+    "admission": {
+      "Title": "접수 상태",
+      "Attempts": "시도: {{count}} / {{max}}",
+      "Next attempt": "다음 시도",
+      "Expires": "재시도 유효기간",
+      "Reason": "사유",
+      "Admission is not completion": "접수는 실행 성공을 의미하지 않습니다.",
+      "states": {
+        "pending": "재시도 대기",
+        "dispatching": "접수 요청 중",
+        "accepted": "실행 접수됨",
+        "failed": "접수 실패",
+        "uncertain": "접수 여부 불확실 — 재시도 전 로그 확인",
+        "cancelled": "취소됨",
+        "unknown": "알 수 없는 접수 상태"
+      }
     }
   },
   "logs": {

@@ -34,6 +34,7 @@
     "test:board-touch-scroll": "node --experimental-strip-types src/pages/BoardPage/components/board/BoardTouchAutoScroll.test.ts",
     "test:board-touch-e2e": "playwright test -c playwright.board.config.ts",
     "test:card-widgets": "node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardCardWidgetVisibility.test.ts",
+    "test:schedule-admission": "esbuild src/components/bots/BotScheduleList/Admission.test.tsx --bundle --platform=node --format=cjs --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/schedule-admission.test.cjs && node --test test-results/schedule-admission.test.cjs",
     "test:reaction-actors": "node --experimental-strip-types src/components/ReactionCounter/reactionActorNames.test.ts",
     "preview": "vite preview",
     "test:project-priority": "node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectActivityPriority.test.ts",
