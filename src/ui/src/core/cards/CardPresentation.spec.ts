@@ -197,7 +197,10 @@ test("native detail assignment mutation contains selected assignees only", async
     await editor.fill("Assigned");
     await page.getByRole("option", { name: "Assigned Owner", exact: true }).click();
     await expect(page.getByTestId("assignment-request")).toHaveText('{"assigned_users":["role-owner"]}');
-    await page.mouse.click(0, 0);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(detail.getByRole("button", { name: "Assign members", exact: true })).toBeFocused();
+    await expect(editor).toHaveCount(0);
     await expect(
         page.getByTestId("native-role-board").getByRole("group", { name: "Assignees", exact: true }).getByText("AO", { exact: true })
     ).toBeVisible();
@@ -207,3 +210,24 @@ test("native detail assignment mutation contains selected assignees only", async
         detail.getByText("AO", { exact: true }).locator('xpath=ancestor::*[@tabindex="0" and starts-with(@aria-label, "Working now:")]')
     ).toHaveCount(0);
 });
+
+for (const width of [320, 390])
+    test(`Escape dismisses assignment suggestions before the editor and restores focus at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/core/cards/CardPresentation.fixture.html");
+        await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("en-US");
+        const detail = page.getByTestId("native-role-detail");
+        await detail.getByRole("button", { name: "Edit assignments" }).click();
+        const trigger = detail.getByRole("button", { name: "Assign members", exact: true });
+        await trigger.click();
+        const editor = page.locator('[contenteditable="true"]').last();
+        await editor.fill("Checklist");
+        await expect(page.getByRole("option", { name: "Checklist Worker", exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("listbox", { name: "Suggestions" })).toHaveCount(0);
+        await expect(editor).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(editor).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        await expect(page.getByTestId("assignment-request")).toBeEmpty();
+    });
