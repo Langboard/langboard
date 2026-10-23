@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from sqlalchemy import and_, func, or_, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
-from ....core.types.ParamTypes import TUserParam
 from ....core.types import SafeDateTime
+from ....core.types.ParamTypes import TUserParam
 from ....domain.models import (
     IdentityProvider,
     ProjectAssignedUser,
@@ -75,22 +75,27 @@ class UserRepository(BaseRepository[User]):
             ).all()
 
     def get_by_email(self, email: str | None):
-        user = InfraHelper.get_by(User, "email", email)
-        if user:
-            return user, None
-        record = (None, None)
-        with DbSession.use(readonly=True) as db:
+        if not email:
+            return None, None
+        # Sign-in and recovery cannot accept a replica's pre-revocation state.
+        with DbSession.use(readonly=False) as db:
+            user = db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.column("email") == email, User.column("deleted_at").is_(None))
+                .limit(1)
+            ).first()
+            if user:
+                return user, None
             result = db.exec(
                 SqlBuilder.select.tables(User, UserEmail)
                 .join(
                     UserEmail,
                     (User.column("id") == UserEmail.column("user_id")) & (UserEmail.column("deleted_at") == None),  # noqa
                 )
-                .where(UserEmail.column("email") == email)
+                .where(UserEmail.column("email") == email, User.column("deleted_at").is_(None))
                 .limit(1)
             )
-            record = result.first() or (None, None)
-        return record
+            return result.first() or (None, None)
 
     def search_project_member_candidates(
         self,

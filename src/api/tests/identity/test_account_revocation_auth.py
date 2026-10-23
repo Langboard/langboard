@@ -9,9 +9,10 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security import AuthSecurity, KeyVault
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ApiKeySetting, User
+from langboard_shared.domain.models import ApiKeySetting, User, UserEmail
 from langboard_shared.domain.models.ApiKeySetting import ApiKeyProvider
 from langboard_shared.Env import Env
+from langboard_shared.infrastructure.repositories.factory.UserRepository import UserRepository
 from langboard_shared.security import Auth
 from sqlalchemy import create_engine, update
 from starlette.datastructures import Headers
@@ -21,7 +22,7 @@ from starlette.requests import Request
 @pytest.fixture
 def principal(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'accounts.sqlite'}")
-    for model in (User, ApiKeySetting):
+    for model in (User, ApiKeySetting, UserEmail):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: pytest.fail("Authentication used a lagging replica"))
@@ -125,3 +126,37 @@ def test_api_key_revocation_is_read_from_primary(principal):
         )
         == 401
     )
+
+
+@pytest.mark.parametrize("state", ["active", "inactive", "deleted"])
+@pytest.mark.parametrize("alias", [False, True])
+def test_email_authentication_uses_current_primary_account(principal, state, alias):
+    engine, user, _ = principal
+    email = "alias@example.invalid" if alias else user.email
+    with DbSession.atomic() as db:
+        if alias:
+            db.insert(UserEmail(user_id=user.id, email=email, verified_at=SafeDateTime.now()))
+    if state != "active":
+        with engine.begin() as db:
+            db.execute(
+                update(User.__table__)
+                .where(User.__table__.c.id == user.id)
+                .values(
+                    activated_at=None if state == "inactive" else user.activated_at,
+                    deleted_at=SafeDateTime.now() if state == "deleted" else None,
+                )
+            )
+    found, subemail = UserRepository(None, None).get_by_email(email)
+    if state == "deleted":
+        assert found is None and subemail is None
+    else:
+        assert found.id == user.id
+        assert (found.activated_at is not None) is (state == "active")
+        assert (subemail is not None) is alias
+
+
+def test_deleted_alias_cannot_resolve_account(principal):
+    _, user, _ = principal
+    with DbSession.atomic() as db:
+        db.insert(UserEmail(user_id=user.id, email="removed@example.invalid", deleted_at=SafeDateTime.now()))
+    assert UserRepository(None, None).get_by_email("removed@example.invalid") == (None, None)
