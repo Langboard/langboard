@@ -113,4 +113,4 @@ jobs:
       - name: PostgreSQL transitions and rollback
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py
+        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py

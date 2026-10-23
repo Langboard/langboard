@@ -160,3 +160,33 @@ def test_disabled_option_keeps_existing_single_card_move(family):
         db.update(f.stage)
     assert move(f) is True
     assert all(positions(f)[child.id] == f.old.id for child in f.children)
+
+
+@pytest.mark.parametrize("kind", ["cross_board", "app_owned", "linked_mirror"])
+def test_ineligible_descendant_rejects_complete_family_without_effects(family, kind):
+    from langboard_shared.domain.models import CardAppOwnership
+    from sqlalchemy import text
+
+    f = family
+    with DbSession.atomic() as db:
+        child = db.exec(SqlBuilder.select.table(Card).where(Card.id == f.children[1].id)).first()
+        if kind == "cross_board":
+            db.exec(text("INSERT INTO project(id) VALUES (2)"))
+            child.project_id = 2
+            db.update(child)
+        elif kind == "linked_mirror":
+            child.source_type = Card.LINKED_RESOURCE_PROJECT_CARD
+            child.source_uid = f.card.get_uid()
+            db.update(child)
+        else:
+            db.insert(CardAppOwnership(card_id=child.id, app_key="github"))
+    before = positions(f)
+    prompt = move(f)
+    assert set(prompt) == {"confirmation_required", "confirmation_revision"}
+    assert positions(f) == before
+    with pytest.raises(ValueError, match="complete card family|App-owned cards"):
+        move(f, move_descendants=True, confirmation_revision=prompt["confirmation_revision"])
+    assert positions(f) == before
+    assert not f.notifications
+    with DbSession.atomic() as db:
+        assert len(db.exec(SqlBuilder.select.table(CardRelationship)).all()) == 3
