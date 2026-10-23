@@ -28,6 +28,7 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
+from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
 from langboard_shared.tasks.bots.BotScheduleTask import _run_scheduler
 from langboard_shared.tasks.bots.CardBotTask import _run_card_moved
@@ -71,7 +72,7 @@ def bots(monkeypatch, request):
     request.addfinalizer(cleanup)
     names = ["Bot", "BotSchedule", "CardBotSchedule", "CardBotScope", "ProjectBotScope", "ProjectColumnBotScope",
              "CardBotDefaultScope", "ProjectBotDefaultScope", "ProjectColumnBotDefaultScope", "User", "Project",
-             "Card", "ProjectColumn", "WorkflowEffectRun", "WorkflowStageDefinition"]
+             "Card", "ProjectColumn", "WorkflowEffectRun", "WorkflowStageDefinition", "BotScheduleRun"]
     tables = [getattr(models, name).__table__ for name in names]
     # SQLite permits absent FK targets; PostgreSQL requires the actual dependency tables.
     for table in tables:
@@ -316,18 +317,43 @@ async def test_entry_hook_authorization_rereads_primary_without_replica_access(b
 
 
 @pytest.mark.asyncio
-async def test_unsupported_one_time_schedule_keeps_native_behavior(bots, monkeypatch):
+@pytest.mark.parametrize("outcome", [BotRequestOutcome.Accepted, BotRequestOutcome.RetryableFailure])
+async def test_unsupported_one_time_schedule_keeps_native_behavior(bots, monkeypatch, outcome):
     from langboard_shared.tasks.bots import BotScheduleTask
 
     f = bots
     with DbSession.atomic() as db:
         f.schedule.running_type = BotScheduleRunningType.Onetime
+        f.schedule.start_at = f.now - timedelta(minutes=1)
         db.update(f.schedule)
     changes = []
     monkeypatch.setattr(BotScheduleTask.BotScheduleHelper, "change_status", lambda *args: changes.append(args))
+
+    async def execute():
+        with DbSession.atomic() as db:
+            runs = db.exec(SqlBuilder.select.table(BotScheduleRun)).all()
+            assert len(runs) == 1
+            run = runs[0]
+            assert run.state == "dispatching" and run.attempt == 1
+        assert changes == []  # Native schedules stop only after durable acceptance.
+        return outcome
+
+    f.execute.side_effect = execute
     await _run_scheduler(f.bot, f.schedule, f.association, f.card)
     f.execute.assert_awaited_once()
-    assert changes[0][-1] == BotScheduleStatus.Stopped
+    with DbSession.atomic() as db:
+        runs = db.exec(SqlBuilder.select.table(BotScheduleRun)).all()
+        assert len(runs) == 1
+        run = runs[0]
+        assert run.schedule_id == f.schedule.id and run.scope_id == f.association.id
+        assert run.scope_table == f.association.__tablename__ and run.attempt == 1
+        assert run.lease_token is None and run.lease_expires_at is None
+        if outcome == BotRequestOutcome.Accepted:
+            assert run.state == "accepted" and run.error_code is None
+            assert len(changes) == 1 and changes[0][-1] == BotScheduleStatus.Stopped
+        else:
+            assert run.state == "pending" and run.error_code == "retryable_failure"
+            assert changes == []
     assert history() == []
 
 
