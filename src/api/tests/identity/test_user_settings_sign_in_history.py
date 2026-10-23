@@ -216,7 +216,26 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                     .where(SettingRole.id == role.id)
                     .values(actions=["user_read", "user_update", "user_delete"])
                 )
-            changed = client.put(target_url, json={"firstname": "Changed", "activate": False}, headers=headers)
+            # A sole administrator must not remove their own administrator access.
+            self_demoted = client.put(
+                f"/settings/users/{actor.get_uid()}", json={"is_admin": False}, headers=headers
+            )
+            assert self_demoted.status_code == 409, self_demoted.text
+            with engine.connect() as db:
+                assert db.execute(select(User.is_admin).where(User.id == actor.id)).scalar_one() is True
+            assert client.get(endpoint, headers=headers).status_code == 200
+            assert UserPublisher.updated.call_count == 0
+            assert AppSettingPublisher.user_updated.call_count == 0
+            self_unchanged = client.put(
+                f"/settings/users/{actor.get_uid()}", json={"is_admin": True}, headers=headers
+            )
+            assert self_unchanged.status_code == 200, self_unchanged.text
+            # An authorized administrator may still demote another administrator.
+            with engine.begin() as db:
+                db.execute(update(User).where(User.id == target.id).values(is_admin=True))
+            changed = client.put(
+                target_url, json={"firstname": "Changed", "activate": False, "is_admin": False}, headers=headers
+            )
             assert changed.status_code == 200, changed.text
             with TestClient(app) as target_client:
                 target_client.cookies.set(Env.REFRESH_TOKEN_NAME, target_refresh)
@@ -230,6 +249,7 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert page.json()["total_records"] == 1
             assert page.json()["records"][0]["firstname"] == "Changed"
             assert page.json()["records"][0]["account_status"] == "inactive"
+            assert page.json()["records"][0]["is_admin"] is False
             assert (
                 client.get(
                     endpoint, headers=headers, params={"query": target.get_uid(), "account_status": "active"}

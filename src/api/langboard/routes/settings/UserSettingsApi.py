@@ -247,7 +247,7 @@ def create_user_in_settings(form: CreateUserForm, service: DomainService = Domai
 @AppRouter.api.put(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).err(409, ApiErrorCode.OP1003).get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserUpdate], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -257,6 +257,9 @@ def update_user_in_settings(
     target_user = service.user.get_by_id_like(user_uid)
     if not target_user:
         raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+
+    if user.id == target_user.id and form.is_admin is False:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1003)
 
     form_dict = form.model_dump(exclude_unset=True)
     if user.id != target_user.id:
