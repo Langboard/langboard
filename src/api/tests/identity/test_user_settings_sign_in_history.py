@@ -111,18 +111,25 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
     from langboard.middlewares.RoleMiddleware import RoleMiddleware
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.domain.models import ApiKeyRole, McpRole, SettingRole
+    from langboard_shared.domain.models import ApiKeyRole, Card, CardComment, McpRole, SettingRole
     from langboard_shared.Env import Env
-    from sqlalchemy import update
+    from langboard_shared.publishers import AppSettingPublisher, UserPublisher
+    from sqlalchemy import select, update
 
     engine = create_engine(f"sqlite:///{tmp_path / 'settings-http.sqlite'}")
-    for model in (User, UserProfile, UserSignInHistory, SettingRole, ApiKeyRole, McpRole):
+    for model in (User, UserProfile, UserSignInHistory, SettingRole, ApiKeyRole, McpRole, Card, CardComment):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
     monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
     monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "http-fixture-signing-key-32-bytes-minimum"))
+    for publisher, names in (
+        (UserPublisher, ("updated", "deactivated", "deleted")),
+        (AppSettingPublisher, ("user_updated", "selected_users_deleted")),
+    ):
+        for name in names:
+            monkeypatch.setattr(publisher, name, Mock())
     with DbSession.atomic() as db:
         actor = User(
             firstname="HTTP",
@@ -179,5 +186,105 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             with engine.begin() as db:
                 db.execute(update(User).where(User.id == actor.id).values(is_admin=True, activated_at=None))
             assert client.get(endpoint, headers=headers).status_code == 401
+
+            # Restore the fixture actor, then exercise native mutation routes and repositories.
+            with engine.begin() as db:
+                db.execute(update(User).where(User.id == actor.id).values(activated_at=SafeDateTime.now()))
+            with DbSession.atomic() as db:
+                target = User(
+                    firstname="Task",
+                    lastname="Author",
+                    username="task-author",
+                    email="target@example.invalid",
+                    password="fixture-only",
+                    activated_at=SafeDateTime.now(),
+                )
+                db.insert(target)
+                card = Card(title="Preserved work", project_id=1, project_column_id=1, created_by_user_id=target.id)
+                db.insert(card)
+                comment = CardComment(card_id=card.id, user_id=target.id)
+                db.insert(comment)
+                history = UserSignInHistory(user_id=target.id, is_success=True)
+                db.insert(history)
+            target_access, target_refresh = AuthSecurity.authenticate(target.id)
+            target_url = f"/settings/users/{target.get_uid()}"
+            assert client.put(target_url, json={"firstname": "Changed"}, headers=headers).status_code == 403
+            assert client.delete(target_url, headers=headers).status_code == 403
+            with engine.begin() as db:
+                db.execute(
+                    update(SettingRole)
+                    .where(SettingRole.id == role.id)
+                    .values(actions=["user_read", "user_update", "user_delete"])
+                )
+            changed = client.put(target_url, json={"firstname": "Changed", "activate": False}, headers=headers)
+            assert changed.status_code == 200, changed.text
+            with TestClient(app) as target_client:
+                target_client.cookies.set(Env.REFRESH_TOKEN_NAME, target_refresh)
+                assert (
+                    target_client.get(endpoint, headers={"Authorization": f"Bearer {target_access}"}).status_code == 401
+                )
+            page = client.get(
+                endpoint, headers=headers, params={"query": target.get_uid(), "account_status": "inactive"}
+            )
+            assert page.status_code == 200, page.text
+            assert page.json()["total_records"] == 1
+            assert page.json()["records"][0]["firstname"] == "Changed"
+            assert page.json()["records"][0]["account_status"] == "inactive"
+            assert (
+                client.get(
+                    endpoint, headers=headers, params={"query": target.get_uid(), "account_status": "active"}
+                ).json()["total_records"]
+                == 0
+            )
+            assert client.delete(f"/settings/users/{actor.get_uid()}", headers=headers).status_code == 409
+            deleted = client.delete(target_url, headers=headers)
+            assert deleted.status_code == 200, deleted.text
+            assert (
+                client.get(endpoint, headers=headers, params={"query": target.get_uid()}).json()["total_records"] == 0
+            )
+            with engine.connect() as db:
+                assert db.execute(select(User.deleted_at).where(User.id == target.id)).scalar_one() is not None
+                assert db.execute(select(Card.created_by_user_id).where(Card.id == card.id)).scalar_one() == target.id
+                assert (
+                    db.execute(select(CardComment.user_id).where(CardComment.id == comment.id)).scalar_one()
+                    == target.id
+                )
+                assert (
+                    db.execute(select(UserSignInHistory.user_id).where(UserSignInHistory.id == history.id)).scalar_one()
+                    == target.id
+                )
+            assert client.put(target_url, json={"firstname": "Resurrected"}, headers=headers).status_code == 404
+            with DbSession.atomic() as db:
+                bulk_target = User(
+                    firstname="Bulk",
+                    lastname="Author",
+                    username="bulk-author",
+                    email="bulk@example.invalid",
+                    password="fixture-only",
+                    activated_at=SafeDateTime.now(),
+                )
+                db.insert(bulk_target)
+                bulk_comment = CardComment(card_id=card.id, user_id=bulk_target.id)
+                db.insert(bulk_comment)
+            bulk_deleted = client.request(
+                "DELETE",
+                "/settings/users",
+                headers=headers,
+                json={"user_uids": [actor.get_uid(), bulk_target.get_uid()]},
+            )
+            assert bulk_deleted.status_code == 200, bulk_deleted.text
+            remaining = client.get(endpoint, headers=headers).json()
+            assert remaining["total_records"] == 1
+            assert remaining["records"][0]["uid"] == actor.get_uid()
+            with engine.connect() as db:
+                assert db.execute(select(User.deleted_at).where(User.id == actor.id)).scalar_one() is None
+                assert db.execute(select(User.deleted_at).where(User.id == bulk_target.id)).scalar_one() is not None
+                assert (
+                    db.execute(select(CardComment.user_id).where(CardComment.id == bulk_comment.id)).scalar_one()
+                    == bulk_target.id
+                )
+            assert AppSettingPublisher.selected_users_deleted.call_args.args[0] == [bulk_target.get_uid()]
+            assert UserPublisher.deactivated.call_count == 1
+            assert UserPublisher.deleted.call_count == 2
     finally:
         engine.dispose()
