@@ -27,10 +27,10 @@ def _grant(db, actor, project, action):
     return bool(role and role.is_granted(action))
 
 
-def readable_original(service, actor, source_uid, channel):
+def readable_original(service, actor, source_uid, channel, *, metadata_only=False):
     if not isinstance(actor, User):
         return None
-    resolved = service.resolve_readable_card(None, source_uid, actor, channel)
+    resolved = service.resolve_readable_card(None, source_uid, actor, channel, metadata_only=metadata_only)
     if resolved is None:
         return None
     project, source, _ = resolved
@@ -60,7 +60,10 @@ def project_card_payloads(service, actor, cards, *, include_content, channel, de
         )
     for mirror in cards:
         payload = {"type": Card.LINKED_RESOURCE_PROJECT_CARD, "uid": mirror.source_uid, "status": "forbidden"}
-        original = readable_original(service, actor, mirror.source_uid, channel) if destination_allowed else None
+        original = (
+            readable_original(service, actor, mirror.source_uid, channel, metadata_only=not include_content)
+            if destination_allowed else None
+        )
         if original is not None:
             project, source = original
             payload.update(

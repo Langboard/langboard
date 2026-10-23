@@ -175,7 +175,12 @@ def get_card_details(
     # This route alone accepts a historical project component. Resolve the
     # current card audience and current native Read grant before revealing where
     # it lives; the other card routes retain their exact project-scoped gates.
-    resolved = service.card.resolve_canonical_card(project_uid, card_uid, user_or_bot, channel)
+    raw_sections = request.query_params.get("sections")
+    include_description = raw_sections is None or "description" in raw_sections.split(",")
+    resolved = service.card.resolve_canonical_card(
+        project_uid, card_uid, user_or_bot, channel,
+        metadata_only=location_only or not include_description,
+    )
     if resolved is None:
         error = ApiException.NotFound_404(ApiErrorCode.NF2003)
         error.headers = {"Cache-Control": "no-store"}
@@ -196,7 +201,6 @@ def get_card_details(
         "bot_scopes",
         "execution_receipts",
     }
-    raw_sections = request.query_params.get("sections")
     sections = allowed if raw_sections is None else set(raw_sections.split(","))
     # Execution identity is an explicit read, excluded even from legacy full detail.
     allowed = allowed | {"agent_execution"}

@@ -162,7 +162,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
     if selection is not None:
         expected = (expected | {"agent_execution"}) & set(selection.split(","))
     assert set(result) == expected | {"card", "whispers_allowed"}
-    assert reads[0][0] == "resolve"
+    assert reads[0] == ("resolve", {"metadata_only": selection is not None and "description" not in selection.split(",")})
     assert dict(reads)["details"]["include_description"] is (selection is None or "description" in selection.split(","))
     for name in {
         "checklists",
@@ -189,7 +189,7 @@ def test_details_rejects_unbounded_or_unknown_sections(monkeypatch, selection):
 
     service = SimpleNamespace(
         card=SimpleNamespace(
-            resolve_canonical_card=lambda *args: (
+            resolve_canonical_card=lambda *args, **kwargs: (
                 SimpleNamespace(get_uid=lambda: "project-a"),
                 None,
                 None,
@@ -211,7 +211,7 @@ def test_details_hidden_card_stops_before_any_section_read():
     from types import SimpleNamespace
     from starlette.requests import Request
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_canonical_card=lambda *args: None))
+    service = SimpleNamespace(card=SimpleNamespace(resolve_canonical_card=lambda *args, **kwargs: None))
     with pytest.raises(Exception) as error:
         BoardCardApi.get_card_details(
             "project-a", "hidden", Request({"type": "http", "query_string": b"sections=description"}), None, service
@@ -251,7 +251,7 @@ def test_real_details_service_skips_inactive_body_and_preserves_default(
         with DbSession.atomic() as db:
             db.insert(CardAppOwnership(card_id=card.id, app_key="owned-app"))
     service = object.__new__(CardService)
-    monkeypatch.setattr(CardService, "resolve_readable_card", lambda *args: (SimpleNamespace(id=2), card, None))
+    monkeypatch.setattr(CardService, "resolve_readable_card", lambda *args, **kwargs: (SimpleNamespace(id=2), card, None))
     monkeypatch.setattr(
         CardService,
         "get_work_states",
@@ -264,7 +264,7 @@ def test_real_details_service_skips_inactive_body_and_preserves_default(
         lambda *args, **kwargs: reads.append(("wiki", kwargs["include_content"]))
         or {card.get_uid(): {"status": "available"}},
     )
-    monkeypatch.setattr(CardService, "is_check_card", lambda *args: False)
+    monkeypatch.setattr(CardService, "is_check_card", lambda *args, **kwargs: False)
     monkeypatch.setattr(CardService, "_get_completion_checklist", lambda *args: None)
     monkeypatch.setattr(CardService, "get_api_assigned_user_list", lambda *args, **kwargs: [])
     monkeypatch.setattr(CardService, "get_active_workers", lambda *args: {})
@@ -308,7 +308,7 @@ def test_details_preserves_bot_scope_gate(linked):
     context = CardVisibilityContext(CollaborationChannel.Api, True, True, True)
     service = SimpleNamespace(
         card=SimpleNamespace(
-            resolve_canonical_card=lambda *args: (SimpleNamespace(get_uid=lambda: "project-a"), card, context),
+            resolve_canonical_card=lambda *args, **kwargs: (SimpleNamespace(get_uid=lambda: "project-a"), card, context),
             get_details=lambda *args, **kwargs: {"uid": "card-a"},
             can_delete=lambda *args: False,
             get_api_bot_scope_list=lambda *args: reads.append("scopes") or [],

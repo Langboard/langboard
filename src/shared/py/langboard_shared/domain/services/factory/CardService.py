@@ -454,11 +454,13 @@ class CardService(BaseDomainService):
             return None
         return project, current, context
 
-    def resolve_canonical_card(self, requested_project, card, user, channel=CollaborationChannel.Api):
+    def resolve_canonical_card(
+        self, requested_project, card, user, channel=CollaborationChannel.Api, *, metadata_only: bool = False,
+    ):
         """Authorize current location before returning a historical URL redirect."""
         from ..CardCrossBoardOperations import _grant
 
-        resolved = self.resolve_readable_card(None, card, user, channel)
+        resolved = self.resolve_readable_card(None, card, user, channel, metadata_only=metadata_only)
         if resolved is None:
             return None
         project, current, context = resolved
@@ -735,7 +737,9 @@ class CardService(BaseDomainService):
         channel: CollaborationChannel = CollaborationChannel.Api,
         include_description: bool = True,
     ) -> dict[str, Any] | None:
-        resolved = self.resolve_readable_card(project, card, user_or_bot, channel)
+        resolved = self.resolve_readable_card(
+            project, card, user_or_bot, channel, metadata_only=not include_description,
+        )
         if resolved is None:
             return None
         project, card, context = resolved
@@ -772,7 +776,7 @@ class CardService(BaseDomainService):
             return api_card
 
         api_card["count_comment"] = self.repo.card_comment.count_by_card(card)
-        api_card["is_check_card"] = self.is_check_card(card)
+        api_card["is_check_card"] = self.is_check_card(card, metadata_only=not include_description)
         completion = self._get_completion_checklist(card)
         api_card["completed"] = bool(completion and completion.is_checked)
 
@@ -2095,10 +2099,33 @@ class CardService(BaseDomainService):
         checklists = self.repo.checklist.get_all_by_card(card, limit=1, is_system=True)
         return checklists[0] if checklists else None
 
-    def is_check_card(self, card: Card) -> bool:
+    def is_check_card(self, card: Card, *, metadata_only: bool = False) -> bool:
         """A deadline card can use its own checkbox when it has no user checklist."""
 
-        if card.description.content.strip() and not card.deadline_at:
+        if metadata_only:
+            if not card.deadline_at:
+                from ....infrastructure.repositories.factory.CardRepository import _editor_search_text
+
+                # Preserve Python str.strip(), including Unicode whitespace. Only
+                # the eligibility boolean crosses the DB boundary, never the body.
+                whitespace = (
+                    "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680"
+                    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+                    "\u2028\u2029\u202f\u205f\u3000"
+                )
+                dialect = DbEngine.get_main_engine().dialect.name
+                content = _editor_search_text(Card.column("description"), dialect)
+                if dialect == "postgresql":
+                    stripped = func.btrim(content, whitespace)
+                elif dialect == "sqlite":
+                    stripped = func.trim(content, whitespace)
+                else:
+                    stripped = func.regexp_replace(content, f"^[{whitespace}]+|[{whitespace}]+$", "")
+                with DbSession.use(readonly=False) as db:
+                    has_description = db.exec(SqlBuilder.select.column(stripped != "").where(Card.id == card.id)).first()
+                if has_description:
+                    return False
+        elif card.description.content.strip() and not card.deadline_at:
             return False
         return not self.repo.checklist.get_all_by_card(card, limit=1, is_system=False)
 
