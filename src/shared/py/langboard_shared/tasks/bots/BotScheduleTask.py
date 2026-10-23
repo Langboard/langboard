@@ -4,11 +4,23 @@ from ...core.db import BaseDbModel, DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ...domain.models import Bot, Card, Project, ProjectColumn
 from ...domain.models.bases import BaseBotScheduleModel
+from ...domain.models.BotLog import BotLogType
 from ...domain.models.BotSchedule import BotSchedule, BotScheduleRunningType, BotScheduleStatus
+from ...domain.models.BotScheduleRun import BotScheduleRun
 from ...helpers import BotHelper, ModelHelper
 from ...publishers import ProjectBotPublisher
 from .utils import BotTaskHelper, BotTaskSchemaHelper
+from .utils.BotScheduleRunStore import (
+    claim_schedule_run,
+    finish_schedule_run,
+    get_schedule_run,
+    load_schedule_context,
+    occurrence_key,
+    reserve_schedule_run,
+)
 from .utils.BotTaskHelper import logger
+from .utils.requests.BaseBotRequest import BotRequestOutcome
+from .utils.requests.Utils import create_request
 
 
 @BotTaskSchemaHelper.schema(
@@ -26,6 +38,10 @@ async def bot_cron_scheduled(bot: Bot, bot_schedule: BotSchedule, schedule_model
 
 
 async def run_scheduled_bots_cron(interval_str: str):
+    if interval_str == "recover":
+        await recover_due_onetime_schedules()
+        return
+
     if interval_str.startswith("scheduled "):
         await _check_bot_schedule_runnable(interval_str.removeprefix("scheduled "))
         return
@@ -50,7 +66,10 @@ async def run_scheduled_bots_cron(interval_str: str):
                     (Bot.column("deleted_at").is_(None))
                     & (BotSchedule.column("interval_str") == interval_str)
                     & (BotSchedule.column("status") == BotScheduleStatus.Started)
-                    & (BotSchedule.column("running_type") != BotScheduleRunningType.Onetime)
+                    & (
+                        (BotSchedule.column("running_type") != BotScheduleRunningType.Onetime)
+                        | (BotSchedule.column("start_at") <= SafeDateTime.now())
+                    )
                 )
             )
             records.extend(result.all())
@@ -74,14 +93,20 @@ async def _check_bot_schedule_runnable(interval_str: str):
                 .join(Bot, BotSchedule.column("bot_id") == Bot.column("id"))
                 .where(
                     (Bot.column("deleted_at").is_(None))
-                    & (BotSchedule.column("status") == BotScheduleStatus.Pending)
+                    & (
+                        (BotSchedule.column("status") == BotScheduleStatus.Pending)
+                        | (
+                            (BotSchedule.column("status") == BotScheduleStatus.Started)
+                            & (BotSchedule.column("running_type") == BotScheduleRunningType.Onetime)
+                        )
+                    )
                     & (BotSchedule.column("start_at") <= current_time)
                     & (BotSchedule.column("interval_str") == interval_str)
                 )
             )
             records.extend(result.all())
 
-    with DbSession.use(readonly=False) as db:
+    with DbSession.atomic() as db:
         db.exec(
             SqlBuilder.update.table(BotSchedule)
             .values({"status": BotScheduleStatus.Started})
@@ -90,8 +115,13 @@ async def _check_bot_schedule_runnable(interval_str: str):
                 & (BotSchedule.column("start_at") <= current_time)
                 & (BotSchedule.column("interval_str") == interval_str)
                 & (BotSchedule.column("running_type") == BotScheduleRunningType.Onetime)
+                & BotSchedule.id.in_([schedule.id for _, schedule, _ in records])
             )
         )
+        for association, schedule, _ in records:
+            if schedule.running_type == BotScheduleRunningType.Onetime:
+                # The original cron tick owns the first occurrence. Commit it with Started.
+                reserve_schedule_run(schedule, association, now=current_time)
 
     for schedule_model, bot_schedule, bot in records:
         if bot_schedule.running_type == BotScheduleRunningType.Duration:
@@ -129,8 +159,23 @@ async def _check_bot_schedule_runnable(interval_str: str):
 
 
 async def _run_scheduler(
-    bot: Bot, bot_schedule: BotSchedule, schedule_model: BaseBotScheduleModel, model: BaseDbModel | None = None, *, workflow: bool = False
+    bot: Bot,
+    bot_schedule: BotSchedule,
+    schedule_model: BaseBotScheduleModel,
+    model: BaseDbModel | None = None,
+    *,
+    workflow: bool = False,
 ):
+    if bot_schedule.running_type == BotScheduleRunningType.Onetime:
+        context = load_schedule_context(bot_schedule.id, schedule_model.__tablename__, schedule_model.id)
+        if context is None:
+            return []
+        current_bot, current_schedule, current_association = context
+        if occurrence_key(bot_schedule, schedule_model) != occurrence_key(current_schedule, current_association):
+            return []
+        bot, bot_schedule, schedule_model = current_bot, current_schedule, current_association
+        # Discard any target supplied in an old broker message.
+        model = None
     if bot_schedule.status != BotScheduleStatus.Started:
         return
 
@@ -141,6 +186,7 @@ async def _run_scheduler(
 
     if isinstance(model, Card) and not workflow:
         from .WorkflowCompactionTask import run_workflow_bound_schedule
+
         if await run_workflow_bound_schedule(bot, bot_schedule, schedule_model, model):
             return []
 
@@ -176,14 +222,61 @@ async def _run_scheduler(
         else:
             return
 
+    lease = None
+    if bot_schedule.running_type == BotScheduleRunningType.Onetime:
+        run = reserve_schedule_run(bot_schedule, schedule_model, now=SafeDateTime.now())
+        lease = claim_schedule_run(run.id, now=SafeDateTime.now())
+        if lease is None:
+            saved = get_schedule_run(run.id)
+            if saved.state == "accepted":
+                BotScheduleHelper.change_status(schedule_model.__class__, schedule_model, BotScheduleStatus.Stopped)
+            elif saved.state != run.state and saved.state in {"failed", "uncertain"}:
+                await _record_admission_failure(bot, data, project, model, saved)
+            return []
+        data["schedule_execution"] = {
+            "occurrence_key": lease.occurrence_key,
+            "token": lease.token,
+            "attempt": lease.attempt,
+        }
+
     with DbSession.use(readonly=False) as db:
         schedule_model.last_rnu_at = SafeDateTime.now()
         db.update(schedule_model)
 
-    outcomes = await BotTaskHelper.run(bot, BotDefaultTrigger.BotCronScheduled, data, project, model)
+    try:
+        outcomes = await BotTaskHelper.run(
+            bot,
+            BotDefaultTrigger.BotCronScheduled,
+            data,
+            project,
+            model,
+            emit_webhook=lease is None or lease.attempt == 1,
+        )
+    except Exception:
+        if lease:
+            finish_schedule_run(lease, BotRequestOutcome.Uncertain, now=SafeDateTime.now())
+        raise
+    if lease:
+        outcome = outcomes[0] if len(outcomes) == 1 else BotRequestOutcome.Skipped
+        finish_schedule_run(lease, outcome, now=SafeDateTime.now())
+        run = get_schedule_run(lease.run_id)
+        if run.state != "accepted":
+            if run.state in {"failed", "uncertain", "cancelled"}:
+                await _record_admission_failure(bot, data, project, model, run)
+            logger.warning(
+                "One-time schedule admission: occurrence=%s state=%s attempts=%s error=%s",
+                run.occurrence_key,
+                run.state,
+                run.attempt,
+                run.error_code,
+            )
+            return outcomes
 
     old_status = bot_schedule.status
     if bot_schedule.running_type == BotScheduleRunningType.Onetime:
+        context = load_schedule_context(bot_schedule.id, schedule_model.__tablename__, schedule_model.id)
+        if context is None or occurrence_key(context[1], context[2]) != lease.occurrence_key:
+            return outcomes
         BotScheduleHelper.change_status(schedule_model.__class__, schedule_model, BotScheduleStatus.Stopped)
     elif bot_schedule.running_type == BotScheduleRunningType.Duration:
         if bot_schedule.end_at and bot_schedule.end_at < SafeDateTime.now():
@@ -192,3 +285,47 @@ async def _run_scheduler(
     if project and bot_schedule.status != old_status:
         ProjectBotPublisher.rescheduled(project, schedule_model, {"status": bot_schedule.status.value})
     return outcomes
+
+
+async def _record_admission_failure(bot, data, project, model, run):
+    request = create_request(bot, BotDefaultTrigger.BotCronScheduled.value, data, project, model)
+    if request and request._can_dispatch_scope():
+        await request._create_log(
+            BotLogType.Error,
+            f"Schedule admission {run.state}: occurrence={run.occurrence_key}; "
+            f"attempts={run.attempt}/{run.max_attempts}; reason={run.error_code}. "
+            "Admission does not establish execution success.",
+        )
+
+
+async def recover_due_onetime_schedules():
+    """Recover existing admissions; only the original cron tick may create a first occurrence."""
+    now = SafeDateTime.now()
+    records = []
+    with DbSession.use(readonly=True) as db:
+        for association_class in ModelHelper.get_models_by_base_class(BaseBotScheduleModel):
+            records.extend(
+                db.exec(
+                    SqlBuilder.select.tables(association_class, BotSchedule, Bot, BotScheduleRun)
+                    .join(BotSchedule, association_class.bot_schedule_id == BotSchedule.id)
+                    .join(Bot, BotSchedule.bot_id == Bot.id)
+                    .join(
+                        BotScheduleRun,
+                        (BotScheduleRun.schedule_id == BotSchedule.id)
+                        & (BotScheduleRun.scope_table == association_class.__tablename__)
+                        & (BotScheduleRun.scope_id == association_class.id),
+                    )
+                    .where(
+                        BotSchedule.running_type == BotScheduleRunningType.Onetime,
+                        BotSchedule.status == BotScheduleStatus.Started,
+                        BotSchedule.start_at <= now,
+                        Bot.deleted_at.is_(None),
+                        ((BotScheduleRun.state == "pending") & (BotScheduleRun.next_attempt_at <= now))
+                        | ((BotScheduleRun.state == "dispatching") & (BotScheduleRun.lease_expires_at <= now))
+                        | (BotScheduleRun.state == "accepted"),
+                    )
+                ).all()
+            )
+    for association, schedule, bot, saved in records:
+        if occurrence_key(schedule, association) == saved.occurrence_key:
+            await _run_scheduler(bot, schedule, association)

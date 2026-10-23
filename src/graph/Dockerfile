@@ -46,6 +46,9 @@ CMD ["graph", "run", "--workers", "1"]
 
 FROM runtime AS validation
 
+# Share the native scheduler/storage fixture without adding API runtime dependencies.
+COPY ./api/tests/bots/test_bot_schedule_recovery.py ./tests/test_bot_schedule_recovery.py
+
 USER root
 RUN --mount=type=cache,id=langboard-graph-python-packages,target=/root/.cache/uv \
     UV_CACHE_DIR=/root/.cache/uv uv sync --locked \
@@ -65,7 +68,7 @@ with (root / "artifacts/graph-validation.log").open("w") as log:
         "python", "-m", "pytest", "-p", "no:tach", "-q", "--junitxml=/result/graph.xml",
         "tests/test_graph_service_auth.py", "tests/test_bot_status_map.py",
         "tests/test_comment_compaction_draft.py",
-        "tests/test_app_lifespan.py",
+        "tests/test_app_lifespan.py", "tests/test_graph_schedule_admission.py",
     ], stdout=log, stderr=subprocess.STDOUT)
 (root / "result.json").write_text(json.dumps({
     "schemaVersion": 1,

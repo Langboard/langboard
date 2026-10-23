@@ -9,6 +9,12 @@ on:
       - uv.lock
       - src/shared/py/pyproject.toml
       - src/api/tests/workflow_stages/**
+      - src/api/tests/bots/**
+      - src/api/langboard/ServerRunner.py
+      - scripts/run_bot_schedule_recovery.sh
+      - src/shared/py/langboard_shared/ai/BotScheduleHelper.py
+      - src/shared/py/langboard_shared/tasks/bots/**
+      - src/shared/py/langboard_shared/domain/models/BotScheduleRun.py
       - src/api/tests/apps/**
       - src/api/tests/webhooks/test_webhook_contract.py
       - src/api/tests/card_workspace/test_queries.py
@@ -114,3 +120,7 @@ jobs:
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
         run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py
+      - name: Durable one-time bot admission and scoped retry receipts
+        env:
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q src/api/tests/bots/test_bot_schedule_recovery.py src/api/tests/bots/test_bot_schedule_admission_projection.py

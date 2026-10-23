@@ -30,6 +30,7 @@ class BotRequestOutcome(Enum):
     RetryableFailure = "retryable_failure"
     PermanentFailure = "permanent_failure"
     Skipped = "skipped"
+    Uncertain = "uncertain"
 
 
 class BaseBotRequest(ABC):
@@ -81,6 +82,8 @@ class BaseBotRequest(ABC):
         if not self._can_dispatch_scope():
             return BotRequestOutcome.Skipped
         res = None
+        scheduled = bool(self._data.get("schedule_execution"))
+        native = self._bot.platform == BotPlatform.Default
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 
         try:
@@ -98,15 +101,15 @@ class BaseBotRequest(ABC):
             await self._update_log(bot_log, log_type, text if text else message)
             return BotRequestOutcome.Accepted
         except TimeoutException as e:
-            if retried < Env.AI_REQUEST_TRIALS:
+            if not scheduled and retried < Env.AI_REQUEST_TRIALS:
                 return await self.request(request_data, headers, bot_log, retried + 1)
             logger.error("Timeout while requesting bot: %s", e)
             await self._update_log(bot_log, BotLogType.Error, str(e))
-            return BotRequestOutcome.RetryableFailure
+            return BotRequestOutcome.Uncertain if scheduled else BotRequestOutcome.RetryableFailure
         except RequestError as e:
             logger.error("Transport failure while requesting bot: %s", self._bot.bot_uname)
             await self._update_log(bot_log, BotLogType.Error, str(e))
-            return BotRequestOutcome.RetryableFailure
+            return BotRequestOutcome.Uncertain if scheduled else BotRequestOutcome.RetryableFailure
         except Exception as e:
             if res:
                 logger.error(
@@ -117,6 +120,13 @@ class BaseBotRequest(ABC):
                     res.text,
                 )
                 await self._update_log(bot_log, BotLogType.Error, f"{res.status_code}: {res.text}")
+                if scheduled and (res.status_code in (408, 429) or res.status_code >= 500):
+                    # Only native explicit pre-admission capacity rejection is safe to retry.
+                    return (
+                        BotRequestOutcome.RetryableFailure
+                        if native and res.status_code in (429, 503)
+                        else BotRequestOutcome.Uncertain
+                    )
                 if res.status_code in (408, 429) or res.status_code >= 500:
                     return BotRequestOutcome.RetryableFailure
             else:

@@ -142,12 +142,21 @@ class BotTaskHelper:
         if not isinstance(bots, list):
             bots = [bots]
 
-        bots = [bot for bot in bots if not isinstance(bot, tuple) or BotTaskHelper.can_dispatch_card_scope(data, project, bot[1])]
+        bots = [
+            bot
+            for bot in bots
+            if not isinstance(bot, tuple) or BotTaskHelper.can_dispatch_card_scope(data, project, bot[1])
+        ]
         if not bots:
             return []
 
         if emit_webhook:
-            WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
+            WebhookTask.webhook_task(
+                WebhookModel(
+                    event=event.value,
+                    data={key: value for key, value in data.items() if key != "schedule_execution"},
+                )
+            )
 
         if BotTaskHelper.is_bot_authored_event(data):
             logger.info("Skipped scoped bot cascade for bot-authored event: event=%s", event.value)
@@ -177,7 +186,11 @@ class BotTaskHelper:
                 return False
             card_id = referenced_id
         with DbSession.use(readonly=False) as db:
-            for model, key in ((CardComment, "comment_uid"), (Checklist, "checklist_uid"), (Checkitem, "checkitem_uid")):
+            for model, key in (
+                (CardComment, "comment_uid"),
+                (Checklist, "checklist_uid"),
+                (Checkitem, "checkitem_uid"),
+            ):
                 raw_id = data.get(key)
                 child_id = scope_model.id if isinstance(scope_model, model) else None
                 if raw_id:
@@ -194,7 +207,9 @@ class BotTaskHelper:
                 if child is None or child.deleted_at:
                     return False
                 if isinstance(child, Checkitem):
-                    child = db.exec(SqlBuilder.select.table(Checklist).where(Checklist.id == child.checklist_id)).first()
+                    child = db.exec(
+                        SqlBuilder.select.table(Checklist).where(Checklist.id == child.checklist_id)
+                    ).first()
                     if child is None or child.deleted_at:
                         return False
                 if card_id is not None and card_id != child.card_id:

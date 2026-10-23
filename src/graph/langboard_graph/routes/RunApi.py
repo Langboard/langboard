@@ -49,6 +49,8 @@ async def run_graph(
     service: DomainService = DomainService.scope(),
 ):
     _validate_session_id(session_id, api_request)
+    if api_request.schedule_execution:
+        raise HTTPException(status_code=400, detail="Scheduled admission requires the Graph webhook")
     result = _get_bot(api_request)
     if isinstance(result, ApiErrorCode):
         raise ApiException.NotFound_404(result)
@@ -113,6 +115,20 @@ async def webhook_run_graph(
         await _release_background_slot(background_slot)
         raise
 
+    if api_request.schedule_execution:
+        from langboard_shared.tasks.bots.utils.BotScheduleRunStore import admit_graph_schedule
+
+        try:
+            admitted = admit_graph_schedule(api_request)
+        except Exception:
+            await _release_background_slot(background_slot)
+            raise
+        if admitted is not True:
+            await _release_background_slot(background_slot)
+            if admitted is False:
+                return JsonResponse(content={"status": "accepted", "duplicate": True})
+            raise HTTPException(status_code=409, detail="Schedule admission is stale or uncertain")
+
     async def run_background() -> None:
         try:
             await runner.run()
@@ -121,6 +137,11 @@ async def webhook_run_graph(
 
     try:
         background_tasks.add_task(run_background)
+        if api_request.schedule_execution:
+            from langboard_shared.tasks.bots.utils.BotScheduleRunStore import confirm_graph_schedule_admission
+
+            if not confirm_graph_schedule_admission(api_request.schedule_execution):
+                raise RuntimeError("Schedule admission confirmation failed")
     except Exception as exc:
         await _release_background_slot(background_slot)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
