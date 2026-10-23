@@ -7,7 +7,13 @@ from langboard_shared.core.exceptions import ScimProvisioningException
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import ScimGroup, ScimGroupMember, User, UserIdentityLink
 from langboard_shared.domain.services import DomainService
+from langboard_shared.Env import Env
 from sqlalchemy import create_engine, select
+
+
+@pytest.fixture(autouse=True)
+def explicit_authority(monkeypatch):
+    monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: "https://directory.example"))
 
 
 @pytest.mark.parametrize("existing_external_id", [None, "directory-original"])

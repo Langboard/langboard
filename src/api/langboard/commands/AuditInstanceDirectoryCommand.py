@@ -18,7 +18,7 @@ from langboard_shared.domain.models import (
     UserIdentityLink,
 )
 from langboard_shared.Env import Env
-from sqlalchemy import Connection, func, select
+from sqlalchemy import Connection, func, inspect, select
 
 
 def audit_directory(connection: Connection, configured_issuer: str) -> dict:
@@ -83,7 +83,8 @@ def audit_directory(connection: Connection, configured_issuer: str) -> dict:
         blockers.append("unavailable_project_owners")
     if orphan_members:
         blockers.append("orphan_scim_memberships")
-    if groups:
+    provenance_stored = "source" in {column["name"] for column in inspect(connection).get_columns("scim_group")}
+    if count(ScimGroup, ScimGroup.source == "legacy-unresolved") if provenance_stored else groups:
         blockers.append("legacy_group_source_and_issuer_require_provenance")
     if unresolved_links:
         blockers.append("scim_identity_issuer_requires_review")

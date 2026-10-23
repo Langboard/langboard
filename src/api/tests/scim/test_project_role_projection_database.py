@@ -80,7 +80,7 @@ def test_failed_group_mutation_preserves_directory_and_entitlements(role_databas
 def role_database(monkeypatch):
     assert DATABASE_URL is not None
     admin = create_engine(DATABASE_URL)
-    schema = "scim_roles_" + uuid4().hex
+    schema = "group_provenance_" + uuid4().hex
     with admin.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(
@@ -343,3 +343,32 @@ def test_failed_readback_retains_desired_state_and_retry_does_not_duplicate(
             assert set(role.actions) == {"read", "card_write", "card_update"}
     finally:
         service.close()
+
+
+@pytest.mark.parametrize("source,issuer", [("legacy-unresolved", ""), ("scim", "https://other.example")])
+def test_foreign_role_groups_never_grant_or_override_current_authority(role_database, source, issuer):
+    engine, project, owner, employee = role_database
+    with Session(engine, expire_on_commit=False) as db:
+        foreign = models.ScimGroup(
+            source=source,
+            issuer=issuer,
+            display_name="Foreign owner",
+            external_id=f"project-role:{project.get_uid()}:owner",
+        )
+        db.add(foreign)
+        db.flush()
+        db.add(models.ScimGroupMember(group_id=foreign.id, user_id=employee.id))
+        db.commit()
+    with closing(DomainService()) as service:
+        provisioning = service.scim_provisioning
+        assert provisioning._desired_project_roles(project) == {}
+        assert provisioning._bound_projects_for_user(employee) == []
+        provisioning.create_group(
+            {
+                "displayName": "Current viewer",
+                "externalId": f"project-role:{project.get_uid()}:viewer",
+                "members": [{"value": employee.get_uid()}],
+            }
+        )
+        assert provisioning._desired_project_roles(project)[employee.id][1] == "viewer"
+        assert project.owner_id == owner.id

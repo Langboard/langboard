@@ -69,7 +69,7 @@ class ScimProvisioningService(BaseDomainService):
                 db.exec(
                     SqlBuilder.select.tables(ScimGroupMember, ScimGroup)
                     .join(ScimGroup, ScimGroup.id == ScimGroupMember.group_id)
-                    .where(ScimGroupMember.user_id.in_(user_ids))
+                    .where(ScimGroupMember.user_id.in_(user_ids), *ScimGroup.authority_filters(issuer))
                 ).all()
                 if scim_configured
                 else []
@@ -112,7 +112,11 @@ class ScimProvisioningService(BaseDomainService):
     def get_employee_membership_settings(self) -> dict[str, Any]:
         policy = self._employee_policy()
         with DbSession.use(readonly=False) as db:
-            groups = db.exec(SqlBuilder.select.table(ScimGroup).order_by(ScimGroup.display_name, ScimGroup.id)).all()
+            groups = db.exec(
+                SqlBuilder.select.table(ScimGroup)
+                .where(*ScimGroup.authority_filters(Env.SCIM_ISSUER))
+                .order_by(ScimGroup.display_name, ScimGroup.id)
+            ).all()
         selected = (
             (policy.group_uids if policy.issuer == (Env.SCIM_ISSUER or "").strip().rstrip("/") else [])
             if policy
@@ -121,7 +125,7 @@ class ScimProvisioningService(BaseDomainService):
         return {
             "issuer": (Env.SCIM_ISSUER or "").strip().rstrip("/"),
             "configured": policy is not None,
-            "group_uids": selected,
+            "group_uids": [uid for uid in selected if uid in {g.get_uid() for g in groups}],
             "groups": [
                 {"uid": g.get_uid(), "display_name": g.display_name, "external_id": g.external_id} for g in groups
             ],
@@ -132,7 +136,9 @@ class ScimProvisioningService(BaseDomainService):
         if selected and not (Env.SCIM_ISSUER or "").strip():
             raise ValueError("Configure the SCIM identity authority before selecting groups")
         with DbSession.atomic() as db:
-            groups = db.exec(SqlBuilder.select.table(ScimGroup)).all()
+            groups = db.exec(
+                SqlBuilder.select.table(ScimGroup).where(*ScimGroup.authority_filters(Env.SCIM_ISSUER))
+            ).all()
             if not set(selected).issubset({g.get_uid() for g in groups}):
                 raise ValueError("Select existing synchronized SCIM groups")
             policy = self._employee_policy()
@@ -171,6 +177,7 @@ class ScimProvisioningService(BaseDomainService):
         if not identity_link or (identity_link.issuer or "").strip().rstrip("/") != expected_issuer:
             return False
         groups = self.repo.scim_group_member.get_groups_by_user(user, consistent=True)
+        groups = [(member, group) for member, group in groups if group.belongs_to_scim(expected_issuer)]
         if policy is not None:
             return any(group.get_uid() in policy.group_uids for _, group in groups)
         configured = set(Env.MCP_EMPLOYEE_GROUP_IDS)
@@ -217,7 +224,7 @@ class ScimProvisioningService(BaseDomainService):
         user = identity_link.get_user_by_provider_external_id(
             IdentityProvider.Scim,
             identifier,
-            (Env.SCIM_ISSUER or "").rstrip("/"),
+            ScimGroup.normalize_issuer(Env.SCIM_ISSUER),
         )
         if user:
             return user
@@ -249,14 +256,20 @@ class ScimProvisioningService(BaseDomainService):
             content["externalId"] = link.external_id
         return content
 
+    def _ensure_group_authority(self, group: ScimGroup) -> None:
+        if not group.belongs_to_scim(Env.SCIM_ISSUER):
+            raise ScimProvisioningException.InvalidRequest()
+
     def resolve_group(self, identifier: str) -> ScimGroup | None:
         group = self.repo.scim_group.get_by_external_id(identifier)
         if group:
             return group
 
-        return InfraHelper.get_by_id_like(ScimGroup, identifier)
+        group = InfraHelper.get_by_id_like(ScimGroup, identifier)
+        return group if group and group.belongs_to_scim(Env.SCIM_ISSUER) else None
 
     def build_scim_group(self, group: ScimGroup) -> dict[str, Any]:
+        self._ensure_group_authority(group)
         members = self.repo.scim_group_member.get_users_by_group(group)
         return self._build_scim_group(group, members)
 
@@ -341,7 +354,7 @@ class ScimProvisioningService(BaseDomainService):
             user = identity_link.get_user_by_provider_external_id(
                 IdentityProvider.Scim,
                 external_id,
-                (Env.SCIM_ISSUER or "").rstrip("/"),
+                ScimGroup.normalize_issuer(Env.SCIM_ISSUER),
             )
             if user:
                 self.apply_user_mutations(user, payload)
@@ -405,7 +418,7 @@ class ScimProvisioningService(BaseDomainService):
             linked_user = identity_link.get_user_by_provider_external_id(
                 IdentityProvider.Scim,
                 external_id,
-                (Env.SCIM_ISSUER or "").rstrip("/"),
+                ScimGroup.normalize_issuer(Env.SCIM_ISSUER),
             )
             if (current_link and current_link.external_id != external_id) or (
                 linked_user and linked_user.id != user.id
@@ -476,6 +489,8 @@ class ScimProvisioningService(BaseDomainService):
             return group
 
     def create_group(self, payload: dict[str, Any]) -> ScimGroup:
+        if not ScimGroup.normalize_issuer(Env.SCIM_ISSUER):
+            raise ScimProvisioningException.InvalidRequest()
         display_name = self._extract_display_name(payload)
         if not display_name:
             raise ScimProvisioningException.InvalidRequest()
@@ -487,7 +502,12 @@ class ScimProvisioningService(BaseDomainService):
         user_ids = self._extract_group_member_user_ids(payload) if "members" in payload else []
         self._validate_project_role_members(external_id, user_ids)
 
-        group = ScimGroup(display_name=display_name, external_id=external_id or None)
+        group = ScimGroup(
+            display_name=display_name,
+            external_id=external_id or None,
+            source="scim",
+            issuer=ScimGroup.normalize_issuer(Env.SCIM_ISSUER),
+        )
         try:
             with DbSession.atomic():
                 self.repo.scim_group.insert(group)
@@ -507,6 +527,7 @@ class ScimProvisioningService(BaseDomainService):
         return group
 
     def apply_group_mutations(self, group: ScimGroup, payload: dict[str, Any]) -> None:
+        self._ensure_group_authority(group)
         old_external_id = group.external_id or ""
         display_name = self._extract_display_name(payload)
         external_id = self._extract_external_id(payload)
@@ -537,6 +558,7 @@ class ScimProvisioningService(BaseDomainService):
         self._reconcile_bound_external_ids(old_external_id, group.external_id or "")
 
     def delete_group(self, group: ScimGroup) -> None:
+        self._ensure_group_authority(group)
         old_external_id = group.external_id or ""
         with DbSession.atomic():
             self.repo.scim_group_member.delete_all_by_group(group)
@@ -587,6 +609,7 @@ class ScimProvisioningService(BaseDomainService):
         return payload
 
     def apply_group_patch(self, group: ScimGroup, operations: list[dict[str, Any]]) -> None:
+        self._ensure_group_authority(group)
         payload: dict[str, Any] = {}
         current_members = [
             {"value": user.get_uid(), "display": user.get_fullname()}
@@ -681,7 +704,7 @@ class ScimProvisioningService(BaseDomainService):
         link = self._get_service(IdentityLinkService).get_by_user_provider(user, IdentityProvider.Scim)
         if not link:
             return False
-        expected_issuer = (Env.SCIM_ISSUER or "").rstrip("/")
+        expected_issuer = ScimGroup.normalize_issuer(Env.SCIM_ISSUER)
         return bool(expected_issuer) and (link.issuer or "").rstrip("/") == expected_issuer
 
     def _validate_project_role_members(self, external_id: str, user_ids: list[SnowflakeID]) -> None:

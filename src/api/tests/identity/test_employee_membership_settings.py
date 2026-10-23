@@ -20,8 +20,12 @@ def membership(monkeypatch):
     monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: "https://directory.example/"))
     monkeypatch.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
     with DbSession.use(readonly=False) as db:
-        group = ScimGroup(display_name="Any IdP staff", external_id=None)
-        other = ScimGroup(display_name="Customers", external_id="unrelated")
+        group = ScimGroup(
+            source="scim", issuer="https://directory.example", display_name="Any IdP staff", external_id=None
+        )
+        other = ScimGroup(
+            source="scim", issuer="https://directory.example", display_name="Customers", external_id="unrelated"
+        )
         db.insert(group)
         db.insert(other)
     repo = SimpleNamespace(

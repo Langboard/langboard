@@ -81,9 +81,49 @@ these inventory checks found no blocker;
 `migration_authorized` remains false. No records are merged, deleted, assigned,
 or granted access by this command.
 
-Existing SCIM groups have no stored source/issuer discriminator. The configured
+Before provenance migration, legacy SCIM groups have no stored source/issuer discriminator. The configured
 `SCIM_ISSUER`, a matching name, or a user's identity issuer cannot establish each
 group's historical provenance. Preserve group UIDs and membership until an
 explicit source mapping and reversible migration are reviewed. Personal
 `UserGroup`/`UserGroupAssignedEmail` address books remain separate and must not be
 promoted into global UID membership by matching email or group names.
+
+## Stored group provenance and cutover
+
+Instance groups use the existing `ScimGroup` and `ScimGroupMember` records.
+Personal `UserGroup` address books remain separate. Every instance group stores
+one of `legacy-unresolved`, `local`, or `scim` as its source. The default is
+`legacy-unresolved`; a configured issuer never assigns historical provenance.
+SCIM groups require a nonempty issuer normalized by trimming whitespace and
+trailing slashes. Local groups require an empty issuer and no external ID;
+unresolved groups keep their historical external ID and an empty issuer.
+External IDs are unique within `(source, issuer)`, allowing independent SCIM
+authorities to use the same external ID without sharing groups or members.
+
+SCIM list/filter/UID lookups, writes, race recovery, employee group settings,
+classification, member queries, and project role projection only consider
+`source=scim` with the current normalized `SCIM_ISSUER`. Deactivation removes
+only memberships in those groups. Local, unresolved, and other issuer groups
+cannot grant employee status or SCIM project roles. Their memberships survive
+deactivation. Native local group CRUD and UI are a later scope.
+
+Migration `e9143f63c187` fails before DDL when existing groups lack a complete
+reviewed mapping. A migration runner must set
+`connection.info["reviewed_group_provenance"]` to a dictionary keyed by the
+string database group ID, each containing explicit `source` and normalized
+`issuer`. Include an explicit `legacy-unresolved`/empty issuer entry for each
+unresolved record. Review effective access and project roles before authorizing
+this cutover: unresolved records become ineligible for SCIM privileges. The
+migration does not reconcile, grant, revoke, or infer project roles. Group and
+membership UIDs and existing data remain intact; provenance metadata is added.
+Both legacy external ID unique constraints and unique indexes are removed.
+
+Downgrade fails before DDL if external IDs collide across authorities. For a
+populated directory it also requires provenance to be archived and an explicit
+`connection.info["reviewed_group_provenance_downgrade"] = True` acknowledgement,
+since the old schema cannot retain authority metadata. Restore the archived
+mapping for a subsequent upgrade. SQLite's table rebuild requires foreign keys
+to be disabled by the runner before its migration transaction; the migration
+blocks otherwise to prevent membership cascades. Run `PRAGMA foreign_key_check`
+afterward and restore foreign key enforcement. PostgreSQL needs no such suspension.
+No production migration or operational cutover is authorized by these changes.
