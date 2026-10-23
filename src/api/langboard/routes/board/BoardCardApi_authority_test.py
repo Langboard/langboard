@@ -98,7 +98,7 @@ def _request(method, path, actor):
 
 
 @pytest.mark.parametrize(
-    "selection", [None, "checklists", "description", "execution_receipts", "attachments,linked_wikis"]
+    "selection", [None, "checklists", "description", "execution_receipts", "attachments,linked_wikis", "agent_execution"]
 )
 @pytest.mark.parametrize("linked", [False, True])
 @pytest.mark.parametrize("actions", [["read"], ["read", "update"], ["*"]])
@@ -140,6 +140,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
     )
     monkeypatch.setattr(BoardCardApi, "visible_linked_wikis", read("linked_wikis"))
     monkeypatch.setattr(BoardCardApi, "receipt_history", read("execution_receipts"))
+    monkeypatch.setattr(BoardCardApi, "card_agent_execution", read("agent_execution"))
     request = Request(
         {
             "type": "http",
@@ -159,7 +160,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
         "execution_receipts",
     }
     if selection is not None:
-        expected &= set(selection.split(","))
+        expected = (expected | {"agent_execution"}) & set(selection.split(","))
     assert set(result) == expected | {"card", "whispers_allowed"}
     assert reads[0][0] == "resolve"
     assert dict(reads)["details"]["include_description"] is (selection is None or "description" in selection.split(","))
@@ -172,6 +173,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
         "project_labels",
         "bot_scopes",
         "execution_receipts",
+        "agent_execution",
     }:
         should_read = name in expected and (not linked or name in {"project_columns", "execution_receipts"})
         if name == "bot_scopes":

@@ -50,7 +50,19 @@ function BoardCardContextAction({ lens }: { lens: CardWorkbenchLens }) {
                     ) : !data ? (
                         <p role="status">{t("common.Loading...")}</p>
                     ) : (
-                        <CardWorkbenchLenses card={data.card} lens={lens} receipts={data.execution_receipts} />
+                        <>
+                            {lens === "execution" && (
+                                <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+                                    {t("card.lenses.Refresh execution")}
+                                </Button>
+                            )}
+                            <CardWorkbenchLenses
+                                card={data.card}
+                                lens={lens}
+                                receipts={data.execution_receipts}
+                                agentExecution={isFetching ? undefined : data.agent_execution}
+                            />
+                        </>
                     ))}
             </Dialog.Content>
         </Dialog.Root>

@@ -233,11 +233,13 @@ def require_current_project_policy(db, current, *, approved=True, personal=False
     return policy
 
 
-def require_connection_access(db, actor, project, connection, *, unattended=False, approved=True, personal_app=False):
+def require_connection_access(
+    db, actor, project, connection, *, unattended=False, approved=True, personal_app=False, for_update=True
+):
     """Return only an authorized current connection; never expose another person's account."""
-    actor = _actor(db, actor)
-    project = _current(db, Project, project.id)
-    connection = _current(db, AppConnection, connection.id)
+    actor = _actor(db, actor, for_update=for_update)
+    project = _current(db, Project, project.id, for_update=for_update)
+    connection = _current(db, AppConnection, connection.id, for_update=for_update)
     if project is None or project.deleted_at or connection is None or connection.state != "connected":
         raise AppGovernanceDenied()
     if project.owner_id != actor.id:

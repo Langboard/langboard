@@ -57,6 +57,7 @@ case "$profile" in
       src/api/tests/apps/test_app_execution_ack.py \
       src/api/tests/apps/test_app_execution_lease.py \
       src/api/tests/apps/test_app_execution_start.py \
+      src/api/tests/apps/test_card_agent_execution.py \
       src/api/tests/apps/test_card_signal_projection.py \
       src/api/tests/apps/test_card_management_mcp.py \
       src/api/tests/apps/test_card_app_resources_mcp.py \
@@ -138,6 +139,7 @@ case "$profile" in
       src/api/tests/apps/test_app_execution_ack.py \
       src/api/tests/apps/test_app_execution_lease.py \
       src/api/tests/apps/test_app_execution_start.py \
+      src/api/tests/apps/test_card_agent_execution.py \
       src/api/tests/apps/test_card_signal_projection.py \
       src/api/tests/apps/test_card_management_mcp.py \
       src/api/tests/apps/test_card_app_resources_mcp.py \

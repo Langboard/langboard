@@ -23,7 +23,8 @@ export type CardDetailSection =
     | "project_columns"
     | "project_labels"
     | "bot_scopes"
-    | "execution_receipts";
+    | "execution_receipts"
+    | "agent_execution";
 
 export interface IGetCardDetailsForm {
     project_uid: string;
@@ -42,6 +43,19 @@ export interface IGetCardDetailsResponse {
     project_columns?: ProjectColumn.TModel[];
     project_labels?: ProjectLabel.TModel[];
     bot_scopes?: ProjectCardBotScope.TModel[];
+    agent_execution?: {
+        schema_version: 1;
+        start_uid: string;
+        request_uid: string;
+        app_key: string;
+        generation: number;
+        reported_at: string;
+        evaluated_at: string;
+        authorization_expires_at: string;
+        evidence_kind: "app_attestation";
+        current_authorization: "authorized";
+        process_liveness: "unknown";
+    } | null;
     execution_receipts?: {
         generation: number;
         created_at: string;
@@ -128,6 +142,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             project_labels: res.data.project_labels === undefined ? undefined : ProjectLabel.Model.fromArray(res.data.project_labels, true),
             bot_scopes: res.data.bot_scopes === undefined ? undefined : ProjectCardBotScope.Model.fromArray(res.data.bot_scopes, true),
             execution_receipts: res.data.execution_receipts,
+            agent_execution: res.data.agent_execution,
         };
     };
 

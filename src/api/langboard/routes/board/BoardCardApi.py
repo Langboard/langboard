@@ -41,6 +41,7 @@ from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.CardAgentExecution import card_agent_execution
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
@@ -197,6 +198,8 @@ def get_card_details(
     }
     raw_sections = request.query_params.get("sections")
     sections = allowed if raw_sections is None else set(raw_sections.split(","))
+    # Execution identity is an explicit read, excluded even from legacy full detail.
+    allowed = allowed | {"agent_execution"}
     if raw_sections is not None and (len(raw_sections) > 256 or not sections or not sections <= allowed):
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     api_card = service.card.get_details(
@@ -250,6 +253,8 @@ def get_card_details(
         )
     if "execution_receipts" in sections:
         content["execution_receipts"] = receipt_history(card.id)
+    if "agent_execution" in sections:
+        content["agent_execution"] = None if is_linked_resource else card_agent_execution(project.id, card.id)
     return JsonResponse(content=content)
 
 

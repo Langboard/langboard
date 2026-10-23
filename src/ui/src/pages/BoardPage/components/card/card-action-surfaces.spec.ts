@@ -153,3 +153,73 @@ for (const width of [390, 1440])
         await expect(page.getByText("Preserved execution receipt", { exact: true })).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
+
+for (const width of [320, 390])
+    test(`agent identity is on demand and distinguishes attestation from liveness at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await fixture(page);
+        const agentReads = () =>
+            page.evaluate(
+                () =>
+                    (window as unknown as { managerCalls: { sections?: string }[] }).managerCalls.filter((call) =>
+                        call.sections?.includes("agent_execution")
+                    ).length
+            );
+        expect(await agentReads()).toBe(0);
+        await actions(page);
+        expect(await agentReads()).toBe(0);
+        for (const title of ["Review", "History"]) {
+            await page.getByRole("button", { name: title, exact: true }).click();
+            await expect(page.getByRole("dialog", { name: title, exact: true })).toBeVisible();
+            expect(await agentReads()).toBe(0);
+            await close(page, title);
+        }
+        await page.getByRole("button", { name: "Execution", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Execution", exact: true });
+        const agent = dialog.getByRole("region", { name: "Agent lifecycle", exact: true });
+        await expect(agent).toContainText("App-reported start: sample-agent");
+        await expect(agent).toContainText("start-opaque");
+        await expect(agent).toContainText("Authorized at last check");
+        await expect(agent).toContainText("Process liveness: Unknown");
+        await expect(dialog.getByText("never-render-raw-runtime")).toHaveCount(0);
+        expect(await agentReads()).toBe(1);
+        await expect(dialog.locator("..")).toHaveCSS("opacity", "1");
+        await page.screenshot({ path: `/private/tmp/langboard-agent-execution-${width}.png`, animations: "disabled" });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.evaluate(() => (window as unknown as { revokeAgentReport: () => void }).revokeAgentReport());
+        await dialog.getByRole("button", { name: "Refresh execution", exact: true }).click();
+        await expect(agent).toHaveCount(0);
+        await expect(dialog.getByText("Agent lifecycle: Unknown", { exact: true })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "Refresh execution", exact: true })).toBeEnabled();
+        await expect(agent).toHaveCount(0);
+        expect(await agentReads()).toBe(2);
+        await close(page, "Execution");
+    });
+
+for (const query of ["?no-agent", "?old-generation", "?private"])
+    test(`missing, old or private agent evidence stays unknown ${query}`, async ({ page }) => {
+        await fixture(page, query);
+        await actions(page);
+        await page.getByRole("button", { name: "Execution", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Execution", exact: true });
+        await expect(dialog.getByText("Agent lifecycle: Unknown", { exact: true })).toBeVisible();
+        await expect(dialog.getByText("sample-agent")).toHaveCount(0);
+    });
+
+test("agent authorization snapshot disappears at expiry without renewed requests", async ({ page }) => {
+    await page.clock.install();
+    await fixture(page);
+    await actions(page);
+    await page.getByRole("button", { name: "Execution", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Execution", exact: true });
+    await expect(dialog.getByRole("region", { name: "Agent lifecycle", exact: true })).toBeVisible();
+    await page.clock.fastForward(61_000);
+    await expect(dialog.getByText("Agent lifecycle: Unknown", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("sample-agent")).toHaveCount(0);
+    const requests = await page.evaluate(
+        () =>
+            (window as unknown as { managerCalls: { sections?: string }[] }).managerCalls.filter((call) => call.sections?.includes("agent_execution"))
+                .length
+    );
+    expect(requests).toBe(1);
+});
