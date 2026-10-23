@@ -2,6 +2,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from threading import Barrier
 from uuid import uuid4
 import pytest
@@ -29,6 +30,50 @@ if DATABASE_URL and DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="requires LANGBOARD_TEST_DATABASE_URL")
 ISSUER = "https://directory.example/scim"
+
+
+@pytest.mark.parametrize("operation", ["replace", "delete"])
+@pytest.mark.parametrize("bound", [False, True])
+def test_failed_group_mutation_preserves_directory_and_entitlements(role_database, monkeypatch, operation, bound):
+    engine, project, _, employee = role_database
+    with closing(DomainService()) as service:
+        provisioning = service.scim_provisioning
+        group = provisioning.create_group(
+            {
+                "displayName": "Original",
+                "externalId": f"project-role:{project.get_uid()}:contributor" if bound else "ordinary-original",
+                "members": [{"value": employee.get_uid()}],
+            }
+        )
+        before = snapshot(engine)
+        if operation == "replace":
+            repository = provisioning.repo.scim_group_member
+            original = repository.replace_group_members
+
+            def fail_after_write(*args, **kwargs):
+                original(*args, **kwargs)
+                raise RuntimeError("fixture mutation interrupted")
+
+            monkeypatch.setattr(repository, "replace_group_members", fail_after_write)
+
+            def mutate():
+                provisioning.apply_group_mutations(group, {"displayName": "Changed", "members": []})
+        else:
+            repository = provisioning.repo.scim_group
+            original = repository.delete
+
+            def fail_after_write(*args, **kwargs):
+                original(*args, **kwargs)
+                raise RuntimeError("fixture mutation interrupted")
+
+            monkeypatch.setattr(repository, "delete", fail_after_write)
+
+            def mutate():
+                provisioning.delete_group(group)
+
+        with pytest.raises(RuntimeError, match="fixture mutation interrupted"):
+            mutate()
+        assert snapshot(engine) == before
 
 
 @pytest.fixture

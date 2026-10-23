@@ -46,6 +46,8 @@ revoked. Retrying the operation does not recreate the deleted group.
 
 Group creation stores the group and its requested membership in one transaction;
 a membership write failure leaves neither a partial group nor partial members.
+Group updates and deletion also store directory rows and membership changes in
+one transaction, so a directory write failure preserves their previous state.
 Overlapping upserts for the same `externalId` converge on the existing group UID
 after a creation conflict. This does not match groups by display name or merge
 different external identities. Entitlement reconciliation follows the committed

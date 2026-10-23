@@ -530,15 +530,17 @@ class ScimProvisioningService(BaseDomainService):
                 raise ScimProvisioningException.Conflict()
             group.external_id = external_id
 
-        self.repo.scim_group.update(group)
-        if "members" in payload:
-            self.repo.scim_group_member.replace_group_members(group, next_user_ids)
+        with DbSession.atomic():
+            self.repo.scim_group.update(group)
+            if "members" in payload:
+                self.repo.scim_group_member.replace_group_members(group, next_user_ids)
         self._reconcile_bound_external_ids(old_external_id, group.external_id or "")
 
     def delete_group(self, group: ScimGroup) -> None:
         old_external_id = group.external_id or ""
-        self.repo.scim_group_member.delete_all_by_group(group)
-        self.repo.scim_group.delete(group, purge=True)
+        with DbSession.atomic():
+            self.repo.scim_group_member.delete_all_by_group(group)
+            self.repo.scim_group.delete(group, purge=True)
         self._reconcile_bound_external_ids(old_external_id)
 
     def normalize_patch_payload(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
