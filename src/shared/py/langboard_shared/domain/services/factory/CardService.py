@@ -2235,15 +2235,17 @@ class CardService(BaseDomainService):
             logging.getLogger(__name__).warning("Title label conversion skipped: %s", type(error).__name__)
             return title
 
-    def default_creation_visibility(self, project: Project, actor: TUserOrBot) -> CardVisibility:
-        """Personal owners use private; verified external board members use shared."""
+    def default_creation_visibility(
+        self, project: Project, actor: TUserOrBot, *, app_owned: bool = False
+    ) -> CardVisibility:
+        """Personal owners use private; authorized app creation uses native board scope."""
         if not isinstance(actor, User):
             return CardVisibility.Internal
         resolved = self.resolve_visibility_context(project, actor)
         if resolved is None or not resolved[1].project_member:
             return CardVisibility.Internal
         project, context = resolved
-        if project.owner_id == actor.id:
+        if project.owner_id == actor.id and not app_owned:
             with DbSession.use(readonly=False) as db:
                 other = db.exec(
                     SqlBuilder.select.table(User)
@@ -2272,6 +2274,7 @@ class CardService(BaseDomainService):
         dispatch_effects: bool = True,
         order_override: int | None = None,
         deadline_at: datetime | None = None,
+        app_owned: bool = False,
     ) -> tuple[Card, dict[str, Any]] | None:
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (ProjectColumn, column))
         if not params:
@@ -2281,7 +2284,7 @@ class CardService(BaseDomainService):
             return None
 
         with execution_readiness_uow() as execution:
-            visibility = self.default_creation_visibility(project, user_or_bot)
+            visibility = self.default_creation_visibility(project, user_or_bot, app_owned=app_owned)
             card = Card(
                 visibility=visibility.value,
                 owner_user_id=user_or_bot.id if visibility == CardVisibility.Private else None,
