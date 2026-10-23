@@ -52,6 +52,14 @@ let fail = false;
 let sequence = 0;
 const receipts = new Map<string, { uid: string; payload: string }>();
 api.defaults.adapter = async (config) => {
+    if (config.method === "put" && config.url?.includes("/comment/")) {
+        document.getElementById("request")!.textContent = config.data;
+        if (fail) {
+            fail = false;
+            throw new Error("Comment update failed fixture");
+        }
+        return { data: { updated_at: new Date().toISOString() }, status: 200, statusText: "OK", headers: {}, config };
+    }
     if (config.method === "post" && config.url?.includes("/comment")) {
         const body = JSON.parse(config.data);
         document.getElementById("request")!.textContent = JSON.stringify(body);

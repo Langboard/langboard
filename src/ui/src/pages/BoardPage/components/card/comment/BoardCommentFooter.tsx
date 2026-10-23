@@ -82,7 +82,6 @@ function BoardCommentFooterEditButtons() {
                     const { handle } = setupApiErrorHandler({});
 
                     handle(error);
-                    cancelEditing();
                 },
                 onSettled: () => {
                     setIsValidating(false);
