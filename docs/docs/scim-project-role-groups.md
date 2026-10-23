@@ -72,7 +72,10 @@ connection failures propagate as errors rather than an empty inventory.
 Exit status `2` means review is required: multiple organizations (including
 inactive ones), no active canonical organization, unbound or orphaned boards,
 orphaned memberships/address books, unresolved identity issuers, or legacy group
-provenance. Exit status `0` only means these inventory checks found no blocker;
+provenance. Organizations and boards whose owners are missing, inactive, or
+soft-deleted also require explicit ownership repair before mapping; the audit
+does not select a replacement owner or alter access. Exit status `0` only means
+these inventory checks found no blocker;
 `migration_authorized` remains false. No records are merged, deleted, assigned,
 or granted access by this command.
 

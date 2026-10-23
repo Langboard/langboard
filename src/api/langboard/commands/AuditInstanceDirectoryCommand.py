@@ -35,6 +35,17 @@ def audit_directory(connection: Connection, configured_issuer: str) -> dict:
         Project.organization_id.is_not(None),
         ~select(Organization.id).where(Organization.id == Project.organization_id).exists(),
     )
+
+    def unavailable_owners(model, owner_column):
+        return count(
+            model,
+            ~select(User.id)
+            .where(User.id == owner_column, User.activated_at.is_not(None), User.deleted_at.is_(None))
+            .exists(),
+        )
+
+    unavailable_organization_owners = unavailable_owners(Organization, Organization.owner_user_id)
+    unavailable_project_owners = unavailable_owners(Project, Project.owner_id)
     orphan_members = count(
         ScimGroupMember,
         ~select(ScimGroup.id).where(ScimGroup.id == ScimGroupMember.group_id).exists()
@@ -66,6 +77,10 @@ def audit_directory(connection: Connection, configured_issuer: str) -> dict:
         blockers.append("unbound_projects_require_explicit_mapping")
     if orphan_projects:
         blockers.append("orphan_project_organization_references")
+    if unavailable_organization_owners:
+        blockers.append("unavailable_organization_owners")
+    if unavailable_project_owners:
+        blockers.append("unavailable_project_owners")
     if orphan_members:
         blockers.append("orphan_scim_memberships")
     if groups:
@@ -84,6 +99,8 @@ def audit_directory(connection: Connection, configured_issuer: str) -> dict:
             "projects": count(Project),
             "unbound_projects": unbound_projects,
             "orphan_projects": orphan_projects,
+            "unavailable_organization_owners": unavailable_organization_owners,
+            "unavailable_project_owners": unavailable_project_owners,
             "scim_groups": groups,
             "scim_memberships": count(ScimGroupMember),
             "orphan_scim_memberships": orphan_members,

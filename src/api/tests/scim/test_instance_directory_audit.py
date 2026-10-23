@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 from langboard.commands.AuditInstanceDirectoryCommand import audit_directory, main
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models
 from langboard_shared.Env import Env
 from sqlalchemy import create_engine, select, text
@@ -50,7 +51,12 @@ def directory_database(tmp_path, request):
         with Session(engine) as db:
             db.add(
                 models.User(
-                    id=1, firstname="Private", lastname="Name", email="private@example.invalid", password="secret"
+                    id=1,
+                    firstname="Private",
+                    lastname="Name",
+                    email="private@example.invalid",
+                    password="secret",
+                    activated_at=SafeDateTime.now(),
                 )
             )
             db.commit()
@@ -185,3 +191,42 @@ def test_missing_schema_fails_without_a_clean_report_and_restores_connection(dir
             assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 0
         else:
             assert connection.exec_driver_sql("SHOW transaction_read_only").scalar() == "off"
+
+
+@pytest.mark.parametrize("target", ["organization", "project"])
+@pytest.mark.parametrize("state", ["inactive", "deleted", "missing"])
+def test_unavailable_owners_block_mapping_without_rewriting_data(directory_database, target, state):
+    engine, tables = directory_database
+    if state == "missing" and engine.dialect.name == "postgresql":
+        pytest.skip("PostgreSQL foreign keys reject missing owners before the audit")
+    with Session(engine) as db:
+        db.add(
+            models.User(
+                id=2,
+                firstname="Unavailable",
+                lastname="Owner",
+                email="unavailable@example.invalid",
+                password="secret",
+                activated_at=None if state == "inactive" else SafeDateTime.now(),
+                deleted_at=SafeDateTime.now() if state == "deleted" else None,
+            )
+        )
+        db.commit()
+        owner_id = 999 if state == "missing" else 2
+        db.add(
+            models.Organization(
+                id=10, name="Single", slug="single", owner_user_id=owner_id if target == "organization" else 1
+            )
+        )
+        db.commit()
+        db.add(
+            models.Project(id=30, title="Board", organization_id=10, owner_id=owner_id if target == "project" else 1)
+        )
+        db.commit()
+    before = snapshot(engine, tables)
+    with engine.connect() as connection:
+        report = audit_directory(connection, "")
+    assert report["counts"][f"unavailable_{target}_owners"] == 1
+    assert f"unavailable_{target}_owners" in report["blockers"]
+    assert report["migration_authorized"] is False
+    assert snapshot(engine, tables) == before
