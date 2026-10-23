@@ -94,6 +94,23 @@ describe("CardDraftStore", () => {
         assert.equal(storage.getItem("lb-draft-v1:user-a:project-1:comment-new:card-1"), null);
     });
 
+    it("does not restore a cleared description as an empty replacement when removal fails", () => {
+        const editScope = scope({ kind: "card-edit", scopeUID: card1 });
+        getCardDraftStore().saveDraft(editScope, "unsaved description");
+        const originalRemove = storage.removeItem.bind(storage);
+        storage.removeItem = () => {
+            throw new DOMException("Denied", "SecurityError");
+        };
+        try {
+            getCardDraftStore().clearDraft(editScope);
+            assert.equal(getCardDraftStore().getDraft(editScope), null);
+            useCardDraftStore.setState({ cache: {} });
+            assert.equal(getCardDraftStore().getDraft(editScope), null, "reload must keep the saved description instead of a blank draft");
+        } finally {
+            storage.removeItem = originalRemove;
+        }
+    });
+
     it("keeps the draft on save failure (clear only on success)", () => {
         const store = getCardDraftStore();
         store.saveDraft(scope(), "keep me");
@@ -129,9 +146,9 @@ describe("CardDraftStore", () => {
         };
         try {
             store.clearDraft(scope());
-            // The persisted value is still there, but reads must observe the cleared tombstone.
+            // Storage retains a cleared marker, which must never become an editable draft.
             assert.ok(storage.getItem(key));
-            assert.equal(getCardDraftStore().getDraft(scope())?.content, "");
+            assert.equal(getCardDraftStore().getDraft(scope()), null);
         } finally {
             storage.removeItem = originalRemove;
         }
@@ -161,7 +178,7 @@ describe("CardDraftStore", () => {
             store.saveDraft(scope(), "offline draft");
             assert.equal(getCardDraftStore().getDraft(scope())?.content, "offline draft");
             store.clearDraft(scope());
-            assert.equal(getCardDraftStore().getDraft(scope())?.content, "");
+            assert.equal(getCardDraftStore().getDraft(scope()), null);
             // A different account never sees this scope's draft.
             assert.equal(getCardDraftStore().getDraft(scope({ userUID: userB })), null);
         } finally {

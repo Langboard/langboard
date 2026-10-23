@@ -129,7 +129,7 @@ const useCardDraftStore = create(
             } catch {
                 // Persisted removal failed: keep an in-memory cleared tombstone so
                 // getDraft() cannot re-read and resurrect the old persisted value.
-                const tombstone = { content: "", savedAt: Date.now() };
+                const tombstone: IDraftPayload = { content: "", savedAt: Date.now(), cleared: true };
                 set((state) => {
                     state.cache[key] = tombstone;
                 });
