@@ -84,8 +84,6 @@ services:
       - ../scripts/run_internal_bot_run_recovery.sh:/app/scripts/run_internal_bot_run_recovery.sh:x
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      db-bouncer:
-        condition: service_healthy
       kafka0:
         condition: service_healthy
       kafka1:
@@ -201,8 +199,6 @@ services:
       - ../local:/app/local
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      db-bouncer:
-        condition: service_healthy
       kafka0:
         condition: service_healthy
       kafka1:

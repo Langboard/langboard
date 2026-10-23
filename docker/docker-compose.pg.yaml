@@ -8,6 +8,20 @@ x-db-env: &db-env
   POSTGRESQL_TIMEZONE: UTC
 
 services:
+  # Only bundled PostgreSQL consumers wait for the bundled pooler.
+  api:
+    depends_on:
+      db-bouncer:
+        condition: service_healthy
+  celeryworker:
+    depends_on:
+      db-bouncer:
+        condition: service_healthy
+  graph:
+    depends_on:
+      db-bouncer:
+        condition: service_healthy
+
   db-bouncer:
     init: true
     image: bitnamilegacy/pgbouncer:latest

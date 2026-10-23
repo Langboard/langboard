@@ -20,6 +20,9 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 
 - Prerequisite: Install **Docker Engine 25.0+** and **Docker Compose 2.24.4+** first. Kafka uses native startup healthcheck intervals; Compose selection also uses native `!reset` overrides.
 
+- Before running Quick Start, copy `.env.example` to `.env` in the repository root (keep an existing `.env`). Set `SOCKET_PHOENIX_INTERNAL_SECRET` to a random secret of at least 32 characters, replace the example `COMMON_SECRET_KEY` and `JWT_SECRET_KEY`, and configure `MAIL_SERVER`, `MAIL_FROM`, and a positive `MAIL_PORT` for your SMTP service. This configuration requires the notification email outbox and Phoenix Kafka to remain enabled; blank SMTP settings do not disable email. Never commit `.env` or generated credentials.
+- PostgreSQL is bundled by default. To use an existing database, set `POSTGRES_EXTERNAL_MAIN_URL` (for example, `postgresql://user:password@host:5432/database`) and optionally `POSTGRES_EXTERNAL_REPLICA_URL`. Without a replica URL, reads use the external main database. External mode excludes the bundled PostgreSQL services and pooler; ensure the application can reach the external database before starting. URL diagnostics go to stderr so Compose argument capture remains valid. Selecting an external database does not migrate existing data.
+
 - For Windows users
   - You can run one of `quickstart.ps1`, `quickstart-ollama-cpu.ps1`, and `quickstart-ollama-gpu.ps1` in `scripts` directory with powershell
     - If the system opens Notepad when you double-click the files, you should select 'Run with powershell' by right-click menu.
