@@ -73,7 +73,19 @@
     "Favorite filters": "收藏的筛选条件",
     "Toggle favorite": "切换收藏的筛选条件",
     "Unavailable saved filter": "不可用的已保存筛选条件",
-    "Retry favorites": "重新加载收藏"
+    "Retry favorites": "重新加载收藏",
+    "Deadline": "截止日期",
+    "Deadline semantics": "日期范围使用本地日期并包含所有卡片状态。每周从星期一开始。已逾期显示当前或更早到期的未完成工作，不含参考和已抑制提醒的卡片。",
+    "deadlines": {
+      "today": "今天",
+      "week": "本周",
+      "month": "本月",
+      "quarter": "本季度",
+      "half-year": "本半年",
+      "year": "今年",
+      "overdue": "已逾期",
+      "none": "无截止日期"
+    }
   },
   "Add column": "添加列",
   "Add a card": "添加卡片",

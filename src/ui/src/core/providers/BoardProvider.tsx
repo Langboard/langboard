@@ -37,6 +37,8 @@ import useAuthStore from "@/core/stores/AuthStore";
 
 import { matchesWorkload } from "@/pages/DashboardPage/components/ProjectWorkload";
 
+import { matchesBoardDeadline } from "@/pages/BoardPage/components/board/BoardDeadlineFilter";
+
 const DEFAULT_ARCHIVE_CARD_VISIBLE_DAYS = 3;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -50,6 +52,7 @@ export interface IFilterMap extends ISearchFilterMap {
     columns?: string[];
     workflow_stages?: string[];
     unfinished?: string[];
+    deadlines?: string[];
 }
 
 export const BOARD_FILTER_KEYS = [
@@ -62,6 +65,7 @@ export const BOARD_FILTER_KEYS = [
     "columns",
     "workflow_stages",
     "unfinished",
+    "deadlines",
 ] as (keyof IFilterMap)[];
 
 export interface IBoardContext {
@@ -314,6 +318,16 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     };
 
     const filterCard = (card: ProjectCard.TModel) => {
+        if (
+            filters.deadlines?.length &&
+            !matchesBoardDeadline(
+                card,
+                columns.find((column) => column.uid === card.project_column_uid),
+                filters.deadlines,
+                deadlineClock
+            )
+        )
+            return false;
         if (filters.columns?.length && !filters.columns.includes(card.project_column_uid)) return false;
         if (filters.workflow_stages?.length) {
             const stage = columns.find((column) => column.uid === card.project_column_uid)?.workflow_stage;
@@ -528,5 +542,11 @@ function ColumnFilterSubscription({ column, refresh }: { column: ProjectColumn.T
 /** Refresh board filters when the server reinterprets a global workflow policy. */
 function CardPolicySubscription({ card, refresh }: { card: ProjectCard.TModel; refresh: () => void }) {
     card.useField("work_state", refresh);
+    card.useField("deadline_at", refresh);
+    card.useField("completed", refresh);
+    card.useField("archived_at", refresh);
+    card.useField("project_column_uid", refresh);
+    card.useField("checklist_completed_count", refresh);
+    card.useField("checklist_total_count", refresh);
     return null;
 }

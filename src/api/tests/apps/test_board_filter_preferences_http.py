@@ -39,6 +39,10 @@ def test_filter_preferences_http_scope_revision_validation_and_revocation(board,
         {"key": "unfinished", "value": "true"},
         {"key": "members", "value": "me"},
         {"key": "keyword", "value": " exact phrase "},
+        *[
+            {"key": "deadlines", "value": value}
+            for value in ("today", "week", "month", "quarter", "half-year", "year", "overdue", "none")
+        ],
     ]
     with TestClient(app) as client:
         assert client.get(endpoint).status_code == 401
@@ -76,6 +80,14 @@ def test_filter_preferences_http_scope_revision_validation_and_revocation(board,
             )
             assert own_other_board.status_code == 200, own_other_board.text
             assert owner.get(endpoint, headers=owner_headers).json() == {"revision": 0, "pinned_filters": []}
+        for invalid in ("tomorrow", "", "Today", "week ", "no-deadline", "93", "today,week"):
+            rejected = client.put(
+                endpoint,
+                json={"expected_revision": 1, "pinned_filters": [{"key": "deadlines", "value": invalid}]},
+                headers=headers,
+            )
+            assert rejected.status_code in (400, 422), rejected.text
+            assert client.get(endpoint, headers=headers).json() == saved.json()
         for payload in (
             {"expected_revision": True, "pinned_filters": pins},
             {"expected_revision": 1, "pinned_filters": pins * 2},

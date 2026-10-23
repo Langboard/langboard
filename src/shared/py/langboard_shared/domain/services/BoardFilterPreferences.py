@@ -1,7 +1,7 @@
 """Bounded, revision-checked personal shortcuts; never a board permission grant."""
 
 from typing import Literal
-from pydantic import BaseModel, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 from sqlalchemy import update
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
@@ -14,7 +14,16 @@ from .UserAppPreferences import PreferenceConflict
 class BoardFilterPin(BaseModel):
     model_config = {"extra": "forbid"}
     key: Literal[
-        "keyword", "members", "creators", "labels", "parents", "children", "columns", "workflow_stages", "unfinished"
+        "keyword",
+        "members",
+        "creators",
+        "labels",
+        "parents",
+        "children",
+        "columns",
+        "workflow_stages",
+        "unfinished",
+        "deadlines",
     ]
     value: str = Field(min_length=1, max_length=256, strict=True)
 
@@ -25,6 +34,21 @@ class BoardFilterPin(BaseModel):
             raise ValueError("Filter condition must not be blank")
         # Keyword whitespace is part of the existing URL filter's exact value.
         return value
+
+    @model_validator(mode="after")
+    def valid_deadline_preset(self):
+        if self.key == "deadlines" and self.value not in {
+            "today",
+            "week",
+            "month",
+            "quarter",
+            "half-year",
+            "year",
+            "overdue",
+            "none",
+        }:
+            raise ValueError("Unknown deadline filter preset")
+        return self
 
 
 def board_filter_preferences(actor, project_id, *, pinned_filters=None, expected_revision=None):

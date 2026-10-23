@@ -73,7 +73,19 @@
     "Favorite filters": "Favorite filters",
     "Toggle favorite": "Toggle favorite filter",
     "Unavailable saved filter": "Unavailable saved filter",
-    "Retry favorites": "Retry favorite filters"
+    "Retry favorites": "Retry favorite filters",
+    "Deadline": "Deadline",
+    "Deadline semantics": "Calendar ranges use local dates and include all card states. Weeks start on Monday. Overdue shows unfinished work due now or earlier, excluding reference and suppressed cards.",
+    "deadlines": {
+      "today": "Today",
+      "week": "This week",
+      "month": "This month",
+      "quarter": "This quarter",
+      "half-year": "This half-year",
+      "year": "This year",
+      "overdue": "Overdue",
+      "none": "No deadline"
+    }
   },
   "Add column": "Add column",
   "Add a card": "Add a card",

@@ -73,7 +73,19 @@
     "Favorite filters": "즐겨찾기 필터",
     "Toggle favorite": "즐겨찾기 필터 전환",
     "Unavailable saved filter": "사용할 수 없는 필터",
-    "Retry favorites": "즐겨찾기 다시 불러오기"
+    "Retry favorites": "즐겨찾기 다시 불러오기",
+    "Deadline": "마감일",
+    "Deadline semantics": "기간은 현지 날짜 기준이며 모든 카드 상태를 포함합니다. 주는 월요일에 시작합니다. 기한 초과는 현재 또는 이전에 마감된 미완료 업무이며 참고 및 경고 제외 카드는 제외합니다.",
+    "deadlines": {
+      "today": "오늘",
+      "week": "이번 주",
+      "month": "이번 달",
+      "quarter": "이번 분기",
+      "half-year": "이번 반년",
+      "year": "올해",
+      "overdue": "기한 초과",
+      "none": "마감일 없음"
+    }
   },
   "Add column": "열 추가",
   "Add a card": "카드 추가",

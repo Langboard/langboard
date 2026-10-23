@@ -117,7 +117,7 @@ for (const width of [1280, 390])
         await page.goto(`/src/pages/BoardPage/components/board/BoardFilter.fixture.html${new URL(page.url()).search}`);
         await expect(pin).toHaveAttribute("aria-pressed", "false");
         await pin.click();
-        await page.screenshot({ path: `.verification/filter-favorites-${width}.png` });
+        await page.screenshot({ path: `/private/tmp/langboard-deadline-filter-favorites-${width}.png` });
         await page.getByRole("button", { name: "Remove favorite: Status: ready", exact: true }).click();
         await expect(pin).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Remove filter: Status: ready", exact: true })).toBeVisible();
@@ -297,4 +297,119 @@ test("parent and child selections match either across reload", async ({ page }) 
     await expect(results).not.toContainText("Ready mine");
     await expect(results).toContainText("Active mine");
     await expect(results).toContainText("Ready unassigned");
+});
+
+const deadlineFixtureURL = "/src/pages/BoardPage/components/board/BoardFilter.fixture.html?deadline-fixture=1";
+const temporalTitles = [
+    "Today future",
+    "Today elapsed",
+    "Week Monday",
+    "Month start",
+    "Quarter start",
+    "Half start",
+    "Year end",
+    "Next year",
+    "No deadline",
+    "Completed overdue",
+    "Reference overdue",
+    "Suppressed overdue",
+    "Archived overdue",
+];
+const elapsedToday = ["Today future", "Today elapsed", "Completed overdue", "Reference overdue", "Suppressed overdue", "Archived overdue"];
+const presetResults: [string, string, string[]][] = [
+    ["today", "Today", elapsedToday],
+    ["week", "This week", [...elapsedToday, "Week Monday"]],
+    ["month", "This month", [...elapsedToday, "Week Monday", "Month start"]],
+    ["quarter", "This quarter", [...elapsedToday, "Week Monday", "Month start", "Quarter start"]],
+    ["half-year", "This half-year", [...elapsedToday, "Week Monday", "Month start", "Quarter start", "Half start"]],
+    ["year", "This year", [...elapsedToday, "Week Monday", "Month start", "Quarter start", "Half start", "Year end"]],
+    ["overdue", "Overdue", ["Today elapsed", "Week Monday", "Month start", "Quarter start", "Half start"]],
+    ["none", "No deadline", ["No deadline"]],
+];
+for (const [preset, label, expected] of presetResults)
+    test(`deadline preset ${preset} includes and excludes actual cards`, async ({ page }) => {
+        await page.clock.setFixedTime(new Date("2026-05-14T12:00:00"));
+        await page.goto(deadlineFixtureURL);
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await dialog.getByRole("button", { name: "Deadline", exact: true }).click();
+        await dialog.getByRole("checkbox", { name: label, exact: true }).click();
+        const results = page.getByRole("region", { name: "Results", exact: true });
+        await expect(results.locator("p")).toHaveCount(expected.length);
+        for (const title of temporalTitles) await expect(results.getByText(title, { exact: true })).toHaveCount(Number(expected.includes(title)));
+        await page.keyboard.press("Escape");
+        await page.goto(`${deadlineFixtureURL}&${new URL(page.url()).searchParams.toString()}`);
+        await page.reload();
+        await expect(results.locator("p")).toHaveCount(expected.length);
+        await expect(page.getByTestId("url")).toContainText(`deadlines%3A${preset}`);
+    });
+
+test("deadline OR, assignee AND, favorites, clear and live deadline change preserve membership", async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-05-14T12:00:00"));
+    let stored = { revision: 0, pinned_filters: [] as { key: string; value: string }[] };
+    await page.route("**/board/fixture/filter-preferences", async (route) => {
+        if (route.request().method() === "PUT") {
+            const body = route.request().postDataJSON();
+            expect(body.expected_revision).toBe(stored.revision);
+            stored = { revision: stored.revision + 1, pinned_filters: body.pinned_filters };
+        }
+        await route.fulfill({ json: stored });
+    });
+    await page.goto(deadlineFixtureURL);
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Deadline", exact: true }).click();
+    await dialog.getByRole("checkbox", { name: "Today", exact: true }).click();
+    await dialog.getByRole("checkbox", { name: "No deadline", exact: true }).click();
+    const results = page.getByRole("region", { name: "Results", exact: true });
+    await expect(results.locator("p")).toHaveCount(7);
+    await dialog.getByRole("button", { name: "Add favorite: Deadline: Today", exact: true }).click();
+    await expect.poll(() => stored.revision).toBe(1);
+    expect(stored.pinned_filters).toEqual([{ key: "deadlines", value: "today" }]);
+    await dialog.getByRole("button", { name: "Assignee", exact: true }).click();
+    await dialog.getByRole("checkbox", { name: /Assigned to me/ }).click();
+    await expect(results.locator("p")).toHaveText(["Today future"]);
+    await page.keyboard.press("Escape");
+    await page.goto(`${deadlineFixtureURL}&${new URL(page.url()).searchParams.toString()}`);
+    await page.reload();
+    await expect(results.locator("p")).toHaveText(["Today future"]);
+    await expect(page.getByRole("button", { name: "Toggle favorite filter: Deadline: Today", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Move deadline to next year", exact: true }).click();
+    await expect(results.locator("p")).toHaveCount(0);
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(results.locator("p")).toHaveCount(13);
+});
+
+test("deadline pane URL histories and clearing remain independent", async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-05-14T12:00:00"));
+    await page.goto(`${deadlineFixtureURL}&deadline-panes=1`);
+    const left = page.getByRole("region", { name: "Left deadline pane", exact: true });
+    const right = page.getByRole("region", { name: "Right deadline pane", exact: true });
+    await expect(left.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(6);
+    await expect(right.getByRole("region", { name: "Results" }).locator("p")).toHaveText(["No deadline"]);
+    await right.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(right.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(13);
+    await expect(left.getByTestId("url")).toContainText("deadlines:today");
+    await expect(left.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(6);
+    await left.getByRole("button", { name: "Filters", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Deadline", exact: true }).click();
+    await dialog.getByRole("checkbox", { name: "This year", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(left.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(11);
+    await expect(right.getByTestId("url")).not.toContainText("deadlines");
+    await expect(page).toHaveURL(/deadline-panes=1$/);
+});
+
+test("deadline unknown URL and malformed favorite receipts fail closed", async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-05-14T12:00:00"));
+    await page.route("**/board/fixture/filter-preferences", (route) =>
+        route.fulfill({ json: { revision: 1, pinned_filters: [{ key: "deadlines", value: "tomorrow" }] } })
+    );
+    await page.goto(`${deadlineFixtureURL}&filters=deadlines:tomorrow`);
+    await expect(page.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry favorite filters", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Toggle favorite filter:/ })).toHaveCount(0);
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(13);
 });

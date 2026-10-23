@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 import { BOARD_FILTER_KEYS, type IFilterMap } from "@/core/providers/BoardProvider";
 
+import { isBoardDeadlinePreset } from "./BoardDeadlineFilter";
+
 export interface BoardFilterPin {
     key: keyof IFilterMap;
     value: string;
@@ -26,7 +28,8 @@ function receipt(value: Preferences): Preferences {
                 !BOARD_FILTER_KEYS.includes(pin.key) ||
                 typeof pin.value !== "string" ||
                 !pin.value.trim() ||
-                [...pin.value].length > 256
+                [...pin.value].length > 256 ||
+                (pin.key === "deadlines" && !isBoardDeadlinePreset(pin.value))
         ) ||
         new Set(pins.map((pin) => JSON.stringify([pin.key, pin.value]))).size !== pins.length
     )

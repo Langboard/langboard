@@ -19,6 +19,7 @@ import BoardLabelListItem from "@/pages/BoardPage/components/board/BoardLabelLis
 import { CheckedState } from "@radix-ui/react-checkbox";
 import { createContext, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { BOARD_DEADLINE_PRESETS, isBoardDeadlinePreset } from "./BoardDeadlineFilter";
 import useBoardFilterPreferences from "./useBoardFilterPreferences";
 
 const FavoriteFiltersContext = createContext<
@@ -46,8 +47,9 @@ function BoardFilter() {
         const stage = stages.data?.find((item) => item.key === key);
         return stage ? metadataDisplay(stage, stage.translations, i18n.resolvedLanguage ?? i18n.language).name : key;
     };
-    const [category, setCategory] = useState<"status" | "workflow" | "members" | "creators" | "labels" | "relationships" | null>(null);
+    const [category, setCategory] = useState<"status" | "deadlines" | "workflow" | "members" | "creators" | "labels" | "relationships" | null>(null);
     const categories = [
+        { key: "deadlines", label: t("board.filters.Deadline"), keys: ["deadlines"] },
         { key: "status", label: t("board.filters.Status"), keys: ["unfinished", "columns"] },
         { key: "workflow", label: t("common.Workflow stage"), keys: ["workflow_stages"] },
         { key: "members", label: t("board.filters.Assignee"), keys: ["members"] },
@@ -107,6 +109,7 @@ function BoardFilter() {
     };
 
     const filterTitle = (name: keyof IFilterMap, value: string) => {
+        if (name === "deadlines") return `${t("board.filters.Deadline")}: ${t(`board.filters.deadlines.${value}`)}`;
         if (name === "keyword") return `${t("board.filters.Keyword")}: ${value}`;
         if (name === "workflow_stages") return `${t("common.Workflow stage")}: ${stageName(value)}`;
         if (name === "unfinished") return t("dashboard.Unfinished cards");
@@ -132,6 +135,7 @@ function BoardFilter() {
     };
 
     const available = (name: keyof IFilterMap, value: string) => {
+        if (name === "deadlines") return isBoardDeadlinePreset(value);
         if (name === "columns") return columns.some((column) => column.uid === value && !column.is_archive);
         if (name === "workflow_stages") return stages.data?.some((stage) => stage.key === value) ?? false;
         if (name === "members") return ["none", "me"].includes(value) || project.all_members.some((member) => member.email === value);
@@ -214,6 +218,17 @@ function BoardFilter() {
                                 </Button>
                             ) : (
                                 <p className="p-3 text-sm text-muted-foreground">{t("board.filters.Select a category")}</p>
+                            )}
+                            {category === "deadlines" && (
+                                <Flex direction="col">
+                                    <Label>{t("board.filters.Deadline")}</Label>
+                                    <p className="p-2 text-xs text-muted-foreground">{t("board.filters.Deadline semantics")}</p>
+                                    {BOARD_DEADLINE_PRESETS.map((preset) => (
+                                        <BoardFilterItem key={preset} name="deadlines" value={preset}>
+                                            {t(`board.filters.deadlines.${preset}`)}
+                                        </BoardFilterItem>
+                                    ))}
+                                </Flex>
                             )}
                             {category === "status" && (
                                 <Flex direction="col">

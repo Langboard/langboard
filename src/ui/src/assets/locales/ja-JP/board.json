@@ -73,7 +73,19 @@
     "Favorite filters": "お気に入りのフィルター",
     "Toggle favorite": "お気に入りのフィルターを切り替え",
     "Unavailable saved filter": "利用できない保存済みフィルター",
-    "Retry favorites": "お気に入りを再読み込み"
+    "Retry favorites": "お気に入りを再読み込み",
+    "Deadline": "期限",
+    "Deadline semantics": "期間は現地日付に基づき、すべてのカード状態を含みます。週は月曜日に始まります。期限超過は現在以前が期限の未完了業務で、参考および警告抑制カードを除きます。",
+    "deadlines": {
+      "today": "今日",
+      "week": "今週",
+      "month": "今月",
+      "quarter": "今四半期",
+      "half-year": "今半期",
+      "year": "今年",
+      "overdue": "期限超過",
+      "none": "期限なし"
+    }
   },
   "Add column": "列を追加",
   "Add a card": "カードを追加",
