@@ -4,7 +4,7 @@ version = "0.2.0"
 description = ""
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "langboard-sdk>=0.2.37,<0.3",
+    "langboard-sdk>=0.2.38,<0.3",
     "aiosmtplib>=3.0.2,<4",
     "alembic>=1.16.2",
     "anyio>=4.11.0",
@@ -81,7 +81,7 @@ link-mode = "copy"
 # Track https://github.com/docling-project/docling/pull/4967; no local provider/model extras.
 docling-core = { git = "https://github.com/docling-project/docling-core", rev = "e1b282ab8d61b19f458c99ef7d6549f6a03fb86f" }
 docling-slim = { git = "https://github.com/docling-project/docling", rev = "30891e178925c63b97e2f1673410b9c1a1a93efd" }
-langboard-sdk = { path = "../../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
+langboard-sdk = { path = "../../sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
 langboard-shared = { workspace = true }
 
 
