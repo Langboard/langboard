@@ -228,6 +228,7 @@ def create_project_wiki(
 def create_wiki_linked_card(
     project_uid: str,
     wiki_uid: str,
+    column_uid: str | None = None,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
@@ -235,6 +236,7 @@ def create_wiki_linked_card(
         user_or_bot,
         project_uid,
         wiki_uid,
+        column=column_uid,
     )
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2008)

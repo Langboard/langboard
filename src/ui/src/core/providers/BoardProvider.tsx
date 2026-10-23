@@ -264,7 +264,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     useSwitchSocketHandlers({
         socket,
         handlers: boardSocketHandlers,
-        dependencies: boardSocketHandlers,
+        dependencies: [boardSocketHandlers],
     });
 
     const navigateWithFilters = (to?: To, options?: IPageNavigateOptions) => {
