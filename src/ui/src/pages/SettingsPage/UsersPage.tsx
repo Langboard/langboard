@@ -121,7 +121,7 @@ function UserSettings() {
             },
             {
                 onSuccess: () => {
-                    Toast.Add.success(t("successes.Selected webhooks deleted successfully."));
+                    Toast.Add.success(t("successes.Selected users deleted successfully."));
                     setSelectedUsers([]);
                 },
                 onError: (error) => {
