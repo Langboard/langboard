@@ -1,5 +1,7 @@
 """Native HTTP authentication and action gates for installation group reads."""
 
+import os
+from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,16 +13,49 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ApiKeyRole, McpRole, ScimGroup, ScimGroupMember, SettingRole, User
+from langboard_shared.domain.models import (
+    ApiKeyRole,
+    GroupDirectoryAudit,
+    McpRole,
+    Organization,
+    ScimGroup,
+    ScimGroupMember,
+    SettingRole,
+    User,
+)
 from langboard_shared.Env import Env
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, text, update
 
 
-@pytest.fixture
-def directory_http(tmp_path, monkeypatch):
-    engine = create_engine(f"sqlite:///{tmp_path / 'directory-http.sqlite'}")
+@pytest.fixture(params=["sqlite", "postgresql"])
+def directory_http(request, tmp_path, monkeypatch):
+    admin = None
+    schema = None
+    if request.param == "postgresql":
+        url = os.getenv("LANGBOARD_FILE_TEST_DATABASE_URL") or os.getenv("LANGBOARD_TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("Requires an explicitly disposable PostgreSQL database")
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        admin = create_engine(url)
+        assert admin.dialect.name == "postgresql"
+        schema = "group_directory_http_" + uuid4().hex
+        with admin.begin() as db:
+            db.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    else:
+        engine = create_engine(f"sqlite:///{tmp_path / 'directory-http.sqlite'}")
     try:
-        for model in (User, SettingRole, ApiKeyRole, McpRole, ScimGroup, ScimGroupMember):
+        for model in (
+            User,
+            SettingRole,
+            ApiKeyRole,
+            McpRole,
+            ScimGroup,
+            ScimGroupMember,
+            Organization,
+            GroupDirectoryAudit,
+        ):
             model.__table__.create(engine)
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
         monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -37,6 +72,7 @@ def directory_http(tmp_path, monkeypatch):
                 activated_at=SafeDateTime.now(),
             )
             db.insert(actor)
+            db.insert(Organization(name="Canonical", slug="canonical", owner_user_id=actor.id))
             role = SettingRole(user_id=actor.id, actions=["group_read"])
             db.insert(role)
             group = ScimGroup(source="local", issuer="", display_name="HTTP group")
@@ -51,6 +87,10 @@ def directory_http(tmp_path, monkeypatch):
             yield client, engine, actor, role, group, {"Authorization": f"Bearer {access}"}, refresh
     finally:
         engine.dispose()
+        if admin is not None:
+            with admin.begin() as db:
+                db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            admin.dispose()
 
 
 def test_native_directory_auth_role_and_membership_do_not_grant_rights(directory_http):
@@ -94,15 +134,35 @@ def test_native_directory_auth_role_and_membership_do_not_grant_rights(directory
         assert client.get(endpoint, headers=headers).status_code == 401
 
 
-def test_native_directory_http_bounds_unknown_uid_and_no_crud(directory_http):
+def test_native_directory_http_bounds_unknown_uid_and_denied_writes(directory_http):
     client, _, _, _, group, headers, refresh = directory_http
     client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
     for endpoint in ("/settings/groups", f"/settings/groups/{group.get_uid()}/members"):
         for params in ({"page": 0}, {"page": 1000001}, {"limit": 0}, {"limit": 101}, {"query": "x" * 201}):
             assert client.get(endpoint, headers=headers, params=params).status_code == 400
-        assert client.post(endpoint, headers=headers, json={"name": "unsafe"}).status_code == 405
-        assert client.put(endpoint, headers=headers, json={"name": "unsafe"}).status_code == 405
-        assert client.delete(endpoint, headers=headers).status_code == 405
+
     assert client.get("/settings/groups/00000000000/members", headers=headers).status_code == 404
     for uid in ("invalid", "!!!!!!!!!!!", "abcdefghij_", "%25%25%25%25%25%25%25%25%25%25%25"):
         assert client.get(f"/settings/groups/{uid}/members", headers=headers).status_code == 400
+
+
+def test_group_read_does_not_authorize_write_or_candidates(directory_http):
+    client, _, _, _, group, headers, refresh = directory_http
+    client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+    for method, endpoint, body in (
+        ("POST", "/settings/groups", {"display_name": "Denied"}),
+        ("PUT", f"/settings/groups/{group.get_uid()}", {"display_name": "Denied", "expected_revision": 1}),
+        ("DELETE", f"/settings/groups/{group.get_uid()}", {"expected_revision": 1}),
+        (
+            "POST",
+            f"/settings/groups/{group.get_uid()}/members",
+            {"user_uids": [group.get_uid()], "expected_revision": 1},
+        ),
+        (
+            "DELETE",
+            f"/settings/groups/{group.get_uid()}/members",
+            {"user_uids": [group.get_uid()], "expected_revision": 1},
+        ),
+    ):
+        assert client.request(method, endpoint, headers=headers, json=body).status_code == 403
+    assert client.get("/settings/groups/candidates", headers=headers).status_code == 403

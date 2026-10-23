@@ -27,13 +27,16 @@ import hashlib
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from alembic.script import ScriptDirectory
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import Organization
 from sqlalchemy import MetaData, delete, inspect, select, update
 
 
-REVISION = "f0254a74d298"
+# Review binds to the shipped migration head, including later directory changes.
+# Alembic rejects multiple heads rather than guessing an installation lineage.
+REVISION = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "migrations")).get_current_head()
 
 
 def digest(value):
@@ -86,8 +89,8 @@ def snapshot(connection):
     if "alembic_version" not in tables:
         raise ValueError("An exact installed Alembic revision is required")
     revisions = connection.execute(select(tables["alembic_version"].c.version_num)).scalars().all()
-    if revisions != [REVISION]:
-        raise ValueError("Singleton schema revision must be installed before data maintenance")
+    if REVISION is None or revisions != [REVISION]:
+        raise ValueError("Installed schema must match the current migration head before data maintenance")
     contents = {}
     inspector = inspect(connection)
     for name, table in sorted(tables.items()):

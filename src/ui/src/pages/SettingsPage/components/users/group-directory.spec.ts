@@ -274,3 +274,223 @@ test("late group search response cannot replace newer results", async ({ page })
     await expect(page.getByRole("button", { name: "Alpha", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Beta", exact: true })).toBeVisible();
 });
+
+// Native Chrome UI; HTTP directory responses below are fixtures, not backend proof.
+async function setupManagement(page: Page, mode = "manage", source = "local") {
+    let group = {
+        ...groups[0],
+        display_name: "Local team",
+        source,
+        managed: false,
+        read_only: false,
+        revision: 1,
+        abilities: { read_members: true, update: true, delete: true, manage_members: true },
+    };
+    let present = true;
+    let memberPresent = false;
+    let failure = 0;
+    let release: (() => void) | undefined;
+    let delay = false;
+    const writes: { method: string; path: string; body: Record<string, unknown> }[] = [];
+    const reads: string[] = [];
+    await page.route("**/*", async (route) => {
+        const url = new URL(route.request().url());
+        if (url.port === "4187") return route.continue();
+        if (url.port !== "5381") return route.abort();
+        const headers = {
+            "access-control-allow-origin": "http://127.0.0.1:4187",
+            "access-control-allow-credentials": "true",
+            "access-control-allow-headers": "*",
+            "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
+        };
+        const method = route.request().method();
+        if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
+        const path = url.pathname;
+        if (method !== "GET") {
+            const body = route.request().postDataJSON();
+            writes.push({ method, path, body });
+            if (delay) {
+                delay = false;
+                await new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+            }
+            if (failure) {
+                if (failure === 409) group = { ...group, revision: group.revision + 1 };
+                const status = failure;
+                failure = 0;
+                return route.fulfill({ status, json: {}, headers }).catch(() => {});
+            }
+            if (path.endsWith("/members")) memberPresent = method === "POST";
+            else if (method === "DELETE") present = false;
+            else {
+                present = true;
+                group = { ...group, display_name: body.display_name };
+            }
+            group = { ...group, revision: group.revision + 1 };
+            return route
+                .fulfill({ json: method === "DELETE" && !path.endsWith("/members") ? { deleted: true, group_uid: group.uid } : { group }, headers })
+                .catch(() => {});
+        }
+        reads.push(path + url.search);
+        const candidate = { uid: "candidate-1", firstname: "Candidate", lastname: "One", username: "candidate", account_status: "active" };
+        const json = path.endsWith("/candidates")
+            ? { records: [candidate], total_records: 1 }
+            : path.endsWith("/history")
+              ? {
+                    records: [
+                        {
+                            uid: "audit-1",
+                            actor_uid: "admin-audit",
+                            action: "rename",
+                            group_uid: group.uid,
+                            revision: group.revision,
+                            changes: { display_name: { before: "Original team", after: group.display_name } },
+                            created_at: "2026-10-24T00:00:00Z",
+                        },
+                    ],
+                    total_records: 1,
+                }
+              : path.endsWith("/members")
+                ? { group, records: memberPresent ? [candidate] : [], total_records: memberPresent ? 1 : 0 }
+                : path.endsWith("/settings/groups")
+                  ? { records: present ? [group] : [], total_records: present ? 1 : 0 }
+                  : {};
+        return route.fulfill({ json, headers });
+    });
+    await page.goto(`${fixture}?mode=${mode}`);
+    return {
+        reads,
+        writes,
+        fail: (status: number) => {
+            failure = status;
+        },
+        delay: () => {
+            delay = true;
+        },
+        release: () => release?.(),
+    };
+}
+
+async function openLocal(page: Page) {
+    await page.getByRole("button", { name: "Local team", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Rename group", exact: true })).toBeVisible();
+}
+
+test("native management create rename explicit membership deltas history and deletion", async ({ page }) => {
+    const state = await setupManagement(page);
+    expect(state.reads.some((path) => path.includes("/candidates"))).toBe(false);
+    await page.getByRole("button", { name: "Create group", exact: true }).click();
+    let dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Group name", { exact: true })).toBeFocused();
+    await dialog.getByLabel("Group name", { exact: true }).fill("Created team");
+    await dialog.getByRole("button", { name: "Create group", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "Created team", exact: true }).click();
+    await page.getByRole("button", { name: "Rename group", exact: true }).click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Group name", { exact: true }).fill("Renamed team");
+    await dialog.getByRole("button", { name: "Rename group", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Renamed team", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Add members", exact: true }).click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByLabel("candidate-1", { exact: true }).check();
+    await dialog.getByRole("button", { name: "Add members", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "Group history", exact: true }).click();
+    await expect(page.getByText("admin-audit", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Group history", exact: true }).getByText("Rename group", { exact: true })).toBeVisible();
+    await expect(page.getByText("Group name: Original team → Renamed team", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Remove member", exact: true }).click();
+    dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Confirm this destructive change. It cannot be undone.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Remove member", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Remove member", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Delete group", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete group", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Renamed team", exact: true })).toHaveCount(0);
+    expect(state.writes.map((write) => write.method)).toEqual(["POST", "PUT", "POST", "DELETE", "DELETE"]);
+    expect(state.writes[0].body).toEqual({ display_name: "Created team" });
+    expect(state.writes[2].body).toEqual({ expected_revision: 3, user_uids: ["candidate-1"] });
+    expect(state.writes[3].body).toEqual({ expected_revision: 4, user_uids: ["candidate-1"] });
+    expect(state.writes[4].body).toEqual({ expected_revision: 5 });
+});
+
+for (const status of [400, 403, 409, 500]) {
+    test(`management ${status} preserves input and never replays automatically`, async ({ page }) => {
+        const state = await setupManagement(page);
+        await openLocal(page);
+        state.fail(status);
+        await page.getByRole("button", { name: "Rename group", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await dialog.getByLabel("Group name", { exact: true }).fill("Useful draft");
+        await dialog.getByRole("button", { name: "Rename group", exact: true }).click();
+        await expect(dialog.getByRole("alert")).toBeVisible();
+        await expect(dialog.getByLabel("Group name", { exact: true })).toHaveValue("Useful draft");
+        expect(state.writes).toHaveLength(1);
+        if (status === 409) {
+            await expect(dialog.getByText("Local team · Revision: 2", { exact: true })).toBeVisible();
+            await dialog.getByRole("button", { name: "Rename group", exact: true }).click();
+            await expect(dialog).toHaveCount(0);
+            expect(state.writes[1].body).toEqual({ display_name: "Useful draft", expected_revision: 2 });
+        }
+    });
+}
+
+for (const source of ["scim", "legacy_unresolved"]) {
+    test(`permissive abilities cannot make ${source} writable`, async ({ page }) => {
+        const state = await setupManagement(page, "manage", source);
+        await page.getByRole("button", { name: "Local team", exact: true }).click();
+        await expect(page.getByRole("region", { name: "Members: Local team", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Rename group", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Add members", exact: true })).toHaveCount(0);
+        expect(state.writes).toEqual([]);
+    });
+}
+
+test("management authority alone cannot render or fetch directory", async ({ page }) => {
+    const state = await setupManagement(page, "manageonly");
+    await expect(page.getByRole("alert")).toHaveText("Directory access denied");
+    expect(state.reads).toEqual([]);
+});
+
+for (const next of ["Switch account", "Revoke permissions", "selection"]) {
+    test(`pending mutation cannot repopulate after ${next}`, async ({ page }) => {
+        const state = await setupManagement(page);
+        await openLocal(page);
+        state.delay();
+        await page.getByRole("button", { name: "Rename group", exact: true }).click();
+        await page.getByRole("dialog").getByLabel("Group name", { exact: true }).fill("Late response");
+        await page.getByRole("dialog").getByRole("button", { name: "Rename group", exact: true }).click();
+        await expect.poll(() => state.writes.length).toBe(1);
+        await expect(page.getByRole("dialog").getByRole("button", { name: "Saving group change…", exact: true })).toBeDisabled();
+        // A modal traps user focus; account/permission changes arrive independently in production.
+        if (next === "selection")
+            await page.getByLabel("Search groups", { exact: true }).evaluate((input: HTMLInputElement) => {
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+                setter.call(input, "other");
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+            });
+        else await page.getByRole("button", { name: next, exact: true, includeHidden: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        state.release();
+        await expect(page.getByRole("button", { name: "Late response", exact: true })).toHaveCount(0);
+    });
+}
+
+test("narrow management dialog keeps native focus and fits viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupManagement(page);
+    await page.getByRole("button", { name: "Create group", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Group name", { exact: true })).toBeFocused();
+    await expect(dialog.locator("..")).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: "/private/tmp/group-management-dialog-mobile.png", fullPage: true });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create group", exact: true })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: "/private/tmp/group-management-mobile.png", fullPage: true });
+});

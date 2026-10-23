@@ -13,6 +13,7 @@ class ScimGroup(BaseDbModel, table=True):
         ),
         CheckConstraint("source <> 'local' OR external_id IS NULL", name="ck_scim_group_local_identity"),
     )
+    revision: int = Field(default=1, nullable=False, sa_column_kwargs={"server_default": "1"})
     source: str = Field(default="legacy-unresolved", nullable=False, unique_groups=("authority_external_id",))
     issuer: str = Field(default="", nullable=False, unique_groups=("authority_external_id",))
     external_id: str | None = Field(

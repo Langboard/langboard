@@ -32,6 +32,7 @@ case "$profile" in
       src/api/tests/scim/test_group_provenance.py \
       src/api/tests/identity/test_group_directory.py \
       src/api/tests/identity/test_group_directory_http.py \
+      src/api/tests/identity/test_group_directory_management.py \
       src/api/tests/identity/test_organization_project_authority.py \
       src/api/tests/identity/test_instance_tenant_cutover.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
@@ -127,6 +128,7 @@ case "$profile" in
       src/api/tests/scim/test_group_provenance.py \
       src/api/tests/identity/test_group_directory.py \
       src/api/tests/identity/test_group_directory_http.py \
+      src/api/tests/identity/test_group_directory_management.py \
       src/api/tests/identity/test_organization_project_authority.py \
       src/api/tests/identity/test_instance_tenant_cutover.py \
       src/api/tests/project_labels/test_title_label_integration.py \

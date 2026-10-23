@@ -14,15 +14,19 @@ import "@/assets/styles/main.css";
 
 const mode = new URLSearchParams(location.search).get("mode") || "group";
 const actions =
-    mode === "group" || mode === "nonadmin"
-        ? [SettingRole.EAction.GroupRead]
-        : mode === "user"
-          ? [SettingRole.EAction.UserRead]
-          : mode === "create"
-            ? [SettingRole.EAction.UserCreate]
-            : mode === "both"
-              ? [SettingRole.EAction.UserRead, SettingRole.EAction.GroupRead]
-              : [];
+    mode === "manage"
+        ? [SettingRole.EAction.GroupRead, SettingRole.EAction.GroupManage]
+        : mode === "manageonly"
+          ? [SettingRole.EAction.GroupManage]
+          : mode === "group" || mode === "nonadmin"
+            ? [SettingRole.EAction.GroupRead]
+            : mode === "user"
+              ? [SettingRole.EAction.UserRead]
+              : mode === "create"
+                ? [SettingRole.EAction.UserCreate]
+                : mode === "both"
+                  ? [SettingRole.EAction.UserRead, SettingRole.EAction.GroupRead]
+                  : [];
 const currentUser = AuthUser.Model.fromOne({
     uid: "fixture-admin",
     type: "user",

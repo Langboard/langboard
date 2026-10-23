@@ -132,6 +132,17 @@ def request_for(db):
     }
 
 
+def test_obsolete_installed_revision_refuses_current_cutover(database):
+    # A subsequent directory migration must not leave maintenance pinned to f025.
+    with database.begin() as db:
+        db.execute(text("UPDATE alembic_version SET version_num = 'f0254a74d298'"))
+    with maintenance(database) as db:
+        before = business_rows(db)
+        with pytest.raises(ValueError, match="current migration head"):
+            snapshot(db)
+        assert business_rows(db) == before
+
+
 @pytest.mark.parametrize("bootstrap", [True, False])
 def test_exact_no_loss_apply_rollback(database, bootstrap):
     if not bootstrap:

@@ -11,6 +11,7 @@ class SettingRoleAction(Enum):
 
     # Global Group Directory
     GroupRead = "group_read"
+    GroupManage = "group_manage"
 
     # Bot Management
     BotRead = "bot_read"

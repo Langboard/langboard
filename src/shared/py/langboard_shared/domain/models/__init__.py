@@ -77,6 +77,7 @@ from .GitHubSignalDelivery import GitHubSignalDelivery
 from .GlobalCardRelationshipType import GlobalCardRelationshipType
 from .GlobalLabel import GlobalLabel
 from .GraphApprovalRequest import GraphApprovalRequest
+from .GroupDirectoryAudit import GroupDirectoryAudit
 from .InternalBot import InternalBot
 from .InternalBotRun import InternalBotRun
 from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
@@ -276,6 +277,7 @@ __all__ = [
     'SecretReference',
     'SecretReferenceAudit',
     'SettingRole',
+    'GroupDirectoryAudit',
     'ScimGroup',
     'ScimGroupMember',
     'User',
