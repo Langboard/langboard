@@ -284,8 +284,9 @@ def get_card_context(
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     _, card, _ = records
 
+    adapter = NativeCardWorkspaceAdapter(user_or_bot, service, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
     context = get_card_bundle(
-        NativeCardWorkspaceAdapter(user_or_bot, service, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)),
+        adapter,
         project_uid,
         card_uid,
         CommentPage(),
@@ -300,7 +301,7 @@ def get_card_context(
         ],
     )
     payload = context.model_dump(mode="json")
-    fence = current_execution(card.id)
+    fence = current_execution(card.id, include_description=True)
     if fence is None or payload.get("card") is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     revision, is_ready, generation = fence.revision, fence.is_ready, fence.generation
@@ -309,7 +310,18 @@ def get_card_context(
         same_revision = datetime.fromisoformat(core_revision.replace("Z", "+00:00")) == revision
     except (AttributeError, ValueError):
         same_revision = False
-    if not same_revision:
+    # READ COMMITTED across independent section reads is insufficient: a label
+    # rename need not touch Card.updated_at. Accept task semantics only when
+    # they agree with the same primary statement that reads readiness/generation.
+    observed = adapter.task_content
+    same_content = observed is not None and observed == {
+        "title": fence.title,
+        "description": fence.description,
+        "labels": sorted(fence.labels),
+        "assignee_ids": sorted(fence.assignee_ids),
+    }
+    linked = getattr(card, "is_linked_resource", False)
+    if not same_revision or (linked and is_ready) or (not linked and not same_content):
         raise ApiException.Conflict_409()
     payload["card"]["execution"] = {"is_ready": is_ready, "generation": generation}
     payload["card"]["execution_receipts"] = receipt_history(card.id)

@@ -67,6 +67,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         self._channel = channel
         self._actor = actor
         self._service = service
+        self.task_content: dict[str, Any] | None = None
 
     def get_card_bundle_source(
         self,
@@ -74,6 +75,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         card_uid: str,
         requested_sections: frozenset[str],
     ) -> CardBundleSource | None:
+        self.task_content = None
         # The visibility owner reads current primary rows and validates ancestry;
         # preliminary repository reads add latency and may use stale replicas.
         resolved = self._service.card.resolve_readable_card(project_uid, card_uid, self._actor, self._channel)
@@ -148,6 +150,17 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             )
         else:
             details["labels"] = []
+        if "people" in requested_sections and "classification.labels" in requested_sections:
+            from langboard_shared.helpers import InfraHelper
+
+            # Keep complete semantics before the public bundle paginates them.
+            # The HTTP context compares these against one primary SQL snapshot.
+            self.task_content = {
+                "title": details.get("title"),
+                "description": details.get("description") or "",
+                "labels": sorted(label["name"] for label in details["labels"]),
+                "assignee_ids": sorted(int(InfraHelper.convert_id(uid)) for uid in details["member_uids"]),
+            }
         if "classification.relationships" in requested_sections:
             details["relationships"] = self._bounded_source(
                 self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT, context=visibility_context),
