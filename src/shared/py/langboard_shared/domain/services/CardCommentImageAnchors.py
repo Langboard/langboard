@@ -103,7 +103,10 @@ def create_image_comment(
         if DbEngine.get_main_engine().dialect.name == "sqlite":
             db.exec(update(Card).where(Card.id == card_id).values(id=Card.id))
         actor = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id).with_for_update()).first()
-        project = db.exec(SqlBuilder.select.table(Project).where(Project.id == project_id).with_for_update()).first()
+        # Keep project policy stable while allowing a concurrent card edit's FK KEY SHARE.
+        project = db.exec(
+            SqlBuilder.select.table(Project).where(Project.id == project_id).with_for_update(key_share=True)
+        ).first()
         card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card_id).with_for_update()).first()
         if actor is None or project is None or card is None or card.project_id != project.id or card.is_linked_resource:
             return None
