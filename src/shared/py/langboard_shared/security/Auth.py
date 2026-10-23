@@ -28,7 +28,8 @@ class Auth:
             statement = statement.where(*where)
         statement = statement.limit(1)
 
-        with DbSession.use(readonly=True) as db:
+        # Authentication must observe revocation on the primary, not replica lag.
+        with DbSession.use(readonly=False) as db:
             return db.exec(statement).first()
 
     @overload
@@ -84,34 +85,19 @@ class Auth:
     def get_user_by_id(user_id: int) -> User | InvalidTokenError | None:
         """Gets the user from the given ID.
 
-        If the user is cached, it will return the cached user.
-
-        Otherwise, it will get the user from the database.
+        Recheck current primary account state; cached profiles cannot authorize.
 
         :param user_id: The user ID to get the user from.
 
         :return User: The user if the user exists.
         :return None: If the user does not exist.
         """
-        cache_key = f"auth-user-{user_id}"
-        try:
-            cached_user = Cache.get(cache_key, User.model_validate)
-            if cached_user:
-                return cached_user
-        except Exception:
-            pass
-
         try:
             user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
-            if not user:
+            if not user or user.activated_at is None or user.deleted_at is not None:
                 return InvalidTokenError("Invalid token")
         except Exception:
             return None
-
-        try:
-            Cache.set(cache_key, user, 60 * 5)
-        except Exception:
-            pass
 
         return user
 
@@ -152,7 +138,7 @@ class Auth:
 
     @staticmethod
     def reset_user(user: User) -> None:
-        """Resets the user cache.
+        """Invalidates the legacy user authentication cache.
 
         :param user: The user to reset.
         """
@@ -161,8 +147,6 @@ class Auth:
 
         cache_key = f"auth-user-{user.id}"
         Cache.delete(cache_key)
-
-        Cache.set(cache_key, user, 60 * 5)
 
     @staticmethod
     def validate(queries_headers: dict[Any, Any] | Headers) -> User | Literal[401, 422]:
@@ -251,8 +235,8 @@ class Auth:
             return status.HTTP_401_UNAUTHORIZED
 
         try:
-            user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
-            if not user:
+            user = Auth.get_user_by_id(user_id)
+            if not isinstance(user, User):
                 return status.HTTP_401_UNAUTHORIZED
         except Exception:
             return status.HTTP_401_UNAUTHORIZED
@@ -276,7 +260,7 @@ class Auth:
         key_reference, separator, actual_key = key_material[3:].partition(".")
 
         try:
-            with DbSession.use(readonly=True) as db:
+            with DbSession.use(readonly=False) as db:
                 if separator:
                     key_id = SnowflakeID.from_short_code(key_reference)
                     result = db.exec(
