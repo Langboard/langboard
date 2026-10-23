@@ -74,4 +74,4 @@ jobs:
         env:
           PYTHONPATH: src/api:src/shared/py:src/graph
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q src/api/tests/model_providers/test_avatar_application.py src/api/tests/model_providers/test_compaction_semantic_index.py src/api/tests/card_workspace/test_document_cleanup_outbox.py src/graph/tests/test_avatar_summary_draft.py
+        run: uv run --no-sync pytest -q src/api/tests/model_providers/test_avatar_application.py src/api/tests/model_providers/test_compaction_semantic_index.py src/api/tests/model_providers/test_image_compaction_evidence.py src/api/tests/card_workspace/test_document_cleanup_outbox.py src/graph/tests/test_avatar_summary_draft.py
