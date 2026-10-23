@@ -1,16 +1,31 @@
 import json
+import os
+from uuid import uuid4
 import pytest
 from langboard.commands.AuditInstanceDirectoryCommand import audit_directory, main
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain import models
-from sqlalchemy import create_engine, select
-from sqlalchemy.exc import OperationalError
+from langboard_shared.Env import Env
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 
-@pytest.fixture
-def directory_database(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'directory.sqlite'}")
+@pytest.fixture(params=["sqlite", "postgresql"])
+def directory_database(tmp_path, request):
+    admin = None
+    if request.param == "postgresql":
+        url = os.getenv("LANGBOARD_TEST_DATABASE_URL") or os.getenv("LANGBOARD_FILE_TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("requires LANGBOARD_TEST_DATABASE_URL")
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        admin = create_engine(url)
+        schema = "directory_audit_" + uuid4().hex
+        with admin.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000"})
+    else:
+        engine = create_engine(f"sqlite:///{tmp_path / 'directory.sqlite'}")
     required = {
         model.__table__
         for model in (
@@ -30,14 +45,22 @@ def directory_database(tmp_path):
             if foreign.column.table not in required:
                 required.add(foreign.column.table)
                 pending.append(foreign.column.table)
-    models.Project.metadata.create_all(engine, tables=list(required))
-    with Session(engine) as db:
-        db.add(
-            models.User(id=1, firstname="Private", lastname="Name", email="private@example.invalid", password="secret")
-        )
-        db.commit()
-    yield engine, required
-    engine.dispose()
+    try:
+        models.Project.metadata.create_all(engine, tables=list(required))
+        with Session(engine) as db:
+            db.add(
+                models.User(
+                    id=1, firstname="Private", lastname="Name", email="private@example.invalid", password="secret"
+                )
+            )
+            db.commit()
+        yield engine, required
+    finally:
+        engine.dispose()
+        if admin is not None:
+            with admin.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            admin.dispose()
 
 
 def snapshot(engine, tables):
@@ -82,10 +105,14 @@ def test_group_provenance_and_personal_address_books_remain_separate(directory_d
     engine, tables = directory_database
     with Session(engine) as db:
         db.add(models.Organization(id=10, name="Private organization", slug="private", owner_user_id=1))
+        db.commit()
         db.add(models.Project(id=30, title="Private board", owner_id=1, organization_id=10))
         db.add(models.ScimGroup(id=40, display_name="Private group", external_id="private-external-id"))
+        db.commit()
         db.add(models.ScimGroupMember(id=50, group_id=40, user_id=1))
-        db.add(models.ScimGroupMember(id=51, group_id=999, user_id=1))
+        if engine.dialect.name == "sqlite":
+            # A legacy broken reference fixture; PostgreSQL keeps its foreign keys enabled.
+            db.add(models.ScimGroupMember(id=51, group_id=999, user_id=1))
         db.add(
             models.UserIdentityLink(
                 id=60,
@@ -96,30 +123,48 @@ def test_group_provenance_and_personal_address_books_remain_separate(directory_d
             )
         )
         db.add(models.UserGroup(id=70, user_id=1, name="Private address book"))
+        db.commit()
         db.add(models.UserGroupAssignedEmail(id=80, group_id=70, email="private-contact@example.invalid"))
         db.commit()
     before = snapshot(engine, tables)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: "https://current-directory.invalid"))
+
+    def audit_with_transaction_checks(connection, issuer):
+        if engine.dialect.name == "postgresql":
+            assert connection.exec_driver_sql("SHOW transaction_read_only").scalar() == "on"
+            assert connection.exec_driver_sql("SHOW transaction_isolation").scalar() == "repeatable read"
+        else:
+            assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 1
+        return audit_directory(connection, issuer)
+
+    monkeypatch.setattr(
+        "langboard.commands.AuditInstanceDirectoryCommand.audit_directory", audit_with_transaction_checks
+    )
     assert main() == 2
     output = capsys.readouterr().out
     report = json.loads(output)
     assert report["counts"]["personal_address_groups"] == 1
     assert report["counts"]["personal_address_entries"] == 1
-    assert report["counts"]["orphan_scim_memberships"] == 1
+    assert report["counts"]["orphan_scim_memberships"] == (1 if engine.dialect.name == "sqlite" else 0)
     assert report["counts"]["unresolved_scim_identity_links"] == 1
     assert "legacy_group_source_and_issuer_require_provenance" in report["blockers"]
-    assert "orphan_scim_memberships" in report["blockers"]
+    assert ("orphan_scim_memberships" in report["blockers"]) == (engine.dialect.name == "sqlite")
     assert "private" not in output.lower()
     assert "secret" not in output
     assert snapshot(engine, tables) == before
     with engine.begin() as connection:
-        assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 0
+        if engine.dialect.name == "sqlite":
+            assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 0
+        else:
+            assert connection.exec_driver_sql("SHOW transaction_read_only").scalar() == "off"
 
 
 def test_single_active_tenant_empty_directory_does_not_authorize_migration(directory_database):
     engine, _ = directory_database
     with Session(engine) as db:
         db.add(models.Organization(id=10, name="Single", slug="single", owner_user_id=1))
+        db.commit()
         db.add(models.Project(id=30, title="Board", owner_id=1, organization_id=10))
         db.commit()
     with engine.connect() as connection:
@@ -130,10 +175,13 @@ def test_single_active_tenant_empty_directory_does_not_authorize_migration(direc
 
 def test_missing_schema_fails_without_a_clean_report_and_restores_connection(directory_database, monkeypatch, capsys):
     engine, _ = directory_database
-    models.Organization.__table__.drop(engine)
+    models.ScimGroupMember.__table__.drop(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
-    with pytest.raises(OperationalError):
+    with pytest.raises(DBAPIError):
         main()
     assert capsys.readouterr().out == ""
     with engine.connect() as connection:
-        assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 0
+        if engine.dialect.name == "sqlite":
+            assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 0
+        else:
+            assert connection.exec_driver_sql("SHOW transaction_read_only").scalar() == "off"

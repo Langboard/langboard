@@ -118,6 +118,7 @@ case "$profile" in
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
       src/api/tests/identity/test_user_owner_postgres.py \
       src/api/tests/scim/test_project_role_projection_database.py \
+      src/api/tests/scim/test_instance_directory_audit.py \
       src/api/tests/project_labels/test_title_label_integration.py \
       src/api/tests/apps/test_user_app_preferences_http.py \
       src/api/tests/apps/test_board_filter_preferences_http.py \
