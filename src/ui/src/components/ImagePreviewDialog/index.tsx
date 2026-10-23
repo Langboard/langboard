@@ -8,7 +8,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Input from "@/components/base/Input";
 import Label from "@/components/base/Label";
 import CachedImage from "@/components/CachedImage";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mimeTypes from "react-native-mime-types";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useTranslation } from "react-i18next";
@@ -30,6 +30,10 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+    const annotationGestureActive = useRef(false);
+    const onAnnotationGestureChange = useCallback((active: boolean) => {
+        annotationGestureActive.current = active;
+    }, []);
     const panStart = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
     const [image, setImage] = useState<{ element: HTMLImageElement; url: string | undefined } | null>(null);
     const native = useNativeImageComments();
@@ -42,6 +46,7 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
         setPan({ x: 0, y: 0 });
     }, [currentFileUrl]);
     const updateZoom = (type: "in" | "out") => {
+        if (annotationGestureActive.current) return;
         setZoom((prev) => {
             if (type === "in") {
                 return Math.min(prev + 0.1, 1.5);
@@ -184,6 +189,7 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
                                             key={`${currentFileUrl}-${annotations.source.revision}`}
                                             context={annotations}
                                             image={image.element}
+                                            onGestureChange={onAnnotationGestureChange}
                                         />
                                     )}
                             </div>

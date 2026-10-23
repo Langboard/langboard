@@ -2,7 +2,7 @@ import { cn } from "@/core/utils/ComponentUtils";
 import HoverCard from "@/components/base/HoverCard";
 import Button from "@/components/base/Button";
 import type { ICardCommentImageAnchor } from "@/core/models/types/card-comment-anchor.type";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface ImageAnnotationContext {
@@ -14,11 +14,20 @@ export interface ImageAnnotationContext {
     onEditComment?: (uid: string) => void;
 }
 
-export default function ImageAnnotations({ context, image }: { context: ImageAnnotationContext; image: HTMLImageElement }) {
+export default function ImageAnnotations({
+    context,
+    image,
+    onGestureChange,
+}: {
+    context: ImageAnnotationContext;
+    image: HTMLImageElement;
+    onGestureChange: (active: boolean) => void;
+}) {
     const [t] = useTranslation();
     const [mode, setMode] = useState<"point" | "rectangle" | null>(null);
     const [pending, setPending] = useState<ICardCommentImageAnchor | null>(null);
     const start = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+    useEffect(() => () => onGestureChange(false), [onGestureChange]);
     const coordinates = (x: number, y: number) => {
         const rect = image.getBoundingClientRect();
         return {
@@ -61,6 +70,7 @@ export default function ImageAnnotations({ context, image }: { context: ImageAnn
                     e.stopPropagation();
                     e.currentTarget.setPointerCapture(e.pointerId);
                     start.current = { ...coordinates(e.clientX, e.clientY), pointerId: e.pointerId };
+                    onGestureChange(true);
                     select(start.current);
                 }}
                 onPointerMove={(e) => {
@@ -70,11 +80,13 @@ export default function ImageAnnotations({ context, image }: { context: ImageAnn
                     if (start.current?.pointerId !== e.pointerId) return;
                     select(start.current, mode === "rectangle" ? coordinates(e.clientX, e.clientY) : start.current);
                     start.current = null;
+                    onGestureChange(false);
                     e.currentTarget.releasePointerCapture(e.pointerId);
                 }}
                 onPointerCancel={(e) => {
                     if (start.current?.pointerId !== e.pointerId) return;
                     start.current = null;
+                    onGestureChange(false);
                     setPending(null);
                 }}
                 onKeyDown={(e) => {
