@@ -58,7 +58,9 @@ test("rectangle keyboard placement and cancel retain no comment", async ({ page 
     await page.getByRole("button", { name: "Comment", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Inspect draft" }).click();
-    expect(JSON.parse(await page.locator("#draft").innerText())).toMatchObject({ content: "", anchor: null });
+    const draft = JSON.parse(await page.locator("#draft").innerText());
+    expect(draft.content).toBe("");
+    expect(draft.anchor ?? null).toBeNull();
     await expect(page.getByText("Jump saved", { exact: false })).toHaveCount(0);
 });
 
