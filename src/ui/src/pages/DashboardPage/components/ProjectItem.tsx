@@ -1,3 +1,4 @@
+import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
@@ -60,7 +61,6 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
     const [isUpdating, setIsUpdating] = useState(false);
     const title = project.useField("title");
     const projectType = project.useField("project_type");
-    const boardHasUnread = project.useField("board_has_unread_change") ?? false;
 
     const toBoard = () => {
         if (!project) {
@@ -85,13 +85,7 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
             <ModelRegistry.Project.Provider model={project}>
                 <Card.Header className="relative block pt-5">
                     <ProjectAvatar project={project} />
-                    {boardHasUnread ? (
-                        <span
-                            aria-label={t("board.Unread changes")}
-                            title={t("board.Unread changes")}
-                            className="absolute right-1.5 top-1.5 z-10 size-2 rounded-full bg-primary"
-                        />
-                    ) : null}
+                    <ProjectUnreadIndicator project={project} className="right-12 top-1.5" />
                     <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-gray-500">
                         {projectTypeLabel(t, projectType)}
                     </Card.Title>

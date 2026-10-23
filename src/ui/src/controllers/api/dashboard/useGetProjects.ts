@@ -22,6 +22,7 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
 
     const getProjects = async ({ signal }: { signal: AbortSignal }): Promise<IGetProjectsResponse | undefined> => {
+        const identityVersion = useAuthStore.getState().getIdentityVersion();
         try {
             const res = await api.get(Routing.API.DASHBOARD.PROJECTS, {
                 signal,
@@ -31,7 +32,11 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
             });
 
             signal.throwIfAborted();
-            if (!actorUID || actorUID !== useAuthStore.getState().currentUser?.uid) {
+            if (
+                !actorUID ||
+                actorUID !== useAuthStore.getState().currentUser?.uid ||
+                identityVersion !== useAuthStore.getState().getIdentityVersion()
+            ) {
                 throw new Error("Dashboard request no longer belongs to the current actor");
             }
             const projects = Project.Model.fromArray(res.data.projects, true);

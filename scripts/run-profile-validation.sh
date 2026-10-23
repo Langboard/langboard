@@ -75,6 +75,7 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingCache_test.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
       src/api/tests/card_workspace/test_unread_card_summaries.py \
+      src/api/tests/card_workspace/test_dashboard_unread_counts.py \
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \
@@ -140,6 +141,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_card_activity_visibility.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
       src/api/tests/card_workspace/test_unread_card_summaries.py \
+      src/api/tests/card_workspace/test_dashboard_unread_counts.py \
       src/api/tests/card_workspace/test_work_state_column_projection.py \
       src/api/tests/card_workspace/test_document_cleanup_broker.py \
       src/api/tests/dashboard/test_related_activity_projection.py \

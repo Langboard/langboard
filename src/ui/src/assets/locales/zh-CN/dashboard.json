@@ -208,5 +208,6 @@
   "Work groups": "工作分组",
   "All work": "全部工作",
   "Work shown": "共 {{total}} 项工作，已显示 {{shown}} 项",
-  "Load more work": "加载更多工作"
+  "Load more work": "加载更多工作",
+  "Unread board cards": "{{count}} 张看板未读卡片"
 }

@@ -1,3 +1,4 @@
+import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
@@ -30,7 +31,6 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
     const [isUpdating, setIsUpdating] = useState(false);
     const title = project.useField("title");
     const projectType = project.useField("project_type");
-    const boardHasUnread = project.useField("board_has_unread_change") ?? false;
     const activityAt = project.last_activity_at ?? project.created_at;
 
     return (
@@ -63,13 +63,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 className={cn("relative shrink-0 rounded-lg bg-secondary text-secondary-foreground", dense ? "size-7" : "size-9")}
                             >
                                 <ProjectAvatar project={project} className="size-full rounded-lg object-cover" />
-                                {boardHasUnread ? (
-                                    <span
-                                        aria-label={t("board.Unread changes")}
-                                        title={t("board.Unread changes")}
-                                        className="absolute -right-1 -top-1 z-10 size-2 rounded-full bg-primary"
-                                    />
-                                ) : null}
+                                <ProjectUnreadIndicator project={project} className="-right-1 -top-1" />
                             </Flex>
                             <Box className="min-w-0 flex-1">
                                 <Box className="truncate text-sm font-semibold" title={title}>

@@ -16,15 +16,18 @@ const clients = new WeakMap<
         refreshing?: boolean;
         dirty?: boolean;
         offOpen: () => void;
+        offBoardRead: () => void;
     }
 >();
 
 export function acquireProjectWorkload(client: QueryClient, uids: string[], socket: SocketLease): () => void {
     let state = clients.get(client);
+    const firstOwner = !state;
     if (!state) {
         const projects = new Map<string, { references: number; off: () => void }>();
         state = {
             projects,
+            offBoardRead: () => {},
             offOpen: socket.listenOpen(() => {
                 // Close the reconnect gap only after the server confirms topic ownership.
                 if (projects.size) socket.subscribe([...projects.keys()], () => refresh());
@@ -56,6 +59,21 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
             }
         }, 250);
     };
+    if (firstOwner) {
+        // Native board snapshots advance board_seen_seq without a dashboard event.
+        // Fence preceding snapshots once for all mounted dashboard consumers.
+        owned.offBoardRead = client.getQueryCache().subscribe((event) => {
+            if (
+                event.type !== "updated" ||
+                event.action.type !== "success" ||
+                typeof event.query.queryKey[0] !== "string" ||
+                !event.query.queryKey[0].startsWith("get-cards-") ||
+                typeof event.query.queryKey[2] !== "string"
+            )
+                return;
+            void client.cancelQueries({ queryKey: ["get-dashboard-projects", event.query.queryKey[2]] }).then(refresh);
+        });
+    }
     const newUIDs: string[] = [];
     for (const uid of new Set(uids)) {
         const current = owned.projects.get(uid);
@@ -79,6 +97,7 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
         if (!owned.projects.size) {
             if (owned.timer) clearTimeout(owned.timer);
             owned.offOpen();
+            owned.offBoardRead();
             clients.delete(client);
         }
     };

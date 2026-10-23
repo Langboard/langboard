@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 export default defineConfig({
     testDir: "./src",
-    testMatch: ["**/change-counts.spec.ts", "**/changes-native-query.spec.ts", "**/useMarkCardSeen.spec.ts", "**/useGetUnreadCardSummaries.spec.ts"],
+    testMatch: ["**/change-counts.spec.ts", "**/changes-native-query.spec.ts", "**/useMarkCardSeen.spec.ts", "**/useGetUnreadCardSummaries.spec.ts", "**/dashboard-unread.spec.ts"],
     outputDir: "../../.verification/card-change-count-ui/test-results",
     retries: 0,
     workers: 1,

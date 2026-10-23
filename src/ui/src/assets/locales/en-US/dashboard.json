@@ -208,5 +208,6 @@
   "Work groups": "Work groups",
   "All work": "All work",
   "Work shown": "{{shown}} of {{total}} work items",
-  "Load more work": "Load more work"
+  "Load more work": "Load more work",
+  "Unread board cards": "{{count}} unread board cards"
 }
