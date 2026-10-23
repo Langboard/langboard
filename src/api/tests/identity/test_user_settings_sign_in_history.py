@@ -1,7 +1,9 @@
 """Settings list uses successful login history, never failed attempts or activity."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
+from langboard.routes.settings.UserSettingsApi import get_users_page_in_settings
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
@@ -60,5 +62,31 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
         assert by_email[users[2].email]["last_signed_in_at"] is None
         assert by_email[users[2].email]["account_status"] == "active"
         assert len(statements) == 1, "The settings list must not query login history per user"
+        assert service.count_in_settings() == 3
+        assert service.count_in_settings(account_status="active") == 2
+        assert service.count_in_settings(account_status="inactive") == 1
+        pages = [service.get_api_list_in_settings(offset=index, limit=1) for index in range(4)]
+        assert [page[0]["uid"] for page in pages[:3]] == [row["uid"] for row in result]
+        assert pages[3] == []
+        assert service.get_api_list_in_settings(query=users[0].get_uid())[0]["email"] == users[0].email
+        assert (
+            service.get_api_list_in_settings(query=" FIXTURE ", account_status="inactive")[0]["email"] == users[1].email
+        )
+        assert service.get_api_list_in_settings(query="LOGIN-0@EXAMPLE.INVALID")[0]["email"] == users[0].email
+        assert service.get_api_list_in_settings(query="%") == []
+        assert service.count_in_settings(query="_") == 0
+        assert service.get_api_list_in_settings(query=users[3].get_uid()) == []
+        statements.clear()
+        assert service.get_api_list_in_settings(limit=1)[0]["uid"] == result[0]["uid"]
+        assert len(statements) == 1, "Pagination must not add per-user queries"
+        response = get_users_page_in_settings(
+            page=2, limit=1, query="Fixture", account_status="all", service=SimpleNamespace(user=service)
+        )
+        payload = json.loads(response.body)
+        assert payload["page"] == 2 and payload["limit"] == 1
+        assert payload["total_records"] == 3
+        assert [row["uid"] for row in payload["records"]] == [result[1]["uid"]]
+        assert payload["records"][0]["account_status"] == result[1]["account_status"]
+
     finally:
         engine.dispose()

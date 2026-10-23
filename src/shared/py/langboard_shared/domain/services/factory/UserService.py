@@ -40,8 +40,12 @@ class UserService(BaseDomainService):
     def create_cache_name(self, cache_type: str, email: str) -> str:
         return f"{cache_type}:{email}"
 
-    def get_api_list_in_settings(self) -> list[dict[str, Any]]:
-        users = self.repo.user.get_all_with_profile_in_settings()
+    def get_api_list_in_settings(
+        self, *, offset: int = 0, limit: int | None = None, query: str = "", account_status: str = "all"
+    ) -> list[dict[str, Any]]:
+        users = self.repo.user.get_all_with_profile_in_settings(
+            offset=offset, limit=limit, query=query, account_status=account_status
+        )
         if not users:
             return []
 
@@ -83,6 +87,9 @@ class UserService(BaseDomainService):
             api_list.append(api_user)
 
         return api_list
+
+    def count_in_settings(self, query: str = "", account_status: str = "all") -> int:
+        return self.repo.user.count_in_settings(query=query, account_status=account_status)
 
     def count_not_deleted(self) -> int:
         return self.repo.user.count_not_deleted()

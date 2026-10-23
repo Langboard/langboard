@@ -1,5 +1,6 @@
+from typing import Annotated, Literal
 from urllib.parse import urlparse
-from fastapi import status
+from fastapi import Query, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -137,6 +138,45 @@ def get_users_in_settings(service: DomainService = DomainService.scope()) -> Jso
         content={
             **PaginatedList(records=users).model_dump(),
             "full_access_emails": list(full_access_emails),
+        }
+    )
+
+
+@AppRouter.api.get(
+    "/settings/users/page",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema()
+    .suc(
+        {
+            "records": [dict],
+            "total_records": "integer",
+            "page": "integer",
+            "limit": "integer",
+            "full_access_emails": [str],
+        }
+    )
+    .auth()
+    .forbidden()
+    .get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_users_page_in_settings(
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 15,
+    query: Annotated[str, Query(max_length=200)] = "",
+    account_status: Literal["all", "active", "inactive"] = "all",
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    return JsonResponse(
+        content={
+            "records": service.user.get_api_list_in_settings(
+                offset=(page - 1) * limit, limit=limit, query=query, account_status=account_status
+            ),
+            "total_records": service.user.count_in_settings(query=query, account_status=account_status),
+            "page": page,
+            "limit": limit,
+            "full_access_emails": list(Env.FULL_ADMIN_ACCESS_EMAILS),
         }
     )
 

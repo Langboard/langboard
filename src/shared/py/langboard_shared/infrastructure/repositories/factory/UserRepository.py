@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from sqlalchemy import and_, func, or_, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
-from ....core.types import SafeDateTime
+from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TUserParam
 from ....domain.models import (
     IdentityProvider,
@@ -42,14 +42,63 @@ class UserRepository(BaseRepository[User]):
                 .values({User.column("preferred_lang"): lang, User.column("updated_at"): SafeDateTime.now()})
             )
 
-    def get_all_with_profile_in_settings(self):
+    @staticmethod
+    def _settings_filters(query: str = "", account_status: str = "all"):
+        filters = [User.column("deleted_at").is_(None)]
+        if account_status == "active":
+            filters.append(User.column("activated_at").is_not(None))
+        elif account_status == "inactive":
+            filters.append(User.column("activated_at").is_(None))
+        elif account_status != "all":
+            raise ValueError("Invalid account status")
+        query = query.strip()
+        if query:
+            matches = [
+                func.lower(User.column(field)).contains(query.lower(), autoescape=True)
+                for field in ("email", "firstname", "lastname", "username")
+            ]
+            try:
+                user_id = SnowflakeID.from_short_code(query)
+            except ValueError:
+                user_id = 0
+            if user_id:
+                matches.append(User.column("id") == user_id)
+            filters.append(or_(*matches))
+        return filters
+
+    def count_in_settings(self, query: str = "", account_status: str = "all") -> int:
+        with DbSession.use(readonly=True) as db:
+            return (
+                db.exec(
+                    SqlBuilder.select.count(User, User.column("id")).where(
+                        *self._settings_filters(query, account_status)
+                    )
+                ).first()
+                or 0
+            )
+
+    def get_all_with_profile_in_settings(
+        self, *, offset: int = 0, limit: int | None = None, query: str = "", account_status: str = "all"
+    ):
+        filters = self._settings_filters(query, account_status)
+        page_ids = (
+            select(User.column("id"))
+            .where(*filters)
+            .order_by(User.column("created_at").desc(), User.column("id").desc())
+        )
+        if limit is not None:
+            page_ids = page_ids.offset(offset).limit(limit)
+
         # Aggregate once for the list; failed attempts never advance last login.
         last_sign_ins = (
             select(
                 UserSignInHistory.column("user_id"),
                 func.max(UserSignInHistory.column("signed_in_at")).label("last_signed_in_at"),
             )
-            .where(UserSignInHistory.column("is_success").is_(True))
+            .where(
+                UserSignInHistory.column("is_success").is_(True),
+                UserSignInHistory.column("user_id").in_(page_ids),
+            )
             .group_by(UserSignInHistory.column("user_id"))
             .subquery()
         )
@@ -57,7 +106,7 @@ class UserRepository(BaseRepository[User]):
             SqlBuilder.select.tables(User, UserProfile, last_sign_ins.c.last_signed_in_at)
             .outerjoin(UserProfile, User.column("id") == UserProfile.column("user_id"))
             .outerjoin(last_sign_ins, User.column("id") == last_sign_ins.c.user_id)
-            .where(User.column("deleted_at") == None)  # noqa
+            .where(User.column("id").in_(page_ids))
             .order_by(User.column("created_at").desc(), User.column("id").desc())
         )
 
