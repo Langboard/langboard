@@ -71,6 +71,8 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \
       src/api/tests/card_workspace/test_document_cleanup_outbox.py \
       src/api/tests/card_workspace/test_document_scope_cleanup.py \
+      src/api/tests/card_workspace/test_document_embedding_cache.py \
+      src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingCache_test.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
       src/api/tests/card_workspace/test_unread_card_summaries.py \
       src/api/tests/card_workspace/test_work_state_column_projection.py \
@@ -129,6 +131,8 @@ case "$profile" in
       src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \
       src/api/tests/card_workspace/test_document_cleanup_outbox.py \
       src/api/tests/card_workspace/test_document_scope_cleanup.py \
+      src/api/tests/card_workspace/test_document_embedding_cache.py \
+      src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingCache_test.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_graph_creation_authority.py \
       src/api/tests/card_visibility/test_card_timeline.py \

@@ -1,17 +1,19 @@
 """Retain successful inference through downstream failure without sharing source data."""
 
 import asyncio
+import os
 import time
 from contextlib import closing
 from datetime import timedelta
 from hashlib import sha256
 from json import dumps
 from unittest.mock import Mock
+from uuid import uuid4
 import anyio
 import httpx
 import langchain_openai
 import pytest
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, text, update
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
@@ -24,14 +26,35 @@ from langboard_shared.tasks.docling.DocumentEmbeddingCache import (
 from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
 
 
-@pytest.fixture
-def cache_store(monkeypatch):
-    engine = create_engine("sqlite://")
-    DocumentEmbeddingCache.__table__.create(engine)
-    DocumentEmbeddingCacheReference.__table__.create(engine)
-    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
-    yield
-    engine.dispose()
+@pytest.fixture(params=["sqlite://", "postgresql-test"])
+def cache_store(monkeypatch, request):
+    schema = None
+    admin = None
+    if request.param == "postgresql-test":
+        url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("A disposable PostgreSQL fixture is required")
+        admin = create_engine(url)
+        assert admin.dialect.name == "postgresql"
+        schema = "sdk_retry_" + uuid4().hex
+        with admin.begin() as connection:
+            connection.execute(text(f"CREATE SCHEMA {schema}"))
+        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    else:
+        engine = create_engine("sqlite://")
+    try:
+        DocumentEmbeddingCache.__table__.create(engine)
+        DocumentEmbeddingCacheReference.__table__.create(engine)
+        monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+        yield
+    finally:
+        engine.dispose()
+        if admin is not None:
+            try:
+                with admin.begin() as connection:
+                    connection.execute(text(f"DROP SCHEMA {schema} CASCADE"))
+            finally:
+                admin.dispose()
 
 
 def settings(**changes):
