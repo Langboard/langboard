@@ -246,7 +246,7 @@ class Auth:
     @staticmethod
     def validate_user_by_api_key(
         headers: Headers, client_ip: str | None = None
-    ) -> tuple[User, ApiKeySetting] | Literal[401]:
+    ) -> tuple[User, ApiKeySetting] | Literal[401, 403]:
         """See validate_bot for the client_ip contract (fail-closed on None)."""
         ips = [client_ip] if client_ip else []
         key_material = headers.get(AuthSecurity.API_KEY_HEADER, headers.get(AuthSecurity.API_KEY_HEADER.lower(), None))
@@ -295,14 +295,12 @@ class Auth:
         except Exception:
             return status.HTTP_401_UNAUTHORIZED
 
-        # Check IP whitelist
-        if Env.ENVIRONMENT != "development" and not has_allowed_ips(api_key_setting.ip_whitelist, ips):
-            return status.HTTP_401_UNAUTHORIZED
-
-        # Get user
+        # Verify the current account before reporting an IP authorization denial.
         result = Auth.get_user_by_id(api_key_setting.user_id)
         if not result or isinstance(result, InvalidTokenError):
             return status.HTTP_401_UNAUTHORIZED
+        if Env.ENVIRONMENT != "development" and not has_allowed_ips(api_key_setting.ip_whitelist, ips):
+            return status.HTTP_403_FORBIDDEN
         return result, api_key_setting
 
     @staticmethod

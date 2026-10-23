@@ -93,7 +93,7 @@ class MiddlewareHelper:
                 scope["api_key"] = api_key
                 return user
 
-            return status.HTTP_401_UNAUTHORIZED
+            return validation_result
 
         validation_result = Auth.validate(headers)
         if isinstance(validation_result, User):

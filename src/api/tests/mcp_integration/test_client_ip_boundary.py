@@ -4,6 +4,8 @@ import asyncio
 from contextlib import contextmanager
 from types import SimpleNamespace
 import pytest
+from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard.middlewares.McpAuthMiddleware import McpAuthMiddleware
 from langboard_shared import FastAPIRunner
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.security import AuthSecurity, KeyVault
@@ -14,6 +16,7 @@ from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatform
 from langboard_shared.Env import Env
 from langboard_shared.helpers.MiddlewareHelper import MiddlewareHelper
 from langboard_shared.security import Auth
+from starlette.datastructures import Headers
 
 
 @pytest.mark.parametrize(
@@ -43,6 +46,7 @@ def test_resolver(peer, forwarded, trusted, expected):
         ("198.51.100.20", ["203.0.113.7"], [], True, False),
         ("203.0.113.7", ["203.0.113.7"], [], True, True),
         ("203.0.113.7", ["203.0.113.7"], [], False, False),
+        ("198.51.100.20", ["203.0.113.7"], [], False, False),
         (None, ["203.0.113.7"], [], True, False),
         ("10.0.0.2", ["203.0.113.7"], ["10.0.0.0/24"], True, True),
         ("10.0.0.2", ["203.0.113.7, 10.0.0.3"], ["10.0.0.0/24"], True, True),
@@ -103,7 +107,57 @@ def test_native_credentials_ignore_forged_headers(
         result = MiddlewareHelper.validate_auth(scope)
     assert (result is (user if credential == "api_key" else bot)) is allowed
     if not allowed:
-        assert result == 401
+        expected = 403 if credential == "api_key" and valid else 401
+        assert result == expected
+        assert "auth" not in scope
+        assert "api_key" not in scope
+
+        async def unexpected_app(scope, receive, send):
+            pytest.fail("Rejected credential reached application")
+
+        # Both native HTTP surfaces must preserve the credential boundary status.
+        api = ApiAuthMiddleware(unexpected_app, [])
+        monkeypatch.setattr(api, "should_filter", lambda _: (True, {}))
+        for middleware in (api, McpAuthMiddleware(unexpected_app)):
+            messages = []
+
+            async def send(message):
+                messages.append(message)
+
+            app = _native_config(monkeypatch, middleware).loaded_app if through_runner else middleware
+            asyncio.run(app({**scope, "path": "/mcp", "method": "POST"}, None, send))
+            assert (
+                next(message["status"] for message in messages if message["type"] == "http.response.start") == expected
+            )
+
+
+@pytest.mark.parametrize("peer", ["203.0.113.7", "198.51.100.20"])
+@pytest.mark.parametrize("failure", ["missing", "malformed", "wrong_secret", "unknown_key", "expired", "inactive_user"])
+def test_invalid_api_credentials_remain_unauthorized(monkeypatch, peer, failure):
+    monkeypatch.setattr(type(Env), "ENVIRONMENT", property(lambda _: "production"))
+    monkeypatch.setattr(type(Env), "TRUSTED_PROXY_IPS", property(lambda _: []))
+    user = User.model_construct(id=SnowflakeID(701))
+    key = ApiKeySetting.model_construct(
+        id=SnowflakeID(702), user_id=user.id, value="fixture-ref", ip_whitelist=["203.0.113.7"]
+    )
+
+    @contextmanager
+    def database(**_):
+        yield SimpleNamespace(exec=lambda _: SimpleNamespace(first=lambda: None if failure == "unknown_key" else key))
+
+    monkeypatch.setattr(DbSession, "use", database)
+    monkeypatch.setattr(KeyVault, "get_key", lambda _: "fixture-secret")
+    monkeypatch.setattr(ApiKeySetting, "is_expired", lambda _: failure == "expired")
+    monkeypatch.setattr(Auth, "get_user_by_id", lambda _: None if failure == "inactive_user" else user)
+    material = f"sk-{key.get_uid()}." + ("wrong-secret" if failure == "wrong_secret" else "fixture-secret")
+    if failure == "malformed":
+        material = "invalid-format"
+    headers = Headers({"x-api-key": material}) if failure != "missing" else Headers()
+    assert Auth.validate_user_by_api_key(headers, peer) == 401
+    scope = {"type": "http", "headers": headers.raw, "client": (peer, 1234)}
+    assert MiddlewareHelper.validate_auth(scope, allow_oidc=True) == 401
+    assert "auth" not in scope
+    assert "api_key" not in scope
 
 
 @pytest.mark.parametrize("trusted,expected", [([], "198.51.100.20"), (["198.51.100.20"], "203.0.113.7")])
