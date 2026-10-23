@@ -142,6 +142,8 @@ jobs:
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
         working-directory: src/ui
+      - run: yarn test:card-draft-store
+        working-directory: src/ui
       - run: yarn test:store-snapshots
         working-directory: src/ui
       - run: yarn test:ollama-model-store

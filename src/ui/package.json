@@ -48,6 +48,7 @@
     "test:board-chat-store": "node --experimental-strip-types src/core/stores/BoardChatStore.test.ts",
     "test:socket-runtime": "esbuild src/core/providers/socket/runtime.test.ts src/core/providers/socket/streamErrorCallbacks.test.ts src/core/stores/socket/transport.test.ts --bundle --platform=node --format=cjs --packages=external --loader:.svg=empty --loader:.css=empty --tsconfig=tsconfig.app.json --outdir=test-results/socket-runtime --out-extension:.js=.cjs --entry-names=[name] && node --test test-results/socket-runtime/*.cjs",
     "test:ollama-model-store": "esbuild src/core/stores/OllamaModelStore.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/ollama-model-store.mjs && node --test test-results/ollama-model-store.mjs",
+    "test:card-draft-store": "esbuild src/core/stores/CardDraftStore.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/card-draft-store.mjs && node --test test-results/card-draft-store.mjs",
     "test:store-snapshots": "esbuild src/core/stores/StoreSnapshot.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/store-snapshots.mjs && node --test test-results/store-snapshots.mjs"
   },
   "dependencies": {

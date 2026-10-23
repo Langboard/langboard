@@ -1,3 +1,4 @@
+import useCardDraftStore, { buildDraftScopeKey } from "@/core/stores/CardDraftStore";
 import { flipDraftKey, useCardFlipDraftStore } from "./CardFlipDraftStore";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
@@ -107,7 +108,12 @@ export default function CardFlipTray({
     const cards = useFlippedCards(userUID, projectUID);
     const suspendedDrafts = useCardFlipDraftStore((state) => state.drafts);
     const drafts = useCardCommentDraftStore((state) => state.draftMap);
+    const editDrafts = useCardDraftStore((state) => state.cache);
     const hasDraft = (card: IFlippedCard) =>
+        !!(
+            editDrafts[buildDraftScopeKey({ userUID, projectUID, kind: "card-edit", scopeUID: card.uid })] ??
+            useCardDraftStore.getState().getDraft({ userUID, projectUID, kind: "card-edit", scopeUID: card.uid })
+        ) ||
         !!Object.keys(suspendedDrafts[flipDraftKey(userUID, projectUID, card.uid)] ?? {}).length ||
         !!(
             drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
