@@ -102,3 +102,82 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
 
     finally:
         engine.dispose()
+
+
+def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.middlewares.RoleMiddleware import RoleMiddleware
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.models import ApiKeyRole, McpRole, SettingRole
+    from langboard_shared.Env import Env
+    from sqlalchemy import update
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'settings-http.sqlite'}")
+    for model in (User, UserProfile, UserSignInHistory, SettingRole, ApiKeyRole, McpRole):
+        model.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
+    monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "http-fixture-signing-key-32-bytes-minimum"))
+    with DbSession.atomic() as db:
+        actor = User(
+            firstname="HTTP",
+            lastname="Admin",
+            username="http-admin",
+            email="http@example.invalid",
+            password="fixture-only",
+            activated_at=SafeDateTime.now(),
+            is_admin=True,
+        )
+        db.insert(actor)
+        role = SettingRole(user_id=actor.id, actions=["user_read"])
+        db.insert(role)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    headers = {"Authorization": f"Bearer {access}"}
+    endpoint = "/settings/users/page"
+    try:
+        with TestClient(app) as client:
+            assert client.get(endpoint).status_code == 401
+            assert client.get(endpoint, headers=headers).status_code == 401
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            response = client.get(endpoint, headers=headers, params={"limit": 1, "query": "HTTP"})
+            assert response.status_code == 200, response.text
+            assert response.json()["total_records"] == 1
+            assert response.json()["records"][0]["uid"] == actor.get_uid()
+            for params in (
+                {"page": 0},
+                {"page": 1000001},
+                {"limit": 0},
+                {"limit": 101},
+                {"query": "x" * 201},
+                {"email": "x" * 201},
+                {"firstname": "x" * 201},
+                {"lastname": "x" * 201},
+                {"account_status": "deleted"},
+                {"sort_by": "password"},
+                {"sort_direction": "sideways"},
+                {"exclude_user_uid": "../"},
+            ):
+                invalid = client.get(endpoint, headers=headers, params=params)
+                assert invalid.status_code == 400, (params, invalid.text)
+                assert invalid.json()["code"] == "VA0000"
+            with engine.begin() as db:
+                db.execute(update(SettingRole).where(SettingRole.id == role.id).values(actions=["user_update"]))
+            assert client.get(endpoint, headers=headers).status_code == 403
+            with engine.begin() as db:
+                db.execute(update(SettingRole).where(SettingRole.id == role.id).values(actions=["user_read"]))
+                db.execute(update(User).where(User.id == actor.id).values(is_admin=False))
+            assert client.get(endpoint, headers=headers).status_code == 403
+            with engine.begin() as db:
+                db.execute(update(User).where(User.id == actor.id).values(is_admin=True, activated_at=None))
+            assert client.get(endpoint, headers=headers).status_code == 401
+    finally:
+        engine.dispose()
