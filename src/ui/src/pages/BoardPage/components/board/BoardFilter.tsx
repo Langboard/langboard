@@ -1,3 +1,4 @@
+import BoardWorkSummary from "./BoardWorkSummary";
 import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { metadataDisplay } from "@/core/utils/MetadataDisplay";
@@ -154,6 +155,7 @@ function BoardFilter() {
 
     const content = (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <BoardWorkSummary />
             <Popover.Root
                 onOpenChange={(open) => {
                     setOpen(open);

@@ -149,5 +149,12 @@
   "Cross-board action completed.": "보드 간 작업이 완료되었습니다.",
   "Excluded mappings": "제외된 매핑",
   "Link a read-only mirror, create an independent clone, or move this card.": "읽기 전용 미러를 연결하거나, 독립적인 복제본을 만들거나, 이 카드를 이동합니다.",
-  "Moving will expose this card to new readers. Continue?": "이동하면 새로운 열람자에게 이 카드가 공개됩니다. 계속하시겠습니까?"
+  "Moving will expose this card to new readers. Continue?": "이동하면 새로운 열람자에게 이 카드가 공개됩니다. 계속하시겠습니까?",
+  "Work summary": "작업 요약",
+  "Loaded snapshot": "불러온 카드",
+  "Snapshot unavailable": "카드 수를 집계할 수 없음",
+  "Review": "검토 필요",
+  "Blocked": "차단됨",
+  "Unknown work state": "작업 상태를 알 수 없음",
+  "Snapshot cards missing": "불러오지 못한 카드"
 }

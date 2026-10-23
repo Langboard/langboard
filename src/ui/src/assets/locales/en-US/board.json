@@ -149,5 +149,12 @@
   "Cross-board action completed.": "Cross-board action completed.",
   "Excluded mappings": "Excluded mappings",
   "Link a read-only mirror, create an independent clone, or move this card.": "Link a read-only mirror, create an independent clone, or move this card.",
-  "Moving will expose this card to new readers. Continue?": "Moving will expose this card to new readers. Continue?"
+  "Moving will expose this card to new readers. Continue?": "Moving will expose this card to new readers. Continue?",
+  "Work summary": "Work summary",
+  "Loaded snapshot": "Loaded cards",
+  "Snapshot unavailable": "Card counts unavailable",
+  "Review": "Review",
+  "Blocked": "Blocked",
+  "Unknown work state": "Unknown work state",
+  "Snapshot cards missing": "Cards not loaded"
 }

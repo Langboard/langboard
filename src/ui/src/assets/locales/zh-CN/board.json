@@ -149,5 +149,12 @@
   "Cross-board action completed.": "跨看板操作已完成。",
   "Excluded mappings": "已排除的映射",
   "Link a read-only mirror, create an independent clone, or move this card.": "链接只读镜像、创建独立副本，或移动此卡片。",
-  "Moving will expose this card to new readers. Continue?": "移动后，新的读者将能够查看此卡片。是否继续？"
+  "Moving will expose this card to new readers. Continue?": "移动后，新的读者将能够查看此卡片。是否继续？",
+  "Work summary": "工作摘要",
+  "Loaded snapshot": "已加载卡片",
+  "Snapshot unavailable": "无法统计卡片数量",
+  "Review": "待审核",
+  "Blocked": "已阻塞",
+  "Unknown work state": "工作状态未知",
+  "Snapshot cards missing": "未加载的卡片"
 }

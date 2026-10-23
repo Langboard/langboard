@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
 import { AuthUser, ProjectCard, MetadataModel } from "@/core/models";
 import useAuthStore from "@/core/stores/AuthStore";
-import useGetCards from "./useGetCards";
+import useGetCards, { useBoardCardsSnapshot } from "./useGetCards";
+import { BoardSnapshotSummary } from "@/pages/BoardPage/components/board/BoardWorkSummary";
 import "@/i18n";
 
 const projectUID = "enrichment-fixture";
@@ -20,6 +21,10 @@ let rejectMetadata: () => void = () => {};
 let readyMetadata = false;
 let metadataReads = 0;
 let reportRequest: (url: string) => void = () => {};
+let failBoard = false;
+let omitWorkState = false;
+let holdBoard = false;
+let releaseBoard: () => void = () => {};
 let reportAbort: () => void = () => {};
 api.defaults.adapter = async (config) => {
     reportRequest(config.url!);
@@ -37,13 +42,37 @@ api.defaults.adapter = async (config) => {
             });
         return { ...response, data: { metadata: { card: { note: `loaded-${version}` }, removed: { note: "must not return" } } } };
     }
-    if (deny) throw new AxiosError("Forbidden", "ERR_BAD_REQUEST", config, undefined, { ...response, status: 403, data: {} });
+    if (holdBoard)
+        await new Promise<void>((resolve) => {
+            releaseBoard = resolve;
+        });
+    if (deny || failBoard) throw new AxiosError("Forbidden", "ERR_BAD_REQUEST", config, undefined, { ...response, status: 403, data: {} });
     const base = { created_at: new Date(), updated_at: new Date() };
     return {
         ...response,
         data: {
             cards: [
-                { ...base, uid: "card", project_uid: projectUID, project_column_uid: "column", title: "Authorized card", description: "", order: 0 },
+                {
+                    ...base,
+                    uid: "card",
+                    project_uid: projectUID,
+                    project_column_uid: "column",
+                    title: "Authorized card",
+                    description: "",
+                    order: 0,
+                    ...(omitWorkState
+                        ? {}
+                        : {
+                              work_state: {
+                                  version: 1,
+                                  lifecycle: "active",
+                                  material_kind: "work",
+                                  completed: false,
+                                  workflow_stage: "review",
+                                  blocker_state: "clear",
+                              },
+                          }),
+                },
             ],
             columns: [{ ...base, uid: "column", project_uid: projectUID, name: "Board column", order: 0 }],
             checklists: [],
@@ -58,16 +87,138 @@ function SecondObserver({ enabled }: { enabled: boolean }) {
     return null;
 }
 function Fixture() {
+    const queryClient = useQueryClient();
     const [requests, setRequests] = useState<string[]>([]);
     const [secondEnabled, setSecondEnabled] = useState(false);
     const [aborted, setAborted] = useState(0);
     reportAbort = () => setAborted((value) => value + 1);
     reportRequest = (url) => setRequests((value) => [...value, url]);
-    const result = useGetCards({ project_uid: projectUID });
+    const [boardUID, setBoardUID] = useState(projectUID);
+    const result = useGetCards({ project_uid: boardUID });
+    const snapshot = useBoardCardsSnapshot(boardUID);
     const cards = ProjectCard.Model.useModels((card) => card.project_uid === projectUID);
     const metadata = MetadataModel.Model.useModels(() => true);
     return (
         <>
+            <BoardSnapshotSummary snapshot={snapshot} cards={cards} />
+            <button
+                onClick={() => {
+                    const base = { created_at: new Date(), updated_at: new Date() };
+                    ProjectCard.Model.fromOne(
+                        {
+                            ...base,
+                            uid: "injected",
+                            project_uid: projectUID,
+                            project_column_uid: "column",
+                            title: "Realtime cache card",
+                            description: "",
+                            order: 1,
+                            work_state: {
+                                version: 1,
+                                lifecycle: "active",
+                                material_kind: "work",
+                                completed: false,
+                                workflow_stage: "review",
+                                blocker_state: "blocked",
+                            },
+                        } as never,
+                        true
+                    );
+                }}
+            >
+                Inject cache card
+            </button>
+            <button
+                onClick={() => {
+                    ProjectCard.Model.getModel("card")!.work_state = {
+                        ...ProjectCard.Model.getModel("card")!.work_state!,
+                        workflow_stage: "active",
+                        blocker_state: "blocked",
+                    };
+                }}
+            >
+                Edit work state
+            </button>
+            <button
+                onClick={() => {
+                    ProjectCard.Model.getModel("card")!.work_state = { ...ProjectCard.Model.getModel("card")!.work_state!, completed: true };
+                }}
+            >
+                Complete authoritative state
+            </button>
+            <button
+                onClick={() => {
+                    ProjectCard.Model.deleteModel("card");
+                }}
+            >
+                Remove snapshot card
+            </button>
+            <button
+                onClick={() => {
+                    ProjectCard.Model.getModel("card")!.work_state = undefined;
+                }}
+            >
+                Clear work state
+            </button>
+            <button
+                onClick={() => {
+                    holdBoard = true;
+                    useAuthStore.setState({
+                        currentUser: AuthUser.Model.fromOne({ uid: "second-reader", created_at: actorDate, updated_at: actorDate }),
+                    });
+                }}
+            >
+                Swap actor
+            </button>
+            <button
+                onClick={() => {
+                    holdBoard = true;
+                    const version = useAuthStore.getState().getSessionVersion() + 1;
+                    useAuthStore.setState({ getSessionVersion: () => version });
+                }}
+            >
+                Swap session
+            </button>
+            <button
+                onClick={() => {
+                    holdBoard = true;
+                    setBoardUID("second-board");
+                }}
+            >
+                Swap board
+            </button>
+            <button
+                onClick={() => {
+                    holdBoard = true;
+                    void queryClient.invalidateQueries({ queryKey: [`get-cards-${boardUID}`] });
+                }}
+            >
+                Invalidate snapshot
+            </button>
+            <button
+                onClick={() => {
+                    failBoard = true;
+                    void result.refetch();
+                }}
+            >
+                Fail refresh
+            </button>
+            <button
+                onClick={() => {
+                    holdBoard = false;
+                    releaseBoard();
+                }}
+            >
+                Release board
+            </button>
+            <button
+                onClick={() => {
+                    omitWorkState = true;
+                    void result.refetch();
+                }}
+            >
+                Refresh without work state
+            </button>
             <SecondObserver enabled={secondEnabled} />
             <h1>{result.isError ? "Board denied" : result.data ? "Board ready" : "Board loading"}</h1>
             {cards.map((card) => (

@@ -1,3 +1,4 @@
+import { useBoardCardsSnapshot, type IBoardCardsSnapshot } from "@/controllers/api/board/useGetCards";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
     AuthUser,
@@ -73,6 +74,7 @@ export interface IBoardContext {
     project: Project.TModel;
     columns: ProjectColumn.TModel[];
     cards: ProjectCard.TModel[];
+    cardsSnapshot?: IBoardCardsSnapshot;
     cardsMap: Record<string, ProjectCard.TModel>;
     currentUser: AuthUser.TModel;
     globalRelationshipTypes: GlobalRelationshipType.TModel[];
@@ -151,6 +153,8 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
     const [, refreshColumnFilters] = useReducer((value: number) => value + 1, 0);
     const columns = ProjectColumn.Model.useModels((model) => model.project_uid === project.uid);
+    const authorizedSnapshot = useBoardCardsSnapshot(project.uid);
+    const cardsSnapshot = authorizedSnapshot?.actorUID === currentUser.uid ? authorizedSnapshot : undefined;
     const cards = ProjectCard.Model.useModels((model) => model.project_uid === project.uid);
     const cardUIDs = useMemo(() => cards.map((card) => card.uid), [cards]);
     const [metadataUpdated, forceMetadataUpdate] = useReducer((value) => value + 1, 0);
@@ -492,6 +496,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                 project,
                 columns,
                 cards,
+                cardsSnapshot,
                 cardsMap,
                 currentUser,
                 globalRelationshipTypes,
