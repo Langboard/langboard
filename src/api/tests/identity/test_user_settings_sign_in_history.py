@@ -420,8 +420,11 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert client.delete(owner_url, headers=headers).status_code == 200
             with pytest.raises(ValueError, match="owner must be an active account"):
                 DomainService().organization.create(owner, "Deleted owner", slug="deleted-owner")
-            created = DomainService().organization.create(actor, "Active owner", slug="active-owner")
-            assert created.owner_user_id == actor.id
+            # An existing inactive tenant remains canonical after ownership transfer.
+            with pytest.raises(ValueError, match="instance tenant already exists"):
+                DomainService().organization.create(actor, "Active owner", slug="active-owner")
+            reactivated = DomainService().organization.set_active(actor, organization, True)
+            assert reactivated.owner_user_id == actor.id
             with engine.connect() as db:
                 assert (
                     db.execute(

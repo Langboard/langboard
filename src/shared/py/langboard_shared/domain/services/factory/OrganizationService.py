@@ -49,8 +49,10 @@ class OrganizationService(BaseDomainService):
         with DbSession.atomic() as db:
             # Serialize creation with account deactivation/deletion, using the same owner row lock.
             current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
-            if current is None or current.activated_at is None:
+            if current is None or current.activated_at is None or current.deleted_at is not None:
                 raise ValueError("organization owner must be an active account")
+            if db.exec(SqlBuilder.select.table(Organization)).first() is not None:
+                raise ValueError("instance tenant already exists; tenant switching is unsupported")
             if self.repo.organization.get_by_slug(normalized_slug) is not None:
                 raise ValueError(f"organization slug '{normalized_slug}' already exists")
 
@@ -66,14 +68,27 @@ class OrganizationService(BaseDomainService):
     def set_active(self, user: User, organization: TUserParam | None, is_active: bool) -> Organization | None:
         """Suspend or reactivate an organization; owners only."""
 
-        organization = InfraHelper.get_by_id_like(Organization, organization)
-        if not organization or organization.owner_user_id != user.id:
-            return None
-
-        organization.is_active = is_active
-        organization.suspended_at = None if is_active else SafeDateTime.now()
-        self.repo.organization.update(organization)
-        return organization
+        with DbSession.atomic() as db:
+            current_user = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            if current_user is None or current_user.activated_at is None or current_user.deleted_at is not None:
+                return None
+            current = db.exec(
+                SqlBuilder.select.table(Organization)
+                .where(Organization.id == InfraHelper.convert_id(organization))
+                .with_for_update()
+            ).first()
+            if current is None or current.owner_user_id != current_user.id:
+                return None
+            if (
+                is_active
+                and db.exec(SqlBuilder.select.table(Organization).where(Organization.id != current.id)).first()
+                is not None
+            ):
+                raise ValueError("multiple organizations require manual review")
+            current.is_active = is_active
+            current.suspended_at = None if is_active else SafeDateTime.now()
+            db.update(current)
+            return current
 
     def assign_project(self, user: User, organization: TUserParam | None, project) -> Organization:
         """Map a project into this organization; owners only."""

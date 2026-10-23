@@ -59,7 +59,11 @@ def binding_database(request, tmp_path, monkeypatch):
             organizations = []
             for index in range(3):
                 organization = Organization(
-                    name=f"Organization {index}", slug=f"organization-{index}", owner_user_id=users[index == 2].id
+                    name=f"Organization {index}",
+                    slug=f"organization-{index}",
+                    owner_user_id=users[index == 2].id,
+                    # Keep conflicting legacy identities without violating the active tenant index.
+                    is_active=index == 0,
                 )
                 db.insert(organization)
                 organizations.append(organization)
