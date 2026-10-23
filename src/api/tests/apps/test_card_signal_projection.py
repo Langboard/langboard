@@ -50,6 +50,82 @@ def evidence(scoped):
     return card_signal_projections([card])[card.id][0]
 
 
+@pytest.mark.parametrize("time_basis, evidence_kind", [
+    ("provider_occurrence", "external_event"),
+    ("observation", "external_observation"),
+])
+@pytest.mark.parametrize("outcome, expected_state", [("success", "passed"), ("failure", "failed")])
+def test_declared_time_basis_preserves_generic_evidence_and_authority(
+    scoped, time_basis, evidence_kind, outcome, expected_state,
+):
+    from uuid import uuid4
+    from langboard_sdk.definition import validate_app_definition
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.domain.models import AppDefinition, AppSignal
+    from langboard_shared.domain.services.AppRegistry import approved_manifests
+    from langboard_shared.domain.services.CardWorkState import project_work_state
+
+    state, card, _, _ = scoped
+    delivery_id = str(uuid4())
+    receipt = send(state, delivery_id)
+    assert send(state, delivery_id) == {"signal_uid": receipt["signal_uid"], "duplicate": True}
+    native = evidence(scoped)
+    assert native["evidence_kind"] == "check" and native["time_basis"] == "provider_occurrence"
+    declaration = validate_app_definition({
+        "schema_version": 2, "key": "independent-events", "name": "Independent Events",
+        "version": "0.1.0", "description": "Declared time basis fixture",
+        "capabilities": ["signals.read"], "resource_types": ["repository"],
+        "trust": {"authentication_origins": [], "mcp_origins": [], "data_origins": []},
+        "signal_policy": {
+            "version": 1, "event_types": ["status.reported"], "resource_types": ["repository"],
+            "commit_mode": "required", "time_basis": time_basis,
+            "outcome_states": {"success": "passed", "failure": "failed"},
+        },
+    })
+    with DbSession.atomic() as db:
+        definition = AppDefinition(key=declaration["key"], declaration=declaration, approved_by=state[1][1].id)
+        db.insert(definition)
+        state[2].app_key = state[3].app_key = declaration["key"]
+        db.update(state[2])
+        db.update(state[3])
+        signal = db.exec(SqlBuilder.select.table(AppSignal)).first()
+        signal.provider = declaration["key"]
+        signal.event_type = "status.reported"
+        signal.outcome = outcome
+        db.update(signal)
+    policy = approved_manifests()[declaration["key"]].signal_policy
+    assert policy.time_basis == time_basis and policy.evidence_kind == evidence_kind
+    proof = evidence(scoped)
+    assert proof == {
+        **native, "provider": declaration["key"], "event_type": "status.reported",
+        "time_basis": time_basis, "evidence_kind": evidence_kind, "state": expected_state, "outcome": outcome,
+    }
+    work_state = project_work_state(
+        card_uid=card.get_uid(), workflow_stage="active", archived=False, linked_resource=False,
+        total=1, completed=0, started=0, paused=0, external_signals=[proof],
+        workflow_policy={"key": "active", "counts_as_completed": False,
+                         "active_queue_policy": "include", "overdue_policy": "normal"},
+    )
+    assert work_state["external_signal_evidence"] == [proof]
+    assert any(reason["code"] == evidence_kind + "_" + expected_state for reason in work_state["reasons"])
+    assert work_state["workflow_stage"] == "active" and work_state["completed"] is False
+    assert work_state["external_execution_state"] is None
+    assert work_state["verification"] is None and work_state["pending_approval_count"] == 0
+    assert work_state["blocker_state"] == ("blocked" if outcome == "failure" else None)
+    assert proof["signal_uid"] == receipt["signal_uid"]
+    assert card.last_change_seq == 7 and card.project_column_id == state[1][5][0].id
+    assert state[3].workflow_mapping == {} and not state[3].stage_transitions_enabled
+    with DbSession.atomic() as db:
+        state[4].is_selected = False
+        db.update(state[4])
+    assert card_signal_projections([card]) == {}
+    with DbSession.atomic() as db:
+        assert len(db.exec(SqlBuilder.select.table(AppSignal)).all()) == 1
+        state[4].is_selected = True
+        db.update(state[4])
+    assert evidence(scoped) == proof
+
+
 @pytest.mark.parametrize("binding_state", ["missing", "disabled", "another_card"])
 def test_unbound_cards_skip_registry_and_authority_joins(scoped, monkeypatch, binding_state):
     import langboard_shared.domain.services.AppRegistry as registry
