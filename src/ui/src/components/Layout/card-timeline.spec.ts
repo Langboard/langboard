@@ -41,6 +41,85 @@ const compactEntry = {
 };
 
 for (const width of [1440, 390]) {
+    test(`comment timeline defers socket refresh until older history finishes at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let releaseOlder!: () => void;
+        const olderGate = new Promise<void>((resolve) => (releaseOlder = resolve));
+        let olderStarted!: () => void;
+        const olderRequest = new Promise<void>((resolve) => (olderStarted = resolve));
+        let firstPageRequests = 0;
+        await page.route(/\/timeline(?:\?|$)/, async (route) => {
+            const before = new URL(route.request().url()).searchParams.get("before");
+            if (before) {
+                olderStarted();
+                await olderGate;
+            } else firstPageRequests++;
+            await route.fulfill({
+                json: {
+                    records: [originalEvidence(before ? "older" : "newest", before ? "Older source" : "Newest source")],
+                    next_cursor: before ? null : "comment:newest",
+                },
+            });
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await expect(page.getByText("Newest source", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Older history", exact: true }).click();
+        await olderRequest;
+        const beforeRefresh = firstPageRequests;
+        await page.getByRole("button", { name: "Socket reopened", exact: true }).click();
+        try {
+            // The existing socket debounce is 100ms; keep pagination in flight past it.
+            await page.waitForTimeout(300);
+            expect(firstPageRequests).toBe(beforeRefresh);
+        } finally {
+            releaseOlder();
+        }
+        await expect(page.getByText("Older source", { exact: true })).toBeVisible();
+        await expect.poll(() => firstPageRequests).toBeGreaterThan(beforeRefresh);
+        await expect(page.locator("[data-card-comment-uid]")).toHaveCount(2);
+    });
+
+    test(`comment timeline older history remains available during background refresh at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let holdRefresh = false;
+        let releaseRefresh!: () => void;
+        const refreshGate = new Promise<void>((resolve) => (releaseRefresh = resolve));
+        let refreshStarted!: () => void;
+        const refreshRequest = new Promise<void>((resolve) => (refreshStarted = resolve));
+        await page.route(/\/timeline(?:\?|$)/, async (route) => {
+            const before = new URL(route.request().url()).searchParams.get("before");
+            if (!before && holdRefresh) {
+                refreshStarted();
+                await refreshGate;
+            }
+            await route.fulfill({
+                json: {
+                    records: [
+                        originalEvidence(before ? "older" : "newest", before ? "Older source" : holdRefresh ? "Refreshed source" : "Newest source"),
+                    ],
+                    next_cursor: before ? null : "comment:newest",
+                },
+            });
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html");
+        await expect(page.getByText("Newest source", { exact: true })).toBeVisible();
+        holdRefresh = true;
+        await page.getByRole("button", { name: "Socket reopened", exact: true }).click();
+        await refreshRequest;
+        try {
+            const older = page.getByRole("button", { name: "Older history", exact: true });
+            await expect(older).toBeEnabled();
+            await older.click();
+            await expect(page.getByText("Older source", { exact: true })).toBeVisible();
+            await expect(page.locator("[data-card-comment-uid]")).toHaveCount(2);
+        } finally {
+            releaseRefresh();
+        }
+        await expect(page.getByText("Refreshed source", { exact: true })).toBeVisible();
+        await expect(page.getByText("Older source", { exact: true })).toBeVisible();
+        await expect(page.locator("[data-card-comment-uid]")).toHaveCount(2);
+    });
+
     test(`comment timeline removes cached content when current access is revoked at ${width}px`, async ({ page }) => {
         test.setTimeout(90_000);
         await page.setViewportSize({ width, height: 900 });
@@ -172,7 +251,11 @@ for (const width of [1440, 390]) {
             );
         expect(order).toEqual(["first", "move", "older"]);
         expect(cursors[0]).toBeNull();
-        expect(cursors.filter((cursor) => cursor !== null)).toEqual(["activity:move"]);
+        // A queued reconnect refresh can revalidate both loaded pages.
+        // Every older-page request must retain the server cursor; rendered records stay unique.
+        const olderCursors = cursors.filter((cursor) => cursor !== null);
+        expect(olderCursors.length).toBeGreaterThan(0);
+        expect(olderCursors.every((cursor) => cursor === "activity:move")).toBe(true);
         await page.getByRole("button", { name: "Switch timeline card", exact: true }).click();
         await expect(page.getByText("No comments", { exact: true })).toBeVisible();
         await expect(first).toHaveCount(0);

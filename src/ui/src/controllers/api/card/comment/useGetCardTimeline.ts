@@ -45,6 +45,7 @@ export default function useGetCardTimeline(compactionUID?: string) {
     );
     const editingRef = useRef(editing);
     editingRef.current = editing;
+    const pagingRef = useRef(false);
     const dirty = useRef(false);
     const query = useInfiniteQuery({
         queryKey,
@@ -79,7 +80,7 @@ export default function useGetCardTimeline(compactionUID?: string) {
         refetchOnReconnect: false,
     });
     const refresh = useCallback(() => {
-        if (editingRef.current) {
+        if (editingRef.current || pagingRef.current) {
             dirty.current = true;
             return;
         }
@@ -161,5 +162,26 @@ export default function useGetCardTimeline(compactionUID?: string) {
                 }) ?? []
         );
     }, [query.data]);
-    return { ...query, entries, refresh, editing, eligibility: query.data?.pages[0]?.eligibility, inFlight: query.data?.pages[0]?.in_flight ?? [] };
+    const fetchNextPage = useCallback<typeof query.fetchNextPage>(
+        (options) => {
+            // Manual paging supersedes a background refresh; reconcile its changes afterward.
+            if (query.isFetching && !query.isFetchingNextPage && options?.cancelRefetch !== false) dirty.current = true;
+            // Fence socket events synchronously, before React renders the fetching state.
+            pagingRef.current = true;
+            return query.fetchNextPage(options).finally(() => {
+                pagingRef.current = false;
+                if (dirty.current) refresh();
+            });
+        },
+        [query.isFetching, query.isFetchingNextPage, query.fetchNextPage, refresh]
+    );
+    return {
+        ...query,
+        fetchNextPage,
+        entries,
+        refresh,
+        editing,
+        eligibility: query.data?.pages[0]?.eligibility,
+        inFlight: query.data?.pages[0]?.in_flight ?? [],
+    };
 }

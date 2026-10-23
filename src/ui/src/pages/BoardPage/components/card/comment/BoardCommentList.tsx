@@ -47,6 +47,7 @@ function BoardCommentList({ className, compactionUID, evidenceRef, onEvidenceErr
         error: queryError,
         isPending,
         isFetching,
+        isFetchingNextPage,
         hasNextPage,
         fetchNextPage,
         refresh,
@@ -197,8 +198,8 @@ function BoardCommentList({ className, compactionUID, evidenceRef, onEvidenceErr
                     type="button"
                     variant="ghost"
                     className="mt-3 w-full"
-                    disabled={isFetching || editing}
-                    onClick={() => void fetchNextPage({ cancelRefetch: false })}
+                    disabled={isFetchingNextPage || editing}
+                    onClick={() => void fetchNextPage()}
                 >
                     {t("card.Older history")}
                 </Button>
