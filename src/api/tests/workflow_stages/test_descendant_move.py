@@ -162,6 +162,107 @@ def test_disabled_option_keeps_existing_single_card_move(family):
     assert all(positions(f)[child.id] == f.old.id for child in f.children)
 
 
+def test_removed_column_binding_rechecks_current_policy_before_confirmed_family_move(family):
+    from langboard_shared.domain.models import ProjectColumn
+    from sqlalchemy import update
+
+    f = family
+    prompt = move(f)
+    # Another native settings transaction changes the binding after the caller
+    # obtained its target column and confirmation. Preserve that stale input.
+    with f.engine.begin() as connection:
+        connection.execute(update(ProjectColumn).where(ProjectColumn.id == f.new.id).values(workflow_stage=None))
+    assert f.new.workflow_stage == f.stage.key
+    assert move(f, move_descendants=True, confirmation_revision=prompt["confirmation_revision"]) is True
+    assert positions(f)[f.card.id] == f.new.id
+    assert all(positions(f)[child.id] == f.old.id for child in f.children)
+
+
+def test_rebound_target_requires_current_stage_confirmation(family):
+    from langboard_shared.domain.models import ProjectColumn, WorkflowStageDefinition
+    from sqlalchemy import update
+
+    f = family
+    prompt = move(f)
+    with DbSession.atomic() as db:
+        replacement = WorkflowStageDefinition(
+            key="replacement", name="Replacement", entry_effects=["confirm_descendant_move"]
+        )
+        db.insert(replacement)
+    with f.engine.begin() as connection:
+        connection.execute(
+            update(ProjectColumn).where(ProjectColumn.id == f.new.id).values(workflow_stage=replacement.key)
+        )
+    again = move(f, move_descendants=True, confirmation_revision=prompt["confirmation_revision"])
+    assert again["confirmation_required"] is True
+    assert again["confirmation_revision"] != prompt["confirmation_revision"]
+    assert set(positions(f).values()) == {f.old.id}
+    assert not f.notifications
+    assert move(f, move_descendants=True, confirmation_revision=again["confirmation_revision"]) is True
+    assert set(positions(f).values()) == {f.new.id}
+
+
+@pytest.mark.parametrize("column_name", ["old", "new"])
+def test_deleted_source_or_target_rejects_stale_column_without_mutation(family, column_name):
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import ProjectColumn
+    from sqlalchemy import update
+
+    f = family
+    prompt = move(f)
+    with f.engine.begin() as connection:
+        connection.execute(
+            update(ProjectColumn)
+            .where(ProjectColumn.id == getattr(f, column_name).id)
+            .values(deleted_at=SafeDateTime.now())
+        )
+    assert move(f, move_descendants=True, confirmation_revision=prompt["confirmation_revision"]) is None
+    assert set(positions(f).values()) == {f.old.id}
+    assert not f.notifications
+
+
+def test_source_rebound_to_target_stage_keeps_same_stage_single_card_move(family):
+    from langboard_shared.domain.models import ProjectColumn
+    from sqlalchemy import update
+
+    f = family
+    prompt = move(f)
+    with f.engine.begin() as connection:
+        connection.execute(update(ProjectColumn).where(ProjectColumn.id == f.old.id).values(workflow_stage=f.stage.key))
+    assert move(f, move_descendants=True, confirmation_revision=prompt["confirmation_revision"]) is True
+    assert positions(f)[f.card.id] == f.new.id
+    assert all(positions(f)[child.id] == f.old.id for child in f.children)
+
+
+def test_current_source_and_target_bindings_are_locked_during_family_decision(family, monkeypatch):
+    from langboard_shared.domain.models import ProjectColumn
+    from sqlalchemy import select
+    from sqlalchemy.exc import OperationalError
+
+    f = family
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("Independent row-lock contention requires PostgreSQL")
+    original = f.service._root_move_family
+    checked = []
+
+    def check_locks(*args):
+        for column in (f.old, f.new):
+            with pytest.raises(OperationalError) as error:
+                with f.engine.begin() as competing:
+                    competing.execute(
+                        select(ProjectColumn.id).where(ProjectColumn.id == column.id).with_for_update(nowait=True)
+                    )
+            assert error.value.orig.sqlstate == "55P03"
+            checked.append(column.id)
+        return original(*args)
+
+    monkeypatch.setattr(f.service, "_root_move_family", check_locks)
+    assert move(f)["confirmation_required"] is True
+    assert checked == [f.old.id, f.new.id]
+    assert set(positions(f).values()) == {f.old.id}
+    assert not f.notifications
+
+
 @pytest.mark.parametrize("kind", ["cross_board", "app_owned", "linked_mirror"])
 def test_ineligible_descendant_rejects_complete_family_without_effects(family, kind):
     from langboard_shared.domain.models import CardAppOwnership

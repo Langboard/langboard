@@ -2855,6 +2855,29 @@ class CardService(BaseDomainService):
             ).first()
             if card is None:
                 return None
+            # Caller-supplied columns can predate a binding edit or deletion.
+            # Read and lock both policies on the primary under the board fence,
+            # retaining the same authoritative target through confirmation and move.
+            column_ids = {card.project_column_id}
+            target_id = InfraHelper.convert_id(new_column) if new_column else None
+            if target_id is not None:
+                column_ids.add(target_id)
+            columns = {
+                column.id: column
+                for column in db.exec(
+                    SqlBuilder.select.table(ProjectColumn)
+                    .where(ProjectColumn.project_id == project.id, ProjectColumn.id.in_(column_ids))
+                    .order_by(ProjectColumn.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).all()
+            }
+            if card.project_column_id not in columns:
+                return None
+            if target_id is not None:
+                new_column = columns.get(target_id)
+                if new_column is None:
+                    return None
             if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
                 target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
                 if target is None or not target.is_archive:
