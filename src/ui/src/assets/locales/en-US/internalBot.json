@@ -105,6 +105,7 @@
     "square": "Square preview",
     "restore_confirm": "Restore the previous saved avatar.",
     "restore": "Restore previous avatar",
+    "timeout": "Generation timed out. Your current avatar is unchanged. The provider may still charge for the request. No automatic retry was made.",
     "failed": "Could not complete the request. Your current avatar is unchanged.",
     "conflict": "The saved avatar or model changed. Current state was refreshed; review and try again.",
     "quota": "Provider quota or rate limit reached. No automatic retry was made.",

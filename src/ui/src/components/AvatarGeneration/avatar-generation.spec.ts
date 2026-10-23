@@ -1,6 +1,71 @@
 import { expect, test } from "@playwright/test";
 const fixture = "/.verification/avatar-generation-ui-20261019/fixture.html";
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
+for (const target of ["personal", "board"]) {
+    test(`${target} avatar generation timeout preserves current avatar and permits explicit retry`, async ({ page }, testInfo) => {
+        let previewCalls = 0;
+        let applyCalls = 0;
+        await page.route("**/*", async (route) => {
+            const request = route.request();
+            if (!["fetch", "xhr"].includes(request.resourceType())) return route.continue();
+            const url = new URL(request.url()).pathname;
+            if (url.endsWith("/image-profiles"))
+                return route.fulfill({
+                    json: { configured: true, profiles: [{ uid: "profile", display_name: "Icon provider", model_name: "image-model" }] },
+                });
+            if (url.endsWith("/preview")) {
+                previewCalls++;
+                if (previewCalls === 1) return route.fulfill({ status: 504, json: { error: "avatar_generation_timeout" } });
+                return route.fulfill({ json: { preview_data_url: png, width: 512, height: 512 } });
+            }
+            if (url.endsWith("/avatar")) {
+                if (request.method() === "PUT") {
+                    applyCalls++;
+                }
+                return route.fulfill({
+                    json: { avatar: png, previous_avatar: null, avatar_revision: 1, can_restore: false },
+                });
+            }
+            return route.fulfill({ json: { oidc_enabled: false } });
+        });
+        await page.goto(fixture);
+        if (target === "board") await page.getByRole("button", { name: "Toggle target", exact: true }).click();
+        await page.getByRole("button", { name: "Generate with AI", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        const profile = dialog.getByRole("combobox", { name: "Image profile", exact: true });
+        const prompt = dialog.getByRole("textbox", { name: "Prompt sent to the selected model", exact: true });
+        const consent = dialog.getByRole("checkbox", { name: /Send this prompt to the selected external image provider/ });
+        const generate = dialog.getByRole("button", { name: "Generate with AI", exact: true });
+        await profile.selectOption("profile");
+        const currentAvatar = page.locator("main img");
+        const originalAvatars = await currentAvatar.evaluateAll((images) => images.map((image) => image.getAttribute("src")));
+        await prompt.fill("Keep this revised icon prompt after timeout");
+        await consent.check();
+        await generate.click();
+        await expect(dialog.getByRole("alert")).toHaveText(
+            "Generation timed out. Your current avatar is unchanged. The provider may still charge for the request. No automatic retry was made."
+        );
+        expect(await currentAvatar.evaluateAll((images) => images.map((image) => image.getAttribute("src")))).toEqual(originalAvatars);
+        await expect(prompt).toHaveValue("Keep this revised icon prompt after timeout");
+        await expect(profile).toHaveValue("profile");
+        await expect(dialog.locator("img")).toHaveCount(0);
+        await expect(dialog.getByRole("button", { name: "Apply generated avatar", exact: true })).toHaveCount(0);
+        await expect(consent).not.toBeChecked();
+        await expect(generate).toBeDisabled();
+        expect(previewCalls).toBe(1);
+        expect(applyCalls).toBe(0);
+        await page.screenshot({ path: testInfo.outputPath(`${target}-timeout.png`), fullPage: true });
+        await consent.check();
+        await generate.click();
+        await expect(dialog.getByRole("alert")).toHaveCount(0);
+        await expect(dialog.locator("img")).toHaveCount(6);
+        expect(await currentAvatar.evaluateAll((images) => images.map((image) => image.getAttribute("src")))).toEqual(originalAvatars);
+        await expect(prompt).toHaveValue("Keep this revised icon prompt after timeout");
+        expect(previewCalls).toBe(2);
+        expect(applyCalls).toBe(0);
+    });
+}
+
 for (const width of [390, 1440]) {
     test(`personal and board explicit durable avatar lifecycle at ${width}`, async ({ page }, testInfo) => {
         const calls: { url: string; method: string; body: string }[] = [];

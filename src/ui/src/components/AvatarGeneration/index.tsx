@@ -258,7 +258,7 @@ export default function AvatarGeneration({ base, canUpdate, disabled, onPersiste
                 return;
             }
             if (response.status !== 200) {
-                setError(response.status === 429 ? "quota" : "failed");
+                setError(response.status === 429 ? "quota" : response.status === 504 ? "timeout" : "failed");
                 return;
             }
             if (action === "preview") {
