@@ -29,15 +29,19 @@ def _current(db, model, identity, *, lock=False):
     return db.exec(query.with_for_update(key_share=model is Project) if lock else query).first()
 
 
-def _require_manager(db, actor, project):
+def _manager_actor(db, actor):
+    # Match personal collection writes: current actor before project policy guards.
     if not isinstance(actor, User):
         raise CompactorAuthorityError()
     actor = _current(db, User, actor.id, lock=True)
     if not actor or actor.deleted_at or not actor.activated_at:
         raise CompactorAuthorityError()
+    return actor
+
+
+def _require_manager(actor, project):
     if not actor.is_admin and actor.id != project.owner_id:
         raise CompactorAuthorityError()
-    return actor
 
 
 def _project_profile(db, project_id, profile_id):
@@ -67,8 +71,9 @@ def _response(project, profile, grant):
 
 def get_compactor_board_grant(actor, project_id, profile_id):
     with DbSession.atomic() as db:
+        actor = _manager_actor(db, actor)
         project, profile = _project_profile(db, project_id, profile_id)
-        _require_manager(db, actor, project)
+        _require_manager(actor, project)
         return _response(project, profile, _grant(db, project, profile))
 
 
@@ -78,8 +83,9 @@ def set_compactor_board_grant(actor, project_id, profile_id, *, can_read, can_co
     if not can_read and (can_compact or can_archive):
         raise CompactorAuthorityError("read_required", 400)
     with DbSession.atomic() as db:
+        actor = _manager_actor(db, actor)
         project, profile = _project_profile(db, project_id, profile_id)
-        actor = _require_manager(db, actor, project)
+        _require_manager(actor, project)
         grant = _grant(db, project, profile)
         if grant is None:
             grant = CompactorBoardGrant(project_id=project.id, internal_bot_id=profile.id,

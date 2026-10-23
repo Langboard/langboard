@@ -122,3 +122,50 @@ def test_grant_revocation_waits_then_rejects_new_effect(compactor_edit_board, ac
         with DbSession.atomic() as db:
             require_compactor_card(db, f.project.id, f.profile.id, f.card.id, action=action)
     assert denied.value.code == "forbidden"
+
+
+def test_collection_save_and_grant_change_both_commit(compactor_edit_board):
+    from uuid import uuid4
+    from langboard_shared.domain.models import UserProjectCollection
+    from langboard_shared.domain.services.ProjectCollections import project_collections
+
+    f = compactor_edit_board
+    UserProjectCollection.__table__.create(f.engine, checkfirst=True)
+    actor_locked, grant_actor_requested = threading.Event(), threading.Event()
+    worker = threading.local()
+    collection = {"uid": str(uuid4()), "name": "Personal", "board_uids": [f.project.get_uid()]}
+
+    def before_sql(_connection, _cursor, statement, _parameters, _context, _many):
+        if getattr(worker, "role", None) == "grant" and 'FROM "user"' in statement and "FOR UPDATE" in statement:
+            grant_actor_requested.set()
+
+    def after_sql(_connection, _cursor, statement, _parameters, _context, _many):
+        if getattr(worker, "role", None) == "collection" and 'FROM "user"' in statement and "FOR UPDATE" in statement:
+            actor_locked.set()
+            assert grant_actor_requested.wait(5), "Grant change never requested the actor guard"
+
+    def save_collection():
+        worker.role = "collection"
+        return project_collections(f.other, collections=[collection], expected_revision=0)
+
+    def change_grant():
+        worker.role = "grant"
+        return set_compactor_board_grant(
+            f.other, f.project.id, f.profile.id, can_read=True, can_compact=True, can_archive=False
+        )
+
+    event.listen(f.engine, "before_cursor_execute", before_sql)
+    event.listen(f.engine, "after_cursor_execute", after_sql)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            saved = pool.submit(save_collection)
+            assert actor_locked.wait(5), "Collection save never acquired its actor guard"
+            changed = pool.submit(change_grant)
+            assert saved.result(timeout=15) == {"revision": 1, "collections": [collection]}
+            assert changed.result(timeout=15)["can_archive"] is False
+    finally:
+        event.remove(f.engine, "before_cursor_execute", before_sql)
+        event.remove(f.engine, "after_cursor_execute", after_sql)
+    assert project_collections(f.other) == {"revision": 1, "collections": [collection]}
+    with f.engine.connect() as db:
+        assert db.execute(select(CompactorBoardGrant.can_archive)).scalar_one() is False
