@@ -4,7 +4,7 @@ These rows confer no read authority. Native attachment provenance and current
 card, board or wiki authorization remain mandatory before resolving bytes.
 """
 
-from sqlalchemy import Index
+from sqlalchemy import BigInteger, Index
 from ...core.db import BaseDbModel, Field
 from ...core.db.ColumnTypes import SnowflakeIDType
 from ...core.types import SnowflakeID
@@ -15,7 +15,7 @@ class AttachmentStorageObject(BaseDbModel, table=True):
 
     storage_type: str = Field(nullable=False, max_length=32, exclude=True)
     content_sha256: str = Field(nullable=False, max_length=64, exclude=True)
-    size_bytes: int = Field(nullable=False, exclude=True)
+    size_bytes: int = Field(nullable=False, sa_type=BigInteger, exclude=True)
     allocation_token: str = Field(nullable=False, max_length=32, exclude=True)
     ready: bool = Field(default=False, nullable=False, exclude=True)
 
