@@ -3,6 +3,7 @@
 import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.exceptions import ScimProvisioningException
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import ScimGroup, ScimGroupMember, User, UserIdentityLink
 from langboard_shared.domain.services import DomainService
@@ -63,3 +64,39 @@ def test_same_name_groups_do_not_replace_another_groups_identity_or_members(
                 assert len(db.execute(select(ScimGroup.id)).all()) == 2
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("operation", ["retry", "create", "rename"])
+def test_group_write_identity_checks_use_primary_when_replica_is_behind(tmp_path, monkeypatch, operation):
+    primary = create_engine(f"sqlite:///{tmp_path / 'primary.sqlite'}")
+    replica = create_engine(f"sqlite:///{tmp_path / 'replica.sqlite'}")
+    for engine in (primary, replica):
+        for model in (User, UserIdentityLink, ScimGroup, ScimGroupMember):
+            model.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: primary)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: replica)
+    try:
+        service = DomainService().scim_provisioning
+        payload = {"externalId": "stable-directory-id", "displayName": "Engineering"}
+        original = service.create_group(payload)
+        # The committed identity has not reached the replica yet.
+        assert service.repo.scim_group.get_by_external_id(payload["externalId"]) is None
+        if operation == "retry":
+            retried = service.create_or_upsert_group({**payload, "displayName": "Renamed Engineering"})
+            assert retried.id == original.id
+        elif operation == "create":
+            with pytest.raises(ScimProvisioningException.Conflict):
+                service.create_group(payload)
+        else:
+            another = service.create_group({"externalId": "other-directory-id", "displayName": "Other"})
+            with pytest.raises(ScimProvisioningException.Conflict):
+                service.apply_group_mutations(another, {"externalId": payload["externalId"]})
+        with primary.connect() as db:
+            groups = dict(db.execute(select(ScimGroup.id, ScimGroup.external_id)).all())
+        expected = {original.id: payload["externalId"]}
+        if operation == "rename":
+            expected[another.id] = "other-directory-id"
+        assert groups == expected
+    finally:
+        primary.dispose()
+        replica.dispose()

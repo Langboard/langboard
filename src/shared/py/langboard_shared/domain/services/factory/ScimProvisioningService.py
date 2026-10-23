@@ -455,7 +455,7 @@ class ScimProvisioningService(BaseDomainService):
         external_id = self._extract_external_id(payload)
 
         # Names are mutable labels; matching one must not replace another group's members or identity.
-        group = self.repo.scim_group.get_by_external_id(external_id) if external_id else None
+        group = self.repo.scim_group.get_by_external_id(external_id, consistent=True) if external_id else None
 
         if group:
             self.apply_group_mutations(group, payload)
@@ -469,7 +469,7 @@ class ScimProvisioningService(BaseDomainService):
             raise ScimProvisioningException.InvalidRequest()
 
         external_id = self._extract_external_id(payload)
-        if external_id and self.repo.scim_group.get_by_external_id(external_id):
+        if external_id and self.repo.scim_group.get_by_external_id(external_id, consistent=True):
             raise ScimProvisioningException.Conflict()
 
         user_ids = self._extract_group_member_user_ids(payload) if "members" in payload else []
@@ -501,7 +501,7 @@ class ScimProvisioningService(BaseDomainService):
         if has_external_id and not external_id:
             group.external_id = None
         elif external_id and external_id != group.external_id:
-            existing = self.repo.scim_group.get_by_external_id(external_id)
+            existing = self.repo.scim_group.get_by_external_id(external_id, consistent=True)
             if existing and existing.id != group.id:
                 raise ScimProvisioningException.Conflict()
             group.external_id = external_id
