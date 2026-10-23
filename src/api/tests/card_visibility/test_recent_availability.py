@@ -468,4 +468,5 @@ def test_batch_authenticated_native_http(current_card, monkeypatch):
             inactive.activated_at = None
             db.update(inactive)
         response = client.post("/dashboard/cards/available", json=payload, headers=headers)
-        assert response.status_code == 200 and response.json() == {"cards": []}
+        # Account revocation is rejected by authentication before card projection.
+        assert response.status_code == 401
