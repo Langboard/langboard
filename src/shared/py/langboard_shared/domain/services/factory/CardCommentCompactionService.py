@@ -633,7 +633,11 @@ class CardCommentCompactionService(BaseDomainService):
         if (stage is None or not stage.is_active or stage.continuous_effects.get(f"auto_{effect}") is not True
                 or (effect == "archive" and not stage.counts_as_completed)):
             raise CommentCompactionError("policy_changed")
-        return project, binding, card, (column.id, stage.id, stage.edit_revision())
+        # A return to the same column starts a new residency. Do not publish an
+        # asynchronous result authorized by the earlier stay in this stage.
+        residency = (card.workflow_stage_entered_key,
+                     _utc(card.workflow_stage_entered_at) if card.workflow_stage_entered_at else None)
+        return project, binding, card, (column.id, stage.id, stage.edit_revision(), residency)
 
     async def generate_automatic(self, project, profile, card, *, retry=False):
         """Internal continuous command; no user impersonation or public draft."""
