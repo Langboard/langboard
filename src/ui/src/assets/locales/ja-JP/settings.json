@@ -476,5 +476,10 @@
   "Last successful sign-in": "最終ログイン成功",
   "No recorded sign-in": "ログイン記録なし",
   "All accounts": "すべてのアカウント",
-  "User list failed": "ユーザーを読み込めませんでした。更新して再試行してください。"
+  "User list failed": "ユーザーを読み込めませんでした。更新して再試行してください。",
+  "User details": "ユーザー詳細",
+  "User ID": "ユーザーUID",
+  "User details failed": "ユーザー情報を読み込めませんでした。権限を確認し、更新してください。",
+  "Configured permissions": "設定された権限",
+  "Configured permissions description": "アカウントに保存されたロールです。各ボードやリソースへのアクセスはサーバーが個別に判定します。"
 }

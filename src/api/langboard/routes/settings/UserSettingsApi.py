@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 from urllib.parse import urlparse
-from fastapi import Query, status
+from fastapi import Path, Query, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -198,6 +198,23 @@ def get_users_page_in_settings(
             "full_access_emails": list(Env.FULL_ADMIN_ACCESS_EMAILS),
         }
     )
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema().suc({"user": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_user_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    users = service.user.get_api_list_in_settings(user_uid=user_uid, limit=1)
+    if not users:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    return JsonResponse(content={"user": users[0]})
 
 
 @AppRouter.api.post(

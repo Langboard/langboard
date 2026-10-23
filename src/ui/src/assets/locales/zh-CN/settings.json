@@ -476,5 +476,10 @@
   "Last successful sign-in": "最近成功登录",
   "No recorded sign-in": "无登录记录",
   "All accounts": "全部账户",
-  "User list failed": "无法加载用户。请刷新重试。"
+  "User list failed": "无法加载用户。请刷新重试。",
+  "User details": "用户详情",
+  "User ID": "用户UID",
+  "User details failed": "无法加载用户信息。请确认权限后刷新重试。",
+  "Configured permissions": "已配置权限",
+  "Configured permissions description": "账户中保存的角色。各看板和资源的访问权限由服务器单独判断。"
 }

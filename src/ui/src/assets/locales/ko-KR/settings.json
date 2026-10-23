@@ -476,5 +476,10 @@
   "Last successful sign-in": "최종 로그인 성공",
   "No recorded sign-in": "로그인 기록 없음",
   "All accounts": "전체 계정",
-  "User list failed": "사용자 목록을 불러오지 못했습니다. 새로고침하여 다시 시도하세요."
+  "User list failed": "사용자 목록을 불러오지 못했습니다. 새로고침하여 다시 시도하세요.",
+  "User details": "사용자 상세",
+  "User ID": "사용자 UID",
+  "User details failed": "사용자 정보를 불러오지 못했습니다. 접근 권한을 확인하고 새로고침하세요.",
+  "Configured permissions": "설정된 권한",
+  "Configured permissions description": "계정에 저장된 역할입니다. 각 보드와 자원의 접근 허용 여부는 서버가 별도로 판정합니다."
 }

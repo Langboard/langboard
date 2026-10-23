@@ -55,6 +55,7 @@ class UserService(BaseDomainService):
         exclude_user_uid: str | None = None,
         sort_by: str = "created_at",
         sort_direction: str = "desc",
+        user_uid: str | None = None,
     ) -> list[dict[str, Any]]:
         users = self.repo.user.get_all_with_profile_in_settings(
             offset=offset,
@@ -65,6 +66,7 @@ class UserService(BaseDomainService):
             exclude_user_uid=exclude_user_uid,
             sort_by=sort_by,
             sort_direction=sort_direction,
+            user_uid=user_uid,
         )
         if not users:
             return []

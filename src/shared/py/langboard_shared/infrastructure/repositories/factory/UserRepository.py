@@ -49,8 +49,11 @@ class UserRepository(BaseRepository[User]):
         *,
         column_filters: dict[str, str] | None = None,
         exclude_user_uid: str | None = None,
+        user_uid: str | None = None,
     ):
         filters = [User.column("deleted_at").is_(None)]
+        if user_uid is not None:
+            filters.append(User.column("id") == SnowflakeID.from_short_code(user_uid))
         if account_status == "active":
             filters.append(User.column("activated_at").is_not(None))
         elif account_status == "inactive":
@@ -110,9 +113,10 @@ class UserRepository(BaseRepository[User]):
         exclude_user_uid: str | None = None,
         sort_by: str = "created_at",
         sort_direction: str = "desc",
+        user_uid: str | None = None,
     ):
         filters = self._settings_filters(
-            query, account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid
+            query, account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid, user_uid=user_uid
         )
         if sort_by not in ("email", "firstname", "lastname", "created_at") or sort_direction not in ("asc", "desc"):
             raise ValueError("Invalid user sort")

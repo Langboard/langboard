@@ -77,6 +77,13 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
         assert service.get_api_list_in_settings(query="%") == []
         assert service.count_in_settings(query="_") == 0
         assert service.get_api_list_in_settings(query=users[3].get_uid()) == []
+        # Detail lookup is an exact ID filter, never a fuzzy text search.
+        with engine.begin() as db:
+            from sqlalchemy import update
+
+            db.execute(update(User).where(User.id == users[1].id).values(username=users[0].get_uid()))
+        assert service.get_api_list_in_settings(user_uid=users[0].get_uid(), limit=1)[0]["uid"] == users[0].get_uid()
+        assert service.get_api_list_in_settings(user_uid=users[3].get_uid(), limit=1) == []
         ascending = service.get_api_list_in_settings(sort_by="email", sort_direction="asc", limit=2)
         assert [row["email"] for row in ascending] == [users[0].email, users[1].email]
         assert (
@@ -162,15 +169,24 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
     access, refresh = AuthSecurity.authenticate(actor.id)
     headers = {"Authorization": f"Bearer {access}"}
     endpoint = "/settings/users/page"
+    detail_endpoint = f"/settings/users/{actor.get_uid()}"
     try:
         with TestClient(app) as client:
             assert client.get(endpoint).status_code == 401
+            assert client.get(detail_endpoint).status_code == 401
             assert client.get(endpoint, headers=headers).status_code == 401
             client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             response = client.get(endpoint, headers=headers, params={"limit": 1, "query": "HTTP"})
             assert response.status_code == 200, response.text
             assert response.json()["total_records"] == 1
             assert response.json()["records"][0]["uid"] == actor.get_uid()
+            detail = client.get(detail_endpoint, headers=headers)
+            assert detail.status_code == 200, detail.text
+            assert detail.json()["user"]["uid"] == actor.get_uid()
+            assert detail.json()["user"]["setting_role_actions"] == ["user_read"]
+            assert detail.json()["user"]["last_signed_in_at"] is None
+            assert not {"password", "session", "access_token", "refresh_token"} & detail.json()["user"].keys()
+            assert client.get("/settings/users/invalid", headers=headers).status_code == 400
             for params in (
                 {"page": 0},
                 {"page": 1000001},
@@ -191,13 +207,16 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             with engine.begin() as db:
                 db.execute(update(SettingRole).where(SettingRole.id == role.id).values(actions=["user_update"]))
             assert client.get(endpoint, headers=headers).status_code == 403
+            assert client.get(detail_endpoint, headers=headers).status_code == 403
             with engine.begin() as db:
                 db.execute(update(SettingRole).where(SettingRole.id == role.id).values(actions=["user_read"]))
                 db.execute(update(User).where(User.id == actor.id).values(is_admin=False))
             assert client.get(endpoint, headers=headers).status_code == 403
+            assert client.get(detail_endpoint, headers=headers).status_code == 403
             with engine.begin() as db:
                 db.execute(update(User).where(User.id == actor.id).values(is_admin=True, activated_at=None))
             assert client.get(endpoint, headers=headers).status_code == 401
+            assert client.get(detail_endpoint, headers=headers).status_code == 401
 
             # Restore the fixture actor, then exercise native mutation routes and repositories.
             with engine.begin() as db:
@@ -259,6 +278,10 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert page.json()["records"][0]["firstname"] == "Changed"
             assert page.json()["records"][0]["account_status"] == "inactive"
             assert page.json()["records"][0]["is_admin"] is False
+            detail = client.get(target_url, headers=headers)
+            assert detail.status_code == 200, detail.text
+            assert detail.json()["user"] == page.json()["records"][0]
+            assert detail.json()["user"]["last_signed_in_at"] is not None
             assert (
                 client.get(
                     endpoint, headers=headers, params={"query": target.get_uid(), "account_status": "active"}
@@ -268,6 +291,7 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert client.delete(f"/settings/users/{actor.get_uid()}", headers=headers).status_code == 409
             deleted = client.delete(target_url, headers=headers)
             assert deleted.status_code == 200, deleted.text
+            assert client.get(target_url, headers=headers).status_code == 404
             assert (
                 client.get(endpoint, headers=headers, params={"query": target.get_uid()}).json()["total_records"] == 0
             )

@@ -476,5 +476,10 @@
   "Last successful sign-in": "Last successful sign-in",
   "No recorded sign-in": "No recorded sign-in",
   "All accounts": "All accounts",
-  "User list failed": "Unable to load users. Refresh to retry."
+  "User list failed": "Unable to load users. Refresh to retry.",
+  "User details": "User details",
+  "User ID": "User ID",
+  "User details failed": "Unable to load this user. Check your access and refresh to retry.",
+  "Configured permissions": "Configured permissions",
+  "Configured permissions description": "Stored account roles. Access to each board or resource is evaluated separately by the server."
 }
