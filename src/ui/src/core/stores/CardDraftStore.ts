@@ -143,6 +143,28 @@ const useCardDraftStore = create(
     }))
 );
 
+// Native storage events carry changes from other tabs. Their committed value
+// supersedes this tab's cached copy when the composer next restores its draft.
+if (typeof window !== "undefined") {
+    const onStorage = (event: StorageEvent) => {
+        if (event.key !== null && !event.key.startsWith(`${DRAFT_PREFIX}:`)) return;
+        try {
+            if (event.storageArea !== localStorage) return;
+        } catch {
+            // A denied storage getter must preserve this tab's in-memory drafts.
+            return;
+        }
+        useCardDraftStore.setState((state) => {
+            if (event.key === null) return { cache: {} };
+            const cache = { ...state.cache };
+            delete cache[event.key];
+            return { cache };
+        });
+    };
+    window.addEventListener("storage", onStorage);
+    import.meta.hot?.dispose(() => window.removeEventListener("storage", onStorage));
+}
+
 export const getCardDraftStore = () => useCardDraftStore.getState();
 
 export default useCardDraftStore;
