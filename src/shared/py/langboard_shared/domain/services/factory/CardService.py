@@ -1467,6 +1467,7 @@ class CardService(BaseDomainService):
             cards.append(
                 {
                     "uid": card.get_uid(),
+                    "visibility": card.visibility,
                     "title": card.title,
                     "description": description if include_work_state else {"content": description},
                     "project_column_name": column.name,

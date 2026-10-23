@@ -101,6 +101,8 @@ def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monke
             assert set(service.get_existing_uids(project, uids, user=member, channel=channel)) == expected
             assert {card.get_uid() for card in service.get_visible_by_project(project, member, channel)} == expected
             found = service.search_context_by_project(project, "SearchProof", user=member, channel=channel)
+            expected_visibility = {card.get_uid(): card.visibility for card in cards}
+            assert all(item["visibility"] == expected_visibility[item["uid"]] for item in found)
             assert {row["uid"] for row in found} == expected
             assert all(row["document_matches"][0]["snippet"] == "SearchProof document" for row in found)
             _, context = service.resolve_visibility_context(project, member, channel)

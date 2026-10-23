@@ -107,6 +107,7 @@ def get_card_bundle(
             "created_at",
             "updated_at",
             "can_delete",
+            "visibility",
             "is_check_card",
             "completed",
             "last_change_seq",
