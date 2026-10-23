@@ -159,10 +159,14 @@ class WorkPlanService:
         project = service.project.get_by_id_like(plan.project_uid)
         if not project:
             raise ValueError("Project is unavailable")
+        # Serialize plans and project changes without blocking child-row FK KEY SHARE checks.
+        # FOR UPDATE can deadlock with a native edit that already holds a card row.
         with DbSession.use(readonly=False) as db:
             if (
                 db.exec(
-                    select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                    select(Project.column("id"))
+                    .where(Project.column("id") == project.id)
+                    .with_for_update(key_share=True)
                 ).first()
                 is None
             ):
@@ -351,7 +355,9 @@ class WorkPlanService:
             if (
                 not project
                 or db.exec(
-                    select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                    select(Project.column("id"))
+                    .where(Project.column("id") == project.id)
+                    .with_for_update(key_share=True)
                 ).first()
                 is None
             ):

@@ -127,6 +127,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_internal_access_mode.py \
       src/api/tests/card_visibility/test_whisper_threads.py \
       src/api/tests/dashboard/test_project_activity_priority.py \
+      src/api/tests/card_workspace/test_work_plan_native_edit_concurrency.py \
       src/api/tests/dashboard/test_board_seen_cursor.py \
       src/api/tests/card_workspace/test_document_mcp_read.py::test_transcription_publication_rechecks_current_primary_binding \
       src/api/tests/card_workspace/test_document_mcp_read.py::test_vector_cleanup_uses_current_primary_binding \

@@ -205,7 +205,7 @@ class CardRelationshipService(BaseDomainService):
         with DbSession.atomic() as db:
             project_id = InfraHelper.convert_id(project)
             current_project = db.exec(
-                SqlBuilder.select.table(Project).where(Project.id == project_id).with_for_update()
+                SqlBuilder.select.table(Project).where(Project.id == project_id).with_for_update(key_share=True)
             ).first()
             if current_project is None or current_project.deleted_at:
                 return None
@@ -365,10 +365,11 @@ class CardRelationshipService(BaseDomainService):
         if anchor_card.project_id != project.id:
             return None
         # Serialize validation and persistence against the project's current graph.
+        # NO KEY UPDATE retains that serialization while allowing child-row FK checks.
         # Nested repository and readiness calls share this transaction.
         with DbSession.atomic() as db:
             project_row = db.exec(
-                select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                select(Project.column("id")).where(Project.column("id") == project.id).with_for_update(key_share=True)
             ).first()
             if project_row is None:
                 return None
