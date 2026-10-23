@@ -270,6 +270,16 @@ def _read_attachment_item(service, current_actor, project, attachment, source, k
             ).first()
         if source is None or source.project_id != project.id:
             return None
+    if kind in {"card", "wiki"}:
+        # Native resolution can overlap a committed replacement or deletion.
+        model, parent = (CardAttachment, "card_id") if kind == "card" else (ProjectWikiAttachment, "project_wiki_id")
+        with DbSession.use(readonly=False) as db:
+            owner = db.exec(
+                SqlBuilder.select.table(model).where(model.id == attachment.id)
+                .execution_options(populate_existing=True)
+            ).first()
+        if owner is None or getattr(owner, parent) != source.id or owner.file != file:
+            return None
     item = _item(owner, project, source, kind)
     if kind == "project":
         item["can_replace"] = service.project_attachment.can_replace(current_actor, project, owner)

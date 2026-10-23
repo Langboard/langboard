@@ -196,3 +196,36 @@ def test_project_stream_is_bounded_and_filtered_pages_continue(cloud, monkeypatc
         assert (params["param_1"] if isinstance(params, dict) else params[-2]) <= 200
     following = read(cloud, view="media", cursor=page["next_cursor"])
     assert [item["name"] for item in following["items"]] == ["photo.png"]
+
+
+@pytest.mark.parametrize("kind", ["card", "wiki"])
+@pytest.mark.parametrize("change", ["deleted", "replaced"])
+@pytest.mark.parametrize("view", ["all", "files"])
+def test_final_native_attachment_resolution_rechecks_committed_version(cloud, monkeypatch, kind, change, view):
+    model, row, owner_service, method = (
+        (CardAttachment, cloud.card_file, cloud.service.card_attachment, "resolve_file_owner")
+        if kind == "card" else
+        (ProjectWikiAttachment, cloud.wiki_file, cloud.service.project_wiki, "resolve_readable_file")
+    )
+    resolver = getattr(owner_service, method)
+    calls = 0
+
+    def changed_after_resolution(*args, **kwargs):
+        nonlocal calls
+        owner = resolver(*args, **kwargs)
+        if owner is not None and owner.id == row.id:
+            calls += 1
+            # First projection succeeds. Replacement/deletion overlaps the final
+            # response check after native resolution returned the previous row.
+            if calls == 2:
+                changes = ({"deleted_at": SafeDateTime.now()} if change == "deleted" else
+                           {"file": row.file.model_copy(update={"filename": "new-version.pdf"})})
+                with cloud.engine.begin() as db:
+                    db.execute(update(model).where(model.id == row.id).values(**changes))
+        return owner
+
+    monkeypatch.setattr(owner_service, method, changed_after_resolution)
+    result = read(cloud, view=view)
+    assert calls == 2
+    assert f"{kind}_attachment:{row.get_uid()}" not in {item["id"] for item in result["items"]}
+    assert result["items"]  # Nearby unaffected native attachments remain visible.
