@@ -11,6 +11,7 @@ interface SocketLease {
 const clients = new WeakMap<
     QueryClient,
     {
+        references: number;
         projects: Map<string, { references: number; off: () => void }>;
         timer?: ReturnType<typeof setTimeout>;
         refreshing?: boolean;
@@ -26,6 +27,7 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
     if (!state) {
         const projects = new Map<string, { references: number; off: () => void }>();
         state = {
+            references: 0,
             projects,
             offBoardRead: () => {},
             offOpen: socket.listenOpen(() => {
@@ -36,8 +38,9 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
         clients.set(client, state);
     }
     const owned = state;
+    owned.references++;
     const refresh = () => {
-        if (clients.get(client) !== owned || !owned.projects.size) return;
+        if (clients.get(client) !== owned || !owned.references) return;
         owned.dirty = true;
         if (owned.timer || owned.refreshing) return;
         // Bounded bursts share one authorized batch read; no per-card fetch or poll.
@@ -50,7 +53,7 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
                 // Let a slow snapshot finish, then read changes that arrived after it started.
                 // Cancel/restart on every event can starve an active dashboard indefinitely.
                 await client.refetchQueries({ queryKey, type: "active", fetchStatus: "fetching" }, { cancelRefetch: false });
-                if (clients.get(client) === owned && owned.projects.size) {
+                if (clients.get(client) === owned && owned.references) {
                     await client.invalidateQueries({ queryKey }, { cancelRefetch: false });
                 }
             } finally {
@@ -84,7 +87,10 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
         }
     }
     if (newUIDs.length) socket.subscribe(newUIDs, refresh);
+    let released = false;
     return () => {
+        if (released) return;
+        released = true;
         const removed: string[] = [];
         for (const uid of new Set(uids)) {
             const current = owned.projects.get(uid);
@@ -94,7 +100,7 @@ export function acquireProjectWorkload(client: QueryClient, uids: string[], sock
             removed.push(uid);
         }
         if (removed.length) socket.unsubscribe(removed);
-        if (!owned.projects.size) {
+        if (!--owned.references) {
             if (owned.timer) clearTimeout(owned.timer);
             owned.offOpen();
             owned.offBoardRead();
