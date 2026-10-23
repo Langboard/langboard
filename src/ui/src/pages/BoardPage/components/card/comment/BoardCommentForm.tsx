@@ -66,6 +66,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     const valueRef = useRef<IEditorContent>({ content: getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid) });
     const setValue = useCallback(
         (value: IEditorContent) => {
+            // An idempotency key belongs to one image-comment payload, including after remount.
+            if (
+                isImageCommentAnchor(pendingAnchorRef.current) &&
+                sanitizeEditorContent(valueRef.current.content) !== sanitizeEditorContent(value.content)
+            ) {
+                requestUIDRef.current = crypto.randomUUID();
+            }
             valueRef.current = value;
             getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
                 content: sanitizeEditorContent(value.content),
@@ -79,6 +86,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     const closeDrawerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const editorName = `${card.uid}-comment-form`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
+    const saveSessionRef = useRef(0);
+    useEffect(() => {
+        saveSessionRef.current++;
+        return () => {
+            saveSessionRef.current++;
+        };
+    }, [currentUser.uid, projectUID, card.uid, isCurrentEditor]);
     useEffect(
         () => () => {
             if (getEditorStore().currentEditor === editorName) getEditorStore().setCurrentEditor(null);
@@ -358,7 +372,10 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             return;
         }
 
-        const content = sanitizeEditorValue(valueRef.current);
+        const submittedValue = valueRef.current;
+        const saveSession = saveSessionRef.current;
+        const submittedRequestUID = requestUIDRef.current;
+        const content = sanitizeEditorValue(submittedValue);
 
         if (isEmptyEditorContent(content.content)) {
             Toast.Add.error(t("card.errors.Comment content cannot be empty."));
@@ -381,6 +398,18 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             },
             {
                 onSuccess: () => {
+                    // A late response belongs only to the submitted draft and editor session.
+                    if (saveSessionRef.current !== saveSession) {
+                        return;
+                    }
+                    if (valueRef.current !== submittedValue) {
+                        // The completed request must not deduplicate the newer image comment.
+                        if (requestUIDRef.current === submittedRequestUID) {
+                            requestUIDRef.current = isImageCommentAnchor(pendingAnchorRef.current) ? crypto.randomUUID() : undefined;
+                            saveDraftToStorage(valueRef.current.content);
+                        }
+                        return;
+                    }
                     setValue({ content: "" });
                     setPendingAnchor(null);
                     pendingAnchorRef.current = null;

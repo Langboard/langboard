@@ -16,7 +16,7 @@ import { getEditorStore } from "@/core/stores/EditorStore";
 import BoardCommentSeen from "./BoardCommentSeen";
 import BoardCommentReaction from "@/pages/BoardPage/components/card/comment/BoardCommentReaction";
 import { IBoardCommentContextParams } from "@/pages/BoardPage/components/card/comment/types";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 function BoardCommentFooter(): React.JSX.Element {
@@ -31,10 +31,17 @@ function BoardCommentFooter(): React.JSX.Element {
 }
 
 function BoardCommentFooterEditButtons() {
-    const { projectUID, card } = useBoardCard();
+    const { projectUID, card, currentUser } = useBoardCard();
     const [t] = useTranslation();
     const { model: comment, params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
     const { valueRef, flushDraftAutosave, cancelDraftAutosave } = params;
+    const saveSessionRef = useRef(0);
+    useEffect(() => {
+        saveSessionRef.current++;
+        return () => {
+            saveSessionRef.current++;
+        };
+    }, [currentUser.uid, projectUID, card.uid, comment.uid]);
     const [isValidating, setIsValidating] = useState(false);
     const setValue = (value: IEditorContent) => {
         valueRef.current = value;
@@ -58,7 +65,9 @@ function BoardCommentFooterEditButtons() {
         // submit still leaves the latest content recoverable.
         flushDraftAutosave();
 
-        const content = sanitizeEditorValue(valueRef.current);
+        const submittedValue = valueRef.current;
+        const saveSession = saveSessionRef.current;
+        const content = sanitizeEditorValue(submittedValue);
 
         if (isEmptyEditorContent(content.content)) {
             Toast.Add.error(t("card.errors.Comment content cannot be empty."));
@@ -83,7 +92,9 @@ function BoardCommentFooterEditButtons() {
                 onSuccess: () => {
                     comment.content = content;
                     Toast.Add.success(t("successes.Comment updated successfully."));
-                    cancelEditing();
+                    if (saveSessionRef.current === saveSession && valueRef.current === submittedValue) {
+                        cancelEditing();
+                    }
                 },
                 onError: (error) => {
                     const { handle } = setupApiErrorHandler({});
