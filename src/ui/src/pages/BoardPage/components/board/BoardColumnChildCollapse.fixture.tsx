@@ -3,7 +3,7 @@ import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 import { useCallback, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, Project, ProjectCard, ProjectColumn } from "@/core/models";
 import { AuthProvider, useAuth } from "@/core/providers/AuthProvider";
@@ -131,13 +131,23 @@ function OtherColumnList() {
         </div>
     );
 }
+const interactions = { dragStarts: 0, dragEnds: 0 };
+document.addEventListener("dragstart", () => {
+    interactions.dragStarts++;
+});
+document.addEventListener("dragend", () => {
+    interactions.dragEnds++;
+});
+Object.assign(window, { collapseInteractions: interactions });
 function List() {
+    const location = useLocation();
     const scrollableRef = useRef<HTMLDivElement>(null);
     const [count, setCount] = useState(0);
     const { mode, setMode } = useColumnCardSort(boardUID, column.uid);
     const updateBoard = useCallback(() => {}, []);
     return (
         <>
+            <output data-testid="location">{location.pathname + location.search}</output>
             <p data-testid="count">{count}</p>
             <select aria-label="Sort cards" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
                 <option value="manual">Manual</option>

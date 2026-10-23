@@ -176,3 +176,82 @@ test("native relationship sync updates hidden counts and semantic grouping under
     await expect(row(page, "unrelated")).toHaveCount(0);
     expect(await saved(page)).toEqual(before);
 });
+
+for (const width of [1000, 390]) {
+    for (const theme of ["light", "dark"]) {
+        test(`collapse control keyboard and touch preserve card focus and body at ${width}px ${theme}`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 800 });
+            await page.goto(fixture);
+            await page.evaluate((theme) => document.documentElement.classList.toggle("dark", theme === "dark"), theme);
+            const root = control(page, "root");
+            await expect(root).toHaveText("4");
+            const body = page.locator("#board-card-root");
+            const bodyHeight = await body.evaluate((node) => node.getBoundingClientRect().height);
+            const initialModels = await snapshot(page);
+            // Reach the control through real Tab navigation rather than programmatic focus.
+            await page.getByRole("button", { name: "Measure grandchild" }).focus();
+            for (let attempt = 0; attempt < 20 && !(await root.evaluate((node) => node === document.activeElement)); attempt++) {
+                await page.keyboard.press("Tab");
+            }
+            await expect(root).toBeFocused();
+            await page.keyboard.press("Enter");
+            await expect(root).toHaveAttribute("aria-expanded", "false");
+            await expect(root).toBeFocused();
+            await expect(row(page, "child")).toHaveCount(0);
+            await page.keyboard.press("Space");
+            await expect(root).toHaveAttribute("aria-expanded", "true");
+            await expect(root).toBeFocused();
+            await expect(row(page, "grandchild")).toHaveCount(1);
+            await control(page, "child").tap();
+            await root.tap();
+            await expect(row(page, "child")).toHaveCount(0);
+            await root.tap();
+            await expect(control(page, "child")).toHaveAttribute("aria-expanded", "false");
+            await expect(root).toBeFocused();
+            await expect(row(page, "grandchild")).toHaveCount(0);
+            await expect(page.getByTestId("location")).toHaveText("/board/board");
+            expect(await body.evaluate((node) => node.getBoundingClientRect().height)).toBe(bodyHeight);
+            expect(await snapshot(page)).toEqual(initialModels);
+            expect(
+                await page.evaluate(() => (window as unknown as { collapseInteractions: { dragStarts: number } }).collapseInteractions.dragStarts)
+            ).toBe(0);
+            expect(
+                await root.evaluate((node) => {
+                    const rect = node.getBoundingClientRect();
+                    const style = getComputedStyle(node);
+                    return rect.width > 0 && rect.height > 0 && style.visibility === "visible" && Number(style.opacity) > 0;
+                })
+            ).toBe(true);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await page.screenshot({ path: `/tmp/langboard-child-collapse-${width}-${theme}.png`, fullPage: true });
+        });
+    }
+}
+
+test("native physical drag remains available on the card and is suppressed on its collapse control", async ({ page }) => {
+    await page.goto(fixture);
+    const root = control(page, "root");
+    await expect(root).toHaveText("4");
+    const initialModels = await snapshot(page);
+    const dragFrom = async (x: number, y: number) => {
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 65, y + 35, { steps: 12 });
+        await page.mouse.up();
+    };
+    // Blank title-header space is part of the actual registered draggable card.
+    const body = await page.locator("#board-card-root").boundingBox();
+    expect(body).not.toBeNull();
+    await dragFrom(body!.x + body!.width - 25, body!.y + 20);
+    await expect
+        .poll(() => page.evaluate(() => (window as unknown as { collapseInteractions: { dragStarts: number } }).collapseInteractions.dragStarts))
+        .toBe(1);
+    const button = await root.boundingBox();
+    expect(button).not.toBeNull();
+    await dragFrom(button!.x + button!.width / 2, button!.y + button!.height / 2);
+    expect(await page.evaluate(() => (window as unknown as { collapseInteractions: { dragStarts: number } }).collapseInteractions.dragStarts)).toBe(
+        1
+    );
+    expect(await snapshot(page)).toEqual(initialModels);
+    await expect(page.getByTestId("location")).toHaveText("/board/board");
+});

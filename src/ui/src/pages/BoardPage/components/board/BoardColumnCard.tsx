@@ -228,7 +228,12 @@ function BoardColumnCardDisplay({
                                 className="h-7 gap-1 px-2"
                                 aria-expanded={childrenExpanded}
                                 aria-label={t(childrenExpanded ? "board.Collapse child cards" : "board.Expand child cards", { count: childCount })}
-                                onPointerDown={(event) => event.stopPropagation()}
+                                onPointerDown={(event) => {
+                                    // Suppress native dragging inherited from the card while retaining control focus.
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    event.currentTarget.focus({ preventScroll: true });
+                                }}
                                 onKeyDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                     event.preventDefault();
