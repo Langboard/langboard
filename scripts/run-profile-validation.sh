@@ -15,6 +15,7 @@ case "$profile" in
       src/api/tests/runtime/test_external_redis_compose.py \
       src/api/tests/runtime/test_external_postgres_compose.py \
       src/api/tests/runtime/test_quickstart_powershell.py \
+      src/api/tests/runtime/test_quickstart_bash.py \
       src/api/tests/runtime/test_kafka_healthcheck_compose.py \
       src/api/tests/runtime/test_external_phoenix_compose.py \
       src/api/tests/runtime/test_prebuilt_compose.py \
