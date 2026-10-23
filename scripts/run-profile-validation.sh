@@ -27,6 +27,7 @@ case "$profile" in
       src/api/tests/identity/test_employee_membership_settings.py \
       src/api/tests/identity/test_account_revocation_auth.py \
       src/api/tests/identity/test_user_settings_sign_in_history.py \
+      src/api/tests/scim/test_group_identity.py \
       src/api/tests/card_workspace/test_board_creator_projection.py \
       src/api/tests/card_workspace/test_graph_creation_authority.py \
       src/api/tests/card_visibility/test_card_timeline.py \

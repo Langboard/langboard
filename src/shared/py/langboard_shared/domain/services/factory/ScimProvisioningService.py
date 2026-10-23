@@ -453,11 +453,9 @@ class ScimProvisioningService(BaseDomainService):
 
     def create_or_upsert_group(self, payload: dict[str, Any]) -> ScimGroup:
         external_id = self._extract_external_id(payload)
-        display_name = self._extract_display_name(payload)
 
+        # Names are mutable labels; matching one must not replace another group's members or identity.
         group = self.repo.scim_group.get_by_external_id(external_id) if external_id else None
-        if not group and display_name:
-            group = self.repo.scim_group.get_by_display_name(display_name)
 
         if group:
             self.apply_group_mutations(group, payload)
