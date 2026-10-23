@@ -866,7 +866,7 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
         db.insert(other_binding)
         other_resource = AppResourceBinding(
             board_binding_id=other_binding.id, connection_id=other_connection.id,
-            resource_type="project", external_resource_id="2", access_state="granted",
+            resource_type="project", external_resource_id="2", access_state="granted", is_selected=True,
             resource_path=[{"type": "organization", "id": "test-org"},
                            {"type": "project", "id": "2", "slug": "test-project"}],
         )
@@ -898,6 +898,15 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             headers = {"Authorization": f"Bearer {access}"}
             visible = list_board_signals(service, state[1][1], state[1][2].get_uid())
             assert {item["provider"] for item in visible["items"]} == {"github", "glitchtip"}
+            with DbSession.atomic() as db:
+                other_resource.is_selected = False
+                db.update(other_resource)
+            assert {item["provider"] for item in inbox(scoped)["items"]} == {"github"}
+            with DbSession.atomic() as db:
+                assert db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.id == other_signal.id)).first() is not None
+                other_resource.is_selected = True
+                db.update(other_resource)
+            assert {item["provider"] for item in inbox(scoped)["items"]} == {"github", "glitchtip"}
             result = client.post(path, json=form, headers=headers)
             assert result.status_code == 200, result.text
             items = result.json()["items"]

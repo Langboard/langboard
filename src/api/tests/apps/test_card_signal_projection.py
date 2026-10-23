@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import Card, CardAppSignalBinding, Organization
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
 from sqlalchemy import event
@@ -295,14 +295,17 @@ def test_signal_evidence_requires_current_connection_organization(scoped, owners
     state, card, _, _ = scoped
     send(state)
     with DbSession.atomic() as db:
-        organization = Organization(name="Signal scope", slug="signal-scope", owner_user_id=state[1][1].id)
-        db.insert(organization)
         project, connection = state[1][2], state[2]
-        project.organization_id = organization.id
-        connection.ownership = "organization"
-        connection.organization_id = organization.id
+        organization = db.exec(SqlBuilder.select.table(Organization).where(
+            Organization.id == connection.organization_id,
+        )).first()
+        assert organization is not None and organization.is_active
+        assert project.organization_id == organization.id and connection.ownership == "organization"
         if ownership == "foreign":
-            project.organization_id = None
+            foreign = Organization(name="Foreign scope", slug="foreign-scope", owner_user_id=state[1][1].id,
+                                   is_active=False)
+            db.insert(foreign)
+            project.organization_id = foreign.id
         elif ownership == "inactive":
             organization.is_active = False
         elif ownership == "suspended":
@@ -325,8 +328,10 @@ def test_native_nonpersonal_secret_scope_and_revocation(scoped, scope):
     owner_scope = state[1][2]
     if scope == "workspace":
         with DbSession.use(readonly=False) as db:
-            owner_scope = Organization(name="Fixture", slug="fixture", owner_user_id=actor.id)
-            db.insert(owner_scope)
+            owner_scope = db.exec(SqlBuilder.select.table(Organization).where(
+                Organization.id == state[1][2].organization_id,
+            )).first()
+            assert owner_scope is not None and owner_scope.owner_user_id == actor.id
     meta = state[0].secret_reference.create(actor, scope, owner_scope.get_uid(), "github/scoped", SecretStr("fixture"))
     with DbSession.use(readonly=False) as db:
         state[2].credential_reference = meta["uri"]
@@ -631,9 +636,10 @@ def test_card_resource_discovery_is_read_scoped_and_batched(scoped):
     with pytest.raises(ValueError):
         list_card_resources(service, reader, state[1][2].get_uid(), card.get_uid(), state[4].get_uid())
     with DbSession.use(readonly=False) as db:
-        organization = Organization(name="Resource discovery", slug="resource-discovery", owner_user_id=state[1][1].id)
-        db.insert(organization)
-        state[1][2].organization_id = organization.id
+        organization = db.exec(SqlBuilder.select.table(Organization).where(
+            Organization.id == state[1][2].organization_id,
+        )).first()
+        assert organization is not None and organization.is_active
         state[2].ownership = "organization"
         state[2].organization_id = organization.id
         db.update(state[1][2])
