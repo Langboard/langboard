@@ -126,7 +126,7 @@ jobs:
       - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardContentBlockService_batch_test.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService_batch_test.py src/api/tests/card_workspace/test_commands.py src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_completion_checklist_service.py src/api/tests/card_workspace/test_graph_patch_route.py src/api/tests/card_workspace/test_card_relationship_concurrency.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_native_adapter.py src/api/tests/workflow_stages/test_work_queries.py src/api/tests/card_workspace/test_safe_datetime.py
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/timers/
-      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_checklist_projection.py src/api/tests/card_workspace/test_native_adapter.py -k checklist_projection
+      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_checklist_projection.py -k checklist_projection
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_linked_wikis.py
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_recent_card_availability.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py src/api/tests/card_visibility/test_search_source_scope.py
 
