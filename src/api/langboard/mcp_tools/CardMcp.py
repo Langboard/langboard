@@ -1715,16 +1715,17 @@ def set_card_people_and_labels(
         unknown = next((uid for uid in normalized["label_uids"] if uid not in available), None)
         if unknown:
             raise ValueError(f"Unknown label: {unknown}")
-    result: dict[str, Any] = {}
-    if assign_user_uids is not None:
-        users = service.card.update_assigned_users(user_or_bot, project, card, normalized["assign_user_uids"])
-        if users is None:
-            raise RuntimeError("Validated member replacement failed")
-        result["member_uids"] = [user.get_uid() for user in users]
-    if label_uids is not None:
-        if not service.card.update_labels(user_or_bot, project, card, normalized["label_uids"]):
-            raise RuntimeError("Validated label replacement failed")
-        result["labels"] = [public_label(label) for label in service.project_label.get_api_list_by_card(card)]
+    with DbSession.atomic():
+        result: dict[str, Any] = {}
+        if assign_user_uids is not None:
+            users = service.card.update_assigned_users(user_or_bot, project, card, normalized["assign_user_uids"])
+            if users is None:
+                raise RuntimeError("Validated member replacement failed")
+            result["member_uids"] = [user.get_uid() for user in users]
+        if label_uids is not None:
+            if not service.card.update_labels(user_or_bot, project, card, normalized["label_uids"]):
+                raise RuntimeError("Validated label replacement failed")
+            result["labels"] = [public_label(label) for label in service.project_label.get_api_list_by_card(card)]
     return result
 
 
