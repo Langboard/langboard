@@ -301,6 +301,7 @@ function CodeDrawingToolbar({
     onDrawingTypeChange: (type: CodeDrawingType) => void;
     onDrawingModeChange: (mode: ViewMode) => void;
 }) {
+    const [t] = useTranslation();
     const [toolbarVisible, setToolbarVisible] = React.useState(false);
     const [languageSelectOpen, setLanguageSelectOpen] = React.useState(false);
     const [viewModeSelectOpen, setViewModeSelectOpen] = React.useState(false);
@@ -367,7 +368,7 @@ function CodeDrawingToolbar({
                     >
                         {VIEW_MODE_ARRAY.map((item) => (
                             <Select.Item key={item.value} value={item.value}>
-                                {item.label}
+                                {t(`editor.${item.value}`)}
                             </Select.Item>
                         ))}
                     </Select.Content>

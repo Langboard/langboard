@@ -20,7 +20,7 @@ from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.models.InternalBotRun import InternalBotRunKind, InternalBotRunStatus
 from langboard_shared.domain.services.factory.GraphApprovalRequestService import GraphApprovalRequestService
 from langboard_shared.infrastructure.repositories.factory.InternalBotRunRepository import InternalBotRunRepository
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, inspect, update
 from sqlalchemy.pool import StaticPool
 
 
@@ -40,12 +40,26 @@ def native(request, monkeypatch):
         for x in (
             m.User,
             m.Project,
+            m.SettingRole,
+            m.ScimGroup,
+            m.ScimGroupMember,
+            m.ProjectRole,
+            m.ProjectAssignedUser,
+            m.BoardTeam,
+            m.BoardTeamMember,
+            m.Card,
+            m.EmployeeMembershipPolicy,
+            m.UserIdentityLink,
+            m.DecisionCase,
+            m.DecisionOption,
+            m.DecisionResponse,
             m.InternalBot,
             m.InternalBotRun,
             m.GraphApprovalRequest,
             m.EditorGraphApprovalRequest,
         )
     }
+    existing = set(inspect(engine).get_table_names())
     pending = list(required)
     while pending:
         for fk in pending.pop().foreign_keys:
@@ -121,7 +135,10 @@ def native(request, monkeypatch):
     approval = prepared.prepare_editor_interrupt(run, interrupt)
     assert repo.pause_editor(run.id, 1, "", interrupt, approval)
     yield engine, repo, run, approval, user, project, interrupt
-    m.User.metadata.drop_all(engine, tables=list(required))
+    # Derived fixtures add approval and lifecycle tables referencing these rows.
+    created = set(inspect(engine).get_table_names()) - existing
+    owned = [table for table in m.User.metadata.sorted_tables if table.name in created]
+    m.User.metadata.drop_all(engine, tables=owned)
     engine.dispose()
 
 

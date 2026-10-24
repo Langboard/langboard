@@ -23,6 +23,7 @@ on:
       - src/api/langboard/routes/board/forms/Wiki.py
       - src/api/langboard/routes/editor/EditorSyncApi.py
       - src/api/langboard/routes/auth/SocketAuthorization.py
+      - src/socket/**
       - src/api/langboard/middlewares/CollaborativeEditMiddleware.py
       - src/api/langboard/mcp_tools/WikiMcp.py
       - src/api/langboard/mcp_tools/WikiActionsMcp.py

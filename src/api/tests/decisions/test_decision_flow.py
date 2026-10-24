@@ -23,7 +23,7 @@ from langboard_shared.domain.services.DecisionFlow import (
 )
 from langboard_shared.Env import Env
 from pydantic import ValidationError
-from sqlalchemy import create_engine, event, select, update
+from sqlalchemy import create_engine, event, inspect, select, update
 
 
 def upgrade_actor_delta(connection):
@@ -48,6 +48,7 @@ def native(tmp_path, monkeypatch, request):
         engine = create_engine(url, connect_args={"client_encoding": "utf8"})
     else:
         engine = create_engine(f"sqlite:///{tmp_path / 'decisions.sqlite'}", connect_args={"timeout": 10})
+    existing = set(inspect(engine).get_table_names())
     required = {
         model.__table__
         for model in (
@@ -55,9 +56,13 @@ def native(tmp_path, monkeypatch, request):
             m.Project,
             m.ProjectAssignedUser,
             m.ProjectRole,
+            m.SettingRole,
+            m.BoardTeam,
+            m.BoardTeamMember,
             m.Card,
             m.ProjectColumn,
             m.DecisionCase,
+            m.DecisionOption,
             m.DecisionResponse,
             m.EmployeeMembershipPolicy,
             m.UserIdentityLink,
@@ -110,7 +115,10 @@ def native(tmp_path, monkeypatch, request):
     flow = DecisionFlow(service)
     yield engine, flow, users, board, foreign, card
     service.close()
-    m.User.metadata.drop_all(engine, tables=list(required))
+    # Derived fixtures add approval and lifecycle tables referencing these rows.
+    created = set(inspect(engine).get_table_names()) - existing
+    owned = [table for table in m.User.metadata.sorted_tables if table.name in created]
+    m.User.metadata.drop_all(engine, tables=owned)
     engine.dispose()
 
 

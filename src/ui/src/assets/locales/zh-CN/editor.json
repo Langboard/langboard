@@ -183,5 +183,6 @@
     }
   },
   "Auto": "自动",
-  "Plain Text": "纯文本"
+  "Plain Text": "纯文本",
+  "Both": "代码和图片"
 }
