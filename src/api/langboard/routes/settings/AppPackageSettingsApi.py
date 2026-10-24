@@ -19,6 +19,7 @@ from langboard_shared.domain.services.AppRegistry import _admin, list_definition
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
 from pydantic import Field
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 from ...apps.AppPackageInstallation import install_package, package_for_asset
 from ...apps.OfficialAppPackages import OFFICIAL_APPS, download_official_package
@@ -109,7 +110,7 @@ async def upload_package(
     if expected_revision is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     body = await file.read(MAX_PACKAGE_BYTES + 1)
-    return JsonResponse(content={"app": _run(install_package, user, body, expected_revision)})
+    return JsonResponse(content={"app": await run_in_threadpool(_run, install_package, user, body, expected_revision)})
 
 
 @form_model
@@ -247,7 +248,8 @@ async def request_manual_package(
     body = await file.read(MAX_PACKAGE_BYTES + 1)
     return JsonResponse(
         content={
-            "request": _request_run(
+            "request": await run_in_threadpool(
+                _request_run,
                 submit_request,
                 user,
                 request_key,
