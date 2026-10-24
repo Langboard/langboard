@@ -16,6 +16,7 @@ class ProjectCollection(BaseModel):
     uid: str = Field(min_length=36, max_length=36, strict=True)
     name: str = Field(min_length=1, max_length=100, strict=True)
     board_uids: list[str] = Field(max_length=128)
+    starred: bool = Field(default=False, strict=True)
 
     @field_validator("uid")
     @classmethod
@@ -76,4 +77,7 @@ def project_collections(actor, *, collections=None, expected_revision=None):
             else:
                 db.insert(UserProjectCollection(user_id=actor.id, collections=collections))
             return {"revision": expected_revision + 1, "collections": collections}
-        return {"revision": revision, "collections": row.collections if row else []}
+        return {
+            "revision": revision,
+            "collections": [ProjectCollection.model_validate(item).model_dump() for item in row.collections] if row else [],
+        }

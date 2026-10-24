@@ -49,7 +49,7 @@ for (const [width, commitBeforeFailure] of [
         expect(creates).toBe(1);
         expect(puts).toBe(2);
         expect(saved.collections).toEqual([
-            { uid: expect.any(String), name: "ERP project", board_uids: ["00000000001", "00000000002", "00000000003"] },
+            { uid: expect.any(String), name: "ERP project", board_uids: ["00000000001", "00000000002", "00000000003"], starred: false },
         ]);
         await page.reload();
         await expect(page.locator("output")).toContainText("ERP project");
@@ -123,7 +123,10 @@ test("a revision conflict refreshes existing collections before retrying the sam
     await expect(page.locator("output")).toHaveAttribute("data-busy", "false");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    expect(saved.collections).toEqual([other, { uid: expect.any(String), name: "My draft", board_uids: ["00000000001"] }]);
+    expect(saved.collections).toEqual([
+        { ...other, starred: false },
+        { uid: expect.any(String), name: "My draft", board_uids: ["00000000001"], starred: false },
+    ]);
     expect(puts).toBe(2);
 });
 

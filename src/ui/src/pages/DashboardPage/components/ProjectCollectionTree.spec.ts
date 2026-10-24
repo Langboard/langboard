@@ -342,3 +342,101 @@ for (const touch of [false, true]) {
         });
     });
 }
+
+for (const touch of [false, true]) {
+    test.describe(`${touch ? "touch" : "desktop"} collection favorites in production Explorer`, () => {
+        test.use({ hasTouch: touch, viewport: { width: touch ? 390 : 1280, height: 950 } });
+        test("collection and source-board favorites persist independently and appear once", async ({ page }) => {
+            let saved = {
+                revision: 4,
+                collections: [
+                    { uid: first, name: "Hidden collection", board_uids: [] as string[], starred: false },
+                    { uid: second, name: "Favorite collection group", board_uids: ["00000000001"], starred: false },
+                ],
+            };
+            let boardStarred = false;
+            let collectionWrites = 0;
+            let boardWrites = 0;
+            await page.route("**/account/project-collections", (route) => {
+                if (route.request().method() === "PUT") {
+                    const input = route.request().postDataJSON();
+                    expect(input.expected_revision).toBe(saved.revision);
+                    expect(input.collections.map((item: { uid: string }) => item.uid)).toEqual([first, second]);
+                    saved = { revision: saved.revision + 1, collections: input.collections };
+                    collectionWrites++;
+                }
+                return route.fulfill({ json: saved });
+            });
+            await page.route("**/dashboard/projects", (route) =>
+                route.fulfill({
+                    json: {
+                        projects: [
+                            {
+                                uid: "00000000001",
+                                title: "Zulu",
+                                starred: boardStarred,
+                                project_type: "Other",
+                                owner_uid: "collection-tree",
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString(),
+                                all_members: [],
+                                current_auth_role_actions: [],
+                            },
+                        ],
+                        columns: [],
+                    },
+                })
+            );
+            await page.route("**/dashboard/projects/*/star", (route) => {
+                boardStarred = !boardStarred;
+                boardWrites++;
+                return route.fulfill({ json: {} });
+            });
+            const invoke = async (button: import("@playwright/test").Locator) => {
+                if (touch) await button.tap();
+                else {
+                    await button.focus();
+                    await page.keyboard.press("Enter");
+                }
+            };
+            await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html?explorer");
+            const explorer = page.getByRole("navigation", { name: "Explorer", exact: true });
+            const projects = explorer.getByRole("region", { name: "Projects", exact: true });
+            const favorites = explorer.getByRole("region", { name: "Favorites", exact: true });
+            const row = (section: import("@playwright/test").Locator) =>
+                section.getByRole("treeitem").filter({
+                    has: page.getByRole("button", { name: "Favorite collection group", exact: true }),
+                });
+            await expect(projects.getByRole("button", { name: "Favorite collection group", exact: true })).toBeVisible();
+            await expect(favorites).toHaveCount(0);
+            await invoke(row(projects).getByRole("button", { name: "Favorite collection", exact: true }));
+            await expect(row(favorites)).toHaveCount(1);
+            await expect(row(favorites).getByRole("button", { name: "Favorite collection", exact: true })).toHaveAttribute("aria-pressed", "true");
+            expect(boardWrites).toBe(0);
+            expect(saved.collections[0].starred).toBe(false);
+            await expect(favorites.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(0);
+            await invoke(projects.getByRole("button", { name: "Favorite collection group", exact: true }));
+            const boardFavorite = projects.getByRole("tree").getByRole("button", { name: "Favorites", exact: true });
+            await invoke(boardFavorite);
+            await expect(boardFavorite).toHaveAttribute("aria-pressed", "true");
+            await expect(favorites.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(1);
+            expect(collectionWrites).toBe(1);
+            expect(saved.collections[1].starred).toBe(true);
+            await page.reload();
+            await expect(row(favorites)).toHaveCount(1);
+            await expect(favorites.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(1);
+            await invoke(row(favorites).getByRole("button", { name: "Favorite collection", exact: true }));
+            await expect(row(favorites)).toHaveCount(0);
+            await expect(favorites.getByRole("button", { name: "Zulu", exact: true })).toHaveCount(1);
+            expect(boardWrites).toBe(1);
+            await invoke(projects.getByRole("button", { name: "Favorite collection group", exact: true }));
+            await invoke(boardFavorite);
+            await expect(favorites).toHaveCount(0);
+            expect(collectionWrites).toBe(2);
+            expect(saved.collections[1].board_uids).toEqual(["00000000001"]);
+            await page.reload();
+            await expect(projects.getByRole("button", { name: "Favorite collection group", exact: true })).toBeVisible();
+            await expect(favorites).toHaveCount(0);
+        });
+    });
+}

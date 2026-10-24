@@ -51,7 +51,7 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
     access, refresh = AuthSecurity.authenticate(actor.id)
     headers = {"Authorization": f"Bearer {access}"}
     endpoint = "/account/project-collections"
-    collection = {"uid": str(uuid4()), "name": "ERP", "board_uids": [project.get_uid()]}
+    collection = {"uid": str(uuid4()), "name": "ERP", "board_uids": [project.get_uid()], "starred": False}
     with TestClient(app) as client:
         assert client.get(endpoint).status_code == 401
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
@@ -81,6 +81,7 @@ def test_collection_persistence_isolation_authority_revision_and_migration(board
             {"expected_revision": 1, "collections": [{**collection, "name": " "}]},
             {"expected_revision": 1, "collections": [{**collection, "uid": "not-a-uuid"}]},
             {"expected_revision": 1, "collections": [{**collection, "title": "forbidden"}]},
+            *({"expected_revision": 1, "collections": [{**collection, "starred": value}]} for value in (1, "true", None)),
             {"expected_revision": 1, "collections": [collection], "user_id": 2},
         ):
             assert client.put(endpoint, json=invalid, headers=headers).status_code in (400, 422)
@@ -193,7 +194,7 @@ def test_native_source_creation_survives_collection_save_rollback_and_retry(boar
         snapshot = source_snapshot()
         source = next(row for row in snapshot["project"] if row.id == SnowflakeID.from_short_code(source_uid))
         assert source.title == "Created source" and source.description == "Keep original body"
-        collection = {"uid": str(uuid4()), "name": "Personal source", "board_uids": [source_uid]}
+        collection = {"uid": str(uuid4()), "name": "Personal source", "board_uids": [source_uid], "starred": False}
         payload = {"expected_revision": 0, "collections": [collection]}
         original_insert = DbSession.insert
 
@@ -215,3 +216,60 @@ def test_native_source_creation_survives_collection_save_rollback_and_retry(boar
         assert client.put(endpoint, json=payload, headers=headers).status_code == 409
         assert client.get(endpoint, headers=headers).json() == saved.json()
         assert source_snapshot() == snapshot
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_collection_favorite_normalizes_history_without_rewrite_and_is_independent(board, monkeypatch):
+    import langboard.routes.dashboard.DashboardApi  # noqa: F401
+    from langboard_shared.domain.models import UserProjectCollection
+
+    _, actor, project, _, role, *_ = board
+    engine = DbEngine.get_main_engine()
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    UserProjectCollection.__table__.create(engine)
+    historical = {"uid": str(uuid4()), "name": "Historical", "board_uids": [project.get_uid()]}
+    empty = {"uid": str(uuid4()), "name": "Empty", "board_uids": []}
+    with DbSession.atomic() as db:
+        db.insert(UserProjectCollection(user_id=actor.id, collections=[historical, empty], revision=7))
+
+    def snapshot(model):
+        with engine.connect() as connection:
+            return connection.execute(select(model.__table__)).all()
+
+    raw = snapshot(UserProjectCollection)
+    boards = snapshot(Project)
+    board_favorites = snapshot(ProjectAssignedUser)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    headers = {"Authorization": f"Bearer {access}"}
+    endpoint = "/account/project-collections"
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        normalized = [{**item, "starred": False} for item in (historical, empty)]
+        assert client.get(endpoint, headers=headers).json() == {"revision": 7, "collections": normalized}
+        assert snapshot(UserProjectCollection) == raw
+        starred = [{**historical, "starred": True}, empty]
+        saved = client.put(endpoint, headers=headers, json={"expected_revision": 7, "collections": starred})
+        assert saved.status_code == 200, saved.text
+        normalized[0]["starred"] = True
+        assert saved.json() == {"revision": 8, "collections": normalized}
+        assert client.get(endpoint, headers=headers).json() == saved.json()
+        assert snapshot(UserProjectCollection)[0].collections == normalized
+        assert snapshot(Project) == boards
+        assert snapshot(ProjectAssignedUser) == board_favorites
+        assert client.put(f"/dashboard/projects/{project.get_uid()}/star", headers=headers).status_code == 200
+        assert snapshot(ProjectAssignedUser)[0].starred is True
+        assert client.get(endpoint, headers=headers).json() == saved.json()
+        assert client.put(endpoint, headers=headers, json={"expected_revision": 7, "collections": []}).status_code == 409
+        # Revocation restricts board actions, while the owner may unfavorite the personal collection.
+        with DbSession.atomic() as db:
+            db.delete(role)
+        normalized[0]["starred"] = False
+        unfavorited = client.put(endpoint, headers=headers, json={"expected_revision": 8, "collections": normalized})
+        assert unfavorited.status_code == 200, unfavorited.text
+        assert unfavorited.json() == {"revision": 9, "collections": normalized}
+        assert snapshot(Project) == boards
+        assert client.get(endpoint, headers=headers).json() == unfavorited.json()
+        assert snapshot(ProjectAssignedUser)[0].starred is True

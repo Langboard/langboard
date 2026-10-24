@@ -214,5 +214,6 @@
   "All work": "すべての作業",
   "Work shown": "全{{total}}件中{{shown}}件の作業",
   "Load more work": "作業をさらに表示",
-  "Unread board cards": "ボードの未読カード {{count}} 件"
+  "Unread board cards": "ボードの未読カード {{count}} 件",
+  "Favorite collection": "コレクションをお気に入りに登録"
 }

@@ -7,6 +7,7 @@ export interface ProjectCollection {
     uid: string;
     name: string;
     board_uids: string[];
+    starred?: boolean;
 }
 interface CollectionReceipt {
     revision: number;
@@ -22,9 +23,10 @@ function receipt(value: CollectionReceipt): CollectionReceipt {
     for (const item of value.collections) {
         if (!item || typeof item.uid !== "string" || typeof item.name !== "string" || !item.name.trim() || !Array.isArray(item.board_uids))
             throw new Error("Invalid project collection");
+        if (item.starred !== undefined && typeof item.starred !== "boolean") throw new Error("Invalid collection favorite");
         if (item.board_uids.some((uid) => typeof uid !== "string" || !/^[a-zA-Z0-9]{11}$/.test(uid))) throw new Error("Invalid board reference");
     }
-    return value;
+    return { ...value, collections: value.collections.map((item) => ({ ...item, starred: item.starred ?? false })) };
 }
 
 export default function useProjectCollections(userUID: string) {
@@ -76,7 +78,11 @@ export default function useProjectCollections(userUID: string) {
         save: async (collections: ProjectCollection[]) => {
             if (!userUID || lock.current || query.isFetching || !query.data) throw new Error("Project collections are not ready");
             lock.current = true;
-            return mutation.mutateAsync({ userUID, revision: query.data.revision, collections });
+            return mutation.mutateAsync({
+                userUID,
+                revision: query.data.revision,
+                collections: collections.map((item) => ({ ...item, starred: item.starred ?? false })),
+            });
         },
     };
 }

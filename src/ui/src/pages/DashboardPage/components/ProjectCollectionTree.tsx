@@ -22,6 +22,7 @@ interface CollectionNode {
 interface Props {
     collections: ProjectCollection[];
     projects: Project.TModel[];
+    visibleCollectionUIDs?: string[];
     busy: boolean;
     save: (items: ProjectCollection[]) => Promise<unknown>;
     navigate: (uid: string) => void;
@@ -33,27 +34,29 @@ export default function ProjectCollectionTree(props: Props) {
         </SharedDndProvider>
     );
 }
-function CollectionTree({ collections, projects, busy, save, navigate }: Props) {
+function CollectionTree({ collections, projects, busy, save, navigate, visibleCollectionUIDs }: Props) {
     const [t] = useTranslation();
     const manager = useDragDropManager();
     const [failed, setFailed] = useState(false);
     const projectMap = useMemo(() => new Map(projects.map((project) => [project.uid, project])), [projects]);
     const data = useMemo(
         () =>
-            collections.map(
-                (collection): CollectionNode => ({
-                    id: collection.uid,
-                    name: collection.name,
-                    collectionUID: collection.uid,
-                    children: collection.board_uids.map((uid) => ({
-                        id: `${collection.uid}:${uid}`,
-                        name: projectMap.get(uid)?.title ?? t("dashboard.Board unavailable"),
+            collections
+                .filter((item) => !visibleCollectionUIDs || visibleCollectionUIDs.includes(item.uid))
+                .map(
+                    (collection): CollectionNode => ({
+                        id: collection.uid,
+                        name: collection.name,
                         collectionUID: collection.uid,
-                        boardUID: uid,
-                    })),
-                })
-            ),
-        [collections, projectMap, t]
+                        children: collection.board_uids.map((uid) => ({
+                            id: `${collection.uid}:${uid}`,
+                            name: projectMap.get(uid)?.title ?? t("dashboard.Board unavailable"),
+                            collectionUID: collection.uid,
+                            boardUID: uid,
+                        })),
+                    })
+                ),
+        [collections, projectMap, t, visibleCollectionUIDs]
     );
     const persist = async (items: ProjectCollection[]) => {
         setFailed(false);
@@ -130,14 +133,14 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
             <Tree<CollectionNode>
                 data={data}
                 width="100%"
-                height={Math.min(320, Math.max(64, (collections.length + collections.reduce((sum, item) => sum + item.board_uids.length, 0)) * 32))}
+                height={Math.min(320, Math.max(64, (data.length + data.reduce((sum, item) => sum + (item.children?.length ?? 0), 0)) * 32))}
                 rowHeight={32}
                 indent={12}
                 openByDefault={false}
                 dndManager={manager}
                 disableMultiSelection
                 disableEdit
-                disableDrag={(node) => busy || (!!node.boardUID && !projectMap.has(node.boardUID))}
+                disableDrag={(node) => busy || (!!visibleCollectionUIDs && !node.boardUID) || (!!node.boardUID && !projectMap.has(node.boardUID))}
                 disableDrop={({ parentNode, dragNodes }) =>
                     busy ||
                     (dragNodes.some((node) => !node.data.boardUID)
@@ -153,7 +156,7 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                     if (busy || dragIds.length !== 1) return;
                     const dragged = data.flatMap((item) => [item, ...(item.children ?? [])]).find((item) => item.id === dragIds[0]);
                     if (!dragged) return;
-                    if (!dragged.boardUID && !parentId) {
+                    if (!dragged.boardUID && !parentId && !visibleCollectionUIDs) {
                         const from = collections.findIndex((item) => item.uid === dragged.collectionUID);
                         const next = collections.filter((item) => item.uid !== dragged.collectionUID);
                         next.splice(index - (from < index ? 1 : 0), 0, collections[from]);
@@ -261,30 +264,56 @@ function CollectionTree({ collections, projects, busy, save, navigate }: Props) 
                             </>
                         ) : (
                             !node.data.boardUID && (
-                                <Popover.Root>
-                                    <Popover.Trigger asChild>
-                                        <Button
-                                            type="button"
-                                            size="icon"
-                                            variant="ghost"
-                                            className="size-6"
-                                            aria-label={t("dashboard.Collection actions")}
-                                        >
-                                            <IconComponent icon="ellipsis" size="3" />
-                                        </Button>
-                                    </Popover.Trigger>
-                                    <Popover.Content className="w-48 space-y-1 p-2">
-                                        <Button type="button" variant="ghost" disabled={busy} onClick={() => sort(node.data.collectionUID)}>
-                                            {t("dashboard.Sort boards by name")}
-                                        </Button>
-                                        <Button type="button" variant="ghost" disabled={busy} onClick={() => shift(node.data.collectionUID, -1)}>
-                                            {t("dashboard.Move collection up")}
-                                        </Button>
-                                        <Button type="button" variant="ghost" disabled={busy} onClick={() => shift(node.data.collectionUID, 1)}>
-                                            {t("dashboard.Move collection down")}
-                                        </Button>
-                                    </Popover.Content>
-                                </Popover.Root>
+                                <>
+                                    <Button
+                                        type="button"
+                                        size="icon"
+                                        variant="ghost"
+                                        className="size-6"
+                                        aria-label={t("dashboard.Favorite collection")}
+                                        aria-pressed={!!collections.find((item) => item.uid === node.data.collectionUID)?.starred}
+                                        disabled={busy}
+                                        onClick={() =>
+                                            void persist(
+                                                collections.map((item) =>
+                                                    item.uid === node.data.collectionUID ? { ...item, starred: !item.starred } : item
+                                                )
+                                            )
+                                        }
+                                    >
+                                        <IconComponent
+                                            icon="star"
+                                            size="3"
+                                            className={
+                                                collections.find((item) => item.uid === node.data.collectionUID)?.starred ? "fill-current" : undefined
+                                            }
+                                        />
+                                    </Button>
+                                    <Popover.Root>
+                                        <Popover.Trigger asChild>
+                                            <Button
+                                                type="button"
+                                                size="icon"
+                                                variant="ghost"
+                                                className="size-6"
+                                                aria-label={t("dashboard.Collection actions")}
+                                            >
+                                                <IconComponent icon="ellipsis" size="3" />
+                                            </Button>
+                                        </Popover.Trigger>
+                                        <Popover.Content className="w-48 space-y-1 p-2">
+                                            <Button type="button" variant="ghost" disabled={busy} onClick={() => sort(node.data.collectionUID)}>
+                                                {t("dashboard.Sort boards by name")}
+                                            </Button>
+                                            <Button type="button" variant="ghost" disabled={busy} onClick={() => shift(node.data.collectionUID, -1)}>
+                                                {t("dashboard.Move collection up")}
+                                            </Button>
+                                            <Button type="button" variant="ghost" disabled={busy} onClick={() => shift(node.data.collectionUID, 1)}>
+                                                {t("dashboard.Move collection down")}
+                                            </Button>
+                                        </Popover.Content>
+                                    </Popover.Root>
+                                </>
                             )
                         )}
                     </div>

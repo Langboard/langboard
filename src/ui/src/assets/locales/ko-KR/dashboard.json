@@ -214,5 +214,6 @@
   "All work": "전체 작업",
   "Work shown": "전체 {{total}}개 중 {{shown}}개 작업",
   "Load more work": "작업 더 보기",
-  "Unread board cards": "보드 미열람 카드 {{count}}개"
+  "Unread board cards": "보드 미열람 카드 {{count}}개",
+  "Favorite collection": "프로젝트 묶음 즐겨찾기"
 }

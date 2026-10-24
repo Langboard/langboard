@@ -125,7 +125,13 @@ export default function ProjectExplorerSidebar({
             retainProjects(userUID, authorizedProjectUIDs);
         }
     }, [data, openCards, authorizedProjectUIDs, userUID]);
-    const sections = useMemo(() => buildProjectQuickSwitcherSections(projects), [projects]);
+    const [favoriteVersion, setFavoriteVersion] = useState(0);
+    useEffect(() => {
+        const unsubscribers = projects.map((project) => project.subscribeFields(["starred"], () => setFavoriteVersion((version) => version + 1)));
+        return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    }, [projects]);
+    const sections = useMemo(() => buildProjectQuickSwitcherSections(projects), [projects, favoriteVersion]);
+    const favoriteCollections = collections.collections.filter((item) => item.starred);
     const currentProjectUID = location.pathname.startsWith("/board/") ? location.pathname.split("/")[2] : undefined;
     const groups = query.trim()
         ? [{ id: "projects" as const, title: t("dashboard.Projects"), projects: searchProjects(projects, query) }]
@@ -240,14 +246,21 @@ export default function ProjectExplorerSidebar({
                             />
                         ) : null;
                     const group = groups.find((group) => group.id === id);
-                    if (!group || (!group.projects.length && id !== "projects")) return null;
+                    if (!group || (!group.projects.length && id !== "projects" && !(id === "favorites" && favoriteCollections.length))) return null;
                     const expanded = !!expandedSections[id];
-                    const displayed = expanded ? group.projects : group.projects.slice(0, EXPLORER_SECTION_LIMIT);
+                    const shownCollections =
+                        id === "favorites" ? (expanded ? favoriteCollections : favoriteCollections.slice(0, EXPLORER_SECTION_LIMIT)) : [];
+                    const displayed = expanded
+                        ? group.projects
+                        : group.projects.slice(0, Math.max(0, EXPLORER_SECTION_LIMIT - shownCollections.length));
                     return (
                         <ExplorerSection
                             key={id}
                             title={group.title}
-                            count={group.projects.length + (id === "projects" ? collections.collections.length : 0)}
+                            count={
+                                group.projects.length +
+                                (id === "projects" ? collections.collections.length : id === "favorites" ? favoriteCollections.length : 0)
+                            }
                             collapsed={query.trim() ? searchCollapsed : !!collapsedSections?.[id]}
                             expanded={expanded}
                             onToggle={() => (query.trim() ? setSearchCollapsed((collapsed) => !collapsed) : toggleSection(id))}
@@ -269,6 +282,19 @@ export default function ProjectExplorerSidebar({
                                 ) : undefined
                             }
                         >
+                            {id === "favorites" && shownCollections.length > 0 && (
+                                <ProjectCollectionTree
+                                    collections={collections.collections}
+                                    visibleCollectionUIDs={shownCollections.map((item) => item.uid)}
+                                    projects={projects}
+                                    busy={collections.busy}
+                                    save={collections.save}
+                                    navigate={(uid) => {
+                                        navigate(ROUTES.BOARD.MAIN(uid));
+                                        onNavigate?.();
+                                    }}
+                                />
+                            )}
                             {id === "projects" && !query.trim() && (
                                 <>
                                     {collections.error && (
