@@ -157,3 +157,53 @@ def validated_embeddings(embeddings: "Embeddings", dimensions: int) -> "Embeddin
             return vector
 
     return ValidatedEmbeddings()
+
+
+def embedding_generation_freshness(embedding: dict, current: dict | None) -> dict:
+    """Compare generation-defining settings only; return bounded non-secret reasons."""
+    from .DocumentEmbeddingCache import CHUNK_VERSION
+    from .DocumentVectorGeneration import embedding_fingerprint
+
+    if current is None:
+        return {"status": "unavailable", "reasons": ["current_binding_unavailable"]}
+    snapshot = embedding.get("config")
+    if (
+        not isinstance(snapshot, dict)
+        or not isinstance(snapshot.get("retrieval"), dict)
+        or not {"dimensions", "store", "splitter"}.issubset(snapshot["retrieval"])
+    ):
+        return {"status": "unknown", "reasons": ["snapshot_unavailable"]}
+    try:
+        recorded, old = validate_embedding_config(dumps(snapshot))
+        active, new = validate_embedding_config(dumps(current))
+    except (ValueError, TypeError):
+        return {"status": "unknown", "reasons": ["snapshot_unavailable"]}
+    reasons = []
+    if recorded["agent_llm"] != active["agent_llm"] or recorded["base_url"].rstrip("/") != active["base_url"].rstrip(
+        "/"
+    ):
+        reasons.append("provider")
+    if recorded["model_name"].strip() != active["model_name"].strip():
+        reasons.append("model")
+    if old.dimensions != new.dimensions:
+        reasons.append("dimensions")
+    if old.splitter != new.splitter:
+        reasons.append("splitter")
+    if (old.store, str(old.external_url or "").rstrip("/"), old.collection_prefix) != (
+        new.store,
+        str(new.external_url or "").rstrip("/"),
+        new.collection_prefix,
+    ):
+        reasons.append("storage")
+    pointer = embedding.get("pointer")
+    if not isinstance(pointer, dict) or not embedding.get("chunk_version"):
+        return {"status": "unknown", "reasons": ["generation_schema_unavailable"]}
+    fingerprint = embedding_fingerprint(
+        provider=recorded["base_url"].strip().rstrip("/"),
+        model=recorded["model_name"].strip(),
+        dimensions=old.dimensions,
+        version="v1",
+    )
+    if embedding["chunk_version"] != CHUNK_VERSION or pointer.get("embedding_fingerprint") != fingerprint:
+        reasons.append("index_schema")
+    return {"status": "outdated" if reasons else "current", "reasons": reasons}
