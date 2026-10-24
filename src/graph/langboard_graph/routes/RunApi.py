@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Row
 from ..core.graph import GraphRunner
 from ..core.graph.checkpoint import graph_postgres_url, lock_graph_thread
+from ..core.graph.default.graph import validate_default_graph_resume
 from ..core.graph.default.privacy import redact_graph_credentials
 from ..core.graph.registry import delete_default_graph_thread, get_default_graph_status, run_default_graph
 from ..core.schema import GraphRequestModel, RunResponse
@@ -179,6 +180,10 @@ async def _release_background_slot(connection: AsyncConnection[TupleRow]) -> Non
 @AppRouter.api.post("/api/v1/graph/resume/{thread_id}")
 async def resume_graph(thread_id: str, resume_request: GraphResumeRequest):
     async with lock_graph_thread(thread_id):
+        try:
+            await validate_default_graph_resume(thread_id, resume_request.resume)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         graph_status = await get_default_graph_status(thread_id)
         if not graph_status["interrupts"] or not graph_status["next"]:
             recovered = _get_completed_resume_response(thread_id, resume_request, graph_status)

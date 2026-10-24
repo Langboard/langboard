@@ -190,5 +190,6 @@
   "update": "수정",
   "Added {properties}": "{{properties}} 추가됨",
   "Removed {properties}": "{{properties}} 제거됨",
-  "Updated {property} from {previous} to {next}": "{{property}}: {{previous}}에서 {{next}}(으)로 변경됨"
+  "Updated {property} from {previous} to {next}": "{{property}}: {{previous}}에서 {{next}}(으)로 변경됨",
+  "Watch": "시청"
 }

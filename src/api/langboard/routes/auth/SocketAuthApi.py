@@ -825,6 +825,13 @@ def claim_socket_board_chat_resume(
         if ALL_GRANTED not in actions and ProjectRoleAction.Update.value not in actions:
             raise ApiException.Forbidden_403()
 
+    permission_level = (
+        "full_access"
+        if form.resume.approved
+        else getattr(run, "request_payload", {}).get("api_permission_level", "read")
+    )
+    _authorize_board_chat_permission_level(service, user, project, permission_level)
+
     resume = form.resume.model_dump(exclude_none=True)
     graph_resume = dict(resume)
 
@@ -841,14 +848,13 @@ def claim_socket_board_chat_resume(
     if claimed is None:
         raise ApiException.Conflict_409()
 
-    policy_receipt = getattr(claimed, "request_payload", {}).get("resume_decision")
-    if policy_receipt is not None and claimed.user_id != user.id:
+    if claimed.user_id != user.id or claimed.project_id != project_id:
         raise ApiException.Forbidden_403()
     if isinstance(claimed, InternalBotRun) and not InternalBotRunService.validate_policy_credentials(claimed):
         raise ApiException.Forbidden_403()
+    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level)
     if form.resume.approved:
         graph_resume.update(
-            app_api_token=AuthSecurity.create_bot_one_time_token(int(user.id), "full_access"),
             api_permission_level="full_access",
             api_approval_policy={permission.value: "allow" for permission in ApiPermission},
         )
@@ -1301,7 +1307,14 @@ def claim_socket_editor_resume(
     run = service.internal_bot_run.get_editor_run_by_approval(approval_id)
     if run is None or run.project_id != project_id or run.status != InternalBotRunStatus.AwaitingApproval:
         raise ApiException.Conflict_409()
-    _get_authorized_editor_run_context(run, service)
+    requester, _, _ = _get_authorized_editor_run_context(run, service)
+    if requester.id != run.user_id:
+        raise ApiException.Forbidden_403()
+
+    permission_level = (
+        "full_access" if form.resume.approved else run.request_payload.get("api_permission_level", "read")
+    )
+    _authorize_board_chat_permission_level(service, requester, project, permission_level)
 
     decision = form.resume.model_dump(exclude_none=True)
     graph_resume = dict(decision)
@@ -1310,14 +1323,16 @@ def claim_socket_editor_resume(
     )
     if claimed is None or not claimed.graph_thread_id or not claimed.graph_session_id:
         raise ApiException.Conflict_409()
+    if claimed.user_id != requester.id or claimed.project_id != project_id:
+        raise ApiException.Forbidden_403()
     policy_receipt = getattr(claimed, "request_payload", {}).get("resume_decision")
     if policy_receipt is not None and claimed.user_id != approver.id:
         raise ApiException.Forbidden_403()
     if isinstance(claimed, InternalBotRun) and not InternalBotRunService.validate_policy_credentials(claimed):
         raise ApiException.Forbidden_403()
+    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(requester.id), permission_level)
     if form.resume.approved:
         graph_resume.update(
-            app_api_token=AuthSecurity.create_bot_one_time_token(int(approver.id), "full_access"),
             api_permission_level="full_access",
             api_approval_policy={permission.value: "allow" for permission in ApiPermission},
         )

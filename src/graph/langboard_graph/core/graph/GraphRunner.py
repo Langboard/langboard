@@ -77,6 +77,11 @@ class GraphRunner:
         await self._publish_status("running")
         try:
             tweaks = self._create_graph_tweaks()
+            variables = tweaks.get("LangboardCalledVariablesComponent") or {}
+            project_uid = variables.get("project_uid") or (variables.get("rest_data") or {}).get("project_uid")
+            resolved_project_uid = Project(**self.raw_project).get_uid() if self.raw_project else None
+            if project_uid != resolved_project_uid:
+                raise ValueError("Graph request project does not match its resolved runtime project")
             graph_result = await run_default_graph(
                 self.input_request.input_value,
                 tweaks,

@@ -190,5 +190,6 @@
   "update": "update",
   "Added {properties}": "Added {{properties}}",
   "Removed {properties}": "Removed {{properties}}",
-  "Updated {property} from {previous} to {next}": "Updated {{property}} from {{previous}} to {{next}}"
+  "Updated {property} from {previous} to {next}": "Updated {{property}} from {{previous}} to {{next}}",
+  "Watch": "Watch"
 }

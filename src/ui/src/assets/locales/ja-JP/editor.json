@@ -190,5 +190,6 @@
   "update": "変更",
   "Added {properties}": "{{properties}}を追加",
   "Removed {properties}": "{{properties}}を削除",
-  "Updated {property} from {previous} to {next}": "{{property}}を{{previous}}から{{next}}に変更"
+  "Updated {property} from {previous} to {next}": "{{property}}を{{previous}}から{{next}}に変更",
+  "Watch": "視聴"
 }

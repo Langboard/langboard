@@ -14,6 +14,7 @@ on:
       - src/graph/tests/test_approval_execution_plan.py
       - src/graph/tests/test_agent_loop.py
       - src/graph/tests/test_graph_privacy.py
+      - src/graph/tests/test_runtime_authority.py
       - src/graph/tests/durable_process_worker.py
       - src/api/tests/workflow_stages/**
       - src/api/tests/workflow_rules/**
@@ -24,6 +25,9 @@ on:
       - src/api/langboard/routes/board/forms/Wiki.py
       - src/api/langboard/routes/editor/EditorSyncApi.py
       - src/api/langboard/routes/auth/SocketAuthorization.py
+      - src/api/langboard/routes/auth/SocketAuthApi.py
+      - src/api/tests/runtime/test_socket_board_chat_run.py
+      - src/api/tests/runtime/test_socket_editor_run.py
       - src/socket/**
       - src/api/langboard/middlewares/CollaborativeEditMiddleware.py
       - src/api/langboard/mcp_tools/WikiMcp.py
@@ -199,7 +203,7 @@ jobs:
           LANGBOARD_DECISION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_ACTORS_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_APPROVAL_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py
+        run: uv run --no-sync pytest -q -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py src/api/tests/runtime/test_socket_board_chat_run.py src/api/tests/runtime/test_socket_editor_run.py
       - name: Native Wiki selection secret conversion and editor lineage
         env:
           PYTHONPATH: src/shared/py:src/api
@@ -219,7 +223,7 @@ jobs:
           PYTHONPATH: src/graph:src/shared/py:src/api
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
         run: |
-          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_privacy.py
+          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_runtime_authority.py
           uv run --no-sync python - <<'PY'
           import os
           from pathlib import Path
