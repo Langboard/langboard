@@ -1,8 +1,9 @@
 import hashlib
 import re
+from copy import deepcopy
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Text, cast, func, literal_column, select
+from sqlalchemy import Text, cast, func, literal_column, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import defer
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
@@ -24,6 +25,7 @@ from ...models import (
     ProjectAssignedUser,
     ProjectRole,
     ProjectWiki,
+    ProjectWikiActivity,
     ProjectWikiAssignedUser,
     ProjectWikiAttachment,
     User,
@@ -144,14 +146,50 @@ class ProjectWikiService(BaseDomainService):
         return current, project, wiki, start, end
 
     def persist_secret_selection(
-        self, db, actor: User, project: Project, wiki: ProjectWiki, before: str, after: str, masked_before: str
+        self, db, actor: User, project: Project, wiki: ProjectWiki, before: str, after: str, selected: str
     ) -> None:
-        """Keep new history/event payloads masked; earlier stored history is untouched."""
+        """Mask proven historical content and commit the secrecy fence with the replacement."""
         wiki.content = EditorContentModel(content=after)
         if not self.repo.project_wiki.update_content_if_current(
             wiki, before, expected_generation=wiki.editor_generation, advance_generation=True
         ):
             raise WikiSecretSelectionError("stale_revision")
+        histories = db.exec(
+            SqlBuilder.select.table(ProjectWikiActivity)
+            .where(
+                ProjectWikiActivity.project_wiki_id == wiki.id,
+                ProjectWikiActivity.project_id == project.id,
+            )
+            .with_for_update()
+        ).all()
+        for activity in histories:
+            history = deepcopy(activity.activity_history)
+            changed = False
+            changes = history.get("changes")
+            if not isinstance(changes, dict):
+                continue
+            for side in ("before", "after"):
+                values = changes.get(side)
+                if not isinstance(values, dict):
+                    continue
+                content = values.get("content")
+                if isinstance(content, dict) and isinstance(content.get("content"), str):
+                    original = content["content"]
+                    content["content"] = original.replace(selected, "[••••]")
+                    changed |= original != content["content"]
+                elif isinstance(content, str):
+                    values["content"] = content.replace(selected, "[••••]")
+                    changed |= content != values["content"]
+            if changed:
+                history["secret_redacted"] = True
+                # Retain the historical actor and timestamps while explicitly masking content.
+                db.exec(
+                    update(ProjectWikiActivity)
+                    .where(ProjectWikiActivity.id == activity.id)
+                    .values(activity_history=history, updated_at=activity.updated_at)
+                )
+        # This native event is the durable fence for older queued activity tasks.
+        ProjectWikiActivityTask.record_wiki_secretized(actor, project, wiki)
         # No plaintext pre-state is retained in deferred task arguments or history.
         safe_wiki = wiki.model_copy(deep=True)
         model = {"content": {"content": after}, "editor_generation": wiki.editor_generation}
@@ -159,9 +197,6 @@ class ProjectWikiService(BaseDomainService):
         def publish():
             ProjectWikiPublisher.updated(project, safe_wiki, model)
             self._publish_linked_card_changed(project, safe_wiki)
-            ProjectWikiActivityTask.project_wiki_updated(
-                actor, project, {"content": EditorContentModel(content=masked_before)}, safe_wiki
-            )
             ProjectWikiBotTask.project_wiki_updated(actor, project, safe_wiki)
 
         db.after_commit(publish)

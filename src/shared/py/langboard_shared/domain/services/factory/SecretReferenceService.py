@@ -269,9 +269,7 @@ class SecretReferenceService(BaseDomainService):
                     self._audit(db, current, reference, "created", SecretAuditSource("wiki", wiki.get_uid()))
                     metadata = reference.metadata()
                     after = before[:start] + "[••••](" + metadata["uri"] + ")" + before[end:]
-                    wiki_service.persist_secret_selection(
-                        db, current, project, wiki, before, after, before[:start] + "[••••]" + before[end:]
-                    )
+                    wiki_service.persist_secret_selection(db, current, project, wiki, before, after, before[start:end])
                     result = {
                         "wiki_uid": wiki.get_uid(),
                         "editor_generation": wiki.editor_generation,

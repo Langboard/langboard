@@ -7,7 +7,14 @@ from langboard.wiki_workspace.domain import WikiSnapshot
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security import KeyVault
-from langboard_shared.domain.models import ProjectWiki, ProjectWikiAssignedUser, SecretReference, SecretReferenceAudit
+from langboard_shared.domain.models import (
+    Bot,
+    ProjectWiki,
+    ProjectWikiActivity,
+    ProjectWikiAssignedUser,
+    SecretReference,
+    SecretReferenceAudit,
+)
 from langboard_shared.domain.services.factory.ProjectWikiService import (
     ProjectWikiService,
     WikiSecretSelection,
@@ -16,6 +23,7 @@ from langboard_shared.domain.services.factory.ProjectWikiService import (
     wiki_secret_selection_bounds,
 )
 from langboard_shared.infrastructure.repositories.factory.ProjectWikiRepository import ProjectWikiRepository
+from langboard_shared.tasks.activities.ProjectWikiActivityTask import project_wiki_updated as _native_wiki_updated
 
 
 @pytest.fixture
@@ -27,6 +35,8 @@ def conversion(secrets, monkeypatch):
     engine = DbEngine.get_main_engine()
     ProjectWiki.__table__.create(engine)
     ProjectWikiAssignedUser.__table__.create(engine)
+    Bot.__table__.create(engine, checkfirst=True)
+    ProjectWikiActivity.__table__.create(engine)
     material = {}
 
     def store(key, value):
@@ -43,6 +53,11 @@ def conversion(secrets, monkeypatch):
         secret_service, "_raw_get_service", lambda cls: wiki_service if cls is ProjectWikiService else board[0]
     )
     events = []
+    from langboard_shared.tasks.activities import ProjectWikiActivityTask
+
+    monkeypatch.setattr(
+        ProjectWikiActivityTask, "record_wiki_activity", lambda *args: events.append(("activity", args))
+    )
     import importlib
 
     module = importlib.import_module(ProjectWikiService.__module__)
@@ -94,9 +109,10 @@ def test_success_masks_selected_content_and_only_dispatches_safe_after_commit(co
     assert len(refs) == len(audits) == 1
     assert audits[0].source_kind == "wiki"
     assert result["revision"] == WikiSnapshot("w", "t", stored).revision
-    assert [event[0] for event in conversion[7]] == ["socket", "card", "activity", "bot"]
-    activity = conversion[7][2][1]
-    assert activity[2]["content"].content == "앞😀: [••••] suffix" and activity[3].content.content == stored
+    assert [event[0] for event in conversion[7]] == ["activity", "socket", "card", "bot"]
+    activity = conversion[7][0][1][1]
+    assert activity.activity_history["event"] == "secretized"
+    assert "changes" not in activity.activity_history
     ordinary = json.dumps([result, [audit.model_dump(mode="json") for audit in audits]], default=str)
     ordinary += repr(conversion[7])
     assert "fixture-sensitive-value" not in ordinary and refs[0].locator not in ordinary
@@ -981,3 +997,196 @@ def test_delayed_publicity_cannot_publish_preconversion_content(conversion, monk
     legacy_model = {"content": stored, "editor_generation": 1, **payload["wiki"]}
     legacy_model.update(payload["wiki"])
     assert legacy_model["content"] == stored and legacy_model["editor_generation"] == 1
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_secretization_redacts_only_proven_history_content_and_preserves_metadata(conversion):
+    from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    with DbSession.use(readonly=False) as db:
+        activity = ProjectWikiActivity(
+            user_id=board[1].id,
+            project_id=board[2].id,
+            project_wiki_id=wiki.id,
+            activity_type=ProjectWikiActivityType.WikiUpdated,
+            activity_history={
+                "wiki": {"title": "Original title"},
+                "unrelated": {"value": "keep"},
+                "changes": {
+                    "before": {"title": "Old title", "content": {"content": source}},
+                    "after": {"title": "New title", "content": {"content": source + "\nnormal"}},
+                },
+            },
+        )
+        clean = ProjectWikiActivity(
+            user_id=board[1].id,
+            project_id=board[2].id,
+            project_wiki_id=wiki.id,
+            activity_type=ProjectWikiActivityType.WikiUpdated,
+            activity_history={
+                "changes": {
+                    "before": {"content": {"content": "ordinary before"}},
+                    "after": {"content": {"content": "ordinary after"}},
+                }
+            },
+        )
+        db.insert(activity)
+        db.insert(clean)
+    with DbSession.use(readonly=False) as db:
+        original = db.exec(
+            SqlBuilder.select.table(ProjectWikiActivity).where(ProjectWikiActivity.id == activity.id)
+        ).first()
+        original_timestamps = original.created_at, original.updated_at
+    call(conversion)
+    with DbSession.use(readonly=False) as db:
+        redacted = db.exec(
+            SqlBuilder.select.table(ProjectWikiActivity).where(ProjectWikiActivity.id == activity.id)
+        ).first()
+        unchanged = db.exec(
+            SqlBuilder.select.table(ProjectWikiActivity).where(ProjectWikiActivity.id == clean.id)
+        ).first()
+    assert "fixture-sensitive-value" not in json.dumps(redacted.api_response(), default=str)
+    assert redacted.activity_history["changes"]["after"]["content"]["content"] == "앞😀: [••••] suffix\nnormal"
+    assert redacted.activity_history["unrelated"] == {"value": "keep"}
+    assert redacted.activity_history["changes"]["before"]["title"] == "Old title"
+    assert redacted.user_id == activity.user_id
+    assert (redacted.created_at, redacted.updated_at) == original_timestamps
+    assert unchanged.activity_history == clean.activity_history
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("secretize", [True, False])
+def test_delayed_activity_uses_secretization_fence_without_dropping_ordinary_history(
+    conversion, monkeypatch, secretize
+):
+    import asyncio
+    from langboard_shared.core.db import EditorContentModel
+    from langboard_shared.domain.models import Bot
+
+    Bot.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    _, board, _, wiki, source, _, _, _ = conversion
+    snapshot = wiki.model_copy(deep=True)
+    if secretize:
+        call(conversion)
+    else:
+        # An ordinary generation advance must not erase pending history.
+        with DbSession.use(readonly=False) as db:
+            wiki.editor_generation += 1
+            db.update(wiki)
+    asyncio.run(
+        _native_wiki_updated.__wrapped__(
+            board[1],
+            board[2],
+            {"content": EditorContentModel(content="ordinary before"), "title": "Before"},
+            snapshot,
+        )
+    )
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(ProjectWikiActivity).order_by(ProjectWikiActivity.id)).all()
+    activity = rows[-1]
+    changes = activity.activity_history["changes"]
+    assert changes["before"]["title"] == "Before"
+    if secretize:
+        assert "content" not in changes["before"] and "content" not in changes["after"]
+        assert activity.activity_history["secret_redacted"] is True
+        assert "fixture-sensitive-value" not in json.dumps(activity.api_response(), default=str)
+    else:
+        assert changes["after"]["content"]["content"] == source
+        assert "secret_redacted" not in activity.activity_history
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_secretization_history_and_fence_roll_back_together(conversion, monkeypatch):
+    from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
+    from langboard_shared.tasks.activities import ProjectWikiActivityTask
+
+    _, board, _, wiki, source, _, material, events = conversion
+    history = {"changes": {"after": {"content": {"content": source}}}}
+    with DbSession.use(readonly=False) as db:
+        db.insert(
+            ProjectWikiActivity(
+                user_id=board[1].id,
+                project_id=board[2].id,
+                project_wiki_id=wiki.id,
+                activity_type=ProjectWikiActivityType.WikiUpdated,
+                activity_history=history,
+            )
+        )
+
+    def fail(*args):
+        raise RuntimeError("Activity persistence unavailable")
+
+    monkeypatch.setattr(ProjectWikiActivityTask, "record_wiki_secretized", fail)
+    with pytest.raises(WikiSecretSelectionError, match="conversion_failed"):
+        call(conversion)
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(ProjectWikiActivity)).all()
+    assert len(rows) == 1 and rows[0].activity_history == history
+    stored, refs, audits = state(conversion)
+    assert stored == source and not refs and not audits and not material and not events
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_activity_cannot_insert_old_snapshot_across_conversion_reservation(admission_conversion):
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy.exc import OperationalError
+
+    conversion = admission_conversion
+    service, board, _, wiki, source, selection, _, _ = conversion
+    snapshot = wiki.model_copy(deep=True)
+
+    def delayed():
+        return asyncio.run(
+            _native_wiki_updated.__wrapped__(
+                board[1],
+                board[2],
+                {"content": EditorContentModel(content="ordinary before")},
+                snapshot,
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+
+        def check(generation):
+            # Conversion owns SQLite's writer; the stale activity must fail closed.
+            pending = pool.submit(delayed)
+            with pytest.raises(OperationalError, match="locked"):
+                pending.result(timeout=5)
+
+        service.convert_wiki_selection(
+            board[1],
+            board[2].get_uid(),
+            wiki.get_uid(),
+            WikiSnapshot("w", "t", source).revision,
+            "wiki/reserved-history",
+            selection,
+            collaboration_check=check,
+        )
+        pool.submit(delayed).result(timeout=5)
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(ProjectWikiActivity)).all()
+    assert len(rows) == 2
+    assert all("fixture-sensitive-value" not in json.dumps(row.api_response(), default=str) for row in rows)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_post_secretization_ordinary_edits_keep_content_diff(conversion):
+    import asyncio
+    from langboard_shared.domain.models import Bot
+
+    Bot.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    call(conversion)
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(ProjectWiki)).first()
+        before = current.content
+        current.content = EditorContentModel(content=current.content.content + " ordinary addition")
+        db.update(current)
+    asyncio.run(_native_wiki_updated.__wrapped__(conversion[1][1], conversion[1][2], {"content": before}, current))
+    with DbSession.use(readonly=False) as db:
+        activity = db.exec(SqlBuilder.select.table(ProjectWikiActivity).order_by(ProjectWikiActivity.id.desc())).first()
+    changes = activity.activity_history["changes"]
+    assert changes["before"]["content"]["content"] == before.content
+    assert changes["after"]["content"]["content"].endswith("ordinary addition")
+    assert "secret_redacted" not in activity.activity_history
