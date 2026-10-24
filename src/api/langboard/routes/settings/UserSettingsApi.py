@@ -1,3 +1,5 @@
+import re
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 from urllib.parse import urlparse
 from fastapi import Path, Query, status
@@ -143,6 +145,18 @@ def get_users_in_settings(service: DomainService = DomainService.scope()) -> Jso
     )
 
 
+def _sign_in_bound(value: str | None) -> datetime | None:
+    """Explicit ISO 8601 timezone required; normalize to the UTC database clock."""
+    if value is None:
+        return None
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)", value):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from None
+
+
 @AppRouter.api.get(
     "/settings/users/page",
     tags=["AppSettings.User"],
@@ -171,10 +185,22 @@ def get_users_page_in_settings(
     firstname: Annotated[str, Query(max_length=200)] = "",
     lastname: Annotated[str, Query(max_length=200)] = "",
     exclude_user_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    last_signed_in_from: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest successful sign-in, inclusive ISO 8601 timezone-aware lower bound"),
+    ] = None,
+    last_signed_in_before: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest successful sign-in, exclusive ISO 8601 timezone-aware upper bound"),
+    ] = None,
     sort_by: Literal["email", "firstname", "lastname", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
+    signed_in_from = _sign_in_bound(last_signed_in_from)
+    signed_in_before = _sign_in_bound(last_signed_in_before)
+    if signed_in_from is not None and signed_in_before is not None and signed_in_from >= signed_in_before:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     return JsonResponse(
         content={
             "records": service.user.get_api_list_in_settings(
@@ -184,6 +210,8 @@ def get_users_page_in_settings(
                 account_status=account_status,
                 column_filters={"email": email, "firstname": firstname, "lastname": lastname},
                 exclude_user_uid=exclude_user_uid,
+                last_signed_in_from=signed_in_from,
+                last_signed_in_before=signed_in_before,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
             ),
@@ -192,6 +220,8 @@ def get_users_page_in_settings(
                 account_status=account_status,
                 column_filters={"email": email, "firstname": firstname, "lastname": lastname},
                 exclude_user_uid=exclude_user_uid,
+                last_signed_in_from=signed_in_from,
+                last_signed_in_before=signed_in_before,
             ),
             "page": page,
             "limit": limit,

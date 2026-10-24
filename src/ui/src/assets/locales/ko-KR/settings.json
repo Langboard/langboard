@@ -607,5 +607,11 @@
   "Installation review reason": "검토 사유",
   "Approve installation request": "요청 승인",
   "Reject installation request": "요청 거절",
-  "Refresh installation requests": "설치 요청 새로고침"
+  "Refresh installation requests": "설치 요청 새로고침",
+    "Sign-in from": "로그인 시작 (포함)",
+    "Sign-in before": "로그인 종료 (미포함)",
+    "Apply sign-in range": "로그인 기간 적용",
+    "Clear sign-in range": "로그인 기간 초기화",
+    "Sign-in range help": "현지 시간입니다. 마지막 로그인 성공 시각으로 필터링하며 기록이 없는 계정은 제외됩니다.",
+    "Invalid sign-in range": "유효하고 중복되지 않는 현지 시간을 입력하고 시작을 종료보다 앞서 지정하세요."
 }

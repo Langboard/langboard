@@ -1,3 +1,5 @@
+import Input from "@/components/base/Input";
+import { localSignInBound } from "./userLoginRange";
 import Checkbox from "@/components/base/Checkbox";
 import { User } from "@/core/models";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
@@ -33,6 +35,10 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
     const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "", direction: "asc" });
     const [accountStatus, setAccountStatus] = useState("all");
+    const [signInFrom, setSignInFrom] = useState("");
+    const [signInBefore, setSignInBefore] = useState("");
+    const [signInRange, setSignInRange] = useState<{ from?: string; before?: string }>({});
+    const [rangeError, setRangeError] = useState(false);
     const [rows, setRows] = useState<User.TModel[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -90,6 +96,8 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 limit: pageLimit,
                 query: search,
                 account_status: accountStatus,
+                last_signed_in_from: signInRange.from,
+                last_signed_in_before: signInRange.before,
                 ...columnFilters,
                 exclude_user_uid: currentUser.uid,
                 sort_by: sort.key || "created_at",
@@ -124,7 +132,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 if (!abort.signal.aborted) setLoading(false);
             });
         return () => abort.abort();
-    }, [page, search, columnFilters, sort, accountStatus, currentUser.uid, revision, setSelectedUsers]);
+    }, [page, search, columnFilters, sort, accountStatus, signInRange, currentUser.uid, revision, setSelectedUsers]);
 
     const paginate = (options: IPaginateOptions) => {
         setPage(options.page ?? 1);
@@ -156,6 +164,51 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                     {t("common.Refresh")}
                 </Button>
             </div>
+            <form
+                className="mb-3 flex flex-wrap items-end gap-3"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    try {
+                        const from = localSignInBound(signInFrom);
+                        const before = localSignInBound(signInBefore);
+                        if (from && before && from >= before) throw new Error("Invalid range");
+                        setRangeError(false);
+                        setSignInRange({ from, before });
+                        setPage(1);
+                    } catch {
+                        setRangeError(true);
+                    }
+                }}
+            >
+                <label>
+                    <span className="mb-1 block text-sm">{t("settings.Sign-in from")}</span>
+                    <Input type="datetime-local" value={signInFrom} onChange={(event) => setSignInFrom(event.target.value)} />
+                </label>
+                <label>
+                    <span className="mb-1 block text-sm">{t("settings.Sign-in before")}</span>
+                    <Input type="datetime-local" value={signInBefore} onChange={(event) => setSignInBefore(event.target.value)} />
+                </label>
+                <Button type="submit">{t("settings.Apply sign-in range")}</Button>
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                        setSignInFrom("");
+                        setSignInBefore("");
+                        setSignInRange({});
+                        setRangeError(false);
+                        setPage(1);
+                    }}
+                >
+                    {t("settings.Clear sign-in range")}
+                </Button>
+            </form>
+            <p className="mb-3 text-sm text-muted-foreground">{t("settings.Sign-in range help")}</p>
+            {rangeError && (
+                <p role="alert" className="mb-3 text-destructive">
+                    {t("settings.Invalid sign-in range")}
+                </p>
+            )}
             {error && (
                 <p role="alert" className="mb-3 text-destructive">
                     {t("settings.User list failed")}

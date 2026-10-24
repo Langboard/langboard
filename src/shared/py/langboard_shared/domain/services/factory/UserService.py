@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import datetime, timezone
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import TYPE_CHECKING, Any, Sequence, cast
@@ -53,6 +53,8 @@ class UserService(BaseDomainService):
         account_status: str = "all",
         column_filters: dict[str, str] | None = None,
         exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
         sort_by: str = "created_at",
         sort_direction: str = "desc",
         user_uid: str | None = None,
@@ -64,6 +66,8 @@ class UserService(BaseDomainService):
             account_status=account_status,
             column_filters=column_filters,
             exclude_user_uid=exclude_user_uid,
+            last_signed_in_from=last_signed_in_from,
+            last_signed_in_before=last_signed_in_before,
             sort_by=sort_by,
             sort_direction=sort_direction,
             user_uid=user_uid,
@@ -117,9 +121,16 @@ class UserService(BaseDomainService):
         *,
         column_filters: dict[str, str] | None = None,
         exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
     ) -> int:
         return self.repo.user.count_in_settings(
-            query=query, account_status=account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid
+            query=query,
+            account_status=account_status,
+            column_filters=column_filters,
+            exclude_user_uid=exclude_user_uid,
+            last_signed_in_from=last_signed_in_from,
+            last_signed_in_before=last_signed_in_before,
         )
 
     def count_not_deleted(self) -> int:

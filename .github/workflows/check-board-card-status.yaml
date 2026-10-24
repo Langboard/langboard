@@ -7,6 +7,8 @@ on:
       - .github/workflows/check-board-card-status.yaml
       - src/api/tests/identity/test_user_owner_postgres.py
       - src/api/tests/identity/test_user_settings_sign_in_history.py
+      - src/api/langboard/routes/settings/UserSettingsApi.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/UserRepository.py
       - src/api/tests/identity/test_group_directory.py
       - src/api/tests/identity/test_group_directory_http.py
       - src/api/tests/identity/test_group_directory_management.py

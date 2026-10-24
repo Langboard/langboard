@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from sqlalchemy import and_, func, or_, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
@@ -49,6 +50,8 @@ class UserRepository(BaseRepository[User]):
         *,
         column_filters: dict[str, str] | None = None,
         exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
         user_uid: str | None = None,
     ):
         filters = [User.column("deleted_at").is_(None)]
@@ -67,6 +70,21 @@ class UserRepository(BaseRepository[User]):
                 raise ValueError("Invalid user filter")
             if value.strip():
                 filters.append(func.lower(User.column(field)).contains(value.strip().lower(), autoescape=True))
+        if last_signed_in_from is not None or last_signed_in_before is not None:
+            # Compare the latest successful event, never any matching historical event.
+            latest = (
+                select(func.max(UserSignInHistory.column("signed_in_at")))
+                .where(
+                    UserSignInHistory.column("user_id") == User.column("id"),
+                    UserSignInHistory.column("is_success").is_(True),
+                )
+                .correlate(User)
+                .scalar_subquery()
+            )
+            if last_signed_in_from is not None:
+                filters.append(latest >= last_signed_in_from)
+            if last_signed_in_before is not None:
+                filters.append(latest < last_signed_in_before)
         query = query.strip()
         if query:
             matches = [
@@ -89,13 +107,20 @@ class UserRepository(BaseRepository[User]):
         *,
         column_filters: dict[str, str] | None = None,
         exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
     ) -> int:
         with DbSession.use(readonly=True) as db:
             return (
                 db.exec(
                     SqlBuilder.select.count(User, User.column("id")).where(
                         *self._settings_filters(
-                            query, account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid
+                            query,
+                            account_status,
+                            column_filters=column_filters,
+                            exclude_user_uid=exclude_user_uid,
+                            last_signed_in_from=last_signed_in_from,
+                            last_signed_in_before=last_signed_in_before,
                         )
                     )
                 ).first()
@@ -111,12 +136,20 @@ class UserRepository(BaseRepository[User]):
         account_status: str = "all",
         column_filters: dict[str, str] | None = None,
         exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
         sort_by: str = "created_at",
         sort_direction: str = "desc",
         user_uid: str | None = None,
     ):
         filters = self._settings_filters(
-            query, account_status, column_filters=column_filters, exclude_user_uid=exclude_user_uid, user_uid=user_uid
+            query,
+            account_status,
+            column_filters=column_filters,
+            exclude_user_uid=exclude_user_uid,
+            last_signed_in_from=last_signed_in_from,
+            last_signed_in_before=last_signed_in_before,
+            user_uid=user_uid,
         )
         if sort_by not in ("email", "firstname", "lastname", "created_at") or sort_direction not in ("asc", "desc"):
             raise ValueError("Invalid user sort")

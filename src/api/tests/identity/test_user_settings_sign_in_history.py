@@ -1,6 +1,8 @@
 """Settings list uses successful login history, never failed attempts or activity."""
 
 import json
+import os
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
@@ -188,6 +190,13 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert not {"password", "session", "access_token", "refresh_token"} & detail.json()["user"].keys()
             assert client.get("/settings/users/invalid", headers=headers).status_code == 400
             for params in (
+                {"last_signed_in_from": "2026-10-24T10:00:00"},
+                {"last_signed_in_before": "2026-02-30T10:00:00Z"},
+                {"last_signed_in_from": "1792807200"},
+                {"last_signed_in_from": "2026-10-24T10:00:00+24:00"},
+                {"last_signed_in_from": "2026-10-24T10:00:00+09:99"},
+                {"last_signed_in_from": "2026-10-24T10:00:00Z", "last_signed_in_before": "2026-10-24T10:00:00Z"},
+                {"last_signed_in_from": "2026-10-25T10:00:00Z", "last_signed_in_before": "2026-10-24T10:00:00Z"},
                 {"page": 0},
                 {"page": 1000001},
                 {"limit": 0},
@@ -235,8 +244,38 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                 db.insert(card)
                 comment = CardComment(card_id=card.id, user_id=target.id)
                 db.insert(comment)
-                history = UserSignInHistory(user_id=target.id, is_success=True)
+                history = UserSignInHistory(
+                    user_id=target.id, is_success=True, signed_in_at=datetime(2026, 10, 24, 1, tzinfo=timezone.utc)
+                )
                 db.insert(history)
+            # Native HTTP: the matching user sits outside the unfiltered first page.
+            unfiltered = client.get(
+                endpoint, headers=headers, params={"limit": 1, "sort_by": "email", "sort_direction": "asc"}
+            ).json()
+            assert unfiltered["records"][0]["uid"] == actor.get_uid()
+            bounds = {
+                "last_signed_in_from": "2026-10-24T10:00:00+09:00",
+                "last_signed_in_before": "2026-10-24T01:00:01Z",
+            }
+            filtered = client.get(endpoint, headers=headers, params={"limit": 1, **bounds})
+            assert filtered.status_code == 200, filtered.text
+            assert filtered.json()["total_records"] == 1
+            assert filtered.json()["records"][0]["uid"] == target.get_uid()
+            assert datetime.fromisoformat(filtered.json()["records"][0]["last_signed_in_at"]) == datetime(
+                2026, 10, 24, 1, tzinfo=timezone.utc
+            )
+            assert (
+                client.get(endpoint, headers=headers, params={"page": 2, "limit": 1, **bounds}).json()["records"] == []
+            )
+            assert (
+                client.get(endpoint, headers=headers, params={"query": "HTTP", **bounds}).json()["total_records"] == 0
+            )
+            assert (
+                client.get(endpoint, headers=headers, params={"account_status": "inactive", **bounds}).json()[
+                    "total_records"
+                ]
+                == 0
+            )
             target_access, target_refresh = AuthSecurity.authenticate(target.id)
             target_url = f"/settings/users/{target.get_uid()}"
             assert client.put(target_url, json={"firstname": "Changed"}, headers=headers).status_code == 403
@@ -433,4 +472,74 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                     == actor.id
                 )
     finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgresql"])
+def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, monkeypatch, backend):
+    database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if backend == "postgresql" and not database_url:
+        pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
+    engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'range.sqlite'}")
+    models = (User, UserProfile, UserSignInHistory)
+    for model in models:
+        model.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    start = datetime(2026, 10, 24, 1, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    users = []
+    try:
+        with DbSession.atomic() as db:
+            for index in range(6):
+                user = User(
+                    firstname="Range",
+                    lastname=str(index),
+                    username=f"range-{index}",
+                    email=f"range-{index}@example.invalid",
+                    password="fixture-only",
+                    activated_at=start if index != 4 else None,
+                )
+                db.insert(user)
+                users.append(user)
+            for index, success, at in (
+                (0, True, start - timedelta(days=1)),
+                (0, False, start),
+                (1, True, start),
+                (1, False, end + timedelta(days=1)),
+                (2, True, start),
+                (2, True, end),
+                (4, True, start + timedelta(minutes=30)),
+                (5, True, start + timedelta(minutes=45)),
+            ):
+                db.insert(UserSignInHistory(user_id=users[index].id, is_success=success, signed_in_at=at))
+        repository = UserRepository(lambda _: None, lambda _: None)
+        roles = SimpleNamespace(
+            **{name: SimpleNamespace(get_list=Mock(return_value=[])) for name in ("api_key", "setting", "mcp")}
+        )
+        service = UserService(lambda _: None, lambda _: None, SimpleNamespace(user=repository, role=roles))
+        args = dict(last_signed_in_from=start, last_signed_in_before=end, sort_by="email", sort_direction="asc")
+        assert (
+            service.get_api_list_in_settings(limit=1, sort_by="email", sort_direction="asc")[0]["uid"]
+            == users[0].get_uid()
+        )
+        expected = [users[index].get_uid() for index in (1, 4, 5)]
+        pages = [service.get_api_list_in_settings(offset=offset, limit=1, **args) for offset in range(4)]
+        assert [page[0]["uid"] for page in pages[:3]] == expected
+        assert pages[3] == []
+        bounds = dict(last_signed_in_from=start, last_signed_in_before=end)
+        assert service.count_in_settings(**bounds) == 3
+        assert service.count_in_settings(last_signed_in_from=start) == 4
+        assert service.count_in_settings(last_signed_in_before=end) == 4
+        assert service.count_in_settings(account_status="inactive", **bounds) == 1
+        assert service.count_in_settings(query="RANGE", account_status="active", **bounds) == 2
+        assert service.count_in_settings(column_filters={"email": "range-1"}, **bounds) == 1
+        assert service.count_in_settings(exclude_user_uid=users[1].get_uid(), **bounds) == 2
+        row = pages[0][0]
+        assert row["last_signed_in_at"] == start
+        assert row["account_status"] == "active"
+        assert row["setting_role_actions"] == [] and row["api_key_role_actions"] == [] and row["mcp_role_actions"] == []
+    finally:
+        for model in reversed(models):
+            model.__table__.drop(engine)
         engine.dispose()

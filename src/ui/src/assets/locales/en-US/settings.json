@@ -607,5 +607,11 @@
   "Installation review reason": "Review reason",
   "Approve installation request": "Approve request",
   "Reject installation request": "Reject request",
-  "Refresh installation requests": "Refresh installation requests"
+  "Refresh installation requests": "Refresh installation requests",
+    "Sign-in from": "Sign-in from (inclusive)",
+    "Sign-in before": "Sign-in before (exclusive)",
+    "Apply sign-in range": "Apply sign-in range",
+    "Clear sign-in range": "Clear sign-in range",
+    "Sign-in range help": "Local time. Filters the latest successful sign-in; accounts without a record are excluded.",
+    "Invalid sign-in range": "Enter valid, unambiguous local times with the start before the end."
 }

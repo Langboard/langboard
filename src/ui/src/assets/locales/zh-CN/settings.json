@@ -607,5 +607,11 @@
   "Installation review reason": "审核理由",
   "Approve installation request": "批准申请",
   "Reject installation request": "拒绝申请",
-  "Refresh installation requests": "刷新安装申请"
+  "Refresh installation requests": "刷新安装申请",
+    "Sign-in from": "登录起始时间（包含）",
+    "Sign-in before": "登录截止时间（不包含）",
+    "Apply sign-in range": "应用登录时间范围",
+    "Clear sign-in range": "清除登录时间范围",
+    "Sign-in range help": "使用本地时间。按最后一次成功登录筛选，排除无记录的账户。",
+    "Invalid sign-in range": "请输入有效且无歧义的本地时间，起始时间必须早于截止时间。"
 }

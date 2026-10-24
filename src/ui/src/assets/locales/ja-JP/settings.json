@@ -607,5 +607,11 @@
   "Installation review reason": "審査理由",
   "Approve installation request": "申請を承認",
   "Reject installation request": "申請を却下",
-  "Refresh installation requests": "インストール申請を更新"
+  "Refresh installation requests": "インストール申請を更新",
+    "Sign-in from": "ログイン開始（含む）",
+    "Sign-in before": "ログイン終了（含まない）",
+    "Apply sign-in range": "ログイン期間を適用",
+    "Clear sign-in range": "ログイン期間をクリア",
+    "Sign-in range help": "現地時間です。最後に成功したログインで絞り込み、記録のないアカウントは除外します。",
+    "Invalid sign-in range": "有効で曖昧でない現地時刻を入力し、開始を終了より前にしてください。"
 }
