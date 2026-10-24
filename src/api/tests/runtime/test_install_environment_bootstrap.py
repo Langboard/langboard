@@ -15,10 +15,12 @@ REQUIRED = {
     "MAIL_SERVER": "smtp.invalid",
     "MAIL_FROM": "fixture@example.invalid",
     "MAIL_PORT": "587",
+    "COMMON_SECRET_KEY": "fixture-common-signing-key",
+    "JWT_SECRET_KEY": "fixture-jwt-signing-key",
 }
 
 
-def bootstrap(tmp_path, shell_name, values):
+def bootstrap(tmp_path, shell_name, values, existing_outputs=False):
     shell = shutil.which(shell_name)
     if not shell:
         pytest.skip(f"{shell_name} is required for executable environment bootstrap checks")
@@ -30,15 +32,23 @@ def bootstrap(tmp_path, shell_name, values):
         shutil.copyfile(ROOT / "scripts/utils" / name, scripts / name)
     for source in (ROOT / "docker/envs").glob("*.env.template"):
         shutil.copyfile(source, templates / source.name)
-    (tmp_path / ".env").write_text(
-        (ROOT / ".env.example").read_text() + "\n" + "\n".join(f"{k}={v}" for k, v in values.items()) + "\n"
-    )
+    example = (ROOT / ".env.example").read_text()
+    for name, value in values.items():
+        if value is None:
+            example = "\n".join(line for line in example.splitlines() if not line.startswith(f"{name}="))
+    environment = example + "\n" + "\n".join(f"{k}={v}" for k, v in values.items() if v is not None) + "\n"
+    (tmp_path / ".env").write_text(environment)
+    if existing_outputs:
+        for service in ("nginx", "api", "ui", "socket", "graph", "db_backup"):
+            (templates / f".{service}.env").write_bytes(b"preserved fixture output\n")
     command = [shell, str(scripts / "update-docker-envs.sh")]
     if shell_name == "pwsh":
         command = [shell, "-NoProfile", "-File", str(scripts / "update-docker-envs.ps1")]
     # No caller environment may override fixture credentials or database selection.
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "TMPDIR", "SYSTEMROOT", "SystemRoot")}
-    return subprocess.run(command, cwd=tmp_path.parent, env=env, capture_output=True, text=True, timeout=20), templates
+    result = subprocess.run(command, cwd=tmp_path.parent, env=env, capture_output=True, text=True, timeout=20)
+    assert (tmp_path / ".env").read_text() == environment
+    return result, templates
 
 
 @pytest.mark.parametrize("shell", ["bash", "pwsh"])
@@ -71,6 +81,8 @@ def test_readme_configuration_generates_service_urls(tmp_path, shell, database):
             ),
         )
         assert generated["MAIL_SERVER"] == REQUIRED["MAIL_SERVER"]
+        for name in ("COMMON_SECRET_KEY", "JWT_SECRET_KEY"):
+            assert generated[name] == REQUIRED[name]
         # Phoenix credentials are injected by Compose environment, not these files.
         assert generated["MAX_REQUEST_BODY_SIZE_BYTES"] == str(51 * 1024 * 1024)
 
@@ -116,3 +128,22 @@ def test_missing_required_configuration_fails_before_generating_service_envs(tmp
     assert result.returncode != 0
     assert missing in result.stderr
     assert not list(templates.glob(".*.env"))
+
+
+@pytest.mark.parametrize("shell", ["bash", "/bin/bash", "pwsh"])
+@pytest.mark.parametrize("name", ["COMMON_SECRET_KEY", "JWT_SECRET_KEY"])
+@pytest.mark.parametrize("invalid", [None, "", "langboard-secret-key"])
+@pytest.mark.parametrize("existing_outputs", [False, True])
+def test_unsafe_signing_keys_fail_without_writing_or_exposing_values(tmp_path, shell, name, invalid, existing_outputs):
+    result, templates = bootstrap(tmp_path, shell, {**REQUIRED, name: invalid}, existing_outputs)
+    assert result.returncode != 0
+    assert name in result.stderr
+    diagnostic = result.stdout + result.stderr
+    for value in ("langboard-secret-key", REQUIRED["COMMON_SECRET_KEY"], REQUIRED["JWT_SECRET_KEY"]):
+        assert value not in diagnostic
+    generated = list(templates.glob(".*.env"))
+    if existing_outputs:
+        assert len(generated) == 6
+        assert all(path.read_bytes() == b"preserved fixture output\n" for path in generated)
+    else:
+        assert not generated

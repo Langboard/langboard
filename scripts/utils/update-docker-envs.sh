@@ -9,6 +9,13 @@ cd "$ROOT_DIR"
 
 source .env
 
+for signing_key in COMMON_SECRET_KEY JWT_SECRET_KEY; do
+    if [[ -z "${!signing_key:-}" || "${!signing_key}" == "langboard-secret-key" ]]; then
+        echo "${signing_key} must be set to a private random secret; replace the example in .env before running Quick Start. Never commit .env or generated credentials." >&2
+        exit 1
+    fi
+done
+
 SOCKET_PHOENIX_KAFKA_ENABLED="${SOCKET_PHOENIX_KAFKA_ENABLED-true}"
 SOCKET_PHOENIX_BOARD_CHAT_SEND_ENABLED="${SOCKET_PHOENIX_BOARD_CHAT_SEND_ENABLED-true}"
 SOCKET_PHOENIX_BOARD_CHAT_RESUME_ENABLED="${SOCKET_PHOENIX_BOARD_CHAT_RESUME_ENABLED-true}"
