@@ -235,7 +235,19 @@ class DecisionFlow:
         return eligible
 
     @staticmethod
+    def _validate_policy_snapshot(case):
+        if case.source_kind not in ("proposal", "graph_approval"):
+            return
+        # A stored policy edit must never reinterpret existing responses while
+        # retaining the old round token, including on the UUID replay path.
+        if case.policy_revision != _hash(
+            {"policy": case.snapshot["policy"], "participant_uids": case.snapshot["participant_uids"]}
+        ):
+            raise DecisionConflict("Decision policy snapshot changed; create a new round")
+
+    @staticmethod
     def _round(case):
+        DecisionFlow._validate_policy_snapshot(case)
         return DecisionRound(
             case.get_uid(),
             case.round_id,
@@ -695,6 +707,7 @@ class DecisionFlow:
             if case is None:
                 raise DecisionMissing()
             _, card = self._authorized(db, actor, project_uid, InfraHelper.convert_uid(case.card_id), channel)
+            self._validate_policy_snapshot(case)
             if actor.get_uid() not in case.snapshot["participant_uids"]:
                 raise DecisionDenied("Not a frozen participant")
             if case.actor_snapshot is not None and actor.get_uid() not in self._eligible(db, case, card, channel):

@@ -23,7 +23,7 @@ from langboard_shared.domain.services.DecisionFlow import (
 )
 from langboard_shared.Env import Env
 from pydantic import ValidationError
-from sqlalchemy import create_engine, event, inspect, select, update
+from sqlalchemy import DateTime, create_engine, event, inspect, select, update
 
 
 def upgrade_actor_delta(connection):
@@ -37,6 +37,44 @@ def upgrade_actor_delta(connection):
     spec.loader.exec_module(migration)
     with Operations.context(MigrationContext.configure(connection)):
         migration.upgrade()
+
+
+def upgrade_clock_delta(connection):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = Path(__file__).parents[2] / "langboard/migrations/versions/20261024170000-dfab456c7890.py"
+    spec = importlib.util.spec_from_file_location("decision_clock_delta", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.upgrade()
+
+
+def set_session_timezone(engine, timezone):
+    if engine.dialect.name == "postgresql":
+
+        def set_timezone(connection, record, proxy):
+            previous = connection.autocommit
+            connection.autocommit = True
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(f"SET TIME ZONE '{timezone}'")
+            finally:
+                connection.autocommit = previous
+
+        event.listen(engine, "checkout", set_timezone)
+
+
+def assert_native_clock_types(engine):
+    if engine.dialect.name == "postgresql":
+        for model in (m.DecisionCase, m.DecisionOption, m.DecisionResponse):
+            actual = {column["name"]: column for column in inspect(engine).get_columns(model.__tablename__)}
+            for column in model.__table__.columns:
+                if isinstance(column.type, DateTime):
+                    assert actual[column.name]["type"].timezone == column.type.timezone is True
+                    expected_default = str(column.server_default.arg) if column.server_default is not None else None
+                    assert actual[column.name]["default"] == expected_default
 
 
 @pytest.fixture(params=["sqlite", "postgresql"])
@@ -156,8 +194,11 @@ def respond(fixture, case, actor=1, payload=None):
     return flow.respond(users[actor], board.get_uid(), case["uid"], payload or form(case))
 
 
-def test_native_snapshot_and_read_only_participant_response(native):
+@pytest.mark.parametrize("session_timezone", ["UTC", "Asia/Seoul"])
+def test_native_snapshot_and_read_only_participant_response(native, session_timezone):
     engine, flow, users, board, _, card = native
+    set_session_timezone(engine, session_timezone)
+    assert_native_clock_types(engine)
     case = create(native)
     assert case["state"] == "pending" and case["effect_result"] is None
     assert case["allowed_actions"] == []
@@ -289,6 +330,42 @@ def test_changed_policy_new_round_requires_fresh_votes_and_preserves_old_approva
     assert sorted(row["response_order"] for row in rows if row["round_id"] == revised["round_id"]) == [1, 2]
 
 
+@pytest.mark.parametrize("changed", ["policy", "participants"])
+def test_persisted_snapshot_change_cannot_reinterpret_or_replay_existing_round(native, changed):
+    engine, flow, users, board, _, card = native
+    a, b = users[1].get_uid(), users[2].get_uid()
+    case = create(native, [a, b], {"op": "all", "children": [{"actor_uid": a}, {"actor_uid": b}], "required": 0})
+    payload = form(case)
+    first = respond(native, case, payload=payload)
+    assert first["state"] == "pending"
+    with engine.connect() as db:
+        before = db.execute(select(m.DecisionCase.__table__)).mappings().one()
+        responses_before = db.execute(select(m.DecisionResponse.__table__)).mappings().all()
+    snapshot = dict(before["snapshot"])
+    if changed == "policy":
+        snapshot["policy"] = {**snapshot["policy"], "op": "any"}
+    else:
+        # A valid but different policy/participant configuration must use a new round.
+        snapshot["participant_uids"] = [a]
+        snapshot["policy"] = {"actor_uid": a}
+    with engine.begin() as db:
+        db.execute(update(m.DecisionCase).values(snapshot=snapshot))
+    with pytest.raises(DecisionConflict, match="snapshot"):
+        flow.list(users[0], board.get_uid(), card.get_uid())
+    with pytest.raises(DecisionConflict, match="snapshot"):
+        create(native, [a, b], case["policy"], request_id=before["request_id"])
+    with pytest.raises(DecisionConflict, match="snapshot"):
+        respond(native, case, payload=payload)
+    with pytest.raises(DecisionConflict, match="snapshot"):
+        respond(native, first, actor=2)
+    with engine.connect() as db:
+        after = db.execute(select(m.DecisionCase.__table__)).mappings().one()
+        assert db.execute(select(m.DecisionResponse.__table__)).mappings().all() == responses_before
+    assert (after["revision"], after["state"], after["policy_revision"], after["round_id"]) == (
+        before["revision"], before["state"], before["policy_revision"], before["round_id"]
+    )
+
+
 def test_sources_cross_board_and_nonparticipant_do_not_leak(native):
     _, flow, users, board, foreign, card = native
     case = create(native)
@@ -378,11 +455,13 @@ def test_unsupported_and_untrusted_inputs_are_rejected(native):
         form(case, actor_uid=native[2][0].get_uid())
 
 
-def test_migration_roundtrip_and_used_data_downgrade_guard(native):
+@pytest.mark.parametrize("session_timezone", ["UTC", "Asia/Seoul"])
+def test_migration_roundtrip_and_used_data_downgrade_guard(native, session_timezone):
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
 
     engine, _, _, _, _, _ = native
+    set_session_timezone(engine, session_timezone)
     path = Path(__file__).parents[2] / "langboard/migrations/versions/20261024060000-b1640a24d001.py"
     spec = importlib.util.spec_from_file_location("decision_migration", path)
     migration = importlib.util.module_from_spec(spec)
@@ -403,11 +482,41 @@ def test_migration_roundtrip_and_used_data_downgrade_guard(native):
         with Operations.context(MigrationContext.configure(connection)):
             poll_delta.upgrade()
         upgrade_actor_delta(connection)
-    create(native)
+        upgrade_clock_delta(connection)
+    assert_native_clock_types(engine)
+    migrated = create(native)
+    payload = form(migrated)
+    approved = respond(native, migrated, payload=payload)
+    assert approved["state"] == "passed" and approved["revision"] == 1
+    assert respond(native, migrated, payload=payload) == {**approved, "replayed": True}
     with pytest.raises(RuntimeError, match="retained"):
         with engine.begin() as connection:
             with Operations.context(MigrationContext.configure(connection)):
                 migration.downgrade()
+
+
+def test_clock_migration_refuses_ambiguous_populated_wall_times_without_changes(native):
+    engine, _, _, _, _, _ = native
+    if engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL timestamp conversion only")
+    set_session_timezone(engine, "Asia/Seoul")
+    create(native)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "ALTER TABLE decision_case ALTER COLUMN created_at TYPE timestamp "
+            "USING created_at AT TIME ZONE 'Asia/Seoul'"
+        )
+    with engine.connect() as connection:
+        before = connection.execute(select(m.DecisionCase.__table__)).mappings().all()
+        before_columns = inspect(connection).get_columns("decision_case")
+    with pytest.raises(RuntimeError, match="historical session timezones"):
+        with engine.begin() as connection:
+            upgrade_clock_delta(connection)
+    with engine.connect() as connection:
+        assert connection.execute(select(m.DecisionCase.__table__)).mappings().all() == before
+        assert [str(column["type"]) for column in inspect(connection).get_columns("decision_case")] == [
+            str(column["type"]) for column in before_columns
+        ]
 
 
 def test_native_authenticated_http_actor_inference_replay_and_visibility(native, monkeypatch, tmp_path):
