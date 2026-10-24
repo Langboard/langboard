@@ -1263,6 +1263,9 @@ def test_wiki_mentions_reject_stale_generation_and_use_current_source(conversion
 
 @pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
 def test_deferred_wiki_mention_fanout_reloads_redacted_durable_line(conversion, monkeypatch):
+    from langboard_shared.Env import Env
+
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     from langboard_shared.domain.models.UserNotification import NotificationType
     from langboard_shared.domain.services.factory.NotificationService import NotificationService
     from langboard_shared.publishers.UserPublisher import UserPublisher
@@ -1279,10 +1282,14 @@ def test_deferred_wiki_mention_fanout_reloads_redacted_durable_line(conversion, 
         )
         db.insert(notification)
     stale_payload = notification.api_response()
+    from langboard_shared.domain.models import UserNotificationUnsubscription
+    from langboard_shared.domain.services import DomainService
+
+    UserNotificationUnsubscription.__table__.create(DbEngine.get_main_engine())
     call(conversion)
     completed, published = [], []
     service = NotificationService(
-        lambda _: None,
+        DomainService()._create_or_get_product,
         lambda _: None,
         SimpleNamespace(
             user_notification=SimpleNamespace(complete_web_fanout=lambda row: completed.append(row.id)),
@@ -1293,6 +1300,130 @@ def test_deferred_wiki_mention_fanout_reloads_redacted_durable_line(conversion, 
     assert completed == [notification.id] and len(published) == 1
     assert published[0]["message_vars"]["line"] == source.replace("fixture-sensitive-value", "[••••]")
     assert notification.message_vars["line"] == source  # The pending closure really held a stale copy.
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize(
+    "state",
+    [
+        "allowed",
+        "membership_revoked",
+        "private_wiki",
+        "deleted_user",
+        "inactive_user",
+        "deleted_wiki",
+        "unsubscribed",
+        "transport_failure",
+        "resolver_failure",
+    ],
+)
+@pytest.mark.parametrize("delivery", ["delayed", "recovered"])
+def test_delayed_wiki_notification_rechecks_native_recipient(conversion, monkeypatch, state, delivery):
+    from langboard_shared.Env import Env
+
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import UserNotificationUnsubscription
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.domain.models.UserNotificationUnsubscription import NotificationChannel, NotificationScope
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.publishers.UserPublisher import UserPublisher
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    UserNotificationUnsubscription.__table__.create(DbEngine.get_main_engine())
+    service = DomainService().notification
+    with DbSession.atomic() as db:
+        notification = UserNotification(
+            notifier_type="user",
+            notifier_id=board[1].id,
+            receiver_id=board[1].id,
+            notification_type=NotificationType.MentionedInWiki,
+            message_vars={"line": source},
+            record_list=[("project", board[2].id), ("project_wiki", wiki.id)],
+            web_visible=True,
+            web_fanout_pending=True,
+        )
+        db.insert(notification)
+    stale_payload = notification.api_response()
+    with DbSession.atomic() as db:
+        if state == "membership_revoked":
+            db.delete(board[3])
+        elif state == "private_wiki":
+            wiki.is_public = False
+            db.update(wiki)
+        elif state == "deleted_user":
+            board[1].deleted_at = SafeDateTime.now()
+            db.update(board[1])
+        elif state == "inactive_user":
+            board[1].activated_at = None
+            db.update(board[1])
+        elif state == "deleted_wiki":
+            wiki.deleted_at = SafeDateTime.now()
+            db.update(wiki)
+        elif state == "unsubscribed":
+            db.insert(
+                UserNotificationUnsubscription(
+                    user_id=board[1].id,
+                    channel=NotificationChannel.Web,
+                    notification_type=NotificationType.MentionedInWiki,
+                    scope_type=NotificationScope.Specific,
+                    specific_table="project_wiki",
+                    specific_id=wiki.id,
+                )
+            )
+    published = []
+
+    def publish(*args):
+        if state == "transport_failure":
+            raise ConnectionError("fixture transport unavailable")
+        published.append(args)
+
+    monkeypatch.setattr(UserPublisher, "notified", publish)
+    if state == "resolver_failure":
+
+        def unavailable(*args):
+            raise ConnectionError("fixture authority unavailable")
+
+        monkeypatch.setattr(service, "_resolve_notification_recipient", unavailable)
+    retry = state in {"transport_failure", "resolver_failure"}
+    if delivery == "recovered":
+        from datetime import timedelta
+
+        with DbSession.atomic() as db:
+            db.exec(
+                SqlBuilder.update.table(UserNotification)
+                .where(UserNotification.id == notification.id)
+                .values(
+                    updated_at=SafeDateTime.now() - timedelta(minutes=1),
+                )
+            )
+        # Keep envelope reconstruction on this fixture's primary native database.
+        with DbSession.atomic():
+            assert service.recover_pending_web_fanout() == (0 if retry else 1)
+    else:
+        assert service._publish_web_notification(notification, board[1], stale_payload) is not retry
+    assert len(published) == (1 if state == "allowed" else 0)
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(
+            SqlBuilder.select.table(UserNotification).where(UserNotification.id == notification.id)
+        ).first()
+        assert current.web_fanout_pending is retry
+        assert current.message_vars == {"line": source}
+    if retry:
+        if state == "resolver_failure":
+            monkeypatch.setattr(
+                service,
+                "_resolve_notification_recipient",
+                type(service)._resolve_notification_recipient.__get__(service),
+            )
+        monkeypatch.setattr(UserPublisher, "notified", lambda *args: published.append(args))
+        assert service._publish_web_notification(notification, board[1], stale_payload)
+        assert len(published) == 1
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(
+                SqlBuilder.select.table(UserNotification).where(UserNotification.id == notification.id)
+            ).first()
+            assert current.web_fanout_pending is False
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)

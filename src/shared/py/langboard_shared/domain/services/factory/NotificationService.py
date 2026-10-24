@@ -261,7 +261,12 @@ class NotificationService(BaseDomainService):
         pending = self.repo.user_notification.get_pending_web_fanout(SafeDateTime.now() - timedelta(seconds=30), limit)
         completed = 0
         for notification in pending:
-            recipient = InfraHelper.get_by_id_like(User, notification.receiver_id)
+            # Wiki delivery resolves the current account and ACL under its owner lock.
+            recipient = (
+                User.model_construct(id=notification.receiver_id)
+                if notification.notification_type == NotificationType.MentionedInWiki
+                else InfraHelper.get_by_id_like(User, notification.receiver_id)
+            )
             if not recipient:
                 _logger.warning("Recipient unavailable for pending web notification %s", notification.id)
                 self.repo.user_notification.defer_web_fanout(notification)
@@ -441,7 +446,32 @@ class NotificationService(BaseDomainService):
                         )
                         .with_for_update()
                     ).first()
-                    if wiki is None or current is None:
+                    if current is None:
+                        return True
+                    references = []
+                    for table, record_id in current.record_list:
+                        model = {"project": Project, "project_wiki": ProjectWiki}.get(table)
+                        if model is None:
+                            self.repo.user_notification.complete_web_fanout(current)
+                            return True
+                        references.append(model.model_construct(id=record_id))
+                    resolved = self._resolve_notification_recipient(
+                        recipient,
+                        NotificationType.MentionedInWiki,
+                        references,
+                    )
+                    if wiki is None or resolved is None or not current.web_visible:
+                        self.repo.user_notification.complete_web_fanout(current)
+                        return True
+                    recipient, references = resolved
+                    scopes = [(type(record).__tablename__, int(record.id)) for record in references]
+                    if self._get_service(UserNotificationSettingService).has_unsubscription(
+                        recipient,
+                        NotificationType.MentionedInWiki,
+                        scopes,
+                        NotificationChannel.Web,
+                    ):
+                        self.repo.user_notification.complete_web_fanout(current)
                         return True
                     UserPublisher.notified(recipient, {**api_notification, "message_vars": current.message_vars})
                     self.repo.user_notification.complete_web_fanout(current)
