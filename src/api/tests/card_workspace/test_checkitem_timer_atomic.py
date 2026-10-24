@@ -18,6 +18,9 @@ from sqlalchemy import create_engine, text
 
 @pytest.mark.parametrize("mode", ["commit", "history_failure", "outer_rollback"])
 def test_stop_timer_state_and_dispatch_are_atomic(monkeypatch, mode):
+    # These synthetic tables isolate commit/dispatch behavior; real lock coverage
+    # lives in timers/test_timer_transitions.py on PostgreSQL.
+    monkeypatch.setattr(CheckitemService, "_lock_timer_transition", lambda *a: None)
     engine = create_engine("sqlite://")
     with engine.begin() as c:
         c.execute(text("CREATE TABLE timer_state (seconds INTEGER, status TEXT)"))
@@ -100,6 +103,9 @@ def test_stop_timer_state_and_dispatch_are_atomic(monkeypatch, mode):
 
 @pytest.mark.parametrize("mode", ["commit", "unread_failure", "outer_rollback"])
 def test_checked_state_and_events_commit_together(monkeypatch, mode):
+    # These synthetic tables isolate commit/dispatch behavior; real lock coverage
+    # lives in timers/test_timer_transitions.py on PostgreSQL.
+    monkeypatch.setattr(CheckitemService, "_lock_timer_transition", lambda *a: None)
     engine = create_engine("sqlite://")
     with engine.begin() as c:
         c.execute(text("CREATE TABLE checked_state (checked INTEGER)"))

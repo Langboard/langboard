@@ -349,10 +349,24 @@ class CheckitemService(BaseDomainService):
         should_publish: bool = True,
         from_api: bool = False,
     ) -> bool | None:
-        with DbSession.atomic():
+        with DbSession.atomic() as db:
+            self._lock_timer_transition(db, user_or_bot, card)
             return self._change_status(
                 user_or_bot, project, card, checkitem, status, current_time, should_publish, from_api
             )
+
+    def _lock_timer_transition(self, db: DbSession, user_or_bot: TUserOrBot, card: TCardParam) -> None:
+        # Serialize a user's starts across cards before checking their active work.
+        # Card effects take this same card lock before stopping timer rows.
+        if isinstance(user_or_bot, User):
+            db.exec(
+                SqlBuilder.select.table(User).where(User.column("id") == user_or_bot.id).with_for_update()
+            ).first()
+        db.exec(
+            SqlBuilder.select.table(Card)
+            .where(Card.column("id") == InfraHelper.convert_id(card))
+            .with_for_update(key_share=True)
+        ).first()
 
     def _change_status(
         self,
@@ -387,7 +401,10 @@ class CheckitemService(BaseDomainService):
                     CheckitemTimerRecord,
                     self.repo.checkitem_timer_record.get_by_checkitem_and_arc_type(checkitem, "last"),
                 )
-                accumulated_seconds = int((current_time - last_timer_record.created_at).total_seconds())
+                started_at = last_timer_record.created_at
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                accumulated_seconds = max(0, int((current_time - started_at).total_seconds()))
                 checkitem.accumulated_seconds += accumulated_seconds
                 self.repo.checkitem.update(checkitem)
         else:
@@ -539,7 +556,8 @@ class CheckitemService(BaseDomainService):
         checkitem: TCheckitemParam,
         desired_checked: bool | None = None,
     ) -> bool | None:
-        with DbSession.atomic():
+        with DbSession.atomic() as db:
+            self._lock_timer_transition(db, user_or_bot, card)
             return self._toggle_checked(user_or_bot, project, card, checkitem, desired_checked)
 
     def _toggle_checked(
@@ -558,13 +576,15 @@ class CheckitemService(BaseDomainService):
         if desired_checked is not None and checkitem.is_checked == desired_checked:
             return True
         checkitem.is_checked = desired_checked if desired_checked is not None else not checkitem.is_checked
+        # The nested status transition rereads persisted state. Save the checked
+        # intent in this transaction before that read and its frozen publication.
+        self.repo.checkitem.update(checkitem)
 
         if checkitem.status != CheckitemStatus.Stopped:
             if not self.change_status(user_or_bot, project, card, checkitem, CheckitemStatus.Stopped):
                 raise ValueError("Work timer transition failed")
             publish_checked = False
         else:
-            self.repo.checkitem.update(checkitem)
             self._mark_card_changed_for_unread(card, "checkitem", checkitem.id)
             publish_checked = True
 
