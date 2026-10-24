@@ -11,9 +11,10 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.domain.models import WorkflowStageDefinition
+from langboard_shared.domain.models import WorkflowRule, WorkflowStageDefinition
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
 from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
+from langboard_shared.publishers import AppSettingPublisher
 from langboard_shared.tasks.webhooks import ExecutionOutboxTask
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution, execution_readiness_uow
 from sqlalchemy import create_engine, text
@@ -42,6 +43,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     enqueued: list[str] = []
     monkeypatch.setattr(ExecutionOutboxTask, "execution_outbox_task", enqueued.append)
+    monkeypatch.setattr(AppSettingPublisher, "workflow_stages_changed", lambda: None)
     try:
         with engine.begin() as connection:
             for statement in (
@@ -80,6 +82,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 )
             )
             WorkflowStageDefinition.__table__.create(connection)
+            WorkflowRule.__table__.create(connection)
             connection.execute(
                 WorkflowStageDefinition.__table__.insert(),
                 [
@@ -236,7 +239,8 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             counts_as_completed=False,
             active_queue_policy="exclude",
             overdue_policy="suppress",
-            entry_effects=["complete_checkitems"],
+            rules=[],
+            confirm_descendant_move=False,
             translations={},
         )
         saved = service.save(fields, WorkflowStageDefinition(id=1, key="closed", name="Closed").get_uid())

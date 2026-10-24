@@ -97,6 +97,9 @@ on:
       - src/api/langboard/migrations/versions/20261002114000-4afb6de824d3.py
       - src/api/langboard/migrations/versions/20261002234000-7be934f2a6c1.py
       - src/shared/py/langboard_shared/domain/models/WorkflowStageDefinition.py
+      - src/shared/py/langboard_shared/domain/models/WorkflowRule*.py
+      - src/shared/py/langboard_shared/domain/models/WorkflowActionRun.py
+      - src/shared/py/langboard_shared/domain/services/factory/WorkflowRuleService.py
       - src/shared/py/langboard_shared/domain/services/CardWorkState.py
       - src/shared/py/langboard_shared/domain/services/DecisionPolicy.py
       - src/shared/py/langboard_shared/domain/services/DecisionPolicy_test.py
