@@ -10,6 +10,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from langboard_shared.tasks.docling.DocumentEmbeddingCache import (
     CachedDocumentEmbeddings,
+    EmbeddingInferenceUncertain,
     activate_cache_references,
     cached_document_embeddings,
     recover_expired_cache_references,
@@ -95,7 +96,7 @@ def test_rejected_publication_releases_unpublished_results(binding_store):  # no
     assert rows() == [] and rows(DocumentEmbeddingCacheReference) == []
 
 
-def test_expired_inference_allows_retry_and_fences_old_worker(binding_store):  # noqa: F811
+def test_expired_undispatched_claim_allows_retry_and_fences_old_worker(binding_store):  # noqa: F811
     provider = Provider()
     stale = CachedDocumentEmbeddings(provider, **config())
     identifier, _, owned = stale._claim(stale._key("alpha"))
@@ -109,22 +110,36 @@ def test_expired_inference_allows_retry_and_fences_old_worker(binding_store):  #
     with cached_document_embeddings(provider, **config()) as retry:
         assert retry.embed_documents(["alpha"]) == [[5.0, 2.0, 3.0]]
         retain(retry)
-    stale._release_claims([identifier], attempted=True)
+    stale._release_claims([identifier])
     release_cache_references(stale.token)
     assert len(provider.calls) == 1
     assert rows()[0].vector == [5.0, 2.0, 3.0] and rows()[0].lease_token is None
 
 
-def test_failed_inference_can_retry_without_an_additional_user_gate(binding_store):  # noqa: F811
+def test_failed_inference_stays_fenced_after_reference_expiry(binding_store, monkeypatch):  # noqa: F811
     provider = Provider()
-    provider.embed_documents = Mock(side_effect=[TimeoutError("private-provider-secret"), [[5.0, 2.0, 3.0]]])
-    with pytest.raises(TimeoutError):
+    provider.embed_documents = Mock(side_effect=TimeoutError("private-provider-secret"))
+    with pytest.raises(EmbeddingInferenceUncertain) as failed:
         with cached_document_embeddings(provider, **config()) as cache:
             cache.embed_documents(["alpha"])
+    assert isinstance(failed.value.__cause__, TimeoutError)
+    assert rows()[0].lease_token == cache.token and rows()[0].lease_expires_at is None
+    # Reference cleanup simulates a later worker after the original process is gone.
+    with DbSession.atomic() as db:
+        db.exec(update(DocumentEmbeddingCacheReference).values(
+            expires_at=SafeDateTime.now() - timedelta(hours=9)
+        ))
+    assert recover_expired_cache_references() == 1
+    assert rows(DocumentEmbeddingCacheReference) == []
+    assert len(rows()) == 1 and rows()[0].lease_token == cache.token
     with cached_document_embeddings(provider, **config()) as retry:
-        assert retry.embed_documents(["alpha"]) == [[5.0, 2.0, 3.0]]
-        retain(retry)
-    assert provider.embed_documents.call_count == 2
+        with monkeypatch.context() as clock:
+            clock.setattr("time.monotonic", Mock(side_effect=[0, retry.inference_budget_seconds + 1]))
+            with pytest.raises(EmbeddingInferenceUncertain, match="automatic resend disabled"):
+                retry.embed_documents(["alpha"])
+    assert provider.embed_documents.call_count == 1
+    release_cache_references(retry.token)
+    assert len(rows()) == 1 and rows()[0].vector is None
     assert "private-provider-secret" not in str([row.model_dump() for row in rows()])
 
 
@@ -408,7 +423,7 @@ def test_invalid_timeouts_are_rejected_before_database_or_model_calls(timeout):
         CachedDocumentEmbeddings(Provider(), **config(timeout_seconds=timeout))
 
 
-def test_retry_preserves_successful_batches_after_late_timeout(binding_store):  # noqa: F811
+def test_retry_preserves_successful_batches_after_late_timeout(binding_store, monkeypatch):  # noqa: F811
     provider = Provider()
     batches = []
 
@@ -421,18 +436,32 @@ def test_retry_preserves_successful_batches_after_late_timeout(binding_store):  
 
     provider.embed_documents = infer
     texts = [f"chunk-{index}" for index in range(70)]
-    with pytest.raises(TimeoutError):
+    with pytest.raises(EmbeddingInferenceUncertain) as failed:
         with cached_document_embeddings(provider, **config()) as original:
             original.embed_documents(texts)
+    assert isinstance(failed.value.__cause__, TimeoutError)
     assert sum(row.vector is not None for row in rows()) == 64
+    completed = batches[0] + batches[1]
     with cached_document_embeddings(provider, **config()) as retry:
-        assert len(retry.embed_documents(texts)) == 70
+        assert retry.embed_documents(completed) == [[float(len(text)), 2.0, 3.0] for text in completed]
         retain(retry)
-    assert [len(batch) for batch in batches] == [32, 32, 6, 6]
-    assert batches[2] == batches[3]
+        with monkeypatch.context() as clock:
+            clock.setattr("time.monotonic", Mock(side_effect=[0, retry.inference_budget_seconds + 1]))
+            with pytest.raises(EmbeddingInferenceUncertain):
+                retry.embed_documents(texts)
+    assert [len(batch) for batch in batches] == [32, 32, 6]
+    assert len(rows(DocumentEmbeddingCacheReference)) == 140
     release_cache_references(original.token)
+    assert len(rows()) == 70 and len(rows(DocumentEmbeddingCacheReference)) == 70
+    with cached_document_embeddings(provider, **config()) as published:
+        assert published.embed_documents(completed) == [[float(len(text)), 2.0, 3.0] for text in completed]
+        retain(published)
     release_cache_references(retry.token)
-    assert rows() == []
+    assert sum(row.vector is not None for row in rows()) == 64
+    release_cache_references(published.token)
+    assert len(rows()) == 6 and rows(DocumentEmbeddingCacheReference) == []
+    assert all(row.vector is None and row.lease_expires_at is None and row.lease_token == original.token for row in rows())
+    assert [len(batch) for batch in batches] == [32, 32, 6]
 
 
 def test_cleanup_helpers_do_not_require_optional_inference_dependencies():
@@ -500,7 +529,7 @@ def test_async_workers_share_inflight_inference_without_blocking_loop(binding_st
 
 
 @pytest.mark.parametrize("failure", ["timeout", "cancelled", "invalid-vector"])
-def test_async_failure_keeps_finished_batches_and_fences_retry(binding_store, failure):  # noqa: F811
+def test_async_failure_keeps_finished_batches_and_fences_retry(binding_store, failure, monkeypatch):  # noqa: F811
     provider = Provider()
     batches = []
 
@@ -522,18 +551,34 @@ def test_async_failure_keeps_finished_batches_and_fences_retry(binding_store, fa
 
     async def run():
         error = {"timeout": TimeoutError, "cancelled": asyncio.CancelledError, "invalid-vector": ValueError}[failure]
-        with pytest.raises(error):
+        with pytest.raises(EmbeddingInferenceUncertain) as failed:
             with cached_document_embeddings(provider, **config()) as first:
                 await first.aembed_documents(texts)
+        assert isinstance(failed.value.__cause__, error)
         assert sum(row.vector is not None for row in rows()) == 64
+        completed = batches[0] + batches[1]
         with cached_document_embeddings(provider, **config()) as retry:
-            assert len(await retry.aembed_documents(texts)) == 70
+            assert await retry.aembed_documents(completed) == [[float(len(text)), 2.0, 3.0] for text in completed]
             retain(retry)
-        assert [len(batch) for batch in batches] == [32, 32, 6, 6]
-        assert batches[2] == batches[3]
+            with monkeypatch.context() as clock:
+                clock.setattr("time.monotonic", Mock(side_effect=[0, retry.inference_budget_seconds + 1]))
+                with pytest.raises(EmbeddingInferenceUncertain):
+                    await retry.aembed_documents(texts)
+        assert [len(batch) for batch in batches] == [32, 32, 6]
+        assert len(rows(DocumentEmbeddingCacheReference)) == 140
+        assert all(row.lease_token == first.token and row.lease_expires_at is None for row in rows() if row.vector is None)
         provider.embed_documents.assert_not_called()
         release_cache_references(first.token)
+        assert len(rows()) == 70 and len(rows(DocumentEmbeddingCacheReference)) == 70
         release_cache_references(retry.token)
-        assert rows() == []
+        assert len(rows()) == 6 and rows(DocumentEmbeddingCacheReference) == []
+        with cached_document_embeddings(provider, **config()) as later:
+            with monkeypatch.context() as clock:
+                clock.setattr("time.monotonic", Mock(side_effect=[0, later.inference_budget_seconds + 1]))
+                with pytest.raises(EmbeddingInferenceUncertain):
+                    await later.aembed_documents(batches[2])
+        assert [len(batch) for batch in batches] == [32, 32, 6]
+        release_cache_references(later.token)
+        assert len(rows()) == 6
 
     asyncio.run(run())
