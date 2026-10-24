@@ -15,6 +15,7 @@ interface IAuthStore {
     pageLoaded: bool;
     getToken: () => string | null;
     getSessionVersion: () => number;
+    getIdentityVersion: () => number;
     updateToken: (token: string, api: AxiosInstance) => Promise<void>;
     removeToken: () => void;
     getOidcCallbackRequestStatus: (requestKey: string) => TOidcCallbackRequestStatus | null;
@@ -24,8 +25,10 @@ interface IAuthStore {
 
 let accessToken: string | null = null;
 let tokenUpdateVersion = 0;
+let identityVersion = 0;
 
 const clearIdentityState = () => {
+    identityVersion += 1;
     useSocketStore.getState().close();
     queryClient.clear();
     cleanModels();
@@ -39,6 +42,7 @@ const useAuthStore = create(
             pageLoaded: false,
             getToken: () => accessToken,
             getSessionVersion: () => tokenUpdateVersion,
+            getIdentityVersion: () => identityVersion,
             updateToken: async (token: string, api: AxiosInstance) => {
                 if (get().state === "pending") {
                     return;

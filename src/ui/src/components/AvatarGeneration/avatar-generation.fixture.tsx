@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import useAuthStore from "@/core/stores/AuthStore";
-import { AuthUser, Project } from "@/core/models";
+import { AuthUser, InternalBotModel, Project } from "@/core/models";
 import { AccountSettingProvider } from "@/core/providers/AccountSettingProvider";
 import ProfilePage from "@/pages/AccountPage/ProfilePage";
 import BoardSettingsBasic from "@/pages/BoardPage/components/settings/BoardSettingsBasic";
@@ -37,6 +37,16 @@ const project = Project.Model.fromOne({
     description: "Board description",
     archive_visible_days: 3,
 });
+const summary = InternalBotModel.Model.fromOne({
+    uid: "summary",
+    bot_type: "avatar_summary",
+    display_name: "Summary model",
+    platform: "default",
+    platform_running_type: "default",
+    value: JSON.stringify({ model_name: "text-model" }),
+    created_at: new Date(),
+    updated_at: new Date(),
+});
 function Fixture() {
     const actor = useAuthStore((state) => state.currentUser)!;
     const [allowed, setAllowed] = useState(true);
@@ -45,6 +55,13 @@ function Fixture() {
     return (
         <main className="mx-auto max-w-3xl p-3">
             <nav className="flex flex-wrap gap-3">
+                <button
+                    onClick={() => {
+                        summary.value = JSON.stringify({ model_name: "changed-model" });
+                    }}
+                >
+                    Change summary profile
+                </button>
                 <button
                     onClick={() => {
                         actor.avatar_revision = 9;

@@ -1,6 +1,8 @@
 from collections.abc import Mapping
+from contextlib import contextmanager
 from datetime import timedelta, timezone
 from typing import Any, NamedTuple
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from ....core.db import ChatContentModel, DbSession, SqlBuilder
@@ -43,6 +45,46 @@ class EditorResumeFailure(NamedTuple):
 
 
 class InternalBotRunRepository(BaseRepository[InternalBotRun]):
+    @staticmethod
+    @contextmanager
+    def _resume_transaction():
+        owns_transaction = not DbSession.has_active_transaction()
+        with DbSession.atomic(sensitive=True) as db:
+            if DbEngine.get_main_engine().dialect.name == "sqlite" and owns_transaction:
+                db.exec(text("BEGIN IMMEDIATE"))
+            elif DbEngine.get_main_engine().dialect.name == "postgresql":
+                db.exec(text("SET LOCAL lock_timeout = '3s'"))
+                db.exec(text("SET LOCAL statement_timeout = '10s'"))
+                from ....domain.services.DecisionFlow import _NATIVE_AUTHORITY_TABLES
+
+                # Attachment holds these existing authority fences before run
+                # rows. Resume must do the same before taking any row locks.
+                db.exec(text("LOCK TABLE " + _NATIVE_AUTHORITY_TABLES + " IN SHARE ROW EXCLUSIVE MODE"))
+            yield db
+
+    @staticmethod
+    def _matches_claimed_approval(run, approval, interrupt):
+        """Match durable claim identity without rerunning post-effect authorization."""
+        plan = approval.execution_plan
+        if (
+            run.request_payload.get("resume_approval_uid") != approval.get_uid()
+            or run.request_payload.get("resume_execution_plan") != plan
+        ):
+            return False
+        if plan is None:
+            return True  # Existing legacy claims retain their persisted approval identity.
+        if not isinstance(plan, dict):
+            return False
+        return (
+            plan.get("native_run_uid") == run.get_uid()
+            and plan.get("run_id") == run.client_task_id
+            and type(plan.get("generation")) is int
+            and plan["generation"] + 1 == run.attempt
+            and plan.get("thread_id") == run.graph_thread_id
+            and plan.get("session_id") == run.graph_session_id
+            and plan.get("interrupt_id") == interrupt.get("id")
+        )
+
     @staticmethod
     def model_cls() -> type[InternalBotRun]:
         return InternalBotRun
@@ -494,11 +536,10 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
     ) -> GraphApprovalRequest | None:
         if status not in (GraphApprovalStatus.Expired, GraphApprovalStatus.Cancelled):
             raise ValueError("An editor approval can only be expired or cancelled here")
-        with DbSession.use(readonly=False) as db:
+        with self._resume_transaction() as db:
             approval = db.exec(
                 SqlBuilder.select.table(GraphApprovalRequest)
                 .where(GraphApprovalRequest.column("id") == approval_id)
-                .with_for_update()
             ).first()
             detail = db.exec(
                 SqlBuilder.select.table(EditorGraphApprovalRequest).where(
@@ -521,20 +562,38 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     & (InternalBotRun.column("user_id") == approval.requested_by_user_id)
                     & (InternalBotRun.column("scope_table") == detail.scope_table)
                     & (InternalBotRun.column("scope_uid") == detail.scope_id.to_short_code())
-                    & (InternalBotRun.column("status") == InternalBotRunStatus.AwaitingApproval)
+                    & InternalBotRun.column("status").in_(
+                        (InternalBotRunStatus.AwaitingApproval, InternalBotRunStatus.Resuming)
+                        if status == GraphApprovalStatus.Cancelled
+                        else (InternalBotRunStatus.AwaitingApproval,)
+                    )
                     & InternalBotRun.column("kind").in_(
                         (InternalBotRunKind.EditorChat, InternalBotRunKind.EditorCopilot)
                     )
                 )
                 .with_for_update()
             ).first()
-            if run is None or run.request_payload.get("document_name") != detail.document_name:
+            approval = db.exec(
+                SqlBuilder.select.table(GraphApprovalRequest)
+                .where(GraphApprovalRequest.column("id") == approval_id)
+                .with_for_update()
+            ).first()
+            if (
+                run is None
+                or approval is None
+                or approval.status != GraphApprovalStatus.Pending
+                or approval.requested_by_user_id != run.user_id
+                or approval.thread_id != run.graph_thread_id
+                or run.request_payload.get("document_name") != detail.document_name
+            ):
                 return None
             interrupt = run.request_payload.get("graph_interrupt")
             if not isinstance(interrupt, dict):
                 return None
             value = interrupt.get("value", interrupt)
             if not isinstance(value, dict) or value.get("approval_uid") != approval.get_uid():
+                return None
+            if run.status == InternalBotRunStatus.Resuming and not self._matches_claimed_approval(run, approval, interrupt):
                 return None
 
             now = SafeDateTime.now()
@@ -579,11 +638,10 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         ):
             raise ValueError("Exactly one editor approval decision is required")
 
-        with DbSession.use(readonly=False) as db:
+        with self._resume_transaction() as db:
             approval = db.exec(
                 SqlBuilder.select.table(GraphApprovalRequest)
                 .where(GraphApprovalRequest.column("id") == approval_id)
-                .with_for_update()
             ).first()
             detail = db.exec(
                 SqlBuilder.select.table(EditorGraphApprovalRequest).where(
@@ -615,8 +673,19 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 )
                 .with_for_update()
             ).first()
+            approval = db.exec(
+                SqlBuilder.select.table(GraphApprovalRequest)
+                .where(GraphApprovalRequest.column("id") == approval_id)
+                .with_for_update()
+            ).first()
             if (
-                run is None
+                approval is None
+                or approval.status != GraphApprovalStatus.Pending
+                or approval.request_type != GraphApprovalOriginType.Editor
+                or self._approval_expired(approval)
+                or run is None
+                or approval.requested_by_user_id != run.user_id
+                or approval.thread_id != run.graph_thread_id
                 or not run.graph_session_id
                 or run.request_payload.get("document_name") != detail.document_name
             ):
@@ -630,6 +699,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 or value.get("thread_id") != run.graph_thread_id
                 or value.get("session_id") != run.graph_session_id
                 or value.get("status") != "pending"
+                or not approval.matches_execution_plan(run, interrupt, claimant_id=approver_id, decision=decision)
             ):
                 return None
 
@@ -640,6 +710,9 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 **run.request_payload,
                 "resume": dict(decision),
                 "resume_actor_uid": approver_id.to_short_code(),
+                "resume_decision": approval._decision_receipt if approval_id and hasattr(approval, "_decision_receipt") else None,
+                "resume_execution_plan": approval.execution_plan,
+                "resume_approval_uid": approval.get_uid(),
             }
             db.update(run)
             return run
@@ -654,7 +727,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
     ) -> EditorResumeResult | None:
         if (next_interrupt is None) != (next_approval is None):
             raise ValueError("A new editor approval requires a matching Graph interrupt")
-        with DbSession.use(readonly=False) as db:
+        with self._resume_transaction() as db:
             run = db.exec(
                 SqlBuilder.select.table(InternalBotRun)
                 .where(
@@ -710,6 +783,8 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 or approval.request_type != GraphApprovalOriginType.Editor
                 or approval.requested_by_user_id != run.user_id
                 or approval.status != GraphApprovalStatus.Pending
+                or self._approval_expired(approval)
+                or not approval.matches_execution_plan(run, original_interrupt, completing=True, recording_result=True)
             ):
                 return None
 
@@ -855,7 +930,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
     ) -> GraphApprovalRequest | None:
         if status not in (GraphApprovalStatus.Expired, GraphApprovalStatus.Cancelled):
             raise ValueError("A Board chat approval can only be expired or cancelled here")
-        with DbSession.use(readonly=False) as db:
+        with self._resume_transaction() as db:
             detail = db.exec(
                 SqlBuilder.select.table(ChatGraphApprovalRequest).where(
                     ChatGraphApprovalRequest.column("approval_request_id") == approval_id
@@ -869,7 +944,11 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     (InternalBotRun.column("chat_session_id") == detail.chat_session_id)
                     & (InternalBotRun.column("ai_chat_history_id") == detail.chat_history_id)
                     & (InternalBotRun.column("kind") == InternalBotRunKind.BoardChat)
-                    & (InternalBotRun.column("status") == InternalBotRunStatus.AwaitingApproval)
+                    & InternalBotRun.column("status").in_(
+                        (InternalBotRunStatus.AwaitingApproval, InternalBotRunStatus.Resuming)
+                        if status == GraphApprovalStatus.Cancelled
+                        else (InternalBotRunStatus.AwaitingApproval,)
+                    )
                 )
                 .with_for_update()
             ).first()
@@ -893,6 +972,13 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 approval is None
                 or message is None
                 or approval.status != GraphApprovalStatus.Pending
+                or approval.request_type != GraphApprovalOriginType.Chat
+                or approval.run_id != run.client_task_id
+                or detail.scope_table != run.scope_table
+                or detail.scope_id is None
+                or detail.scope_id.to_short_code() != (
+                    run.scope_uid or (run.project_id.to_short_code() if run.scope_table == "project" else None)
+                )
                 or approval.thread_id != run.graph_thread_id
                 or approval.requested_by_user_id != run.user_id
             ):
@@ -902,6 +988,8 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 return None
             value = interrupt.get("value", interrupt)
             if not isinstance(value, dict) or value.get("approval_uid") != approval.get_uid():
+                return None
+            if run.status == InternalBotRunStatus.Resuming and not self._matches_claimed_approval(run, approval, interrupt):
                 return None
 
             now = SafeDateTime.now()
@@ -1258,7 +1346,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         if lease_seconds <= 0:
             raise ValueError("The AI run lease must be positive")
 
-        with DbSession.use(readonly=False) as db:
+        with self._resume_transaction() as db:
             run = db.exec(
                 SqlBuilder.select.table(InternalBotRun)
                 .where(
@@ -1322,7 +1410,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     SqlBuilder.select.table(GraphApprovalRequest).where(
                         (GraphApprovalRequest.column("id") == approval_id)
                         & (GraphApprovalRequest.column("thread_id") == thread_id)
-                    )
+                    ).with_for_update()
                 ).first()
                 detail = db.exec(
                     SqlBuilder.select.table(ChatGraphApprovalRequest).where(
@@ -1339,6 +1427,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     or approval.status != GraphApprovalStatus.Pending
                     or detail.scope_table != run.scope_table
                     or self._approval_expired(approval)
+                    or not approval.matches_execution_plan(run, interrupt, claimant_id=user_id, decision=resume)
                 ):
                     return None
 
@@ -1346,7 +1435,13 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             run.status = InternalBotRunStatus.Resuming
             run.attempt += 1
             run.lease_expires_at = now + timedelta(seconds=lease_seconds)
-            run.request_payload = {**run.request_payload, "resume": dict(resume)}
+            run.request_payload = {
+                **run.request_payload,
+                "resume": dict(resume),
+                "resume_decision": approval._decision_receipt if approval_id and hasattr(approval, "_decision_receipt") else None,
+                "resume_execution_plan": approval.execution_plan if approval_id else None,
+                "resume_approval_uid": approval.get_uid() if approval_id else None,
+            }
             db.update(run)
             return run
 
@@ -1361,7 +1456,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         if next_approval is not None and next_interrupt is None:
             raise ValueError("A new approval requires a Graph interrupt")
 
-        with DbSession.use(readonly=False) as db:
+        with self._resume_transaction() as db:
             run = db.exec(
                 SqlBuilder.select.table(InternalBotRun)
                 .where(
@@ -1463,7 +1558,12 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     )
                     .with_for_update()
                 ).first()
-                if resolved_approval is None or resolved_approval.status != GraphApprovalStatus.Pending:
+                if (
+                    resolved_approval is None
+                    or resolved_approval.status != GraphApprovalStatus.Pending
+                    or self._approval_expired(resolved_approval)
+                    or not resolved_approval.matches_execution_plan(run, original_interrupt, completing=True, recording_result=True)
+                ):
                     return None
 
             now = SafeDateTime.now()

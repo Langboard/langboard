@@ -1,7 +1,9 @@
+import useCardDraftStore, { buildDraftScopeKey } from "@/core/stores/CardDraftStore";
 import { flipDraftKey, useCardFlipDraftStore } from "./CardFlipDraftStore";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
 import { Reorder } from "framer-motion";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useTranslation } from "react-i18next";
 import useCardCommentDraftStore from "@/core/stores/CardCommentDraftStore";
 import { captureCardOrigin } from "../board/CardAnimation";
@@ -106,12 +108,18 @@ export default function CardFlipTray({
     const cards = useFlippedCards(userUID, projectUID);
     const suspendedDrafts = useCardFlipDraftStore((state) => state.drafts);
     const drafts = useCardCommentDraftStore((state) => state.draftMap);
+    const editDrafts = useCardDraftStore((state) => state.cache);
     const hasDraft = (card: IFlippedCard) =>
+        !!(
+            editDrafts[buildDraftScopeKey({ userUID, projectUID, kind: "card-edit", scopeUID: card.uid })] ??
+            useCardDraftStore.getState().getDraft({ userUID, projectUID, kind: "card-edit", scopeUID: card.uid })
+        ) ||
         !!Object.keys(suspendedDrafts[flipDraftKey(userUID, projectUID, card.uid)] ?? {}).length ||
         !!(
             drafts[`comment-${userUID}-${projectUID}-${card.uid}`] ?? useCardCommentDraftStore.getState().getDraft(userUID, projectUID, card.uid)
         ).trim();
     const navigate = usePageNavigateRef();
+    const location = usePageLocation();
     const [t, i18n] = useTranslation();
     const didDrag = useRef(false);
     const host = useRef<HTMLDivElement>(null);
@@ -171,7 +179,7 @@ export default function CardFlipTray({
         captureCardOrigin(projectUID, card.uid, element.getBoundingClientRect());
         useCardFlipStore.getState().swap(userUID, projectUID, card.uid, currentCard);
         setOpen(false);
-        navigate({ pathname: ROUTES.BOARD.CARD(projectUID, card.uid), search: window.location.search });
+        navigate({ pathname: ROUTES.BOARD.CARD(projectUID, card.uid), search: location.search });
     };
     const item = (card: IFlippedCard, compact = true) => (
         <FlipDraggableItem

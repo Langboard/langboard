@@ -1,3 +1,5 @@
+import { queryClient } from "@/core/helpers/QueryClient";
+import { resetWorkspaceSummaryQueries } from "@/controllers/api/WorkspaceSummaryInvalidation";
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
 import { ProjectWiki } from "@/core/models";
@@ -28,6 +30,7 @@ const useBoardWikiDetailsChangedHandlers = ({ callback, projectUID, wiki, isPriv
             params: { uid: wiki.uid },
             callback,
             responseConverter: (data) => {
+                resetWorkspaceSummaryQueries(queryClient, "wiki-summaries", projectUID, data);
                 Object.entries(data).forEach(([key, value]) => {
                     wiki[key] = value as string & IEditorContent;
                 });

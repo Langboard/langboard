@@ -10,9 +10,10 @@ from ....publishers import CheckitemPublisher
 from ....tasks.activities import CardCheckitemActivityTask
 from ....tasks.bots import CardBotTask, CardCheckitemBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...models import Card, Checkitem, CheckitemTimerRecord, Checklist, Project, ProjectColumn, User
+from ...models import Bot, Card, Checkitem, CheckitemTimerRecord, Checklist, Project, ProjectColumn, User
 from ...models.Checkitem import CheckitemStatus
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 
 
 class CheckitemService(BaseDomainService):
@@ -176,6 +177,7 @@ class CheckitemService(BaseDomainService):
         return api_checkitems, list(api_cards.values()), list(api_projects.values())
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user_or_bot: TUserOrBot,
@@ -219,13 +221,14 @@ class CheckitemService(BaseDomainService):
         *,
         include_bot: bool = True,
     ) -> None:
-        CheckitemPublisher.created(card, checklist, checkitem)
-        CheckitemPublisher.board_progress_changed(project, card)
-        CardCheckitemActivityTask.card_checkitem_created(user_or_bot, project, card, checkitem)
+        dispatch_after_commit(CheckitemPublisher.created, card, checklist, checkitem)
+        dispatch_after_commit(CheckitemPublisher.board_progress_changed, project, card)
+        dispatch_after_commit(CardCheckitemActivityTask.card_checkitem_created, user_or_bot, project, card, checkitem)
         if include_bot:
-            CardCheckitemBotTask.card_checkitem_created(user_or_bot, project, card, checkitem)
+            dispatch_after_commit(CardCheckitemBotTask.card_checkitem_created, user_or_bot, project, card, checkitem)
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_title(
         self,
         user_or_bot: TUserOrBot,
@@ -269,8 +272,10 @@ class CheckitemService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_deadline(
         self,
+        user_or_bot: TUserOrBot,
         project: TProjectParam,
         card: TCardParam,
         checkitem: TCheckitemParam,
@@ -284,14 +289,16 @@ class CheckitemService(BaseDomainService):
         checkitem.deadline_at = deadline_at
         self.repo.checkitem.update(checkitem)
 
-        CheckitemPublisher.deadline_changed(project, card, checkitem)
+        dispatch_after_commit(CheckitemPublisher.deadline_changed, project, card, checkitem)
         self._mark_card_changed_for_unread(card, "checkitem", checkitem.id)
 
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_order(
         self,
+        user_or_bot: TUserOrBot,
         project: TProjectParam,
         card: TCardParam,
         checkitem: TCheckitemParam,
@@ -330,6 +337,7 @@ class CheckitemService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_status(
         self,
         user_or_bot: TUserOrBot,
@@ -341,10 +349,24 @@ class CheckitemService(BaseDomainService):
         should_publish: bool = True,
         from_api: bool = False,
     ) -> bool | None:
-        with DbSession.atomic():
+        with DbSession.atomic() as db:
+            self._lock_timer_transition(db, user_or_bot, card)
             return self._change_status(
                 user_or_bot, project, card, checkitem, status, current_time, should_publish, from_api
             )
+
+    def _lock_timer_transition(self, db: DbSession, user_or_bot: TUserOrBot, card: TCardParam) -> None:
+        # Serialize a user's starts across cards before checking their active work.
+        # Card effects take this same card lock before stopping timer rows.
+        if isinstance(user_or_bot, User):
+            db.exec(
+                SqlBuilder.select.table(User).where(User.column("id") == user_or_bot.id).with_for_update()
+            ).first()
+        db.exec(
+            SqlBuilder.select.table(Card)
+            .where(Card.column("id") == InfraHelper.convert_id(card))
+            .with_for_update(key_share=True)
+        ).first()
 
     def _change_status(
         self,
@@ -379,7 +401,10 @@ class CheckitemService(BaseDomainService):
                     CheckitemTimerRecord,
                     self.repo.checkitem_timer_record.get_by_checkitem_and_arc_type(checkitem, "last"),
                 )
-                accumulated_seconds = int((current_time - last_timer_record.created_at).total_seconds())
+                started_at = last_timer_record.created_at
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                accumulated_seconds = max(0, int((current_time - started_at).total_seconds()))
                 checkitem.accumulated_seconds += accumulated_seconds
                 self.repo.checkitem.update(checkitem)
         else:
@@ -522,6 +547,7 @@ class CheckitemService(BaseDomainService):
         return {"completed": completed, "stopped": stopped}
 
     @guard_card_app_mutation
+    @card_change_transaction
     def toggle_checked(
         self,
         user_or_bot: TUserOrBot,
@@ -530,7 +556,8 @@ class CheckitemService(BaseDomainService):
         checkitem: TCheckitemParam,
         desired_checked: bool | None = None,
     ) -> bool | None:
-        with DbSession.atomic():
+        with DbSession.atomic() as db:
+            self._lock_timer_transition(db, user_or_bot, card)
             return self._toggle_checked(user_or_bot, project, card, checkitem, desired_checked)
 
     def _toggle_checked(
@@ -549,13 +576,15 @@ class CheckitemService(BaseDomainService):
         if desired_checked is not None and checkitem.is_checked == desired_checked:
             return True
         checkitem.is_checked = desired_checked if desired_checked is not None else not checkitem.is_checked
+        # The nested status transition rereads persisted state. Save the checked
+        # intent in this transaction before that read and its frozen publication.
+        self.repo.checkitem.update(checkitem)
 
         if checkitem.status != CheckitemStatus.Stopped:
             if not self.change_status(user_or_bot, project, card, checkitem, CheckitemStatus.Stopped):
                 raise ValueError("Work timer transition failed")
             publish_checked = False
         else:
-            self.repo.checkitem.update(checkitem)
             self._mark_card_changed_for_unread(card, "checkitem", checkitem.id)
             publish_checked = True
 
@@ -616,6 +645,10 @@ class CheckitemService(BaseDomainService):
             project_id=card.project_id,
             project_column_id=target_column.id,
             title=checkitem.title,
+            visibility=card.visibility,
+            owner_user_id=card.owner_user_id,
+            created_by_user_id=user_or_bot.id if isinstance(user_or_bot, User) else None,
+            created_by_bot_id=user_or_bot.id if isinstance(user_or_bot, Bot) else None,
             order=self.repo.card.get_next_order(target_column, where_clauses={"project_id": card.project_id}),
         )
         with execution_readiness_uow() as execution:
@@ -642,6 +675,7 @@ class CheckitemService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user_or_bot: TUserOrBot,
@@ -659,11 +693,11 @@ class CheckitemService(BaseDomainService):
 
         self.repo.checkitem.delete(checkitem)
 
-        CheckitemPublisher.deleted(project, card, checkitem)
-        CheckitemPublisher.board_progress_changed(project, card)
+        dispatch_after_commit(CheckitemPublisher.deleted, project, card, checkitem)
+        dispatch_after_commit(CheckitemPublisher.board_progress_changed, project, card)
         self._mark_card_changed_for_unread(card, "checkitem", checkitem.id)
-        CardCheckitemActivityTask.card_checkitem_deleted(user_or_bot, project, card, checkitem)
-        CardCheckitemBotTask.card_checkitem_deleted(user_or_bot, project, card, checkitem)
+        dispatch_after_commit(CardCheckitemActivityTask.card_checkitem_deleted, user_or_bot, project, card, checkitem)
+        dispatch_after_commit(CardCheckitemBotTask.card_checkitem_deleted, user_or_bot, project, card, checkitem)
 
         return True
 

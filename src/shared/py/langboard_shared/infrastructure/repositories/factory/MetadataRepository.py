@@ -1,5 +1,5 @@
 from typing import Any, Callable, TypeVar
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types.ParamTypes import TProjectParam
@@ -51,9 +51,17 @@ class MetadataRepository(BaseRepository):
             .where(model_cls.column(foreign_key) == foreign_model.id)
             .order_by(model_cls.column("key").asc(), model_cls.column("id").asc())
         )
+        if model_cls is CardMetadata:
+            # Hidden derived rows must not consume the public metadata page limit.
+            key = func.lower(func.trim(CardMetadata.key))
+            query = query.where(
+                ~key.startswith("internal.work_plan."),
+                ~key.startswith("internal.comment_compaction."),
+                ~key.startswith("internal.comment_request."),
+            )
         if limit is not None:
             query = query.limit(limit)
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             return list(db.exec(query).all())
 
     def get_by_key(

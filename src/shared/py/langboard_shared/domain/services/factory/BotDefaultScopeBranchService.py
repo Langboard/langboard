@@ -6,13 +6,13 @@ from ....core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
 from ....core.types.ParamTypes import TBotDefaultScopeBranchParam, TBotParam
 from ....helpers import BotHelper, InfraHelper
 from ....publishers import BotPublisher
+from ...constants.DomainEventType import DomainEventType
 from ...models import (
     BotDefaultScopeBranch,
     Card,
     Project,
     ProjectColumn,
 )
-from ...models.bases import BotTriggerCondition
 
 
 class BotDefaultScopeBranchService(BaseDomainService):
@@ -39,14 +39,14 @@ class BotDefaultScopeBranchService(BaseDomainService):
     def get_api_map_by_bot_uid(self) -> dict[str, list[dict[str, Any]]]:
         default_branches = InfraHelper.get_all(BotDefaultScopeBranch)
 
-        defaults_by_branches: dict[str, dict[SnowflakeID, list[BotTriggerCondition]]] = {}
+        defaults_by_branches: dict[str, dict[SnowflakeID, list[DomainEventType]]] = {}
         for target_table in AVAILABLE_BOT_TARGET_TABLES:
             default_scope_model_cls = BotHelper.get_default_scope_model_class(target_table)
             if not default_scope_model_cls:
                 continue
 
             all_defaults = InfraHelper.get_all(default_scope_model_cls)
-            all_defaults_by_branch: dict[SnowflakeID, list[BotTriggerCondition]] = {}
+            all_defaults_by_branch: dict[SnowflakeID, list[DomainEventType]] = {}
             for default_scope in all_defaults:
                 if default_scope.bot_default_scope_branch_id not in all_defaults_by_branch:
                     all_defaults_by_branch[default_scope.bot_default_scope_branch_id] = []
@@ -222,13 +222,13 @@ class BotDefaultScopeBranchService(BaseDomainService):
                 default_scope_model_cls, "bot_default_scope_branch_id", default_scope_branch.id
             )
 
-            condition_values: list[BotTriggerCondition] = []
+            condition_values: list[DomainEventType] = []
             for condition in conditions:
                 try:
-                    condition_values.append(BotTriggerCondition(condition))
+                    condition_values.append(DomainEventType(condition))
                 except Exception:
                     try:
-                        condition_values.append(BotTriggerCondition[condition])
+                        condition_values.append(DomainEventType[condition])
                     except Exception:
                         continue
 

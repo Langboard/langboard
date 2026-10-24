@@ -9,6 +9,7 @@ import {
     isSocketTopicWithoutId,
     resetSocketConnectionState,
     setSocket,
+    setSocketConnectionStatus,
 } from "@/core/stores/socket/state";
 import { addRestorableTopicId, queueSubscribedCallback, queueUnsubscribedCallback, removeRestorableTopicIds } from "@/core/stores/socket/registry";
 import type { ISocketCreateSocketProps, ISocketStore } from "@/core/stores/socket/types";
@@ -154,6 +155,8 @@ export const getEditorWebSocketAuth = (authorizedUrl: string, documentID: string
     return { url: url.toString(), token };
 };
 
+let connectionOwner: { userUID: string; accessToken: string } | undefined;
+
 export const createSocketConnection = <TResponse>({
     props,
     subscribe,
@@ -169,25 +172,36 @@ export const createSocketConnection = <TResponse>({
     const currentSocket = getSocket();
 
     if (currentSocket) {
-        if (isSocketOpenOrConnecting(currentSocket)) {
+        if (isSocketOpenOrConnecting(currentSocket) && connectionOwner?.userUID === userUID && connectionOwner.accessToken === accessToken) {
             return currentSocket;
         }
 
         clearSocketHandlers(currentSocket);
+        markSocketConnectionDisconnected();
+        if (connectionOwner && connectionOwner.userUID !== userUID) {
+            resetSocketConnectionState();
+        }
+        if (canCloseSocket(currentSocket)) currentSocket.close();
     }
 
     const url = new URL(createAuthorizedWebSocketUrl(accessToken));
     url.searchParams.set("socket_route_key", userUID);
     const nextSocket = new WebSocket(url.toString());
+    connectionOwner = { userUID, accessToken };
     setSocket(nextSocket);
+    setSocketConnectionStatus({ status: "connecting", userUID });
 
     nextSocket.onopen = async (event) => {
+        if (getSocket() !== nextSocket) return;
+        setSocketConnectionStatus({ status: "open", userUID });
         await onOpen(event);
+        if (getSocket() !== nextSocket) return;
         restoreTopicSubscriptions(subscribe, getSocketMap().restorableTopics);
         flushSocketQueue();
     };
 
     nextSocket.onmessage = async (event) => {
+        if (getSocket() !== nextSocket) return;
         if (!event.data) {
             return;
         }
@@ -201,10 +215,14 @@ export const createSocketConnection = <TResponse>({
     };
 
     nextSocket.onerror = async (event) => {
+        if (getSocket() !== nextSocket) return;
+        setSocketConnectionStatus({ status: "error", userUID });
         await onError(event);
     };
 
     nextSocket.onclose = async (event) => {
+        if (getSocket() !== nextSocket) return;
+        setSocketConnectionStatus({ status: "closed", userUID });
         markSocketConnectionDisconnected();
         await onClose(event);
     };
@@ -270,6 +288,7 @@ export const closeSocketConnection = () => {
         currentSocket?.close();
     }
 
+    connectionOwner = undefined;
     setSocket(null);
 };
 

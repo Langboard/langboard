@@ -41,6 +41,7 @@ from langboard_shared.domain.models.InternalBotRun import InternalBotRunKind, In
 from langboard_shared.domain.models.ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.InternalBotRunService import InternalBotRunService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
 from langboard_shared.Env import Env
 from langboard_shared.publishers import GraphApprovalPublisher
@@ -67,6 +68,8 @@ from .forms import (
 from .SocketAuthorization import (
     authorized_editor_document_subscription,
     authorized_subscription_items,
+    editor_document_generation_is_current,
+    editor_document_subscription,
     is_editor_document_write_authorized,
     is_subscription_authorized,
 )
@@ -470,14 +473,17 @@ def _board_chat_active_documents(
     documents: list[dict[str, Any]] = []
     for document_name in dict.fromkeys(form.active_document_names):
         parts = document_name.split(":")
-        if len(parts) not in {2, 3} or any(not part for part in parts):
+        if editor_document_subscription(document_name) is None:
             raise ApiException.BadRequest_400()
         try:
             document_type = EEditorCollaborationType(parts[0])
         except ValueError as error:
             raise ApiException.BadRequest_400() from error
         entity_uid = parts[1]
-        section = parts[2] if len(parts) == 3 else None
+        section = parts[2] if len(parts) >= 3 else None
+        if document_type == EEditorCollaborationType.Wiki and section == "content":
+            if not editor_document_generation_is_current(document_name):
+                raise ApiException.Forbidden_403()
 
         if run.scope_table == "card":
             in_scope = (document_type == EEditorCollaborationType.Card and entity_uid == run.scope_uid) or (
@@ -819,14 +825,15 @@ def claim_socket_board_chat_resume(
         if ALL_GRANTED not in actions and ProjectRoleAction.Update.value not in actions:
             raise ApiException.Forbidden_403()
 
+    permission_level = (
+        "full_access"
+        if form.resume.approved
+        else getattr(run, "request_payload", {}).get("api_permission_level", "read")
+    )
+    _authorize_board_chat_permission_level(service, user, project, permission_level)
+
     resume = form.resume.model_dump(exclude_none=True)
     graph_resume = dict(resume)
-    if form.resume.approved:
-        graph_resume.update(
-            app_api_token=AuthSecurity.create_bot_one_time_token(int(user.id), "full_access"),
-            api_permission_level="full_access",
-            api_approval_policy={permission.value: "allow" for permission in ApiPermission},
-        )
 
     claimed = service.internal_bot_run.claim_board_chat_resume(
         project_id,
@@ -841,6 +848,21 @@ def claim_socket_board_chat_resume(
     if claimed is None:
         raise ApiException.Conflict_409()
 
+    if claimed.user_id != user.id or claimed.project_id != project_id:
+        raise ApiException.Forbidden_403()
+    if isinstance(claimed, InternalBotRun) and not InternalBotRunService.validate_policy_credentials(claimed):
+        raise ApiException.Forbidden_403()
+    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level)
+    if form.resume.approved:
+        graph_resume.update(
+            api_permission_level="full_access",
+            api_approval_policy={permission.value: "allow" for permission in ApiPermission},
+        )
+    if getattr(claimed, "request_payload", {}).get("resume_execution_plan") is not None:
+        graph_resume.update(
+            execution_plan=claimed.request_payload["resume_execution_plan"],
+            approval_uid=claimed.request_payload["resume_approval_uid"],
+        )
     return JsonResponse(
         {
             "run_uid": claimed.get_uid(),
@@ -872,6 +894,15 @@ def complete_socket_board_chat_resume(
     if project is None:
         raise ApiException.Forbidden_403()
 
+    if getattr(run, "request_payload", {}).get("resume_execution_plan") is not None:
+        user = Auth.get_user_by_id(int(run.user_id))
+        if not isinstance(user, User) or user.deleted_at is not None or user.activated_at is None:
+            raise ApiException.Forbidden_403()
+        _authorize_board_chat_scope(service, user, project, run.scope_table, run.scope_uid)
+        if run.request_payload.get("resume_approval_uid") is not None:
+            actions = service.project.get_user_role_actions_by_project(user, project)
+            if ALL_GRANTED not in actions and ProjectRoleAction.Update.value not in actions:
+                raise ApiException.Forbidden_403()
     try:
         result = service.internal_bot_run.complete_board_chat_resume(
             run_id, form.attempt, form.response_text, form.interrupt
@@ -961,12 +992,16 @@ def authorize_socket_editor_document(
 ) -> JsonResponse:
     user = _authenticate_socket_user(request)
     subscription = authorized_editor_document_subscription(service, user, form.document_name)
+    admission = request.headers.get("X-Socket-Editor-Admission") == "registered-v1"
+    if admission and subscription and not editor_document_generation_is_current(form.document_name, admission=True):
+        subscription = None
     authorized = subscription is not None
     writable = bool(
         subscription and is_editor_document_write_authorized(service, user, subscription, form.document_name)
     )
     return JsonResponse(
         {
+            **({"admission_ordered": True} if admission and authorized else {}),
             "authorized": authorized,
             "writable": writable,
             "user_name": user.get_fullname() if authorized else None,
@@ -1272,21 +1307,40 @@ def claim_socket_editor_resume(
     run = service.internal_bot_run.get_editor_run_by_approval(approval_id)
     if run is None or run.project_id != project_id or run.status != InternalBotRunStatus.AwaitingApproval:
         raise ApiException.Conflict_409()
-    _get_authorized_editor_run_context(run, service)
+    requester, _, _ = _get_authorized_editor_run_context(run, service)
+    if requester.id != run.user_id:
+        raise ApiException.Forbidden_403()
+
+    permission_level = (
+        "full_access" if form.resume.approved else run.request_payload.get("api_permission_level", "read")
+    )
+    _authorize_board_chat_permission_level(service, requester, project, permission_level)
 
     decision = form.resume.model_dump(exclude_none=True)
     graph_resume = dict(decision)
-    if form.resume.approved:
-        graph_resume.update(
-            app_api_token=AuthSecurity.create_bot_one_time_token(int(approver.id), "full_access"),
-            api_permission_level="full_access",
-            api_approval_policy={permission.value: "allow" for permission in ApiPermission},
-        )
     claimed = service.internal_bot_run.claim_editor_resume(
         approval_id, project_id, approver.id, decision, Env.AI_REQUEST_TIMEOUT + 30
     )
     if claimed is None or not claimed.graph_thread_id or not claimed.graph_session_id:
         raise ApiException.Conflict_409()
+    if claimed.user_id != requester.id or claimed.project_id != project_id:
+        raise ApiException.Forbidden_403()
+    policy_receipt = getattr(claimed, "request_payload", {}).get("resume_decision")
+    if policy_receipt is not None and claimed.user_id != approver.id:
+        raise ApiException.Forbidden_403()
+    if isinstance(claimed, InternalBotRun) and not InternalBotRunService.validate_policy_credentials(claimed):
+        raise ApiException.Forbidden_403()
+    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(requester.id), permission_level)
+    if form.resume.approved:
+        graph_resume.update(
+            api_permission_level="full_access",
+            api_approval_policy={permission.value: "allow" for permission in ApiPermission},
+        )
+    if getattr(claimed, "request_payload", {}).get("resume_execution_plan") is not None:
+        graph_resume.update(
+            execution_plan=claimed.request_payload["resume_execution_plan"],
+            approval_uid=claimed.request_payload["resume_approval_uid"],
+        )
     return JsonResponse(
         {
             "run_uid": claimed.get_uid(),
@@ -1309,6 +1363,16 @@ def complete_socket_editor_resume(
     run = _get_socket_editor_run(run_uid, service)
     if run.graph_thread_id != form.thread_id or run.graph_session_id != form.session_id:
         raise ApiException.Conflict_409()
+    _get_authorized_editor_run_context(run, service)
+    actor_uid = run.request_payload.get("resume_actor_uid")
+    if actor_uid is not None or run.request_payload.get("resume_execution_plan") is not None:
+        actor = Auth.get_user_by_id(int(_decode_socket_uid(actor_uid))) if isinstance(actor_uid, str) else None
+        project = service.project.get_by_id_like(run.project_id)
+        if not isinstance(actor, User) or actor.deleted_at is not None or actor.activated_at is None or project is None:
+            raise ApiException.Forbidden_403()
+        actions = service.project.get_user_role_actions_by_project(actor, project)
+        if ALL_GRANTED not in actions and ProjectRoleAction.Update.value not in actions:
+            raise ApiException.Forbidden_403()
     try:
         result = service.internal_bot_run.complete_editor_resume(
             run.id, form.attempt, form.response_text, form.interrupt

@@ -1,11 +1,13 @@
 """Native image results retain card ancestry, content boundaries and budgets."""
 
+from io import BytesIO
 from types import SimpleNamespace
 import pytest
 from fastmcp.tools import ToolResult
 from langboard.mcp_integration.ResponseBudget import ReadResponseBudgetMiddleware
 from langboard.mcp_tools import CardImagesMcp as images
 from mcp.types import ImageContent
+from PIL import Image
 
 
 @pytest.fixture
@@ -14,22 +16,50 @@ def image_card(monkeypatch):
         images, "Env", SimpleNamespace(PUBLIC_UI_URL="https://board.example", API_URL="https://board.example/api")
     )
     card = SimpleNamespace(id=1, description=SimpleNamespace(content="![body](/api/file/key/card_attachment/a.png)"))
-    monkeypatch.setattr(images, "_get_card_in_project", lambda *args: (object(), card))
+
+    def row(uid, card_id, filename):
+        return SimpleNamespace(
+            card_id=card_id,
+            replaced_by_id=None,
+            get_uid=lambda: uid,
+            image_revision="a" * 64,
+            file=SimpleNamespace(
+                path=f"/file/key/card_attachment/{filename}",
+                storage_type="key",
+                storage_name="card_attachment",
+                filename=filename,
+            ),
+        )
+
     rows = {
-        "valid": SimpleNamespace(card_id=1, file=SimpleNamespace(path="/file/key/card_attachment/a.png")),
-        "foreign": SimpleNamespace(card_id=2),
+        "valid": row("valid", 1, "a.png"),
+        "foreign": row("foreign", 2, "foreign.png"),
+        "block": row("block", 1, "block.png"),
+        "b": row("b", 1, "b.png"),
     }
     service = SimpleNamespace(
-        card=SimpleNamespace(get_details=lambda *args: pytest.fail("Image reads must not load the complete card")),
+        card=SimpleNamespace(
+            resolve_readable_card=lambda *args: (object(), card, object()),
+            get_details=lambda *args: pytest.fail("Image reads must not load the complete card"),
+        ),
         source_card=card,
         card_content_block=SimpleNamespace(get_blocks_by_card=lambda card: []),
-        card_attachment=SimpleNamespace(get_by_id_like=rows.get),
+        card_attachment=SimpleNamespace(
+            get_by_id_like=lambda uid, **kwargs: rows.get(uid),
+            resolve_file_owner=lambda *identity: next(
+                (r for r in rows.values() if (r.file.storage_type, r.file.storage_name, r.file.filename) == identity),
+                None,
+            ),
+        ),
     )
     calls = []
+    output = BytesIO()
+    Image.new("RGB", (40, 30)).save(output, format="PNG")
+    service.image_bytes = output.getvalue()
 
     def download(storage, name, filename, destination):
         calls.append((storage, name, filename))
-        destination.write(b"\x89PNG\r\n\x1a\nfixture")
+        destination.write(service.image_bytes)
         return True
 
     monkeypatch.setattr(images.Storage, "download", download)
@@ -43,7 +73,9 @@ def test_native_images_return_content_deduplicate_and_reject_foreign_attachment(
     assert result.content[1].mime_type == "image/png"
     assert calls == [("key", "card_attachment", "a.png")]
     assert len(result.structured_content["omitted"]) == 2
-    assert result.structured_content["total_bytes"] == 15
+    assert result.structured_content["total_bytes"] == len(service.image_bytes)
+    assert result.structured_content["included"][0]["image_width"] == 40
+    assert result.structured_content["included"][0]["image_height"] == 30
 
 
 def test_attachment_only_does_not_read_body_image(image_card):
@@ -121,3 +153,53 @@ async def test_image_budget_preserves_multimodal_content_but_keeps_plain_reads_b
     assert await middleware.on_call_tool(image_context, next_call) is result
     plain_context = SimpleNamespace(message=SimpleNamespace(name="read_card_attachment"))
     assert (await middleware.on_call_tool(plain_context, next_call)).is_error
+
+
+def test_foreign_body_reference_never_downloads_bytes(image_card):
+    service, calls = image_card
+    service.source_card.description.content = "![foreign](/file/key/card_attachment/foreign.png)"
+    result = images.read_card_images("p", "c", object(), service)
+    assert calls == []
+    assert result.structured_content["included"] == []
+    assert result.structured_content["omitted"][0]["reason"] == "attachment_not_in_card"
+
+
+def test_old_alias_cannot_download_current_replacement_bytes(image_card):
+    service, calls = image_card
+    service.source_card.description.content = "![old](/file/key/card_attachment/old.png)"
+    current = service.card_attachment.get_by_id_like("valid")
+    service.card_attachment.resolve_file_owner = lambda *args: current
+    result = images.read_card_images("p", "c", object(), service)
+    assert calls == [] and result.structured_content["included"] == []
+
+
+def test_authority_revoked_during_download_discards_image(image_card, monkeypatch):
+    service, calls = image_card
+    original = images.Storage.download
+
+    def download(*args):
+        result = original(*args)
+        service.card.resolve_readable_card = lambda *args: None
+        return result
+
+    monkeypatch.setattr(images.Storage, "download", download)
+    result = images.read_card_images("p", "c", object(), service)
+    assert len(calls) == 1 and result.structured_content["included"] == []
+    assert result.structured_content["total_bytes"] == 0
+    assert result.structured_content["omitted"][0]["reason"] == "source_changed"
+
+
+@pytest.mark.parametrize(
+    "payload, reason",
+    [
+        (b"\x89PNG\r\n\x1a\nfixture", "unsupported_type"),
+        (b"<svg width='40' height='30'/>", "unsupported_type"),
+    ],
+)
+def test_invalid_or_unsupported_image_is_reported(image_card, payload, reason):
+    service, calls = image_card
+    service.image_bytes = payload
+    result = images.read_card_images("p", "c", object(), service)
+    assert len(calls) == 1
+    assert result.structured_content["included"] == []
+    assert result.structured_content["omitted"][0]["reason"] == reason

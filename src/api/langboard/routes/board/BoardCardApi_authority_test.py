@@ -1,4 +1,4 @@
-"""Card creation and editing must honor their separate board permissions."""
+"""Registered card reads and mutations enforce current native authority."""
 
 import asyncio
 import pytest
@@ -10,15 +10,12 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import ProjectRole, User
 from langboard_shared.security import RoleSecurity
+from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
 
 
 @pytest.mark.parametrize(
     "method,path,actions,expected",
     [
-        ("GET", "/board/project-a/card/card-a", ["read"], 200),
-        ("GET", "/board/project-a/card/card-a", ["card_write"], 403),
-        ("GET", "/board/project-a/card/card-a", [], 403),
-        ("GET", "/board/project-a/card/card-a", ["*"], 200),
         ("POST", "/board/project-a/card", ["card_write"], 200),
         ("POST", "/board/project-a/card", ["read", "card_write"], 200),
         ("POST", "/board/project-a/card", ["card_update"], 403),
@@ -101,7 +98,7 @@ def _request(method, path, actor):
 
 
 @pytest.mark.parametrize(
-    "selection", [None, "checklists", "description", "execution_receipts", "attachments,linked_wikis"]
+    "selection", [None, "checklists", "description", "execution_receipts", "attachments,linked_wikis", "agent_execution"]
 )
 @pytest.mark.parametrize("linked", [False, True])
 @pytest.mark.parametrize("actions", [["read"], ["read", "update"], ["*"]])
@@ -117,7 +114,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
         id=SnowflakeID(1), firstname="External", lastname="Test", email="card@example.invalid", password="test-only"
     )
     card = SimpleNamespace(id=SnowflakeID(3), visibility="SHARED", is_linked_resource=linked)
-    project = SimpleNamespace(id=SnowflakeID(2))
+    project = SimpleNamespace(id=SnowflakeID(2), get_uid=lambda: "project-a")
     context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=1)
 
     def read(name, result=None):
@@ -129,7 +126,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
 
     service = SimpleNamespace(
         card=SimpleNamespace(
-            resolve_readable_card=read("resolve", (project, card, context)),
+            resolve_canonical_card=read("resolve", (project, card, context)),
             get_details=read("details", {"uid": "card-a"}),
             can_delete=read("can_delete", False),
             get_api_bot_scope_list=read("bot_scopes"),
@@ -143,6 +140,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
     )
     monkeypatch.setattr(BoardCardApi, "visible_linked_wikis", read("linked_wikis"))
     monkeypatch.setattr(BoardCardApi, "receipt_history", read("execution_receipts"))
+    monkeypatch.setattr(BoardCardApi, "card_agent_execution", read("agent_execution"))
     request = Request(
         {
             "type": "http",
@@ -162,9 +160,9 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
         "execution_receipts",
     }
     if selection is not None:
-        expected &= set(selection.split(","))
+        expected = (expected | {"agent_execution"}) & set(selection.split(","))
     assert set(result) == expected | {"card", "whispers_allowed"}
-    assert reads[0][0] == "resolve"
+    assert reads[0] == ("resolve", {"metadata_only": selection is not None and "description" not in selection.split(",")})
     assert dict(reads)["details"]["include_description"] is (selection is None or "description" in selection.split(","))
     for name in {
         "checklists",
@@ -175,6 +173,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
         "project_labels",
         "bot_scopes",
         "execution_receipts",
+        "agent_execution",
     }:
         should_read = name in expected and (not linked or name in {"project_columns", "execution_receipts"})
         if name == "bot_scopes":
@@ -188,7 +187,15 @@ def test_details_rejects_unbounded_or_unknown_sections(monkeypatch, selection):
     from types import SimpleNamespace
     from starlette.requests import Request
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=lambda *args: (None, None, None)))
+    service = SimpleNamespace(
+        card=SimpleNamespace(
+            resolve_canonical_card=lambda *args, **kwargs: (
+                SimpleNamespace(get_uid=lambda: "project-a"),
+                None,
+                None,
+            )
+        )
+    )
     with pytest.raises(Exception) as error:
         BoardCardApi.get_card_details(
             "project-a",
@@ -204,7 +211,7 @@ def test_details_hidden_card_stops_before_any_section_read():
     from types import SimpleNamespace
     from starlette.requests import Request
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=lambda *args: None))
+    service = SimpleNamespace(card=SimpleNamespace(resolve_canonical_card=lambda *args, **kwargs: None))
     with pytest.raises(Exception) as error:
         BoardCardApi.get_card_details(
             "project-a", "hidden", Request({"type": "http", "query_string": b"sections=description"}), None, service
@@ -214,17 +221,24 @@ def test_details_hidden_card_stops_before_any_section_read():
 
 @pytest.mark.parametrize("linked", [False, True])
 @pytest.mark.parametrize("include_description", [None, False, True])
-def test_real_details_service_skips_inactive_body_and_preserves_default(monkeypatch, linked, include_description):
+@pytest.mark.parametrize("app_owned", [False, True])
+def test_real_details_service_skips_inactive_body_and_preserves_default(
+    monkeypatch,
+    mirror_board,  # noqa: F811 - native persisted fixture
+    linked,
+    include_description,
+    app_owned,
+):
     from types import SimpleNamespace
-    from langboard_shared.core.db import EditorContentModel
-    from langboard_shared.domain.models import Card
+    from langboard_shared.core.db import DbSession, EditorContentModel
+    from langboard_shared.domain.models import Card, CardAppOwnership
     from langboard_shared.domain.services.factory.CardService import CardService
     from langboard_shared.helpers import InfraHelper
 
     reads = []
     card = Card(
-        id=SnowflakeID(3),
-        project_id=SnowflakeID(2),
+        id=mirror_board.source.id,
+        project_id=mirror_board.source_board.id,
         project_column_id=SnowflakeID(4),
         title="Body card",
         visibility="SHARED",
@@ -233,12 +247,15 @@ def test_real_details_service_skips_inactive_body_and_preserves_default(monkeypa
         source_type="project_wiki" if linked else None,
         source_uid="wiki-a" if linked else None,
     )
+    if app_owned:
+        with DbSession.atomic() as db:
+            db.insert(CardAppOwnership(card_id=card.id, app_key="owned-app"))
     service = object.__new__(CardService)
-    monkeypatch.setattr(CardService, "resolve_readable_card", lambda *args: (SimpleNamespace(id=2), card, None))
+    monkeypatch.setattr(CardService, "resolve_readable_card", lambda *args, **kwargs: (SimpleNamespace(id=2), card, None))
     monkeypatch.setattr(
         CardService,
         "get_work_states",
-        lambda *args, **kwargs: {3: {"checklist_progress": {"total": 0, "completed": 0}}},
+        lambda *args, **kwargs: {card.id: {"checklist_progress": {"total": 0, "completed": 0}}},
     )
     monkeypatch.setattr(InfraHelper, "get_by_id_like", lambda *args: SimpleNamespace(name="Doing"))
     monkeypatch.setattr(
@@ -247,7 +264,7 @@ def test_real_details_service_skips_inactive_body_and_preserves_default(monkeypa
         lambda *args, **kwargs: reads.append(("wiki", kwargs["include_content"]))
         or {card.get_uid(): {"status": "available"}},
     )
-    monkeypatch.setattr(CardService, "is_check_card", lambda *args: False)
+    monkeypatch.setattr(CardService, "is_check_card", lambda *args, **kwargs: False)
     monkeypatch.setattr(CardService, "_get_completion_checklist", lambda *args: None)
     monkeypatch.setattr(CardService, "get_api_assigned_user_list", lambda *args, **kwargs: [])
     monkeypatch.setattr(CardService, "get_active_workers", lambda *args: {})
@@ -262,6 +279,7 @@ def test_real_details_service_skips_inactive_body_and_preserves_default(monkeypa
     kwargs = {} if include_description is None else {"include_description": include_description}
     result = service.get_details(None, None, None, **kwargs)
     expected = include_description is not False
+    assert result["can_cross_board"] is (not linked and not app_owned)
     assert ("description" in result) is expected
     assert ("ai_description" in result) is expected
     assert reads == ([("wiki", expected)] if linked else [("blocks", True)] if expected else [])
@@ -278,12 +296,19 @@ def test_details_preserves_bot_scope_gate(linked):
     from starlette.requests import Request
 
     reads = []
-    actor = Bot(id=SnowflakeID(1), name="Scope bot", bot_uname="bot-test", app_api_token="test-only", platform="default", platform_running_type="default")
+    actor = Bot(
+        id=SnowflakeID(1),
+        name="Scope bot",
+        bot_uname="bot-test",
+        app_api_token="test-only",
+        platform="default",
+        platform_running_type="default",
+    )
     card = SimpleNamespace(id=3, is_linked_resource=linked, visibility="SHARED")
     context = CardVisibilityContext(CollaborationChannel.Api, True, True, True)
     service = SimpleNamespace(
         card=SimpleNamespace(
-            resolve_readable_card=lambda *args: (None, card, context),
+            resolve_canonical_card=lambda *args, **kwargs: (SimpleNamespace(get_uid=lambda: "project-a"), card, context),
             get_details=lambda *args, **kwargs: {"uid": "card-a"},
             can_delete=lambda *args: False,
             get_api_bot_scope_list=lambda *args: reads.append("scopes") or [],
@@ -297,3 +322,125 @@ def test_details_preserves_bot_scope_gate(linked):
     assert reads == ([] if linked else ["scopes"])
     assert response["card"]["can_change_visibility"] is False
     assert response["bot_scopes"] == []
+
+
+@pytest.fixture
+def canonical_http(mirror_board):  # noqa: F811 - native persisted fixture
+    from types import SimpleNamespace
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    b = mirror_board
+    route = next(route for route in AppRouter.api.routes if route.endpoint is BoardCardApi.get_card_details)
+    app = FastAPI()
+    app.include_router(APIRouter(routes=[route]))
+    app.add_middleware(RoleMiddleware, routes=[route])
+    # Supply an authenticated native actor and service; authorization stays in
+    # the actual canonical resolver and its current primary-database policy.
+    for dependency in route.dependant.dependencies:
+        if dependency.name == "user_or_bot":
+            app.dependency_overrides[dependency.call] = lambda: b.actor
+        elif dependency.name == "service":
+            app.dependency_overrides[dependency.call] = lambda: SimpleNamespace(card=b.service)
+    with TestClient(app) as client:
+        yield b, client
+
+
+def canonical_path(b, project=None):
+    return f"/board/{(project or b.source_board).get_uid()}/card/{b.source.get_uid()}?location_only=true"
+
+
+@pytest.mark.parametrize("actions,expected", [(["read"], 200), (["card_write"], 404), ([], 404), (["*"], 200)])
+def test_registered_get_requires_current_native_read_grant(canonical_http, actions, expected):
+    from langboard_shared.core.db import DbSession
+    from sqlalchemy import update
+
+    b, client = canonical_http
+    with DbSession.atomic() as db:
+        db.exec(update(ProjectRole).where(ProjectRole.project_id == b.source_board.id).values(actions=actions))
+    response = client.get(canonical_path(b))
+    assert response.status_code == expected
+    assert response.headers["cache-control"] == "no-store"
+    if expected == 200:
+        assert response.json() == {"canonical_project_uid": b.source_board.get_uid(), "card_uid": b.source.get_uid()}
+    else:
+        assert b.source_board.get_uid() not in response.text
+        assert b.source.title not in response.text
+        assert b.source.description.content not in response.text
+
+
+@pytest.mark.parametrize("revocation", ["read", "membership", "account", "card_deleted", "project_deleted", "private"])
+def test_registered_get_rechecks_current_audience_after_a_successful_read(canonical_http, revocation):
+    from langboard_shared.core.db import DbSession
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import Card, Project, ProjectAssignedUser
+    from sqlalchemy import delete, update
+
+    b, client = canonical_http
+    assert client.get(canonical_path(b)).status_code == 200
+    with DbSession.atomic() as db:
+        if revocation == "read":
+            db.exec(update(ProjectRole).where(ProjectRole.project_id == b.source_board.id).values(actions=[]))
+        elif revocation == "membership":
+            db.exec(delete(ProjectAssignedUser).where(ProjectAssignedUser.project_id == b.source_board.id))
+        elif revocation == "account":
+            db.exec(update(User).where(User.id == b.actor.id).values(activated_at=None))
+        elif revocation == "card_deleted":
+            db.exec(update(Card).where(Card.id == b.source.id).values(deleted_at=SafeDateTime.now()))
+        elif revocation == "project_deleted":
+            db.exec(update(Project).where(Project.id == b.source_board.id).values(deleted_at=SafeDateTime.now()))
+        else:
+            db.exec(
+                update(Card).where(Card.id == b.source.id).values(visibility="PRIVATE", owner_user_id=b.outsider.id)
+            )
+    denied = client.get(canonical_path(b))
+    assert denied.status_code == 404
+    assert denied.headers["cache-control"] == "no-store"
+    assert b.source_board.get_uid() not in denied.text
+    assert b.source.title not in denied.text
+    assert b.source.description.content not in denied.text
+
+
+def test_registered_get_does_not_reveal_current_location_for_unrelated_project(canonical_http):
+    b, client = canonical_http
+    assert client.get(canonical_path(b)).status_code == 200
+    denied = client.get(canonical_path(b, b.destination))
+    assert denied.status_code == 404
+    assert denied.headers["cache-control"] == "no-store"
+    assert b.source_board.get_uid() not in denied.text
+
+
+def test_native_mirror_retains_destination_read_but_hides_revoked_source(canonical_http):
+    from langboard_shared.core.db import DbSession
+    from sqlalchemy import update
+
+    b, client = canonical_http
+    mirror, _, _ = b.service.link_cross_board_card(b.actor, b.source_board, b.source, b.destination, b.column)
+    payload = b.service._get_linked_resource_payloads(b.actor, b.destination, [mirror], include_content=True)[
+        mirror.get_uid()
+    ]
+    assert payload["status"] == "available" and payload["title"] == b.source.title
+    with DbSession.atomic() as db:
+        db.exec(update(ProjectRole).where(ProjectRole.project_id == b.source_board.id).values(actions=[]))
+    assert client.get(canonical_path(b)).status_code == 404
+    mirror_response = client.get(f"/board/{b.destination.get_uid()}/card/{mirror.get_uid()}?location_only=true")
+    assert mirror_response.status_code == 200
+    hidden = b.service._get_linked_resource_payloads(b.actor, b.destination, [mirror], include_content=True)[
+        mirror.get_uid()
+    ]
+    assert hidden == {"type": "project_card", "uid": b.source.get_uid(), "status": "forbidden"}
+    assert b.source.title not in str(hidden) and b.source.description.content not in str(hidden)
+
+
+def test_registered_app_owned_card_read_does_not_grant_cross_board_link(canonical_http):
+    from langboard_shared.core.db import DbSession, SqlBuilder
+    from langboard_shared.domain.models import Card, CardAppOwnership
+
+    b, client = canonical_http
+    with DbSession.atomic() as db:
+        db.insert(CardAppOwnership(card_id=b.source.id, app_key="owned-app"))
+    assert client.get(canonical_path(b)).status_code == 200
+    assert b.service.cross_board_eligibility([b.source]) == {b.source.id: False}
+    assert b.service.link_cross_board_card(b.actor, b.source_board, b.source, b.destination, b.column) is None
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(Card)).all()) == 1

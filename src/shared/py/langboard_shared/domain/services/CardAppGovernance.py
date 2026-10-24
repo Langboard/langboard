@@ -2,7 +2,10 @@
 
 from sqlalchemy import update
 from ...core.db import DbSession, SqlBuilder
+from ...core.publisher import SocketPublishModel
+from ...core.routing import SocketTopic
 from ...core.types import SafeDateTime
+from ...publishers import CardPublisher
 from ..models import (
     AppDefinition,
     Card,
@@ -106,6 +109,19 @@ def set_card_app_ownership(actor, project_id, card_id, app_key, expected_revisio
                 card_id=card.id, actor_id=current.id, previous_app_key=previous, app_key=app_key, revision=row.revision
             )
         )
+        # Reuse card-scoped routing: private ownership never reaches board readers.
+        shared = card.visibility != "PRIVATE"
+        eligible = app_key is None and not card.is_linked_resource
+        db.after_commit(lambda: CardPublisher.put_dispather(
+            {"can_cross_board": eligible},
+            SocketPublishModel(
+                card_uids=[card.get_uid()],
+                topic=SocketTopic.Board if shared else SocketTopic.UserPrivate,
+                topic_id=project.get_uid() if shared else current.get_uid(),
+                event=f"board:card:details:changed:{card.get_uid()}",
+                data_keys="can_cross_board",
+            ),
+        ))
         return {"app_key": row.app_key, "revision": row.revision, "changed": True}
 
 

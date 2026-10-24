@@ -11,11 +11,12 @@ import { IEditorContent } from "@/core/models/Base";
 import { isModel, ModelRegistry } from "@/core/models/ModelRegistry";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { getEditorStore } from "@/core/stores/EditorStore";
 import BoardCommentSeen from "./BoardCommentSeen";
 import BoardCommentReaction from "@/pages/BoardPage/components/card/comment/BoardCommentReaction";
 import { IBoardCommentContextParams } from "@/pages/BoardPage/components/card/comment/types";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 function BoardCommentFooter(): React.JSX.Element {
@@ -30,10 +31,17 @@ function BoardCommentFooter(): React.JSX.Element {
 }
 
 function BoardCommentFooterEditButtons() {
-    const { projectUID, card } = useBoardCard();
+    const { projectUID, card, currentUser } = useBoardCard();
     const [t] = useTranslation();
     const { model: comment, params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
-    const { valueRef } = params;
+    const { valueRef, flushDraftAutosave, cancelDraftAutosave } = params;
+    const saveSessionRef = useRef(0);
+    useEffect(() => {
+        saveSessionRef.current++;
+        return () => {
+            saveSessionRef.current++;
+        };
+    }, [currentUser.uid, projectUID, card.uid, comment.uid]);
     const [isValidating, setIsValidating] = useState(false);
     const setValue = (value: IEditorContent) => {
         valueRef.current = value;
@@ -42,6 +50,7 @@ function BoardCommentFooterEditButtons() {
 
     const cancelEditing = () => {
         setValue(comment.content);
+        cancelDraftAutosave();
         getEditorStore().setCurrentEditor(null);
     };
 
@@ -52,7 +61,13 @@ function BoardCommentFooterEditButtons() {
 
         setIsValidating(true);
 
-        const content = sanitizeEditorValue(valueRef.current);
+        // Persist any debounce-pending edit before serializing, so a failed
+        // submit still leaves the latest content recoverable.
+        flushDraftAutosave();
+
+        const submittedValue = valueRef.current;
+        const saveSession = saveSessionRef.current;
+        const content = sanitizeEditorValue(submittedValue);
 
         if (isEmptyEditorContent(content.content)) {
             Toast.Add.error(t("card.errors.Comment content cannot be empty."));
@@ -61,6 +76,7 @@ function BoardCommentFooterEditButtons() {
         }
 
         if (sanitizeEditorContent(comment.content.content) === content.content) {
+            cancelDraftAutosave();
             setIsValidating(false);
             return;
         }
@@ -76,13 +92,14 @@ function BoardCommentFooterEditButtons() {
                 onSuccess: () => {
                     comment.content = content;
                     Toast.Add.success(t("successes.Comment updated successfully."));
-                    cancelEditing();
+                    if (saveSessionRef.current === saveSession && valueRef.current === submittedValue) {
+                        cancelEditing();
+                    }
                 },
                 onError: (error) => {
                     const { handle } = setupApiErrorHandler({});
 
                     handle(error);
-                    cancelEditing();
                 },
                 onSettled: () => {
                     setIsValidating(false);
@@ -115,7 +132,11 @@ function BoardCommentFooterActions() {
     const canReply = !isModel(author, "User") || author.isValidUser();
     const { mutateAsync: deleteCommentMutateAsync } = useDeleteCardComment({ interceptToast: true });
     const startEditing = () => {
-        valueRef.current = comment.content;
+        // Restore an unsaved comment-edit draft (survives refresh/tab close) when
+        // one exists for this comment; otherwise start from the saved content.
+        const draftScope = { userUID: currentUser.uid, projectUID, kind: "comment-edit" as const, scopeUID: comment.uid };
+        const draft = getCardDraftStore().getDraft(draftScope);
+        valueRef.current = draft?.content && draft.content !== comment.content.content ? { content: draft.content } : comment.content;
         getEditorStore().setCurrentEditor(editorName);
     };
 
@@ -176,7 +197,14 @@ function BoardCommentFooterActions() {
             {canEdit && (
                 <>
                     <Separator orientation="vertical" className="h-1/2" />
-                    <Button variant="link" size="sm" className="h-5 p-0 text-accent-foreground/50" onClick={startEditing} disabled={isValidating}>
+                    <Button
+                        variant="link"
+                        size="sm"
+                        className="h-5 p-0 text-accent-foreground/50"
+                        data-comment-edit
+                        onClick={startEditing}
+                        disabled={isValidating}
+                    >
                         {t("common.Edit")}
                     </Button>
                     <Separator orientation="vertical" className="h-1/2" />

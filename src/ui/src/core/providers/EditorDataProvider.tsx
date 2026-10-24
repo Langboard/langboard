@@ -11,7 +11,15 @@ import { ROUTES } from "@/core/routing/constants";
 
 export type TEditorDataProviderEditorType = "view" | TEditorType;
 
+export interface IWikiSecretSelectionAction {
+    disabled: bool;
+    selectionChanged?: () => void;
+    isSupported: (editor: import("@/components/Editor/wiki-secret-selection").WikiSelectionEditor) => bool;
+    convert: (name: string) => Promise<void>;
+}
+
 export interface IEditorDataContext {
+    wikiSecretSelection?: IWikiSecretSelectionAction;
     currentUser: AuthUser.TModel;
     mentionables: TUserLikeModel[];
     linkables: TInternalLinkableModel[];
@@ -27,6 +35,7 @@ export interface IEditorDataContext {
 }
 
 interface IBaseEditorDataProviderProps {
+    wikiSecretSelection?: IWikiSecretSelectionAction;
     currentUser: AuthUser.TModel;
     mentionables: TUserLikeModel[];
     linkables?: TInternalLinkableModel[];
@@ -81,6 +90,7 @@ interface IWikiContentEditorDataProviderProps extends IBaseEditorDataProviderPro
     form: {
         project_uid: string;
         wiki_uid: string;
+        editor_generation: number;
     };
 }
 
@@ -121,6 +131,7 @@ const createEditorSocketEvents = (baseEvent: string) => ({
 
 export const EditorDataProvider = ({
     currentUser,
+    wikiSecretSelection,
     mentionables,
     linkables = [],
     editorType,
@@ -194,7 +205,7 @@ export const EditorDataProvider = ({
                         collaborationType: EEditorCollaborationType.Wiki,
                         uid: wikiForm.wiki_uid,
                         section: "content",
-                    }),
+                    }) + `:${wikiForm.editor_generation}`,
                     `${editorType}-chat-${wikiForm.wiki_uid}`,
                     `${editorType}-copilot-${wikiForm.wiki_uid}`,
                     Utils.String.format(Routing.API.BOARD.WIKI.UPLOAD, { uid: wikiForm.project_uid, wiki_uid: wikiForm.wiki_uid }),
@@ -238,6 +249,7 @@ export const EditorDataProvider = ({
     const contextValue = useMemo(
         () => ({
             currentUser,
+            wikiSecretSelection,
             mentionables,
             linkables,
             editorType,
@@ -252,6 +264,7 @@ export const EditorDataProvider = ({
         }),
         [
             currentUser,
+            wikiSecretSelection,
             mentionables,
             linkables,
             editorType,

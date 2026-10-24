@@ -37,7 +37,7 @@ export const createSocketRuntime = ({
     reconnect,
     shouldReconnect,
 }: ICreateSocketRuntimeProps) => {
-    const runEventCallbacks = async (eventMap: TSocketEventKeyMap | undefined, data?: unknown) => {
+    const runEventCallbacks = async (eventMap: TSocketEventKeyMap | undefined, data?: unknown, isCurrent?: () => boolean) => {
         if (!eventMap) {
             return;
         }
@@ -52,6 +52,9 @@ export const createSocketRuntime = ({
             for (let j = 0; j < callbacks.length; ++j) {
                 const callback = callbacks[j];
                 if (typeof callback === "function") {
+                    if (isCurrent && !isCurrent()) {
+                        return;
+                    }
                     await callback(data);
                 }
             }
@@ -70,12 +73,32 @@ export const createSocketRuntime = ({
     const runTopicEvents = async (props: IRunEventsProps) => {
         const socketMap = getStore();
         const { topic, topicId } = getTopicWithId(props);
-        if (topic !== ESocketTopic.None && topic !== ESocketTopic.Global) {
+        const isScopedTopic = topic !== ESocketTopic.None && topic !== ESocketTopic.Global;
+        if (isScopedTopic) {
             if (!socketMap.restorableTopics[topic]?.includes(topicId) || !socketMap.subscribedTopics[topic]?.includes(topicId)) {
                 return;
             }
         }
-        await runEventCallbacks(socketMap.subscriptions[topic]?.[topicId]?.[props.eventName], props.data);
+        const subscriptions = socketMap.subscriptions;
+        const userUID = getUserUID();
+        const accessToken = getAccessToken();
+        // Exact callbacks may await an unsubscribe or identity change before observers run.
+        const isCurrentTopic = () => {
+            const currentStore = getStore();
+            return (
+                currentStore.subscriptions === subscriptions &&
+                getUserUID() === userUID &&
+                getAccessToken() === accessToken &&
+                !!currentStore.restorableTopics[topic]?.includes(topicId) &&
+                !!currentStore.subscribedTopics[topic]?.includes(topicId)
+            );
+        };
+        if (!isScopedTopic || props.eventName !== "*") {
+            await runEventCallbacks(subscriptions[topic]?.[topicId]?.[props.eventName], props.data);
+        }
+        if (isScopedTopic) {
+            await runEventCallbacks(subscriptions[topic]?.[topicId]?.["*"], { event: props.eventName, data: props.data }, isCurrentTopic);
+        }
     };
 
     const runEvents = async (props: IRunEventsProps) => {

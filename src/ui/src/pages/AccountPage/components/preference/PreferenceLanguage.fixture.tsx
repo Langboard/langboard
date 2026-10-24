@@ -16,7 +16,7 @@ const user = AuthUser.Model.fromOne({
     firstname: "Language",
     lastname: "Fixture",
     username: "language-fixture",
-    preferred_lang: localStorage.getItem("fixture-preferred-lang") || "en-US",
+    preferred_lang: localStorage.getItem("fixture-preferred-lang") ?? "en-US",
     created_at: new Date(),
     updated_at: new Date(),
 });

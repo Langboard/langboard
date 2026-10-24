@@ -93,13 +93,19 @@ class LangboardOIDCProxy(OIDCProxy):
         if validated is None:
             return None
         try:
-            granted = self.jwt_issuer.verify_token(token).get("scope", "")
+            signed = self.jwt_issuer.verify_token(token)
+            granted = signed.get("scope", "")
+            client_id = signed.get("client_id")
         except Exception:
             return None
-        if not isinstance(granted, str):
+        if not isinstance(granted, str) or not isinstance(client_id, str) or not client_id:
             return None
         allowed = set(granted.split())
-        return validated.model_copy(update={"scopes": [scope for scope in validated.scopes if scope in allowed]})
+        return validated.model_copy(update={
+            "client_id": client_id,
+            "claims": {**(validated.claims or {}), "langboard_native_client_id": client_id},
+            "scopes": [scope for scope in validated.scopes if scope in allowed],
+        })
 
 
 def create_oauth_provider(*, client_storage=None):
@@ -143,7 +149,14 @@ def resolve_principal(access_token, service):
     )
     if not user or not user.activated_at or user.deleted_at:
         raise AuthorizationError("An active linked user is required")
+    from langboard_shared.domain.services.NativeMcpConsent import connect_native_client
+
+    client_id = claims.get("langboard_native_client_id")
+    if not isinstance(client_id, str) or not client_id or client_id != access_token.client_id:
+        raise AuthorizationError("A verified native OAuth client is required")
+    connection = connect_native_client(user, client_id)
     return {
+        "native_connection_id": connection.id,
         "user_or_bot": user,
         "api_key": None,
         "transport": "oauth",

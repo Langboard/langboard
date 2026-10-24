@@ -25,10 +25,19 @@ let revision = 3;
 let selected = ["resource"];
 let answered = false;
 let runtimeState = "authorized";
+let agentAvailable = !params.has("no-agent");
+let agentDelay = 0;
+Object.assign(window, {
+    revokeAgentReport: () => {
+        agentAvailable = false;
+        agentDelay = 300;
+    },
+});
 api.defaults.adapter = async (config) => {
     const url = config.url ?? "";
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ url, method: config.method, data, sections: config.params?.sections });
+    if (config.params?.sections?.includes("agent_execution") && agentDelay) await new Promise((resolve) => setTimeout(resolve, agentDelay));
     if (params.has("error") && config.method !== "get") throw new Error("Synthetic manager write failure");
     let result: unknown = { records: [], items: [], next_cursor: null };
     if (url.endsWith("/unlink")) {
@@ -55,7 +64,33 @@ api.defaults.adapter = async (config) => {
                 count_comment: 0,
                 last_change_seq: 7,
                 description: { content: "" },
+                work_state: {
+                    execution_generation: 7,
+                    material_kind: "work",
+                    workflow_stage: "ready",
+                    checklist_progress: { total: 0, completed: 0 },
+                    reasons: [],
+                    state_inconsistency: [],
+                },
             },
+            agent_execution: config.params?.sections?.includes("agent_execution")
+                ? agentAvailable
+                    ? {
+                          schema_version: 1,
+                          start_uid: "start-opaque",
+                          request_uid: "request-opaque",
+                          app_key: "sample-agent",
+                          generation: params.has("old-generation") ? 6 : 7,
+                          reported_at: now.toISOString(),
+                          evaluated_at: new Date().toISOString(),
+                          authorization_expires_at: new Date(Date.now() + 60_000).toISOString(),
+                          evidence_kind: "app_attestation",
+                          current_authorization: "authorized",
+                          process_liveness: "unknown",
+                          unexpected_runtime_reference: "never-render-raw-runtime",
+                      }
+                    : null
+                : undefined,
             execution_receipts: config.params?.sections?.includes("execution_receipts")
                 ? [
                       {

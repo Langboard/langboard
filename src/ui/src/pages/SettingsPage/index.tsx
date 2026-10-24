@@ -208,7 +208,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             onClick: () => {
                 navigate(ROUTES.SETTINGS.USERS);
             },
-            hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User),
+            hidden: !currentUser.is_admin || !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User, SettingRole.EAction.GroupRead),
         },
         [ROUTES.SETTINGS.BOTS]: {
             icon: "bot",
@@ -385,7 +385,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             activityRailItems={[
                 { icon: "folder-kanban", label: t("dashboard.Projects"), mobile: "primary", onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.ALL) },
                 ...pinnedApps.items,
-                { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
+                { icon: "store", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
                 ...groups.map((group) => ({
                     icon: group.icon,
                     label: t(`settings.${group.label}`),

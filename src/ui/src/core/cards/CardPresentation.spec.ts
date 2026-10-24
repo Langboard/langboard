@@ -110,3 +110,124 @@ test("membership classification changes refresh native visibility without replac
     await page.getByRole("button", { name: "Classify member as internal", exact: true }).click();
     await expect(internal.locator("[data-card-presentation-axis=visibility]")).toHaveCount(0);
 });
+
+for (const width of [320, 390]) {
+    test(`native assignee and checklist worker roles remain independent at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/core/cards/CardPresentation.fixture.html");
+        await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("en-US");
+        const scenario = page.getByRole("combobox", { name: "Role scenario" });
+        const board = page.getByTestId("native-role-board");
+        const detail = page.getByTestId("native-role-detail");
+        const assignees = board.getByRole("group", { name: "Assignees", exact: true });
+        const workers = board.getByRole("group", { name: "Checklist workers", exact: true });
+        await expect(assignees.getByText("AO", { exact: true })).toBeVisible();
+        await expect(workers).toHaveCount(0);
+        await scenario.selectOption("worker");
+        await expect(assignees.getByRole("img", { name: "Unassigned" })).toBeVisible();
+        await expect(assignees.getByText("CW", { exact: true })).toHaveCount(0);
+        await expect(workers.getByText("CW", { exact: true })).toBeVisible();
+        await expect(detail.getByRole("group", { name: "Checklist workers", exact: true })).toBeVisible();
+        await scenario.selectOption("both");
+        await expect(assignees.getByText("AO", { exact: true })).toBeVisible();
+        await expect(workers.getByText("CW", { exact: true })).toBeVisible();
+        await expect(assignees.locator('[tabindex="0"][aria-label^="Working now:"]')).toHaveCount(0);
+        const timer = workers.locator('[tabindex="0"][aria-label^="Working now:"]');
+        await timer.focus();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Shift+Tab");
+        await expect(timer).toBeFocused();
+        const runningTitle = await timer.getAttribute("aria-label");
+        await expect.poll(() => timer.getAttribute("aria-label")).not.toBe(runningTitle);
+        await timer.hover();
+        await expect(timer).toHaveAttribute("title", /Inspect checklist/);
+        await scenario.selectOption("paused");
+        const paused = workers.locator('[tabindex="0"][aria-label^="Work paused:"]');
+        await paused.focus();
+        const pausedTitle = await paused.getAttribute("aria-label");
+        await page.waitForTimeout(1200);
+        await expect(paused).toHaveAttribute("aria-label", pausedTitle!);
+        await scenario.selectOption("same");
+        await expect(assignees.getByText("AO", { exact: true })).toBeVisible();
+        await expect(workers.getByText("AO", { exact: true })).toBeVisible();
+        await expect(detail.locator('[tabindex="0"][aria-label^="Working now:"]')).toHaveCount(1);
+        await scenario.selectOption("assignee");
+        await expect(workers).toHaveCount(0);
+        await expect(detail.getByRole("group", { name: "Checklist workers", exact: true })).toHaveCount(0);
+        await expect(assignees.getByText("AO", { exact: true })).toBeVisible();
+        await scenario.selectOption("outsider");
+        await expect(assignees.getByRole("img", { name: "Unassigned" })).toBeVisible();
+        await expect(workers).toHaveCount(0);
+        await expect(board.getByText("OS", { exact: true })).toHaveCount(0);
+        await expect(detail.getByText("OS", { exact: true })).toHaveCount(0);
+        await scenario.selectOption("private");
+        await expect(assignees).toHaveCount(0);
+        await expect(workers).toHaveCount(0);
+        await expect(board.getByRole("img", { name: "Unassigned" })).toHaveCount(0);
+        await expect(detail.getByRole("group", { name: "Checklist workers", exact: true })).toHaveCount(0);
+        await expect(detail.getByTitle("Assign members", { exact: true })).toHaveCount(0);
+        await scenario.selectOption("both");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: `/private/tmp/langboard-native-roles-${width}.png`, fullPage: true });
+    });
+}
+
+for (const [locale, texts] of Object.entries({ "en-US": en, "ko-KR": ko, "ja-JP": ja, "zh-CN": zh })) {
+    test(`${locale} native role labels are localized`, async ({ page }) => {
+        await page.goto("/src/core/cards/CardPresentation.fixture.html");
+        await page.getByRole("combobox", { name: "Language", exact: true }).selectOption(locale);
+        await page.getByRole("combobox", { name: "Role scenario" }).selectOption("worker");
+        const board = page.getByTestId("native-role-board");
+        await expect(board.getByRole("group", { name: texts.Assignees, exact: true })).toBeVisible();
+        await expect(board.getByRole("img", { name: texts.Unassigned })).toBeVisible();
+        await expect(board.getByRole("group", { name: texts["Checklist workers"], exact: true })).toContainText(texts["Checklist workers"]);
+        await expect(page.getByTestId("native-role-detail").getByRole("group", { name: texts["Checklist workers"], exact: true })).toBeVisible();
+    });
+}
+
+test("native detail assignment mutation contains selected assignees only", async ({ page }) => {
+    await page.goto("/src/core/cards/CardPresentation.fixture.html");
+    await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("en-US");
+    await page.getByRole("combobox", { name: "Role scenario" }).selectOption("worker");
+    const detail = page.getByTestId("native-role-detail");
+    await expect(detail.getByRole("button", { name: "Assign members", exact: true })).toHaveCount(0);
+    await detail.getByRole("button", { name: "Edit assignments" }).click();
+    await detail.getByRole("button", { name: "Assign members", exact: true }).click();
+    const editor = page.locator('[contenteditable="true"]').last();
+    await editor.fill("Assigned");
+    await page.getByRole("option", { name: "Assigned Owner", exact: true }).click();
+    await expect(page.getByTestId("assignment-request")).toHaveText('{"assigned_users":["role-owner"]}');
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(detail.getByRole("button", { name: "Assign members", exact: true })).toBeFocused();
+    await expect(editor).toHaveCount(0);
+    await expect(
+        page.getByTestId("native-role-board").getByRole("group", { name: "Assignees", exact: true }).getByText("AO", { exact: true })
+    ).toBeVisible();
+    await expect(detail.getByRole("group", { name: "Checklist workers", exact: true }).getByText("CW", { exact: true })).toBeVisible();
+    await expect(detail.locator('[tabindex="0"][aria-label^="Working now:"]')).toHaveCount(1);
+    await expect(
+        detail.getByText("AO", { exact: true }).locator('xpath=ancestor::*[@tabindex="0" and starts-with(@aria-label, "Working now:")]')
+    ).toHaveCount(0);
+});
+
+for (const width of [320, 390])
+    test(`Escape dismisses assignment suggestions before the editor and restores focus at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/core/cards/CardPresentation.fixture.html");
+        await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("en-US");
+        const detail = page.getByTestId("native-role-detail");
+        await detail.getByRole("button", { name: "Edit assignments" }).click();
+        const trigger = detail.getByRole("button", { name: "Assign members", exact: true });
+        await trigger.click();
+        const editor = page.locator('[contenteditable="true"]').last();
+        await editor.fill("Checklist");
+        await expect(page.getByRole("option", { name: "Checklist Worker", exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("listbox", { name: "Suggestions" })).toHaveCount(0);
+        await expect(editor).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(editor).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        await expect(page.getByTestId("assignment-request")).toBeEmpty();
+    });

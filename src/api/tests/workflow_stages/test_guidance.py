@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+import test_registry
 from langboard.card_workspace.application.queries import get_card_bundle
 from langboard.card_workspace.domain import CommentPage, SectionPage
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
@@ -10,7 +11,7 @@ from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepositor
 from test_registry import form
 
 
-pytest_plugins = ["test_registry"]
+registry = test_registry.registry
 
 
 @pytest.mark.parametrize("active", [True, False])
@@ -131,3 +132,22 @@ def test_native_bundle_and_project_columns_share_registry_guidance(registry, mon
         column_service, "get_workflow_guidance", lambda _: pytest.fail("Foreign column guidance leaked")
     )
     assert adapter.get_card_bundle_source("p", "c", frozenset()) is None
+
+
+def test_normalized_workflow_guidance_excludes_unrecognized_storage_fields():
+    from langboard.card_workspace.application.projections import public_workflow_stages
+    source = {"active": {"key": "active", "confirm_descendant_move": True, "rules": [{
+        "name": "Compact discussion", "is_enabled": True,
+        "trigger": {"kind": "event", "event_type": "card_comment_added"},
+        "condition_match": "any", "conditions": [{"kind": "uncompacted_characters", "operator": "gte", "value": 24000}],
+        "actions": [{"kind": "comments.compact", "executor": {"kind": "compactor"}, "config": {},
+                     "requires_previous_success": False, "credential": "private-fixture"}],
+        "storage": "private-fixture"}], "storage": "private-fixture"}}
+    result = public_workflow_stages(source)
+    assert result["active"]["confirm_descendant_move"] is True
+    rule = result["active"]["rules"][0]
+    assert rule == {"name": "Compact discussion", "is_enabled": True,
+                    "trigger": {"kind": "event", "event_type": "card_comment_added"},
+                    "condition_match": "any", "conditions": [{"kind": "uncompacted_characters", "operator": "gte", "value": 24000}],
+                    "actions": [{"kind": "comments.compact"}]}
+    assert "private-fixture" not in str(result)

@@ -2,6 +2,7 @@
 
 from math import isfinite
 import tiktoken
+from .DocumentSource import document_source_identity
 from .DocumentVectorGeneration import MAX_ATTACHMENT_CHUNKS
 from .DocumentVectorStore import document_source_filter
 
@@ -13,16 +14,13 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
     if type(max_tokens) is not int or not 128 <= max_tokens <= 4000:
         raise ValueError("Invalid excerpt token budget")
     ids = pointer.get("chunk_ids")
-    fields = ("board_uid", "card_uid", "attachment_uid", "content_hash", "embedding_fingerprint", "generation")
     if (
         not isinstance(ids, list)
         or not 1 <= len(ids) <= MAX_ATTACHMENT_CHUNKS
         or not all(isinstance(i, str) and i for i in ids)
     ):
         raise ValueError("Reindex this attachment before vector retrieval")
-    if not all(isinstance(pointer.get(key), str) and pointer[key] for key in fields):
-        raise ValueError("Incomplete vector source")
-    source = {key: pointer[key] for key in fields}
+    source = document_source_identity(pointer, require_generation=True)
     filter = document_source_filter(pointer.get("storage") or {}, source)
     if settings.search_type == "mmr":
         if settings.score_threshold is not None:
@@ -33,13 +31,35 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
         hits = [(document, None) for document in documents]
     else:
         hits = store.similarity_search_with_score(query, k=settings.k, filter=filter)
+    return project_vector_hits(pointer, hits, settings, max_tokens=max_tokens)
+
+
+def project_vector_hits(pointer: dict, hits, settings, *, max_tokens: int = 4000) -> list[dict]:
+    """Project already retrieved native hits against one authoritative active pointer."""
+    if type(max_tokens) is not int or not 1 <= max_tokens <= 4000:
+        raise ValueError("Invalid excerpt token budget")
+    ids = pointer.get("chunk_ids")
+    if (not isinstance(ids, list) or not 1 <= len(ids) <= MAX_ATTACHMENT_CHUNKS
+        or not all(isinstance(identifier, str) and identifier for identifier in ids)):
+        raise ValueError("Invalid active vector generation")
+    source = document_source_identity(pointer, require_generation=True)
     encoding = tiktoken.get_encoding("cl100k_base")
     remaining = min(max_tokens, settings.max_return_tokens)
     result = []
     for document, score in hits[: settings.k]:
         metadata = document.metadata
         identifier = document.id or metadata.get("_id")
-        if str(identifier) not in ids or any(metadata.get(key) != value for key, value in source.items()):
+        try:
+            actual_source = document_source_identity(metadata, require_generation=True)
+        except ValueError:
+            continue
+        expected_kind = source.get("source_type", "card_attachment")
+        actual_kind = actual_source.get("source_type", "card_attachment")
+        if (
+            str(identifier) not in ids
+            or actual_kind != expected_kind
+            or any(actual_source.get(key) != value for key, value in source.items() if key != "source_type")
+        ):
             continue
         if score is not None and (type(score) not in (int, float) or not isfinite(score)):
             continue
@@ -59,6 +79,7 @@ def search_vector_generation(store, pointer: dict, query: str, settings, *, max_
                 "chunk_id": str(identifier),
                 "content": content,
                 "source": source,
+                **({"similarity_score": score} if source.get("source_type") == "comment_compaction" else {}),
                 **({"pages": pages, "provenance_scope": metadata.get("provenance_scope", "unknown")} if pages else {}),
                 **({"page": metadata["page"]} if type(metadata.get("page")) is int and metadata["page"] > 0 else {}),
             }

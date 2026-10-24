@@ -23,27 +23,42 @@ class ProjectWikiRepository(BaseOrderRepository[ProjectWiki, Project]):
     def get_by_id_like(self, wiki: TWikiParam | None) -> ProjectWiki | None:
         return InfraHelper.get_by_id_like(ProjectWiki, wiki)
 
-    def update_content_if_current(self, wiki: ProjectWiki, expected_content: str) -> bool:
-        """Lock the live row and persist only content if its reviewed value still matches."""
+    def update_content_if_current(
+        self,
+        wiki: ProjectWiki,
+        expected_content: str,
+        *,
+        expected_generation: int,
+        advance_generation: bool = False,
+        title: str | None = None,
+    ) -> bool:
+        """Serialize saves/conversion on the live row; never infer a caller's lineage."""
         with DbSession.use(readonly=False) as db:
             current = db.exec(
-                SqlBuilder.select.columns(ProjectWiki.column("content"))
+                SqlBuilder.select.columns(ProjectWiki.column("content"), ProjectWiki.column("editor_generation"))
                 .where((ProjectWiki.column("id") == wiki.id) & (ProjectWiki.column("project_id") == wiki.project_id))
                 .with_for_update(),
                 execution_options={"autoflush": False},
             ).first()
-            if current is None or current[0].content != expected_content:
+            if current is None or current[0].content != expected_content or current[1] != expected_generation:
                 return False
             updated_at = SafeDateTime.now()
+            generation = expected_generation + int(advance_generation)
+            values = {"content": wiki.content, "editor_generation": generation, "updated_at": updated_at}
+            if title is not None:
+                values["title"] = title
             changed = db.exec(
                 update(ProjectWiki.__table__)
-                .where(ProjectWiki.column("id") == wiki.id)
-                .values(content=wiki.content, updated_at=updated_at),
+                .where(
+                    ProjectWiki.column("id") == wiki.id, ProjectWiki.column("editor_generation") == expected_generation
+                )
+                .values(**values),
                 execution_options={"autoflush": False},
             )
             if changed != 1:
                 return False
         wiki.updated_at = updated_at
+        wiki.editor_generation = generation
         wiki.clear_changes()
         return True
 

@@ -10,7 +10,6 @@
     "counts_as_completed": false,
     "active_queue_policy": "conditional",
     "overdue_policy": "normal",
-    "entry_effects": [],
     "translations": {
       "en": {
         "name": "Backlog",
@@ -28,7 +27,9 @@
         "name": "待办",
         "description": "尚未分类或承诺开始的工作。"
       }
-    }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   },
   {
     "key": "ready",
@@ -41,7 +42,6 @@
     "counts_as_completed": false,
     "active_queue_policy": "conditional",
     "overdue_policy": "normal",
-    "entry_effects": [],
     "translations": {
       "en": {
         "name": "Ready",
@@ -59,7 +59,9 @@
         "name": "就绪",
         "description": "已有负责人且准备好开始的工作。"
       }
-    }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   },
   {
     "key": "active",
@@ -72,7 +74,6 @@
     "counts_as_completed": false,
     "active_queue_policy": "include",
     "overdue_policy": "normal",
-    "entry_effects": [],
     "translations": {
       "en": {
         "name": "Active",
@@ -90,7 +91,9 @@
         "name": "进行中",
         "description": "当前正在执行的工作。"
       }
-    }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   },
   {
     "key": "review",
@@ -103,7 +106,6 @@
     "counts_as_completed": false,
     "active_queue_policy": "conditional",
     "overdue_policy": "normal",
-    "entry_effects": [],
     "translations": {
       "en": {
         "name": "Review",
@@ -121,7 +123,9 @@
         "name": "审核",
         "description": "等待审核或验收的工作。"
       }
-    }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   },
   {
     "key": "closed",
@@ -134,7 +138,6 @@
     "counts_as_completed": true,
     "active_queue_policy": "exclude",
     "overdue_policy": "suppress",
-    "entry_effects": [],
     "translations": {
       "en": {
         "name": "Closed",
@@ -152,7 +155,9 @@
         "name": "已完成",
         "description": "运营上已完成的工作；验证状态单独保留。"
       }
-    }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   },
   {
     "key": "reference",
@@ -165,7 +170,6 @@
     "counts_as_completed": false,
     "active_queue_policy": "exclude",
     "overdue_policy": "normal",
-    "entry_effects": [],
     "translations": {
       "en": {
         "name": "Reference",
@@ -183,6 +187,8 @@
         "name": "参考资料",
         "description": "不列入活动工作队列的参考资料。"
       }
-    }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   }
 ]

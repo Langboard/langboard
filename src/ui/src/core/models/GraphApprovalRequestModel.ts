@@ -43,6 +43,7 @@ export interface Interface extends IBaseModel {
     scope_uid?: string;
     document_name?: string;
     durable_run?: boolean;
+    decision_bound?: boolean;
     durable_run_status?: EInternalBotRunStatus | null;
     durable_run_task_id?: string | null;
     durable_run_kind?: EInternalBotRunKind | null;
@@ -104,6 +105,9 @@ class GraphApprovalRequestModel extends BaseModel<Interface> {
     }
     public get durable_run() {
         return this.getValue("durable_run");
+    }
+    public get decision_bound() {
+        return this.getValue("decision_bound");
     }
     public get durable_run_status() {
         return this.getValue("durable_run_status");

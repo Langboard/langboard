@@ -120,6 +120,7 @@
   "Webhook name changed successfully.": "웹훅 이름을 변경했습니다.",
   "Webhook URL changed successfully.": "웹훅 URL을 변경했습니다.",
   "Webhook events changed successfully.": "웹훅 이벤트를 변경했습니다.",
+  "Selected users deleted successfully.": "선택한 사용자를 삭제했습니다.",
   "Selected webhooks deleted successfully.": "선택한 웹훅을 삭제했습니다.",
   "Internal bot created successfully.": "내부 봇을 생성했습니다.",
   "Internal bot copied successfully.": "내부 봇을 복사했습니다.",

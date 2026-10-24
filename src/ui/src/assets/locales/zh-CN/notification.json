@@ -22,7 +22,9 @@
     "assigned_to_card": "<Who/> <Span>将您指定为卡片负责人。</Span>",
     "reacted_to_comment": "<Who/> <Span>回应了您的评论。</Span>",
     "notified_from_checklist": "<Who/> <Span>在检查清单中通知了您。</Span>",
-    "scheduled_rule": "<Span>满足了定时通知规则。</Span>"
+    "scheduled_rule": "<Span>满足了定时通知规则。</Span>",
+    "workflow_stage_entered": "<Who/> <Span>将您创建的卡片移至 {{message_vars.column_name}}。</Span>",
+    "bot_schedule_failed": "<Span>请检查机器人计划的接收状态。</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -32,7 +34,9 @@
     "assigned_to_card": "{{records.project.title}} 中的 {{records.card.title}}",
     "reacted_to_comment": "{{records.project.title}} 中的 {{records.card.title}}",
     "notified_from_checklist": "{{records.project.title}} 中的 {{records.card.title}}",
-    "scheduled_rule": "{{records.project.title}} 中的 {{message_vars.rule_name}}"
+    "scheduled_rule": "{{records.project.title}} 中的 {{message_vars.rule_name}}",
+    "workflow_stage_entered": "{{records.project.title}} 中的 {{records.card.title}}",
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}"
   },
   "ruleTitles": {
     "project": {
@@ -137,7 +141,9 @@
       "assigned_to_card": "被指定为卡片负责人",
       "reacted_to_comment": "评论收到回应",
       "notified_from_checklist": "来自检查清单的通知",
-      "scheduled_rule": "定时规则"
+      "scheduled_rule": "定时规则",
+      "workflow_stage_entered": "工作流阶段进入",
+      "bot_schedule_failed": "机器人计划失败"
     }
   }
 }

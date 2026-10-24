@@ -162,9 +162,14 @@ def _claim(event_id: UUID | None = None) -> ClaimedDelivery | object | None:
         if reasons:
             _mark(db, event_id, "blocked", ",".join(reasons)[:80])
             return _TERMINAL
+        try:
+            frozen_revision = datetime.fromisoformat(snapshot["binding_revision"])
+        except (TypeError, ValueError):
+            _mark(db, event_id, "blocked", "stale_binding")
+            return _TERMINAL
         if (
             str(binding.id) != snapshot["binding_id"]
-            or binding.updated_at.isoformat() != snapshot["binding_revision"]
+            or binding.updated_at != frozen_revision
             or binding.webhook_uid != snapshot["webhook_uid"]
         ):
             _mark(db, event_id, "blocked", "stale_binding")

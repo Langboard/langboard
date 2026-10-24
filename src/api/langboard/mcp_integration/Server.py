@@ -22,6 +22,7 @@ from ..middlewares.McpAuthMiddleware import mcp_auth_context
 from .AgentPolicy import AGENT_POLICY
 from .Annotations import ToolAnnotationTransform
 from .Dependencies import with_native_dependencies
+from .ExecutionHistory import execution_scope, safe_scope
 from .OAuth import NativeOAuthMiddleware, create_oauth_provider
 from .Providers import (
     create_agent_core_provider,
@@ -141,13 +142,18 @@ class McpServer:
         filtered_params = [param for name, param in sig.parameters.items() if name not in exclude]
         filtered_sig = sig.replace(parameters=filtered_params)
 
-        @wraps(handler)
-        async def wrapper(**kwargs):
+        async def invoke(**kwargs):
             auth_data = mcp_auth_context.get()
             auth_value: User | Bot | None = auth_data.get("user_or_bot") if auth_data else None
 
             if not self._validate_auth(auth_value, tool_name):
                 raise AuthorizationError("Authentication required")
+
+            scope = execution_scope.get()
+            if scope is not None:
+                resolved = await call_sync_fn_in_threadpool(safe_scope, auth_value, handler, kwargs)
+                if resolved:
+                    scope.update(resolved)
 
             if not await call_sync_fn_in_threadpool(self._validate_role, auth_value, handler, **kwargs):
                 raise AuthorizationError("Insufficient permissions")
@@ -156,6 +162,13 @@ class McpServer:
                 raise ValueError("Injected arguments are not allowed")
             async with resolve_dependencies(native_handler, kwargs) as arguments:
                 return await native_handler(**arguments)
+
+        @wraps(handler)
+        async def wrapper(**kwargs):
+            from .NativeConsent import native_call_boundary
+
+            async with native_call_boundary(tool_name, kwargs):
+                return await invoke(**kwargs)
 
         # Use the filtered signature so FastMCP only sees the non-excluded parameters
         setattr(wrapper, "__signature__", filtered_sig)

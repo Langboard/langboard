@@ -91,6 +91,7 @@ async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypa
 
 
 async def test_promotion_retains_canonical_update_permission(monkeypatch):
+    from langboard.mcp_integration import Dependencies
     from langboard.mcp_tools.CardMcp import cardify_card_checkitem
 
     metadata = McpTool.get_tool("cardify_card_checkitem")
@@ -105,9 +106,10 @@ async def test_promotion_retains_canonical_update_permission(monkeypatch):
 
     monkeypatch.setattr(McpServer, "_validate_auth", lambda *args: True)
     monkeypatch.setattr(McpServer, "_validate_role", check_role)
-    monkeypatch.setattr(
-        McpServer, "_inject_kwargs", lambda *args: pytest.fail("Denied command must not create services")
-    )
+    native_factory = Dependencies._factory_dependency
+    monkeypatch.setattr(Dependencies, "_factory_dependency", lambda _: native_factory(
+        lambda: pytest.fail("Denied command must not create services")
+    ))
     token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture-user"})
     try:
         with pytest.raises(AuthorizationError, match="Insufficient permissions"):

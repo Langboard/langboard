@@ -23,7 +23,8 @@ export type CardDetailSection =
     | "project_columns"
     | "project_labels"
     | "bot_scopes"
-    | "execution_receipts";
+    | "execution_receipts"
+    | "agent_execution";
 
 export interface IGetCardDetailsForm {
     project_uid: string;
@@ -42,6 +43,19 @@ export interface IGetCardDetailsResponse {
     project_columns?: ProjectColumn.TModel[];
     project_labels?: ProjectLabel.TModel[];
     bot_scopes?: ProjectCardBotScope.TModel[];
+    agent_execution?: {
+        schema_version: 1;
+        start_uid: string;
+        request_uid: string;
+        app_key: string;
+        generation: number;
+        reported_at: string;
+        evaluated_at: string;
+        authorization_expires_at: string;
+        evidence_kind: "app_attestation";
+        current_authorization: "authorized";
+        process_liveness: "unknown";
+    } | null;
     execution_receipts?: {
         generation: number;
         created_at: string;
@@ -56,7 +70,7 @@ export interface IGetCardDetailsResponse {
 }
 
 const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<IGetCardDetailsResponse, IGetCardDetailsResponse>) => {
-    const { query } = useQueryMutation();
+    const { query, queryClient } = useQueryMutation();
 
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const sessionVersion = useAuthStore.getState().getSessionVersion();
@@ -77,6 +91,23 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             sessionVersion !== useAuthStore.getState().getSessionVersion()
         ) {
             throw new Error("Card detail request no longer belongs to the current session");
+        }
+
+        if (!res.data?.card || res.data.card.uid !== params.card_uid || res.data.card.project_uid !== params.project_uid) {
+            // A moved card's minimal location response must never enter the detail model stores.
+            void queryClient.invalidateQueries(
+                {
+                    predicate: ({ queryKey, state }) =>
+                        queryKey[0] === "resolve-card-location" &&
+                        queryKey[1] === params.project_uid &&
+                        queryKey[2] === params.card_uid &&
+                        queryKey[3] === actorUID &&
+                        queryKey[4] === sessionVersion &&
+                        (state.data as { canonical_project_uid?: string } | undefined)?.canonical_project_uid === params.project_uid,
+                },
+                { cancelRefetch: false }
+            );
+            throw new Error("Card detail response belongs to another card or board");
         }
 
         const checkitems =
@@ -111,6 +142,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             project_labels: res.data.project_labels === undefined ? undefined : ProjectLabel.Model.fromArray(res.data.project_labels, true),
             bot_scopes: res.data.bot_scopes === undefined ? undefined : ProjectCardBotScope.Model.fromArray(res.data.bot_scopes, true),
             execution_receipts: res.data.execution_receipts,
+            agent_execution: res.data.agent_execution,
         };
     };
 

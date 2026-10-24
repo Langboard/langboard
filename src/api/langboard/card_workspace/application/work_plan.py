@@ -1,12 +1,14 @@
 """One server-owned, revision-bound graph/cardification/checklist work plan."""
 
+from datetime import timezone
 from hashlib import sha256
 from json import dumps, loads
 from typing import Annotated, Any
 from uuid import uuid4
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.constants.CardPresentation import CARD_PRESENTATION_KEY, validate_card_presentation
 from langboard_shared.domain.models import (
     Card,
@@ -15,7 +17,9 @@ from langboard_shared.domain.models import (
     Checklist,
     GlobalCardRelationshipType,
     Project,
+    ProjectAssignedUser,
     ProjectColumn,
+    User,
 )
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
@@ -53,6 +57,27 @@ class PlanCard(PlanModel):
         ),
     )
 
+    assign_user_uids: Annotated[list[Ref], Field(max_length=100)] | None = Field(
+        default=None, description="Existing active project member UIDs to assign during atomic creation."
+    )
+    deadline_at: str | None = Field(
+        default=None, description="ISO 8601 deadline; offsets preserve the instant, naive values use native UTC."
+    )
+
+    @field_validator("assign_user_uids")
+    @classmethod
+    def validate_assignees(cls, value):
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("Duplicate assigned user")
+        return value
+
+    @field_validator("deadline_at")
+    @classmethod
+    def validate_deadline(cls, value):
+        if value is not None:
+            SafeDateTime.fromisoformat(value)
+        return value
+
     @field_validator("presentation")
     @classmethod
     def validate_presentation(cls, value):
@@ -63,9 +88,12 @@ class PlanCard(PlanModel):
     @model_serializer(mode="wrap")
     def serialize_card(self, handler):
         result = handler(self)
-        # Preserve revisions/receipt digests for pre-existing plans without traits.
+        # Preserve revisions/receipt digests for pre-existing plans without optional creation fields.
         if self.presentation is None:
             result.pop("presentation", None)
+        for key in ("assign_user_uids", "deadline_at"):
+            if getattr(self, key) is None:
+                result.pop(key, None)
         return result
 
 
@@ -159,14 +187,39 @@ class WorkPlanService:
         project = service.project.get_by_id_like(plan.project_uid)
         if not project:
             raise ValueError("Project is unavailable")
+        # Serialize plans and project changes without blocking child-row FK KEY SHARE checks.
+        # FOR UPDATE can deadlock with a native edit that already holds a card row.
         with DbSession.use(readonly=False) as db:
             if (
                 db.exec(
-                    select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                    select(Project.column("id"))
+                    .where(Project.column("id") == project.id)
+                    .with_for_update(key_share=True)
                 ).first()
                 is None
             ):
                 raise ValueError("Project is unavailable")
+        requested_users = sorted({uid for card in plan.new_cards for uid in (card.assign_user_uids or [])})
+        if requested_users:
+            try:
+                user_ids = [InfraHelper.convert_id(uid) for uid in requested_users]
+            except (ValueError, TypeError) as error:
+                raise ValueError("Select an active member of this project") from error
+            with DbSession.use(readonly=False) as db:
+                members = db.exec(
+                    SqlBuilder.select.tables(User, ProjectAssignedUser)
+                    .join(ProjectAssignedUser, User.column("id") == ProjectAssignedUser.column("user_id"))
+                    .where(ProjectAssignedUser.column("project_id") == project.id)
+                    .where(User.column("id").in_(user_ids))
+                    .order_by(User.column("id"))
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).all()
+            eligible = {
+                user.get_uid() for user, _ in members if user.deleted_at is None and user.activated_at is not None
+            }
+            if eligible != set(requested_users):
+                raise ValueError("Select an active member of this project")
         symbolic = {c.client_ref for c in plan.new_cards} | {c.client_ref for c in plan.cardify_checkitems}
         refs = {plan.anchor_card_uid} | {c.source_card_uid for c in plan.cardify_checkitems}
         refs |= {c.target_card_ref for c in plan.new_checklists if c.target_card_ref not in symbolic}
@@ -272,7 +325,12 @@ class WorkPlanService:
                 ).all()
             types = service.card_relationship.repo.card_relationship.get_global_relationship_types_map(type_uids)
         if plan.new_cards or plan.add_edges or plan.remove_relationship_uids:
-            service.card_relationship.preview_graph_patch(self.actor, *graph)
+            try:
+                service.card_relationship.preview_graph_patch(self.actor, *graph)
+            except ValueError as error:
+                raise WorkPlanRejected(
+                    "WORK_PLAN_INVALID", "Work plan relationships conflict with the current graph.", "read_and_review"
+                ) from error
         snapshot = {
             "relationship_types": [t.api_response() for _, t in sorted(types.items())],
             "cardification_items": cardification_items,
@@ -346,7 +404,9 @@ class WorkPlanService:
             if (
                 not project
                 or db.exec(
-                    select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                    select(Project.column("id"))
+                    .where(Project.column("id") == project.id)
+                    .with_for_update(key_share=True)
                 ).first()
                 is None
             ):
@@ -407,6 +467,20 @@ class WorkPlanService:
                                 SocketTopic.BoardCard, uid, CARD_PRESENTATION_KEY, value
                             )
                         )
+            for proposed in plan.new_cards:
+                card = mapped[proposed.client_ref]
+                if proposed.assign_user_uids is not None:
+                    users = service.card.update_assigned_users(self.actor, project, card, proposed.assign_user_uids)
+                    if users is None or {u.get_uid() for u in users} != set(proposed.assign_user_uids):
+                        raise ValueError("Card assignment persistence failed")
+                if proposed.deadline_at is not None:
+                    if not service.card.update(
+                        self.actor,
+                        project,
+                        card,
+                        {"deadline_at": SafeDateTime.fromisoformat(proposed.deadline_at).astimezone(timezone.utc)},
+                    ):
+                        raise ValueError("Card deadline persistence failed")
             for proposed in plan.new_checklists:
                 card = mapped[proposed.target_card_ref]
                 checklist = service.checklist.create(self.actor, project, card, proposed.title, dispatch_effects=False)
@@ -434,6 +508,13 @@ class WorkPlanService:
                         "checkitems": [i.api_response() for i in items],
                     }
                 )
+            if result["graph"] is not None:
+                for proposed, created in zip(plan.new_cards, result["graph"]["created_cards"], strict=True):
+                    if proposed.assign_user_uids is not None or proposed.deadline_at is not None:
+                        card = self._card(created["uid"], project)
+                        created.update(card.api_response())
+                        created["member_uids"] = service.card.get_api_assigned_user_list(card, only_uids=True)
+                        created["is_check_card"] = service.card.is_check_card(card)
             result["applied_revision"] = expected_revision
             result["all_succeeded"] = True
             result["replayed"] = False

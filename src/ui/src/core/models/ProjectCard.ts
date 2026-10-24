@@ -37,6 +37,7 @@ export interface Interface extends IBaseModel {
     deadline_at?: Date;
     archived_at?: Date;
     can_delete?: bool;
+    can_cross_board?: boolean;
     can_change_visibility?: bool;
     creator?: {
         uid: string;
@@ -45,13 +46,16 @@ export interface Interface extends IBaseModel {
         avatar: string | null;
         created_at: string;
     };
-    source_type?: "project_wiki" | (string & {});
+    source_type?: "project_wiki" | "project_card" | (string & {});
     source_uid?: string;
     linked_resource?: {
-        type: "project_wiki" | (string & {});
+        type: "project_wiki" | "project_card" | (string & {});
         uid: string;
         status: "available" | "forbidden" | "missing";
         title?: string;
+        project_uid?: string;
+        url?: string;
+        allowed_actions?: ("open_original" | "remove_mirror")[];
         preview?: string;
         content?: IEditorContent;
     };
@@ -60,6 +64,8 @@ export interface Interface extends IBaseModel {
     last_change_target_uid?: string;
     last_change_at?: Date | null;
     has_unread_change?: bool;
+    unread_change_count?: number | null;
+    unread_change_count_status?: "exact" | "unknown_history" | "manual_unread" | "not_applicable";
 }
 
 export interface IWorkState {
@@ -187,7 +193,7 @@ class ProjectCard extends BaseModel<IStore> {
         super(model);
 
         const cardSocketHandlers =
-            this.source_type === "project_wiki"
+            this.source_type === "project_wiki" || this.source_type === "project_card"
                 ? [useCardColumnChangedHandlers, useCardDeletedHandlers]
                 : [
                       useCardDetailsChangedHandlers,
@@ -215,7 +221,7 @@ class ProjectCard extends BaseModel<IStore> {
             card: this,
         });
 
-        if (this.source_type !== "project_wiki") {
+        if (this.source_type !== "project_wiki" && this.source_type !== "project_card") {
             this.subscribeSocketEvents([useMetadataUpdatedHandlers, useMetadataDeletedHandlers], {
                 type: "card",
                 uid: this.uid,
@@ -224,7 +230,7 @@ class ProjectCard extends BaseModel<IStore> {
     }
 
     public static convertModel(model: IStore): IStore {
-        if (model.source_type === "project_wiki") {
+        if (model.source_type === "project_wiki" || model.source_type === "project_card") {
             model.title = model.linked_resource?.status === "available" ? (model.linked_resource.title ?? "") : "";
         }
         if (Utils.Type.isString(model.deadline_at)) {
@@ -263,6 +269,13 @@ class ProjectCard extends BaseModel<IStore> {
 
     public get creator() {
         return this.getValue("creator");
+    }
+
+    public get can_cross_board() {
+        return this.getValue("can_cross_board");
+    }
+    public set can_cross_board(value) {
+        this.update({ can_cross_board: value });
     }
 
     public get source_type() {
@@ -323,12 +336,27 @@ class ProjectCard extends BaseModel<IStore> {
         this.update({ has_unread_change: value });
     }
 
+    public get unread_change_count(): number | null {
+        return this.getValue("unread_change_count") ?? null;
+    }
+
+    public get unread_change_count_status(): Interface["unread_change_count_status"] {
+        return this.getValue("unread_change_count_status");
+    }
+
     public get last_change_target_type(): string | undefined {
         return this.getValue("last_change_target_type");
     }
 
     public get last_change_seq(): number | undefined {
         return this.getValue("last_change_seq");
+    }
+
+    public get last_change_at(): Date | undefined {
+        const value = this.getValue("last_change_at");
+        if (!value) return undefined;
+        const date = new Date(value);
+        return Number.isFinite(date.getTime()) ? date : undefined;
     }
 
     public get last_change_target_uid(): string | undefined {

@@ -28,7 +28,8 @@ class Auth:
             statement = statement.where(*where)
         statement = statement.limit(1)
 
-        with DbSession.use(readonly=True) as db:
+        # Authentication must observe revocation on the primary, not replica lag.
+        with DbSession.use(readonly=False) as db:
             return db.exec(statement).first()
 
     @overload
@@ -84,34 +85,19 @@ class Auth:
     def get_user_by_id(user_id: int) -> User | InvalidTokenError | None:
         """Gets the user from the given ID.
 
-        If the user is cached, it will return the cached user.
-
-        Otherwise, it will get the user from the database.
+        Recheck current primary account state; cached profiles cannot authorize.
 
         :param user_id: The user ID to get the user from.
 
         :return User: The user if the user exists.
         :return None: If the user does not exist.
         """
-        cache_key = f"auth-user-{user_id}"
-        try:
-            cached_user = Cache.get(cache_key, User.model_validate)
-            if cached_user:
-                return cached_user
-        except Exception:
-            pass
-
         try:
             user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
-            if not user:
+            if not user or user.activated_at is None or user.deleted_at is not None:
                 return InvalidTokenError("Invalid token")
         except Exception:
             return None
-
-        try:
-            Cache.set(cache_key, user, 60 * 5)
-        except Exception:
-            pass
 
         return user
 
@@ -119,23 +105,13 @@ class Auth:
     def get_bot_by_api_token(api_token: str) -> Bot | None:
         """Gets the bot from the given API token.
 
-        If the bot is cached, it will return the cached bot.
-
-        Otherwise, it will get the bot from the database.
+        Recheck current primary bot state; cached profiles cannot authorize.
 
         :param api_token: The API token to get the bot from.
 
         :return Bot: The bot if the bot exists.
         :return None: If the bot does not exist.
         """
-        cache_key = f"auth-bot-{api_token}"
-        try:
-            cached_bot = Cache.get(cache_key, Bot.model_validate)
-            if cached_bot:
-                return cached_bot
-        except Exception:
-            pass
-
         try:
             bot = Auth.__get_model_by_columns(Bot, Bot.column("app_api_token") == api_token)
             if not bot:
@@ -143,16 +119,11 @@ class Auth:
         except Exception:
             return None
 
-        try:
-            Cache.set(cache_key, bot, 60 * 5)
-        except Exception:
-            pass
-
         return bot
 
     @staticmethod
     def reset_user(user: User) -> None:
-        """Resets the user cache.
+        """Invalidates the legacy user authentication cache.
 
         :param user: The user to reset.
         """
@@ -161,8 +132,6 @@ class Auth:
 
         cache_key = f"auth-user-{user.id}"
         Cache.delete(cache_key)
-
-        Cache.set(cache_key, user, 60 * 5)
 
     @staticmethod
     def validate(queries_headers: dict[Any, Any] | Headers) -> User | Literal[401, 422]:
@@ -215,8 +184,11 @@ class Auth:
             return status.HTTP_401_UNAUTHORIZED
 
     @staticmethod
-    def validate_bot(headers: Headers) -> Bot | Literal[401]:
-        ips = AuthSecurity.get_all_client_ips(headers)
+    def validate_bot(headers: Headers, client_ip: str | None = None) -> Bot | Literal[401]:
+        """client_ip must be resolved via AuthSecurity.resolve_client_ip (peer +
+        trusted proxies). None means it could not be established: IP-restricted
+        keys fail closed."""
+        ips = [client_ip] if client_ip else []
         api_token = headers.get(AuthSecurity.API_TOKEN_HEADER, headers.get(AuthSecurity.API_TOKEN_HEADER.lower(), None))
         if not api_token:
             return status.HTTP_401_UNAUTHORIZED
@@ -248,8 +220,8 @@ class Auth:
             return status.HTTP_401_UNAUTHORIZED
 
         try:
-            user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
-            if not user:
+            user = Auth.get_user_by_id(user_id)
+            if not isinstance(user, User):
                 return status.HTTP_401_UNAUTHORIZED
         except Exception:
             return status.HTTP_401_UNAUTHORIZED
@@ -257,8 +229,11 @@ class Auth:
         return user
 
     @staticmethod
-    def validate_user_by_api_key(headers: Headers) -> tuple[User, ApiKeySetting] | Literal[401]:
-        ips = AuthSecurity.get_all_client_ips(headers)
+    def validate_user_by_api_key(
+        headers: Headers, client_ip: str | None = None
+    ) -> tuple[User, ApiKeySetting] | Literal[401, 403]:
+        """See validate_bot for the client_ip contract (fail-closed on None)."""
+        ips = [client_ip] if client_ip else []
         key_material = headers.get(AuthSecurity.API_KEY_HEADER, headers.get(AuthSecurity.API_KEY_HEADER.lower(), None))
         if not key_material:
             return status.HTTP_401_UNAUTHORIZED
@@ -270,7 +245,7 @@ class Auth:
         key_reference, separator, actual_key = key_material[3:].partition(".")
 
         try:
-            with DbSession.use(readonly=True) as db:
+            with DbSession.use(readonly=False) as db:
                 if separator:
                     key_id = SnowflakeID.from_short_code(key_reference)
                     result = db.exec(
@@ -305,14 +280,12 @@ class Auth:
         except Exception:
             return status.HTTP_401_UNAUTHORIZED
 
-        # Check IP whitelist
-        if Env.ENVIRONMENT != "development" and not has_allowed_ips(api_key_setting.ip_whitelist, ips):
-            return status.HTTP_401_UNAUTHORIZED
-
-        # Get user
+        # Verify the current account before reporting an IP authorization denial.
         result = Auth.get_user_by_id(api_key_setting.user_id)
         if not result or isinstance(result, InvalidTokenError):
             return status.HTTP_401_UNAUTHORIZED
+        if Env.ENVIRONMENT != "development" and not has_allowed_ips(api_key_setting.ip_whitelist, ips):
+            return status.HTTP_403_FORBIDDEN
         return result, api_key_setting
 
     @staticmethod

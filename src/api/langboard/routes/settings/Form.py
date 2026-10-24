@@ -9,7 +9,7 @@ from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.tasks.webhooks.utils import validate_webhook_events, validate_webhook_url
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ..FormValidation import validate_email_address
 
 
@@ -372,7 +372,16 @@ class SaveWorkflowStageForm(BaseFormModel):
     counts_as_completed: bool = False
     active_queue_policy: str = Field(default="conditional", pattern=r"^(include|exclude|conditional)$")
     overdue_policy: str = Field(default="normal", pattern=r"^(normal|suppress)$")
-    entry_effects: list[str] = Field(default_factory=list, max_length=2)
+    model_config = ConfigDict(extra="forbid")
+    confirm_descendant_move: bool = False
+    rules: list[dict[str, Any]] = Field(max_length=1000)
+
+    @field_validator("rules")
+    @classmethod
+    def validate_rules(cls, value):
+        from langboard_shared.domain.services.factory.WorkflowRuleService import validate_rules
+        return validate_rules(value)
+
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 

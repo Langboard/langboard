@@ -117,6 +117,7 @@ test("shared views retain topics, burst refresh, reconnect and last release", as
     const acknowledgements: (() => void)[] = [];
     let open = () => {};
     const client = {
+        getQueryCache: () => ({ subscribe: () => () => {} }),
         refetchQueries: async () => {},
         invalidateQueries: async () => {
             order.push("read");
@@ -179,6 +180,7 @@ test("late acknowledgement cannot refresh released or replacement owners", async
     let reconnect = () => {};
     let reads = 0;
     const client = {
+        getQueryCache: () => ({ subscribe: () => () => {} }),
         refetchQueries: async () => {},
         invalidateQueries: async () => {
             reads++;
@@ -210,4 +212,106 @@ test("late acknowledgement cannot refresh released or replacement owners", async
     await Promise.resolve();
     assert.equal(reads, 1);
     replacement();
+});
+
+test("two dashboard consumers share one board-read fence and follow-up snapshot", async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const key = ["get-dashboard-projects", "actor-a"];
+    const requests: { signal: AbortSignal; resolve: (value: number) => void }[] = [];
+    const observer = new QueryObserver(client, {
+        queryKey: key,
+        queryFn: ({ signal }) => new Promise<number>((resolve) => requests.push({ signal, resolve })),
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    const socket = { subscribe: () => {}, unsubscribe: () => {}, listen: () => () => {}, listenOpen: () => () => {} };
+    const first = acquireProjectWorkload(client, ["a"], socket);
+    const second = acquireProjectWorkload(client, ["a"], socket);
+    client.setQueryData(["get-cards-a", { project_uid: "a" }, "actor-a", 1], { isUpdated: true });
+    await settle();
+    assert.equal(requests[0].signal.aborted, true, "old snapshot fenced before it can hydrate models");
+    context.mock.timers.tick(250);
+    await settle();
+    assert.equal(requests.length, 2, "two mounted views issue exactly one post-board refresh");
+    requests[0].resolve(99);
+    requests[1].resolve(0);
+    await settle();
+    assert.equal(client.getQueryData(key), 0);
+    first();
+    second();
+    client.setQueryData(["get-cards-a", { project_uid: "a" }, "actor-a", 1], { isUpdated: true });
+    await settle();
+    context.mock.timers.tick(500);
+    await settle();
+    assert.equal(requests.length, 2, "final release removes the board snapshot listener");
+    unsubscribe();
+    client.clear();
+});
+
+test("initial empty consumers recover a fenced dashboard until the final owner releases", async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const key = ["get-dashboard-projects", "actor-a"];
+    const requests: { signal: AbortSignal; resolve: (value: number) => void }[] = [];
+    const hydrated: number[] = [];
+    const observer = new QueryObserver(client, {
+        queryKey: key,
+        queryFn: async ({ signal }) => {
+            const value = await new Promise<number>((resolve) => requests.push({ signal, resolve }));
+            signal.throwIfAborted();
+            hydrated.push(value);
+            return value;
+        },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    let openReleases = 0;
+    const socket = {
+        subscribe: () => assert.fail("empty consumers must not subscribe to project topics"),
+        unsubscribe: () => assert.fail("empty consumers have no project topics to release"),
+        listen: () => {
+            assert.fail("empty consumers have no project listeners");
+            return () => {};
+        },
+        listenOpen: () => () => {
+            openReleases++;
+        },
+    };
+    const first = acquireProjectWorkload(client, [], socket);
+    const second = acquireProjectWorkload(client, [], socket);
+    context.after(() => {
+        first();
+        second();
+        unsubscribe();
+        client.clear();
+    });
+    client.setQueryData(["get-cards-a", { project_uid: "a" }, "actor-b", 1], {});
+    await settle();
+    assert.equal(requests[0].signal.aborted, false, "another actor's board must not fence this query");
+    client.setQueryData(["get-cards-a", { project_uid: "a" }, "actor-a", 1], {});
+    await settle();
+    assert.equal(requests[0].signal.aborted, true);
+    assert.equal(observer.getCurrentResult().fetchStatus, "idle");
+    first();
+    assert.equal(openReleases, 0, "one empty consumer must retain the shared lease");
+    context.mock.timers.tick(250);
+    await settle();
+    assert.equal(requests.length, 2, "a remaining empty consumer restarts the initial dashboard read");
+    requests[0].resolve(99);
+    requests[1].resolve(1);
+    await settle();
+    assert.deepEqual(hydrated, [1], "the obsolete pre-board snapshot cannot hydrate models");
+    assert.equal(observer.getCurrentResult().status, "success");
+    assert.equal(client.getQueryData(key), 1);
+    client.setQueryData(["get-cards-a", { project_uid: "a" }, "actor-a", 2], {});
+    await settle();
+    second();
+    assert.equal(openReleases, 1, "the final empty consumer releases the shared listener");
+    context.mock.timers.tick(500);
+    await settle();
+    assert.equal(requests.length, 2, "final release cancels a queued refresh");
+    client.setQueryData(["get-cards-a", { project_uid: "a" }, "actor-a", 3], {});
+    await settle();
+    context.mock.timers.tick(500);
+    await settle();
+    assert.equal(requests.length, 2, "final release removes the board snapshot fence");
 });

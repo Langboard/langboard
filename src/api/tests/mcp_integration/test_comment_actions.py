@@ -96,3 +96,31 @@ async def test_comment_facade_dispatches_authorized_command(monkeypatch, change,
 def test_invalid_comment_actions_never_dispatch(change):
     with pytest.raises(ValidationError):
         TypeAdapter(CommentChange).validate_python(change)
+
+
+@pytest.mark.parametrize("action", ["add", "edit"])
+def test_anchor_and_request_uuid_are_add_only(action):
+    anchor = dict(
+        type="ImageRegionSelector",
+        version=1,
+        shape="point",
+        image_width=100,
+        image_height=100,
+        x=10,
+        y=20,
+        width=0,
+        height=0,
+        source=dict(type="card_attachment", attachment_uid="image", revision="a" * 64),
+    )
+    data = dict(action=action, content="Review", anchor=anchor, request_uid="12345678-1234-5678-1234-567812345678")
+    if action == "edit":
+        data["comment_uid"] = "comment"
+        with pytest.raises(ValidationError):
+            TypeAdapter(CommentChange).validate_python(data)
+    else:
+        model = TypeAdapter(CommentChange).validate_python(data, strict=True)
+        assert model.anchor.model_dump() == anchor
+        assert str(model.request_uid) == data["request_uid"]
+        for invalid in (None, "invalid", 1):
+            with pytest.raises(ValidationError):
+                TypeAdapter(CommentChange).validate_python({**data, "request_uid": invalid}, strict=True)

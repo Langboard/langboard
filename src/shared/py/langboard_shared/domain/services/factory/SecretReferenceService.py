@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 from pydantic import SecretStr
+from sqlalchemy import text
 from ....core.db import DbSession, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.security import KeyVault
 from ....core.security.CollaborationChannel import CollaborationChannel
@@ -209,6 +211,87 @@ class SecretReferenceService(BaseDomainService):
             if locator is not None:
                 KeyVault.delete_key(locator)
             raise
+
+    def convert_wiki_selection(
+        self,
+        actor: User,
+        project_uid: str,
+        wiki_uid: str,
+        expected_revision: str,
+        name: str,
+        selection,
+        *,
+        collaboration_check=None,
+    ) -> dict:
+        """One owned DB unit, with compensating Vault cleanup on any failed write."""
+        from .ProjectWikiService import WikiSecretSelectionError
+
+        if DbSession.has_active_transaction():
+            raise RuntimeError("Credential storage must own its transaction")
+        try:
+            name = validate_secret_name(name)
+        except ValueError:
+            raise WikiSecretSelectionError("invalid_name") from None
+        locator = None
+        provider = KeyVault.provider
+        wiki_service = self._get_service(ProjectWikiService)
+        try:
+            with DbSession.atomic(sensitive=True) as db:
+                # Reserve SQLite's writer before reading authority or owner state.
+                # Final native admission takes the same reservation before its read.
+                if DbEngine.get_main_engine().dialect.name == "sqlite":
+                    db.exec(text("BEGIN IMMEDIATE"))
+                try:
+                    current, project, wiki, start, end = wiki_service.prepare_secret_selection(
+                        db, actor, project_uid, wiki_uid, expected_revision, selection
+                    )
+                    if not self._authorize(current, "project", project.id):
+                        raise WikiSecretSelectionError("unavailable")
+                    if collaboration_check is None:
+                        raise WikiSecretSelectionError("collaboration_unavailable")
+                    collaboration_check(wiki.editor_generation)
+                    before = wiki.content.content
+                    reference = SecretReference(
+                        scope="project",
+                        scope_id=project.id,
+                        name=name,
+                        creator_id=current.id,
+                        provider=provider.name(),
+                        locator="",
+                    )
+                    try:
+                        locator = provider.store_secret(uuid4().hex, before[start:end])
+                    except Exception:
+                        # A failed response does not prove that remote storage did not write.
+                        raise WikiSecretSelectionError("storage_outcome_unknown") from None
+                    reference.locator = locator
+                    db.insert(reference)
+                    self._audit(db, current, reference, "created", SecretAuditSource("wiki", wiki.get_uid()))
+                    metadata = reference.metadata()
+                    after = before[:start] + "[••••](" + metadata["uri"] + ")" + before[end:]
+                    wiki_service.persist_secret_selection(db, current, project, wiki, before, after, before[start:end])
+                    result = {
+                        "wiki_uid": wiki.get_uid(),
+                        "editor_generation": wiki.editor_generation,
+                        "revision": hashlib.sha256(after.encode()).hexdigest(),
+                        "reference": metadata,
+                    }
+                except WikiSecretSelectionError:
+                    raise
+                except Exception:
+                    # DbSession logs exceptions. Suppress all original provider/SQL
+                    # messages before crossing that boundary, including SQL parameters.
+                    raise WikiSecretSelectionError("conversion_failed") from None
+            return result
+        except Exception as error:
+            if locator is not None:
+                try:
+                    provider.delete_key(locator)
+                except Exception:
+                    raise WikiSecretSelectionError("cleanup_required") from None
+            if isinstance(error, WikiSecretSelectionError):
+                raise
+            raise WikiSecretSelectionError("conversion_failed") from None
 
     def copy(self, actor: User, uri: str, name: str, expected_revision: int) -> dict:
         """Explicit native copy within the current scope; material never leaves the vault boundary."""

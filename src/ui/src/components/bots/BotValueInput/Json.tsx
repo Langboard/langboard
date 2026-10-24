@@ -49,10 +49,8 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
             setCurrentObject(newObject);
             setCurrentJSON(JSON.stringify(newObject, undefined, "    "));
             setError("");
-        } catch (e) {
-            if (e instanceof Error) {
-                setError(e.message);
-            }
+        } catch {
+            setError(t("metadata.errors.Invalid JSON format."));
             return;
         }
 

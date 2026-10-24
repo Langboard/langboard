@@ -21,6 +21,48 @@ def required(name, pattern):
     return value
 
 
+def current_pull_request(opener, repository, source_ref, revision):
+    """Resolve one current same-repository PR; broker retains base/approval authority."""
+    if not re.fullmatch(r"refs/heads/review/canary-[A-Za-z0-9._/-]+", source_ref) or ".." in source_ref:
+        raise SystemExit("Invalid automatic validation ref")
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        raise SystemExit("GitHub pull request credential unavailable")
+    branch = source_ref.removeprefix("refs/heads/")
+    query = urllib.parse.urlencode({"state": "open", "head": repository.split("/")[0] + ":" + branch, "per_page": 100})
+    request = urllib.request.Request(
+        "https://api.github.com/repos/" + repository + "/pulls?" + query,
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Langboard-NativeBuild/1.0",
+        },
+    )
+    try:
+        with opener.open(request, timeout=30) as response:
+            raw = response.read(1048577)
+            if len(raw) > 1048576 or response.headers.get("Link"):
+                raise ValueError("Incomplete pull request response")
+            pulls = json.loads(raw)
+        if not isinstance(pulls, list) or len(pulls) != 1:
+            raise ValueError("Expected one open pull request")
+        pull = pulls[0]
+        if (
+            pull["state"] != "open"
+            or type(pull["number"]) is not int
+            or pull["number"] <= 0
+            or pull["head"]["repo"]["full_name"] != repository
+            or pull["base"]["repo"]["full_name"] != repository
+            or pull["head"]["ref"] != branch
+            or pull["head"]["sha"] != revision
+        ):
+            raise ValueError("Pull request authority mismatch")
+        return pull["number"]
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        raise SystemExit("Current unique same-repository pull request unavailable; no build requested") from None
+
+
 def run(read=False, product=False):
     label = "Product" if product else "Validation"
     base = required("IMAGE_BUILD_BROKER_URL", r"https://[^\s]+")
@@ -37,6 +79,7 @@ def run(read=False, product=False):
         "profile": required("IMAGE_BUILD_PROFILE", r"[a-z0-9][a-z0-9-]{0,47}"),
         "requestId": request_id,
     }
+    opener = urllib.request.build_opener(NoRedirect())
     if product:
         payload.update(
             schemaVersion=2,
@@ -48,7 +91,11 @@ def run(read=False, product=False):
     else:
         payload.update(
             sourceRef=required("SOURCE_REF", r"refs/heads/review/[^\s]+"),
-            sourcePr=int(required("SOURCE_PR", r"[1-9][0-9]*")),
+        )
+        payload["sourcePr"] = (
+            current_pull_request(opener, payload["sourceRepository"], payload["sourceRef"], payload["sourceCommit"])
+            if os.environ.get("SOURCE_EVENT") == "push"
+            else int(required("SOURCE_PR", r"[1-9][0-9]*"))
         )
     oidc_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
     oidc_endpoint = urllib.parse.urlsplit(oidc_url)
@@ -63,7 +110,6 @@ def run(read=False, product=False):
     token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
     if not token:
         raise SystemExit("Actions identity credential unavailable")
-    opener = urllib.request.build_opener(NoRedirect())
     query = urllib.parse.parse_qsl(oidc_endpoint.query, keep_blank_values=True)
     query = [(key, value) for key, value in query if key != "audience"]
     query.append(("audience", audience))

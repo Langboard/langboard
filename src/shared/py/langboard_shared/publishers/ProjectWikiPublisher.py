@@ -39,7 +39,10 @@ class ProjectWikiPublisher(BaseSocketPublisher):
 
         model = {
             "wiki": {
-                **wiki.api_response(),
+                # A publicity request may hold a snapshot from before secret conversion.
+                # Preserve the legacy wiki envelope, but never transport editor state.
+                "uid": wiki.get_uid(),
+                "is_public": wiki.is_public,
                 "assigned_members": [assigned_user.api_response() for assigned_user in assigned_users],
             },
         }

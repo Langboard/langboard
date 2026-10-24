@@ -16,6 +16,8 @@ def dependency_db(monkeypatch):
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     with engine.begin() as db:
         for sql in (
+            "CREATE TABLE project(id integer PRIMARY KEY, deleted_at text)",
+            "INSERT INTO project VALUES(1,NULL)",
             "CREATE TABLE card(id integer PRIMARY KEY, project_id integer, project_column_id integer, deleted_at text, archived_at text, source_type text, title text, visibility text, owner_user_id integer)",
             "CREATE TABLE project_column(id integer PRIMARY KEY, project_id integer, deleted_at text, is_archive boolean, workflow_stage text)",
             "CREATE TABLE workflow_stage_definition(key text PRIMARY KEY, counts_as_completed boolean)",

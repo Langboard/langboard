@@ -12,6 +12,8 @@ export enum EInternalBotType {
     DocumentVision = "document_vision",
     DocumentEmbedding = "document_embedding",
     ImageGeneration = "image_generation",
+    AvatarSummary = "avatar_summary",
+    CommentCompaction = "comment_compaction",
 }
 
 export const isExecutableInternalBotType = (type: EInternalBotType) =>

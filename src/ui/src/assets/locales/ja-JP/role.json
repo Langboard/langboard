@@ -7,6 +7,7 @@
     "card_delete": "カード削除"
   },
   "setting": {
+    "group_read": "閲覧",
     "user_read": "閲覧",
     "user_create": "作成",
     "user_update": "更新",
@@ -38,6 +39,7 @@
     "ollama_read": "閲覧"
   },
   "setting_categories": {
+    "group": "グループ",
     "user": "ユーザー管理",
     "bot": "ボット管理",
     "internal_bot": "内部ボット管理",

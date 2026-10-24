@@ -219,6 +219,7 @@ def update_resources(
                     resource_type="repository",
                     external_resource_id=str(uid),
                     resource_path=path,
+                    is_selected=True,
                     access_state="granted",
                     health="unknown",
                 )

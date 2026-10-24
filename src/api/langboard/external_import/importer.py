@@ -7,6 +7,7 @@ from itertools import batched, groupby
 from json import dumps
 from pathlib import Path
 from typing import Any, Callable, TypeVar
+from uuid import uuid4
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.storage import FileModel, Storage, StorageName
@@ -186,20 +187,10 @@ class ExternalWorkImporter:
         files: dict[str, Path],
     ) -> FileModel:
         extension = Path(record.original_filename).suffix.lower()[:32]
-        object_key = (
-            sha256(
-                "\0".join(
-                    (
-                        bundle.source.namespace,
-                        bundle.source.container_id,
-                        project_uid,
-                        record.source_id,
-                        record.sha256,
-                    )
-                ).encode()
-            ).hexdigest()
-            + extension
-        )
+        # A compensated staging attempt keeps a tombstone. Give each attempt
+        # independent logical ownership; stable native lineage still controls
+        # committed replay, while the storage facade reuses immutable bytes.
+        object_key = "ref_" + uuid4().hex + extension
         with files[record.source_id].open("rb") as stream:
             file_model = Storage.upload_named(
                 stream,

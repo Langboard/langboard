@@ -17,6 +17,7 @@ export default function WorkbenchRouteLayout() {
             <DashboardStyledLayoutFrame
                 {...props}
                 workbench
+                workbenchStatus={pending ? undefined : props?.workbenchStatus}
                 inert={pending || props?.inert}
                 aria-busy={pending || props?.["aria-busy"]}
                 workbenchContext={configuration?.hasContext ? <div ref={setSidebarSlot} className="size-full" /> : undefined}

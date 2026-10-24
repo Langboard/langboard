@@ -2,14 +2,13 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
-from ....ai.BotDefaultTrigger import BotDefaultTrigger
-from ....domain.models.bases.BotTriggerCondition import BotTriggerCondition
+from ....domain.constants.DomainEventType import DomainEventType
 from .ExecutionEventModel import WORK_EXECUTION_EVENTS
 
 
 WORK_EVENT_NAME = "work_event"
 WEBHOOK_EVENT_NAMES = frozenset(
-    [*(trigger.value for trigger in (*BotTriggerCondition, *BotDefaultTrigger)), WORK_EVENT_NAME, *WORK_EXECUTION_EVENTS]
+    [*(trigger.value for trigger in DomainEventType), WORK_EVENT_NAME, *WORK_EXECUTION_EVENTS]
 )
 
 

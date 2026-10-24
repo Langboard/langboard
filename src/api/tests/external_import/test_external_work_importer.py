@@ -87,7 +87,7 @@ def _database(monkeypatch: pytest.MonkeyPatch) -> tuple[sa.Engine, str, str]:
         )
 
     @contextmanager
-    def use_database(*, readonly: bool):
+    def use_database(*, readonly: bool, sensitive: bool = False):
         active = DbSession._atomic_session.get()
         if active is not None:
             yield active

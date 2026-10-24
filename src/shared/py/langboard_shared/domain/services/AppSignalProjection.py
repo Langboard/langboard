@@ -1,7 +1,7 @@
 """Occurrence-ordered provider evidence for explicit card scopes; never reviewer approval."""
 
 import re
-from sqlalchemy import Text, and_, cast, func, or_, select, tuple_
+from sqlalchemy import Text, and_, case, cast, func, or_, select, tuple_
 from ...core.db import DbSession, SqlBuilder
 from ...helpers import InfraHelper
 from ..models import (
@@ -116,6 +116,17 @@ def provider_resource_condition(manifests=None):
                   for capability in policy.required_capabilities),
             ))
     return or_(False, *predicates)
+
+
+def signal_time_basis_expression(manifests):
+    """Resolve approved per-event semantics for tied proof rows in SQL."""
+    entries = []
+    for provider, manifest in manifests.items():
+        policy = manifest.signal_policy
+        if policy is not None:
+            entries.extend((and_(AppSignal.provider == provider, AppSignal.event_type == event_type),
+                            policy.basis_for_event(event_type)) for event_type in policy.event_types)
+    return case(*entries, else_=None) if entries else cast(None, Text)
 
 
 def signal_resource_name(resource):
@@ -308,6 +319,7 @@ def card_signal_projections(cards):
             .group_by(CardAppSignalBinding.id)
             .subquery()
         )
+        time_basis = signal_time_basis_expression(manifests)
         summary = (
             select(
                 CardAppSignalBinding.id.label("binding_id"),
@@ -315,6 +327,8 @@ def card_signal_projections(cards):
                 func.max(AppSignal.outcome).label("max_outcome"),
                 func.max(AppSignal.id).label("signal_id"),
                 latest.c.occurred_at,
+                func.min(time_basis).label("min_basis"),
+                func.max(time_basis).label("max_basis"),
             )
             .join(AppResourceBinding, AppResourceBinding.id == CardAppSignalBinding.resource_id)
             .join(AppConnection, AppConnection.id == AppResourceBinding.connection_id)
@@ -330,6 +344,7 @@ def card_signal_projections(cards):
             select(
                 summary.c.binding_id, summary.c.min_outcome, summary.c.max_outcome,
                 summary.c.signal_id, summary.c.occurred_at, AppSignal.event_type,
+                summary.c.min_basis, summary.c.max_basis,
             ).join(AppSignal, AppSignal.id == summary.c.signal_id)
         ).all()
     by_binding = {row[0]: row for row in evidence}
@@ -349,11 +364,14 @@ def card_signal_projections(cards):
         if state != "stale" and proof:
             outcome = proof[1] if proof[1] == proof[2] else None
             state = "conflict" if outcome is None else outcome_states[provider].get(outcome, "unknown")
+        basis = policy.basis_for_event(proof[5] if proof else None)
+        if proof and proof[6] != proof[7]:
+            basis = None
         result.setdefault(binding.card_id, []).append(
             {
                 "binding_uid": binding.get_uid(),
                 "provider": provider,
-                "event_type": proof[5] if proof and proof[1] == proof[2] else None,
+                "event_type": proof[5] if proof and (proof[1] == proof[2] or policy.event_time_bases) else None,
                 "resource_type": resource.resource_type,
                 "resource_name": signal_resource_name(resource),
                 "resource_uid": InfraHelper.convert_uid(binding.resource_id),
@@ -365,8 +383,8 @@ def card_signal_projections(cards):
                 "outcome": outcome,
                 "signal_uid": InfraHelper.convert_uid(proof[3]) if proof else None,
                 "occurred_at": proof[4] if proof else None,
-                "time_basis": policy.time_basis,
-                "evidence_kind": policy.evidence_kind,
+                "time_basis": basis,
+                "evidence_kind": policy.kind_for_basis(basis),
             }
         )
     return result

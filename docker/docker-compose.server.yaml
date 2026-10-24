@@ -84,8 +84,6 @@ services:
       - ../scripts/run_internal_bot_run_recovery.sh:/app/scripts/run_internal_bot_run_recovery.sh:x
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      db-bouncer:
-        condition: service_healthy
       kafka0:
         condition: service_healthy
       kafka1:
@@ -102,10 +100,12 @@ services:
         - /app/.venv/bin/python
         - -c
         - import urllib.request; urllib.request.urlopen("http://${PROJECT_NAME}_api:5381/health", timeout=2)
-      interval: 5s
+      # Python startup/imports are repeated by every probe; keep fast startup only.
+      interval: 30s
       timeout: 5s
-      retries: 24
+      retries: 4
       start_period: 30s
+      start_interval: 5s
     networks:
       - net
     restart: always
@@ -201,8 +201,6 @@ services:
       - ../local:/app/local
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      db-bouncer:
-        condition: service_healthy
       kafka0:
         condition: service_healthy
       kafka1:
@@ -221,10 +219,12 @@ services:
         - /app/src/graph/.venv/bin/python
         - -c
         - import urllib.request; urllib.request.urlopen("http://${PROJECT_NAME}_graph:5020/health", timeout=2)
-      interval: 5s
+      # Python startup/imports are repeated by every probe; keep fast startup only.
+      interval: 30s
       timeout: 5s
-      retries: 24
+      retries: 4
       start_period: 30s
+      start_interval: 5s
     networks:
       - net
     restart: always

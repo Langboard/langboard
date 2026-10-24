@@ -120,6 +120,7 @@
   "Webhook name changed successfully.": "已更改Webhook的名称。",
   "Webhook URL changed successfully.": "已更改Webhook的URL。",
   "Webhook events changed successfully.": "已更改Webhook的事件。",
+  "Selected users deleted successfully.": "已删除所选用户。",
   "Selected webhooks deleted successfully.": "已删除所选 Webhook。",
   "Internal bot created successfully.": "已创建内部机器人。",
   "Internal bot copied successfully.": "已复制内部机器人。",

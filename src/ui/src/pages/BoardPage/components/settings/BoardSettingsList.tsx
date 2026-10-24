@@ -7,6 +7,7 @@ import { lazy, memo, Suspense, useMemo, useState } from "react";
 import Button from "@/components/base/Button";
 import { useTranslation } from "react-i18next";
 
+const BoardSettingsTeams = lazy(() => import("./BoardSettingsTeams"));
 const BoardSettingsApps = lazy(() => import("./BoardSettingsApps"));
 const BoardSettingsBasic = lazy(() => import("./BoardSettingsBasic"));
 const BoardSettingsDock = lazy(() => import("./BoardSettingsDock"));
@@ -25,6 +26,8 @@ export function SkeletonSettingsList() {
 const BoardSettingsList = memo(({ notifications }: { notifications?: React.ReactNode }) => {
     const [t] = useTranslation();
     const [section, setSection] = useState("board");
+    const [peopleTab, setPeopleTab] = useState("participants");
+    const [teamsVisited, setTeamsVisited] = useState(false);
     const [visited, setVisited] = useState(["board"]);
     const { project, currentUser } = useBoardSettings();
     const ownerUID = project.useField("owner_uid");
@@ -88,15 +91,44 @@ const BoardSettingsList = memo(({ notifications }: { notifications?: React.React
                 )}
                 {visited.includes("people") && (
                     <div hidden={section !== "people"} className="space-y-6">
-                        {notifications}
-                        {numMembers > 0 && (
-                            <BoardSettingsSection title="project.settings.Member roles">
-                                <BoardSettingsMemberRoleList key={project.uid} />
+                        <nav aria-label={t("board.teams.People")} className="flex flex-wrap gap-2">
+                            {["participants", "teams"].map((key) => (
+                                <Button
+                                    key={key}
+                                    size="sm"
+                                    aria-pressed={peopleTab === key}
+                                    variant={peopleTab === key ? "secondary" : "ghost"}
+                                    onClick={() => {
+                                        setPeopleTab(key);
+                                        if (key === "teams") setTeamsVisited(true);
+                                    }}
+                                >
+                                    {t(key === "teams" ? "board.teams.Teams" : "board.teams.Participants")}
+                                </Button>
+                            ))}
+                        </nav>
+                        <div hidden={peopleTab !== "participants"} className="space-y-6">
+                            {notifications}
+                            {numMembers > 0 && (
+                                <BoardSettingsSection title="project.settings.Member roles">
+                                    <BoardSettingsMemberRoleList key={project.uid} />
+                                </BoardSettingsSection>
+                            )}
+                            <BoardSettingsSection title="project.settings.Email notifications">
+                                <BoardSettingsEmailNotifications />
                             </BoardSettingsSection>
+                        </div>
+                        {teamsVisited && (
+                            <div hidden={peopleTab !== "teams"}>
+                                <BoardSettingsSection title="board.teams.Teams">
+                                    <BoardSettingsTeams
+                                        projectUID={project.uid}
+                                        accountUID={currentUser.uid}
+                                        active={section === "people" && peopleTab === "teams"}
+                                    />
+                                </BoardSettingsSection>
+                            </div>
                         )}
-                        <BoardSettingsSection title="project.settings.Email notifications">
-                            <BoardSettingsEmailNotifications />
-                        </BoardSettingsSection>
                     </div>
                 )}
                 {visited.includes("automation") && (

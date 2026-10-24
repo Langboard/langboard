@@ -15,6 +15,7 @@ from ....Env import Env
 from ....helpers import InfraHelper
 from ....publishers import MetadataPublisher
 from ....tasks.docling.DocumentKeywords import KEYWORD_LANGUAGES, normalize_keywords
+from ..CardChangeTransaction import dispatch_after_commit
 
 
 DOCLING_DOCUMENTS_METADATA_KEY = "__system.docling_documents"
@@ -53,6 +54,58 @@ class DoclingMetadataService(BaseDomainService):
             model_cls, foreign_key, foreign_ids, DOCLING_DOCUMENTS_METADATA_KEY
         )
         return {getattr(metadata, foreign_key): {metadata.key: metadata.value} for metadata in metadata_records}
+
+    @staticmethod
+    def current_embedding_config() -> dict | None:
+        """Read the current global binding once from primary, without provider calls."""
+        from ....domain.models import InternalBot
+        from ....domain.models.InternalBot import InternalBotType
+        from ....tasks.docling.DocumentEmbedding import snapshot_embedding_config
+
+        with DbSession.use(readonly=False) as db:
+            binding = db.exec(
+                SqlBuilder.select.table(InternalBot)
+                .where(
+                    InternalBot.bot_type == InternalBotType.DocumentEmbedding,
+                    InternalBot.is_default == True,  # noqa: E712
+                    InternalBot.deleted_at.is_(None),
+                )
+                .limit(1)
+                .execution_options(populate_existing=True)
+            ).first()
+            if binding is None:
+                return None
+            try:
+                return snapshot_embedding_config(binding.value, binding.get_uid())
+            except (ValueError, TypeError):
+                return None
+
+    @staticmethod
+    def project_api_documents(value: str, current: dict | None) -> str:
+        """Project safe freshness without mutating stored snapshots or vector pointers."""
+        from ....tasks.docling.DocumentEmbedding import embedding_generation_freshness
+
+        try:
+            documents = json.loads(value)
+        except (ValueError, TypeError):
+            return value
+        if not isinstance(documents, list):
+            return value
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            embedding = document.get("embedding")
+            if isinstance(embedding, dict):
+                # Only the completed generation's snapshot describes its vectors.
+                freshness = (
+                    embedding_generation_freshness(embedding, current) if embedding.get("status") == "indexed" else None
+                )
+                document["embedding"] = {key: embedding[key] for key in ("status", "error") if key in embedding}
+                if freshness is not None:
+                    document["embedding"]["freshness"] = freshness
+            document.pop("embedding_config", None)
+            document.pop("vision_config", None)
+        return json.dumps(documents, ensure_ascii=False, separators=(",", ":"))
 
     def detect_document_type(self, filename: str) -> str | None:
         return SUPPORTED_DOCLING_DOCUMENT_TYPES.get(Path(filename).suffix.lower())
@@ -98,6 +151,10 @@ class DoclingMetadataService(BaseDomainService):
                 "embedding_config": embedding_config,
             }
             document.pop("keyword_index_error", None)
+            document.pop("location_invalidated", None)
+            document.pop("location_reindex_pending", None)
+            document.pop("location_reindex_dispatched_at", None)
+            document.pop("location_conversion_pending", None)
             from ..KeywordSearchSettings import enabled as keyword_enabled
 
             if model_cls is CardMetadata and keyword_enabled("index"):
@@ -129,6 +186,8 @@ class DoclingMetadataService(BaseDomainService):
                 .with_for_update()
             )
             current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid) or {}
+            if current.get("location_invalidated"):
+                return False
             if generation is not None and current.get("generation") != generation:
                 return False
             if current.get("status") == DoclingIndexStatus.Indexed.value:
@@ -216,7 +275,10 @@ class DoclingMetadataService(BaseDomainService):
         content: dict[str, Any] | None = None,
         *,
         generation: str | None = None,
+        extraction_cache_token: str | None = None,
     ) -> bool:
+        if extraction_cache_token is not None and (model_cls is not CardMetadata or generation is None):
+            return False
         content = dict(content or {})
         structural = content.pop("docling_document", None)
         current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid) or {}
@@ -230,7 +292,18 @@ class DoclingMetadataService(BaseDomainService):
             "indexed_at": SafeDateTime.now().isoformat(),
             "content": content or {},
         }
+        if document.pop("location_conversion_pending", None) and not isinstance(document.get("embedding_config"), dict):
+            document.pop("location_reindex_pending", None)
+            document.pop("location_reindex_dispatched_at", None)
         with DbSession.atomic() as db:
+            if model_cls is CardMetadata:
+                project = db.exec(
+                    SqlBuilder.select.table(Project)
+                    .where(Project.id == foreign_model.project_id, Project.deleted_at.is_(None))
+                    .with_for_update()
+                ).first()
+                if project is None:
+                    return False
             db.exec(
                 SqlBuilder.select.table(type(foreign_model))
                 .where(type(foreign_model).column("id") == foreign_model.id)
@@ -240,7 +313,43 @@ class DoclingMetadataService(BaseDomainService):
             if generation is not None and (not latest or latest.get("generation") != generation):
                 return False
             if model_cls is CardMetadata:
+                card = db.exec(
+                    SqlBuilder.select.table(Card)
+                    .where(
+                        Card.id == foreign_model.id,
+                        Card.project_id == foreign_model.project_id,
+                        Card.deleted_at.is_(None),
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).first()
                 attachment_id = InfraHelper.convert_id(attachment_uid)
+                attachment = db.exec(
+                    SqlBuilder.select.table(CardAttachment)
+                    .where(
+                        CardAttachment.id == attachment_id,
+                        CardAttachment.card_id == foreign_model.id,
+                        CardAttachment.deleted_at.is_(None),
+                    )
+                    .with_for_update()
+                ).first()
+                if project is None or card is None or attachment is None:
+                    return False
+                if extraction_cache_token is not None:
+                    from ....tasks.docling.DocumentExtractionCache import activate_extraction_reference
+
+                    if (
+                        not latest
+                        or latest.get("location_invalidated")
+                        or not activate_extraction_reference(
+                            db,
+                            extraction_cache_token,
+                            source_type="card_attachment",
+                            source_uid=attachment.get_uid(),
+                            generation=latest.get("generation"),
+                        )
+                    ):
+                        return False
                 result = db.exec(
                     update(CardAttachment)
                     .where(CardAttachment.id == attachment_id)
@@ -454,9 +563,19 @@ class DoclingMetadataService(BaseDomainService):
             ):
                 return False
             updated = {**document, "embedding": embedding}
+            if embedding.get("status") == "indexed":
+                updated.pop("location_reindex_pending", None)
+                updated.pop("location_reindex_dispatched_at", None)
+                updated.pop("location_invalidated", None)
             if embedding_config is not None:
                 updated["embedding_config"] = embedding_config
             published = self.upsert_document(CardMetadata, card, updated, expected_generation=generation)
+            if published and embedding.get("status") == "indexed":
+                from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
+
+                activate_cache_references(
+                    db, ((embedding.get("pointer") or {}).get("storage") or {}).get("cache_use_token")
+                )
             previous = (document.get("embedding") or {}).get("pointer")
             if published and embedding.get("status") == "indexed" and previous != embedding.get("pointer"):
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
@@ -484,6 +603,11 @@ class DoclingMetadataService(BaseDomainService):
                     CardAttachment.id == InfraHelper.convert_id(attachment_uid),
                     CardAttachment.card_id == foreign_model.id,
                 )
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(*attachment_scope)).first()
+                if attachment is not None:
+                    from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+                    release_extraction_source(db, "card_attachment", attachment.get_uid())
                 db.exec(update(CardAttachment).where(*attachment_scope).values(document_text=""))
                 db.exec(
                     delete(CardDocumentArtifact).where(
@@ -498,6 +622,179 @@ class DoclingMetadataService(BaseDomainService):
 
                 record_cleanup(db, (removed.get("embedding") or {}).get("pointer"))
             return removed
+
+    def invalidate_card_location(self, project: Project, card: Card) -> None:
+        """Fence old-board work and invalidate its derived search locations.
+
+        Converted content and attachment provenance survive. Location invalidation
+        never schedules another conversion or model inference.
+        """
+        from ....domain.models.DocumentExtractionCache import DocumentExtractionCacheReference
+        from ....tasks.docling.DocumentKeywordTask import record_scope_removal
+
+        with DbSession.atomic() as db:
+            current_project = db.exec(
+                SqlBuilder.select.table(Project)
+                .where(Project.id == project.id, Project.deleted_at.is_(None))
+                .with_for_update()
+            ).first()
+            current = db.exec(
+                SqlBuilder.select.table(Card)
+                .where(Card.id == card.id, Card.project_id == project.id, Card.deleted_at.is_(None))
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            if current_project is None or current is None:
+                raise ValueError("Card source location changed")
+            record_scope_removal(db, project, current)
+            documents = self.load_documents(CardMetadata, current)
+            for document in documents:
+                previous_generation = document.get("generation")
+                document["generation"] = uuid4().hex
+                if document.get("status") == DoclingIndexStatus.Indexed.value and previous_generation is not None:
+                    # A location fence preserves the exact published conversion lineage.
+                    db.exec(update(DocumentExtractionCacheReference).where(
+                        DocumentExtractionCacheReference.source_type == "card_attachment",
+                        DocumentExtractionCacheReference.source_uid == document["attachment_uid"],
+                        DocumentExtractionCacheReference.generation == previous_generation,
+                        DocumentExtractionCacheReference.expires_at.is_(None),
+                    ).values(generation=document["generation"]))
+                # Retain indexed text for native search; pending work is explicitly
+                # invalidated, preventing legacy no-generation tasks from restarting it.
+                if document.get("status") in {
+                    DoclingIndexStatus.Pending.value,
+                    DoclingIndexStatus.Processing.value,
+                } and isinstance(document.get("vision_config"), dict):
+                    document["status"] = DoclingIndexStatus.Pending.value
+                    document["location_conversion_pending"] = True
+                    document["location_reindex_pending"] = True
+                    document.pop("started_at", None)
+                elif document.get("status") != DoclingIndexStatus.Indexed.value:
+                    document["status"] = DoclingIndexStatus.Disabled.value
+                document["location_invalidated"] = True
+                old = document.get("embedding") or {}
+                # Keep the old pointer and its active cache reference until a
+                # replacement publishes. Readers reject its old board/generation.
+                document["embedding"] = {**old, "status": "pending", "reason": "card_moved"}
+                document.pop("keyword_index_job_uid", None)
+                document.pop("keyword_index_error", None)
+            self.save_documents(CardMetadata, current, documents)
+
+    def relocate_card_documents(self, card: Card) -> None:
+        """Reuse existing transcription and cached vectors at the committed location."""
+        from types import SimpleNamespace
+        from ....tasks.docling.DoclingMetadataTask import _queue_embedding
+        from ....tasks.docling.DocumentKeywordTask import activate_index, prepare_index
+        from ..KeywordSearchSettings import enabled as keyword_enabled
+        from .SecretReferenceService import SecretReferenceUnavailable
+
+        with DbSession.atomic() as db:
+            documents = self.load_documents(CardMetadata, card)
+            for document in documents:
+                conversion = document.get("location_conversion_pending")
+                if not conversion and document.get("status") != DoclingIndexStatus.Indexed.value:
+                    continue
+                attachment_uid, generation = document["attachment_uid"], document["generation"]
+                if keyword_enabled("index"):
+                    try:
+                        job_uid = prepare_index(db, card, attachment_uid, generation)
+                        document["keyword_index_job_uid"] = job_uid
+                        if not conversion:
+                            activate_index(db, card, attachment_uid, generation, job_uid)
+                    except (ValueError, SecretReferenceUnavailable):
+                        document["keyword_index_error"] = "keyword_connection_unavailable"
+                if conversion:
+                    document.pop("location_invalidated", None)
+                    db.after_commit(lambda entry=dict(document): self._queue_card_location_conversion(entry))
+                elif isinstance(document.get("embedding_config"), dict):
+                    document["location_reindex_pending"] = True
+                    db.after_commit(
+                        lambda uid=attachment_uid, version=generation: _queue_embedding(
+                            SimpleNamespace(docling_metadata=self), card, uid, version
+                        )
+                    )
+            self.save_documents(CardMetadata, card, documents)
+
+    @staticmethod
+    def _queue_card_location_conversion(document):
+        """Deliver the existing explicit conversion request at its current generation."""
+        from ....core.broker import Broker
+        from ....core.broker.TaskParameters import TaskParameters
+        from .CardAttachmentService import DOCLING_INDEX_CARD_ATTACHMENT_TASK
+
+        args, kwargs = TaskParameters(
+            json.dumps({"attachment_uid": document["attachment_uid"], "generation": document["generation"]})
+        ).pack()
+        Broker.celery.send_task(DOCLING_INDEX_CARD_ATTACHMENT_TASK, args=args, kwargs=kwargs)
+
+    def recover_card_location_embeddings(self, *, limit: int = 100) -> int:
+        """Recover only requested location publications, bounded by both rows and jobs."""
+        from types import SimpleNamespace
+        from ....tasks.docling.DoclingMetadataTask import _queue_embedding
+
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Location recovery limit must be between 1 and 100")
+        dispatched = 0
+        with DbSession.atomic() as db:
+            rows = db.exec(
+                SqlBuilder.select.tables(CardMetadata, Card)
+                .join(Card, Card.id == CardMetadata.card_id)
+                .join(Project, Project.id == Card.project_id)
+                .where(
+                    CardMetadata.key == DOCLING_DOCUMENTS_METADATA_KEY,
+                    CardMetadata.value.contains('"location_reindex_pending":true'),
+                    Card.deleted_at.is_(None),
+                    Project.deleted_at.is_(None),
+                )
+                .order_by(CardMetadata.updated_at, CardMetadata.id)
+                .limit(limit)
+                .execution_options(populate_existing=True)
+            ).all()
+            for metadata, card in rows:
+                documents = self.parse_documents({DOCLING_DOCUMENTS_METADATA_KEY: metadata.value})
+                for document in sorted(documents, key=lambda entry: entry.get("location_reindex_dispatched_at", "")):
+                    conversion = (
+                        document.get("location_conversion_pending")
+                        and isinstance(document.get("vision_config"), dict)
+                        and document.get("status") in {"pending", "processing", "failed"}
+                    )
+                    embedding = document.get("status") == "indexed" and isinstance(
+                        document.get("embedding_config"), dict
+                    )
+                    if (
+                        not document.get("location_reindex_pending")
+                        or not (conversion or embedding)
+                        or not isinstance(document.get("generation"), str)
+                    ):
+                        continue
+                    attachment_uid, generation = document.get("attachment_uid"), document["generation"]
+                    if not isinstance(attachment_uid, str):
+                        continue
+                    if conversion:
+                        db.after_commit(lambda entry=dict(document): self._queue_card_location_conversion(entry))
+                    else:
+                        db.after_commit(
+                            lambda card=card, uid=attachment_uid, version=generation: _queue_embedding(
+                                SimpleNamespace(docling_metadata=self), card, uid, version
+                            )
+                        )
+                    document["location_reindex_dispatched_at"] = SafeDateTime.now().isoformat()
+                    dispatched += 1
+                    if dispatched == limit:
+                        break
+                # Touch only the requested metadata row so a failed or long-running
+                # first batch cannot starve later requested moves on the next run.
+                db.exec(
+                    update(CardMetadata)
+                    .where(CardMetadata.id == metadata.id, CardMetadata.value == metadata.value)
+                    .values(
+                        value=json.dumps(documents, ensure_ascii=False, separators=(",", ":")),
+                        updated_at=SafeDateTime.now(),
+                    )
+                )
+                if dispatched == limit:
+                    break
+        return dispatched
 
     def record_scope_embedding_cleanup(self, project: Project, card: Card | None = None) -> None:
         """Record derived-index deletion inside the caller's source deletion transaction."""
@@ -527,6 +824,21 @@ class DoclingMetadataService(BaseDomainService):
             cards = select(Card.id).where(Card.project_id == project.id)
             if card is not None:
                 cards = cards.where(Card.id == card.id)
+            from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+            attachment_after_id = 0
+            while True:
+                attachments = db.exec(
+                    SqlBuilder.select.table(CardAttachment, with_deleted=True)
+                    .where(CardAttachment.card_id.in_(cards), CardAttachment.id > attachment_after_id)
+                    .order_by(CardAttachment.id)
+                    .limit(100)
+                ).all()
+                for attachment in attachments:
+                    release_extraction_source(db, "card_attachment", attachment.get_uid())
+                if len(attachments) < 100:
+                    break
+                attachment_after_id = attachments[-1].id
             after_id = 0
             while True:
                 rows = db.exec(
@@ -557,10 +869,12 @@ class DoclingMetadataService(BaseDomainService):
         )
         topic_uid = foreign_model.get_uid()
         if metadata:
-            MetadataPublisher.updated_metadata(topic, topic_uid, DOCLING_DOCUMENTS_METADATA_KEY, metadata.value)
+            dispatch_after_commit(
+                MetadataPublisher.updated_metadata, topic, topic_uid, DOCLING_DOCUMENTS_METADATA_KEY, metadata.value
+            )
             return
 
-        MetadataPublisher.deleted_metadata(topic, topic_uid, [DOCLING_DOCUMENTS_METADATA_KEY])
+        dispatch_after_commit(MetadataPublisher.deleted_metadata, topic, topic_uid, [DOCLING_DOCUMENTS_METADATA_KEY])
 
     def _load_metadata(self, model_cls: type[BaseMetadataModel], foreign_model: BaseDbModel) -> dict[str, str]:
         # Claims and generation fences need read-after-write consistency too.

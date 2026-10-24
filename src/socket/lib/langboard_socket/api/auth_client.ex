@@ -99,15 +99,38 @@ defmodule LangboardSocket.Api.AuthClient do
   def authorize_editor_document(token, document_name, options)
       when is_binary(token) and token != "" and is_binary(document_name) and
              document_name != "" do
-    :post
-    |> request(
-      "/auth/socket/editor-document",
-      token,
-      options
-      |> Keyword.put(:json, %{document_name: document_name})
-      |> Keyword.put(:response_validator, &valid_editor_authorization_response?/1)
-    )
-    |> editor_authorization_result()
+    {admission, options} = Keyword.pop(options, :admission, false)
+
+    options =
+      if admission do
+        Keyword.put(options, :request_headers, [
+          {"authorization", "Bearer " <> token},
+          {"x-socket-editor-admission", "registered-v1"}
+        ])
+      else
+        options
+      end
+
+    result =
+      :post
+      |> request(
+        "/auth/socket/editor-document",
+        token,
+        options
+        |> Keyword.put(:json, %{document_name: document_name})
+        |> Keyword.put(:response_validator, &valid_editor_authorization_response?/1)
+      )
+
+    case result do
+      {:ok, %Req.Response{status: 200, body: %{"authorized" => true} = body}}
+      when admission ->
+        if body["admission_ordered"] == true,
+          do: editor_authorization_result(result),
+          else: {:error, :unavailable}
+
+      _ ->
+        editor_authorization_result(result)
+    end
   end
 
   def authorize_editor_document(_token, _document_name, _options),

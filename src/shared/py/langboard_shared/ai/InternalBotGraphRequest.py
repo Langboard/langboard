@@ -34,6 +34,8 @@ def build_internal_bot_graph_request(
     tweaks: dict[str, Any] | None = None,
     file_path: str | None = None,
 ) -> dict[str, Any]:
+    if not bot.bot_type.is_executable:
+        raise ValueError("Internal bot role is not executable")
     if bot.platform != BotPlatform.Default or bot.platform_running_type != BotPlatformRunningType.Default:
         raise ValueError("Internal bot does not use the default Graph platform")
     if not session_id or not user.id:
@@ -137,6 +139,8 @@ def build_internal_bot_langflow_request(
     rest_data: dict[str, Any],
     file_path: str | None = None,
 ) -> dict[str, Any]:
+    if not bot.bot_type.is_executable:
+        raise ValueError("Internal bot role is not executable")
     if bot.platform != BotPlatform.Langflow or bot.platform_running_type != BotPlatformRunningType.Endpoint:
         raise ValueError("Internal bot does not use the Langflow endpoint platform")
     if not session_id or not user.id or not bot.api_url or not bot.value:
@@ -274,7 +278,7 @@ def build_board_chat_bot_request(
             bot, user, message, project_session.get_uid(), project_uid, rest_data, file_path
         )
 
-    return build_internal_bot_graph_request(
+    request = build_internal_bot_graph_request(
         bot,
         user,
         message,
@@ -285,6 +289,8 @@ def build_board_chat_bot_request(
         run_id=run.client_task_id,
         thread_scope="session",
     )
+    request["tweaks"]["Graph"]["execution_plan_version"] = 1
+    return request
 
 
 def build_editor_graph_request(
@@ -347,7 +353,7 @@ def build_editor_graph_request(
 
     project_uid = run.project_id.to_short_code()
     session_id = f"{user.get_uid()}-{project_uid}"
-    return build_internal_bot_graph_request(
+    request = build_internal_bot_graph_request(
         bot,
         user,
         message,
@@ -363,6 +369,8 @@ def build_editor_graph_request(
         run_id=run.client_task_id,
         tweaks={"Prompt": {"prompt": system}},
     )
+    request["tweaks"]["Graph"]["execution_plan_version"] = 1
+    return request
 
 
 def _string_list(value: object) -> list[str]:

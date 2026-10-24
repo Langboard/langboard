@@ -45,20 +45,21 @@ function Test-PostgresUrl {
     if (-not [string]::IsNullOrEmpty($Url)) {
         # Check if URL matches postgresql:// or postgres:// format
         if ($Url -notmatch '^postgres(ql)?://') {
-            Write-Host "Error: $UrlName must start with postgresql:// or postgres://" -ForegroundColor Red
+            [Console]::Error.WriteLine("Error: $UrlName must start with postgresql:// or postgres://")
             exit 1
         }
 
         # Basic structure check: postgresql://user:pass@host:port/db
         if ($Url -notmatch '^postgres(ql)?://[^:]+(:[^@]+)?@[^:]+:[0-9]+/.+$') {
-            Write-Host "Warning: $UrlName may not be in correct format (postgresql://user:password@host:port/database)" -ForegroundColor Yellow
-            $response = Read-Host "Continue anyway? (y/N)"
+            [Console]::Error.WriteLine("Warning: $UrlName may not be in correct format (postgresql://user:password@host:port/database)")
+            [Console]::Error.Write("Continue anyway? (y/N) ")
+            $response = [Console]::ReadLine()
             if ($response -ne 'y' -and $response -ne 'Y') {
                 exit 1
             }
         }
 
-        Write-Host "✓ $UrlName is valid" -ForegroundColor Green
+        [Console]::Error.WriteLine("✓ $UrlName is valid")
     }
 }
 

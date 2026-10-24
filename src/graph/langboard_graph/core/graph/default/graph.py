@@ -1,13 +1,15 @@
+from contextlib import AsyncExitStack
+from copy import deepcopy
 from typing import Any
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 from ...schema import GraphInterrupt, GraphRunResult
-from ..checkpoint import open_graph_checkpointer
+from ..checkpoint import lock_graph_thread, open_graph_checkpointer
 from .context import create_runtime_context_state
 from .nodes import _apply_approved_api_context, collect_default_history_context, run_default_agent
 from .privacy import redact_graph_credentials
-from .runtime import DefaultGraphContext, restore_model_credentials
+from .runtime import DefaultGraphContext, resolve_execution_scope, restore_model_credentials, validate_resume_scope
 from .state import DefaultGraphState
 
 
@@ -31,24 +33,49 @@ async def run_default_graph(
     model_source: dict[str, Any] | None = None,
 ) -> GraphRunResult:
     requires_checkpoint = _requires_checkpoint(tweaks, resume)
-    async with open_graph_checkpointer(enabled=requires_checkpoint) as checkpointer:
+    async with open_graph_checkpointer(enabled=requires_checkpoint) as checkpointer, AsyncExitStack() as stack:
         if requires_checkpoint and checkpointer is None:
             raise RuntimeError("Graph checkpoint storage requires a PostgreSQL MAIN_DATABASE_URL.")
 
+        if checkpointer is not None and resume is None:
+            await stack.enter_async_context(lock_graph_thread(thread_id))
         graph = build_default_graph(checkpointer)
         graph_input: Command[Any] | DefaultGraphState
         config = {"configurable": {"thread_id": thread_id}}
         if resume is not None:
             snapshot = await graph.aget_state(config)
             runtime_tweaks = restore_model_credentials(snapshot.values)
+            execution_scope = validate_resume_scope(snapshot.values, runtime_tweaks, resume)
             _apply_approved_api_context(runtime_tweaks, resume)
-            graph_input = Command(resume=redact_graph_credentials(resume))
+            # A paused node may reuse its saved prompt. Recollect history under
+            # current ACLs while retaining the native delta/summary cursor.
+            from .history import create_langboard_history_context_prompt
+
+            history_state = deepcopy(snapshot.values)
+            create_langboard_history_context_prompt(runtime_tweaks, history_state)
+            history_update = {
+                key: history_state.get(key)
+                for key in (
+                    "history_messages",
+                    "history_delta",
+                    "history_summary",
+                    "last_history_sync_at",
+                    "history_context_prompt",
+                )
+            }
+            graph_input = Command(resume=redact_graph_credentials(resume), update=history_update)
         else:
             input_tweaks = tweaks or {}
+            execution_scope = resolve_execution_scope(input_tweaks)
+            if execution_scope.get("bot_id") and model_source != {"table": "bot", "id": execution_scope["bot_id"]}:
+                raise ValueError("Graph bot model source does not match its authenticated actor")
+            if checkpointer is not None and (await graph.aget_state(config)).values:
+                raise ValueError("Graph thread already exists; resume it or start a new thread")
             state: DefaultGraphState = {
                 "input_value": input_value or "",
                 "tweaks": redact_graph_credentials(input_tweaks),
                 "model_source": model_source or {},
+                "execution_scope": execution_scope,
                 "session_id": session_id,
                 "thread_id": thread_id,
                 **create_runtime_context_state(input_tweaks),
@@ -56,11 +83,23 @@ async def run_default_graph(
             graph_input = state
             runtime_tweaks = input_tweaks
 
-        result = await graph.ainvoke(graph_input, config=config, context={"tweaks": runtime_tweaks})
+        result = await graph.ainvoke(
+            graph_input, config=config, context={"tweaks": runtime_tweaks, "execution_scope": execution_scope}
+        )
         graph_result = _create_graph_run_result(result)
         if checkpointer is not None and resume is None and not graph_result.interrupts:
             await checkpointer.adelete_thread(thread_id)
         return graph_result
+
+
+async def validate_default_graph_resume(thread_id: str, resume: Any) -> None:
+    """Authorize recovery as well as execution before exposing saved results."""
+    async with open_graph_checkpointer() as checkpointer:
+        if checkpointer is None:
+            raise ValueError("Graph checkpoint storage is unavailable")
+        graph = build_default_graph(checkpointer)
+        snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+        validate_resume_scope(snapshot.values, deepcopy(snapshot.values.get("tweaks") or {}), resume)
 
 
 async def get_default_graph_status(thread_id: str) -> dict[str, Any]:

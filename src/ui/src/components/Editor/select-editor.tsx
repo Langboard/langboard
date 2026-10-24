@@ -267,7 +267,8 @@ export const SelectEditorInput = React.forwardRef<HTMLDivElement, React.Componen
 export function SelectEditorCombobox() {
     const editor = useEditorRef();
     const containerRef = useEditorContainerRef();
-    const { items, open, onValueChange, onSearchChange, canAddNew, validateNewItem, createNewItemLabel, renderItem } = useSelectEditorContext();
+    const { items, open, setOpen, onValueChange, onSearchChange, canAddNew, validateNewItem, createNewItemLabel, renderItem } =
+        useSelectEditorContext();
     const search = useCommandState((state) => state.search);
     const fzfFilter = React.useMemo(() => createFzfFilter(items), [items]);
     const selectableItems = useSelectableItems({
@@ -287,7 +288,7 @@ export function SelectEditorCombobox() {
     if (!open || selectableItems.length === 0) return null;
 
     return (
-        <Popover.Root open={open}>
+        <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Anchor virtualRef={containerRef as any} />
             <Popover.Content
                 className="p-0"

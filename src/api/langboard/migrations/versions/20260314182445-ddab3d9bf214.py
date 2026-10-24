@@ -10,7 +10,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from langboard_shared.core.db.ColumnTypes import CSVType, SnowflakeIDType
-from langboard_shared.domain.models.bases.BotTriggerCondition import BotTriggerCondition
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 
 
 # revision identifiers, used by Alembic.
@@ -49,7 +49,7 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False
         ),
         sa.Column("bot_default_scope_branch_id", SnowflakeIDType, nullable=True),
-        sa.Column("conditions", CSVType(BotTriggerCondition), nullable=False),
+        sa.Column("conditions", CSVType(DomainEventType), nullable=False),
         sa.ForeignKeyConstraint(["bot_default_scope_branch_id"], ["bot_default_scope_branch.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -70,7 +70,7 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False
         ),
         sa.Column("bot_default_scope_branch_id", SnowflakeIDType, nullable=True),
-        sa.Column("conditions", CSVType(BotTriggerCondition), nullable=False),
+        sa.Column("conditions", CSVType(DomainEventType), nullable=False),
         sa.ForeignKeyConstraint(["bot_default_scope_branch_id"], ["bot_default_scope_branch.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -91,7 +91,7 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False
         ),
         sa.Column("bot_default_scope_branch_id", SnowflakeIDType, nullable=True),
-        sa.Column("conditions", CSVType(BotTriggerCondition), nullable=False),
+        sa.Column("conditions", CSVType(DomainEventType), nullable=False),
         sa.ForeignKeyConstraint(["bot_default_scope_branch_id"], ["bot_default_scope_branch.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )

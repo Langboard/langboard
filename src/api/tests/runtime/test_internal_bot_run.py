@@ -2397,3 +2397,39 @@ def test_board_chat_resume_result_rolls_back_every_record_on_run_failure(
     assert messages[0].id == ai_message.id
     assert messages[0].message.graph_interrupt is not None
     assert messages[0].message.graph_interrupt["value"]["status"] == "pending"
+
+
+@pytest.mark.parametrize("kind", ["editor", "chat"])
+def test_legacy_claimed_approval_lifecycle_cancellation_is_terminal(run_repository, kind):
+    service = GraphApprovalRequestService(lambda _: None, lambda _: None, Mock())
+    if kind == "editor":
+        run = _claimed_editor(run_repository)
+        interrupt = _editor_approval_interrupt(run)
+        approval = service.prepare_editor_interrupt(run, interrupt)
+        assert run_repository.pause_editor(run.id, run.attempt, "partial", interrupt, approval)
+        claimed = run_repository.claim_editor_resume(
+            approval.id, run.project_id, run.user_id, {"approved": True, "rejected": False}, 30
+        )
+        close = run_repository.close_editor_approval
+        complete = run_repository.complete_editor_resume
+    else:
+        run, message = _claimed_board_chat(run_repository)
+        interrupt = _approval_interrupt(run.project_id.to_short_code())
+        approval = service.prepare_board_chat_interrupt(run, interrupt)
+        assert run_repository.pause_board_chat(run.id, run.attempt, "partial", interrupt, approval)
+        claimed = run_repository.claim_board_chat_resume(
+            run.project_id, run.user_id, message.id, run.graph_thread_id,
+            run.graph_session_id, approval.id, {"approved": True, "rejected": False}, 30,
+        )
+        close = run_repository.close_board_chat_approval
+        complete = run_repository.complete_board_chat_resume
+    assert claimed and approval.execution_plan is None
+    assert close(approval.id, GraphApprovalStatus.Expired, "expired") is None
+    assert close(approval.id, GraphApprovalStatus.Cancelled, "scope removed")
+    saved = run_repository.get_by_id(run.id)
+    assert saved.status == InternalBotRunStatus.Cancelled
+    assert saved.attempt == claimed.attempt and saved.lease_expires_at is None
+    assert saved.request_payload["resume_approval_uid"] == approval.get_uid()
+    assert saved.request_payload["resume_execution_plan"] is None
+    assert close(approval.id, GraphApprovalStatus.Cancelled, "scope removed") is None
+    assert complete(run.id, claimed.attempt, "late", None, None) is None

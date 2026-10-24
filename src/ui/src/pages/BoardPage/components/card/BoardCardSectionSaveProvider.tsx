@@ -12,7 +12,8 @@ type TSectionHandler = () => IBoardCardDetailsPatch | null | void | Promise<IBoa
 type TSectionCancelHandler = () => void;
 
 interface IBoardCardSectionSaveActionsContext {
-    registerSectionSaveHandler: (section: TBoardCardUnsavedSection, handler: TSectionHandler) => () => void;
+    registerSectionSaveHandler: (section: TBoardCardUnsavedSection, handler: TSectionHandler, readDraft?: () => string) => () => void;
+    getSectionDraftSnapshot: () => string;
     registerSectionCancelHandler: (section: TBoardCardUnsavedSection, handler: TSectionCancelHandler) => () => void;
     cancelSections: () => void;
     saveSections: () => Promise<IBoardCardDetailsPatch | false>;
@@ -22,14 +23,17 @@ const BoardCardSectionSaveActionsContext = createContext<IBoardCardSectionSaveAc
 
 export const BoardCardSectionSaveProvider = ({ children }: { children: React.ReactNode }) => {
     const saveHandlersRef = useRef<Partial<Record<TBoardCardUnsavedSection, TSectionHandler>>>({});
+    const draftReadersRef = useRef<Partial<Record<TBoardCardUnsavedSection, () => string>>>({});
     const cancelHandlersRef = useRef<Partial<Record<TBoardCardUnsavedSection, TSectionCancelHandler>>>({});
 
-    const registerSectionSaveHandler = useCallback((section: TBoardCardUnsavedSection, handler: TSectionHandler) => {
+    const registerSectionSaveHandler = useCallback((section: TBoardCardUnsavedSection, handler: TSectionHandler, readDraft?: () => string) => {
+        draftReadersRef.current[section] = readDraft;
         saveHandlersRef.current[section] = handler;
 
         return () => {
             if (saveHandlersRef.current[section] === handler) {
                 delete saveHandlersRef.current[section];
+                delete draftReadersRef.current[section];
             }
         };
     }, []);
@@ -43,6 +47,16 @@ export const BoardCardSectionSaveProvider = ({ children }: { children: React.Rea
             }
         };
     }, []);
+
+    const getSectionDraftSnapshot = useCallback(
+        () =>
+            JSON.stringify(
+                Object.entries(draftReadersRef.current)
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([section, read]) => [section, read?.()])
+            ),
+        []
+    );
 
     const cancelSections = useCallback(() => {
         const sections = Object.keys(cancelHandlersRef.current) as TBoardCardUnsavedSection[];
@@ -82,11 +96,12 @@ export const BoardCardSectionSaveProvider = ({ children }: { children: React.Rea
     const actionsValue = useMemo(
         () => ({
             cancelSections,
+            getSectionDraftSnapshot,
             registerSectionCancelHandler,
             registerSectionSaveHandler,
             saveSections,
         }),
-        [cancelSections, registerSectionCancelHandler, registerSectionSaveHandler, saveSections]
+        [cancelSections, getSectionDraftSnapshot, registerSectionCancelHandler, registerSectionSaveHandler, saveSections]
     );
 
     return <BoardCardSectionSaveActionsContext.Provider value={actionsValue}>{children}</BoardCardSectionSaveActionsContext.Provider>;

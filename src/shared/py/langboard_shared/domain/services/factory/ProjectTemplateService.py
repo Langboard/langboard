@@ -1,8 +1,13 @@
 import re
+from hashlib import sha256
+from json import dumps
 from typing import Any
-from ....core.db import DbSession
+from uuid import UUID
+from sqlalchemy import update
+from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....helpers import InfraHelper
+from ...constants.DomainEventType import DomainEventType
 from ...models import (
     Bot,
     BotDefaultScopeBranch,
@@ -16,9 +21,11 @@ from ...models import (
     ProjectTemplate,
     User,
 )
-from ...models.bases import BotTriggerCondition
 from ...models.InternalBot import InternalBotType
+from ...models.ProjectCreationReceipt import ProjectCreationReceipt
 from ...models.ProjectEmailNotificationPolicy import ProjectEmailNotificationCategory
+from ...models.ProjectRole import ProjectRoleAction
+from ..AppGovernance import AppGovernanceDenied, _actor, _authorized_board
 
 
 SI_COLUMNS = ["Backlog", "Ready", "In Progress", "Review", "Done"]
@@ -82,6 +89,14 @@ SI_EMAIL_NOTIFICATION_POLICY = {
     "categories": [ProjectEmailNotificationCategory.Cards.value],
     "card_move_target_columns": ["Review"],
 }
+
+
+class ProjectCreationConflict(ValueError):
+    """The request identity already belongs to different creation input."""
+
+
+class ProjectCreationUnavailable(PermissionError):
+    """The account or original board no longer authorizes replay."""
 
 
 class ProjectTemplateService(BaseDomainService):
@@ -342,7 +357,74 @@ class ProjectTemplateService(BaseDomainService):
         project_type: str = "Other",
         template_name: str | None = None,
         infer_template_prefix: bool = False,
-    ) -> tuple[Project, list[ProjectColumn], ProjectTemplate]:
+        request_uuid: str | None = None,
+    ) -> tuple[Project, list[ProjectColumn], ProjectTemplate | None]:
+        """Create natively; a receipt replay may outlive its original template."""
+        if request_uuid is not None:
+            request_uuid = str(UUID(str(request_uuid)))
+            digest = sha256(
+                dumps(
+                    [title, description, project_type, template_name, infer_template_prefix],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            with DbSession.atomic() as db:
+                # A native write lock serializes this actor on SQLite and PostgreSQL.
+                # No account data changes; revocation is checked from the locked row.
+                locked = db.exec(
+                    update(User)
+                    .where(
+                        User.column("id") == user.id,
+                        User.column("deleted_at").is_(None),
+                        User.column("activated_at").is_not(None),
+                    )
+                    .values(id=user.id)
+                )
+                if not locked:
+                    raise ProjectCreationUnavailable("Creation account is unavailable")
+                try:
+                    user = _actor(db, user)
+                except AppGovernanceDenied as exc:
+                    raise ProjectCreationUnavailable("Creation account is unavailable") from exc
+                receipt = db.exec(
+                    SqlBuilder.select.table(ProjectCreationReceipt).where(
+                        ProjectCreationReceipt.column("actor_id") == user.id,
+                        ProjectCreationReceipt.column("request_uuid") == request_uuid,
+                    )
+                ).first()
+                if receipt:
+                    if receipt.payload_digest != digest:
+                        raise ProjectCreationConflict("Creation request UUID already used with different payload")
+                    try:
+                        project = _authorized_board(db, user, receipt.project_id, action=ProjectRoleAction.Read)
+                    except AppGovernanceDenied as exc:
+                        raise ProjectCreationUnavailable("Original project is unavailable") from exc
+                    template = InfraHelper.get_by_id_like(ProjectTemplate, receipt.template_id)
+                    columns = [
+                        item[0]
+                        for item in self.repo.project_column.get_all_by_project(project)
+                        if not item[0].is_archive
+                    ]
+                    return project, columns, template
+                project, columns, template = self.create_project(
+                    user,
+                    title,
+                    description,
+                    project_type,
+                    template_name,
+                    infer_template_prefix,
+                )
+                db.insert(
+                    ProjectCreationReceipt(
+                        actor_id=user.id,
+                        request_uuid=request_uuid,
+                        payload_digest=digest,
+                        project_id=project.id,
+                        template_id=template.id,
+                    )
+                )
+                return project, columns, template
         title, template_name = self.resolve_creation_target(
             title,
             template_name,
@@ -502,7 +584,7 @@ class ProjectTemplateService(BaseDomainService):
         conditions = []
         for value in snapshot.get("conditions", []):
             try:
-                condition = BotTriggerCondition(value)
+                condition = DomainEventType(value)
             except ValueError:
                 continue
             if condition in available:

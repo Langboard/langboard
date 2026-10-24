@@ -368,6 +368,54 @@ def test_inbound_receipt_listing_scope_pagination_and_disabled_cleanup(creation)
         list_inbound_connections(actor, "example-erp", limit=51)
 
 
+@pytest.mark.parametrize("mutation", ["state", "credential_reference", "reconnected"])
+def test_inbound_revision_rejects_mutated_identity(creation, mutation):
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.services.AppConnectionAuthentication import (
+        _identity_hash,
+        authenticate_connection_credential,
+    )
+    from langboard_shared.domain.services.AppConnectionManagement import (
+        create_inbound_connection,
+        disconnect_inbound_connection,
+        list_inbound_connections,
+    )
+    from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
+
+    actor, definition = creation[0][1], creation[5]
+    receipt = create_inbound_connection(actor, "example-erp", definition.edit_revision())
+    identifier = SnowflakeID.from_short_code(receipt["connection_uid"])
+    with DbSession.atomic() as db:
+        connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == identifier)).first()
+        assert _identity_hash(db, connection) == receipt["revision"]
+    issued = issue_connection_credential(actor, identifier)
+    assert authenticate_connection_credential(issued["token"]).connection_id == identifier
+    with DbSession.atomic() as db:
+        connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == identifier)).first()
+        if mutation == "credential_reference":
+            connection.credential_reference = "host-secret-reference"
+        else:
+            connection.state = "disconnected"
+        db.update(connection)
+    if mutation == "reconnected":
+        with DbSession.atomic() as db:
+            connection = db.exec(SqlBuilder.select.table(AppConnection).where(AppConnection.id == identifier)).first()
+            connection.state = "connected"
+            db.update(connection)
+    with pytest.raises(AppGovernanceDenied):
+        authenticate_connection_credential(issued["token"])
+    expected = AppGovernanceDenied if mutation == "credential_reference" else AppRegistryConflict
+    with pytest.raises(expected):
+        disconnect_inbound_connection(actor, identifier, receipt["revision"])
+    if mutation != "credential_reference":
+        current = list_inbound_connections(actor, "example-erp", after_id=creation[2].id)["items"][0]
+        assert current["revision"] != receipt["revision"]
+        disconnected = disconnect_inbound_connection(actor, identifier, current["revision"])
+        assert list_inbound_connections(actor, "example-erp", after_id=creation[2].id)["items"][0] == disconnected | {
+            "ownership": "personal",
+        }
+
+
 def test_native_backlog_presentation_and_replay(creation):
     first = call(creation)
     again = call(creation)

@@ -14,6 +14,7 @@ from langboard_shared.core.routing import (
     create_editor_collaboration_document_id,
 )
 from langboard_shared.core.schema import OpenApiSchema
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, CardComment, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
@@ -41,17 +42,25 @@ def add_card_comment(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card_comment.create(
-        user_or_bot,
-        project_uid,
-        card_uid,
-        EditorContentModel(content=comment.content),
-        comment.anchor,
-    )
+    try:
+        result = service.card_comment.create(
+            user_or_bot,
+            project_uid,
+            card_uid,
+            EditorContentModel(content=comment.content),
+            comment.anchor,
+            request_uid=comment.request_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except ValueError as error:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000, str(error)) from None
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
-    return JsonResponse(status_code=status.HTTP_201_CREATED)
+    return JsonResponse(
+        status_code=status.HTTP_201_CREATED,
+        content=result if isinstance(result, dict) else None,
+    )
 
 
 @AppRouter.api.get(

@@ -1,0 +1,410 @@
+"""Share private conversion work using short transactions and fenced leases."""
+
+import re
+import time
+from contextlib import contextmanager
+from copy import deepcopy
+from datetime import timedelta
+from hashlib import sha256
+from importlib import metadata
+from json import dumps
+from math import isfinite
+from pathlib import PurePath
+from urllib.parse import urlsplit
+from uuid import uuid4
+from sqlalchemy import delete, exists, or_, update
+from sqlalchemy.exc import IntegrityError
+from ...core.db import DbSession, SqlBuilder
+from ...core.types import SafeDateTime
+from ...domain.models.DocumentExtractionCache import DocumentExtractionCache as Cache
+from ...domain.models.DocumentExtractionCache import DocumentExtractionCacheReference as Reference
+from .DocumentKeywords import keyword_languages, normalize_keywords
+
+
+CONVERSION_VERSION = "v1"
+MAX_OUTPUT_BYTES = 8 * 1024 * 1024
+PENDING_REFERENCE_HOURS = 8
+VISION_KEYS = {"binding_uid", "base_url", "model_name", "model", "reasoning_effort", "top_p", "keyword_languages"}
+
+
+class ExtractionCacheUnavailable(RuntimeError):
+    pass
+
+
+class PublishedExtractionUnavailable(ValueError):
+    pass
+
+
+def _token(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{32}", value):
+        raise ValueError("Invalid server-owned extraction reference")
+
+
+def _source(source_type, source_uid, generation=None):
+    if source_type not in {"card_attachment", "project_attachment", "wiki_attachment"}:
+        raise ValueError("Invalid extraction source type")
+    if not isinstance(source_uid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", source_uid):
+        raise ValueError("Invalid server-owned extraction source")
+    if generation is not None:
+        _token(generation)
+
+
+def _lock_entry(db, identifier):
+    return db.exec(
+        SqlBuilder.select.table(Cache)
+        .where(Cache.id == identifier)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).first()
+
+
+def _remove_unreferenced(db, identifiers):
+    now = SafeDateTime.now()
+    for identifier in sorted(set(identifiers)):
+        if _lock_entry(db, identifier) is None:
+            continue
+        db.exec(
+            update(Cache)
+            .execution_options(synchronize_session=False)
+            .where(Cache.id == identifier, Cache.lease_expires_at <= now)
+            .values(lease_token=None, lease_expires_at=None)
+        )
+        # The predicate also fences rows on SQLite, where FOR UPDATE is ignored.
+        db.exec(
+            delete(Cache)
+            .execution_options(synchronize_session=False)
+            .where(Cache.id == identifier, Cache.lease_token.is_(None), ~exists().where(Reference.cache_id == Cache.id))
+        )
+
+
+def activate_extraction_reference(db, token, *, source_type, source_uid, generation):
+    """Activate only an existing valid use inside native source publication."""
+    _token(token)
+    _source(source_type, source_uid, generation)
+    if generation is None:
+        raise ValueError("An authoritative extraction generation is required")
+    now = SafeDateTime.now()
+    reference = db.exec(SqlBuilder.select.table(Reference).where(Reference.use_token == token)).first()
+    if reference is None:
+        return False
+    old = db.exec(
+        SqlBuilder.select.table(Reference).where(
+            Reference.source_type == source_type, Reference.source_uid == source_uid, Reference.use_token != token
+        )
+    ).all()
+    entries = {
+        identifier: _lock_entry(db, identifier)
+        for identifier in sorted({reference.cache_id, *(ref.cache_id for ref in old)})
+    }
+    entry = entries[reference.cache_id]
+    if entry is None or entry.markdown is None:
+        return False
+    valid = or_(
+        Reference.expires_at > now,
+        (
+            Reference.expires_at.is_(None)
+            & (Reference.source_type == source_type)
+            & (Reference.source_uid == source_uid)
+            & (Reference.generation == generation)
+        ),
+    )
+    changed = db.exec(
+        update(Reference)
+        .execution_options(synchronize_session=False)
+        .where(Reference.id == reference.id, valid)
+        .values(expires_at=None, source_type=source_type, source_uid=source_uid, generation=generation)
+    )
+    if changed != 1:
+        return False
+    db.exec(
+        delete(Reference)
+        .execution_options(synchronize_session=False)
+        .where(Reference.source_type == source_type, Reference.source_uid == source_uid, Reference.use_token != token)
+    )
+    _remove_unreferenced(db, [ref.cache_id for ref in old])
+    return True
+
+
+def published_extraction_identity(source_type, source_uid, generation):
+    """Read the exact committed conversion identity, never today's parser settings."""
+    _source(source_type, source_uid, generation)
+    if generation is None:
+        raise ValueError("An authoritative extraction generation is required")
+    with DbSession.use(readonly=False) as db:
+        entries = db.exec(
+            SqlBuilder.select.table(Cache)
+            .join(Reference, Reference.cache_id == Cache.id)
+            .where(
+                Reference.source_type == source_type,
+                Reference.source_uid == source_uid,
+                Reference.generation == generation,
+                Reference.expires_at.is_(None),
+                Cache.markdown.is_not(None),
+            )
+        ).all()
+        if len(entries) != 1:
+            raise PublishedExtractionUnavailable(
+                "Published extraction identity unavailable; explicitly reprocess this attachment"
+            )
+        return entries[0].cache_key
+
+
+def release_extraction_source(db, source_type, source_uid):
+    """Release a deleted source while preserving every other active or pending use."""
+    _source(source_type, source_uid)
+    references = db.exec(
+        SqlBuilder.select.table(Reference).where(
+            Reference.source_type == source_type, Reference.source_uid == source_uid
+        )
+    ).all()
+    for identifier in sorted({ref.cache_id for ref in references}):
+        _lock_entry(db, identifier)
+    removed = db.exec(
+        delete(Reference)
+        .execution_options(synchronize_session=False)
+        .where(Reference.source_type == source_type, Reference.source_uid == source_uid)
+    )
+    _remove_unreferenced(db, [ref.cache_id for ref in references])
+    return removed
+
+
+def recover_expired_extraction_references(*, limit=100):
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError("Extraction cleanup limit must be between 1 and 100")
+    now = SafeDateTime.now()
+    with DbSession.atomic() as db:
+        references = db.exec(
+            SqlBuilder.select.table(Reference)
+            .where(Reference.expires_at <= now)
+            .order_by(Reference.expires_at)
+            .limit(limit)
+        ).all()
+        # Discover the whole lock set before acquiring any row lock. Publication
+        # can exchange old/new cache rows, so every path uses the same ordering.
+        expired = db.exec(
+            SqlBuilder.select.table(Cache)
+            .where(Cache.lease_expires_at <= now)
+            .order_by(Cache.lease_expires_at)
+            .limit(limit)
+        ).all()
+        identifiers = sorted({*(ref.cache_id for ref in references), *(entry.id for entry in expired)})
+        for identifier in identifiers:
+            _lock_entry(db, identifier)
+        removed = 0
+        if references:
+            removed = db.exec(
+                delete(Reference)
+                .execution_options(synchronize_session=False)
+                .where(Reference.id.in_([ref.id for ref in references]), Reference.expires_at <= now)
+            )
+        _remove_unreferenced(db, identifiers)
+        return removed
+
+
+class CachedDocumentExtraction:
+    def __init__(self, *, binding_uid, content_hash, vision_config, filename, timeout_seconds, on_validate=None):
+        if not isinstance(binding_uid, str) or not binding_uid:
+            raise ValueError("An authoritative vision binding is required")
+        if not isinstance(content_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", content_hash):
+            raise ValueError("An authoritative content hash is required")
+        if not isinstance(vision_config, dict) or set(vision_config) - VISION_KEYS:
+            raise ValueError("Only credential-free vision snapshot fields are allowed")
+        for key, value in vision_config.items():
+            if key == "keyword_languages":
+                continue
+            if key == "top_p":
+                if value is not None and (type(value) not in (int, float) or not isfinite(value)):
+                    raise ValueError("Invalid vision sampling snapshot")
+            elif value is not None and not isinstance(value, str):
+                raise ValueError("Vision snapshot fields must be scalar values")
+        base_url = vision_config.get("base_url")
+        if base_url:
+            parsed = urlsplit(base_url)
+            if parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ValueError("Vision endpoint must not contain credentials or query parameters")
+        if vision_config.get("binding_uid", binding_uid) != binding_uid:
+            raise ValueError("Vision snapshot binding mismatch")
+        if type(timeout_seconds) not in (int, float) or not isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("Conversion timeout must be positive and finite")
+        if not isinstance(filename, str):
+            raise ValueError("A source format is required")
+        self.suffix = PurePath(filename).suffix.lower()
+        self.languages = keyword_languages(vision_config)
+        versions = []
+        for distribution in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2"):
+            try:
+                versions.append(metadata.version(distribution))
+            except metadata.PackageNotFoundError:
+                versions.append(None)
+        self.key = sha256(
+            dumps(
+                [CONVERSION_VERSION, versions, binding_uid, content_hash, vision_config, self.suffix],
+                sort_keys=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        self.timeout_seconds = timeout_seconds
+        self.on_validate = on_validate
+        self.token = uuid4().hex
+        self.retained = False
+        self.entry_id = None
+        self._ready = False
+
+    def retain(self):
+        self.retained = True
+
+    def _validate(self):
+        if DbSession.has_active_transaction():
+            raise RuntimeError("Extraction must run outside a source transaction")
+        if self.on_validate is not None:
+            self.on_validate()
+
+    def _normalize(self, result):
+        if not isinstance(result, dict) or not isinstance(result.get("markdown"), str):
+            raise ValueError("Malformed document conversion result")
+        markdown = result["markdown"]
+        if len(markdown.encode()) > MAX_OUTPUT_BYTES:
+            raise ValueError("Conversion markdown exceeds size limit")
+        document = result.get("document_json")
+        if document is not None:
+            if not isinstance(document, dict) or document.get("schema_name") != "DoclingDocument":
+                raise ValueError("Malformed document structure")
+            if len(dumps(document, allow_nan=False).encode()) > MAX_OUTPUT_BYTES:
+                raise ValueError("Conversion structure exceeds size limit")
+            document = deepcopy(document)
+            document["name"] = f"document{self.suffix}"
+            if isinstance(document.get("origin"), dict):
+                document["origin"]["filename"] = f"document{self.suffix}"
+        return {
+            "markdown": markdown,
+            "keywords": normalize_keywords(result.get("keywords"), self.languages),
+            "document_json": document,
+        }
+
+    def _claim(self):
+        now = SafeDateTime.now()
+        with DbSession.atomic() as db:
+            query = SqlBuilder.select.table(Cache).where(Cache.cache_key == self.key)
+            entry = db.exec(query.with_for_update().execution_options(populate_existing=True)).first()
+            if entry is None:
+                try:
+                    with db.savepoint():
+                        entry = Cache(cache_key=self.key)
+                        db.insert(entry)
+                except IntegrityError:
+                    entry = db.exec(query.with_for_update().execution_options(populate_existing=True)).first()
+                    if entry is None:
+                        raise
+            reference = db.exec(
+                SqlBuilder.select.table(Reference).where(
+                    Reference.cache_id == entry.id, Reference.use_token == self.token
+                )
+            ).first()
+            if reference is None:
+                db.insert(
+                    Reference(
+                        cache_id=entry.id,
+                        use_token=self.token,
+                        expires_at=now + timedelta(hours=PENDING_REFERENCE_HOURS),
+                    )
+                )
+            self.entry_id = entry.id
+            owned = False
+            if entry.markdown is None:
+                owned = (
+                    db.exec(
+                        update(Cache)
+                        .execution_options(synchronize_session=False)
+                        .where(
+                            Cache.id == entry.id,
+                            Cache.markdown.is_(None),
+                            or_(Cache.lease_token.is_(None), Cache.lease_expires_at <= now),
+                        )
+                        .values(
+                            lease_token=self.token,
+                            lease_expires_at=now + timedelta(seconds=2 * self.timeout_seconds + 30),
+                        )
+                    )
+                    == 1
+                )
+            ready = (
+                None
+                if entry.markdown is None
+                else {"markdown": entry.markdown, "keywords": entry.keywords, "document_json": entry.document_json}
+            )
+            return ready, owned
+
+    def get_or_convert(self, convert):
+        deadline = time.monotonic() + self.timeout_seconds
+        while True:
+            self._validate()
+            ready, owned = self._claim()
+            self._validate()
+            if ready is not None:
+                result = self._normalize(ready)
+                self._validate()
+                self._ready = True
+                return result
+            if owned:
+                self._validate()
+                result = self._normalize(convert())
+                self._validate()
+                with DbSession.atomic() as db:
+                    changed = db.exec(
+                        update(Cache)
+                        .execution_options(synchronize_session=False)
+                        .where(
+                            Cache.id == self.entry_id,
+                            Cache.lease_token == self.token,
+                            Cache.lease_expires_at > SafeDateTime.now(),
+                        )
+                        .values(**result, lease_token=None, lease_expires_at=None)
+                    )
+                    if changed != 1:
+                        raise ExtractionCacheUnavailable("Conversion lease no longer belongs to this attempt")
+                self._validate()
+                self._ready = True
+                return deepcopy(result)
+            if time.monotonic() >= deadline:
+                raise ExtractionCacheUnavailable("Concurrent document conversion remains pending")
+            time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+            self._validate()
+            if time.monotonic() >= deadline:
+                raise ExtractionCacheUnavailable("Concurrent document conversion remains pending")
+
+    def _close(self):
+        if self.entry_id is None:
+            return
+        with DbSession.atomic() as db:
+            _lock_entry(db, self.entry_id)
+            db.exec(
+                update(Cache)
+                .execution_options(synchronize_session=False)
+                .where(Cache.id == self.entry_id, Cache.lease_token == self.token)
+                .values(lease_token=None, lease_expires_at=None)
+            )
+            if not self.retained:
+                # Activated references belong to native source state even when a later step fails.
+                db.exec(
+                    delete(Reference)
+                    .execution_options(synchronize_session=False)
+                    .where(Reference.use_token == self.token, Reference.expires_at.is_not(None))
+                )
+            _remove_unreferenced(db, [self.entry_id])
+
+
+@contextmanager
+def cached_document_extraction(**kwargs):
+    cache = CachedDocumentExtraction(**kwargs)
+    try:
+        yield cache
+    except BaseException:
+        # Native publication can fail after validated conversion succeeds. Keep
+        # its pending reference for bounded retry reuse; expiry cleanup removes
+        # abandoned results without publishing an attachment or source pointer.
+        if cache._ready:
+            cache.retain()
+        raise
+    finally:
+        cache._close()

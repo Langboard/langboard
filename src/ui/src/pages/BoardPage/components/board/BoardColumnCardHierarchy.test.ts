@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     buildBoardColumnCardHierarchy,
+    indexBoardColumnCardHierarchy,
+    visibleBoardColumnCardHierarchy,
+    boardColumnCardAncestorUIDs,
+    toggleChildCardCollapsed,
+    estimateBoardColumnCardGroupHeight,
     buildCardRelationshipIndex,
     canCreateCardRelationship,
     isRelationshipRenderedInHierarchy,
@@ -171,7 +176,6 @@ test("rejects duplicate, self, and cyclic blocking relationship candidates", () 
     assert.equal(canCreateCardRelationship(cards, "c", "a", "children", relationshipIndex, "blocks"), false);
 });
 
-
 test("only contains and unchanged legacy links group cards", () => {
     for (const semantic of ["blocks", "references"] as const) {
         const edge = { parent_card_uid: "a", child_card_uid: "b", machine_semantic: semantic };
@@ -205,4 +209,53 @@ test("shared descendants and legacy cycles are not contains-cycle warnings", () 
     ];
     assert.equal(hasContainmentCycle([card("a", 0, contains), card("b", 1, contains), card("c", 2, contains)]), false);
     assert.equal(hasContainmentCycle([card("a", 0, [{ parent_card_uid: "a", child_card_uid: "a" }])]), false);
+});
+
+test("child collapse preserves nested preferences, scoped isolation, reveal path and visible height", () => {
+    const relationships = [
+        { parent_card_uid: "root", child_card_uid: "child" },
+        { parent_card_uid: "child", child_card_uid: "grandchild" },
+        { parent_card_uid: "root", child_card_uid: "sibling" },
+    ];
+    const cards = ["root", "child", "grandchild", "sibling"].map((uid, index) => card(uid, index, relationships));
+    const nodes = indexBoardColumnCardHierarchy(buildBoardColumnCardHierarchy(cards)[0]);
+    assert.deepEqual(
+        nodes.map(({ card, end }, index) => [card.uid, end - index - 1]),
+        [
+            ["root", 3],
+            ["child", 1],
+            ["grandchild", 0],
+            ["sibling", 0],
+        ]
+    );
+    let saved = toggleChildCardCollapsed(undefined, "user:board:child");
+    saved = toggleChildCardCollapsed(saved, "user:board:root");
+    const visible = (prefix = "user:board:", revealed = new Set<string>()) => visibleBoardColumnCardHierarchy(nodes, saved, prefix, revealed);
+    assert.deepEqual(
+        visible().map(({ card }) => card.uid),
+        ["root"]
+    );
+    assert.equal(estimateBoardColumnCardGroupHeight(visible()), 134);
+    saved = toggleChildCardCollapsed(saved, "user:board:root");
+    assert.equal(Object.hasOwn(saved, "user:board:root"), false);
+    assert.deepEqual(
+        visible().map(({ card }) => card.uid),
+        ["root", "child", "sibling"]
+    );
+    assert.equal(estimateBoardColumnCardGroupHeight(visible()), 218);
+    assert.equal(visible("other:board:").length, 4);
+    assert.equal(visible("user:other:").length, 4);
+    saved = toggleChildCardCollapsed(saved, "user:board:root");
+    const before = JSON.stringify(saved);
+    const revealed = boardColumnCardAncestorUIDs(nodes, "grandchild");
+    assert.deepEqual([...revealed], ["root", "child"]);
+    assert.equal(visible("user:board:", revealed).length, 4);
+    assert.equal(JSON.stringify(saved), before);
+    assert.equal(visible().length, 1);
+    const filtered = indexBoardColumnCardHierarchy(buildBoardColumnCardHierarchy(cards.filter(({ uid }) => uid !== "grandchild"))[0]);
+    assert.equal(filtered[0].end - 1, 2);
+    assert.deepEqual(
+        cards.map(({ uid }) => uid),
+        ["root", "child", "grandchild", "sibling"]
+    );
 });

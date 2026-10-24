@@ -1,5 +1,6 @@
 """Cleanup request durability, bounded recovery and lease fencing on SQLite/PostgreSQL."""
 
+import asyncio
 import runpy
 from datetime import timedelta
 from unittest.mock import Mock
@@ -201,6 +202,8 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         DocumentKeywordIndex,
         Organization,
         Project,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
         ProjectColumn,
         User,
     )
@@ -211,6 +214,8 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         Organization,
         Project,
         ProjectColumn,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
         Card,
         CardAttachment,
         CardDocumentArtifact,
@@ -445,7 +450,9 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
         monkeypatch.setattr(store, "add_documents", partial_write)
         monkeypatch.setattr(store, "delete", Mock(side_effect=RuntimeError("private delete failure fixture-secret")))
         monkeypatch.setattr(embedding, "open_document_vector_store", lambda *_: nullcontext(store))
-        monkeypatch.setattr(embedding, "stage_vector_generation", stage_vector_generation)
+        embedding.create_document_embeddings.return_value = Fixture()
+        from langboard_shared.tasks.docling.DocumentVectorStore import astage_vector_generation
+        monkeypatch.setattr(embedding, "stage_vector_generation", astage_vector_generation)
         monkeypatch.setattr(embedding, "delete_vector_generation", delete_vector_generation)
         service.docling_metadata.publish_document_embedding.return_value = False
         if failure == "publication-error":
@@ -453,7 +460,7 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
                 RuntimeError("publication failed"),
                 False,
             ]
-        embedding.embed_transcription(service, "attachment", "current")
+        asyncio.run(embedding.embed_transcription(service, "attachment", "current"))
         events = pending()
         assert len(events) == 1
         staged = events[0].pointer

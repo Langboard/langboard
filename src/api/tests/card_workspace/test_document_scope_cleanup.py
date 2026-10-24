@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.domain.models import Card, CardMetadata, Project
+from langboard_shared.domain.models import Card, CardMetadata, Project, ProjectWiki
 from langboard_shared.domain.services import DomainService
 from sqlalchemy import select
 from test_document_cleanup_outbox import cleanup_store, document_source, outbox, pending, pointer  # noqa: F401
@@ -14,8 +14,10 @@ from test_document_mcp_read import binding_store  # noqa: F401
 
 
 @pytest.mark.parametrize("scope", ["card", "project"])
-def test_scope_deletion_commits_cleanup_and_rolls_back_as_one_unit(document_source, cleanup_store, monkeypatch, scope):  # noqa: F811
+def test_scope_deletion_commits_cleanup_and_rolls_back_as_one_unit(document_source, cleanup_store, binding_store, monkeypatch, scope):  # noqa: F811
     metadata, card, _, document = document_source
+    if scope == "project":
+        ProjectWiki.__table__.create(binding_store)
     service = DomainService()
     card_module = import_module("langboard_shared.domain.services.factory.CardService")
     project_module = import_module("langboard_shared.domain.services.factory.ProjectService")

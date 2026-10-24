@@ -1,8 +1,11 @@
 import asyncio
+from copy import deepcopy
+from hashlib import sha256
 from json import dumps as json_dumps
 from re import compile as re_compile
 from re import sub as re_sub
 from typing import Any, cast
+from uuid import uuid4
 import httpx
 from langboard_shared.domain.contracts.audit_events import REDACTED
 from langboard_shared.Env import Env
@@ -21,6 +24,7 @@ from .state import DefaultGraphState
 from .tooling import (
     create_langboard_api_tool_approval_request,
     create_langboard_api_tool_context,
+    create_langboard_api_tool_request,
     create_langboard_context_prompt,
     create_langboard_event_input,
 )
@@ -408,13 +412,26 @@ async def _invoke_agent(
     except Exception:
         return await _invoke_chat_model(chat_model, messages), []
 
-    async def approval(tool_name: str, tool_args: dict[str, Any]) -> str | None:
+    graph_config = (tweaks or {}).get("Graph") or {}
+    plan_version = graph_config.get("execution_plan_version")
+    bind_plan = type(plan_version) is int and plan_version == 1
+
+    async def prepare(tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any] | None:
+        if "execution_plan_version" in graph_config and not bind_plan:
+            return {"denied": "Unsupported execution plan capability."}
+        return await _prepare_tool_approval_request(
+            tool_name, tool_args, tweaks=tweaks, state=state, api_tool_context=api_tool_context, bind_plan=bind_plan
+        )
+
+    async def approval(tool_name: str, tool_args: dict[str, Any], request: dict[str, Any] | None) -> str | None:
         return await _get_tool_approval_result(
             tool_name,
             tool_args,
             tweaks=tweaks,
             state=state,
             api_tool_context=api_tool_context,
+            prepared=True,
+            prepared_request=request,
         )
 
     return await invoke_agent_loop(
@@ -425,28 +442,30 @@ async def _invoke_agent(
         _invoke_chat_model,
         approval,
         Env.AI_REQUEST_TIMEOUT,
+        prepare=prepare,
     )
 
 
-async def _get_tool_approval_result(
+async def _prepare_tool_approval_request(
     tool_name: str,
     tool_args: dict[str, Any],
     *,
     tweaks: dict[str, Any] | None,
     state: DefaultGraphState | None,
     api_tool_context: dict[str, dict[str, Any]] | None,
-) -> str | None:
+    bind_plan: bool = False,
+) -> dict[str, Any] | None:
     if tweaks is None or state is None:
         return None
 
     tool_metadata = (api_tool_context or {}).get(tool_name)
     uid_resolution_result = await _resolve_tool_uid_args(tool_name, tool_args, tool_metadata)
     if uid_resolution_result:
-        return uid_resolution_result
+        return {"denied": uid_resolution_result}
 
     invalid_uid_result = _get_invalid_uid_tool_arg_result(tool_name, tool_args)
     if invalid_uid_result:
-        return invalid_uid_result
+        return {"denied": invalid_uid_result}
 
     approval_request = create_langboard_api_tool_approval_request(
         tweaks,
@@ -456,21 +475,112 @@ async def _get_tool_approval_result(
         thread_id=state.get("thread_id"),
         session_id=state.get("session_id"),
     )
+    if approval_request is None or "denied" in approval_request:
+        return approval_request
+
+    # Approval must show the business arguments that ToolNode will execute.
+    _apply_approved_tool_args(tool_args, tool_metadata)
+    if "api_request" in approval_request.get("request_payload", {}):
+        approval_request["request_payload"]["api_request"] = create_langboard_api_tool_request(tool_metadata, tool_args)
+    approval_request = redact_graph_credentials(approval_request)
+    if bind_plan:
+        if not state.get("thread_id") or not state.get("session_id"):
+            return {"denied": "Tool approval requires a thread and session identity."}
+        arguments = deepcopy(approval_request["request_payload"])
+        approval_request["execution_plan"] = {
+            "version": 1,
+            "plan_id": str(uuid4()),
+            "tool_name": tool_name,
+            "action_type": approval_request["action_type"],
+            "api_name": approval_request["api_name"],
+            "arguments": arguments,
+            "args_hash": sha256(
+                json_dumps(
+                    arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+                ).encode("utf-8")
+            ).hexdigest(),
+            "thread_id": state["thread_id"],
+            "session_id": state["session_id"],
+        }
+    return approval_request
+
+
+async def _get_tool_approval_result(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    *,
+    tweaks: dict[str, Any] | None,
+    state: DefaultGraphState | None,
+    api_tool_context: dict[str, dict[str, Any]] | None,
+    prepared: bool = False,
+    prepared_request: dict[str, Any] | None = None,
+) -> str | None:
+    if tweaks is None or state is None:
+        return None
+    approval_request = (
+        prepared_request
+        if prepared
+        else await _prepare_tool_approval_request(
+            tool_name, tool_args, tweaks=tweaks, state=state, api_tool_context=api_tool_context
+        )
+    )
     if approval_request is None:
         return None
-
-    approval_request = redact_graph_credentials(approval_request)
+    if "denied" in approval_request:
+        return str(approval_request["denied"])
+    plan = deepcopy(approval_request.get("execution_plan"))
+    tool_metadata = (api_tool_context or {}).get(tool_name)
+    plan_changed = plan is not None and (
+        plan["arguments"] != approval_request["request_payload"]
+        or plan["args_hash"]
+        != sha256(
+            json_dumps(
+                plan["arguments"], sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+            ).encode("utf-8")
+        ).hexdigest()
+        or plan["api_name"] != (tool_metadata or {}).get("api_name")
+        or plan["action_type"] != approval_request.get("action_type")
+        or plan["arguments"]["api_request"]
+        != redact_graph_credentials(create_langboard_api_tool_request(tool_metadata, tool_args))
+        or plan["tool_name"] != tool_name
+        or plan["arguments"]["tool_args"] != redact_graph_credentials(tool_args)
+        or plan["thread_id"] != state.get("thread_id")
+        or plan["session_id"] != state.get("session_id")
+    )
     state["approval_requests"] = [approval_request]
     state["approval_result"] = interrupt(approval_request)
     approval_result = state["approval_result"]
+    if plan_changed:
+        return "Tool execution plan changed; a new approval is required."
     instruction = _get_approval_instruction(approval_result)
 
     if _is_rejected_approval_result(approval_result):
         return _get_rejected_approval_response(approval_result)
 
     if _is_approved_approval_result(approval_result):
+        if plan is None and "execution_plan" in approval_result:
+            return "Unexpected execution plan; a new approval is required."
+        if plan is not None:
+            resumed_plan = approval_result.get("execution_plan")
+            if (
+                not isinstance(resumed_plan, dict)
+                or set(resumed_plan) != set(plan) | {"run_id", "native_run_uid", "interrupt_id", "generation"}
+                or type(resumed_plan.get("version")) is not int
+                or {key: resumed_plan.get(key) for key in plan} != plan
+                or any(
+                    not isinstance(resumed_plan.get(key), str) or not resumed_plan[key]
+                    for key in ("run_id", "native_run_uid", "interrupt_id")
+                )
+                or type(resumed_plan.get("generation")) is not int
+                or resumed_plan["generation"] < 1
+                or not isinstance(approval_result.get("approval_uid"), str)
+                or not approval_result["approval_uid"]
+                or plan["arguments"]["tool_args"] != redact_graph_credentials(tool_args)
+                or plan["arguments"]["api_request"]
+                != redact_graph_credentials(create_langboard_api_tool_request(tool_metadata, tool_args))
+            ):
+                return "Tool execution plan changed or approval identity is missing; a new approval is required."
         _apply_approved_api_context(tweaks, approval_result, apply_approval_policy=False)
-        _apply_approved_tool_args(tool_args, tool_metadata)
         return None
 
     _apply_instruction_api_context(tweaks)

@@ -22,7 +22,9 @@
     "assigned_to_card": "<Who/> <Span>님이 사용자님을 카드 담당자로 지정했습니다.</Span>",
     "reacted_to_comment": "<Who/> <Span>님이 사용자님의 댓글에 반응했습니다.</Span>",
     "notified_from_checklist": "<Who/> <Span>님이 체크리스트에서 사용자님에게 알림을 보냈습니다.</Span>",
-    "scheduled_rule": "<Span>예약 알림 규칙의 조건이 충족되었습니다.</Span>"
+    "scheduled_rule": "<Span>예약 알림 규칙의 조건이 충족되었습니다.</Span>",
+    "workflow_stage_entered": "<Who/> <Span>님이 내 카드를 {{message_vars.column_name}}(으)로 이동했습니다.</Span>",
+    "bot_schedule_failed": "<Span>봇 예약 접수 상태를 확인해 주세요.</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -32,7 +34,9 @@
     "assigned_to_card": "{{records.project.title}}의 {{records.card.title}}",
     "reacted_to_comment": "{{records.project.title}}의 {{records.card.title}}",
     "notified_from_checklist": "{{records.project.title}}의 {{records.card.title}}",
-    "scheduled_rule": "{{records.project.title}}의 {{message_vars.rule_name}}"
+    "scheduled_rule": "{{records.project.title}}의 {{message_vars.rule_name}}",
+    "workflow_stage_entered": "{{records.project.title}}의 {{records.card.title}}",
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}"
   },
   "ruleTitles": {
     "project": {
@@ -137,7 +141,9 @@
       "assigned_to_card": "카드 담당자로 지정됨",
       "reacted_to_comment": "댓글에 반응 추가됨",
       "notified_from_checklist": "체크리스트에서 알림 받음",
-      "scheduled_rule": "예약 규칙"
+      "scheduled_rule": "예약 규칙",
+      "workflow_stage_entered": "워크플로우 단계 진입",
+      "bot_schedule_failed": "봇 예약 실패"
     }
   }
 }

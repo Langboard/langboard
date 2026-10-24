@@ -10,20 +10,20 @@ validate_postgres_url() {
     if [ -n "$url" ]; then
         # Check if URL matches postgresql:// or postgres:// format
         if [[ ! "$url" =~ ^postgres(ql)?:// ]]; then
-            echo "Error: $url_name must start with postgresql:// or postgres://"
+            echo "Error: $url_name must start with postgresql:// or postgres://" >&2
             exit 1
         fi
 
         # Basic structure check: postgresql://user:pass@host:port/db
         if [[ ! "$url" =~ ^postgres(ql)?://[^:]+(:[^@]+)?@[^:]+:[0-9]+/.+$ ]]; then
-            echo "Warning: $url_name may not be in correct format (postgresql://user:password@host:port/database)"
+            echo "Warning: $url_name may not be in correct format (postgresql://user:password@host:port/database)" >&2
             read -p "Continue anyway? (y/N) " -n 1 -r
-            echo
+            echo >&2
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 exit 1
             fi
         fi
 
-        echo "✓ $url_name is valid"
+        echo "✓ $url_name is valid" >&2
     fi
 }

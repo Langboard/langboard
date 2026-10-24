@@ -1,6 +1,8 @@
+import { PageNavigationScope } from "@/core/providers/PageNavigationScope";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { StrictMode, lazy, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, Route, Routes, useLocation, useParams } from "react-router";
+import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@/core/injection";
 import "@/i18n";
@@ -18,6 +20,8 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser } from "@/core/models";
 import ResizableSidebar from "@/components/ResizableSidebar";
 import Floating from "@/components/base/Floating";
+import ActivityRail from "@/components/Layout/ActivityRail";
+import { cn } from "@/core/utils/ComponentUtils";
 import CardFlipTray from "@/pages/BoardPage/components/card/CardFlipTray";
 import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
 
@@ -178,7 +182,7 @@ function CompactSummaryRefresh(): React.JSX.Element {
 function BoardRouteFixture(): React.JSX.Element {
     const [projectReady, setProjectReady] = useState(false);
     const hasUser = useHasCurrentUser();
-    const location = useLocation();
+    const location = usePageLocation();
     const { projectUID } = useParams();
     const [, pageRoute] = location.pathname.split("/").slice(2);
     const isCardPage = !!pageRoute && !["graph", "wiki", "settings"].includes(pageRoute);
@@ -193,7 +197,21 @@ function BoardRouteFixture(): React.JSX.Element {
     }
 
     const content = (
-        <div className="flex h-[100dvh] w-full flex-col">
+        <div
+            className={cn(
+                "flex h-[100dvh] w-full flex-col",
+                query.has("workspaceRail") &&
+                    "[--workbench-bottom-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))] md:[--workbench-bottom-inset:0px]"
+            )}
+        >
+            {query.has("workspaceRail") && (
+                <ActivityRail
+                    items={[
+                        { id: "explorer", icon: "panel-left", label: "Explorer", mobile: "primary", onClick: () => {} },
+                        { id: "work", icon: "list-checks", label: "My Work", mobile: "primary", onClick: () => {} },
+                    ]}
+                />
+            )}
             {query.has("compactSummary") && <CompactSummaryRefresh />}
             {hasUser ? (
                 <div className="relative min-w-0 flex-1">
@@ -217,39 +235,57 @@ function BoardRouteFixture(): React.JSX.Element {
     );
 }
 
+function ScopedLocation(): React.JSX.Element {
+    const location = usePageLocation();
+    return query.has("scopedSearch") ? <output data-scoped-location>{location.pathname + location.search}</output> : <></>;
+}
+
+function ViewerNavigationScope({ children }: { children: React.ReactNode }) {
+    return query.has("paneScope") ? (
+        <PageNavigationScope basePath={`/board/${PROJECT_UID}`} initialEntry={`/board/${PROJECT_UID}/${CARD_UID}?filters=keyword:pane-only`}>
+            {children}
+        </PageNavigationScope>
+    ) : (
+        <>{children}</>
+    );
+}
+
 function Harness(): React.JSX.Element {
     const tree = (
         <MemoryRouter
             initialEntries={[
-                query.has("fullDashboard")
+                (query.has("fullDashboard")
                     ? "/dashboard/projects/all"
                     : query.has("fullGraph")
                       ? `/board/${PROJECT_UID}/graph`
                       : query.has("fullBoard")
                         ? `/board/${PROJECT_UID}`
-                        : `/board/${PROJECT_UID}/${CARD_UID}`,
+                        : `/board/${PROJECT_UID}/${CARD_UID}`) + (query.has("scopedSearch") ? "?filters=keyword:pane-only" : ""),
             ]}
         >
-            <QueryClientProvider client={queryClient}>
-                <PageHeaderProvider>
-                    <AuthProvider>
-                        <SocketProvider>
-                            <BoardController>
-                                <Routes>
-                                    <Route path="/dashboard/:pageType/:tabName?" element={<DashboardProxy />} />
-                                    <Route path="/board/:projectUID" element={query.has("fullBoard") ? <BoardProxy /> : <BoardRouteFixture />} />
-                                    <Route
-                                        path="/board/:projectUID/:cardUID"
-                                        element={query.has("fullGraph") || query.has("fullBoard") ? <BoardProxy /> : <BoardRouteFixture />}
-                                    />
-                                    <Route path="*" element={<div data-fixture-not-found="" />} />
-                                </Routes>
-                                {LATE_SUSPENSE && <LateSuspenseSibling />}
-                            </BoardController>
-                        </SocketProvider>
-                    </AuthProvider>
-                </PageHeaderProvider>
-            </QueryClientProvider>
+            <ViewerNavigationScope>
+                <QueryClientProvider client={queryClient}>
+                    <PageHeaderProvider>
+                        <AuthProvider>
+                            <SocketProvider>
+                                <BoardController>
+                                    <Routes>
+                                        <Route path="/dashboard/:pageType/:tabName?" element={<DashboardProxy />} />
+                                        <Route path="/board/:projectUID" element={query.has("fullBoard") ? <BoardProxy /> : <BoardRouteFixture />} />
+                                        <Route
+                                            path="/board/:projectUID/:cardUID"
+                                            element={query.has("fullGraph") || query.has("fullBoard") ? <BoardProxy /> : <BoardRouteFixture />}
+                                        />
+                                        <Route path="*" element={<div data-fixture-not-found="" />} />
+                                    </Routes>
+                                    <ScopedLocation />
+                                    {LATE_SUSPENSE && <LateSuspenseSibling />}
+                                </BoardController>
+                            </SocketProvider>
+                        </AuthProvider>
+                    </PageHeaderProvider>
+                </QueryClientProvider>
+            </ViewerNavigationScope>
         </MemoryRouter>
     );
 

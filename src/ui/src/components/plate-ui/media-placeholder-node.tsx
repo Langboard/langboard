@@ -9,6 +9,7 @@ import { AudioLines, FileUp, Film, ImageIcon, Loader2Icon } from "lucide-react";
 import { KEYS } from "platejs";
 import { PlateElement, useEditorPlugin, withHOC } from "platejs/react";
 import { useFilePicker } from "use-file-picker";
+import Button from "@/components/base/Button";
 import { cn } from "@/core/utils/ComponentUtils";
 import { useUploadFile } from "@/components/plate-ui/uploadthing";
 import { useTranslation } from "react-i18next";
@@ -48,7 +49,7 @@ export const PlaceholderElement = withHOC(PlaceholderProvider, function Placehol
     const [t, i18n] = useTranslation();
     const { editor, element } = props;
     const { api } = useEditorPlugin(PlaceholderPlugin);
-    const { isUploading, progress, uploadedFile, uploadFile, uploadingFile } = useUploadFile();
+    const { isUploading, progress, uploadedFile, uploadFile, uploadingFile, decisionDialog, retryUpload } = useUploadFile();
     const loading = isUploading && uploadingFile;
     const currentContent = CONTENT[element.mediaType];
     const isImage = element.mediaType === KEYS.img;
@@ -61,6 +62,7 @@ export const PlaceholderElement = withHOC(PlaceholderProvider, function Placehol
             const firstFile = updatedFiles[0];
             const restFiles = updatedFiles.slice(1);
 
+            if (!firstFile) return;
             replaceCurrentPlaceholder(firstFile);
 
             if (restFiles.length > 0) {
@@ -71,7 +73,9 @@ export const PlaceholderElement = withHOC(PlaceholderProvider, function Placehol
 
     const replaceCurrentPlaceholder = React.useCallback(
         (file: File) => {
-            void uploadFile(file);
+            void uploadFile(file)
+                .finally(() => api.placeholder.removeUploadingFile(element.id as string))
+                .catch(() => {});
             api.placeholder.addUploadingFile(element.id as string, file);
         },
         [api.placeholder, element.id, uploadFile]
@@ -159,6 +163,14 @@ export const PlaceholderElement = withHOC(PlaceholderProvider, function Placehol
 
             {isImage && loading && <ImageProgress file={uploadingFile} imageRef={imageRef} progress={progress} />}
 
+            {retryUpload && !isUploading && (
+                <div contentEditable={false}>
+                    <Button variant="outline" onClick={() => void retryUpload()}>
+                        {t("common.Retry")}
+                    </Button>
+                </div>
+            )}
+            {decisionDialog}
             {props.children}
         </PlateElement>
     );

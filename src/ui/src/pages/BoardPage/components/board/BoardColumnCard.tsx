@@ -1,5 +1,6 @@
 "use client";
 
+import { DISABLE_DRAGGING_ATTR } from "@/constants";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
 import { useTranslation } from "react-i18next";
@@ -50,8 +51,24 @@ const outerStyles: { [Key in TRowState["type"]]?: string } = {
     "is-dragging-and-left-self": "opacity-40",
 };
 
-function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: ProjectCard.TModel; hierarchyDepth?: number; grouped?: boolean }) {
-    const { canDragCards } = useBoard();
+interface IChildCollapseProps {
+    childCount?: number;
+    childrenExpanded?: boolean;
+    onToggleChildren?: () => void;
+}
+
+function BoardColumnCard({
+    card,
+    hierarchyDepth = 0,
+    grouped = false,
+    ...childCollapse
+}: {
+    card: ProjectCard.TModel;
+    hierarchyDepth?: number;
+    grouped?: boolean;
+} & IChildCollapseProps) {
+    const { canDragCards: boardCanDragCards } = useBoard();
+    const canDragCards = boardCanDragCards && card.source_type !== "project_card";
     const { mode } = useColumnCardSort(card.project_uid, card.project_column_uid);
     const outerRef = useRef<HTMLDivElement | null>(null);
     const innerRef = useRef<HTMLDivElement | null>(null);
@@ -71,7 +88,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
 
         return columnRowDndHelpers.row({
             row: card,
-            canDropRow: (row) => mode === "manual" || row.project_column_uid !== columnUID,
+            canDropRow: (row) => row.project_uid === card.project_uid && (mode === "manual" || row.project_column_uid !== columnUID),
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: inner,
             dropTarget: outer,
@@ -99,6 +116,7 @@ function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: 
                 hierarchyDepth={hierarchyDepth}
                 grouped={grouped}
                 canTouchDrag={canDragCards}
+                {...childCollapse}
             />
             {state.type === "preview"
                 ? createPortal(
@@ -118,6 +136,9 @@ function BoardColumnCardDisplay({
     hierarchyDepth,
     grouped,
     canTouchDrag = false,
+    childCount = 0,
+    childrenExpanded = true,
+    onToggleChildren,
 }: {
     card: ProjectCard.TModel;
     state: TRowState;
@@ -126,7 +147,7 @@ function BoardColumnCardDisplay({
     hierarchyDepth: number;
     grouped: boolean;
     canTouchDrag?: boolean;
-}) {
+} & IChildCollapseProps) {
     const [t] = useTranslation();
     const { selectCardViewType, currentCardUIDRef, getRelationshipSelectionActor, isSelectedCard, isDisabledCard } = useBoardController();
     const { filters, canDragCards, navigateWithFilters } = useBoard();
@@ -174,7 +195,7 @@ function BoardColumnCardDisplay({
                 <Box
                     className={cardClassName}
                     ref={outerRef}
-                    {...{ [BOARD_CARD_TOUCH_DND_ATTR]: card.uid }}
+                    {...{ [BOARD_CARD_TOUCH_DND_ATTR]: card.source_type === "project_card" ? undefined : card.uid }}
                     style={relationshipSelectionActor ? ({ "--tw-ring-color": relationshipSelectionActor.color } as React.CSSProperties) : undefined}
                 >
                     {relationshipSelectionActor ? (
@@ -199,6 +220,32 @@ function BoardColumnCardDisplay({
                         )}
                     >
                         <BoardColumnCardCollapsible isDragging={state.type !== "idle"} compact={grouped} />
+                        {childCount > 0 && onToggleChildren && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 px-2"
+                                aria-expanded={childrenExpanded}
+                                aria-label={t(childrenExpanded ? "board.Collapse child cards" : "board.Expand child cards", { count: childCount })}
+                                onPointerDown={(event) => {
+                                    // Suppress native dragging inherited from the card while retaining control focus.
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    event.currentTarget.focus({ preventScroll: true });
+                                }}
+                                onKeyDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onToggleChildren();
+                                }}
+                                {...{ [DISABLE_DRAGGING_ATTR]: "" }}
+                            >
+                                <IconComponent icon="git-fork" size="3" className="rotate-180" aria-hidden="true" />
+                                <span className="tabular-nums">{childCount}</span>
+                            </Button>
+                        )}
                     </Box>
                     {canTouchDrag && (
                         <Button

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from sqlalchemy import and_, func, or_, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
+from ....core.types import SafeDateTime
 from ....helpers import InfraHelper
 from ....publishers import AppSettingPublisher
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
@@ -13,11 +14,13 @@ from ...models import (
     AppDefinition,
     AppResourceBinding,
     BoardAppBinding,
+    Card,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
     User,
+    WorkflowEffectRun,
     WorkflowStageDefinition,
 )
 from ...models.ProjectRole import ProjectRoleAction
@@ -30,6 +33,8 @@ from ..AppWorkflowPolicy import (
     WorkflowRequirements,
     resolve_app_workflow,
 )
+from ..CardVisibilityPolicy import CollaborationChannel, card_visibility_scope_by_project
+from ..WorkflowCompactionHistory import history_lease_expired
 from .CardService import CardService
 
 
@@ -406,11 +411,125 @@ class WorkflowStageService(BaseDomainService):
             for stage in sorted(InfraHelper.get_all(WorkflowStageDefinition), key=lambda s: (s.order, s.key))
         ]
 
+    def get_bot_options(self, user: User) -> dict:
+        """Minimal Bot identities and schedules on cards visible to this administrator."""
+        from ....helpers import BotHelper
+        from ...constants.DomainEventType import DomainEventType
+        from ...models import Bot, BotSchedule, CardBotSchedule
+        from ...models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
+
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(user, CollaborationChannel.Api)
+        entry_bots = set()
+        policy_bots = set()
+        from datetime import timezone
+
+        def utc(value):
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+        now = utc(SafeDateTime.now())
+        with DbSession.use(readonly=False) as db:
+            card_conditions = {condition for condition in DomainEventType if condition.value.startswith("card_")}
+            models = set().union(*(BotHelper.get_scope_model_classes_by_condition(condition) for condition in card_conditions))
+            for model in models:
+                default_model = BotHelper.get_default_scope_model_class(model.get_scope_column_name())
+                defaults = {row.bot_default_scope_branch_id: row.conditions for row in db.exec(SqlBuilder.select.table(default_model)).all()} if default_model else {}
+                for scope in db.exec(SqlBuilder.select.table(model).where(model.is_frozen.is_(False))).all():
+                    conditions = defaults.get(scope.default_scope_branch_id, []) if scope.default_scope_branch_id else scope.conditions
+                    if any(condition in conditions for condition in card_conditions):
+                        policy_bots.add(scope.bot_id)
+                    if DomainEventType.CardMoved in conditions:
+                        entry_bots.add(scope.bot_id)
+            bots = db.exec(SqlBuilder.select.table(Bot)).all()
+            rows = db.exec(SqlBuilder.select.tables(BotSchedule, Card)
+                .join(CardBotSchedule, CardBotSchedule.bot_schedule_id == BotSchedule.id)
+                .join(Card, Card.id == CardBotSchedule.card_id)
+                .join(Project, Project.id == Card.project_id)
+                .where(Card.deleted_at.is_(None), Card.archived_at.is_(None), Project.deleted_at.is_(None),
+                       Card.visibility.in_(["INTERNAL", "SHARED"]), Card.source_type.is_(None),
+                       card_visibility_scope_by_project(contexts))).all()
+        return {
+            "bots": [{"uid": bot.get_uid(), "name": bot.name, "entry_available": bot.id in entry_bots,
+                      "policy_available": bot.id in policy_bots} for bot in bots],
+            "schedules": [{"uid": schedule.get_uid(), "bot_uid": InfraHelper.convert_uid(schedule.bot_id),
+                           "card_uid": card.get_uid(), "name": card.title,
+                           "is_available": schedule.status == BotScheduleStatus.Started
+                           and (schedule.running_type == BotScheduleRunningType.Infinite or
+                                (schedule.running_type == BotScheduleRunningType.Duration and schedule.start_at is not None
+                                 and schedule.end_at is not None and utc(schedule.start_at) <= now < utc(schedule.end_at)))}
+                          for schedule, card in rows],
+        }
+
+    def get_effect_history(self, user: User, stage_uid: str, *, before: str | None = None, limit: int = 20,
+                           channel: CollaborationChannel = CollaborationChannel.Api) -> dict | None:
+        """Apply current card audiences in SQL before paging committed effect receipts."""
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("Workflow history limit must be between 1 and 50")
+        if not isinstance(user, User):
+            return None
+        with DbSession.atomic() as db:
+            stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
+                WorkflowStageDefinition.id == InfraHelper.convert_id(stage_uid),
+            ).execution_options(populate_existing=True)).first()
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)
+                              .execution_options(populate_existing=True)).first()
+            if stage is None or current is None or current.deleted_at is not None or not current.activated_at:
+                return None
+            contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+            from ...models import WorkflowActionRun, WorkflowRuleRun
+            from .WorkflowRuleService import rows as rule_rows
+            from .WorkflowRuleService import utc
+
+            def authorized_query(model):
+                return (SqlBuilder.select.table(model)
+                    .join(Card, and_(Card.id == model.card_id, Card.project_id == model.project_id))
+                    .join(Project, Project.id == Card.project_id)
+                    .where(model.stage_id == stage.id, Card.deleted_at.is_(None),
+                           Project.deleted_at.is_(None), card_visibility_scope_by_project(contexts)))
+
+            models = (WorkflowRuleRun, WorkflowEffectRun)
+            queries = {model: authorized_query(model) for model in models}
+            if before is not None:
+                anchor_id = InfraHelper.convert_id(before)
+                if not any(db.exec(query.where(model.id == anchor_id)).first() for model, query in queries.items()):
+                    raise ValueError("Workflow history cursor is unavailable")
+                queries = {model: query.where(model.id < anchor_id) for model, query in queries.items()}
+            merged = sorted([row for model, query in queries.items()
+                for row in db.exec(query.order_by(model.id.desc()).limit(limit + 1)).all()], key=lambda row: row.id, reverse=True)
+            items, legacy_items = [], []
+            now = SafeDateTime.now()
+            for row in merged[:limit]:
+                common = {"uid": row.get_uid(), "status": row.status,
+                    "project_uid": InfraHelper.convert_uid(row.project_id), "card_uid": InfraHelper.convert_uid(row.card_id),
+                    "actor_uid": InfraHelper.convert_uid(row.actor_id) if row.actor_id is not None else None,
+                    "actor_type": row.actor_type, "stage_revision": row.stage_revision}
+                if isinstance(row, WorkflowEffectRun):
+                    legacy_items.append({**common, "source": row.source,
+                        "status": "uncertain" if history_lease_expired(row, now) else row.status,
+                        "effects": row.effects, "started_at": row.started_at, "finished_at": row.finished_at,
+                        "duration_ms": row.duration_ms, "result": row.result,
+                        "profile": {"uid": InfraHelper.convert_uid(row.profile_id), "display_name": row.profile_name} if row.profile_id is not None else None,
+                        "error_code": "lease_expired" if history_lease_expired(row, now) else row.error_code})
+                    continue
+                actions = rule_rows(db, WorkflowActionRun, rule_run_id=row.id)
+                items.append({**common, "rule_uid": InfraHelper.convert_uid(row.rule_id), "rule_revision": row.rule_revision,
+                    "configured_by_uid": InfraHelper.convert_uid(row.configured_by_id) if row.configured_by_id is not None else None,
+                    "event_id": row.event_id, "event_type": row.event_type, "occurred_at": row.occurred_at,
+                    "residency": row.residency, "condition_results": row.condition_results, "rule_snapshot": row.rule_snapshot,
+                    "error_code": row.error_code, "finished_at": row.finished_at,
+                    "actions": [{"uid": a.get_uid(), "action_uid": InfraHelper.convert_uid(a.action_id), "kind": a.kind,
+                        "executor_uid": InfraHelper.convert_uid(a.executor_id) if a.executor_id is not None else None,
+                        "executor_type": a.executor_type, "status": "uncertain" if a.status == "running" and a.lease_expires_at and utc(a.lease_expires_at) <= utc(now) else a.status,
+                        "attempt": a.attempt, "attempts": a.attempts, "idempotency_key": a.idempotency_key,
+                        "result": a.result, "error_code": a.error_code, "started_at": a.started_at, "finished_at": a.finished_at,
+                        "legacy_effect_run_uid": InfraHelper.convert_uid(a.legacy_effect_run_id) if a.legacy_effect_run_id is not None else None} for a in sorted(actions, key=lambda a: a.id)]})
+            return {"items": items, "legacy_items": legacy_items,
+                    "next_cursor": merged[limit - 1].get_uid() if len(merged) > limit else None}
+
     def get_api_by_keys(self, keys: set[str]) -> dict[str, dict]:
         """Resolve only workflow definitions used by an authorized result page."""
         return {key: stage.api_response() for key, stage in self.repo.workflow_stage.get_by_keys(keys).items()}
 
-    def save(self, fields: dict, uid: str | None = None) -> WorkflowStageDefinition | None:
+    def save(self, fields: dict, uid: str | None = None, *, actor: User | None = None) -> WorkflowStageDefinition | None:
         fields = dict(fields)
         expected_revision = fields.pop("expected_revision", None)
         if set(fields) - {
@@ -422,13 +541,18 @@ class WorkflowStageService(BaseDomainService):
             "counts_as_completed",
             "active_queue_policy",
             "overdue_policy",
-            "entry_effects",
+            "rules",
+            "confirm_descendant_move",
             "translations",
         }:
             raise ValueError("Unsupported workflow fields")
         stage = InfraHelper.get_by_id_like(WorkflowStageDefinition, uid) if uid else None
         if uid and not stage:
             return None
+        from .WorkflowRuleService import replace_rules, validate_rules
+        definitions = validate_rules(fields.pop("rules"))
+        if type(fields.get("confirm_descendant_move")) is not bool:
+            raise ValueError("Invalid descendant move policy")
         key = fields["key"]
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", key) or (stage and stage.key != key):
             raise ValueError("Workflow key is invalid or immutable")
@@ -439,9 +563,6 @@ class WorkflowStageService(BaseDomainService):
             "overdue_policy"
         ] not in {"normal", "suppress"}:
             raise ValueError("Invalid workflow policy")
-        effects = fields["entry_effects"]
-        if len(effects) != len(set(effects)) or set(effects) - {"complete_checkitems", "stop_running_timers"}:
-            raise ValueError("Unsupported native workflow effect")
         translations = {lang: dict(text) for lang, text in fields["translations"].items()}
         if len(set(translations) | {"en"}) > 30:
             raise ValueError("Too many workflow languages")
@@ -463,7 +584,7 @@ class WorkflowStageService(BaseDomainService):
                 stage = db.exec(
                     SqlBuilder.select.table(WorkflowStageDefinition)
                     .where(WorkflowStageDefinition.column("id") == stage.id)
-                    .with_for_update()
+                    .with_for_update().execution_options(populate_existing=True)
                 ).first()
                 if stage is None:
                     return None
@@ -487,6 +608,7 @@ class WorkflowStageService(BaseDomainService):
                     for field, value in values.items():
                         setattr(stage, field, value)
                     self.repo.workflow_stage.update(stage)
+                replace_rules(db, stage, definitions, configured_by_id=actor.id if actor else None)
                 if policy_changed:
                     stage_key = stage.key
                     db.after_commit(lambda: self._publish_work_states(stage_key))
@@ -495,6 +617,7 @@ class WorkflowStageService(BaseDomainService):
             stage = WorkflowStageDefinition(**values)
             with DbSession.atomic() as db:
                 self.repo.workflow_stage.insert(stage)
+                replace_rules(db, stage, definitions, configured_by_id=actor.id if actor else None)
                 db.after_commit(AppSettingPublisher.workflow_stages_changed)
         return stage
 

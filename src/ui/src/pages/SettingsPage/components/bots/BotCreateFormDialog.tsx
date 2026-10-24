@@ -10,12 +10,13 @@ import Form from "@/components/base/Form";
 import Label from "@/components/base/Label";
 import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useCreateBot from "@/controllers/api/settings/bots/useCreateBot";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ROUTES } from "@/core/routing/constants";
 import FormErrorMessage from "@/components/FormErrorMessage";
 import AvatarUploader from "@/components/AvatarUploader";
+import AvatarGeneration from "@/components/AvatarGeneration";
 import { BotModel } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import { EHttpStatus } from "@langboard/core/enums";
@@ -31,6 +32,7 @@ import BotPlatformSelect from "@/components/bots/BotPlatformSelect";
 import BotPlatformRunningTypeSelect from "@/components/bots/BotPlatformRunningTypeSelect";
 import { ISharedSettingsModalProps } from "@/pages/SettingsPage/types";
 import BotCreateAssistantPanel from "@/pages/SettingsPage/components/bots/BotCreateAssistantPanel";
+import type { AvatarGenerationRequest } from "@/components/AvatarGeneration";
 import type { IBotDraft } from "@/controllers/api/settings/bots/useDraftBotFromInstruction";
 import type { IBotActionSuggestion } from "@/controllers/api/settings/bots/useSuggestBotActions";
 
@@ -38,7 +40,17 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const [isValidating, setIsValidating] = useState(false);
+    const [textPending, setTextPending] = useState(false);
+    const textPendingRef = useRef(false);
+    const updateTextPending = useCallback((pending: boolean) => {
+        textPendingRef.current = pending;
+        setTextPending(pending);
+    }, []);
+    const formRevision = useRef(0);
     const [revealedToken, setRevealedToken] = useState<string>();
+    const [generatedAvatar, setGeneratedAvatar] = useState<File>();
+    const [avatarRevision, setAvatarRevision] = useState(0);
+    const [avatarRequest, setAvatarRequest] = useState<AvatarGenerationRequest>();
     const [draftActionSuggestions, setDraftActionSuggestions] = useState<IBotActionSuggestion[]>([]);
     const dialogContentRef = useRef<HTMLDivElement | null>(null);
     const dataTransferRef = useRef(new DataTransfer());
@@ -71,6 +83,17 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
 
         return JSON.parse(valueRef.current) as Record<string, unknown>;
     };
+    const getDraftIdentity = () =>
+        JSON.stringify([
+            opened,
+            currentUser.uid,
+            selectedPlatform,
+            selectedPlatformRunningType,
+            formRevision.current,
+            inputsRef.current.name?.value,
+            inputsRef.current.uname?.value,
+            valueRef.current,
+        ]);
     const applyBotDraft = (draft: IBotDraft) => {
         setDraftActionSuggestions(draft.suggestions);
         if (inputsRef.current.name) {
@@ -92,11 +115,12 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         });
     };
     const save = async () => {
-        if (isValidating || !inputsRef.current.name || !inputsRef.current.uname) {
+        if (isValidating || textPendingRef.current || !inputsRef.current.name || !inputsRef.current.uname) {
             return;
         }
 
         await syncPendingBotValueInputChange(inputsRef.current.value);
+        if (textPendingRef.current) return;
         setIsValidating(true);
 
         const values = {} as Record<keyof typeof inputsRef.current, string>;
@@ -200,7 +224,11 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
             return;
         }
 
+        ++formRevision.current;
+        dataTransferRef.current.items.clear();
         setRevealedToken(undefined);
+        setGeneratedAvatar(undefined);
+        setAvatarRequest(undefined);
         setDraftActionSuggestions([]);
         setOpened(opened);
     };
@@ -231,9 +259,23 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                     <Dialog.Title>{t("settings.Create bot")}</Dialog.Title>
                 </Dialog.Header>
                 {!revealedToken && (
-                    <Form.Root className="mt-4">
-                        <Box mb="4">
-                            <BotCreateAssistantPanel disabled={isValidating} getCurrentValue={getCurrentBotValue} onApplyDraft={applyBotDraft} />
+                    <Form.Root
+                        className="mt-4"
+                        onInputCapture={(event) => {
+                            if (!(event.target as HTMLElement).closest("[data-bot-assistant]")) ++formRevision.current;
+                        }}
+                    >
+                        <Box mb="4" data-bot-assistant>
+                            {opened && (
+                                <BotCreateAssistantPanel
+                                    disabled={isValidating}
+                                    getCurrentValue={getCurrentBotValue}
+                                    onApplyDraft={applyBotDraft}
+                                    onRequestAvatar={setAvatarRequest}
+                                    getDraftIdentity={getDraftIdentity}
+                                    onPendingChange={updateTextPending}
+                                />
+                            )}
                         </Box>
                         <AvatarUploader
                             isBot
@@ -241,7 +283,21 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                             isValidating={isValidating}
                             errorMessage={errors.avatar}
                             avatarSize="3xl"
+                            selectedFile={generatedAvatar}
+                            onChange={() => setAvatarRevision((revision) => revision + 1)}
+                            onDeleted={() => setAvatarRevision((revision) => revision + 1)}
                         />
+                        <Flex justify="center" mt="3">
+                            <AvatarGeneration
+                                key={String(opened)}
+                                base="/settings/bot/avatar"
+                                canUpdate={opened}
+                                disabled={isValidating}
+                                onDraftApplied={setGeneratedAvatar}
+                                generationRequest={avatarRequest}
+                                revisionKey={`${currentUser.uid}:${selectedPlatform}:${selectedPlatformRunningType}:${avatarRevision}`}
+                            />
+                        </Flex>
                         <Box mt="10">
                             <Floating.LabelInput
                                 label={t("settings.Bot name")}
@@ -393,7 +449,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                         </Button>
                     </Dialog.Close>
                     {!revealedToken && (
-                        <SubmitButton type="button" isValidating={isValidating} onClick={save}>
+                        <SubmitButton type="button" disabled={textPending} isValidating={isValidating} onClick={save}>
                             {t("common.Create")}
                         </SubmitButton>
                     )}

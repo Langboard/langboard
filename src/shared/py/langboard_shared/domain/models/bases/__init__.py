@@ -9,7 +9,6 @@ from .BaseGraphApprovalRequestModel import BaseGraphApprovalRequestModel
 from .BaseMetadataModel import BaseMetadataModel
 from .BaseReactionModel import REACTION_TYPES, BaseReactionModel
 from .BaseRoleModel import ALL_GRANTED, BaseRoleModel
-from .BotTriggerCondition import BotTriggerCondition
 
 
 __all__ = [
@@ -21,11 +20,9 @@ __all__ = [
     "BaseChatSessionModel",
     "BaseGraphApprovalBotRequest",
     "BaseGraphApprovalRequestModel",
-    "BotTriggerCondition",
     "BaseMetadataModel",
     "BaseReactionModel",
     "BaseRoleModel",
-    "BotTriggerCondition",
     "REACTION_TYPES",
     "ALL_GRANTED",
 ]

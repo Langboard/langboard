@@ -7,6 +7,7 @@
     "card_delete": "删除卡片"
   },
   "setting": {
+    "group_read": "读取",
     "user_read": "读取",
     "user_create": "创建",
     "user_update": "更新",
@@ -38,6 +39,7 @@
     "ollama_read": "读取"
   },
   "setting_categories": {
+    "group": "群组",
     "user": "用户管理",
     "bot": "机器人管理",
     "internal_bot": "内部机器人管理",

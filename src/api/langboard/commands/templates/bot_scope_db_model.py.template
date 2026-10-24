@@ -2,7 +2,8 @@ from enum import Enum
 from typing import Any
 from ...core.db import ApiField, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
-from .bases import BaseBotScopeModel, BotTriggerCondition
+from ..constants.DomainEventType import DomainEventType
+from .bases import BaseBotScopeModel
 
 
 class {class_name}BotScope(BaseBotScopeModel):
@@ -12,7 +13,7 @@ class {class_name}BotScope(BaseBotScopeModel):
     )
 
     @staticmethod
-    def get_available_conditions() -> set[BotTriggerCondition]:
+    def get_available_conditions() -> set[DomainEventType]:
         return {empty_dict}
 
     @staticmethod

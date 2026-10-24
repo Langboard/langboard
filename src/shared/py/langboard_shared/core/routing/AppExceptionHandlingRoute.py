@@ -52,6 +52,7 @@ class AppExceptionHandlingRoute(APIRoute):
         return JsonResponse(
             content=exc.detail,
             status_code=exc.status_code,
+            headers=exc.headers,
         )
 
     def handle_generic_exception(self, exc: Exception) -> Response:

@@ -194,6 +194,8 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
     try:
         with engine.begin() as connection:
             for statement in (
+                "CREATE TABLE project (id bigint PRIMARY KEY, deleted_at timestamptz)",
+                "INSERT INTO project VALUES (7, NULL)",
                 "CREATE TABLE project_column (id bigint PRIMARY KEY, deleted_at timestamptz, is_archive boolean NOT NULL, workflow_stage text, project_id bigint)",
                 "CREATE TABLE global_card_relationship_type (id bigint PRIMARY KEY, machine_semantic text, is_active boolean)",
                 "CREATE TABLE webhook_setting (id bigint PRIMARY KEY, secret_id bigint, events jsonb NOT NULL)",
@@ -561,6 +563,28 @@ def test_producer_snapshot_survives_retry_and_session_restart_with_current_fence
         assert frozen["title"] == "Original"
         assert frozen["labels"] == ["backend"]
         assert frozen["assignee_ids"] == [123]
+        # Exercise the context projection's PostgreSQL JSONB/body path against the
+        # real database, including independent edits that keep Card.updated_at.
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE card ADD COLUMN description jsonb"))
+            connection.execute(text("UPDATE card SET description = CAST(:body AS jsonb)"), {"body": '{"content": "Original body"}'})
+        original_context = current_execution(100, include_description=True)
+        assert original_context.description == "Original body"
+        assert original_context.labels == ["backend"]
+        assert original_context.assignee_ids == [123]
+        assert original_context.is_ready and original_context.generation == 1
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE project_label SET name = 'renamed independently'"))
+            connection.execute(text("UPDATE card SET description = CAST(:body AS jsonb)"), {"body": '{"content": "Updated body 한글"}'})
+        updated_context = current_execution(100, include_description=True)
+        assert updated_context.revision == original_context.revision
+        assert updated_context.generation == original_context.generation
+        assert updated_context.is_ready
+        assert updated_context.labels == ["renamed independently"]
+        assert updated_context.description == "Updated body 한글"
+        assert current_execution(100).description is None
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE project_label SET name = 'backend'"))
         with pytest.raises(worker.ExecutionDeliveryFailed):
             asyncio_run(worker.drain_one(event_id))
         with engine.connect() as connection:

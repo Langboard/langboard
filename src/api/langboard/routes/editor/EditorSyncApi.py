@@ -165,3 +165,18 @@ def request_editor_sync_rich_patch(
         raise ApiException.Forbidden_403()
 
     return _forward_to_socket(request, "/editor-sync/rich/patch-request", form.model_dump())
+
+
+def check_wiki_conversion_owner(headers, wiki_uid: str, generation: int) -> None:
+    """Owner precondition only. Durable DB generation separately fences racing joins."""
+    from langboard_shared.domain.services.factory.ProjectWikiService import WikiSecretSelectionError
+    from starlette.datastructures import Headers
+    from ...middlewares.CollaborativeEditMiddleware import CollaborativeEditMiddleware
+
+    # Include the legacy identity so an old open editor cannot be overlooked.
+    names = [f"wiki:{wiki_uid}:content", f"wiki:{wiki_uid}:content:{generation}"]
+    active = CollaborativeEditMiddleware._get_active_collaborative_document_names(Headers(headers), names)
+    if active is None:
+        raise WikiSecretSelectionError("collaboration_unavailable")
+    if active:
+        raise WikiSecretSelectionError("collaboration_active")

@@ -177,7 +177,7 @@ def test_board_route_passes_one_request_cutoff_to_cards_and_checklists(monkeypat
                 project,
                 CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True),
             ),
-            get_board_snapshot=lambda _project, _user_or_bot, cutoff, *, channel: (
+            get_board_snapshot=lambda _project, _user_or_bot, cutoff, *, channel, phase_timings: (
                 calls.__setitem__("snapshot", cutoff),
                 ([], []),
             )[1],

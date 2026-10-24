@@ -1,6 +1,4 @@
-import { formatDateTime } from "@/core/utils/LocaleFormat";
 import Button from "@/components/base/Button";
-import Tooltip from "@/components/base/Tooltip";
 import IconComponent from "@/components/base/IconComponent";
 import { api } from "@/core/helpers/Api";
 import { ProjectCard } from "@/core/models";
@@ -10,14 +8,7 @@ import { ESocketTopic } from "@langboard/core/enums";
 import { Utils } from "@langboard/core/utils";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-
-interface ColumnEvent {
-    uid: string;
-    activity_type: "card_created" | "card_moved";
-    created_at: string;
-    column?: { name?: string };
-    recorder?: { type: string; firstname?: string; lastname?: string; name?: string };
-}
+import CardColumnEvent, { ColumnEvent } from "./CardColumnEvent";
 
 export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }) {
     const { projectUID, socket } = useBoardCard();
@@ -28,7 +19,7 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
     const [page, setPage] = useState<{ key: string; records: ColumnEvent[]; next_cursor?: string | null }>();
     const events = page?.key === key ? page.records.filter((event) => event.column?.name) : [];
     const nextCursor = page?.key === key ? page.next_cursor : undefined;
-    const [t, i18n] = useTranslation();
+    const [t] = useTranslation();
 
     useEffect(() => {
         let controller: AbortController | undefined;
@@ -78,24 +69,12 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
                 </Button>
             )}
             {nextCursor && (
-                <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-5 px-1 text-[11px]"
-                    onClick={() => setSelection({ key, before: nextCursor })}
-                >
+                <Button type="button" variant="ghost" className="h-5 px-1 text-[11px]" onClick={() => setSelection({ key, before: nextCursor })}>
                     {t("card.Older history")}
                 </Button>
             )}
             <IconComponent icon="history" size="3" className="shrink-0 opacity-70" aria-hidden="true" />
             {events.map((event, index) => {
-                const date = new Date(event.created_at);
-                const exact = formatDateTime(date, i18n.language, { timeStyle: "medium" });
-                const actor =
-                    event.recorder?.type === "bot"
-                        ? event.recorder.name
-                        : [event.recorder?.firstname, event.recorder?.lastname].filter(Boolean).join(" ");
-                const detail = `${event.column?.name} · ${exact} · ${actor || t("common.Unknown User")}`;
                 return (
                     <span key={event.uid} className="inline-flex min-w-0 items-center gap-1">
                         {index > 0 && (
@@ -103,19 +82,7 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
                                 ›
                             </span>
                         )}
-                        <Tooltip.Root>
-                            <Tooltip.Trigger asChild>
-                                <time
-                                    dateTime={date.toISOString()}
-                                    tabIndex={0}
-                                    aria-label={detail}
-                                    className="max-w-full truncate rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                >
-                                    {event.column?.name}
-                                </time>
-                            </Tooltip.Trigger>
-                            <Tooltip.Content>{detail}</Tooltip.Content>
-                        </Tooltip.Root>
+                        <CardColumnEvent event={event} />
                     </span>
                 );
             })}

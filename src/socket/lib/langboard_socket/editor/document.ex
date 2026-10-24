@@ -182,8 +182,10 @@ defmodule LangboardSocket.Editor.Document do
   end
 
   def handle_call({:leave, client}, _from, state) do
-    {:reply, :ok, detach_client(client, state)}
+    next = detach_client(client, state)
+    if idle_wiki_lineage?(next), do: {:stop, :normal, :ok, next}, else: {:reply, :ok, next}
   end
+
 
   def handle_call({:sync_step1, client, vector}, _from, state) do
     if Map.has_key?(state.clients, client) do
@@ -412,7 +414,8 @@ defmodule LangboardSocket.Editor.Document do
         {:noreply, finish_rich_patch(state, {:error, :cancelled})}
 
       Map.get(state.clients, client) == monitor ->
-        {:noreply, detach_client(client, state)}
+        next = detach_client(client, state)
+        if idle_wiki_lineage?(next), do: {:stop, :normal, next}, else: {:noreply, next}
 
       true ->
         {:noreply, state}
@@ -497,6 +500,14 @@ defmodule LangboardSocket.Editor.Document do
     Enum.each(state.clients, fn {peer, _monitor} ->
       if peer != origin, do: send(peer, {event, state.name, update})
     end)
+  end
+
+  defp idle_wiki_lineage?(state) do
+    map_size(state.clients) == 0 and
+      case String.split(state.name, ":") do
+        ["wiki", _, "content", _generation] -> true
+        _ -> false
+      end
   end
 
   defp global_name(name), do: {@registry_namespace, name}

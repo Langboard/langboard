@@ -211,6 +211,15 @@
     "wiki_deleted": {
       "default": "<Recorder/> deleted the wiki <Wiki/>.",
       "user": "You deleted the wiki <Wiki/> in the project <Project/>."
+    },
+    "card_linked": {
+      "default": "<Recorder/> linked this card to <SourceCard/>.",
+      "user": "You linked this card to <SourceCard/>."
+    },
+    "card_cloned": {
+      "default": "<Recorder/> cloned this card from <SourceCard/>.",
+      "user": "You cloned this card from <SourceCard/>."
     }
-  }
+  },
+  "Source card": "Source card"
 }

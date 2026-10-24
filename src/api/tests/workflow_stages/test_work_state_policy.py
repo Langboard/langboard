@@ -26,7 +26,9 @@ def test_registry_edits_and_inactive_bindings_reinterpret_a_card_batch_without_e
         counts_as_completed=True,
         active_queue_policy="exclude",
         overdue_policy="suppress",
-        entry_effects=["complete_checkitems"],
+        rules=[{"name": "Complete on entry", "is_enabled": True, "trigger": {"kind": "stage_entered"},
+                "condition_match": "all", "conditions": [], "actions": [{"kind": "checkitems.complete",
+                "executor": {"kind": "event_actor"}, "config": {}, "requires_previous_success": False}]}],
     )
     definition = registry_service.save(fields)
     uid = definition.get_uid()

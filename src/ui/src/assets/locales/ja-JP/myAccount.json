@@ -53,6 +53,11 @@
   "secretHistory": {
     "title": "シークレット履歴",
     "help": "この参照の監査記録です。秘密値やVaultの場所は表示されません。",
+    "currentState": "現在の状態",
+    "states": {
+      "active": "有効",
+      "revoked": "失効済み"
+    },
     "failed": "履歴を取得できないか権限が変更されました。",
     "empty": "履歴はまだありません。",
     "older": "過去の記録",

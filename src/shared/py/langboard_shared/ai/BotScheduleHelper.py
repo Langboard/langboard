@@ -1,6 +1,6 @@
 from typing import Any, Literal, TypeVar, cast, overload
 from crontab import CronTab
-from sqlalchemy import tuple_
+from sqlalchemy import func, select, tuple_
 from ..core.db import BaseDbModel, DbSession, SqlBuilder
 from ..core.schema import TimeBasedPagination
 from ..core.types import SafeDateTime, SnowflakeID
@@ -9,6 +9,7 @@ from ..core.utils.decorators import staticclass
 from ..domain.models import Bot, BotSchedule
 from ..domain.models.bases import BaseBotScheduleModel
 from ..domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
+from ..domain.models.BotScheduleRun import BotScheduleRun
 from ..helpers import InfraHelper
 
 
@@ -97,12 +98,43 @@ class BotScheduleHelper:
         if not as_api:
             return schedules
 
+        # Admission is historical transport evidence, never proof of execution success.
+        pairs = [
+            (schedule.id, model.id)
+            for model, schedule in schedules
+            if schedule.running_type == BotScheduleRunningType.Onetime
+        ]
+        admissions = {}
+        if pairs:
+            latest = (
+                select(func.max(BotScheduleRun.id))
+                .where(
+                    BotScheduleRun.scope_table == schedule_model_class.__tablename__,
+                    tuple_(BotScheduleRun.schedule_id, BotScheduleRun.scope_id).in_(pairs),
+                )
+                .group_by(BotScheduleRun.schedule_id, BotScheduleRun.scope_id)
+            )
+            with DbSession.use(readonly=True) as db:
+                rows = db.exec(SqlBuilder.select.table(BotScheduleRun).where(BotScheduleRun.id.in_(latest))).all()
+            admissions = {(row.schedule_id, row.scope_id): row for row in rows}
+
         api_schedules = []
         for schedule_model, schedule in schedules:
             api_schedule = {
                 **schedule.api_response(),
                 **schedule_model.api_response(),
             }
+            admission = admissions.get((schedule.id, schedule_model.id))
+            if admission is not None:
+                api_schedule["last_admission"] = {
+                    "uid": admission.get_uid(),
+                    "state": admission.state,
+                    "attempt": admission.attempt,
+                    "max_attempts": admission.max_attempts,
+                    "next_attempt_at": admission.next_attempt_at,
+                    "expires_at": admission.expires_at,
+                    "error_code": admission.error_code,
+                }
             api_schedules.append(api_schedule)
 
         return api_schedules

@@ -19,6 +19,7 @@ from langboard_shared.domain.models import (
     Card,
     CardRelationship,
     Checkitem,
+    CheckitemTimerRecord,
     Checklist,
     GlobalCardRelationshipType,
     ProjectAssignedUser,
@@ -29,11 +30,12 @@ from langboard_shared.Env import Env
 from sqlalchemy import func, select
 
 
-async def test_private_card_preview_and_apply_use_current_actor_through_mcp(board, monkeypatch, caplog):
+@pytest.mark.parametrize("mutation", ["checklist", "cardify"])
+async def test_private_card_preview_and_apply_use_current_actor_through_mcp(board, monkeypatch, caplog, mutation):
     engine = DbEngine.get_main_engine()
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
-    for model in (Card, Checklist, Checkitem, GlobalCardRelationshipType, CardRelationship):
+    for model in (Card, Checklist, Checkitem, CheckitemTimerRecord, GlobalCardRelationshipType, CardRelationship):
         model.__table__.create(engine)
     with DbSession.atomic() as db:
         owner = db.exec(SqlBuilder.select.table(User).where(User.id == board[2].owner_id)).first()
@@ -50,6 +52,11 @@ async def test_private_card_preview_and_apply_use_current_actor_through_mcp(boar
             created_by_user_id=owner.id,
         )
         db.insert(card)
+        if mutation == "cardify":
+            checklist = Checklist(card_id=card.id, title="Private steps", order=0)
+            db.insert(checklist)
+            item = Checkitem(checklist_id=checklist.id, title="Private task")
+            db.insert(item)
     names = ("preview_card_work_plan", "apply_card_work_plan")
     assert all(getattr(CardMcp, name) for name in names)
     metadata = {name: McpTool.get_tool(name) for name in names}
@@ -61,6 +68,17 @@ async def test_private_card_preview_and_apply_use_current_actor_through_mcp(boar
         "anchor_card_uid": card.get_uid(),
         "new_checklists": [{"target_card_ref": card.get_uid(), "title": "Steps", "items": ["Verify"]}],
     }
+    if mutation == "cardify":
+        plan.pop("new_checklists")
+        plan["cardify_checkitems"] = [
+            {
+                "client_ref": "cardify:task",
+                "source_card_uid": card.get_uid(),
+                "checkitem_uid": item.get_uid(),
+                "project_column_uid": board[5][0].get_uid(),
+                "title": "Private task",
+            }
+        ]
     # This is the actual WorkPlanService and current database visibility policy;
     # no constructor, card resolver, checklist writer, or role check is replaced.
     tool_group = SimpleNamespace(activated_at=object(), tools=list(names))
@@ -101,12 +119,17 @@ async def test_private_card_preview_and_apply_use_current_actor_through_mcp(boar
     finally:
         mcp_auth_context.reset(token)
     with engine.connect() as connection:
-        assert connection.execute(select(func.count()).select_from(Checklist.__table__)).scalar_one() == 0
-        assert connection.execute(select(func.count()).select_from(Checkitem.__table__)).scalar_one() == 0
+        assert connection.execute(select(func.count()).select_from(Checklist.__table__)).scalar_one() == int(
+            mutation == "cardify"
+        )
+        assert connection.execute(select(func.count()).select_from(Checkitem.__table__)).scalar_one() == int(
+            mutation == "cardify"
+        )
 
 
 @pytest.mark.parametrize(
-    "case", ["active", "new", "archive_anchor", "archive_endpoint", "hidden", "deleted", "foreign", "invalid_ref"]
+    "case",
+    ["active", "new", "archive_anchor", "archive_endpoint", "hidden", "deleted", "foreign", "invalid_ref", "duplicate"],
 )
 async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, case):
     engine = DbEngine.get_main_engine()
@@ -132,6 +155,12 @@ async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, c
         db.insert(endpoint)
         relation_type = GlobalCardRelationshipType(parent_name="Contains", child_name="Part of")
         db.insert(relation_type)
+        if case == "duplicate":
+            db.insert(
+                CardRelationship(
+                    relationship_type_id=relation_type.id, card_id_parent=anchor.id, card_id_child=endpoint.id
+                )
+            )
     name = "preview_card_work_plan"
     metadata = {name: McpTool.get_tool(name)}
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
@@ -175,7 +204,7 @@ async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, c
             "CARD_ARCHIVED"
             if case.startswith("archive")
             else "WORK_PLAN_INVALID"
-            if case == "invalid_ref"
+            if case in {"invalid_ref", "duplicate"}
             else "CARD_UNAVAILABLE"
         )
         assert code in text, text
@@ -227,5 +256,10 @@ async def test_native_preview_safe_rejection_and_no_writes(board, monkeypatch, c
             assert correlated.json()["request_id"] == safe_id.replace("-", "")
             assert correlated.headers["X-Request-ID"] == safe_id.replace("-", "")
     with engine.connect() as connection:
-        for model, expected in ((Card, 2), (Checklist, 0), (Checkitem, 0), (CardRelationship, 0)):
+        for model, expected in (
+            (Card, 2),
+            (Checklist, 0),
+            (Checkitem, 0),
+            (CardRelationship, int(case == "duplicate")),
+        ):
             assert connection.execute(select(func.count()).select_from(model.__table__)).scalar_one() == expected

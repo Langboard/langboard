@@ -7,6 +7,7 @@ from typing import TypedDict, cast
 from urllib.parse import parse_qsl
 import requests
 from fastapi import status
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.routing import (
     EDITOR_ROUTE_KEY_HEADER,
@@ -17,9 +18,10 @@ from langboard_shared.core.routing import (
 from langboard_shared.core.routing.ApiSchemaHelper import ApiSchemaMap
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.utils.Converter import json_default
-from langboard_shared.domain.models import User
+from langboard_shared.domain.models import ProjectWiki, User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
+from langboard_shared.helpers import InfraHelper
 from langboard_shared.helpers.AgentApiPermissionHelper import (
     create_permission_denied_response,
     get_agent_allowed_permissions,
@@ -111,6 +113,17 @@ class CollaborativeEditMiddleware:
             form=self._parse_json_body(body),
         )
 
+        try:
+            api_schema = await run_in_threadpool(self._capture_wiki_delete_targets, request_schema, api_schema)
+        except Exception:
+            _logger.exception("Unable to capture wiki deletion namespace from primary.")
+            response = JsonResponse(
+                content={"message": "Unable to verify active collaborative documents."},
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+            await response(scope, self._replay_body_messages(body_messages), send)
+            return
+
         guard_response = await run_in_threadpool(
             self._get_collaborative_edit_guard_response, headers, request_schema, api_schema
         )
@@ -148,6 +161,36 @@ class CollaborativeEditMiddleware:
             await run_in_threadpool(self._clear_inactive_collaborative_documents, headers, request_schema, api_schema)
 
     @staticmethod
+    def _capture_wiki_delete_targets(request_schema: BatchFormRequestSchema, api_schema: ApiSchemaMap) -> ApiSchemaMap:
+        template = "wiki:{wiki_uid}:content:{editor_generation}"
+        targets = api_schema.get("collaborative_edit_targets", [])
+        if request_schema.method.upper() != "DELETE" or not any(
+            target.get("type") == "block" and target.get("document_name") == template for target in targets
+        ):
+            return api_schema
+
+        wiki_uid = (request_schema.query or {}).get("wiki_uid")
+        with DbSession.use(readonly=False) as db:
+            row = db.exec(
+                SqlBuilder.select.columns(ProjectWiki.column("editor_generation")).where(
+                    ProjectWiki.id == InfraHelper.convert_id(wiki_uid), ProjectWiki.deleted_at.is_(None)
+                )
+            ).first()
+        if row is None or type(row[0]) is not int or not 0 <= row[0] <= 2147483647:
+            raise ValueError("Wiki deletion namespace is unavailable.")
+
+        # Keep a request-local snapshot for both admission and post-delete cleanup.
+        return {
+            **api_schema,
+            "collaborative_edit_targets": [
+                {**target, "document_name": f"wiki:{wiki_uid}:content:{row[0]}"}
+                if target.get("type") == "block" and target.get("document_name") == template
+                else dict(target)
+                for target in targets
+            ],
+        }
+
+    @staticmethod
     def _get_api_schema_by_path(method: str, request_path: str) -> tuple[ApiSchemaMap | None, dict[str, str]]:
         for schema in AppRouter.api_routes.values():
             if schema["method"].upper() != method.upper():
@@ -166,6 +209,16 @@ class CollaborativeEditMiddleware:
     def _get_collaborative_edit_guard_response(
         self, headers: Headers, request_schema: BatchFormRequestSchema, api_schema: ApiSchemaMap
     ) -> _BatchResponse | None:
+        form = request_schema.form or {}
+        for target in api_schema.get("collaborative_edit_targets", []):
+            if (
+                "{editor_generation}" in target.get("document_name", "")
+                and form.get(target.get("form_field", "")) is not None
+            ):
+                generation = form.get("editor_generation")
+                if type(generation) is not int or not 0 <= generation <= 2147483647:
+                    return self._batch_response({"error": "stale_editor"}, status.HTTP_409_CONFLICT)
+
         targets = self._get_collaborative_edit_targets(request_schema, api_schema)
         document_names = [target["document_name"] for target in targets]
         active_document_names = self._get_active_collaborative_document_names(headers, document_names)
@@ -248,8 +301,15 @@ class CollaborativeEditMiddleware:
 
             form_field = target.get("form_field")
             patch_field = target.get("patch_field")
+            target_params = request_params
+            if "{editor_generation}" in document_name:
+                # Generation belongs to the captured content request, never to query overrides.
+                generation = (request_schema.form or {}).get("editor_generation")
+                if type(generation) is not int or not 0 <= generation <= 2147483647:
+                    continue
+                target_params = {**request_params, "editor_generation": generation}
             for formatted_document_name in CollaborativeEditMiddleware._format_collaborative_document_names(
-                document_name, request_params
+                document_name, target_params
             ):
                 targets.append(
                     {
@@ -415,6 +475,16 @@ class CollaborativeEditMiddleware:
                 form.pop(form_field, None)
 
         path_params = set(api_schema["path_params"])
+        if any(
+            target["type"] == "rich"
+            and target["document_name"].startswith("wiki:")
+            and len(target["document_name"].split(":")) == 4
+            and target["document_name"].split(":")[2] == "content"
+            and target["document_name"] in patched_document_names
+            for target in targets
+        ):
+            # These validate the consumed content save; they are not another API mutation.
+            path_params.update({"editor_generation", "expected_revision"})
         return any(key not in path_params for key in form)
 
     @staticmethod

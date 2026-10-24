@@ -22,7 +22,8 @@ def test_search_passes_timezone_aware_half_open_period_to_native_query() -> None
     calls = []
     service = SimpleNamespace(
         card=SimpleNamespace(
-            search_context_by_project=lambda project, query, **filters: calls.append((project, query, filters)) or [],
+            search_context_by_project=lambda project, query, **filters: calls.append((project, query, filters))
+            or {"cards": [], "total_count": 0, "next_fields": None},
         )
     )
     assert UserMcp.search_project_cards(
@@ -32,7 +33,8 @@ def test_search_passes_timezone_aware_half_open_period_to_native_query() -> None
         "created_at",
         "2026-09-15T00:00:00+09:00",
         "2026-09-16T00:00:00+09:00",
-     user=SEARCH_USER) == {"cards": [], "workflow_stages": {}, "columns": {}}
+        user=SEARCH_USER,
+    ) == {"cards": [], "workflow_stages": {}, "columns": {}, "total_count": 0, "next_cursor": None, "limit": 20}
     project, query, filters = calls[0]
     assert (project, query) == ("project", "release")
     assert filters["date_field"] == "created_at"
@@ -93,14 +95,18 @@ def test_search_resolves_distinct_workflow_once_and_keeps_bounded_description():
             "released": {
                 "key": "released",
                 "counts_as_completed": True,
-                "entry_effects": ["stop_running_timers"],
+                "rules": [{"name": "Stop timers", "is_enabled": True, "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [], "actions": [{"kind": "timers.stop"}]}],
                 "translations": {"ko": {"name": "완료"}},
             }
         }
     )
     columns = Mock(return_value={})
     service = SimpleNamespace(
-        card=SimpleNamespace(search_context_by_project=Mock(return_value=cards)),
+        card=SimpleNamespace(
+            search_context_by_project=Mock(
+                return_value={"cards": cards, "total_count": len(cards), "next_fields": None}
+            )
+        ),
         workflow_stage=SimpleNamespace(get_api_by_keys=resolve),
         project_column=SimpleNamespace(get_api_workflow_context=columns),
     )
@@ -108,7 +114,7 @@ def test_search_resolves_distinct_workflow_once_and_keeps_bounded_description():
     resolve.assert_called_once_with({"released"})
     columns.assert_called_once_with("p", {"c"})
     assert service.card.search_context_by_project.call_args.kwargs["include_work_state"] is True
-    assert response["workflow_stages"]["released"]["entry_effects"] == ["stop_running_timers"]
+    assert response["workflow_stages"]["released"]["rules"][0]["actions"] == [{"kind": "timers.stop"}]
     assert "translations" not in response["workflow_stages"]["released"]
     assert all(
         item["description"] == {"content": "match"}
@@ -128,7 +134,13 @@ def test_document_search_tool_returns_sources_with_aggregate_excerpt_budget():
         for index in range(20)
     ]
     service = SimpleNamespace(
-        card=SimpleNamespace(search_context_by_project=lambda *args, **kwargs: cards),
+        card=SimpleNamespace(
+            search_context_by_project=lambda *args, **kwargs: {
+                "cards": cards,
+                "total_count": len(cards),
+                "next_fields": None,
+            }
+        ),
         project_column=SimpleNamespace(get_api_workflow_context=lambda *args: {}),
     )
     response = UserMcp.search_project_cards("board", "한", service, user=SEARCH_USER)

@@ -100,3 +100,55 @@ async def card_deleted(user_or_bot: User | Bot, project: Project, card: Card):
         user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardDeleted, project, card)
     )
     record_project_activity(user_or_bot, activity)
+
+
+def record_card_linked(user: User, project: Project, mirror: Card, source_project: Project, source: Card):
+    """Persist only source identity, never private source content, with the reference transaction."""
+    helper = ActivityTaskHelper(ProjectActivity)
+    return helper.record(
+        user,
+        {"source": {"type": Card.LINKED_RESOURCE_PROJECT_CARD, "uid": source.get_uid(),
+                    "project_uid": source_project.get_uid(),
+                    "url": f"/board/{source_project.get_uid()}/{source.get_uid()}"}},
+        **helper.get_card_activity_params(ProjectActivityType.CardLinked, project, mirror),
+    )
+
+
+def record_card_cloned(user, project, clone, source_project, source, *, request_uid, identity, excluded):
+    """The clone starts with original address provenance and a persisted retry receipt."""
+    helper = ActivityTaskHelper(ProjectActivity)
+    return helper.record(
+        user,
+        {
+            **helper.create_project_default_history(project, card=clone),
+            "source": {
+                "type": Card.LINKED_RESOURCE_PROJECT_CARD,
+                "uid": source.get_uid(),
+                "project_uid": source_project.get_uid(),
+                "url": f"/board/{source_project.get_uid()}/{source.get_uid()}",
+            },
+            "clone_request_uid": request_uid,
+            "clone_identity": identity,
+            "excluded": excluded,
+        },
+        **helper.get_card_activity_params(ProjectActivityType.CardCloned, project, clone),
+    )
+
+
+def record_card_cross_board_moved(user, source_project, destination, card, from_column,
+                                 *, request_uid, identity, excluded):
+    """Persist a retry receipt with the card and a content-free source-board event."""
+    helper = ActivityTaskHelper(ProjectActivity)
+    history = {
+        **helper.create_project_default_history(destination, card=card),
+        "source": {"project_uid": source_project.get_uid(), "column_uid": from_column.get_uid()},
+        "destination": {"project_uid": destination.get_uid(), "column_uid": card.project_column_id.to_short_code()},
+        "move_request_uid": request_uid,
+        "move_identity": identity,
+        "excluded": excluded,
+    }
+    receipt = helper.record(user, history, **helper.get_card_activity_params(ProjectActivityType.CardMoved, destination, card))
+    # A source feed must never retain a body/title or destination identity after readers lose access.
+    helper.record(user, {"moved_out": True}, project_id=source_project.id,
+                  project_column_id=from_column.id, activity_type=ProjectActivityType.CardMoved)
+    return receipt

@@ -1,3 +1,5 @@
+import PersonalSignalInbox from "./PersonalSignalInbox";
+import useAuthStore from "@/core/stores/AuthStore";
 import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { memo, useCallback, useMemo, useReducer, useState } from "react";
 import { IHeaderNavItem } from "@/components/Header/types";
@@ -26,6 +28,9 @@ import { ScreenMap } from "@/core/utils/VariantUtils";
 const DashboardProxy = memo((): React.JSX.Element => {
     const [t] = useTranslation();
     const { currentUser } = useAuth();
+    const identityVersion = useAuthStore((state) => state.getIdentityVersion());
+    const sessionVersion = useAuthStore((state) => state.getSessionVersion());
+    const actorScope = `${currentUser?.uid}:${identityVersion}:${sessionVersion}`;
     const [isExplorerOpen, setIsExplorerOpen] = useWorkbenchContextOpen(currentUser?.uid);
     const collapsedPanels = useUserSettings("workbench_sidebar_collapsed");
     const desktopContextVisible = isExplorerOpen && !collapsedPanels?.[currentUser?.uid ?? ""];
@@ -127,6 +132,10 @@ const DashboardProxy = memo((): React.JSX.Element => {
             pageContent = <TrackingPage />;
             skeletonContent = <SkeletonTrackingPage />;
             break;
+        case "inbox":
+            pageContent = <PersonalSignalInbox key={actorScope} actorScope={actorScope} />;
+            skeletonContent = <SkeletonCardsPage />;
+            break;
         case "my-work":
             pageContent = <MyWorkPage />;
             skeletonContent = <SkeletonCardsPage />;
@@ -184,6 +193,13 @@ const DashboardProxy = memo((): React.JSX.Element => {
             active: pageType === "projects" && tabName === "recent",
         },
         { icon: "clock", label: t("dashboard.Tracking"), onClick: headerNavs[3].onClick!, active: pageType === "tracking" },
+        {
+            icon: "inbox",
+            label: t("dashboard.personalInbox.title"),
+            mobile: "primary",
+            onClick: () => navigate(ROUTES.DASHBOARD.INBOX),
+            active: pageType === "inbox",
+        },
         ...pinnedApps.items,
         { icon: "store", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
         {
@@ -208,13 +224,15 @@ const DashboardProxy = memo((): React.JSX.Element => {
         <DashboardStyledLayout
             headerNavs={headerNavs}
             headerTitle={
-                pageType === "cards"
-                    ? t("dashboard.Cards")
-                    : pageType === "tracking"
-                      ? t("dashboard.Tracking")
-                      : pageType === "my-work"
-                        ? t("dashboard.My Work")
-                        : t("dashboard.Projects")
+                pageType === "inbox"
+                    ? t("dashboard.personalInbox.title")
+                    : pageType === "cards"
+                      ? t("dashboard.Cards")
+                      : pageType === "tracking"
+                        ? t("dashboard.Tracking")
+                        : pageType === "my-work"
+                          ? t("dashboard.My Work")
+                          : t("dashboard.Projects")
             }
             activityRailItems={dashboardRailItems}
             workbenchContext={

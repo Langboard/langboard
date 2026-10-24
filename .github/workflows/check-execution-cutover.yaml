@@ -5,6 +5,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-execution-cutover.yaml
+      - pyproject.toml
+      - uv.lock
+      - src/shared/py/pyproject.toml
       - src/api/langboard/routes/board/BoardCardApi.py
       - src/api/langboard/routes/board/ExecutionReceiptApi.py
       - src/api/langboard/routes/schemas/WebhookSchemaApi.py
@@ -53,8 +56,9 @@ jobs:
           --health-retries 5
     env:
       PROJECT_NAME: langboard
-      LANGBOARD_OUTBOX_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
     steps:
+      - name: Resolve PostgreSQL service address
+        run: echo "LANGBOARD_OUTBOX_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test" >> "$GITHUB_ENV"
       - name: Prepare standard job tools
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -65,6 +69,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

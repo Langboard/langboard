@@ -19,11 +19,10 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
     const { mutateAsync } = useUpdatePreferredLanguage({ interceptToast: true });
     const queryClient = useQueryClient();
     const languageWrites = useIsMutating({ mutationKey: ["update-preferred-language"] });
-    const preferredLang = currentUser.useField("preferred_lang");
     const { getAvatarHoverCardAttrs, setIsHoverLocked } = useUserAvatar();
 
     const handleUpdate = (lang: string) => {
-        if (isValidating || queryClient.isMutating({ mutationKey: ["update-preferred-language"] }) || lang === preferredLang) {
+        if (isValidating || queryClient.isMutating({ mutationKey: ["update-preferred-language"] })) {
             return;
         }
 
@@ -60,6 +59,7 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
             asForm={{
                 initialValue: normalizeLocale(i18n.language),
                 disabled: isValidating || languageWrites > 0,
+                includeCurrent: true,
                 onChange: handleUpdate,
             }}
         />

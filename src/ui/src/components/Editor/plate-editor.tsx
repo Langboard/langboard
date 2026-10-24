@@ -458,7 +458,13 @@ function EditorWrapper({
     );
 
     return (
-        <FocusScope trapped={false} loop={false} className="w-full outline-none">
+        <FocusScope
+            trapped={false}
+            loop={false}
+            className="w-full outline-none"
+            // Editable focus belongs to focusEditor after collaboration is ready.
+            onMountAutoFocus={(event) => event.preventDefault()}
+        >
             <Plate editor={editor} readOnly={readOnly || isWaitingForCollaborativeReady} onValueChange={handleValueChange}>
                 <div className="relative">
                     <EditorContainer className={containerClassName}>

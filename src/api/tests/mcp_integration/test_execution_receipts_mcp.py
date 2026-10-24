@@ -37,15 +37,6 @@ async def test_actual_roles_gate_native_review_and_revoked_replay(monkeypatch):
     monkeypatch.setattr(ExecutionMcp, "store_execution_receipt", command)
     monkeypatch.setattr(ExecutionMcp, "read_execution_receipts", history)
     monkeypatch.setattr(server_module, "DomainService", lambda: SimpleNamespace(close=lambda: None))
-    inject = McpServer._inject_kwargs
-
-    def inject_test_service(name, param, auth_value, kwargs):
-        if getattr(param.annotation, "__name__", None) == "DomainService":
-            kwargs[name] = SimpleNamespace(close=lambda: None)
-            return kwargs, None
-        return inject(name, param, auth_value, kwargs)
-
-    monkeypatch.setattr(McpServer, "_inject_kwargs", inject_test_service)
     names = ("get_card_execution_receipts", "submit_card_execution_review")
     metadata = {name: McpTool.get_tool(name) for name in names}
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)

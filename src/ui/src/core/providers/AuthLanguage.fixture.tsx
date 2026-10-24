@@ -28,6 +28,8 @@ function Fixture() {
             <button onClick={() => login("user-b", "ja-JP")}>Login B</button>
             <button onClick={() => login("user-invalid", "zh-Hant")}>Login invalid</button>
             <button onClick={() => login("user-unset", "")}>Login unset</button>
+            <button onClick={() => login("user-inherited", "ko-KR")}>Login inherited</button>
+            <button onClick={() => login("user-fallback", "en-US")}>Login fallback</button>
             <button onClick={() => getAuthStore().removeToken()}>Logout</button>
             <button onClick={() => i18n.changeLanguage("zh-CN")}>Local Chinese</button>
             <button onClick={() => login("user-a", "ko-KR")}>Refresh A</button>

@@ -1,6 +1,7 @@
 from ...core.db import ApiField, SnowflakeIDField
 from ...core.types import SnowflakeID
-from .bases import BaseBotScopeModel, BotTriggerCondition
+from ..constants.DomainEventType import DomainEventType
+from .bases import BaseBotScopeModel
 from .ProjectColumn import ProjectColumn
 
 
@@ -10,38 +11,38 @@ class ProjectColumnBotScope(BaseBotScopeModel, table=True):
     )
 
     @staticmethod
-    def get_available_conditions() -> set[BotTriggerCondition]:
+    def get_available_conditions() -> set[DomainEventType]:
         return {
-            BotTriggerCondition.ProjectColumnNameChanged,
-            BotTriggerCondition.ProjectColumnDeleted,
-            BotTriggerCondition.CardCreated,
-            BotTriggerCondition.CardUpdated,
-            BotTriggerCondition.CardMoved,
-            BotTriggerCondition.CardLabelsUpdated,
-            BotTriggerCondition.CardRelationshipsUpdated,
-            BotTriggerCondition.CardDeleted,
-            BotTriggerCondition.CardAttachmentUploaded,
-            BotTriggerCondition.CardAttachmentNameChanged,
-            BotTriggerCondition.CardAttachmentDeleted,
-            BotTriggerCondition.CardCommentAdded,
-            BotTriggerCondition.CardCommentUpdated,
-            BotTriggerCondition.CardCommentDeleted,
-            BotTriggerCondition.CardCommentReacted,
-            BotTriggerCondition.CardCommentUnreacted,
-            BotTriggerCondition.CardChecklistCreated,
-            BotTriggerCondition.CardChecklistTitleChanged,
-            BotTriggerCondition.CardChecklistChecked,
-            BotTriggerCondition.CardChecklistUnchecked,
-            BotTriggerCondition.CardChecklistDeleted,
-            BotTriggerCondition.CardCheckitemCreated,
-            BotTriggerCondition.CardCheckitemTitleChanged,
-            BotTriggerCondition.CardCheckitemTimerStarted,
-            BotTriggerCondition.CardCheckitemTimerPaused,
-            BotTriggerCondition.CardCheckitemTimerStopped,
-            BotTriggerCondition.CardCheckitemChecked,
-            BotTriggerCondition.CardCheckitemUnchecked,
-            BotTriggerCondition.CardCheckitemCardified,
-            BotTriggerCondition.CardCheckitemDeleted,
+            DomainEventType.ProjectColumnNameChanged,
+            DomainEventType.ProjectColumnDeleted,
+            DomainEventType.CardCreated,
+            DomainEventType.CardUpdated,
+            DomainEventType.CardMoved,
+            DomainEventType.CardLabelsUpdated,
+            DomainEventType.CardRelationshipsUpdated,
+            DomainEventType.CardDeleted,
+            DomainEventType.CardAttachmentUploaded,
+            DomainEventType.CardAttachmentNameChanged,
+            DomainEventType.CardAttachmentDeleted,
+            DomainEventType.CardCommentAdded,
+            DomainEventType.CardCommentUpdated,
+            DomainEventType.CardCommentDeleted,
+            DomainEventType.CardCommentReacted,
+            DomainEventType.CardCommentUnreacted,
+            DomainEventType.CardChecklistCreated,
+            DomainEventType.CardChecklistTitleChanged,
+            DomainEventType.CardChecklistChecked,
+            DomainEventType.CardChecklistUnchecked,
+            DomainEventType.CardChecklistDeleted,
+            DomainEventType.CardCheckitemCreated,
+            DomainEventType.CardCheckitemTitleChanged,
+            DomainEventType.CardCheckitemTimerStarted,
+            DomainEventType.CardCheckitemTimerPaused,
+            DomainEventType.CardCheckitemTimerStopped,
+            DomainEventType.CardCheckitemChecked,
+            DomainEventType.CardCheckitemUnchecked,
+            DomainEventType.CardCheckitemCardified,
+            DomainEventType.CardCheckitemDeleted,
         }
 
     @staticmethod

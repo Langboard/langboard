@@ -40,7 +40,7 @@ fi
 
 # Backup service is enabled by default
 WITH_DB_BACKUP="${WITH_DB_BACKUP:-true}"
-WITH_DB_BACKUP="${WITH_DB_BACKUP,,}"
+WITH_DB_BACKUP="$(printf '%s' "$WITH_DB_BACKUP" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
 if [ "${WITH_DB_BACKUP}" = "true" ]; then
     COMPOSE_ARGS+=" -f ${COMPOSE_PREFIX}.backup.yaml"
 fi
@@ -56,7 +56,7 @@ if [ -n "${REDIS_EXTERNAL_CACHE_URL:-}${REDIS_EXTERNAL_BROKER_URL:-}" ]; then
 fi
 # External realtime is an explicit deployment choice, never an endpoint fallback.
 socket_mode="${SOCKET_DEPLOYMENT_MODE:-bundled}"
-socket_mode="${socket_mode,,}"
+socket_mode="$(printf '%s' "$socket_mode" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
 case "$socket_mode" in
     bundled) ;;
     external)
@@ -112,7 +112,8 @@ fi
 
 # Match the runtime default and compare the resolved value, not a file prefix.
 vault_provider="${KEY_PROVIDER_TYPE:-openbao-local}"
-if [ "${vault_provider,,}" = "openbao-local" ]; then
+vault_provider="$(printf '%s' "$vault_provider" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+if [ "$vault_provider" = "openbao-local" ]; then
     COMPOSE_ARGS+=" ${VAULT_COMPOSE_ARGS}"
 fi
 

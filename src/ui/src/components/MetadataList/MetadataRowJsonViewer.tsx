@@ -62,15 +62,13 @@ function MetadataRowJsonViewer({
             setCurrentObject(newObject);
             setCurrentJSON(JSON.stringify(newObject, undefined, "    "));
             setError("");
-        } catch (e) {
-            if (e instanceof Error) {
-                setError(e.message);
-            }
+        } catch {
+            setError(t("metadata.errors.Invalid JSON format."));
             return;
         }
 
         setError("");
-    }, [setCurrentJSON, setCurrentObject]);
+    }, [setCurrentJSON, setCurrentObject, t]);
     const update = useCallback(() => {
         if (!canEdit() || !valueInputRef.current || !textareaRef.current) {
             return;
