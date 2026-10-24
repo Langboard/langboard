@@ -1,3 +1,4 @@
+import BoardCardActionAddDecision from "./decision/BoardCardActionAddDecision";
 import Skeleton from "@/components/base/Skeleton";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { lazy, memo, Suspense, useState } from "react";
@@ -169,6 +170,7 @@ const BoardCardActionList = memo(() => {
             <BoardCardActionRelationship buttonClassName={`${sharedButtonClassName} sm:hidden`} />
             <BoardCardActionAttachFile buttonClassName={sharedButtonClassName} />
             <BoardCardActionAddChecklist buttonClassName={sharedButtonClassName} />
+            <BoardCardActionAddDecision buttonClassName={sharedButtonClassName} />
             <BoardCardActionMetadata buttonClassName={sharedButtonClassName} />
             <BoardCardActionActivity buttonClassName={sharedButtonClassName} />
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/signals`} kind="signals" />

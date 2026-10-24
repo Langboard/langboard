@@ -1,3 +1,5 @@
+import { DecisionProvider } from "./decision/DecisionContext";
+import BoardCardDecisionGroup from "./decision/BoardCardDecisionGroup";
 import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
 import useAuthStore from "@/core/stores/AuthStore";
 import BoardCardWhispers from "./BoardCardWhispers";
@@ -394,7 +396,17 @@ function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
     return <BoardTaskCardResult {...props} />;
 }
 
-function BoardTaskCardResult({
+function BoardTaskCardResult(props: IBoardCardResultProps): React.JSX.Element {
+    const { projectUID, card, currentUser } = useBoardCard();
+    const revision = card.useField("last_change_seq");
+    return (
+        <DecisionProvider projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} sourceRevision={revision}>
+            <BoardTaskCardContent {...props} />
+        </DecisionProvider>
+    );
+}
+
+function BoardTaskCardContent({
     sectionLoading,
     isExpanded,
     setIsExpanded,
@@ -645,6 +657,7 @@ function BoardTaskCardResult({
                                             {!sectionLoading && (
                                                 <>
                                                     <CardColumnHistory card={card} />
+                                                    <BoardCardDecisionGroup />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody
                                                             key={`board-card-check-body-${card.uid}`}
