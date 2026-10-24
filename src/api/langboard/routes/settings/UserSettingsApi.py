@@ -248,6 +248,50 @@ def get_users_page_in_settings(
 
 
 @AppRouter.api.get(
+    "/settings/users/{user_uid}/business-activity",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema()
+    .suc({"records": [dict], "page": "integer", "limit": "integer", "has_more": "bool"})
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_user_business_activity_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    project_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    action: Annotated[str | None, Query(max_length=100, pattern=r"^[a-z_]+$")] = None,
+    occurred_from: Annotated[str | None, Query(max_length=40)] = None,
+    occurred_before: Annotated[str | None, Query(max_length=40)] = None,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    start, end = _sign_in_bound(occurred_from), _sign_in_bound(occurred_before)
+    if start is not None and end is not None and start >= end:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    target = service.user.get_by_id_like(user_uid)
+    if not target:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    return JsonResponse(
+        content=service.user.get_business_activity_in_settings(
+            user,
+            target,
+            page=page,
+            limit=limit,
+            project_uid=project_uid,
+            action=action,
+            occurred_from=start,
+            occurred_before=end,
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@AppRouter.api.get(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
     responses=OpenApiSchema().suc({"user": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),

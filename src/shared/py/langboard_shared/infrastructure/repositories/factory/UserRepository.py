@@ -23,6 +23,55 @@ from ....helpers import InfraHelper
 
 
 class UserRepository(BaseRepository[User]):
+    # Explicit mutation allowlists shared by account aggregates and detail feeds.
+    BUSINESS_PROJECT_ACTIONS = (
+        ProjectActivityType.ProjectCreated,
+        ProjectActivityType.ProjectUpdated,
+        ProjectActivityType.ProjectDeleted,
+        ProjectActivityType.ProjectColumnCreated,
+        ProjectActivityType.ProjectColumnNameChanged,
+        ProjectActivityType.ProjectColumnDeleted,
+        ProjectActivityType.ProjectLabelCreated,
+        ProjectActivityType.ProjectLabelUpdated,
+        ProjectActivityType.ProjectLabelDeleted,
+        ProjectActivityType.CardCreated,
+        ProjectActivityType.CardLinked,
+        ProjectActivityType.CardCloned,
+        ProjectActivityType.CardUpdated,
+        ProjectActivityType.CardMoved,
+        ProjectActivityType.CardAssignedUsersUpdated,
+        ProjectActivityType.CardLabelsUpdated,
+        ProjectActivityType.CardDeleted,
+        ProjectActivityType.CardAttachmentUploaded,
+        ProjectActivityType.CardAttachmentNameChanged,
+        ProjectActivityType.CardAttachmentDeleted,
+        ProjectActivityType.CardCommentAdded,
+        ProjectActivityType.CardCommentUpdated,
+        ProjectActivityType.CardCommentDeleted,
+        ProjectActivityType.CardCommentReacted,
+        ProjectActivityType.CardCommentUnreacted,
+        ProjectActivityType.CardRelationshipsUpdated,
+        ProjectActivityType.CardChecklistCreated,
+        ProjectActivityType.CardChecklistTitleChanged,
+        ProjectActivityType.CardChecklistChecked,
+        ProjectActivityType.CardChecklistUnchecked,
+        ProjectActivityType.CardChecklistDeleted,
+        ProjectActivityType.CardCheckitemCreated,
+        ProjectActivityType.CardCheckitemTitleChanged,
+        ProjectActivityType.CardCheckitemTimerStarted,
+        ProjectActivityType.CardCheckitemTimerPaused,
+        ProjectActivityType.CardCheckitemTimerStopped,
+        ProjectActivityType.CardCheckitemChecked,
+        ProjectActivityType.CardCheckitemUnchecked,
+        ProjectActivityType.CardCheckitemCardified,
+        ProjectActivityType.CardCheckitemDeleted,
+    )
+    BUSINESS_WIKI_ACTIONS = (
+        ProjectWikiActivityType.WikiCreated,
+        ProjectWikiActivityType.WikiUpdated,
+        ProjectWikiActivityType.WikiDeleted,
+    )
+
     @staticmethod
     def model_cls():
         return User
@@ -54,61 +103,15 @@ class UserRepository(BaseRepository[User]):
         Explicit allowlists keep future read-only/security events out by default.
         UserActivity is only a mirror and is absent for some atomic card mutations.
         """
-        project_actions = (
-            ProjectActivityType.ProjectCreated,
-            ProjectActivityType.ProjectUpdated,
-            ProjectActivityType.ProjectDeleted,
-            ProjectActivityType.ProjectColumnCreated,
-            ProjectActivityType.ProjectColumnNameChanged,
-            ProjectActivityType.ProjectColumnDeleted,
-            ProjectActivityType.ProjectLabelCreated,
-            ProjectActivityType.ProjectLabelUpdated,
-            ProjectActivityType.ProjectLabelDeleted,
-            ProjectActivityType.CardCreated,
-            ProjectActivityType.CardLinked,
-            ProjectActivityType.CardCloned,
-            ProjectActivityType.CardUpdated,
-            ProjectActivityType.CardMoved,
-            ProjectActivityType.CardAssignedUsersUpdated,
-            ProjectActivityType.CardLabelsUpdated,
-            ProjectActivityType.CardDeleted,
-            ProjectActivityType.CardAttachmentUploaded,
-            ProjectActivityType.CardAttachmentNameChanged,
-            ProjectActivityType.CardAttachmentDeleted,
-            ProjectActivityType.CardCommentAdded,
-            ProjectActivityType.CardCommentUpdated,
-            ProjectActivityType.CardCommentDeleted,
-            ProjectActivityType.CardCommentReacted,
-            ProjectActivityType.CardCommentUnreacted,
-            ProjectActivityType.CardRelationshipsUpdated,
-            ProjectActivityType.CardChecklistCreated,
-            ProjectActivityType.CardChecklistTitleChanged,
-            ProjectActivityType.CardChecklistChecked,
-            ProjectActivityType.CardChecklistUnchecked,
-            ProjectActivityType.CardChecklistDeleted,
-            ProjectActivityType.CardCheckitemCreated,
-            ProjectActivityType.CardCheckitemTitleChanged,
-            ProjectActivityType.CardCheckitemTimerStarted,
-            ProjectActivityType.CardCheckitemTimerPaused,
-            ProjectActivityType.CardCheckitemTimerStopped,
-            ProjectActivityType.CardCheckitemChecked,
-            ProjectActivityType.CardCheckitemUnchecked,
-            ProjectActivityType.CardCheckitemCardified,
-            ProjectActivityType.CardCheckitemDeleted,
-        )
-        wiki_actions = (
-            ProjectWikiActivityType.WikiCreated,
-            ProjectWikiActivityType.WikiUpdated,
-            ProjectWikiActivityType.WikiDeleted,
-        )
         events = (
             select(ProjectActivity.column("user_id"), ProjectActivity.column("created_at"))
             .where(
-                ProjectActivity.column("activity_type").in_(project_actions), ProjectActivity.column("bot_id").is_(None)
+                ProjectActivity.column("activity_type").in_(UserRepository.BUSINESS_PROJECT_ACTIONS),
+                ProjectActivity.column("bot_id").is_(None),
             )
             .union_all(
                 select(ProjectWikiActivity.column("user_id"), ProjectWikiActivity.column("created_at")).where(
-                    ProjectWikiActivity.column("activity_type").in_(wiki_actions),
+                    ProjectWikiActivity.column("activity_type").in_(UserRepository.BUSINESS_WIKI_ACTIONS),
                     ProjectWikiActivity.column("bot_id").is_(None),
                 )
             )

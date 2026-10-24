@@ -41,6 +41,114 @@ class UserService(BaseDomainService):
         project = InfraHelper.get_by_id_like(User, user)
         return project
 
+    def get_business_activity_in_settings(
+        self,
+        viewer: User,
+        target: User,
+        *,
+        page: int = 1,
+        limit: int = 20,
+        project_uid: str | None = None,
+        action: str | None = None,
+        occurred_from: datetime | None = None,
+        occurred_before: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return readable event metadata; exclude history even from SQL projections."""
+        from sqlalchemy import String, literal, select, union_all
+        from sqlalchemy import cast as sql_cast
+        from ....core.security.CollaborationChannel import CollaborationChannel
+        from ....infrastructure.repositories.factory.UserRepository import UserRepository
+        from ...models import Card, Project, ProjectActivity, ProjectWiki, ProjectWikiActivity
+        from ..CardVisibilityPolicy import project_activity_visibility_scope
+        from .CardService import CardService
+
+        if not viewer.is_admin or not self.can_search_all_users(viewer):
+            raise PermissionError("User read permission required")
+        if page < 1 or not 1 <= limit <= 100:
+            raise ValueError("Invalid pagination")
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(viewer, CollaborationChannel.Api)
+        if not contexts:
+            return {"records": [], "page": page, "limit": limit, "has_more": False}
+        queries = []
+        for kind, model, resource, actions in (
+            ("project", ProjectActivity, Card, UserRepository.BUSINESS_PROJECT_ACTIONS),
+            ("wiki", ProjectWikiActivity, ProjectWiki, UserRepository.BUSINESS_WIKI_ACTIONS),
+        ):
+            query = (
+                select(
+                    model.id.label("event_id"),
+                    model.created_at.label("occurred_at"),
+                    sql_cast(model.activity_type, String).label("action"),
+                    literal(kind).label("scope"),
+                    Project.id.label("project_id"),
+                    Project.title.label("project_title"),
+                    resource.id.label("resource_id"),
+                    resource.title.label("resource_title"),
+                )
+                .join(Project, Project.id == model.project_id)
+                .where(
+                    model.user_id == target.id,
+                    model.bot_id.is_(None),
+                    model.activity_type.in_(actions),
+                    Project.deleted_at.is_(None),
+                    Project.id.in_(list(contexts)),
+                )
+            )
+            if kind == "project":
+                query = query.outerjoin(Card, Card.id == ProjectActivity.card_id).where(
+                    project_activity_visibility_scope(contexts),
+                )
+            else:
+                # This method requires an administrator. Native can_view grants administrators
+                # wiki visibility, while the project scope above still requires current access.
+                query = query.join(ProjectWiki, ProjectWiki.id == model.project_wiki_id).where(
+                    ProjectWiki.deleted_at.is_(None),
+                    ProjectWiki.project_id == Project.id,
+                )
+            if project_uid:
+                query = query.where(Project.id == InfraHelper.convert_id(project_uid))
+            if action:
+                query = query.where(model.activity_type == action)
+            if occurred_from:
+                query = query.where(model.created_at >= occurred_from)
+            if occurred_before:
+                query = query.where(model.created_at < occurred_before)
+            queries.append(query)
+        events = union_all(*queries).subquery()
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(
+                select(events)
+                .order_by(
+                    events.c.occurred_at.desc(),
+                    events.c.event_id.desc(),
+                    events.c.scope,
+                )
+                .offset((page - 1) * limit)
+                .limit(limit + 1)
+            ).all()
+        records = []
+        for row in rows[:limit]:
+            event_id, occurred_at, event_action, scope, project_id, project_title, resource_id, resource_title = row
+            records.append(
+                {
+                    "event_id": f"{scope}:{SnowflakeID(event_id).to_short_code()}",
+                    "occurred_at": occurred_at.replace(tzinfo=timezone.utc)
+                    if occurred_at.tzinfo is None
+                    else occurred_at,
+                    "actor_principal_uid": target.get_uid(),
+                    "action": event_action,
+                    "project": {"uid": SnowflakeID(project_id).to_short_code(), "title": project_title},
+                    "resource": {
+                        "type": "wiki" if scope == "wiki" else "card",
+                        "uid": SnowflakeID(resource_id).to_short_code(),
+                        "title": resource_title,
+                    }
+                    if resource_id
+                    else None,
+                }
+            )
+        return {"records": records, "page": page, "limit": limit, "has_more": len(rows) > limit}
+
     def create_cache_name(self, cache_type: str, email: str) -> str:
         return f"{cache_type}:{email}"
 
