@@ -26,10 +26,10 @@ from langboard_shared.domain.models import (
     CardAssignedUser,
     CardChangeReceipt,
     CardDecisionGate,
-    DecisionCase,
     Checkitem,
     CheckitemTimerRecord,
     Checklist,
+    DecisionCase,
     GlobalCardRelationshipType,
     GlobalLabel,
     Organization,
@@ -38,11 +38,15 @@ from langboard_shared.domain.models import (
     ProjectColumn,
     ProjectExecutionBinding,
     ProjectLabel,
+    ProjectRole,
     User,
     WebhookSetting,
+    WorkflowActionRun,
     WorkflowEffectRun,
-    WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun,
-    ProjectRole,
+    WorkflowRule,
+    WorkflowRuleAction,
+    WorkflowRuleCondition,
+    WorkflowRuleRun,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -176,9 +180,15 @@ def flow(monkeypatch, request):
         return services[cls]
 
     service = get(CardService)
+    # Load the worker before replacing the package export; otherwise its cached
+    # import retains this fixture's service after monkeypatch restores the export.
+    worker = import_module("langboard_shared.tasks.WorkflowRuleTask")
+    def domain_service():
+        return SimpleNamespace(card=service, checkitem=get(CheckitemService), notification=get(NotificationService))
+
     monkeypatch.setattr("langboard_shared.domain.services.DomainService",
-                        lambda: SimpleNamespace(card=service, checkitem=get(CheckitemService),
-                                                notification=get(NotificationService)))
+                        domain_service)
+    monkeypatch.setattr(worker, "DomainService", domain_service)
     notifications = []
     service.notify_order_changed = lambda *_: notifications.append(snapshot(engine, card.id))
     change_sequences = count(99)
