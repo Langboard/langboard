@@ -1,3 +1,4 @@
+import { signalInboxSelection } from "./components/board/SignalInboxPanel";
 import { BoardViewportProvider } from "@/core/providers/BoardViewportProvider";
 import { hasPanelAccess } from "@/core/apps/PanelAccess";
 import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
@@ -297,6 +298,8 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         }
         previousPanelKeys.current = { scope, keys: currentKeys };
     }, [appCatalog, appCatalogError, currentUser?.uid, project.uid]);
+    const handoffLocation = usePageLocation();
+    const handoffSignal = signalInboxSelection(handoffLocation.search);
     const [workbenchContextMode, setWorkbenchContextMode] = useState<TWorkbenchContext>("explorer");
     const workbenchContextTitle = {
         explorer: t("common.Explorer"),
@@ -346,6 +349,9 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         },
         [isMobile, setIsContextOpen]
     );
+    useEffect(() => {
+        if (handoffSignal) showWorkbenchContext("inbox");
+    }, [handoffSignal, project.uid, currentUser?.uid, showWorkbenchContext]);
     const toggleWorkbenchContext = (mode: TWorkbenchContext) => {
         if (isWorkbenchContextVisible && workbenchContextMode === mode) {
             if (isMobile) setActiveSidePanel(undefined);
@@ -962,7 +968,10 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                             />
                                         )
                                     ) : workbenchContextMode === "inbox" ? (
-                                        <BoardSignalInbox project={project} />
+                                        <BoardSignalInbox
+                                            key={`${currentUser?.uid}:${identityVersion}:${project.uid}:${handoffSignal ?? ""}`}
+                                            project={project}
+                                        />
                                     ) : workbenchContextMode === "changes" ? (
                                         <BoardChangesSidebar projectUID={project.uid} onNavigate={() => isMobile && setActiveSidePanel(undefined)} />
                                     ) : workbenchContextMode === "activity" && currentUser ? (

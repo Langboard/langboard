@@ -215,5 +215,11 @@
   "Work shown": "전체 {{total}}개 중 {{shown}}개 작업",
   "Load more work": "작업 더 보기",
   "Unread board cards": "보드 미열람 카드 {{count}}개",
-  "Favorite collection": "프로젝트 묶음 즐겨찾기"
+  "Favorite collection": "프로젝트 묶음 즐겨찾기",
+  "personalInbox": {
+    "title": "개인 수신함",
+    "hint": "읽을 수 있는 보드의 미연결 GitHub 신호입니다. 원본 보드에서 증거를 연결하거나 카드를 만드세요.",
+    "open source": "원본 수신함 열기",
+    "next": "다음 신호"
+  }
 }

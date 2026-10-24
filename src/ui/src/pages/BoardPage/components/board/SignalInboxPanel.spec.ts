@@ -332,3 +332,17 @@ for (const readonly of [false, true]) {
         expect(errors).toEqual([]);
     });
 }
+
+test("validated source handoff selects without mutation and ignores malformed parameters", async ({ page }) => {
+    await page.goto(path + "?context=inbox&signal=signal");
+    await expect(page.getByRole("button", { name: /GitHub · #55/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("combobox", { name: "Card", exact: true })).toBeVisible();
+    expect(
+        await page.evaluate(() => (window as unknown as { inboxCalls: { method: string }[] }).inboxCalls.every((call) => call.method === "get"))
+    ).toBe(true);
+    for (const query of ["?context=inbox&signal=../invalid", "?context=inbox&signal=signal&signal=other", "?context=other&signal=signal"]) {
+        await page.goto(path + query);
+        await expect(page.getByRole("button", { name: /GitHub · #55/ })).toHaveAttribute("aria-pressed", "false");
+        await expect(page.getByRole("combobox", { name: "Card", exact: true })).toHaveCount(0);
+    }
+});

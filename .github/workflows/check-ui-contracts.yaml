@@ -36,6 +36,16 @@ on:
       - src/ui/src/pages/BoardPage/components/board/BoardSchedule*.ts*
       - src/ui/src/controllers/api/dashboard/useGetSchedule*.ts
       - src/ui/playwright.card-decision.config.ts
+      - src/ui/playwright.personal-signal-inbox.config.ts
+      - src/ui/playwright.user-login-range.config.ts
+      - src/ui/src/pages/DashboardPage/PersonalSignalInbox*
+      - src/ui/src/pages/BoardPage/components/board/SignalInboxPanel*
+      - src/ui/src/pages/SettingsPage/components/users/UserList*
+      - src/ui/src/pages/SettingsPage/components/users/userLoginRange.ts
+      - src/ui/src/pages/SettingsPage/components/users/user-login-range.spec.ts
+      - src/ui/src/pages/DashboardPage/index.tsx
+      - src/ui/src/pages/DashboardPage/Route.tsx
+      - src/ui/src/core/routing/constants.ts
       - src/ui/playwright.wiki-secret-selection.config.ts
       - src/ui/vite.config.ts
       - src/ui/src/pages/BoardPage/components/card/decision/**
@@ -116,6 +126,16 @@ jobs:
         working-directory: src/ui
       - name: Verify mounted Wiki secret selection contracts
         run: yarn playwright test -c playwright.wiki-secret-selection.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify personal Signal Inbox and source-board handoff
+        run: yarn playwright test -c playwright.personal-signal-inbox.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify latest successful login range controls
+        run: yarn playwright test -c playwright.user-login-range.config.ts
         env:
           CI: "true"
         working-directory: src/ui

@@ -215,5 +215,11 @@
   "Work shown": "{{shown}} of {{total}} work items",
   "Load more work": "Load more work",
   "Unread board cards": "{{count}} unread board cards",
-  "Favorite collection": "Favorite collection"
+  "Favorite collection": "Favorite collection",
+  "personalInbox": {
+    "title": "Personal Inbox",
+    "hint": "Unlinked GitHub signals from boards you can read. Open the source board to link evidence or create a card.",
+    "open source": "Open source Inbox",
+    "next": "Next signals"
+  }
 }

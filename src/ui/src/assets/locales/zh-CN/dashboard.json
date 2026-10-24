@@ -215,5 +215,11 @@
   "Work shown": "共 {{total}} 项工作，已显示 {{shown}} 项",
   "Load more work": "加载更多工作",
   "Unread board cards": "{{count}} 张看板未读卡片",
-  "Favorite collection": "收藏项目集合"
+  "Favorite collection": "收藏项目集合",
+  "personalInbox": {
+    "title": "个人收件箱",
+    "hint": "来自您可读取看板的未关联 GitHub 信号。在源看板中关联证据或创建卡片。",
+    "open source": "打开源收件箱",
+    "next": "下一页信号"
+  }
 }

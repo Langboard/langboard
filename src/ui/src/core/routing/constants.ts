@@ -60,6 +60,7 @@ export const ROUTES = {
         },
         CARDS: "/dashboard/cards",
         MY_WORK: "/dashboard/my-work",
+        INBOX: "/dashboard/inbox",
         TRACKING: "/dashboard/tracking",
     },
     APPS: { ROUTE: "/apps", DETAIL: (key: string) => `/apps/${encodeURIComponent(key)}` },
