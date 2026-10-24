@@ -12,6 +12,10 @@ on:
       - src/api/langboard/apps/**
       - src/api/langboard/routes/settings/App*.py
       - src/api/langboard/routes/board/SignalInboxApi.py
+      - src/api/langboard/routes/board/BoardDokployAppApi.py
+      - src/api/langboard/routes/board/BoardFilterPreferencesApi.py
+      - src/shared/py/langboard_shared/domain/services/BoardFilterPreferences.py
+      - src/shared/py/langboard_shared/domain/models/UserBoardFilterPreference.py
       - src/api/langboard/routes/board/App*.py
       - src/api/langboard/routes/board/CardApp*.py
       - src/api/langboard/routes/board/BoardSettingApi.py

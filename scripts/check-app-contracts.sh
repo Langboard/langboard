@@ -13,6 +13,14 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_app_installation_requests.py \
   src/api/tests/apps/test_app_package_upload_async.py \
   src/api/tests/apps/test_signal_authenticated_channel.py \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_owners_allow_independent_http \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_services_and_exact_bytes_are_owned_per_phase \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_owner_failures_close_services \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_stream_stops_at_body_limit \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_stream_rechecks_native_authority \
+  src/api/tests/apps/test_board_filter_preferences_http.py \
+  src/api/tests/apps/test_dokploy_signal.py::test_disconnect_notifies_only_committed_changes_and_is_idempotent \
+  src/api/tests/apps/test_glitchtip_signal.py::test_disconnect_notifies_only_committed_changes_and_is_idempotent \
   src/api/tests/apps/test_workflow_api.py \
   src/api/tests/apps/test_workflow_http.py \
   src/api/tests/apps/test_external_provider_signal_contracts.py \
