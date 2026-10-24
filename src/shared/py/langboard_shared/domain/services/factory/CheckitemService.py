@@ -10,7 +10,7 @@ from ....publishers import CheckitemPublisher
 from ....tasks.activities import CardCheckitemActivityTask
 from ....tasks.bots import CardBotTask, CardCheckitemBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...models import Card, Checkitem, CheckitemTimerRecord, Checklist, Project, ProjectColumn, User
+from ...models import Bot, Card, Checkitem, CheckitemTimerRecord, Checklist, Project, ProjectColumn, User
 from ...models.Checkitem import CheckitemStatus
 from ..CardAppMutation import guard_card_app_mutation
 from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
@@ -625,6 +625,10 @@ class CheckitemService(BaseDomainService):
             project_id=card.project_id,
             project_column_id=target_column.id,
             title=checkitem.title,
+            visibility=card.visibility,
+            owner_user_id=card.owner_user_id,
+            created_by_user_id=user_or_bot.id if isinstance(user_or_bot, User) else None,
+            created_by_bot_id=user_or_bot.id if isinstance(user_or_bot, Bot) else None,
             order=self.repo.card.get_next_order(target_column, where_clauses={"project_id": card.project_id}),
         )
         with execution_readiness_uow() as execution:
