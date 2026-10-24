@@ -76,8 +76,9 @@ def _item(attachment, project, source, source_type):
         "created_at": attachment.created_at.isoformat(),
         "updated_at": attachment.updated_at.isoformat(),
         "source": {
+            "kind": source_type,
             "project_uid": project_uid,
-            **({f"{source_type}_uid": source_uid} if source_type != "project" else {"kind": "project"}),
+            **({f"{source_type}_uid": source_uid} if source_type != "project" else {}),
             "title": source.title,
             "board_url": board_url,
             "url": source_url,

@@ -508,17 +508,22 @@ def test_authenticated_http_native_wiki_routes_and_private_revocation(wiki, monk
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.routes.board import BoardCloudApi as catalog_api
     from langboard.routes.board import BoardCloudWikiDocumentApi as api
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.models import CardAttachment, EmployeeMembershipPolicy
 
     b = wiki
     attachment = upload(b)
     indexed(b, attachment)
+    CardAttachment.__table__.create(b.engine)
+    EmployeeMembershipPolicy.__table__.create(b.engine)
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in AppRouter.api.routes:
         if getattr(route, "endpoint", None) in (
+            catalog_api.get_board_cloud,
             api.read_wiki_document,
             api.request_wiki_document_processing,
             api.search_wiki_document,
@@ -533,6 +538,20 @@ def test_authenticated_http_native_wiki_routes_and_private_revocation(wiki, monk
         assert client.get(path).status_code == 401
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         client.headers["Authorization"] = f"Bearer {access}"
+        catalog = client.get(f"/board/{b.source_board.get_uid()}/cloud", params={"view": "files"})
+        assert catalog.status_code == 200, catalog.text
+        item = next(item for item in catalog.json()["items"] if item["attachment_uid"] == attachment.get_uid())
+        assert item["source"]["kind"] == "wiki"
+        assert item["source"]["wiki_uid"] == b.wiki.get_uid()
+        assert item["source"]["project_uid"] == b.source_board.get_uid()
+        assert item["source"]["url"] == f"/board/{b.source_board.get_uid()}/wiki/{b.wiki.get_uid()}"
+        owner_path = f"/wiki/{item['source']['wiki_uid']}" if item["source"]["kind"] == "wiki" else ""
+        catalog_path = (
+            f"/board/{item['source']['project_uid']}/cloud{owner_path}"
+            f"/attachment/{item['attachment_uid']}/document"
+        )
+        assert catalog_path == path
+        path = catalog_path
         response = client.get(path, params={"limit": 10})
         assert response.status_code == 200, response.text
         assert response.headers["cache-control"] == "private, no-store"
@@ -544,6 +563,9 @@ def test_authenticated_http_native_wiki_routes_and_private_revocation(wiki, monk
         assert client.post(path + "/search", json={"query": "alpha", "max_tokens": "200"}).status_code == 400
         with DbSession.atomic() as db:
             db.exec(delete(ProjectWikiAssignedUser).where(ProjectWikiAssignedUser.id == b.assignment.id))
+        revoked_catalog = client.get(f"/board/{b.source_board.get_uid()}/cloud", params={"view": "files"})
+        assert revoked_catalog.status_code == 200, revoked_catalog.text
+        assert all(item["attachment_uid"] != attachment.get_uid() for item in revoked_catalog.json()["items"])
         for method, url, kwargs in (
             ("get", path, {}),
             ("post", path + "/process", {}),
