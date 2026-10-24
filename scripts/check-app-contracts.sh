@@ -43,4 +43,5 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_app_composition.py \
   src/api/tests/apps/test_binding_storage.py \
   src/api/tests/apps/test_sdk_resources_http.py \
+  src/api/tests/apps/test_resource_selection_isolation.py \
   src/api/tests/apps/test_registered_connection_context.py
