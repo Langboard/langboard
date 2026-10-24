@@ -22,6 +22,7 @@ import { isModel, TUserLikeModel } from "@/core/models/ModelRegistry";
 import { BotModel, ProjectCard } from "@/core/models";
 import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
 import { getCardCommentDraftStore } from "@/core/stores/CardCommentDraftStore";
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { TEditor } from "@/components/Editor/editor-kit";
 import { EEditorType } from "@langboard/core/constants";
 import { getMentionOnSelectItem } from "@platejs/mention";
@@ -120,11 +121,16 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
     const saveDraftToStorage = useCallback(
         (content: string) => {
-            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+            const draft = {
                 content: sanitizeEditorContent(content),
                 anchor: pendingAnchorRef.current,
                 request_uid: requestUIDRef.current,
-            });
+            };
+            const stored = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+            // Blur flushes must preserve the submitted revision; typing and reopening save a new one.
+            if (JSON.stringify(stored) !== JSON.stringify(draft)) {
+                getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, draft);
+            }
         },
         [currentUser.uid, projectUID, card]
     );
@@ -387,6 +393,8 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             return;
         }
         saveDraftToStorage(content.content);
+        const submittedScope = { userUID: currentUser.uid, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
+        const submittedDraft = getCardDraftStore().getDraft(submittedScope);
         setIsValidating(true);
         addCommentMutate(
             {
@@ -398,7 +406,10 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             },
             {
                 onSuccess: () => {
-                    // A late response belongs only to the submitted draft and editor session.
+                    // Storage acknowledgement survives focus transfer, but only for the exact submitted revision.
+                    const isSubmittedDraft = submittedDraft !== null && getCardDraftStore().getDraft(submittedScope) === submittedDraft;
+                    if (isSubmittedDraft) clearDraftFromStorage();
+                    // UI cleanup still belongs only to the submitted editor session.
                     if (saveSessionRef.current !== saveSession) {
                         return;
                     }
@@ -410,6 +421,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                         }
                         return;
                     }
+                    if (!isSubmittedDraft) return;
                     setValue({ content: "" });
                     setPendingAnchor(null);
                     pendingAnchorRef.current = null;

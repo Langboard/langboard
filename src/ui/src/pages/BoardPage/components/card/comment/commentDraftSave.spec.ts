@@ -85,6 +85,8 @@ for (const mode of ["panel", "mobile", "edit"]) {
         "failure",
         "newer input failure",
         "other editor",
+        "other editor failure",
+        "same content remount",
         "reopen",
         "remount",
         "image next submit",
@@ -101,12 +103,16 @@ for (const mode of ["panel", "mobile", "edit"]) {
             if (mode === "edit") await page.getByRole("button", { name: "common.Edit", exact: true }).click();
             else await page.getByRole("button", { name: /card.Add a comment/ }).click();
             const editor = page.getByRole("textbox", { name: "Comment content" });
+            const otherScopes = ["lb-draft-v1:other-user:project:comment-new:card", "lb-draft-v1:user:project:comment-new:other-card"];
+            await page.evaluate((keys) => {
+                for (const key of keys) localStorage.setItem(key, JSON.stringify({ content: "Other scope", savedAt: Date.now() }));
+            }, otherScopes);
             await editor.fill("Draft A");
             await page.getByRole("button", { name: "common.Save", exact: true }).click();
             await page.getByRole("button", { name: "Inspect draft" }).click();
             const initial = JSON.parse(await page.locator("output").innerText());
             if (outcome.startsWith("newer input") || outcome === "image next submit") await editor.fill("Draft B");
-            if (outcome === "other editor") await page.getByRole("button", { name: "Switch editor" }).click();
+            if (outcome.startsWith("other editor")) await page.getByRole("button", { name: "Switch editor" }).click();
             if (outcome === "reopen" || outcome === "image reopen") {
                 await page.getByRole("button", { name: "Switch editor" }).click();
                 if (mode === "edit") await page.getByRole("button", { name: "common.Edit", exact: true }).click();
@@ -118,19 +124,29 @@ for (const mode of ["panel", "mobile", "edit"]) {
                 }
                 await editor.fill("Draft B");
             }
-            if (outcome === "remount" || outcome === "image remount") {
+            if (outcome === "remount" || outcome === "image remount" || outcome === "same content remount") {
                 await page.getByRole("button", { name: "Remount composer" }).click();
                 if (mode === "edit") {
                     const edit = page.getByRole("button", { name: "common.Edit", exact: true });
                     if (await edit.count()) await edit.click();
                 } else await page.getByRole("button", { name: /card.Add a comment/ }).click();
-                await editor.fill("Draft B");
+                await editor.fill(outcome === "same content remount" ? "Draft A" : "Draft B");
             }
             await page.getByRole("button", { name: outcome.includes("failure") ? "Resolve failure" : "Resolve success" }).click();
             await page.getByRole("button", { name: "Inspect draft" }).click();
             const state = JSON.parse(await page.locator("output").innerText());
             expect(state.submitted).toBe("Draft A");
-            if (outcome.startsWith("image")) {
+            expect(await page.evaluate((keys) => keys.map((key) => JSON.parse(localStorage.getItem(key)!).content), otherScopes)).toEqual([
+                "Other scope",
+                "Other scope",
+            ]);
+            if (outcome === "same content remount") {
+                expect(state.draft).toBe("Draft A");
+                await expect(editor).toHaveValue("Draft A");
+            } else if (outcome === "other editor failure") {
+                expect(state.draft).toBe("Draft A");
+                expect(state.currentEditor).toBe("other-editor");
+            } else if (outcome.startsWith("image")) {
                 expect(state.draft).toBe("Draft B");
                 expect(state.submittedRequestUID).toBe(initial.submittedRequestUID);
                 expect(initial.submittedRequestUID).toBeTruthy();
@@ -150,8 +166,15 @@ for (const mode of ["panel", "mobile", "edit"]) {
             } else if (outcome === "failure") {
                 expect(state.draft).toBe("Draft A");
                 await expect(editor).toHaveValue("Draft A");
-            } else if (outcome === "other editor") expect(state.currentEditor).toBe("other-editor");
-            else {
+            } else if (outcome === "other editor") {
+                expect(state.currentEditor).toBe("other-editor");
+                if (mode !== "edit") {
+                    expect(state.draft).toBe("");
+                    await page.getByRole("button", { name: "Remount composer" }).click();
+                    await page.getByRole("button", { name: /card.Add a comment/ }).click();
+                    await expect(editor).toHaveValue("");
+                }
+            } else {
                 expect(state.draft).toBe("");
                 expect(state.currentEditor).toBeNull();
             }
