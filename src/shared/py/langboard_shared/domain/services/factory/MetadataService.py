@@ -30,7 +30,9 @@ class MetadataService(BaseDomainService):
 
     @staticmethod
     def _is_work_plan_receipt(key: str) -> bool:
-        return key.strip().lower().startswith(("internal.work_plan.", "internal.comment_compaction."))
+        return key.strip().lower().startswith((
+            "internal.work_plan.", "internal.comment_compaction.", "internal.comment_request.",
+        ))
 
     @staticmethod
     def name() -> str:

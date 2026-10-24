@@ -54,7 +54,11 @@ class MetadataRepository(BaseRepository):
         if model_cls is CardMetadata:
             # Hidden derived rows must not consume the public metadata page limit.
             key = func.lower(func.trim(CardMetadata.key))
-            query = query.where(~key.startswith("internal.work_plan."), ~key.startswith("internal.comment_compaction."))
+            query = query.where(
+                ~key.startswith("internal.work_plan."),
+                ~key.startswith("internal.comment_compaction."),
+                ~key.startswith("internal.comment_request."),
+            )
         if limit is not None:
             query = query.limit(limit)
         with DbSession.use(readonly=False) as db:
