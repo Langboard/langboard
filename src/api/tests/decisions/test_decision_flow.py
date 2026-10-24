@@ -429,6 +429,8 @@ def test_native_authenticated_http_actor_inference_replay_and_visibility(native,
     base = f"/board/{board.get_uid()}/card/{card.get_uid()}/decisions"
     with TestClient(app) as client:
         assert client.get(base).status_code == 401
+        inbox_url = f"/board/{board.get_uid()}/my-decisions"
+        assert client.get(inbox_url).status_code == 401
         access, refresh = AuthSecurity.authenticate(users[0].id)
         headers = {"Authorization": f"Bearer {access}"}
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
@@ -452,6 +454,12 @@ def test_native_authenticated_http_actor_inference_replay_and_visibility(native,
         access, refresh = AuthSecurity.authenticate(users[1].id)
         headers = {"Authorization": f"Bearer {access}"}
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        inbox = client.get(inbox_url, headers=headers)
+        assert inbox.status_code == 200, inbox.text
+        assert inbox.headers["cache-control"] == "no-store"
+        assert [item["uid"] for item in inbox.json()["items"]] == [case["uid"]]
+        assert client.get(inbox_url, headers=headers, params={"limit": 0}).status_code == 400
+        assert client.get(inbox_url, headers=headers, params={"before": "invalid"}).status_code == 400
         response_url = f"/board/{board.get_uid()}/decisions/{case['uid']}/responses"
         body = form(case).model_dump(mode="json")
         assert (
@@ -467,10 +475,12 @@ def test_native_authenticated_http_actor_inference_replay_and_visibility(native,
         approved = client.post(response_url, headers=headers, json=body)
         assert approved.status_code == 200, approved.text
         assert approved.json()["state"] == "passed"
+        assert client.get(inbox_url, headers=headers).json()["items"] == []
         assert client.post(response_url, headers=headers, json=body).json()["replayed"]
         with engine.begin() as db:
             db.execute(update(m.ProjectRole).where(m.ProjectRole.user_id == users[1].id).values(actions=[]))
         assert client.post(response_url, headers=headers, json=body).status_code == 403
+        assert client.get(inbox_url, headers=headers).status_code == 403
 
 
 def test_response_transaction_rolls_back_record_counter_and_receipt(native, monkeypatch):

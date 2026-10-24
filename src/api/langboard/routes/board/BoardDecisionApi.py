@@ -78,3 +78,20 @@ def respond_to_decision(
     return _result(
         lambda: DecisionFlow(service).respond(user, project_uid, decision_uid, form, channel=_channel(request))
     )
+
+
+@AppRouter.api.get("/board/{project_uid}/my-decisions", tags=["Board.Decision"])
+@AuthFilter.add("user")
+def my_decisions(
+    project_uid: str,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=50)] = 50,
+    before: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    return _result(
+        lambda: DecisionFlow(service).my_decisions(
+            user, project_uid, channel=_channel(request), limit=limit, before=before
+        )
+    )

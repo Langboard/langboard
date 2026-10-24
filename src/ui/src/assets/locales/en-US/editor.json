@@ -184,5 +184,11 @@
   },
   "Auto": "Auto",
   "Plain Text": "Plain Text",
-  "Both": "Both"
+  "Both": "Both",
+  "deletion": "deletion",
+  "insertion": "insertion",
+  "update": "update",
+  "Added {properties}": "Added {{properties}}",
+  "Removed {properties}": "Removed {{properties}}",
+  "Updated {property} from {previous} to {next}": "Updated {{property}} from {{previous}} to {{next}}"
 }

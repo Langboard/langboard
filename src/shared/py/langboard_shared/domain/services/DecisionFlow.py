@@ -25,9 +25,9 @@ from ...core.db.DbEngine import DbEngine
 from ...core.security.CollaborationChannel import CollaborationChannel
 from ...core.types import SafeDateTime
 from ...helpers import InfraHelper
-from ..models import DecisionCase, DecisionOption, DecisionResponse, ProjectRole, User
+from ..models import Card, DecisionCase, DecisionOption, DecisionResponse, ProjectRole, User
 from ..models.ProjectRole import ProjectRoleAction
-from .CardVisibilityPolicy import CardVisibility
+from .CardVisibilityPolicy import CardVisibility, card_visibility_scope
 from .DecisionPolicy import (
     MAX_POLICY_DEPTH,
     MAX_POLICY_NODES,
@@ -611,6 +611,68 @@ class DecisionFlow:
                 ],
                 "next_cursor": selected[-1].get_uid() if len(cases) > len(selected) else None,
                 "target_revision": card_target_revision(card),
+            }
+
+    def my_decisions(self, actor, project_uid, *, channel=CollaborationChannel.Api, limit=50, before=None):
+        """Outstanding active responses only; bound each page to 50 readable cases.
+
+        A sparse page can be empty with a continuation. Clients must follow the
+        cursor until it is null, rather than interpreting an empty page as EOF.
+        """
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("limit must be between 1 and 50")
+        project_id = _uid(project_uid)
+        cursor = _uid(before) if before is not None else None
+        with self._transaction(read_only=True) as db:
+            resolved = self.service.card.resolve_visibility_context(project_id, actor, channel)
+            if resolved is None or not resolved[1].project_member:
+                raise DecisionMissing()
+            roles = db.exec(
+                SqlBuilder.select.table(ProjectRole).where(
+                    ProjectRole.project_id == project_id, ProjectRole.user_id == actor.id
+                )
+            ).all()
+            if not any(role.is_granted(ProjectRoleAction.Read) for role in roles):
+                raise DecisionDenied()
+            query = (
+                select(DecisionCase, Card)
+                .join(Card, (Card.id == DecisionCase.card_id) & (Card.project_id == DecisionCase.project_id))
+                .where(
+                    DecisionCase.project_id == project_id,
+                    Card.deleted_at.is_(None),
+                    card_visibility_scope(resolved[1]),
+                )
+            )
+            if cursor is not None:
+                query = query.where(DecisionCase.id < cursor)
+            candidates = db.exec(query.order_by(DecisionCase.id.desc()).limit(51)).all()
+            items = []
+            scanned = 0
+            participant_checks = 0
+            now = datetime.now(timezone.utc)
+            for case, card in candidates[:50]:
+                selected = not card.is_linked_resource and actor.get_uid() in case.snapshot["participant_uids"]
+                # Keep current identity resolution within the same bound as a
+                # card listing, even when many large policies share this inbox.
+                if selected and participant_checks + len(case.snapshot["participant_uids"]) > MAX_POLICY_NODES:
+                    break
+                scanned += 1
+                if not selected:
+                    continue
+                participant_checks += len(case.snapshot["participant_uids"])
+                summary = self._summary(db, case, card, actor, channel, now)
+                # Poll response changes are available from the card, but a ballot
+                # already submitted is no longer an outstanding inbox task.
+                if "respond" not in summary["allowed_actions"]:
+                    continue
+                if case.source_kind == "poll" and summary["poll"]["my_response"] is not None:
+                    continue
+                items.append(summary)
+                if len(items) == limit:
+                    break
+            return {
+                "items": items,
+                "next_cursor": candidates[scanned - 1][0].get_uid() if len(candidates) > scanned else None,
             }
 
     def respond(self, actor, project_uid, decision_uid, payload, *, channel=CollaborationChannel.Api):

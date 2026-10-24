@@ -3,6 +3,8 @@ import { createSlatePlugin } from "platejs";
 import { type PlateLeafProps, PlateLeaf, toPlatePlugin } from "platejs/react";
 import { type DiffOperation, DiffUpdate, withGetFragmentExcludeDiff } from "@platejs/diff";
 import { cn } from "@/core/utils/ComponentUtils";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 const diffOperationColors: Record<DiffOperation["type"], string> = {
     delete: "[&>*]:bg-destructive/70 [&_*]:line-through",
@@ -10,7 +12,7 @@ const diffOperationColors: Record<DiffOperation["type"], string> = {
     update: "[&>*]:bg-indigo-600/70 dark:[&>*]:bg-indigo-800/70",
 };
 
-const describeUpdate = ({ newProperties, properties }: DiffUpdate) => {
+const describeUpdate = ({ newProperties, properties }: DiffUpdate, t: TFunction) => {
     const addedProps: string[] = [];
     const removedProps: string[] = [];
     const updatedProps: string[] = [];
@@ -36,14 +38,20 @@ const describeUpdate = ({ newProperties, properties }: DiffUpdate) => {
     const descriptionParts = [];
 
     if (addedProps.length > 0) {
-        descriptionParts.push(`Added ${addedProps.join(", ")}`);
+        descriptionParts.push(t("editor.Added {properties}", { properties: addedProps.join(", ") }));
     }
     if (removedProps.length > 0) {
-        descriptionParts.push(`Removed ${removedProps.join(", ")}`);
+        descriptionParts.push(t("editor.Removed {properties}", { properties: removedProps.join(", ") }));
     }
     if (updatedProps.length > 0) {
         updatedProps.forEach((key) => {
-            descriptionParts.push(`Updated ${key} from ${properties[key]} to ${newProperties[key]}`);
+            descriptionParts.push(
+                t("editor.Updated {property} from {previous} to {next}", {
+                    property: key,
+                    previous: String(properties[key]),
+                    next: String(newProperties[key]),
+                })
+            );
         });
     }
 
@@ -58,18 +66,18 @@ const DiffPlugin = toPlatePlugin(
     {
         render: {
             node: DiffLeaf,
-            aboveNodes:
-                () =>
-                ({ children, editor, element }) => {
+            aboveNodes: () =>
+                function DiffAboveNodes({ children, editor, element }) {
+                    const [t] = useTranslation();
                     if (!element.diff) return children;
 
                     const diffOperation = element.diffOperation as DiffOperation;
 
                     const label = (
                         {
-                            delete: "deletion",
-                            insert: "insertion",
-                            update: "update",
+                            delete: t("editor.deletion"),
+                            insert: t("editor.insertion"),
+                            update: t("editor.update"),
                         } as any
                     )[diffOperation.type];
 
@@ -92,6 +100,7 @@ const DiffPlugin = toPlatePlugin(
 );
 
 function DiffLeaf({ children, ...props }: PlateLeafProps) {
+    const [t] = useTranslation();
     const diffOperation = props.leaf.diffOperation as DiffOperation;
 
     return (
@@ -100,7 +109,7 @@ function DiffLeaf({ children, ...props }: PlateLeafProps) {
             className={diffOperationColors[diffOperation.type]}
             attributes={{
                 ...props.attributes,
-                title: diffOperation.type === "update" ? describeUpdate(diffOperation) : undefined,
+                title: diffOperation.type === "update" ? describeUpdate(diffOperation, t) : undefined,
             }}
         >
             {children}
