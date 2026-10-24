@@ -613,5 +613,7 @@
     "Apply sign-in range": "应用登录时间范围",
     "Clear sign-in range": "清除登录时间范围",
     "Sign-in range help": "使用本地时间。按最后一次成功登录筛选，排除无记录的账户。",
-    "Invalid sign-in range": "请输入有效且无歧义的本地时间，起始时间必须早于截止时间。"
+    "Invalid sign-in range": "请输入有效且无歧义的本地时间，起始时间必须早于截止时间。",
+  "Attempt history": "尝试历史",
+  "Duration unavailable": "执行时长不可用"
 }

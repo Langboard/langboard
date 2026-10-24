@@ -1,3 +1,4 @@
+import { workflowActionLabels } from "./WorkflowRuleEditor";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -31,6 +32,13 @@ type TAdmittedRuleSnapshot = Readonly<Omit<IWorkflowRule, "uid" | "revision" | "
     readonly conditions: ReadonlyArray<Readonly<TWorkflowCondition>>;
     readonly actions: ReadonlyArray<Readonly<TWorkflowAction & { uid: string }>>;
 };
+interface IActionAttempt {
+    attempt: number;
+    status: string;
+    started_at: string | null;
+    finished_at: string | null;
+    error_code: string | null;
+}
 interface IRuleRun {
     uid: string;
     rule_uid: string;
@@ -55,6 +63,7 @@ interface IRuleRun {
         executor_type: string;
         status: string;
         attempt: number;
+        attempts?: IActionAttempt[];
         idempotency_key: string;
         result: Record<string, unknown>;
         error_code: string | null;
@@ -135,6 +144,24 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
             unitDisplay: "short",
             maximumFractionDigits: 3,
         });
+    const snapshotDescription = t("settings.Configuration captured when this run was admitted. Later rule edits do not change this evidence.");
+    const actionLabel = (kind: string) => t(`settings.${workflowActionLabels[kind as keyof typeof workflowActionLabels] ?? "Unknown effect"}`);
+    const elapsed = (started: string | null, finished: string | null) => {
+        const milliseconds = started && finished ? Date.parse(finished) - Date.parse(started) : NaN;
+        return Number.isFinite(milliseconds) && milliseconds >= 0 ? duration(milliseconds) : t("settings.Duration unavailable");
+    };
+    const executorLabel = (run: IRuleRun, action: IRuleRun["actions"][number]) => {
+        const captured = run.rule_snapshot?.actions.find((item) => item.uid === action.action_uid);
+        const label =
+            captured?.executor.kind === "compactor"
+                ? "Dedicated compactor"
+                : action.executor_type === "bot"
+                  ? "Bot"
+                  : action.executor_type === "user"
+                    ? "User"
+                    : "Execution profile";
+        return `${t(`settings.${label}`)}${action.executor_uid ? ` ${action.executor_uid}` : ""}`;
+    };
     const runs = [...new Map(query.data?.pages.flatMap((page) => page.items).map((row) => [row.uid, row])).values()];
     const rows = [...new Map(query.data?.pages.flatMap((page) => page.legacy_items).map((row) => [row.uid, row])).values()];
     if (!allowed)
@@ -171,7 +198,8 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                 <span>{statusLabel(run.status)}</span>
                             </div>
                             <p className="break-all">
-                                {t("settings.Rule")}: {run.rule_uid} · {t("settings.Revision")}: {run.rule_revision}
+                                {t("settings.Rule")}: {run.rule_snapshot?.name ? `${run.rule_snapshot.name} (${run.rule_uid})` : run.rule_uid} ·{" "}
+                                {t("settings.Revision")}: {run.rule_revision}
                             </p>
                             <p className="break-all">
                                 {t("settings.Trigger")}: {run.event_type} · {run.event_id}
@@ -186,11 +214,7 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                 <summary className="cursor-pointer">{t("settings.Rule details")}</summary>
                                 <section className="mt-2 space-y-1" aria-label={t("settings.Historical rule snapshot")}>
                                     <p className="font-medium">{t("settings.Historical rule snapshot")}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        {t(
-                                            "settings.Configuration captured when this run was admitted. Later rule edits do not change this evidence."
-                                        )}
-                                    </p>
+                                    <p className="text-xs text-muted-foreground">{snapshotDescription}</p>
                                     <pre className="max-w-full whitespace-pre-wrap break-words rounded-md border p-2 text-xs">
                                         {JSON.stringify(run.rule_snapshot, null, 2)}
                                     </pre>
@@ -208,10 +232,10 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                 {run.actions.map((action) => (
                                     <div key={action.uid} className="mt-2 space-y-1 rounded-md border p-2">
                                         <p className="break-all">
-                                            {action.kind} · {statusLabel(action.status)}
+                                            {actionLabel(action.kind)} · {statusLabel(action.status)}
                                         </p>
                                         <p className="break-all">
-                                            {t("settings.Executor")}: {action.executor_type} {action.executor_uid}
+                                            {t("settings.Executor")}: {executorLabel(run, action)}
                                         </p>
                                         <p>
                                             {t("settings.Attempt")}: {action.attempt}
@@ -228,6 +252,41 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                             <p>
                                                 {t("settings.Finished")}: {date(action.finished_at)}
                                             </p>
+                                        )}
+                                        <p>
+                                            {t("settings.Duration")}: {elapsed(action.started_at, action.finished_at)}
+                                        </p>
+                                        {!!action.attempts?.length && (
+                                            <section aria-label={t("settings.Attempt history")} className="space-y-1">
+                                                <p className="font-medium">{t("settings.Attempt history")}</p>
+                                                <ol className="space-y-2">
+                                                    {action.attempts.map((attempt, index) => (
+                                                        <li key={`${attempt.attempt}-${index}`} className="rounded-md border p-2">
+                                                            <p>
+                                                                {t("settings.Attempt")}: {attempt.attempt} · {statusLabel(attempt.status)}
+                                                            </p>
+                                                            {attempt.started_at && (
+                                                                <p>
+                                                                    {t("settings.Started")}: {date(attempt.started_at)}
+                                                                </p>
+                                                            )}
+                                                            {attempt.finished_at && (
+                                                                <p>
+                                                                    {t("settings.Finished")}: {date(attempt.finished_at)}
+                                                                </p>
+                                                            )}
+                                                            <p>
+                                                                {t("settings.Duration")}: {elapsed(attempt.started_at, attempt.finished_at)}
+                                                            </p>
+                                                            {attempt.error_code && (
+                                                                <p className="break-all">
+                                                                    {t("settings.Error code")}: {attempt.error_code}
+                                                                </p>
+                                                            )}
+                                                        </li>
+                                                    ))}
+                                                </ol>
+                                            </section>
                                         )}
                                         {action.status === "accepted" && (
                                             <p>{t("settings.Dispatch accepted; see bot logs for execution details.")}</p>

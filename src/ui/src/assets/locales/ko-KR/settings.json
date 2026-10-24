@@ -613,5 +613,7 @@
     "Apply sign-in range": "로그인 기간 적용",
     "Clear sign-in range": "로그인 기간 초기화",
     "Sign-in range help": "현지 시간입니다. 마지막 로그인 성공 시각으로 필터링하며 기록이 없는 계정은 제외됩니다.",
-    "Invalid sign-in range": "유효하고 중복되지 않는 현지 시간을 입력하고 시작을 종료보다 앞서 지정하세요."
+    "Invalid sign-in range": "유효하고 중복되지 않는 현지 시간을 입력하고 시작을 종료보다 앞서 지정하세요.",
+  "Attempt history": "시도 이력",
+  "Duration unavailable": "실행 시간 확인 불가"
 }

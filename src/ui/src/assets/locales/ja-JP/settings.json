@@ -613,5 +613,7 @@
     "Apply sign-in range": "ログイン期間を適用",
     "Clear sign-in range": "ログイン期間をクリア",
     "Sign-in range help": "現地時間です。最後に成功したログインで絞り込み、記録のないアカウントは除外します。",
-    "Invalid sign-in range": "有効で曖昧でない現地時刻を入力し、開始を終了より前にしてください。"
+    "Invalid sign-in range": "有効で曖昧でない現地時刻を入力し、開始を終了より前にしてください。",
+  "Attempt history": "試行履歴",
+  "Duration unavailable": "実行時間不明"
 }

@@ -709,7 +709,7 @@ for (const width of [1440, 390]) {
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
         await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
-        await expect(page.getByLabel("Bot", { exact: true }).locator('option[value="unavailable-bot"]')).toHaveJSProperty("disabled", true);
+        await expect(page.getByLabel("Bot", { exact: true }).locator("option[value='unavailable-bot']")).toHaveJSProperty("disabled", true);
         await page.getByRole("tab", { name: "History", exact: true }).click();
         await page.getByRole("tab", { name: "Settings", exact: true }).click();
         await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
@@ -721,7 +721,7 @@ for (const width of [1440, 390]) {
         await rule.getByLabel("Add action", { exact: true }).selectOption("bot.invoke");
         await rule.getByLabel("Bot", { exact: true }).selectOption(bot.uid);
         await expect(rule.getByLabel("Card schedule", { exact: true })).toHaveValue("active-schedule");
-        await expect(rule.getByLabel("Card schedule", { exact: true }).locator('option[value="frozen-schedule"]')).toHaveJSProperty("disabled", true);
+        await expect(rule.getByLabel("Card schedule", { exact: true }).locator("option[value='frozen-schedule']")).toHaveJSProperty("disabled", true);
         await expect(rule).toContainText("independent eligibility checks");
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect.poll(() => saved).toBeTruthy();
@@ -831,6 +831,26 @@ for (const width of [1440, 390]) {
                                 executor_type: "bot",
                                 status,
                                 attempt: 2,
+                                attempts: [
+                                    {
+                                        attempt: 1,
+                                        status: "failed",
+                                        started_at: "2026-10-24T02:59:00Z",
+                                        finished_at: "2026-10-24T02:59:01.250Z",
+                                        error_code: "transient_provider_error",
+                                    },
+                                    ...(status === "succeeded"
+                                        ? [
+                                              {
+                                                  attempt: 2,
+                                                  status,
+                                                  started_at: "2026-10-24T03:00:00Z",
+                                                  finished_at: "2026-10-24T03:01:00Z",
+                                                  error_code: null,
+                                              },
+                                          ]
+                                        : []),
+                                ],
                                 idempotency_key: `idempotency-${status}`,
                                 result: { bot_log_uid: "log-history", note: "<img src=x onerror=alert(1)>" },
                                 error_code: status === "failed" ? "provider_error" : null,
@@ -854,6 +874,7 @@ for (const width of [1440, 390]) {
             await expect(runs.getByText(status, { exact: true })).toHaveCount(1);
         const accepted = runs.filter({ hasText: "event-accepted" });
         await accepted.getByText("Rule details", { exact: true }).click();
+        await expect(accepted).toContainText("Rule: Original admitted rule (rule-history)");
         await expect(accepted).toContainText("Revision: 17");
         await expect(accepted).toContainText("Actor: user actor-history");
         await expect(accepted).toContainText("Settings author: settings-author-history");
@@ -861,8 +882,19 @@ for (const width of [1440, 390]) {
         const snapshot = accepted.getByRole("region", { name: "Historical rule snapshot", exact: true });
         await expect(snapshot).toBeVisible();
         expect(JSON.parse(await snapshot.locator("pre").innerText())).toEqual(historicalSnapshot);
-        await expect(accepted).toContainText("Executor: bot bot-history");
+        await expect(accepted).toContainText("Executor: Bot bot-history");
+        await expect(accepted).toContainText("Invoke bot · Dispatch accepted");
         await expect(accepted).toContainText("Attempt: 2");
+        const attempts = accepted.getByRole("region", { name: "Attempt history", exact: true });
+        await expect(attempts).toContainText("Attempt: 1");
+        await expect(attempts).toContainText("Failed");
+        await expect(attempts).toContainText("Duration: 1.25 sec");
+        await expect(attempts).toContainText("transient_provider_error");
+        await expect(accepted.getByText("Duration: Duration unavailable", { exact: true })).toBeVisible();
+        const succeeded = runs.filter({ hasText: "event-succeeded" });
+        await succeeded.getByText("Rule details", { exact: true }).click();
+        await expect(succeeded.getByText("Duration: 60 sec", { exact: true })).toHaveCount(2);
+        await expect(succeeded.getByRole("region", { name: "Attempt history", exact: true }).getByRole("listitem")).toHaveCount(2);
         await expect(accepted).toContainText("log-history");
         await expect(accepted).toContainText("Dispatch accepted; see bot logs for execution details.");
         await expect(accepted).not.toContainText("Succeeded");
