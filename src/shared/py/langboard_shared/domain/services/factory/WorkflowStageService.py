@@ -485,7 +485,7 @@ class WorkflowStageService(BaseDomainService):
             items = [{
                 "uid": row.get_uid(), "source": row.source, "status": "uncertain" if history_lease_expired(row, now) else row.status,
                 "effects": row.effects, "started_at": row.started_at, "finished_at": row.finished_at,
-                "duration_ms": row.duration_ms, "result": row.result,
+                "duration_ms": row.duration_ms, "result": row.result, "stage_revision": row.stage_revision,
                 "project_uid": InfraHelper.convert_uid(row.project_id),
                 "card_uid": InfraHelper.convert_uid(row.card_id),
                 "actor_uid": InfraHelper.convert_uid(row.actor_id), "actor_type": row.actor_type,

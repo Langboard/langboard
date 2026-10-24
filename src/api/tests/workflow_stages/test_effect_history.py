@@ -45,7 +45,7 @@ def history(board, monkeypatch):
             db.insert(card)
             cards.append(card)
             db.insert(WorkflowEffectRun(
-                stage_id=stages[0].id, stage_key=stages[0].key, stage_revision="a" * 64,
+                stage_id=stages[0].id, stage_key=stages[0].key, stage_revision=stages[0].edit_revision(),
                 project_id=card.project_id, card_id=card.id, actor_id=2, actor_type="user",
                 source="entry", effects=["stop_running_timers"], duration_ms=5,
                 result={"completed": 0, "stopped": 1},
@@ -82,8 +82,27 @@ def test_history_filters_before_paging_retains_archived_and_separates_workflows(
         f.service.get_effect_history(f.user, f.stages[1].get_uid(), before=first["next_cursor"])
     assert set(first["items"][0]) == {
         "uid", "source", "status", "effects", "started_at", "finished_at", "duration_ms", "result",
-        "project_uid", "card_uid", "actor_uid", "actor_type", "profile", "error_code",
+        "project_uid", "card_uid", "actor_uid", "actor_type", "profile", "error_code", "stage_revision",
     }
+
+
+def test_history_preserves_run_configuration_revision_after_stage_edit(history):
+    f = history
+    original_revision = f.stages[0].edit_revision()
+    before = f.service.get_effect_history(f.user, f.stages[0].get_uid())["items"]
+    assert before and {row["stage_revision"] for row in before} == {original_revision}
+    with DbSession.atomic() as db:
+        f.stages[0].entry_effects = ["complete_checkitems"]
+        f.stages[0].name = "Changed after execution"
+        db.update(f.stages[0])
+    assert f.stages[0].edit_revision() != original_revision
+    after = f.service.get_effect_history(f.user, f.stages[0].get_uid())["items"]
+    assert after == before
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(WorkflowEffectRun).where(
+            WorkflowEffectRun.stage_id == f.stages[0].id,
+        )).all()
+        assert stored and {row.stage_revision for row in stored} == {original_revision}
 
 
 @pytest.mark.parametrize("revocation", ["membership", "role", "account", "project"])
@@ -172,6 +191,7 @@ def test_authenticated_history_requires_admin_setting_read_and_revalidates_card_
         response = client.get(url, headers=headers)
         assert response.status_code == 200, response.text
         assert response.headers["cache-control"] == "no-store"
+        assert {row["stage_revision"] for row in response.json()["items"]} == {f.stages[0].edit_revision()}
         assert [row["card_uid"] for row in response.json()["items"]] == [
             f.cards[5].get_uid(), f.cards[2].get_uid(), f.cards[0].get_uid(),
         ]

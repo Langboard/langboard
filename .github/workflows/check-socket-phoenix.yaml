@@ -94,6 +94,8 @@ jobs:
           uv sync --frozen
         working-directory: .
       - name: Run Python static checks
+        env:
+          UV_NO_SYNC: "true"
         run: make check_socket_phoenix_python
         working-directory: .
       - name: Enable locked Yarn Classic
@@ -110,6 +112,8 @@ jobs:
         working-directory: src/ui
         run: yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
       - name: Run the cross-runtime migration gate
+        env:
+          UV_NO_SYNC: "true"
         run: make test_socket_phoenix_runtime
         working-directory: .
       - name: Distributed editor recovery

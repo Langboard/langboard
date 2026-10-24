@@ -8,6 +8,7 @@ import { formatDateTime, formatNumber } from "@/core/utils/LocaleFormat";
 
 interface IEffectRun {
     uid: string;
+    stage_revision: string;
     source: string;
     status: string;
     effects: string[];
@@ -139,6 +140,9 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                     </p>
                                     <details className="mt-2 text-sm">
                                         <summary className="cursor-pointer">{t("settings.Effect details")}</summary>
+                                        <p className="mt-2 break-all">
+                                            {t("settings.Revision")}: {row.stage_revision}
+                                        </p>
                                         <ul className="mt-2 space-y-1">
                                             {row.effects.map((key) => (
                                                 <li key={key}>{effectLabel(key)}</li>

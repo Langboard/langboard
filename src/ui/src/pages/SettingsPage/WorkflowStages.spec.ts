@@ -25,6 +25,7 @@ const existing = (): IWorkflowStage => ({
 
 const effectRun = (uid: string, started = "2026-10-21T03:00:00Z") => ({
     uid,
+    stage_revision: "b".repeat(64),
     source: "entry",
     status: "succeeded",
     effects: ["complete_checkitems", "stop_running_timers", "notify_author_on_entry"],
@@ -67,6 +68,8 @@ for (const width of [1440, 390]) {
         const history = page.getByRole("region", { name: "Effect history", exact: true });
         await expect(history.getByText("Succeeded", { exact: true })).toHaveCount(1);
         await history.getByText("Effect details", { exact: true }).click();
+        await expect(history.getByText(`Revision: ${"b".repeat(64)}`, { exact: true })).toBeVisible();
+        await expect(history.getByText(`Revision: ${existing().revision}`, { exact: true })).toHaveCount(0);
         await expect(history.getByText("Completed items: 3", { exact: true })).toBeVisible();
         await expect(history.getByText("Notifications created: 1", { exact: true })).toBeVisible();
         await expect(history.getByRole("link", { name: "Open card" })).toHaveAttribute("href", "/board/board-source/card-source");
