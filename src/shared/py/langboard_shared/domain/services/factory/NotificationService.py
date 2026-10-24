@@ -4,7 +4,11 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Any, Literal, NotRequired, TypedDict, TypeGuard, TypeVar, cast, get_args, overload
 from urllib.parse import urlparse
+from sqlalchemy import BigInteger, func, literal_column, select, update
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import JSONB
 from ....core.db import BaseDbModel, DbSession, EditorContentModel, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.logger import Logger
 from ....core.resources.locales.EmailTemplateNames import TEmailTemplateName
@@ -417,6 +421,31 @@ class NotificationService(BaseDomainService):
         self, notification: UserNotification, recipient: User, api_notification: dict[str, Any]
     ) -> bool:
         try:
+            if notification.notification_type == NotificationType.MentionedInWiki:
+                wiki_id = next(
+                    (record_id for table, record_id in notification.record_list if table == "project_wiki"), None
+                )
+                with DbSession.atomic() as db:
+                    wiki = db.exec(
+                        SqlBuilder.select.table(ProjectWiki)
+                        .where(
+                            ProjectWiki.id == wiki_id,
+                        )
+                        .with_for_update()
+                    ).first()
+                    current = db.exec(
+                        SqlBuilder.select.table(UserNotification)
+                        .where(
+                            UserNotification.id == notification.id,
+                            UserNotification.receiver_id == recipient.id,
+                        )
+                        .with_for_update()
+                    ).first()
+                    if wiki is None or current is None:
+                        return True
+                    UserPublisher.notified(recipient, {**api_notification, "message_vars": current.message_vars})
+                    self.repo.user_notification.complete_web_fanout(current)
+                return True
             if notification.notification_type == NotificationType.BotScheduleFailed:
                 # Recheck delayed/recovered delivery using current authority and source.
                 references = []
@@ -507,16 +536,108 @@ class NotificationService(BaseDomainService):
             {"url": self.__create_redirect_url(project, card), "card_name": escape(card.title)},
         )
 
-    def notify_mentioned_in_wiki(self, notifier: TUserOrBot, project: Project, wiki: ProjectWiki):
-        self.__notify_mentioned(
-            notifier,
-            wiki.content,
-            NotificationType.MentionedInWiki,
-            [project, wiki],
-            [project, wiki],
-            "mentioned_in_wiki",
-            {"url": self.__create_redirect_url(project, wiki), "wiki_title": escape(wiki.title)},
+    @staticmethod
+    def redact_wiki_mentions(db, wiki: ProjectWiki, selected: str) -> None:
+        """Mask exact historical mention text while the caller holds the wiki owner lock."""
+        # Reuse the native notification repository's dialect-specific JSON reference
+        # projection. Bound the query before loading any notification payload.
+        dialect = DbEngine.get_main_engine().dialect.name
+        if dialect == "sqlite":
+            refs = func.json_each(UserNotification.record_list).table_valued("key", "value").alias("wiki_refs")
+            table = func.json_extract(refs.c.value, "$[0]")
+            record_id = func.json_extract(refs.c.value, "$[1]")
+        elif dialect == "postgresql":
+            refs = (
+                func.jsonb_array_elements(sql_cast(UserNotification.record_list, JSONB))
+                .table_valued("value")
+                .alias("wiki_refs")
+            )
+            table = refs.c.value.op("->>")(0)
+            record_id = sql_cast(refs.c.value.op("->>")(1), BigInteger)
+        elif dialect in {"mysql", "mariadb"}:
+            refs = (
+                func.JSON_TABLE(
+                    UserNotification.record_list,
+                    literal_column("'$[*]' COLUMNS (ref_table VARCHAR(64) PATH '$[0]', ref_id BIGINT PATH '$[1]')"),
+                )
+                .table_valued("ref_table", "ref_id")
+                .alias("wiki_refs")
+            )
+            table, record_id = refs.c.ref_table, refs.c.ref_id
+        else:
+            raise RuntimeError("Unsupported notification reference dialect")
+        matches_wiki = (
+            select(1)
+            .select_from(refs)
+            .where(
+                table == "project_wiki",
+                record_id == wiki.id,
+            )
+            .correlate(UserNotification)
+            .exists()
         )
+        notifications = db.exec(
+            SqlBuilder.select.table(UserNotification).where(
+                UserNotification.notification_type == NotificationType.MentionedInWiki,
+                matches_wiki,
+            )
+        ).all()
+        for notification in notifications:
+            if not any(
+                table == "project_wiki" and record_id == wiki.id for table, record_id in notification.record_list
+            ):
+                continue
+            line = notification.message_vars.get("line")
+            if not isinstance(line, str) or selected not in line:
+                continue
+            db.exec(
+                update(UserNotification)
+                .where(UserNotification.id == notification.id)
+                .values(
+                    message_vars={**notification.message_vars, "line": line.replace(selected, "[••••]")},
+                    updated_at=notification.updated_at,
+                )
+            )
+
+    def notify_mentioned_in_wiki(self, notifier: TUserOrBot, project: Project, wiki: ProjectWiki):
+        # Serialize mention extraction and persistence with secret conversion. Queued
+        # callers must never relabel a stale editor snapshot with the current generation.
+        with DbSession.atomic() as db:
+            # Match conversion's user-before-owner lock order for recipient FKs.
+            mentioned_uids, _ = find_mentioned(wiki.content)
+            recipient_ids = []
+            for uid in mentioned_uids:
+                try:
+                    recipient_ids.append(InfraHelper.convert_id(uid))
+                except (TypeError, ValueError):
+                    continue
+            if recipient_ids:
+                db.exec(
+                    SqlBuilder.select.table(User).where(User.id.in_(recipient_ids)).order_by(User.id).with_for_update()
+                ).all()
+            current = db.exec(
+                SqlBuilder.select.table(ProjectWiki)
+                .where(
+                    ProjectWiki.id == wiki.id,
+                    ProjectWiki.project_id == project.id,
+                )
+                .with_for_update()
+            ).first()
+            if (
+                current is None
+                or current.editor_generation != wiki.editor_generation
+                or current.content.content != wiki.content.content
+            ):
+                return
+            self.__notify_mentioned(
+                notifier,
+                current.content,
+                NotificationType.MentionedInWiki,
+                [project, current],
+                [project, current],
+                "mentioned_in_wiki",
+                {"url": self.__create_redirect_url(project, current), "wiki_title": escape(current.title)},
+            )
 
     def notify_assigned_to_card(
         self,

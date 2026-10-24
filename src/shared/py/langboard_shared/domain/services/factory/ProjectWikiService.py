@@ -188,6 +188,7 @@ class ProjectWikiService(BaseDomainService):
                     .where(ProjectWikiActivity.id == activity.id)
                     .values(activity_history=history, updated_at=activity.updated_at)
                 )
+        NotificationService.redact_wiki_mentions(db, wiki, selected)
         # This native event is the durable fence for older queued activity tasks.
         ProjectWikiActivityTask.record_wiki_secretized(actor, project, wiki)
         # No plaintext pre-state is retained in deferred task arguments or history.
@@ -197,7 +198,7 @@ class ProjectWikiService(BaseDomainService):
         def publish():
             ProjectWikiPublisher.updated(project, safe_wiki, model)
             self._publish_linked_card_changed(project, safe_wiki)
-            ProjectWikiBotTask.project_wiki_updated(actor, project, safe_wiki)
+            ProjectWikiBotTask.project_wiki_updated(*ProjectWikiBotTask.wiki_event_args(actor, project, safe_wiki))
 
         db.after_commit(publish)
 
@@ -392,7 +393,7 @@ class ProjectWikiService(BaseDomainService):
         api_wiki["assigned_members"] = []
         ProjectWikiPublisher.created(project, wiki)
         ProjectWikiActivityTask.project_wiki_created(user_or_bot, project, wiki)
-        ProjectWikiBotTask.project_wiki_created(user_or_bot, project, wiki)
+        ProjectWikiBotTask.project_wiki_created(*ProjectWikiBotTask.wiki_event_args(user_or_bot, project, wiki))
 
         return wiki, api_wiki
 
@@ -465,7 +466,7 @@ class ProjectWikiService(BaseDomainService):
             notification_service.notify_mentioned_in_wiki(user_or_bot, project, wiki)
 
         ProjectWikiActivityTask.project_wiki_updated(user_or_bot, project, old_record, wiki)
-        ProjectWikiBotTask.project_wiki_updated(user_or_bot, project, wiki)
+        ProjectWikiBotTask.project_wiki_updated(*ProjectWikiBotTask.wiki_event_args(user_or_bot, project, wiki))
 
         return model
 
@@ -503,7 +504,9 @@ class ProjectWikiService(BaseDomainService):
         ProjectWikiPublisher.publicity_changed(user_or_bot, project, wiki)
         self._publish_linked_card_changed(project, wiki)
         ProjectWikiActivityTask.project_wiki_publicity_changed(user_or_bot, project, was_public, wiki)
-        ProjectWikiBotTask.project_wiki_publicity_changed(user_or_bot, project, wiki)
+        ProjectWikiBotTask.project_wiki_publicity_changed(
+            *ProjectWikiBotTask.wiki_event_args(user_or_bot, project, wiki)
+        )
 
         return wiki, project
 
@@ -654,6 +657,6 @@ class ProjectWikiService(BaseDomainService):
         ProjectWikiPublisher.deleted(project, wiki)
         self._publish_linked_card_changed(project, wiki)
         ProjectWikiActivityTask.project_wiki_deleted(user_or_bot, project, wiki)
-        ProjectWikiBotTask.project_wiki_deleted(user_or_bot, project, wiki)
+        ProjectWikiBotTask.project_wiki_deleted(*ProjectWikiBotTask.wiki_event_args(user_or_bot, project, wiki))
 
         return True

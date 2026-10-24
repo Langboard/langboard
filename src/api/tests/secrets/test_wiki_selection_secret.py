@@ -14,6 +14,7 @@ from langboard_shared.domain.models import (
     ProjectWikiAssignedUser,
     SecretReference,
     SecretReferenceAudit,
+    UserNotification,
 )
 from langboard_shared.domain.services.factory.ProjectWikiService import (
     ProjectWikiService,
@@ -37,6 +38,7 @@ def conversion(secrets, monkeypatch):
     ProjectWikiAssignedUser.__table__.create(engine)
     Bot.__table__.create(engine, checkfirst=True)
     ProjectWikiActivity.__table__.create(engine)
+    UserNotification.__table__.create(engine)
     material = {}
 
     def store(key, value):
@@ -1190,3 +1192,249 @@ def test_post_secretization_ordinary_edits_keep_content_diff(conversion):
     assert changes["before"]["content"]["content"] == before.content
     assert changes["after"]["content"]["content"].endswith("ordinary addition")
     assert "secret_redacted" not in activity.activity_history
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_secret_conversion_masks_stored_wiki_mention_line(conversion):
+    from langboard_shared.core.utils.EditorContentParser import find_mentioned
+    from langboard_shared.domain.models import UserNotification
+    from langboard_shared.domain.models.UserNotification import NotificationType
+
+    engine = DbEngine.get_main_engine()
+    UserNotification.__table__.create(engine, checkfirst=True)
+    _, board, _, wiki, source, _, _, _ = conversion
+    # The native mention parser copies surrounding exact wiki text into durable message_vars.
+    _, lines = find_mentioned(EditorContentModel(content=source + " [**@reader**](target)"))
+    line = lines["target"]
+    rows = []
+    with DbSession.use(readonly=False) as db:
+        for wiki_id in (wiki.id, wiki.id + 1):
+            row = UserNotification(
+                notifier_type="user",
+                notifier_id=board[1].id,
+                receiver_id=board[1].id,
+                notification_type=NotificationType.MentionedInWiki,
+                message_vars={"line": line, "retained": "metadata"},
+                record_list=[("project", board[2].id), ("project_wiki", wiki_id)],
+            )
+            db.insert(row)
+            rows.append(row)
+    with DbSession.use(readonly=False) as db:
+        original = db.exec(SqlBuilder.select.table(UserNotification).where(UserNotification.id == rows[0].id)).first()
+        timestamps = (original.created_at, original.updated_at)
+    call(conversion)
+    with DbSession.use(readonly=False) as db:
+        masked = db.exec(SqlBuilder.select.table(UserNotification).where(UserNotification.id == rows[0].id)).first()
+        untouched = db.exec(SqlBuilder.select.table(UserNotification).where(UserNotification.id == rows[1].id)).first()
+        assert "fixture-sensitive-value" not in masked.message_vars["line"]
+        assert masked.message_vars["line"] == line.replace("fixture-sensitive-value", "[••••]")
+        assert masked.message_vars["retained"] == "metadata"
+        assert (masked.created_at, masked.updated_at) == timestamps
+        assert untouched.message_vars["line"] == line
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_wiki_mentions_reject_stale_generation_and_use_current_source(conversion, monkeypatch):
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+
+    _, board, _, old_wiki, _, _, _, _ = conversion
+    service = NotificationService(lambda _: None, lambda _: None, None)
+    observed = []
+    monkeypatch.setattr(
+        service, "_NotificationService__notify_mentioned", lambda *args: observed.append(args[1].content)
+    )
+    service.notify_mentioned_in_wiki(board[1], board[2], old_wiki)
+    assert observed == [old_wiki.content.content]
+    observed.clear()
+    call(conversion)
+    service.notify_mentioned_in_wiki(board[1], board[2], old_wiki)
+    assert not observed
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == old_wiki.id)).first()
+    # Equal-generation detached arguments still cannot supply stale body text.
+    current.content = old_wiki.content
+    service.notify_mentioned_in_wiki(board[1], board[2], current)
+    assert not observed
+    with DbSession.use(readonly=False) as db:
+        fresh = db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == old_wiki.id)).first()
+    service.notify_mentioned_in_wiki(board[1], board[2], fresh)
+    assert len(observed) == 1 and "fixture-sensitive-value" not in observed[0]
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_deferred_wiki_mention_fanout_reloads_redacted_durable_line(conversion, monkeypatch):
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    from langboard_shared.publishers.UserPublisher import UserPublisher
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    with DbSession.use(readonly=False) as db:
+        notification = UserNotification(
+            notifier_type="user",
+            notifier_id=board[1].id,
+            receiver_id=board[1].id,
+            notification_type=NotificationType.MentionedInWiki,
+            message_vars={"line": source},
+            record_list=[("project", board[2].id), ("project_wiki", wiki.id)],
+        )
+        db.insert(notification)
+    stale_payload = notification.api_response()
+    call(conversion)
+    completed, published = [], []
+    service = NotificationService(
+        lambda _: None,
+        lambda _: None,
+        SimpleNamespace(
+            user_notification=SimpleNamespace(complete_web_fanout=lambda row: completed.append(row.id)),
+        ),
+    )
+    monkeypatch.setattr(UserPublisher, "notified", lambda recipient, payload: published.append(payload))
+    assert service._publish_web_notification(notification, board[1], stale_payload)
+    assert completed == [notification.id] and len(published) == 1
+    assert published[0]["message_vars"]["line"] == source.replace("fixture-sensitive-value", "[••••]")
+    assert notification.message_vars["line"] == source  # The pending closure really held a stale copy.
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_inflight_wiki_mention_creation_serializes_with_secret_conversion(conversion, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    source += f"\n[**@reader**]({board[1].get_uid()})"
+    wiki.content = EditorContentModel(content=source)
+    with DbSession.use(readonly=False) as db:
+        db.update(wiki)
+    conversion = (*conversion[:4], source, *conversion[5:])
+    entered, release, converted = Event(), Event(), Event()
+    service = NotificationService(lambda _: None, lambda _: None, None)
+
+    def persist_mention(*args):
+        entered.set()
+        assert release.wait(5)
+        with DbSession.use(readonly=False) as db:
+            db.insert(
+                UserNotification(
+                    notifier_type="user",
+                    notifier_id=board[1].id,
+                    receiver_id=board[1].id,
+                    notification_type=NotificationType.MentionedInWiki,
+                    message_vars={"line": args[1].content},
+                    record_list=[("project", board[2].id), ("project_wiki", wiki.id)],
+                )
+            )
+
+    monkeypatch.setattr(service, "_NotificationService__notify_mentioned", persist_mention)
+
+    def convert():
+        result = call(conversion)
+        converted.set()
+        return result
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending = pool.submit(service.notify_mentioned_in_wiki, board[1], board[2], wiki)
+        assert entered.wait(5)
+        secretized = pool.submit(convert)
+        try:
+            assert not converted.wait(0.15)
+        finally:
+            release.set()
+        pending.result(timeout=5)
+        assert secretized.result(timeout=5)["editor_generation"] == 1
+    with DbSession.use(readonly=False) as db:
+        notifications = db.exec(SqlBuilder.select.table(UserNotification)).all()
+        assert len(notifications) == 1
+        assert notifications[0].message_vars["line"] == source.replace("fixture-sensitive-value", "[••••]")
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_wiki_mention_redaction_rolls_back_with_failed_conversion(conversion, monkeypatch):
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.tasks.activities import ProjectWikiActivityTask
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    with DbSession.use(readonly=False) as db:
+        notification = UserNotification(
+            notifier_type="user",
+            notifier_id=board[1].id,
+            receiver_id=board[1].id,
+            notification_type=NotificationType.MentionedInWiki,
+            message_vars={"line": source},
+            record_list=[("project", board[2].id), ("project_wiki", wiki.id)],
+        )
+        db.insert(notification)
+
+    def fail(*args):
+        raise RuntimeError("transaction fence failure")
+
+    monkeypatch.setattr(ProjectWikiActivityTask, "record_wiki_secretized", fail)
+    with pytest.raises(WikiSecretSelectionError, match="conversion_failed"):
+        call(conversion)
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(
+            SqlBuilder.select.table(UserNotification).where(UserNotification.id == notification.id)
+        ).first()
+        assert current.message_vars["line"] == source
+    stored, refs, _ = state(conversion)
+    assert stored == source and not refs and not conversion[6] and not conversion[7]
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_native_wiki_bot_producer_broker_payload_contains_only_identifiers(conversion, monkeypatch):
+    from langboard_shared.core.broker.TaskParameters import TaskParameters
+
+    _, board, service, wiki, source, _, _, events = conversion
+    monkeypatch.setattr(
+        service, "_raw_get_service", lambda _: SimpleNamespace(notify_mentioned_in_wiki=lambda *a: None)
+    )
+    assert service.update(
+        board[1],
+        board[2],
+        wiki,
+        {"content": EditorContentModel(content=source + " appended")},
+        expected_content=source,
+        expected_generation=0,
+    )
+    queued = [args for kind, args in events if kind == "bot"]
+    assert len(queued) == 1
+    packed = TaskParameters(*queued[0]).pack()
+    assert "fixture-sensitive-value" not in json.dumps(packed, default=str)
+    assert all(type(value) in (str, int) for value in queued[0])
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_wiki_bot_consumer_rehydrates_current_scope_and_rejects_old_generation(conversion, monkeypatch):
+    import asyncio
+    from langboard_shared.domain.constants.DomainEventType import DomainEventType
+    from langboard_shared.tasks.bots.ProjectWikiBotTask import _run_wiki_event, wiki_event_args
+    from langboard_shared.tasks.bots.utils import BotTaskHelper
+
+    _, board, _, wiki, _, _, _, _ = conversion
+    dispatched = []
+    monkeypatch.setattr(BotTaskHelper, "get_scoped_bots", lambda *a, **kw: ["current-scoped-bot"])
+
+    async def run(bots, event, data, project):
+        dispatched.append((bots, event, data))
+
+    monkeypatch.setattr(BotTaskHelper, "run", run)
+    args = wiki_event_args(board[1], board[2], wiki)
+    asyncio.run(_run_wiki_event(DomainEventType.ProjectWikiUpdated, *args))
+    assert len(dispatched) == 1 and dispatched[0][0] == ["current-scoped-bot"]
+    assert dispatched[0][2]["project_wiki_uid"] == wiki.get_uid()
+    assert "fixture-sensitive-value" not in json.dumps(dispatched, default=str)
+    dispatched.clear()
+    call(conversion)
+    asyncio.run(_run_wiki_event(DomainEventType.ProjectWikiUpdated, *args))
+    assert not dispatched
+    current_args = (*args[:-1], 1)
+    asyncio.run(_run_wiki_event(DomainEventType.ProjectWikiUpdated, *current_args))
+    assert len(dispatched) == 1
+    dispatched.clear()
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == wiki.id)).first()
+        current.is_public = False
+        db.update(current)
+    asyncio.run(_run_wiki_event(DomainEventType.ProjectWikiUpdated, *current_args))
+    assert not dispatched
