@@ -172,6 +172,41 @@ test("project and column transitions flush and restore their own drafts", async 
     }
 });
 
+test("delayed success after column switch clears only submitted draft and preserves current composer", async ({ page }) => {
+    const columnBKey = "lb-draft-v1:actor-a:project-a:card-new:column-b";
+    await start(page);
+    await fill(page, "Submitted column A", "A body\n한글");
+    await submit(page);
+    expect(await page.evaluate(() => window.cardCreationFixture.requests[0].payload)).toEqual({
+        project_column_uid: "column-a",
+        title: "Submitted column A",
+        description: { content: "A body\n한글" },
+    });
+    expect(await stored(page)).toMatchObject({ content: "Submitted column A", description: "A body\n한글" });
+    await page.getByRole("button", { name: "Switch column", exact: true }).click();
+    if (!(await title(page).isVisible())) await page.getByRole("button", { name: "Add a card", exact: true }).click();
+    await expect(title(page)).toBeEnabled();
+    await expect(title(page)).toHaveValue("");
+    await expect(description(page)).toBeHidden();
+    await fill(page, "Unsubmitted column B");
+    await release(page, 0, true);
+    await expect.poll(() => stored(page)).toBeNull();
+    await expect(title(page)).toBeEnabled();
+    await expect(title(page)).toHaveValue("Unsubmitted column B");
+    await expect(description(page)).toBeEnabled();
+    await expect(description(page)).toHaveValue(body);
+    expect(await stored(page, columnBKey)).toMatchObject({ content: "Unsubmitted column B", description: body });
+    await page.getByRole("button", { name: "Switch column", exact: true }).click();
+    if (!(await title(page).isVisible())) await page.getByRole("button", { name: "Add a card", exact: true }).click();
+    await expect(title(page)).toHaveValue("");
+    await expect(description(page)).toBeHidden();
+    await page.getByRole("button", { name: "Switch column", exact: true }).click();
+    if (!(await title(page).isVisible())) await page.getByRole("button", { name: "Add a card", exact: true }).click();
+    await expect(title(page)).toHaveValue("Unsubmitted column B");
+    await expect(description(page)).toHaveValue(body);
+    expect(await page.evaluate(() => window.cardCreationFixture.requests.length)).toBe(1);
+});
+
 test("same-account reauthentication invalidates old success ownership", async ({ page }) => {
     await start(page);
     await fill(page);
