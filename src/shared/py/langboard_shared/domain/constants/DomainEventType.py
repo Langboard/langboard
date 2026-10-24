@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class BotTriggerCondition(Enum):
+class DomainEventType(Enum):
     # Project
     ProjectUpdated = "project_updated"
     ProjectDeleted = "project_deleted"

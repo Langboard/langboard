@@ -1,7 +1,7 @@
 from typing import Any
 from ...core.broker import Broker
+from ...domain.constants.DomainEventType import DomainEventType
 from ...domain.models import Bot, Card, Checkitem, Project, User
-from ...domain.models.bases import BotTriggerCondition
 from .utils import BotTaskDataHelper, BotTaskHelper, BotTaskSchemaHelper
 
 
@@ -12,11 +12,11 @@ def _create_schema(other_schema: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemCreated, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemCreated, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_created(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemCreated,
+        DomainEventType.CardCheckitemCreated,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -24,17 +24,17 @@ async def card_checkitem_created(user_or_bot: User | Bot, project: Project, card
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemCreated,
+        DomainEventType.CardCheckitemCreated,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemTitleChanged, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemTitleChanged, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_title_changed(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemTitleChanged,
+        DomainEventType.CardCheckitemTitleChanged,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -42,17 +42,17 @@ async def card_checkitem_title_changed(user_or_bot: User | Bot, project: Project
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemTitleChanged,
+        DomainEventType.CardCheckitemTitleChanged,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemTimerStarted, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemTimerStarted, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_timer_started(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemTimerStarted,
+        DomainEventType.CardCheckitemTimerStarted,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -60,17 +60,17 @@ async def card_checkitem_timer_started(user_or_bot: User | Bot, project: Project
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemTimerStarted,
+        DomainEventType.CardCheckitemTimerStarted,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemTimerPaused, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemTimerPaused, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_timer_paused(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemTimerPaused,
+        DomainEventType.CardCheckitemTimerPaused,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -78,17 +78,17 @@ async def card_checkitem_timer_paused(user_or_bot: User | Bot, project: Project,
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemTimerPaused,
+        DomainEventType.CardCheckitemTimerPaused,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemTimerStopped, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemTimerStopped, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_timer_stopped(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemTimerStopped,
+        DomainEventType.CardCheckitemTimerStopped,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -96,17 +96,17 @@ async def card_checkitem_timer_stopped(user_or_bot: User | Bot, project: Project
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemTimerStopped,
+        DomainEventType.CardCheckitemTimerStopped,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemChecked, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemChecked, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_checked(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemChecked,
+        DomainEventType.CardCheckitemChecked,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -114,17 +114,17 @@ async def card_checkitem_checked(user_or_bot: User | Bot, project: Project, card
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemChecked,
+        DomainEventType.CardCheckitemChecked,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemUnchecked, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemUnchecked, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_unchecked(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemUnchecked,
+        DomainEventType.CardCheckitemUnchecked,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -132,21 +132,21 @@ async def card_checkitem_unchecked(user_or_bot: User | Bot, project: Project, ca
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemUnchecked,
+        DomainEventType.CardCheckitemUnchecked,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )
 
 
 @BotTaskSchemaHelper.card_schema(
-    BotTriggerCondition.CardCheckitemCardified, _create_schema({"cardified_card_uid": "string"})
+    DomainEventType.CardCheckitemCardified, _create_schema({"cardified_card_uid": "string"})
 )
 @Broker.wrap_async_task_decorator
 async def card_checkitem_cardified(
     user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem, new_card: Card
 ):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemCardified,
+        DomainEventType.CardCheckitemCardified,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -154,7 +154,7 @@ async def card_checkitem_cardified(
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemCardified,
+        DomainEventType.CardCheckitemCardified,
         _create_data(
             user_or_bot,
             project,
@@ -166,11 +166,11 @@ async def card_checkitem_cardified(
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCheckitemDeleted, _create_schema())
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCheckitemDeleted, _create_schema())
 @Broker.wrap_async_task_decorator
 async def card_checkitem_deleted(user_or_bot: User | Bot, project: Project, card: Card, checkitem: Checkitem):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCheckitemDeleted,
+        DomainEventType.CardCheckitemDeleted,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -178,7 +178,7 @@ async def card_checkitem_deleted(user_or_bot: User | Bot, project: Project, card
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardCheckitemDeleted,
+        DomainEventType.CardCheckitemDeleted,
         _create_data(user_or_bot, project, card, checkitem),
         project,
     )

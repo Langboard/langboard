@@ -1,44 +1,44 @@
 from typing import Any
 from ...core.broker import Broker
+from ...domain.constants.DomainEventType import DomainEventType
 from ...domain.models import Bot, Card, Project, ProjectColumn, User
-from ...domain.models.bases import BotTriggerCondition
 from ..webhooks import WebhookTask
 from ..webhooks.utils import WebhookModel
 from .utils import BotTaskDataHelper, BotTaskHelper, BotTaskSchemaHelper
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardCreated)
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardCreated)
 @Broker.wrap_async_task_decorator
 async def card_created(user_or_bot: User | Bot, project: Project, card: Card):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardCreated,
+        DomainEventType.CardCreated,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
-        bots, BotTriggerCondition.CardCreated, BotTaskDataHelper.create_card(user_or_bot, project, card), project
+        bots, DomainEventType.CardCreated, BotTaskDataHelper.create_card(user_or_bot, project, card), project
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardUpdated)
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardUpdated)
 @Broker.wrap_async_task_decorator
 async def card_updated(user_or_bot: User | Bot, project: Project, card: Card):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardUpdated,
+        DomainEventType.CardUpdated,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
-        bots, BotTriggerCondition.CardUpdated, BotTaskDataHelper.create_card(user_or_bot, project, card), project
+        bots, DomainEventType.CardUpdated, BotTaskDataHelper.create_card(user_or_bot, project, card), project
     )
 
 
 @BotTaskSchemaHelper.card_schema(
-    BotTriggerCondition.CardMoved,
+    DomainEventType.CardMoved,
     {
         "old_project_column_uid": "string",
         "old_project_column_name": "string",
@@ -58,7 +58,7 @@ async def card_moved(
 
 async def _run_card_moved(user_or_bot, project, card, old_column, emit_webhook=False):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardMoved, project_id=project.id, project_column_id=card.project_column_id, card_id=card.id
+        DomainEventType.CardMoved, project_id=project.id, project_column_id=card.project_column_id, card_id=card.id
     )
     data = create_card_moved_data(user_or_bot, project, card, old_column)
     if old_column.workflow_stage and old_column.workflow_stage == card.workflow_stage_entered_key:
@@ -68,7 +68,7 @@ async def _run_card_moved(user_or_bot, project, card, old_column, emit_webhook=F
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         [item for item in bots if item[0].get_uid() not in selected],
-        BotTriggerCondition.CardMoved,
+        DomainEventType.CardMoved,
         data,
         project,
         emit_webhook=emit_webhook,
@@ -108,7 +108,7 @@ def enqueue_card_moved_webhook(
     """Freeze and queue a move webhook before optional bot execution."""
 
     data = create_card_moved_data(user_or_bot, project, card, old_column, current_column)
-    WebhookTask.webhook_task(WebhookModel(event=BotTriggerCondition.CardMoved.value, data=data))
+    WebhookTask.webhook_task(WebhookModel(event=DomainEventType.CardMoved.value, data=data))
 
 
 def create_card_moved_data(
@@ -128,11 +128,11 @@ def create_card_moved_data(
     }
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardLabelsUpdated)
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardLabelsUpdated)
 @Broker.wrap_async_task_decorator
 async def card_labels_updated(user_or_bot: User | Bot, project: Project, card: Card):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardLabelsUpdated,
+        DomainEventType.CardLabelsUpdated,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -140,17 +140,17 @@ async def card_labels_updated(user_or_bot: User | Bot, project: Project, card: C
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardLabelsUpdated,
+        DomainEventType.CardLabelsUpdated,
         BotTaskDataHelper.create_card(user_or_bot, project, card),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardRelationshipsUpdated)
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardRelationshipsUpdated)
 @Broker.wrap_async_task_decorator
 async def card_relationship_updated(user_or_bot: User | Bot, project: Project, card: Card):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardRelationshipsUpdated,
+        DomainEventType.CardRelationshipsUpdated,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
@@ -158,22 +158,22 @@ async def card_relationship_updated(user_or_bot: User | Bot, project: Project, c
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
         bots,
-        BotTriggerCondition.CardRelationshipsUpdated,
+        DomainEventType.CardRelationshipsUpdated,
         BotTaskDataHelper.create_card(user_or_bot, project, card),
         project,
     )
 
 
-@BotTaskSchemaHelper.card_schema(BotTriggerCondition.CardDeleted)
+@BotTaskSchemaHelper.card_schema(DomainEventType.CardDeleted)
 @Broker.wrap_async_task_decorator
 async def card_deleted(user_or_bot: User | Bot, project: Project, card: Card):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.CardDeleted,
+        DomainEventType.CardDeleted,
         project_id=project.id,
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
     await BotTaskHelper.run_card_event(
         user_or_bot, card,
-        bots, BotTriggerCondition.CardDeleted, BotTaskDataHelper.create_card(user_or_bot, project, card), project
+        bots, DomainEventType.CardDeleted, BotTaskDataHelper.create_card(user_or_bot, project, card), project
     )

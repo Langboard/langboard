@@ -5,8 +5,8 @@ from ....core.logger import Logger
 from ....core.types import SnowflakeID
 from ....core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
 from ....core.utils.decorators import staticclass
+from ....domain.constants.DomainEventType import DomainEventType
 from ....domain.models import Bot, Card, CardComment, Checkitem, Checklist, Project
-from ....domain.models.bases import BotTriggerCondition
 from ....helpers import BotHelper
 from ....helpers import BotHelper as BotHelperClass
 from ...webhooks import WebhookTask
@@ -22,7 +22,7 @@ logger = Logger.use("bot-task")
 class BotTaskHelper:
     @staticmethod
     def get_scoped_bots(
-        condition: BotTriggerCondition, *, with_deleted_target: bool = False, **where_clauses: Any
+        condition: DomainEventType, *, with_deleted_target: bool = False, **where_clauses: Any
     ) -> list[tuple[Bot, BaseDbModel]]:
         model_classes = BotHelper.get_scope_model_classes_by_condition(condition)
         records: list[tuple[Bot, BaseDbModel]] = []
@@ -123,7 +123,7 @@ class BotTaskHelper:
     @staticmethod
     async def run(
         bots: Bot | list[Bot],
-        event: BotTriggerCondition | BotDefaultTrigger,
+        event: DomainEventType | BotDefaultTrigger,
         data: dict[str, Any],
         project: Project | None = None,
         scope_model: BaseDbModel | None = None,
@@ -134,7 +134,7 @@ class BotTaskHelper:
     @staticmethod
     async def run(
         bots: list[tuple[Bot, BaseDbModel]],
-        event: BotTriggerCondition | BotDefaultTrigger,
+        event: DomainEventType | BotDefaultTrigger,
         data: dict[str, Any],
         project: Project | None = None,
         *,
@@ -143,7 +143,7 @@ class BotTaskHelper:
     @staticmethod
     async def run(
         bots: Bot | list[Bot] | list[tuple[Bot, BaseDbModel]],
-        event: BotTriggerCondition | BotDefaultTrigger,
+        event: DomainEventType | BotDefaultTrigger,
         data: dict[str, Any],
         project: Project | None = None,
         scope_model: BaseDbModel | None = None,

@@ -8,7 +8,7 @@ import useToggleBotScopeTriggerCondition from "@/controllers/api/shared/botScope
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { BotDefaultScopeBranchModel } from "@/core/models";
 import * as BaseBotScopeModel from "@/core/models/botScopes/BaseBotScopeModel";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { ModelRegistry, TBotScopeModel, TBotScopeModelName } from "@/core/models/ModelRegistry";
 import { cn } from "@/core/utils/ComponentUtils";
 import { Utils } from "@langboard/core/utils";
@@ -18,7 +18,7 @@ import { useTranslation } from "react-i18next";
 
 export interface IBotTriggerConditionProps {
     category: string;
-    conditionType: EBotTriggerCondition;
+    conditionType: DomainEventType;
 }
 
 function BotTriggerCondition({ category, conditionType }: IBotTriggerConditionProps): React.JSX.Element {
@@ -145,7 +145,7 @@ function BotTriggerConditionBranchRouter({ defaultScopeBranch, ...props }: IBotT
 }
 
 interface IBotTriggerConditionCheckboxProps extends IBotTriggerConditionProps {
-    conditions: EBotTriggerCondition[];
+    conditions: DomainEventType[];
     mutateAsync: (endCallback: (success: bool) => void) => void;
 }
 

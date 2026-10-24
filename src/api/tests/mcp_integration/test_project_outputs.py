@@ -9,6 +9,7 @@ from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import ProjectMcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import (
     BotSchedule,
     Project,
@@ -17,7 +18,6 @@ from langboard_shared.domain.models import (
     ProjectLabel,
     User,
 )
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.models.BotSchedule import BotScheduleStatus
 from pydantic import TypeAdapter, ValidationError
 
@@ -46,7 +46,7 @@ def native_result(actor):
     }
     if isinstance(actor, User):
         response["current_auth_role_actions"] = ["*"]
-    scope = ProjectBotScope(id=800, project_id=project.id, bot_id=801, conditions=[BotTriggerCondition.CardCreated])
+    scope = ProjectBotScope(id=800, project_id=project.id, bot_id=801, conditions=[DomainEventType.CardCreated])
     schedule = BotSchedule(id=802, bot_id=801, status=BotScheduleStatus.Started, interval_str="* * * * *")
     assigned_schedule = ProjectBotSchedule(id=803, project_id=project.id, bot_schedule_id=schedule.id)
     return project, {

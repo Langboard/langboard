@@ -7,6 +7,7 @@ from sqlalchemy import update
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....helpers import InfraHelper
+from ...constants.DomainEventType import DomainEventType
 from ...models import (
     Bot,
     BotDefaultScopeBranch,
@@ -20,7 +21,6 @@ from ...models import (
     ProjectTemplate,
     User,
 )
-from ...models.bases import BotTriggerCondition
 from ...models.InternalBot import InternalBotType
 from ...models.ProjectCreationReceipt import ProjectCreationReceipt
 from ...models.ProjectEmailNotificationPolicy import ProjectEmailNotificationCategory
@@ -584,7 +584,7 @@ class ProjectTemplateService(BaseDomainService):
         conditions = []
         for value in snapshot.get("conditions", []):
             try:
-                condition = BotTriggerCondition(value)
+                condition = DomainEventType(value)
             except ValueError:
                 continue
             if condition in available:

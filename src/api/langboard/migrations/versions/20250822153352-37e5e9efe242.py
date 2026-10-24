@@ -19,8 +19,8 @@ from langboard_shared.core.db.ColumnTypes import (
 )
 from langboard_shared.core.db.Models import ChatContentModel, EditorContentModel
 from langboard_shared.core.storage.FileModel import FileModel
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
-from langboard_shared.domain.models.bases.BotTriggerCondition import BotTriggerCondition
 from langboard_shared.domain.models.BotLog import BotLogMessage, BotLogType
 from langboard_shared.domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -561,7 +561,7 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False
         ),
         sa.Column("bot_id", SnowflakeIDType, nullable=True),
-        sa.Column("conditions", CSVType(BotTriggerCondition), nullable=False),
+        sa.Column("conditions", CSVType(DomainEventType), nullable=False),
         sa.Column("project_column_id", SnowflakeIDType, nullable=False),
         sa.ForeignKeyConstraint(["bot_id"], ["bot.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["project_column_id"], ["project_column.id"], ondelete="CASCADE"),
@@ -784,7 +784,7 @@ def upgrade() -> None:
             "updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False
         ),
         sa.Column("bot_id", SnowflakeIDType, nullable=True),
-        sa.Column("conditions", CSVType(BotTriggerCondition), nullable=False),
+        sa.Column("conditions", CSVType(DomainEventType), nullable=False),
         sa.Column("card_id", SnowflakeIDType, nullable=False),
         sa.ForeignKeyConstraint(["bot_id"], ["bot.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["card_id"], ["card.id"], ondelete="CASCADE"),

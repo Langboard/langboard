@@ -261,8 +261,8 @@ def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=Non
 
 async def _dispatch_workflow_bot(claim, binding, *, data=None):
     from time import monotonic_ns
+    from ...domain.constants.DomainEventType import DomainEventType
     from ...domain.models import Bot, User
-    from ...domain.models.bases import BotTriggerCondition
     from .utils import BotTaskDataHelper, BotTaskHelper
     from .utils.requests.BaseBotRequest import BotRequestOutcome
 
@@ -324,7 +324,7 @@ async def _dispatch_workflow_bot(claim, binding, *, data=None):
         ):
             error = "workflow_residency_changed"
             return
-        condition = BotTriggerCondition(run.effects[-1])
+        condition = DomainEventType(run.effects[-1])
         # Selection never creates a Hook or bypasses its conditions/frozen state.
         # Native scope lookup uses replicas by default. This authorization reread
         # shares a short primary transaction, which closes before transport starts.

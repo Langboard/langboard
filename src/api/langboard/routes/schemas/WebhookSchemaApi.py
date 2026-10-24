@@ -4,8 +4,8 @@ from fastapi.responses import HTMLResponse
 from langboard_shared.core.broker import Broker
 from langboard_shared.core.routing import AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import Bot, User
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.Env import Env
 from langboard_shared.tasks.webhooks.utils import WEBHOOK_EVENT_NAMES, WORK_EXECUTION_EVENTS
 
@@ -171,10 +171,10 @@ def webhook_openapi() -> JsonResponse:
 @AppRouter.api.get(
     "/schema/bot/trigger-conditions",
     tags=["Schema"],
-    responses=OpenApiSchema().suc({"conditions": BotTriggerCondition}).get(),
+    responses=OpenApiSchema().suc({"conditions": DomainEventType}).get(),
 )
 def get_bot_trigger_conditions():
-    return JsonResponse(content={"conditions": [condition.value for condition in BotTriggerCondition]})
+    return JsonResponse(content={"conditions": [condition.value for condition in DomainEventType]})
 
 
 def _make_object_property(schema_name: str, schema: dict[str, Any]):

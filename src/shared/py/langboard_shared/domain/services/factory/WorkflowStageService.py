@@ -415,8 +415,8 @@ class WorkflowStageService(BaseDomainService):
     def get_bot_options(self, user: User) -> dict:
         """Minimal Bot identities and schedules on cards visible to this administrator."""
         from ....helpers import BotHelper
+        from ...constants.DomainEventType import DomainEventType
         from ...models import Bot, BotSchedule, CardBotSchedule
-        from ...models.bases import BotTriggerCondition
         from ...models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
 
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(user, CollaborationChannel.Api)
@@ -429,7 +429,7 @@ class WorkflowStageService(BaseDomainService):
 
         now = utc(SafeDateTime.now())
         with DbSession.use(readonly=False) as db:
-            card_conditions = {condition for condition in BotTriggerCondition if condition.value.startswith("card_")}
+            card_conditions = {condition for condition in DomainEventType if condition.value.startswith("card_")}
             models = set().union(*(BotHelper.get_scope_model_classes_by_condition(condition) for condition in card_conditions))
             for model in models:
                 default_model = BotHelper.get_default_scope_model_class(model.get_scope_column_name())
@@ -438,7 +438,7 @@ class WorkflowStageService(BaseDomainService):
                     conditions = defaults.get(scope.default_scope_branch_id, []) if scope.default_scope_branch_id else scope.conditions
                     if any(condition in conditions for condition in card_conditions):
                         policy_bots.add(scope.bot_id)
-                    if BotTriggerCondition.CardMoved in conditions:
+                    if DomainEventType.CardMoved in conditions:
                         entry_bots.add(scope.bot_id)
             bots = db.exec(SqlBuilder.select.table(Bot)).all()
             rows = db.exec(SqlBuilder.select.tables(BotSchedule, Card)

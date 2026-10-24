@@ -13,6 +13,7 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import (
     Bot,
     BotSchedule,
@@ -26,7 +27,6 @@ from langboard_shared.domain.models import (
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
 from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
@@ -105,7 +105,7 @@ def bots(monkeypatch, request):
         bot = Bot(name="Selected", bot_uname="selected", platform=BotPlatform.Default,
                   platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
         db.insert(bot)
-        hook = CardBotScope(bot_id=bot.id, card_id=card.id, conditions=[BotTriggerCondition.CardMoved])
+        hook = CardBotScope(bot_id=bot.id, card_id=card.id, conditions=[DomainEventType.CardMoved])
         db.insert(hook)
         schedule = BotSchedule(bot_id=bot.id, interval_str="every 5 minutes", status=BotScheduleStatus.Started,
                                running_type=BotScheduleRunningType.Infinite)
@@ -138,7 +138,7 @@ async def test_selected_entry_runs_actual_move_once_and_preserves_unselected_nat
         other = Bot(name="Other", bot_uname="other", platform=BotPlatform.Default,
                     platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
         db.insert(other)
-        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[BotTriggerCondition.CardMoved]))
+        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[DomainEventType.CardMoved]))
     await _run_card_moved(f.actor, f.project, f.card, f.old)
     assert f.execute.await_count == 2
     rows = history()
@@ -158,7 +158,7 @@ async def test_entry_does_not_bypass_current_authority(bots, case):
             f.hook.is_frozen = True
             db.update(f.hook)
         elif case == "wrong_condition":
-            f.hook.conditions = [BotTriggerCondition.CardUpdated]
+            f.hook.conditions = [DomainEventType.CardUpdated]
             db.update(f.hook)
         elif case == "deleted_bot":
             f.bot.deleted_at = SafeDateTime.now()
@@ -483,7 +483,7 @@ async def test_simultaneous_same_card_claims_admit_one_dispatch(bots, source):
     assert _claim_workflow_bot(f.stage.id, f.card.id, binding, source, f.now, **kwargs) is None
 
 
-def policy_claim(f, *, event=BotTriggerCondition.CardCommentAdded, key="one-event"):
+def policy_claim(f, *, event=DomainEventType.CardCommentAdded, key="one-event"):
     binding = {"bot_uid": f.bot.get_uid()}
     with DbSession.atomic() as db:
         f.stage.policy_bots = [binding]
@@ -499,7 +499,7 @@ def policy_claim(f, *, event=BotTriggerCondition.CardCommentAdded, key="one-even
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("event", [condition for condition in BotTriggerCondition if condition.value.startswith("card_") and condition != BotTriggerCondition.CardDeleted])
+@pytest.mark.parametrize("event", [condition for condition in DomainEventType if condition.value.startswith("card_") and condition != DomainEventType.CardDeleted])
 async def test_policy_native_card_event_runs_once_with_existing_condition(bots, event):
     from langboard_shared.tasks.bots.utils import BotTaskHelper
 
@@ -510,7 +510,7 @@ async def test_policy_native_card_event_runs_once_with_existing_condition(bots, 
         f.hook.conditions = [event]
         db.update(f.stage)
         db.update(f.hook)
-        if event == BotTriggerCondition.CardCreated:
+        if event == DomainEventType.CardCreated:
             db.insert(models.ProjectBotScope(bot_id=f.bot.id, project_id=f.project.id, conditions=[event]))
     candidates = BotTaskHelper.get_scoped_bots(event, project_id=f.project.id,
                                               project_column_id=f.column.id, card_id=f.card.id)
@@ -534,7 +534,7 @@ async def test_policy_claim_rereads_current_authority(bots, case):
             f.hook.is_frozen = True
             db.update(f.hook)
         elif case == "condition":
-            f.hook.conditions = [BotTriggerCondition.CardUpdated]
+            f.hook.conditions = [DomainEventType.CardUpdated]
             db.update(f.hook)
         elif case == "binding":
             f.stage.policy_bots = []
@@ -586,7 +586,7 @@ def test_policy_options_support_comment_only_native_hook(bots):
 
     f = bots
     with DbSession.atomic() as db:
-        f.hook.conditions = [BotTriggerCondition.CardCommentAdded]
+        f.hook.conditions = [DomainEventType.CardCommentAdded]
         db.update(f.hook)
     contexts = {f.project.id: CardVisibilityContext(CollaborationChannel.Api, True, True, True, actor_user_id=f.actor.id)}
     service = WorkflowStageService(lambda _: SimpleNamespace(resolve_work_visibility_contexts=lambda *_: contexts), None, None)
@@ -637,12 +637,12 @@ async def test_policy_multiple_selected_bots_have_distinct_claims_and_one_webhoo
         other = Bot(name="Other", bot_uname="other", platform=BotPlatform.Default,
                     platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
         db.insert(other)
-        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[BotTriggerCondition.CardMoved]))
+        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[DomainEventType.CardMoved]))
         f.stage.policy_bots = [{"bot_uid": bot.get_uid()} for bot in (f.bot, other)]
         db.update(f.stage)
-    candidates = BotTaskHelper.get_scoped_bots(BotTriggerCondition.CardMoved, project_id=f.project.id,
+    candidates = BotTaskHelper.get_scoped_bots(DomainEventType.CardMoved, project_id=f.project.id,
                                               project_column_id=f.column.id, card_id=f.card.id)
-    await BotTaskHelper.run_card_event(f.actor, f.card, candidates, BotTriggerCondition.CardMoved,
+    await BotTaskHelper.run_card_event(f.actor, f.card, candidates, DomainEventType.CardMoved,
                                       BotTaskDataHelper.create_card(f.actor, f.project, f.card), f.project)
     assert f.execute.await_count == 2
     assert len(history()) == 2 and len({row.execution_key for row in history()}) == 2

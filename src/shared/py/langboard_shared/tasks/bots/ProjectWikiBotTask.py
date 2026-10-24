@@ -1,7 +1,7 @@
 from typing import Any
 from ...core.broker import Broker
+from ...domain.constants.DomainEventType import DomainEventType
 from ...domain.models import Bot, Project, ProjectWiki, User
-from ...domain.models.bases import BotTriggerCondition
 from .utils import BotTaskDataHelper, BotTaskHelper, BotTaskSchemaHelper
 
 
@@ -12,47 +12,47 @@ def _create_schema(other_schema: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
-@BotTaskSchemaHelper.project_schema(BotTriggerCondition.ProjectWikiCreated, _create_schema())
+@BotTaskSchemaHelper.project_schema(DomainEventType.ProjectWikiCreated, _create_schema())
 @Broker.wrap_async_task_decorator
 async def project_wiki_created(user_or_bot: User | Bot, project: Project, wiki: ProjectWiki):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.ProjectWikiCreated, project_id=project.id, project_wiki_id=wiki.id
+        DomainEventType.ProjectWikiCreated, project_id=project.id, project_wiki_id=wiki.id
     )
     await BotTaskHelper.run(
-        bots, BotTriggerCondition.ProjectWikiCreated, create_wiki_data(user_or_bot, project, wiki), project
+        bots, DomainEventType.ProjectWikiCreated, create_wiki_data(user_or_bot, project, wiki), project
     )
 
 
-@BotTaskSchemaHelper.project_schema(BotTriggerCondition.ProjectWikiUpdated, _create_schema())
+@BotTaskSchemaHelper.project_schema(DomainEventType.ProjectWikiUpdated, _create_schema())
 @Broker.wrap_async_task_decorator
 async def project_wiki_updated(user_or_bot: User | Bot, project: Project, wiki: ProjectWiki):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.ProjectWikiUpdated, project_id=project.id, project_wiki_id=wiki.id
+        DomainEventType.ProjectWikiUpdated, project_id=project.id, project_wiki_id=wiki.id
     )
     await BotTaskHelper.run(
-        bots, BotTriggerCondition.ProjectWikiUpdated, create_wiki_data(user_or_bot, project, wiki), project
+        bots, DomainEventType.ProjectWikiUpdated, create_wiki_data(user_or_bot, project, wiki), project
     )
 
 
-@BotTaskSchemaHelper.project_schema(BotTriggerCondition.ProjectWikiPublicityChanged, _create_schema())
+@BotTaskSchemaHelper.project_schema(DomainEventType.ProjectWikiPublicityChanged, _create_schema())
 @Broker.wrap_async_task_decorator
 async def project_wiki_publicity_changed(user_or_bot: User | Bot, project: Project, wiki: ProjectWiki):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.ProjectWikiPublicityChanged, project_id=project.id, project_wiki_id=wiki.id
+        DomainEventType.ProjectWikiPublicityChanged, project_id=project.id, project_wiki_id=wiki.id
     )
     await BotTaskHelper.run(
-        bots, BotTriggerCondition.ProjectWikiPublicityChanged, create_wiki_data(user_or_bot, project, wiki), project
+        bots, DomainEventType.ProjectWikiPublicityChanged, create_wiki_data(user_or_bot, project, wiki), project
     )
 
 
-@BotTaskSchemaHelper.project_schema(BotTriggerCondition.ProjectWikiDeleted, _create_schema())
+@BotTaskSchemaHelper.project_schema(DomainEventType.ProjectWikiDeleted, _create_schema())
 @Broker.wrap_async_task_decorator
 async def project_wiki_deleted(user_or_bot: User | Bot, project: Project, wiki: ProjectWiki):
     bots = BotTaskHelper.get_scoped_bots(
-        BotTriggerCondition.ProjectWikiDeleted, project_id=project.id, project_wiki_id=wiki.id
+        DomainEventType.ProjectWikiDeleted, project_id=project.id, project_wiki_id=wiki.id
     )
     await BotTaskHelper.run(
-        bots, BotTriggerCondition.ProjectWikiDeleted, create_wiki_data(user_or_bot, project, wiki), project
+        bots, DomainEventType.ProjectWikiDeleted, create_wiki_data(user_or_bot, project, wiki), project
     )
 
 

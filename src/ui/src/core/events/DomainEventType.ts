@@ -1,4 +1,4 @@
-export enum EBotTriggerCondition {
+export enum DomainEventType {
     // Project
     ProjectUpdated = "project_updated",
     ProjectDeleted = "project_deleted",
@@ -58,60 +58,60 @@ export enum EBotTriggerCondition {
     CardCheckitemDeleted = "card_checkitem_deleted",
 }
 
-export const PROJECT_CATEGORIZED_BOT_TRIGGER_CONDITIONS = {
-    project: [EBotTriggerCondition.ProjectUpdated, EBotTriggerCondition.ProjectDeleted],
-    project_label: [EBotTriggerCondition.ProjectLabelCreated, EBotTriggerCondition.ProjectLabelUpdated, EBotTriggerCondition.ProjectLabelDeleted],
+export const PROJECT_CATEGORIZED_EVENT_TYPES = {
+    project: [DomainEventType.ProjectUpdated, DomainEventType.ProjectDeleted],
+    project_label: [DomainEventType.ProjectLabelCreated, DomainEventType.ProjectLabelUpdated, DomainEventType.ProjectLabelDeleted],
 };
 
-export const WIKI_CATEGORIZED_BOT_TRIGGER_CONDITIONS = {
+export const WIKI_CATEGORIZED_EVENT_TYPES = {
     project_wiki: [
-        EBotTriggerCondition.ProjectWikiCreated,
-        EBotTriggerCondition.ProjectWikiUpdated,
-        EBotTriggerCondition.ProjectWikiPublicityChanged,
-        EBotTriggerCondition.ProjectWikiDeleted,
+        DomainEventType.ProjectWikiCreated,
+        DomainEventType.ProjectWikiUpdated,
+        DomainEventType.ProjectWikiPublicityChanged,
+        DomainEventType.ProjectWikiDeleted,
     ],
 };
 
-export const COLUMN_CATEGORIZED_BOT_TRIGGER_CONDITIONS = {
-    project_column: [EBotTriggerCondition.ProjectColumnNameChanged, EBotTriggerCondition.ProjectColumnDeleted],
+export const COLUMN_CATEGORIZED_EVENT_TYPES = {
+    project_column: [DomainEventType.ProjectColumnNameChanged, DomainEventType.ProjectColumnDeleted],
 };
 
-export const CARD_CATEGORIZED_BOT_TRIGGER_CONDITIONS = {
+export const CARD_CATEGORIZED_EVENT_TYPES = {
     card: [
-        EBotTriggerCondition.CardUpdated,
-        EBotTriggerCondition.CardMoved,
-        EBotTriggerCondition.CardLabelsUpdated,
-        EBotTriggerCondition.CardRelationshipsUpdated,
-        EBotTriggerCondition.CardDeleted,
+        DomainEventType.CardUpdated,
+        DomainEventType.CardMoved,
+        DomainEventType.CardLabelsUpdated,
+        DomainEventType.CardRelationshipsUpdated,
+        DomainEventType.CardDeleted,
     ],
     card_attachment: [
-        EBotTriggerCondition.CardAttachmentUploaded,
-        EBotTriggerCondition.CardAttachmentNameChanged,
-        EBotTriggerCondition.CardAttachmentDeleted,
+        DomainEventType.CardAttachmentUploaded,
+        DomainEventType.CardAttachmentNameChanged,
+        DomainEventType.CardAttachmentDeleted,
     ],
     card_comment: [
-        EBotTriggerCondition.CardCommentAdded,
-        EBotTriggerCondition.CardCommentUpdated,
-        EBotTriggerCondition.CardCommentDeleted,
-        EBotTriggerCondition.CardCommentReacted,
-        EBotTriggerCondition.CardCommentUnreacted,
+        DomainEventType.CardCommentAdded,
+        DomainEventType.CardCommentUpdated,
+        DomainEventType.CardCommentDeleted,
+        DomainEventType.CardCommentReacted,
+        DomainEventType.CardCommentUnreacted,
     ],
     card_checklist: [
-        EBotTriggerCondition.CardChecklistCreated,
-        EBotTriggerCondition.CardChecklistTitleChanged,
-        EBotTriggerCondition.CardChecklistChecked,
-        EBotTriggerCondition.CardChecklistUnchecked,
-        EBotTriggerCondition.CardChecklistDeleted,
+        DomainEventType.CardChecklistCreated,
+        DomainEventType.CardChecklistTitleChanged,
+        DomainEventType.CardChecklistChecked,
+        DomainEventType.CardChecklistUnchecked,
+        DomainEventType.CardChecklistDeleted,
     ],
     card_checkitem: [
-        EBotTriggerCondition.CardCheckitemCreated,
-        EBotTriggerCondition.CardCheckitemTitleChanged,
-        EBotTriggerCondition.CardCheckitemTimerStarted,
-        EBotTriggerCondition.CardCheckitemTimerPaused,
-        EBotTriggerCondition.CardCheckitemTimerStopped,
-        EBotTriggerCondition.CardCheckitemChecked,
-        EBotTriggerCondition.CardCheckitemUnchecked,
-        EBotTriggerCondition.CardCheckitemCardified,
-        EBotTriggerCondition.CardCheckitemDeleted,
+        DomainEventType.CardCheckitemCreated,
+        DomainEventType.CardCheckitemTitleChanged,
+        DomainEventType.CardCheckitemTimerStarted,
+        DomainEventType.CardCheckitemTimerPaused,
+        DomainEventType.CardCheckitemTimerStopped,
+        DomainEventType.CardCheckitemChecked,
+        DomainEventType.CardCheckitemUnchecked,
+        DomainEventType.CardCheckitemCardified,
+        DomainEventType.CardCheckitemDeleted,
     ],
 };

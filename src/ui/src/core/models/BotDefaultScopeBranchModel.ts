@@ -2,14 +2,14 @@ import { BaseModel, IBaseModel } from "@/core/models/Base";
 import { registerModel } from "@/core/models/ModelRegistry";
 import useBotDefaultScopeBranchUpdatedHandlers from "@/controllers/socket/global/useBotDefaultScopeBranchUpdatedHandlers";
 import useBotDefaultScopeBranchDeletedHandlers from "@/controllers/socket/global/useBotDefaultScopeBranchDeletedHandlers";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { Utils } from "@langboard/core/utils";
 import { TBotRelatedTargetTable } from "@/core/models/types/bot.related.type";
 
 export interface Interface extends IBaseModel {
     bot_uid: string;
     name: string;
-    conditions_map?: Record<TBotRelatedTargetTable, EBotTriggerCondition[]>;
+    conditions_map?: Record<TBotRelatedTargetTable, DomainEventType[]>;
 }
 
 class BotDefaultScopeBranchModel extends BaseModel<Interface> {
@@ -28,7 +28,7 @@ class BotDefaultScopeBranchModel extends BaseModel<Interface> {
     public static convertModel(model: Interface): Interface {
         if (model.conditions_map) {
             Object.entries(model.conditions_map).forEach(([key, conditions]) => {
-                model.conditions_map![key] = conditions.map((condition) => Utils.String.convertSafeEnum(EBotTriggerCondition, condition));
+                model.conditions_map![key] = conditions.map((condition) => Utils.String.convertSafeEnum(DomainEventType, condition));
             });
         }
 
