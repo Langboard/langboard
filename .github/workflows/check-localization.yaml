@@ -76,6 +76,7 @@ on:
       - src/ui/vite.board-chat-stability.config.ts
       - src/ui/playwright.default-language.config.ts
       - src/ui/playwright.auth-language.config.ts
+      - src/ui/playwright.board-add-card-draft.config.ts
       - src/ui/playwright.filter.config.ts
       - src/ui/playwright.project-load.config.ts
       - src/ui/src/controllers/api/board/useGetProject*
@@ -166,6 +167,9 @@ jobs:
           node --experimental-strip-types --test src/controllers/api/WorkspaceSummaryInvalidation.test.ts src/controllers/socket/card/useCardRelationshipsUpdatedHandlers.test.mjs src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs
         working-directory: src/ui
       - run: yarn playwright install --with-deps chrome
+        working-directory: src/ui
+      - name: Verify native new-card title and body draft recovery
+        run: yarn playwright test -c playwright.board-add-card-draft.config.ts
         working-directory: src/ui
       - run: yarn playwright test -c playwright.card-deeplink.config.ts
         if: github.event_name == 'workflow_dispatch'

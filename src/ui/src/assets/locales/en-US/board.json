@@ -94,6 +94,8 @@
   "Add card": "Add card",
   "Enter a name": "Enter a name",
   "Enter a title": "Enter a title",
+  "Description (optional)": "Description (optional)",
+  "Enter a description (Markdown supported)": "Enter a description (Markdown supported)",
   "Select parent cards": "Select parent cards",
   "Select child cards": "Select child cards",
   "{count} selected": "{{count, number}} selected",

@@ -26,6 +26,8 @@ export interface IDraftScope {
 
 export interface IDraftPayload {
     content: string;
+    /** Optional new-card body; legacy content remains the title. */
+    description?: string;
     anchor?: ICardCommentAnchor | null;
     request_uid?: string;
     /** Epoch ms of the last autosave. */
@@ -36,7 +38,7 @@ export interface IDraftPayload {
 
 interface ICardDraftStore {
     cache: Record<string, IDraftPayload | undefined>;
-    saveDraft: (scope: IDraftScope, content: string, metadata?: Pick<IDraftPayload, "anchor" | "request_uid">) => void;
+    saveDraft: (scope: IDraftScope, content: string, metadata?: Pick<IDraftPayload, "anchor" | "request_uid" | "description">) => void;
     getDraft: (scope: IDraftScope) => IDraftPayload | null;
     clearDraft: (scope: IDraftScope, retainTombstone?: boolean) => void;
 }
@@ -76,6 +78,7 @@ const readStoredDraft = (key: string): IDraftPayload | null => {
             savedAt: parsed.savedAt,
             ...(parsed.cleared === true ? { cleared: true as const } : {}),
             ...(parsed.anchor === null || (typeof parsed.anchor === "object" && !Array.isArray(parsed.anchor)) ? { anchor: parsed.anchor } : {}),
+            ...(typeof parsed.description === "string" ? { description: parsed.description } : {}),
             ...(typeof parsed.request_uid === "string" ? { request_uid: parsed.request_uid } : {}),
         };
     } catch {
@@ -87,7 +90,7 @@ const useCardDraftStore = create(
     immer<ICardDraftStore>((set, get) => ({
         cache: {},
         saveDraft: (scope, content, metadata) => {
-            if (content.length === 0 && !metadata?.anchor && !metadata?.request_uid && scope.kind !== "card-edit") {
+            if (content.length === 0 && !metadata?.anchor && !metadata?.request_uid && !metadata?.description && scope.kind !== "card-edit") {
                 get().clearDraft(scope);
                 return;
             }

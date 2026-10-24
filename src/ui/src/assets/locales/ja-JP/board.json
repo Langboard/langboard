@@ -94,6 +94,8 @@
   "Add card": "カードを追加",
   "Enter a name": "名前を入力",
   "Enter a title": "タイトルを入力",
+  "Description (optional)": "説明（任意）",
+  "Enter a description (Markdown supported)": "説明を入力（Markdown対応）",
   "Select parent cards": "親カードを選択",
   "Select child cards": "子カードを選択",
   "{count} selected": "{{count, number}} 件選択中",

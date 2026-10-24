@@ -94,6 +94,8 @@
   "Add card": "카드 추가",
   "Enter a name": "이름 입력",
   "Enter a title": "제목 입력",
+  "Description (optional)": "본문 (선택 사항)",
+  "Enter a description (Markdown supported)": "본문을 입력하세요 (Markdown 지원)",
   "Select parent cards": "상위 카드 선택",
   "Select child cards": "하위 카드 선택",
   "{count} selected": "{{count, number}}개 선택됨",

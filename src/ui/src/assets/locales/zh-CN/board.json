@@ -94,6 +94,8 @@
   "Add card": "添加卡片",
   "Enter a name": "输入名称",
   "Enter a title": "输入标题",
+  "Description (optional)": "描述（可选）",
+  "Enter a description (Markdown supported)": "输入描述（支持 Markdown）",
   "Select parent cards": "选择父卡片",
   "Select child cards": "选择子卡片",
   "{count} selected": "已选择 {{count, number}} 项",

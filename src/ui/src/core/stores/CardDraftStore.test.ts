@@ -62,6 +62,25 @@ describe("CardDraftStore", () => {
         assert.ok(restored && restored.savedAt > 0);
     });
 
+    it("persists exact new-card title/body metadata without interpreting legacy titles", () => {
+        const cardScope = scope({ kind: "card-new", scopeUID: "column-a" });
+        const content = JSON.stringify({ description: "this is a literal title" });
+        getCardDraftStore().saveDraft(cardScope, content);
+        useCardDraftStore.setState({ cache: {} });
+        assert.equal(getCardDraftStore().getDraft(cardScope)?.content, content);
+        assert.equal(getCardDraftStore().getDraft(cardScope)?.description, undefined);
+        const body = "  ## Body\n\n한글\n";
+        getCardDraftStore().saveDraft(cardScope, content, { description: body, request_uid: "session-revision" });
+        useCardDraftStore.setState({ cache: {} });
+        assert.equal(getCardDraftStore().getDraft(cardScope)?.description, body);
+        assert.equal(getCardDraftStore().getDraft(cardScope)?.request_uid, "session-revision");
+        getCardDraftStore().saveDraft(cardScope, "", { description: body });
+        useCardDraftStore.setState({ cache: {} });
+        assert.equal(getCardDraftStore().getDraft(cardScope)?.description, body);
+        getCardDraftStore().saveDraft(cardScope, "", { description: "" });
+        assert.equal(getCardDraftStore().getDraft(cardScope), null);
+    });
+
     it("restores an intentional empty replacement of an existing description", () => {
         const editScope = scope({ kind: "card-edit", scopeUID: card1 });
         getCardDraftStore().saveDraft(editScope, "");
