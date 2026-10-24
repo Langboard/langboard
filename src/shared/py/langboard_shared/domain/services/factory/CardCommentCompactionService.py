@@ -10,7 +10,6 @@ from ....ai.comment_compaction import (
     CompactionSource,
     compaction_manifest_revision,
     compaction_threshold_reached,
-    compaction_thresholds,
     validate_compaction_draft,
 )
 from ....core.db import DbSession, SqlBuilder
@@ -74,6 +73,11 @@ async def request_compaction_draft(binding: InternalBot, snapshot: CommentCompac
                     raise CommentCompactionError("invalid_result")
     try:
         result = json.loads(content)
+        if isinstance(result, dict) and result.get("generated") is False:
+            if result.get("status") == "generation_failed":
+                raise CommentCompactionError("generation_failed")
+            if result.get("status") == "model_unconfigured":
+                raise CommentCompactionError("provider_unconfigured")
         if not isinstance(result, dict) or result.get("generated") is not True or result.get("status") != "draft":
             raise ValueError("Compaction generation failed")
         if result.get("source_revision") != snapshot.source_revision():
@@ -304,16 +308,23 @@ class CardCommentCompactionService(BaseDomainService):
         return case((events.c.kind == "comment", func.coalesce(func.length(body), 0)), else_=0)
 
     @staticmethod
-    def _configured_threshold(db, card):
+    def _configured_threshold(db, card, rule_id=None):
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition)
             .join(ProjectColumn, ProjectColumn.workflow_stage == WorkflowStageDefinition.key)
             .where(ProjectColumn.id == card.project_column_id, ProjectColumn.project_id == card.project_id,
                    ProjectColumn.deleted_at.is_(None), WorkflowStageDefinition.is_active.is_(True))
             .execution_options(populate_existing=True)).first()
-        if stage is None or stage.continuous_effects.get("auto_compact") is not True:
+        if stage is None:
+            return None
+        from ...models import WorkflowRule
+        from .WorkflowRuleService import action_policy, compaction_threshold_for_rule, rows
+        if rule_id is None:
+            candidates = rows(db, WorkflowRule, stage_id=stage.id, is_enabled=True, retired=False)
+            rule_id = next((rule.id for rule in candidates if action_policy(db, stage, rule.id, "comments.compact")), None)
+        if rule_id is None or action_policy(db, stage, rule_id, "comments.compact") is None:
             return None
         try:
-            return compaction_thresholds(stage.continuous_effects)
+            return compaction_threshold_for_rule(db, rule_id)
         except ValueError:
             raise CommentCompactionError("policy_changed") from None
 
@@ -612,7 +623,7 @@ class CardCommentCompactionService(BaseDomainService):
             self.repo.card_comment_compaction.cancel(record)
         return self.get(user, project, card, record_id, channel=channel)
 
-    def _automatic_context(self, db, project_id, profile_id, card_id, *, effect="compact"):
+    def _automatic_context(self, db, project_id, profile_id, card_id, *, rule_id, effect="compact"):
         if effect not in {"compact", "archive"}:
             raise CommentCompactionError("policy_changed")
         try:
@@ -630,7 +641,8 @@ class CardCommentCompactionService(BaseDomainService):
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
             WorkflowStageDefinition.key == column.workflow_stage,
         ).execution_options(populate_existing=True).with_for_update()).first()
-        if (stage is None or not stage.is_active or stage.continuous_effects.get(f"auto_{effect}") is not True
+        from .WorkflowRuleService import action_policy
+        if (stage is None or not stage.is_active or action_policy(db, stage, rule_id, "comments.compact" if effect == "compact" else "card.archive") is None
                 or (effect == "archive" and not stage.counts_as_completed)):
             raise CommentCompactionError("policy_changed")
         # A return to the same column starts a new residency. Do not publish an
@@ -639,13 +651,13 @@ class CardCommentCompactionService(BaseDomainService):
                      _utc(card.workflow_stage_entered_at) if card.workflow_stage_entered_at else None)
         return project, binding, card, (column.id, stage.id, stage.edit_revision(), residency)
 
-    async def generate_automatic(self, project, profile, card, *, retry=False):
+    async def generate_automatic(self, project, profile, card, *, rule_id, retry=False):
         """Internal continuous command; no user impersonation or public draft."""
         if DbSession.has_active_transaction():
             raise CommentCompactionError("transaction_not_supported")
         project_id, profile_id, card_id = map(InfraHelper.convert_id, (project, profile, card))
         with DbSession.atomic() as db:
-            project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id)
+            project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id, rule_id=rule_id)
             binding_revision = provider_revision(binding)
             covered, blocks = set(), []
             rows = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
@@ -659,7 +671,7 @@ class CardCommentCompactionService(BaseDomainService):
                     covered.update(block["evidence_refs"])
                     blocks.append(block)
             volume = self._uncovered_comment_volume(db, project, card, covered)
-            threshold = self._configured_threshold(db, card)
+            threshold = self._configured_threshold(db, card, rule_id=rule_id)
             if threshold is None:
                 raise CommentCompactionError("policy_changed")
             if not compaction_threshold_reached(threshold, **volume):
@@ -674,15 +686,16 @@ class CardCommentCompactionService(BaseDomainService):
             except asyncio.CancelledError:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "cancelled")
                 raise
-            except CommentCompactionError:
-                self.repo.card_comment_compaction.fail(record, claimed.attempt, "invalid_result")
+            except CommentCompactionError as error:
+                code = error.code if error.code in {"generation_failed", "provider_unconfigured"} else "invalid_result"
+                self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
             except Exception:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "provider_error")
             else:
                 try:
                     with DbSession.atomic() as db:
                         fresh_project, fresh_binding, fresh_card, fresh_policy = self._automatic_context(
-                            db, project_id, profile_id, card_id)
+                            db, project_id, profile_id, card_id, rule_id=rule_id)
                         if fresh_policy != policy:
                             raise CommentCompactionError("policy_changed")
                         if provider_revision(fresh_binding) != binding_revision:
@@ -698,8 +711,12 @@ class CardCommentCompactionService(BaseDomainService):
         with DbSession.use(readonly=False) as db:
             current = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(CardCommentCompaction.id == record.id)
                               .execution_options(populate_existing=True)).first()
+            from ...models import WorkflowEffectRun
+            effect = db.exec(SqlBuilder.select.table(WorkflowEffectRun).where(
+                WorkflowEffectRun.execution_key == f"comment_compaction:{current.get_uid()}:{current.attempt}")).first()
             return {"uid": current.get_uid(), "status": current.status,
-                    "error_code": current.error_code, "has_more_sources": has_more}
+                    "error_code": current.error_code, "has_more_sources": has_more,
+                    "legacy_effect_run_uid": effect.get_uid() if effect else None}
 
     async def generate(self, user, project, card, *, after=None, retry=False, expected_request_key=None, channel=CollaborationChannel.Api):
         if DbSession.has_active_transaction():

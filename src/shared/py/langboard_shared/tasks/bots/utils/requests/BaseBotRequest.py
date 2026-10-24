@@ -66,6 +66,9 @@ class BaseBotRequest(ABC):
             return BotRequestOutcome.PermanentFailure
 
         headers = self._get_bot_request_headers()
+        workflow_key = self._data.get("workflow_rule", {}).get("idempotency_key")
+        if workflow_key:
+            headers["Idempotency-Key"] = workflow_key
 
         return await self.request(request_data, headers, bot_log)
 
@@ -82,7 +85,7 @@ class BaseBotRequest(ABC):
         if not self._can_dispatch_scope():
             return BotRequestOutcome.Skipped
         res = None
-        scheduled = bool(self._data.get("schedule_execution"))
+        scheduled = bool(self._data.get("schedule_execution") or self._data.get("workflow_rule", {}).get("idempotency_key"))
         native = self._bot.platform == BotPlatform.Default
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 

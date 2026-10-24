@@ -37,6 +37,8 @@ from langboard_shared.domain.services.factory.CardCommentCompactionService impor
 from langboard_shared.Env import Env
 from sqlalchemy import delete, event, update
 
+from src.api.tests.model_providers.workflow_rule_fixtures import configure_rule, create_rule_tables, rule_id
+
 
 command = importlib.import_module("langboard_shared.domain.services.factory.CardCommentCompactionService")
 
@@ -92,6 +94,7 @@ def test_profile_owned_summary_reuses_authorized_read_view_without_user_ownershi
 @pytest.fixture
 def compact_command(compactions, board, monkeypatch):
     repo, actor, card, binding, comment, *_ = compactions
+    create_rule_tables()
     ProjectActivity.__table__.create(DbEngine.get_main_engine())
     CardCommentReaction.__table__.create(DbEngine.get_main_engine())
     with DbSession.atomic() as db:
@@ -129,8 +132,10 @@ def automatic_command(compact_command):
         column.workflow_stage = "active"
         db.update(column)
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key == "active")).first()
-        stage.continuous_effects = {"auto_compact": True, "compact_after_characters": 1000}
-        db.update(stage)
+        configure_rule(db, stage)
+        card.workflow_stage_entered_key = stage.key
+        card.workflow_stage_entered_at = SafeDateTime.now() - timedelta(hours=2)
+        db.update(card)
         for index in range(18):
             db.insert(CardComment(card_id=card.id, user_id=actor.id,
                                   content=EditorContentModel(content=f"Additional evidence {index} " + "x" * 60)))
@@ -144,9 +149,9 @@ async def test_automatic_command_uses_profile_and_reuses_valid_coverage(automati
     (service, actor, project, card, binding, *_), _, _ = automatic_command
     generate = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
     monkeypatch.setattr(command, "request_compaction_draft", generate)
-    receipt = await service.generate_automatic(project, binding, card)
+    receipt = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     assert receipt["status"] == "completed" and "draft" not in receipt
-    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
     assert generate.await_count == 1
     block = service.get(actor, project, card, receipt["uid"])
     assert block["status"] == "completed" and len(block["evidence_refs"]) == 20
@@ -170,7 +175,7 @@ async def test_automatic_command_rechecks_authority_policy_and_sources(automatic
         else:
             with DbSession.atomic() as db:
                 if mutation == "policy":
-                    stage.continuous_effects = {"auto_compact": False}
+                    configure_rule(db, stage, enabled=False)
                     db.update(stage)
                 elif mutation == "inactive":
                     stage.is_active = False
@@ -190,7 +195,7 @@ async def test_automatic_command_rechecks_authority_policy_and_sources(automatic
         return draft(snapshot)
 
     monkeypatch.setattr(command, "request_compaction_draft", generate)
-    receipt = await service.generate_automatic(project, binding, card)
+    receipt = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     expected = "source_changed" if mutation == "source" else "provider_changed" if mutation == "provider" else "permission_changed"
     assert receipt["status"] == "failed" and receipt["error_code"] == expected
     with DbSession.use(readonly=False) as db:
@@ -206,7 +211,7 @@ async def test_automatic_command_requires_grant_before_sending_sources(automatic
     generate = AsyncMock()
     monkeypatch.setattr(command, "request_compaction_draft", generate)
     with pytest.raises(CommentCompactionError) as denied:
-        await service.generate_automatic(project, binding, card)
+        await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     assert denied.value.status == 403
     generate.assert_not_awaited()
 
@@ -221,7 +226,7 @@ async def test_automatic_command_rejects_ineligible_cards_before_provider(automa
                         owner_user_id=actor.id, created_by_user_id=actor.id)
             db.insert(card)
         elif mutation == "policy":
-            stage.continuous_effects = {"auto_compact": False}
+            configure_rule(db, stage, enabled=False)
             db.update(stage)
         elif mutation == "inactive":
             stage.is_active = False
@@ -235,7 +240,7 @@ async def test_automatic_command_rejects_ineligible_cards_before_provider(automa
     generate = AsyncMock()
     monkeypatch.setattr(command, "request_compaction_draft", generate)
     with pytest.raises(CommentCompactionError):
-        await service.generate_automatic(project, binding, card)
+        await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     generate.assert_not_awaited()
 
 
@@ -251,10 +256,10 @@ async def test_automatic_command_coalesces_concurrent_attempts_and_keeps_provide
 
     provider = AsyncMock(side_effect=generate)
     monkeypatch.setattr(command, "request_compaction_draft", provider)
-    first = asyncio.create_task(service.generate_automatic(project, binding, card))
+    first = asyncio.create_task(service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])))
     try:
         await asyncio.wait_for(started.wait(), timeout=2)
-        second = await service.generate_automatic(project, binding, card)
+        second = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
         assert second["status"] == "running"
     finally:
         release.set()
@@ -265,33 +270,37 @@ async def test_automatic_command_coalesces_concurrent_attempts_and_keeps_provide
 
 @pytest.fixture
 def scheduled_command(automatic_command):
-    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
-
-    WorkflowCompactionSchedule.__table__.create(DbEngine.get_main_engine())
     return automatic_command
 
 
-async def test_continuous_worker_keeps_interval_and_skips_already_covered_sources(scheduled_command, monkeypatch):
-    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+def common_runs():
+    from langboard_shared.domain.models import WorkflowRuleRun, WorkflowActionRun
+    with DbSession.use(readonly=False) as db:
+        return (db.exec(SqlBuilder.select.table(WorkflowRuleRun).order_by(WorkflowRuleRun.id)).all(),
+                db.exec(SqlBuilder.select.table(WorkflowActionRun).order_by(WorkflowActionRun.id)).all())
 
-    (service, _, project, card, binding, *_), _, _ = scheduled_command
+
+async def test_common_rule_worker_keeps_interval_and_skips_already_covered_sources(scheduled_command, monkeypatch):
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
+
+    (service, actor, project, card, binding, *_), _, _ = scheduled_command
     provider = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
     monkeypatch.setattr(command, "request_compaction_draft", provider)
     now = SafeDateTime.now()
-    assert await run_due_compactions(now=now) == 1
-    assert await run_due_compactions(now=now + timedelta(seconds=59)) == 0
-    with DbSession.use(readonly=False) as db:
-        state = db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first()
-    assert state.last_status == "completed" and state.lease_token is None
-    assert await run_due_compactions(now=now + timedelta(seconds=301)) == 1
+    assert await run_due_rules(now=now) == 1
+    assert await run_due_rules(now=now + timedelta(seconds=59)) == 0
+    runs, claims = common_runs()
+    assert runs[0].status == "succeeded"
+    assert claims[0].status == "succeeded" and claims[0].lease_expires_at is None
+    assert claims[0].executor_id == binding.id and claims[0].attempt == 1
+    assert await run_due_rules(now=now + timedelta(seconds=301)) == 1
+    assert common_runs()[0][-1].status == "skipped"
     assert provider.await_count == 1
-    assert service.get_view(scheduled_command[0][1], project, card)["records"][0]["kind"] == "compaction"
+    assert service.get_view(actor, project, card)["records"][0]["kind"] == "compaction"
 
 
-async def test_continuous_worker_retries_provider_failure_after_interval(scheduled_command, monkeypatch):
-    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+async def test_common_rule_worker_fences_ambiguous_provider_failure_across_intervals(scheduled_command, monkeypatch):
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
 
     calls = 0
 
@@ -304,75 +313,112 @@ async def test_continuous_worker_retries_provider_failure_after_interval(schedul
 
     monkeypatch.setattr(command, "request_compaction_draft", provider)
     now = SafeDateTime.now()
-    assert await run_due_compactions(now=now) == 1
-    assert await run_due_compactions(now=now + timedelta(seconds=59)) == 0
-    with DbSession.use(readonly=False) as db:
-        assert db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first().last_status == "failed"
-    assert await run_due_compactions(now=now + timedelta(seconds=301)) == 1
+    assert await run_due_rules(now=now) == 1
+    assert await run_due_rules(now=now + timedelta(seconds=59)) == 0
+    runs, claims = common_runs()
+    assert runs[0].status == "uncertain" and claims[0].status == "uncertain"
+    assert claims[0].lease_expires_at is None and claims[0].attempt == 1
+    assert await run_due_rules(now=now + timedelta(seconds=301)) == 0
     with DbSession.use(readonly=False) as db:
         record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
-    assert calls == 2 and record.status == "completed" and record.attempt == 2 and record.user_id is None
+    assert calls == 1 and record.status == "failed" and record.attempt == 1 and record.user_id is None
+    assert len(common_runs()[0]) == 1
 
 
-def test_continuous_claim_capacity_recovery_and_late_finish_fencing(scheduled_command):
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import _claim, _finish
+async def test_common_rule_claim_capacity_recovery_and_late_finish_fencing(scheduled_command, monkeypatch):
+    from langboard_shared.domain.models import WorkflowActionRun
+    from langboard_shared.tasks import WorkflowRuleTask as worker
 
-    (service, _, project, card, binding, *_), column, _ = scheduled_command
+    (service, _, project, card, binding, *_), column, stage = scheduled_command
     now = SafeDateTime.now()
-    first = _claim(service, project.id, binding.id, card.id, now)
-    assert first and _claim(service, project.id, binding.id, card.id, now) is None
-    with DbSession.atomic() as db:
-        second_card = Card(project_id=project.id, project_column_id=column.id, title="Second")
-        third_card = Card(project_id=project.id, project_column_id=column.id, title="Third")
-        db.insert(second_card)
-        db.insert(third_card)
-    second = _claim(service, project.id, binding.id, second_card.id, now)
-    assert second and _claim(service, project.id, binding.id, third_card.id, now) is None
-    recovered = _claim(service, project.id, binding.id, card.id, now + timedelta(seconds=4000))
-    assert recovered and recovered[1] != first[1]
-    assert not _finish(first, now, "completed", now + timedelta(seconds=4001))
-    assert _finish(recovered, now + timedelta(seconds=4000), "skipped", now + timedelta(seconds=4001))
+    worker._admit_intervals(now, 5)
+    first_run = common_runs()[0][0]
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def provider(_, snapshot):
+        assert not DbSession.has_active_transaction()
+        started.set()
+        await release.wait()
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    first = asyncio.create_task(worker.run_rule(first_run.id))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        await worker.run_rule(first_run.id)
+        claims = common_runs()[1]
+        assert len(claims) == 1 and claims[0].status == "running" and claims[0].attempt == 1
+        with DbSession.atomic() as db:
+            for title in ("Second", "Third"):
+                db.insert(Card(project_id=project.id, project_column_id=column.id, title=title,
+                    workflow_stage_entered_key=stage.key, workflow_stage_entered_at=card.workflow_stage_entered_at))
+        worker._admit_intervals(now, 5)
+        with DbSession.atomic() as db:
+            # A separately admitted card consumes the remaining bounded slot.
+            second = db.exec(SqlBuilder.select.table(WorkflowActionRun).where(
+                WorkflowActionRun.id != claims[0].id).order_by(WorkflowActionRun.id)).first()
+            second.status, second.attempt, second.executor_id = "running", 1, binding.id
+            second.lease_expires_at = now + timedelta(hours=1)
+            db.update(second)
+        assert await worker.run_due_rules(now=now) == 0
+        with DbSession.atomic() as db:
+            current = db.exec(SqlBuilder.select.table(WorkflowActionRun).where(WorkflowActionRun.id == claims[0].id)).first()
+            current.lease_expires_at = now - timedelta(seconds=1)
+            db.update(current)
+        await worker.run_rule(first_run.id)
+        fenced = next(item for item in common_runs()[1] if item.id == claims[0].id)
+        assert fenced.status == "uncertain" and fenced.error_code == "lease_expired" and fenced.attempt == 1
+    finally:
+        release.set()
+        await first
+    fenced = next(item for item in common_runs()[1] if item.id == claims[0].id)
+    assert fenced.status == "uncertain" and fenced.error_code == "lease_expired"
 
 
-def test_continuous_postgres_concurrent_claim_has_one_owner(scheduled_command):
+async def test_common_rule_postgres_concurrent_claim_has_one_owner(scheduled_command, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import _claim, _finish
+    from langboard_shared.tasks import WorkflowRuleTask as worker
 
     if DbEngine.get_main_engine().dialect.name != "postgresql":
         pytest.skip("Concurrent FOR UPDATE requires PostgreSQL")
-    (service, _, project, card, binding, *_), _, _ = scheduled_command
-    now = SafeDateTime.now()
+    worker._admit_intervals(SafeDateTime.now(), 5)
+    run = common_runs()[0][0]
     barrier = Barrier(2)
+    provider = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
 
-    def claim():
+    def execute():
         barrier.wait(timeout=5)
-        return _claim(service, project.id, binding.id, card.id, now)
+        return asyncio.run(worker.run_rule(run.id))
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(claim) for _ in range(2)]
-        results = [future.result(timeout=15) for future in futures]
-    assert sum(result is not None for result in results) == 1
-    owner = next(result for result in results if result)
-    assert not _finish(owner, now, "completed", now + timedelta(seconds=4000))
+        futures = [pool.submit(execute) for _ in range(2)]
+        for future in futures:
+            future.result(timeout=15)
+    claims = common_runs()[1]
+    assert len(claims) == 1 and claims[0].attempt == 1 and claims[0].status == "succeeded"
+    assert claims[0].lease_expires_at is None and provider.await_count == 1
 
 
-async def test_continuous_scan_rechecks_revoked_grants_before_claim(scheduled_command, monkeypatch):
+async def test_common_rule_scan_rechecks_revoked_grants_before_claim(scheduled_command, monkeypatch):
     from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
-    from langboard_shared.tasks.bots import WorkflowCompactionTask as worker
+    from langboard_shared.tasks import WorkflowRuleTask as worker
 
     (_, actor, project, _, binding, *_), _, _ = scheduled_command
-    original = worker._due
+    original = worker._admit_intervals
 
-    def due(*args):
-        rows = original(*args)
+    def admit(*args):
+        count = original(*args)
         set_compactor_board_grant(actor, project.id, binding.id, can_read=False, can_compact=False, can_archive=False)
-        return rows
+        return count
 
-    monkeypatch.setattr(worker, "_due", due)
+    monkeypatch.setattr(worker, "_admit_intervals", admit)
     provider = AsyncMock()
     monkeypatch.setattr(command, "request_compaction_draft", provider)
-    assert await worker.run_due_compactions() == 0
+    assert await worker.run_due_rules() == 1
+    assert common_runs()[0][0].status == "skipped"
+    assert common_runs()[1][0].attempt == 0
     provider.assert_not_awaited()
 
 
@@ -1187,23 +1233,23 @@ async def test_automatic_threshold_counts_only_uncompressed_comment_bodies(autom
     assert eligibility["uncompacted_characters"] == 999
     assert eligibility["compact_after_characters"] == 1000
     assert eligibility["needs_compaction"] is False
-    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
     provider.assert_not_awaited()
     with DbSession.atomic() as db:
         comment.content = EditorContentModel(content="한" * 1000)
         db.update(comment)
     assert service.get_view(actor, project, card)["eligibility"]["needs_compaction"] is True
-    receipt = await service.generate_automatic(project, binding, card)
+    receipt = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     assert receipt["status"] == "completed"
     eligibility = service.get_view(actor, project, card)["eligibility"]
     assert eligibility["uncompacted_characters"] == 0 and eligibility["needs_compaction"] is False
-    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
     assert provider.await_count == 1
     with DbSession.atomic() as db:
         db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="새" * 1100)))
-        stage.continuous_effects = {"auto_compact": True, "compact_after_characters": 2000}
+        configure_rule(db, stage, characters=2000)
         db.update(stage)
-    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
     assert service.get_view(actor, project, card)["eligibility"]["compact_after_characters"] == 2000
 
 
@@ -1368,16 +1414,16 @@ async def test_automatic_second_summary_accumulates_prior_sources_only_after_new
         inputs.append(snapshot)
         return draft(snapshot)
     monkeypatch.setattr(command, "request_compaction_draft", summarize)
-    first = await service.generate_automatic(project, binding, card)
+    first = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     with DbSession.atomic() as db:
         db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="New evidence " * 100)))
-    second = await service.generate_automatic(project, binding, card)
+    second = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     assert first["status"] == second["status"] == "completed"
     assert inputs[1].prior_summaries and len(inputs[1].sources) == 1
     view = service.get_view(actor, project, card)
     assert [row["uid"] for row in view["records"] if row["kind"] == "compaction"] == [second["uid"]]
     assert len(view["records"][0]["data"]["evidence_refs"]) == 21
-    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
 
 
 @pytest.fixture
@@ -1407,8 +1453,7 @@ async def test_count_turn_boundaries_match_manual_and_automatic(
     started = datetime(2025, 1, 1)
     with DbSession.atomic() as db:
         db.exec(delete(CardComment).where(CardComment.card_id == card.id))
-        stage.continuous_effects = {"auto_compact": True, "compact_after_characters": 500000,
-                                    f"compact_after_{metric}": threshold}
+        configure_rule(db, stage, characters=500000, **{metric: threshold})
         db.update(stage)
         # Movement between identical actors must not split their comment run.
         move.created_at = started + timedelta(seconds=1)
@@ -1420,7 +1465,7 @@ async def test_count_turn_boundaries_match_manual_and_automatic(
                                   content=EditorContentModel(content="short")))
     before = service.get_view(actor, project, card)["eligibility"]
     assert before["needs_compaction"] is False
-    assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+    assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
     provider.assert_not_awaited()
     with DbSession.atomic() as db:
         author = authors[-1]
@@ -1435,7 +1480,7 @@ async def test_count_turn_boundaries_match_manual_and_automatic(
     assert eligibility["uncompacted_turn_count"] == expected_turns
     reached = len(authors) >= threshold if metric == "comments" else expected_turns >= threshold
     assert eligibility["needs_compaction"] is reached
-    receipt = await service.generate_automatic(project, binding, card)
+    receipt = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     assert receipt["status"] == ("completed" if reached else "skipped")
     assert provider.await_count == int(reached)
     if reached:
@@ -1447,7 +1492,7 @@ async def test_count_turn_boundaries_match_manual_and_automatic(
         fresh = service.get_view(actor, project, card)["eligibility"]
         assert fresh["uncompacted_comment_count"] == fresh["uncompacted_turn_count"] == 1
         assert fresh["needs_compaction"] is False
-        assert await service.generate_automatic(project, binding, card) == {"status": "skipped", "reason": "below_threshold"}
+        assert await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2])) == {"status": "skipped", "reason": "below_threshold"}
         assert provider.await_count == 1
 
 

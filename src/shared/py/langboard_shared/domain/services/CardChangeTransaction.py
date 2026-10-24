@@ -18,6 +18,10 @@ def dispatch_after_commit(effect: Callable[..., Any], *args, **kwargs) -> None:
     if not DbSession.has_active_transaction():
         effect(*args, **kwargs)
         return
+    prepare = vars(effect).get("_workflow_prepare") if hasattr(effect, "__dict__") else None
+    if prepare is not None:
+        prepare(*args, **kwargs)
+        effect = effect._workflow_transport
     frozen_args, frozen_kwargs = deepcopy((args, kwargs))
     with DbSession.atomic() as db:
         db.after_commit(lambda: effect(*frozen_args, **frozen_kwargs))

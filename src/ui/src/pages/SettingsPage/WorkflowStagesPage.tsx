@@ -11,20 +11,14 @@ import Textarea from "@/components/base/Textarea";
 import Sheet from "@/components/base/Sheet";
 import Tabs from "@/components/base/Tabs";
 import WorkflowEffectHistory from "./WorkflowEffectHistory";
+import WorkflowRuleEditor, { workflowRulesValid } from "./WorkflowRuleEditor";
 import Toast from "@/components/base/Toast";
 import { api } from "@/core/helpers/Api";
 import { AuthUser } from "@/core/models";
 import { SettingRole } from "@/core/models/roles";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
-import {
-    CONTINUOUS_EFFECT_DEFAULTS,
-    IWorkflowStage,
-    IWorkflowBotOptions,
-    IWorkflowBotBinding,
-    TWorkflowInput,
-    useWorkflowStages,
-} from "@/controllers/api/settings/workflowStages/useWorkflowStages";
+import { IWorkflowStage, IWorkflowBotOptions, TWorkflowInput, useWorkflowStages } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
 
 const LANGUAGES: Record<string, string> = { en: "English", ko: "한국어", ja: "日本語", zh: "中文" };
 const blank = (): TWorkflowInput => ({
@@ -36,10 +30,8 @@ const blank = (): TWorkflowInput => ({
     counts_as_completed: false,
     active_queue_policy: "conditional",
     overdue_policy: "normal",
-    entry_effects: [],
-    entry_bots: [],
-    policy_bots: [],
-    continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS },
+    confirm_descendant_move: false,
+    rules: [],
     translations: Object.fromEntries(Object.keys(LANGUAGES).map((key) => [key, { name: "", description: "" }])),
 });
 
@@ -69,7 +61,6 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
     }, [currentUser.uid]);
     const [stages, setStages] = useState<IWorkflowStage[]>([]);
     const [draft, setDraft] = useState<TWorkflowInput>(blank);
-    const continuous = { ...CONTINUOUS_EFFECT_DEFAULTS, ...draft.continuous_effects };
     const [opened, setOpened] = useState(false);
     const [tab, setTab] = useState("settings");
     const tabID = useId();
@@ -111,10 +102,8 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             counts_as_completed,
             active_queue_policy,
             overdue_policy,
-            entry_effects,
-            entry_bots,
-            policy_bots,
-            continuous_effects,
+            confirm_descendant_move,
+            rules,
             translations,
         } = stage ?? { ...blank(), uid: undefined };
         setDraft({
@@ -128,10 +117,8 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             counts_as_completed,
             active_queue_policy,
             overdue_policy,
-            entry_effects: [...entry_effects],
-            entry_bots: [...(entry_bots ?? [])],
-            policy_bots: [...(policy_bots ?? [])],
-            continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS, ...continuous_effects },
+            confirm_descendant_move,
+            rules: structuredClone(rules),
             translations: { ...blank().translations, ...translations, en: { name, description } },
         });
         setLanguage("en");
@@ -148,125 +135,6 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
         setDraft((item) => ({ ...item, ...fields }));
         setDirty(true);
     };
-    const botBindings = (kind: "entry" | "continuous") => {
-        const bindings = kind === "entry" ? (draft.entry_bots ?? []) : continuous.bots;
-        const update = (next: IWorkflowBotBinding[]) =>
-            edit(kind === "entry" ? { entry_bots: next } : { continuous_effects: { ...continuous, bots: next } });
-        return (
-            <div className="space-y-3 border-t pt-3">
-                <p className="text-sm font-medium">{kind === "entry" ? t("settings.Entry bots") : t("settings.Interval bots")}</p>
-                <p className="text-xs text-muted-foreground">
-                    {kind === "entry"
-                        ? t("settings.Uses the existing Card moved hook once on stage entry. Frozen or unmatched hooks do not run.")
-                        : t("settings.Uses an active card schedule. This interval applies while the card remains in this stage.")}
-                </p>
-                {botOptionsError && (
-                    <p role="status" className="text-xs">
-                        {t("settings.Bot options unavailable. Saved bindings are preserved.")}
-                    </p>
-                )}
-                {bindings.map((binding, index) => (
-                    <div key={`${kind}-${binding.bot_uid}`} className="space-y-2 rounded-md border p-2">
-                        <p className="text-sm">{botOptions.bots.find((bot) => bot.uid === binding.bot_uid)?.name ?? binding.bot_uid}</p>
-                        {kind === "continuous" && (
-                            <>
-                                <label className="block space-y-1 text-sm">
-                                    {t("settings.Card schedule")}
-                                    <select
-                                        className="select w-full rounded-md border bg-background p-2"
-                                        aria-label={`${t("settings.Card schedule")} ${index + 1}`}
-                                        value={binding.schedule_uid ?? ""}
-                                        onChange={(event) =>
-                                            update(bindings.map((item, i) => (i === index ? { ...item, schedule_uid: event.target.value } : item)))
-                                        }
-                                    >
-                                        <option value="" disabled>
-                                            {t("settings.Select an active card schedule")}
-                                        </option>
-                                        {!botOptions.schedules.some((schedule) => schedule.uid === binding.schedule_uid) && binding.schedule_uid && (
-                                            <option value={binding.schedule_uid} disabled>
-                                                {binding.schedule_uid} ({t("settings.Unavailable")})
-                                            </option>
-                                        )}
-                                        {botOptions.schedules
-                                            .filter((schedule) => schedule.bot_uid === binding.bot_uid)
-                                            .map((schedule) => (
-                                                <option key={schedule.uid} value={schedule.uid} disabled={!schedule.is_available}>
-                                                    {schedule.name}
-                                                    {schedule.is_available ? "" : ` (${t("settings.Unavailable")})`}
-                                                </option>
-                                            ))}
-                                    </select>
-                                </label>
-                                <label className="block space-y-1 text-sm">
-                                    {t("settings.Bot interval minutes")}
-                                    <Input
-                                        type="number"
-                                        min="1"
-                                        max="1440"
-                                        step="any"
-                                        required
-                                        value={(binding.interval_seconds ?? 300) / 60}
-                                        onChange={(event) =>
-                                            update(
-                                                bindings.map((item, i) =>
-                                                    i === index ? { ...item, interval_seconds: Math.round(Number(event.target.value) * 60) } : item
-                                                )
-                                            )
-                                        }
-                                    />
-                                </label>
-                            </>
-                        )}
-                        <Button type="button" variant="outline" onClick={() => update(bindings.filter((_, i) => i !== index))}>
-                            {t("settings.Remove bot")}
-                        </Button>
-                    </div>
-                ))}
-                <label className="block space-y-1 text-sm">
-                    {kind === "entry" ? t("settings.Add entry bot") : t("settings.Add interval bot")}
-                    <select
-                        className="select w-full rounded-md border bg-background p-2"
-                        value=""
-                        aria-label={kind === "entry" ? t("settings.Add entry bot") : t("settings.Add interval bot")}
-                        disabled={!hasRoleAction(SettingRole.EAction.BotRead) || botOptionsError || bindings.length >= 20}
-                        onChange={(event) => {
-                            const bot_uid = event.target.value;
-                            if (!bot_uid) return;
-                            const schedule = botOptions.schedules.find((item) => item.bot_uid === bot_uid && item.is_available);
-                            update([
-                                ...bindings,
-                                kind === "entry"
-                                    ? { bot_uid, condition: "card_moved" }
-                                    : { bot_uid, condition: "bot_cron_scheduled", schedule_uid: schedule?.uid, interval_seconds: 300 },
-                            ]);
-                        }}
-                    >
-                        <option value="">{t("settings.Select bot")}</option>
-                        {botOptions.bots.map((bot) => (
-                            <option
-                                key={bot.uid}
-                                value={bot.uid}
-                                disabled={
-                                    bindings.some((binding) => binding.bot_uid === bot.uid) ||
-                                    (kind === "entry" && !bot.entry_available) ||
-                                    (kind === "continuous" &&
-                                        !botOptions.schedules.some((schedule) => schedule.bot_uid === bot.uid && schedule.is_available))
-                                }
-                            >
-                                {bot.name}
-                                {kind === "entry" && !bot.entry_available ? ` (${t("settings.No active Card moved hook")})` : ""}
-                                {kind === "continuous" &&
-                                !botOptions.schedules.some((schedule) => schedule.bot_uid === bot.uid && schedule.is_available)
-                                    ? ` (${t("settings.No active card schedule")})`
-                                    : ""}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </div>
-        );
-    };
     const editText = (field: "name" | "description", value: string) => {
         if (language === "en") edit({ [field]: value });
         else edit({ translations: { ...draft.translations, [language]: { ...draft.translations[language], [field]: value } } });
@@ -276,7 +144,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             [...items.filter((item) => item.uid !== stage.uid), stage].sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
         );
     const submit = async () => {
-        if (!canSave || writingRef.current) return;
+        if (!canSave || writingRef.current || !workflowRulesValid(draft.rules)) return;
         writingRef.current = true;
         try {
             const stage = await save.mutateAsync(draft);
@@ -361,7 +229,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                     <span className="rounded-full border px-2 py-0.5">{t("settings.Hide overdue")}</span>
                                 )}
                                 <span className="rounded-full border px-2 py-0.5">
-                                    {t("settings.Entry effects")}: {formatNumber(stage.entry_effects.length, i18n.language)}
+                                    {t("settings.Workflow rules")}: {formatNumber(stage.rules.length, i18n.language)}
                                 </span>
                             </div>
                         </button>
@@ -584,200 +452,24 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                     </label>
                                 </fieldset>
                                 <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
-                                    <legend className="px-1 text-sm font-medium">{t("settings.Stage policy bots")}</legend>
-                                    <p className="text-xs text-muted-foreground">
-                                        {t(
-                                            "settings.Uses each bot's configured events while the card remains in this stage. Frozen or unmatched hooks do not run."
-                                        )}
-                                    </p>
-                                    {botOptionsError && (
-                                        <p role="status" className="text-xs">
-                                            {t("settings.Bot options unavailable. Saved bindings are preserved.")}
-                                        </p>
-                                    )}
-                                    {(draft.policy_bots ?? []).map((binding, index) => (
-                                        <div key={binding.bot_uid} className="space-y-2 rounded-md border p-2">
-                                            <p className="text-sm">
-                                                {botOptions.bots.find((bot) => bot.uid === binding.bot_uid)?.name ??
-                                                    `${binding.bot_uid} (${t("settings.Unavailable")})`}
-                                            </p>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={() => edit({ policy_bots: (draft.policy_bots ?? []).filter((_, i) => i !== index) })}
-                                            >
-                                                {t("settings.Remove bot")}
-                                            </Button>
-                                        </div>
-                                    ))}
-                                    <label className="block space-y-1 text-sm">
-                                        {t("settings.Add stage policy bot")}
-                                        <select
-                                            className="select w-full rounded-md border bg-background p-2"
-                                            value=""
-                                            aria-label={t("settings.Add stage policy bot")}
-                                            disabled={
-                                                !hasRoleAction(SettingRole.EAction.BotRead) ||
-                                                botOptionsError ||
-                                                (draft.policy_bots ?? []).length >= 20
-                                            }
-                                            onChange={(event) => {
-                                                const bot_uid = event.target.value;
-                                                if (bot_uid) edit({ policy_bots: [...(draft.policy_bots ?? []), { bot_uid }] });
-                                            }}
-                                        >
-                                            <option value="">{t("settings.Select bot")}</option>
-                                            {botOptions.bots.map((bot) => (
-                                                <option
-                                                    key={bot.uid}
-                                                    value={bot.uid}
-                                                    disabled={
-                                                        !bot.policy_available ||
-                                                        (draft.policy_bots ?? []).some((binding) => binding.bot_uid === bot.uid)
-                                                    }
-                                                >
-                                                    {bot.name}
-                                                    {!bot.policy_available ? ` (${t("settings.No active configured card event hook")})` : ""}
-                                                </option>
-                                            ))}
-                                        </select>
+                                    <legend className="px-1 text-sm font-medium">{t("settings.Move confirmation")}</legend>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={draft.confirm_descendant_move}
+                                            onChange={(event) => edit({ confirm_descendant_move: event.target.checked })}
+                                        />
+                                        {t("settings.Ask to move descendants when a root card enters this stage")}
                                     </label>
                                 </fieldset>
-                                <fieldset disabled={!canSave || busy} className="space-y-2 rounded-xl border p-3">
-                                    <legend className="px-1 text-sm font-medium">{t("settings.Entry effects")}</legend>
-                                    {[
-                                        ["complete_checkitems", "Complete unchecked items"],
-                                        ["stop_running_timers", "Stop running timers"],
-                                        ["notify_author_on_entry", "Notify the author when someone else enters this stage"],
-                                        ["confirm_descendant_move", "Ask to move descendants when a root card enters this stage"],
-                                    ].map(([key, label]) => (
-                                        <label key={key} className="flex items-center gap-2 text-sm">
-                                            <input
-                                                type="checkbox"
-                                                checked={draft.entry_effects.includes(key)}
-                                                onChange={(event) =>
-                                                    edit({
-                                                        entry_effects: event.target.checked
-                                                            ? [...draft.entry_effects, key]
-                                                            : draft.entry_effects.filter((effect) => effect !== key),
-                                                    })
-                                                }
-                                            />
-                                            {t(`settings.${label}`)}
-                                        </label>
-                                    ))}
-                                    {botBindings("entry")}
-                                    <p className="text-xs text-muted-foreground">{t("settings.Saving does not replay effects on existing cards.")}</p>
-                                </fieldset>
-                                <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
-                                    <legend className="px-1 text-sm font-medium">{t("settings.Continuous effects")}</legend>
-                                    {(
-                                        [
-                                            ["auto_compact", "Auto compact comments"],
-                                            ["auto_archive", "Auto archive cards"],
-                                        ] as const
-                                    ).map(([key, label]) => (
-                                        <label key={key} className="flex items-center gap-2 text-sm">
-                                            <input
-                                                type="checkbox"
-                                                checked={continuous[key]}
-                                                onChange={(event) => edit({ continuous_effects: { ...continuous, [key]: event.target.checked } })}
-                                            />
-                                            {t(`settings.${label}`)}
-                                        </label>
-                                    ))}
-                                    {continuous.auto_compact && (
-                                        <div className="space-y-1 text-sm">
-                                            <label className="block space-y-1">
-                                                {t("settings.Compact after characters")}
-                                                <Input
-                                                    type="number"
-                                                    required
-                                                    min="1000"
-                                                    max="500000"
-                                                    step="1"
-                                                    value={continuous.compact_after_characters}
-                                                    onChange={(event) =>
-                                                        edit({
-                                                            continuous_effects: {
-                                                                ...continuous,
-                                                                compact_after_characters: Number(event.target.value),
-                                                            },
-                                                        })
-                                                    }
-                                                />
-                                            </label>
-                                            {([
-                                                ["compact_after_comments", "Compact after comments"],
-                                                ["compact_after_turns", "Compact after conversation turns"],
-                                            ] as const).map(([key, label]) => (
-                                                <label key={key} className="block space-y-1">
-                                                    {t(`settings.${label}`)}
-                                                    <Input
-                                                        type="number"
-                                                        required
-                                                        min="0"
-                                                        max="100000"
-                                                        step="1"
-                                                        value={continuous[key]}
-                                                        onChange={(event) =>
-                                                            edit({ continuous_effects: { ...continuous, [key]: Number(event.target.value) } })
-                                                        }
-                                                    />
-                                                </label>
-                                            ))}
-                                            <p className="text-xs text-muted-foreground">
-                                                {t("settings.Compaction triggers when any enabled threshold is reached. Counts include only new uncompressed active comments. Zero disables comment and turn thresholds.")}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground">
-                                                {t("settings.A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count.")}
-                                            </p>
-                                        </div>
-                                    )}
-                                    {(continuous.auto_compact || continuous.auto_archive) && (
-                                        <label className="block space-y-1 text-sm">
-                                            {t("settings.Effect check interval minutes")}
-                                            <Input
-                                                type="number"
-                                                required
-                                                min="1"
-                                                max="1440"
-                                                step="any"
-                                                value={continuous.interval_seconds / 60}
-                                                onChange={(event) =>
-                                                    edit({
-                                                        continuous_effects: {
-                                                            ...continuous,
-                                                            interval_seconds: Math.round(Number(event.target.value) * 60),
-                                                        },
-                                                    })
-                                                }
-                                            />
-                                        </label>
-                                    )}
-                                    {continuous.auto_archive && (
-                                        <label className="block space-y-1 text-sm">
-                                            {t("settings.Archive after hours")}
-                                            <Input
-                                                type="number"
-                                                required
-                                                min="0"
-                                                max="8760"
-                                                step="any"
-                                                value={continuous.archive_after_seconds / 3600}
-                                                onChange={(event) =>
-                                                    edit({
-                                                        continuous_effects: {
-                                                            ...continuous,
-                                                            archive_after_seconds: Math.round(Number(event.target.value) * 3600),
-                                                        },
-                                                    })
-                                                }
-                                            />
-                                        </label>
-                                    )}
-                                    {botBindings("continuous")}
-                                </fieldset>
+                                <WorkflowRuleEditor
+                                    rules={draft.rules}
+                                    onChange={(rules) => edit({ rules })}
+                                    disabled={!canSave || busy}
+                                    botOptions={botOptions}
+                                    botOptionsError={botOptionsError}
+                                    canReadBots={hasRoleAction(SettingRole.EAction.BotRead)}
+                                />
                                 {conflict && (
                                     <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">
                                         <p>{t("settings.This stage changed elsewhere. Your draft is preserved. Reload before saving.")}</p>
@@ -807,7 +499,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                             {t("settings.Deactivate")}
                                         </Button>
                                     )}
-                                    <Button type="submit" disabled={!canSave || busy || !dirty}>
+                                    <Button type="submit" disabled={!canSave || busy || !dirty || !workflowRulesValid(draft.rules)}>
                                         {busy ? t("common.Loading...") : t("common.Save")}
                                     </Button>
                                 </div>

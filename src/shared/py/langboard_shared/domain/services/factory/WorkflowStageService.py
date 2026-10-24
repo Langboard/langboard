@@ -3,7 +3,6 @@ import re
 import struct
 from collections.abc import Mapping
 from sqlalchemy import and_, func, or_, select
-from ....ai.comment_compaction import DEFAULT_COMPACTION_CHARACTERS, compaction_thresholds
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
@@ -476,82 +475,61 @@ class WorkflowStageService(BaseDomainService):
             if stage is None or current is None or current.deleted_at is not None or not current.activated_at:
                 return None
             contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
-            query = (SqlBuilder.select.table(WorkflowEffectRun)
-                     .join(Card, and_(Card.id == WorkflowEffectRun.card_id, Card.project_id == WorkflowEffectRun.project_id))
-                     .join(Project, Project.id == Card.project_id)
-                     .where(WorkflowEffectRun.stage_id == stage.id, Card.deleted_at.is_(None),
-                            Project.deleted_at.is_(None), card_visibility_scope_by_project(contexts)))
+            from ...models import WorkflowActionRun, WorkflowRuleRun
+            from .WorkflowRuleService import rows as rule_rows
+            from .WorkflowRuleService import utc
+
+            def authorized_query(model):
+                return (SqlBuilder.select.table(model)
+                    .join(Card, and_(Card.id == model.card_id, Card.project_id == model.project_id))
+                    .join(Project, Project.id == Card.project_id)
+                    .where(model.stage_id == stage.id, Card.deleted_at.is_(None),
+                           Project.deleted_at.is_(None), card_visibility_scope_by_project(contexts)))
+
+            models = (WorkflowRuleRun, WorkflowEffectRun)
+            queries = {model: authorized_query(model) for model in models}
             if before is not None:
                 anchor_id = InfraHelper.convert_id(before)
-                if db.exec(query.where(WorkflowEffectRun.id == anchor_id)).first() is None:
+                if not any(db.exec(query.where(model.id == anchor_id)).first() for model, query in queries.items()):
                     raise ValueError("Workflow history cursor is unavailable")
-                query = query.where(WorkflowEffectRun.id < anchor_id)
-            rows = db.exec(query.order_by(WorkflowEffectRun.id.desc()).limit(limit + 1)).all()
+                queries = {model: query.where(model.id < anchor_id) for model, query in queries.items()}
+            merged = sorted([row for model, query in queries.items()
+                for row in db.exec(query.order_by(model.id.desc()).limit(limit + 1)).all()], key=lambda row: row.id, reverse=True)
+            items, legacy_items = [], []
             now = SafeDateTime.now()
-            items = [{
-                "uid": row.get_uid(), "source": row.source, "status": "uncertain" if history_lease_expired(row, now) else row.status,
-                "effects": row.effects, "started_at": row.started_at, "finished_at": row.finished_at,
-                "duration_ms": row.duration_ms, "result": row.result, "stage_revision": row.stage_revision,
-                "project_uid": InfraHelper.convert_uid(row.project_id),
-                "card_uid": InfraHelper.convert_uid(row.card_id),
-                "actor_uid": InfraHelper.convert_uid(row.actor_id), "actor_type": row.actor_type,
-                "profile": {"uid": InfraHelper.convert_uid(row.profile_id), "display_name": row.profile_name}
-                if row.profile_id is not None else None,
-                "error_code": "lease_expired" if history_lease_expired(row, now) else row.error_code,
-            } for row in rows[:limit]]
-            return {"items": items, "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None}
+            for row in merged[:limit]:
+                common = {"uid": row.get_uid(), "status": row.status,
+                    "project_uid": InfraHelper.convert_uid(row.project_id), "card_uid": InfraHelper.convert_uid(row.card_id),
+                    "actor_uid": InfraHelper.convert_uid(row.actor_id) if row.actor_id is not None else None,
+                    "actor_type": row.actor_type, "stage_revision": row.stage_revision}
+                if isinstance(row, WorkflowEffectRun):
+                    legacy_items.append({**common, "source": row.source,
+                        "status": "uncertain" if history_lease_expired(row, now) else row.status,
+                        "effects": row.effects, "started_at": row.started_at, "finished_at": row.finished_at,
+                        "duration_ms": row.duration_ms, "result": row.result,
+                        "profile": {"uid": InfraHelper.convert_uid(row.profile_id), "display_name": row.profile_name} if row.profile_id is not None else None,
+                        "error_code": "lease_expired" if history_lease_expired(row, now) else row.error_code})
+                    continue
+                actions = rule_rows(db, WorkflowActionRun, rule_run_id=row.id)
+                items.append({**common, "rule_uid": InfraHelper.convert_uid(row.rule_id), "rule_revision": row.rule_revision,
+                    "configured_by_uid": InfraHelper.convert_uid(row.configured_by_id) if row.configured_by_id is not None else None,
+                    "event_id": row.event_id, "event_type": row.event_type, "occurred_at": row.occurred_at,
+                    "residency": row.residency, "condition_results": row.condition_results, "rule_snapshot": row.rule_snapshot,
+                    "error_code": row.error_code, "finished_at": row.finished_at,
+                    "actions": [{"uid": a.get_uid(), "action_uid": InfraHelper.convert_uid(a.action_id), "kind": a.kind,
+                        "executor_uid": InfraHelper.convert_uid(a.executor_id) if a.executor_id is not None else None,
+                        "executor_type": a.executor_type, "status": "uncertain" if a.status == "running" and a.lease_expires_at and utc(a.lease_expires_at) <= utc(now) else a.status,
+                        "attempt": a.attempt, "attempts": a.attempts, "idempotency_key": a.idempotency_key,
+                        "result": a.result, "error_code": a.error_code, "started_at": a.started_at, "finished_at": a.finished_at,
+                        "legacy_effect_run_uid": InfraHelper.convert_uid(a.legacy_effect_run_id) if a.legacy_effect_run_id is not None else None} for a in sorted(actions, key=lambda a: a.id)]})
+            return {"items": items, "legacy_items": legacy_items,
+                    "next_cursor": merged[limit - 1].get_uid() if len(merged) > limit else None}
 
     def get_api_by_keys(self, keys: set[str]) -> dict[str, dict]:
         """Resolve only workflow definitions used by an authorized result page."""
         return {key: stage.api_response() for key, stage in self.repo.workflow_stage.get_by_keys(keys).items()}
 
-    @staticmethod
-    def normalize_bot_bindings(value: list, *, continuous: bool = False, policy: bool = False) -> list[dict]:
-        if not isinstance(value, list) or len(value) > 20:
-            raise ValueError("Invalid workflow bot bindings")
-        bindings = []
-        seen = set()
-        for binding in value:
-            allowed = {"bot_uid"} if policy else ({"bot_uid", "condition", "interval_seconds", "schedule_uid"} if continuous else {"bot_uid", "condition"})
-            if not isinstance(binding, dict) or set(binding) - allowed:
-                raise ValueError("Invalid workflow bot binding")
-            uid, condition = binding.get("bot_uid"), binding.get("condition")
-            if not isinstance(uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", uid) or (not policy and condition != ("bot_cron_scheduled" if continuous else "card_moved")):
-                raise ValueError("Workflow bots require a matching existing card hook")
-            if uid in seen:
-                raise ValueError("Duplicate workflow bot binding")
-            seen.add(uid)
-            item = {"bot_uid": uid} if policy else {"bot_uid": uid, "condition": condition}
-            if continuous:
-                schedule_uid = binding.get("schedule_uid")
-                if not isinstance(schedule_uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", schedule_uid):
-                    raise ValueError("An existing card schedule is required")
-                item["schedule_uid"] = schedule_uid
-                interval = binding.get("interval_seconds", 300)
-                if type(interval) is not int or not 60 <= interval <= 86400:
-                    raise ValueError("Invalid workflow bot interval")
-                item["interval_seconds"] = interval
-            bindings.append(item)
-        return bindings
-
-    @staticmethod
-    def normalize_continuous_effects(value: dict) -> dict:
-        defaults = {"auto_compact": False, "auto_archive": False, "interval_seconds": 300, "archive_after_seconds": 86400,
-                    "compact_after_characters": DEFAULT_COMPACTION_CHARACTERS, "compact_after_comments": 0, "compact_after_turns": 0}
-        if not isinstance(value, dict) or set(value) - set(defaults) - {"bots"}:
-            raise ValueError("Unsupported continuous workflow effect")
-        result = {**defaults, **value}
-        if "bots" in result:
-            result["bots"] = WorkflowStageService.normalize_bot_bindings(result["bots"], continuous=True)
-        compaction_thresholds(result)
-        if any(type(result[key]) is not bool for key in ("auto_compact", "auto_archive")):
-            raise ValueError("Continuous workflow switches must be boolean")
-        for key, lower, upper in (("interval_seconds", 60, 86400), ("archive_after_seconds", 0, 31536000)):
-            if type(result[key]) is not int or not lower <= result[key] <= upper:
-                raise ValueError("Invalid continuous workflow interval")
-        return result
-
-    def save(self, fields: dict, uid: str | None = None) -> WorkflowStageDefinition | None:
+    def save(self, fields: dict, uid: str | None = None, *, actor: User | None = None) -> WorkflowStageDefinition | None:
         fields = dict(fields)
         expected_revision = fields.pop("expected_revision", None)
         if set(fields) - {
@@ -563,25 +541,18 @@ class WorkflowStageService(BaseDomainService):
             "counts_as_completed",
             "active_queue_policy",
             "overdue_policy",
-            "entry_effects",
-            "entry_bots",
-            "policy_bots",
-            "continuous_effects",
+            "rules",
+            "confirm_descendant_move",
             "translations",
         }:
             raise ValueError("Unsupported workflow fields")
         stage = InfraHelper.get_by_id_like(WorkflowStageDefinition, uid) if uid else None
         if uid and not stage:
             return None
-        entry_bots = fields.pop("entry_bots", None)
-        if entry_bots is not None or stage is None:
-            fields["entry_bots"] = self.normalize_bot_bindings(entry_bots if entry_bots is not None else [])
-        policy_bots = fields.pop("policy_bots", None)
-        if policy_bots is not None or stage is None:
-            fields["policy_bots"] = self.normalize_bot_bindings(policy_bots if policy_bots is not None else [], policy=True)
-        continuous = fields.pop("continuous_effects", None)
-        if continuous is not None or stage is None:
-            fields["continuous_effects"] = self.normalize_continuous_effects(continuous if continuous is not None else {})
+        from .WorkflowRuleService import replace_rules, validate_rules
+        definitions = validate_rules(fields.pop("rules"))
+        if type(fields.get("confirm_descendant_move")) is not bool:
+            raise ValueError("Invalid descendant move policy")
         key = fields["key"]
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", key) or (stage and stage.key != key):
             raise ValueError("Workflow key is invalid or immutable")
@@ -592,11 +563,6 @@ class WorkflowStageService(BaseDomainService):
             "overdue_policy"
         ] not in {"normal", "suppress"}:
             raise ValueError("Invalid workflow policy")
-        effects = fields["entry_effects"]
-        if len(effects) != len(set(effects)) or set(effects) - {
-            "complete_checkitems", "stop_running_timers", "notify_author_on_entry", "confirm_descendant_move",
-        }:
-            raise ValueError("Unsupported native workflow effect")
         translations = {lang: dict(text) for lang, text in fields["translations"].items()}
         if len(set(translations) | {"en"}) > 30:
             raise ValueError("Too many workflow languages")
@@ -642,6 +608,7 @@ class WorkflowStageService(BaseDomainService):
                     for field, value in values.items():
                         setattr(stage, field, value)
                     self.repo.workflow_stage.update(stage)
+                replace_rules(db, stage, definitions, configured_by_id=actor.id if actor else None)
                 if policy_changed:
                     stage_key = stage.key
                     db.after_commit(lambda: self._publish_work_states(stage_key))
@@ -650,6 +617,7 @@ class WorkflowStageService(BaseDomainService):
             stage = WorkflowStageDefinition(**values)
             with DbSession.atomic() as db:
                 self.repo.workflow_stage.insert(stage)
+                replace_rules(db, stage, definitions, configured_by_id=actor.id if actor else None)
                 db.after_commit(AppSettingPublisher.workflow_stages_changed)
         return stage
 

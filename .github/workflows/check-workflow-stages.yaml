@@ -16,6 +16,7 @@ on:
       - src/graph/tests/test_graph_privacy.py
       - src/graph/tests/durable_process_worker.py
       - src/api/tests/workflow_stages/**
+      - src/api/tests/workflow_rules/**
       - src/api/tests/bots/**
       - src/api/tests/decisions/**
       - src/api/tests/secrets/test_wiki_selection_secret.py
@@ -56,6 +57,7 @@ on:
       - src/api/langboard/migrations/versions/20261024110000-7fab890c1234.py
       - src/api/langboard/migrations/versions/20261024120000-8abc901d2345.py
       - src/api/langboard/migrations/versions/20261024130000-9bcd012e3456.py
+      - src/api/langboard/migrations/versions/20261024140000-acde123f4567.py
       - src/shared/py/langboard_shared/domain/models/CardDecisionGate.py
       - src/shared/py/langboard_shared/domain/models/GraphApprovalRequest.py
       - src/shared/py/langboard_shared/domain/services/factory/GraphApprovalRequestService.py
@@ -75,6 +77,8 @@ on:
       - scripts/run_bot_schedule_recovery.sh
       - src/shared/py/langboard_shared/ai/BotScheduleHelper.py
       - src/shared/py/langboard_shared/tasks/bots/**
+      - src/shared/py/langboard_shared/tasks/WorkflowRuleTask.py
+      - scripts/run_workflow_rules.sh
       - src/shared/py/langboard_shared/domain/models/BotScheduleRun.py
       - src/api/tests/apps/**
       - src/api/tests/webhooks/test_webhook_contract.py
@@ -174,17 +178,18 @@ jobs:
           engine.dispose()
           PY
       - name: Registry, guidance, policy and SQLite transitions
-        run: uv run --no-sync pytest -q src/api/tests/workflow_stages
+        run: uv run --no-sync pytest -q src/api/tests/workflow_stages src/api/tests/workflow_rules
       - name: Native app registry, panel consent and management
         env:
           PYTHONPATH: src/shared/py:src/api
         run: uv run --no-sync pytest -q src/api/tests/apps/test_sdk_app_registry_http.py src/api/tests/apps/test_sdk_management_http.py src/api/tests/webhooks/test_webhook_contract.py
       - name: Distinct column context for card list and search
         run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/api/tests/mcp_integration/test_project_column_tools.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
-      - name: PostgreSQL transitions and rollback
+      - name: PostgreSQL transitions, common rules and rollback
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py src/api/tests/workflow_rules
       - name: Native Decision authority, ballots and responder selection
         env:
           PYTHONPATH: src/shared/py:src/api

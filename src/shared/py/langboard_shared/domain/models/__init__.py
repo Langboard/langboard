@@ -146,8 +146,13 @@ from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WikiAttachmentDocument import WikiAttachmentDocument
+from .WorkflowActionRun import WorkflowActionRun
 from .WorkflowCompactionSchedule import WorkflowCompactionSchedule
 from .WorkflowEffectRun import WorkflowEffectRun
+from .WorkflowRule import WorkflowRule
+from .WorkflowRuleAction import WorkflowRuleAction
+from .WorkflowRuleCondition import WorkflowRuleCondition
+from .WorkflowRuleRun import WorkflowRuleRun
 from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
@@ -239,6 +244,11 @@ __all__ = [
     'GlobalCardRelationshipType',
     'GlobalLabel',
     'WorkflowStageDefinition',
+    'WorkflowRule',
+    'WorkflowRuleCondition',
+    'WorkflowRuleAction',
+    'WorkflowRuleRun',
+    'WorkflowActionRun',
     'WorkflowEffectRun',
     'BotScheduleGraphApprovalRequest',
     'BotTriggerGraphApprovalRequest',
@@ -321,5 +331,4 @@ __all__ = [
 
 # Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401
-
 from .CardDecisionGate import CardDecisionGate

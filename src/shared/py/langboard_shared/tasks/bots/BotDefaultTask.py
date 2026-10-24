@@ -1,21 +1,21 @@
 from typing import Literal
-from ...ai import BotDefaultTrigger
 from ...core.broker import Broker
 from ...core.db import BaseDbModel
 from ...core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
+from ...domain.constants.DomainEventType import DomainEventType
 from ...domain.models import Bot, Project, User
 from ...helpers import ModelHelper
 from .utils import BotTaskDataHelper, BotTaskHelper, BotTaskSchemaHelper
 
 
-@BotTaskSchemaHelper.executor_schema(BotDefaultTrigger.BotCreated)
+@BotTaskSchemaHelper.executor_schema(DomainEventType.BotCreated)
 @Broker.wrap_async_task_decorator
 async def bot_created(bot: Bot):
-    await BotTaskHelper.run(bot, BotDefaultTrigger.BotCreated, BotTaskDataHelper.create_executor(bot))
+    await BotTaskHelper.run(bot, DomainEventType.BotCreated, BotTaskDataHelper.create_executor(bot))
 
 
 @BotTaskSchemaHelper.executor_schema(
-    BotDefaultTrigger.BotMentioned,
+    DomainEventType.BotMentioned,
     {
         "mentioned_in": "Enum[card, comment, project_wiki]",
         "project_uid": "string",
@@ -57,4 +57,4 @@ async def bot_mentioned(
     if not project:
         return
 
-    await BotTaskHelper.run(target_bot, BotDefaultTrigger.BotMentioned, data, project, scope_model)
+    await BotTaskHelper.run(target_bot, DomainEventType.BotMentioned, data, project, scope_model)

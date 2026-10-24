@@ -23,24 +23,20 @@ from langboard_shared.domain.models import (
     Project,
     ProjectColumn,
     User,
-    WorkflowEffectRun,
+    WorkflowActionRun,
+    WorkflowRuleRun,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
 from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
+from langboard_shared.domain.services.factory.WorkflowRuleService import admit, replace_rules, rows, utc
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
 from langboard_shared.tasks.bots.BotScheduleTask import _run_scheduler
-from langboard_shared.tasks.bots.CardBotTask import _run_card_moved
 from langboard_shared.tasks.bots.utils import BotTaskDataHelper
 from langboard_shared.tasks.bots.utils.requests.BaseBotRequest import BotRequestOutcome
-from langboard_shared.tasks.bots.WorkflowCompactionTask import (
-    _claim_workflow_bot,
-    _dispatch_workflow_bot,
-    _utc,
-    run_due_workflow_bots,
-)
-from sqlalchemy import create_engine, event, text
+from langboard_shared.tasks.WorkflowRuleTask import run_due_rules, run_rule
+from sqlalchemy import create_engine, text
 
 
 @pytest.fixture(params=["sqlite://", "postgresql-test"])
@@ -73,7 +69,7 @@ def bots(monkeypatch, request):
     names = ["Bot", "BotSchedule", "CardBotSchedule", "CardBotScope", "ProjectBotScope", "ProjectColumnBotScope",
              "CardBotDefaultScope", "ProjectBotDefaultScope", "ProjectColumnBotDefaultScope", "User", "Project",
              "Card", "ProjectColumn", "WorkflowEffectRun", "WorkflowStageDefinition", "BotScheduleRun",
-             "ProjectAssignedUser", "ProjectRole"]
+             "ProjectAssignedUser", "ProjectRole", "WorkflowRule", "WorkflowRuleAction", "WorkflowRuleCondition", "WorkflowRuleRun", "WorkflowActionRun"]
     tables = [getattr(models, name).__table__ for name in names]
     # SQLite permits absent FK targets; PostgreSQL requires the actual dependency tables.
     for table in tables:
@@ -112,10 +108,7 @@ def bots(monkeypatch, request):
         db.insert(schedule)
         association = CardBotSchedule(bot_schedule_id=schedule.id, card_id=card.id)
         db.insert(association)
-        stage.entry_bots = [{"bot_uid": bot.get_uid(), "condition": "card_moved"}]
-        stage.continuous_effects = {"bots": [{"bot_uid": bot.get_uid(), "condition": "bot_cron_scheduled",
-                                            "schedule_uid": schedule.get_uid(), "interval_seconds": 120}]}
-        db.update(stage)
+        replace_rules(db, stage, [definition(bot.get_uid())])
     execute = AsyncMock(return_value=BotRequestOutcome.Accepted)
     helper = import_module("langboard_shared.tasks.bots.utils.BotTaskHelper")
     monkeypatch.setattr(helper, "create_request", lambda *args: SimpleNamespace(execute=execute))
@@ -126,108 +119,28 @@ def bots(monkeypatch, request):
     yield SimpleNamespace(**locals())
 
 
+def definition(bot_uid, trigger=None, schedule_uid=None):
+    config = {"bot_uid": bot_uid}
+    if schedule_uid:
+        config["schedule_uid"] = schedule_uid
+    return {"name": "Selected bot", "is_enabled": True, "trigger": trigger or {"kind": "stage_entered"},
+            "condition_match": "all", "conditions": [], "actions": [{"kind": "bot.invoke", "executor": {"kind": "bot", "uid": bot_uid},
+            "config": config, "requires_previous_success": False}]}
+
+
 def history():
     with DbSession.use(readonly=False) as db:
-        return db.exec(SqlBuilder.select.table(WorkflowEffectRun).order_by(WorkflowEffectRun.id)).all()
+        return db.exec(SqlBuilder.select.table(WorkflowActionRun).order_by(WorkflowActionRun.id)).all()
 
 
-@pytest.mark.asyncio
-async def test_selected_entry_runs_actual_move_once_and_preserves_unselected_native_bot(bots):
-    f = bots
+def reserve(f, *, event="stage_entered", identity="one-event", system=False):
     with DbSession.atomic() as db:
-        other = Bot(name="Other", bot_uname="other", platform=BotPlatform.Default,
-                    platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
-        db.insert(other)
-        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[DomainEventType.CardMoved]))
-    await _run_card_moved(f.actor, f.project, f.card, f.old)
-    assert f.execute.await_count == 2
-    rows = history()
-    assert len(rows) == 1 and rows[0].source == "bot_entry" and rows[0].status == "accepted"
-    assert rows[0].result == {"accepted": 1} and rows[0].effects[-1] == "card_moved"
-    # Re-delivery must not dispatch the selected workflow occurrence again.
-    await _run_card_moved(f.actor, f.project, f.card, f.old)
-    assert f.execute.await_count == 3 and len(history()) == 1
+        return admit(db, None if system else f.actor, f.card, event, event_id=identity)[0]
 
 
-@pytest.mark.parametrize("case", ["frozen", "wrong_condition", "deleted_bot", "private", "inactive_actor"])
-@pytest.mark.asyncio
-async def test_entry_does_not_bypass_current_authority(bots, case):
-    f = bots
+def configure(f, *, trigger=None, schedule=False):
     with DbSession.atomic() as db:
-        if case == "frozen":
-            f.hook.is_frozen = True
-            db.update(f.hook)
-        elif case == "wrong_condition":
-            f.hook.conditions = [DomainEventType.CardUpdated]
-            db.update(f.hook)
-        elif case == "deleted_bot":
-            f.bot.deleted_at = SafeDateTime.now()
-            db.update(f.bot)
-        elif case == "private":
-            f.card.visibility = "PRIVATE"
-            f.card.owner_user_id = f.actor.id
-            f.card.created_by_user_id = f.actor.id
-            db.update(f.card)
-        else:
-            f.actor.activated_at = None
-            db.update(f.actor)
-    await _run_card_moved(f.actor, f.project, f.card, f.old)
-    f.execute.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_interval_and_native_cron_share_one_claim_then_interval_becomes_due(bots):
-    f = bots
-    assert await run_due_workflow_bots(now=f.now) == 1
-    assert history()[0].status == "accepted" and history()[0].source == "bot_interval"
-    await _run_scheduler(f.bot, f.schedule, f.association, f.card)
-    assert await run_due_workflow_bots(now=f.now + timedelta(seconds=119)) == 0
-    assert f.execute.await_count == 1
-    assert await run_due_workflow_bots(now=f.now + timedelta(seconds=120)) == 1
-    assert f.execute.await_count == 2 and len(history()) == 2
-
-
-@pytest.mark.parametrize("case", ["stopped", "expired", "different_card", "private", "deleted_bot"])
-@pytest.mark.asyncio
-async def test_interval_rechecks_native_schedule_eligibility(bots, case):
-    f = bots
-    with DbSession.atomic() as db:
-        if case == "stopped":
-            f.schedule.status = BotScheduleStatus.Stopped
-            db.update(f.schedule)
-        elif case == "expired":
-            f.schedule.running_type = BotScheduleRunningType.Duration
-            f.schedule.start_at, f.schedule.end_at = f.now - timedelta(hours=2), f.now - timedelta(hours=1)
-            db.update(f.schedule)
-        elif case == "different_card":
-            f.association.card_id = f.other_card.id
-            db.update(f.association)
-        elif case == "private":
-            f.card.visibility = "PRIVATE"
-            f.card.owner_user_id = f.actor.id
-            f.card.created_by_user_id = f.actor.id
-            db.update(f.card)
-        else:
-            f.bot.deleted_at = f.now
-            db.update(f.bot)
-    assert await run_due_workflow_bots(now=f.now) == 0
-    f.execute.assert_not_awaited()
-    assert history() == []
-
-
-def test_bot_binding_validation_is_additive_and_strict():
-    assert "bots" not in WorkflowStageService.normalize_continuous_effects({})
-    assert WorkflowStageService.normalize_bot_bindings([]) == []
-    entry = {"bot_uid": "123456789ab", "condition": "card_moved"}
-    assert WorkflowStageService.normalize_bot_bindings([entry]) == [entry]
-    for invalid in [[entry, entry], [{**entry, "condition": "card_updated"}], [{**entry, "bot_uid": "bad"}]]:
-        with pytest.raises(ValueError):
-            WorkflowStageService.normalize_bot_bindings(invalid)
-    for interval in [True, 1, 86401, 60.5]:
-        with pytest.raises(ValueError):
-            WorkflowStageService.normalize_bot_bindings([{"bot_uid": entry["bot_uid"], "condition": "bot_cron_scheduled",
-                "schedule_uid": "123456789ac", "interval_seconds": interval}], continuous=True)
-
+        replace_rules(db, f.stage, [definition(f.bot.get_uid(), trigger, f.schedule.get_uid() if schedule else None)])
 
 def test_migration_preserves_old_policy_and_refuses_binding_loss():
     import importlib.util
@@ -255,7 +168,6 @@ def test_migration_preserves_old_policy_and_refuses_binding_loss():
             migration.downgrade()
     engine.dispose()
 
-
 def test_options_include_only_visible_card_schedules_and_minimal_bot_identity(bots):
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
@@ -270,7 +182,6 @@ def test_options_include_only_visible_card_schedules_and_minimal_bot_identity(bo
     contexts.clear()
     assert service.get_bot_options(f.actor)["schedules"] == []
 
-
 def test_bot_options_route_requires_both_settings_permissions():
     from langboard.routes.settings.WorkflowStageSettingsApi import get_workflow_bot_options
     from langboard_shared.core.filter import AuthFilter
@@ -279,43 +190,6 @@ def test_bot_options_route_requires_both_settings_permissions():
     _, actions, _, bypass = RoleFilter.get_filtered(get_workflow_bot_options)
     assert actions == ["workflow_stage_read", "bot_read"] and bypass is False
     assert AuthFilter.get_filtered(get_workflow_bot_options) == "admin"
-
-
-@pytest.mark.asyncio
-async def test_claim_does_not_keep_authority_after_binding_revocation(bots):
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import _claim_workflow_bot, _dispatch_workflow_bot, _utc
-
-    f = bots
-    binding = f.stage.entry_bots[0]
-    claim = _claim_workflow_bot(f.stage.id, f.card.id, binding, "bot_entry", f.now,
-                               actor_id=f.actor.id, residency=_utc(f.card.workflow_stage_entered_at).isoformat())
-    assert claim is not None
-    with DbSession.atomic() as db:
-        f.stage.entry_bots = []
-        db.update(f.stage)
-    await _dispatch_workflow_bot(claim, binding)
-    f.execute.assert_not_awaited()
-    assert history()[0].status == "skipped" and history()[0].error_code == "workflow_binding_changed"
-
-
-@pytest.mark.asyncio
-async def test_entry_hook_authorization_rereads_primary_without_replica_access(bots, monkeypatch):
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import _claim_workflow_bot, _dispatch_workflow_bot, _utc
-
-    f = bots
-    binding = f.stage.entry_bots[0]
-    claim = _claim_workflow_bot(f.stage.id, f.card.id, binding, "bot_entry", f.now,
-                               actor_id=f.actor.id, residency=_utc(f.card.workflow_stage_entered_at).isoformat())
-    with DbSession.atomic() as db:
-        f.hook.is_frozen = True
-        db.update(f.hook)
-    def unavailable_replica():
-        raise AssertionError("Hook authorization must use the primary")
-    monkeypatch.setattr(DbEngine, "get_readonly_engine", unavailable_replica)
-    await _dispatch_workflow_bot(claim, binding)
-    f.execute.assert_not_awaited()
-    assert history()[0].status == "skipped"
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", [BotRequestOutcome.Accepted, BotRequestOutcome.RetryableFailure])
@@ -357,229 +231,6 @@ async def test_unsupported_one_time_schedule_keeps_native_behavior(bots, monkeyp
             assert changes == []
     assert history() == []
 
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('case', ['new_residency','actor_inactive','card_archived','column_archived','column_deleted','card_private','bot_deleted','card_deleted'])
-async def test_entry_claim_revocation(bots, case):
-    f = bots
-    binding = f.stage.entry_bots[0]
-    claim = _claim_workflow_bot(f.stage.id, f.card.id, binding, 'bot_entry', f.now, actor_id=f.actor.id, residency=_utc(f.card.workflow_stage_entered_at).isoformat())
-    assert claim is not None
-    with DbSession.atomic() as db:
-        if case == 'new_residency':
-            f.card.workflow_stage_entered_at = f.now + timedelta(seconds=1)
-            db.update(f.card)
-        elif case == 'actor_inactive':
-            f.actor.activated_at = None
-            db.update(f.actor)
-        elif case == 'card_archived':
-            f.card.archived_at = f.now
-            db.update(f.card)
-        elif case == 'column_archived':
-            f.column.is_archive = True
-            db.update(f.column)
-        elif case == 'column_deleted':
-            f.column.deleted_at = f.now
-            db.update(f.column)
-        elif case == 'card_private':
-            f.card.visibility = 'PRIVATE'
-            f.card.owner_user_id = f.actor.id
-            f.card.created_by_user_id = f.actor.id
-            db.update(f.card)
-        elif case == 'bot_deleted':
-            f.bot.deleted_at = f.now
-            db.update(f.bot)
-        elif case == 'card_deleted':
-            f.card.deleted_at = f.now
-            db.update(f.card)
-    await _dispatch_workflow_bot(claim, binding)
-    rows = history()
-    print({'case': case, 'transport_calls': f.execute.await_count, 'status': rows[0].status, 'error_code': rows[0].error_code})
-    f.execute.assert_not_awaited()
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('case', ['actor_inactive','card_archived','column_archived','schedule_stopped','association_removed','bot_deleted'])
-async def test_interval_claim_revocation(bots, case):
-    f = bots
-    binding = f.stage.continuous_effects['bots'][0]
-    claim = _claim_workflow_bot(f.stage.id, f.card.id, binding, 'bot_interval', f.now)
-    assert claim is not None
-    with DbSession.atomic() as db:
-        if case == 'actor_inactive':
-            f.actor.activated_at = None
-            db.update(f.actor)
-        elif case == 'card_archived':
-            f.card.archived_at = f.now
-            db.update(f.card)
-        elif case == 'column_archived':
-            f.column.is_archive = True
-            db.update(f.column)
-        elif case == 'schedule_stopped':
-            f.schedule.status = BotScheduleStatus.Stopped
-            db.update(f.schedule)
-        elif case == 'association_removed':
-            f.association.card_id = f.other_card.id
-            db.update(f.association)
-        elif case == 'bot_deleted':
-            f.bot.deleted_at = f.now
-            db.update(f.bot)
-    await _dispatch_workflow_bot(claim, binding)
-    rows = history()
-    print({'case': case, 'transport_calls': f.execute.await_count, 'status': rows[0].status, 'error_code': rows[0].error_code})
-    f.execute.assert_not_awaited()
-
-@pytest.mark.asyncio
-async def test_cancelled_entry_retains_uncertain_history_and_suppresses_replay(bots):
-    import asyncio
-    f = bots
-    binding = f.stage.entry_bots[0]
-    claim = _claim_workflow_bot(f.stage.id, f.card.id, binding, 'bot_entry', f.now, actor_id=f.actor.id, residency=_utc(f.card.workflow_stage_entered_at).isoformat())
-    f.execute.side_effect = asyncio.CancelledError
-    with pytest.raises(asyncio.CancelledError):
-        await _dispatch_workflow_bot(claim, binding)
-    rows = history()
-    assert rows[0].status == 'uncertain'
-    assert rows[0].error_code == 'dispatch_cancelled'
-    assert rows[0].lease_expires_at is None
-    assert _claim_workflow_bot(f.stage.id, f.card.id, binding, 'bot_entry', f.now, actor_id=f.actor.id, residency=_utc(f.card.workflow_stage_entered_at).isoformat()) is None
-    assert len(history()) == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("source", ["bot_entry", "bot_interval"])
-async def test_simultaneous_same_card_claims_admit_one_dispatch(bots, source):
-    f = bots
-    if f.engine.dialect.name != "postgresql":
-        pytest.skip("Concurrent row-lock admission requires PostgreSQL")
-    binding = f.stage.entry_bots[0] if source == "bot_entry" else f.stage.continuous_effects["bots"][0]
-    kwargs = ({"actor_id": f.actor.id, "residency": _utc(f.card.workflow_stage_entered_at).isoformat()}
-              if source == "bot_entry" else {})
-    competing_claims = Barrier(2)
-    backend_pids = set()
-
-    def synchronize_card_lock(connection, cursor, statement, parameters, context, executemany):
-        # Both independent DB sessions must reach the same card lock before either can acquire it.
-        if "FOR UPDATE" in statement and "FROM card " in statement:
-            backend_pids.add(connection.connection.driver_connection.info.backend_pid)
-            competing_claims.wait(timeout=5)
-
-    event.listen(f.engine, "before_cursor_execute", synchronize_card_lock)
-    try:
-        with ThreadPoolExecutor(max_workers=2) as workers:
-            futures = [workers.submit(_claim_workflow_bot, f.stage.id, f.card.id, binding, source, f.now, **kwargs)
-                       for _ in range(2)]
-            claims = [future.result(timeout=15) for future in futures]
-    finally:
-        event.remove(f.engine, "before_cursor_execute", synchronize_card_lock)
-    assert len(backend_pids) == 2
-    admitted = [claim for claim in claims if claim is not None]
-    assert len(admitted) == 1
-    rows = history()
-    assert len(rows) == 1 and rows[0].status == "running" and rows[0].source == source
-    await _dispatch_workflow_bot(admitted[0], binding)
-    f.execute.assert_awaited_once()
-    rows = history()
-    assert len(rows) == 1 and rows[0].status == "accepted" and rows[0].result == {"accepted": 1}
-    assert _claim_workflow_bot(f.stage.id, f.card.id, binding, source, f.now, **kwargs) is None
-
-
-def policy_claim(f, *, event=DomainEventType.CardCommentAdded, key="one-event"):
-    binding = {"bot_uid": f.bot.get_uid()}
-    with DbSession.atomic() as db:
-        f.stage.policy_bots = [binding]
-        f.hook.conditions = [event]
-        db.update(f.stage)
-        db.update(f.hook)
-    residency = _utc(f.card.workflow_stage_entered_at).isoformat()
-    return binding, _claim_workflow_bot(
-        f.stage.id, f.card.id, binding, "bot_policy", f.now, actor_id=f.actor.id,
-        residency=residency, condition=event.value,
-        event_key=f"policy:{residency.replace(':', '_')}:{key}",
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("event", [condition for condition in DomainEventType if condition.value.startswith("card_") and condition != DomainEventType.CardDeleted])
-async def test_policy_native_card_event_runs_once_with_existing_condition(bots, event):
-    from langboard_shared.tasks.bots.utils import BotTaskHelper
-
-    f = bots
-    binding = {"bot_uid": f.bot.get_uid()}
-    with DbSession.atomic() as db:
-        f.stage.policy_bots = [binding]
-        f.hook.conditions = [event]
-        db.update(f.stage)
-        db.update(f.hook)
-        if event == DomainEventType.CardCreated:
-            db.insert(models.ProjectBotScope(bot_id=f.bot.id, project_id=f.project.id, conditions=[event]))
-    candidates = BotTaskHelper.get_scoped_bots(event, project_id=f.project.id,
-                                              project_column_id=f.column.id, card_id=f.card.id)
-    data = BotTaskDataHelper.create_card(f.actor, f.project, f.card)
-    await BotTaskHelper.run_card_event(f.actor, f.card, candidates + candidates, event, data, f.project)
-    f.execute.assert_awaited_once()
-    rows = history()
-    assert len(rows) == 1 and rows[0].source == "bot_policy"
-    assert rows[0].status == "accepted" and rows[0].result == {"accepted": 1}
-    assert rows[0].effects[-1] == event.value  # Transport acceptance does not claim effect completion.
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["frozen", "condition", "binding", "stage", "residency", "actor", "bot", "archive"])
-async def test_policy_claim_rereads_current_authority(bots, case):
-    f = bots
-    binding, claim = policy_claim(f)
-    assert claim is not None
-    with DbSession.atomic() as db:
-        if case == "frozen":
-            f.hook.is_frozen = True
-            db.update(f.hook)
-        elif case == "condition":
-            f.hook.conditions = [DomainEventType.CardUpdated]
-            db.update(f.hook)
-        elif case == "binding":
-            f.stage.policy_bots = []
-            db.update(f.stage)
-        elif case == "stage":
-            f.column.workflow_stage = None
-            db.update(f.column)
-        elif case == "residency":
-            f.card.workflow_stage_entered_at = f.now + timedelta(seconds=1)
-            db.update(f.card)
-        elif case == "actor":
-            f.actor.activated_at = None
-            db.update(f.actor)
-        elif case == "bot":
-            f.bot.deleted_at = f.now
-            db.update(f.bot)
-        elif case == "archive":
-            f.card.archived_at = f.now
-            db.update(f.card)
-    await _dispatch_workflow_bot(claim, binding)
-    f.execute.assert_not_awaited()
-    assert history()[0].status == "skipped"
-
-
-@pytest.mark.asyncio
-async def test_policy_entry_overlap_dispatches_only_once(bots):
-    f = bots
-    with DbSession.atomic() as db:
-        f.stage.policy_bots = [{"bot_uid": f.bot.get_uid()}]
-        db.update(f.stage)
-    await _run_card_moved(f.actor, f.project, f.card, f.old)
-    f.execute.assert_awaited_once()
-    assert len(history()) == 1 and history()[0].source == "bot_entry"
-
-
-@pytest.mark.asyncio
-async def test_policy_claim_duplicate_event_key_does_not_replay(bots):
-    f = bots
-    binding, claim = policy_claim(f)
-    await _dispatch_workflow_bot(claim, binding)
-    _, duplicate = policy_claim(f)
-    assert duplicate is None
-    assert len(history()) == 1
-
-
 def test_policy_options_support_comment_only_native_hook(bots):
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
@@ -594,18 +245,159 @@ def test_policy_options_support_comment_only_native_hook(bots):
     assert option["policy_available"] is True and option["entry_available"] is False
 
 
-def test_policy_binding_validation_owns_no_trigger_dialect():
-    binding = {"bot_uid": "123456789ab"}
-    assert WorkflowStageService.normalize_bot_bindings([binding], policy=True) == [binding]
-    for value in [[binding, binding], [{**binding, "condition": "card_updated"}], [{**binding, "interval_seconds": 60}], [{"bot_uid": "invalid"}]]:
-        with pytest.raises(ValueError):
-            WorkflowStageService.normalize_bot_bindings(value, policy=True)
+@pytest.mark.asyncio
+async def test_common_entry_duplicate_identity_keeps_one_accepted_claim(bots):
+    f = bots
+    run = reserve(f)
+    assert reserve(f) == run
+    await run_rule(run)
+    await run_rule(run)
+    f.execute.assert_awaited_once()
+    assert len(history()) == 1 and history()[0].status == "accepted"
+    assert history()[0].attempt == 1 and history()[0].result == {"accepted": 1}
+
+
+@pytest.mark.parametrize("case", ["frozen", "condition", "binding", "stage", "new_residency", "actor_inactive", "card_archived", "column_archived", "column_deleted", "card_private", "bot_deleted", "card_deleted", "project_deleted"])
+@pytest.mark.parametrize("event", ["stage_entered", "card_comment_added"])
+@pytest.mark.asyncio
+async def test_common_claim_rechecks_all_native_authority(bots, case, event):
+    f = bots
+    if event != "stage_entered":
+        configure(f, trigger={"kind": "event", "event_type": event})
+        with DbSession.atomic() as db:
+            f.hook.conditions = [DomainEventType(event)]
+            db.update(f.hook)
+    run = reserve(f, event=event)
+    with DbSession.atomic() as db:
+        if case == "frozen":
+            f.hook.is_frozen = True
+            db.update(f.hook)
+        elif case == "condition":
+            f.hook.conditions = [DomainEventType.CardUpdated]
+            db.update(f.hook)
+        elif case == "binding":
+            replace_rules(db, f.stage, [])
+        elif case == "stage":
+            f.column.workflow_stage = None
+            db.update(f.column)
+        elif case == "new_residency":
+            f.card.workflow_stage_entered_at = f.now + timedelta(seconds=1)
+            db.update(f.card)
+        elif case == "actor_inactive":
+            f.actor.activated_at = None
+            db.update(f.actor)
+        elif case == "card_archived":
+            f.card.archived_at = f.now
+            db.update(f.card)
+        elif case == "column_archived":
+            f.column.is_archive = True
+            db.update(f.column)
+        elif case == "column_deleted":
+            f.column.deleted_at = f.now
+            db.update(f.column)
+        elif case == "card_private":
+            f.card.visibility, f.card.owner_user_id, f.card.created_by_user_id = "PRIVATE", f.actor.id, f.actor.id
+            db.update(f.card)
+        elif case == "bot_deleted":
+            f.bot.deleted_at = f.now
+            db.update(f.bot)
+        elif case == "project_deleted":
+            f.project.deleted_at = f.now
+            db.update(f.project)
+        else:
+            f.card.deleted_at = f.now
+            db.update(f.card)
+    await run_rule(run)
+    f.execute.assert_not_awaited()
+    assert history()[0].status == "skipped"
 
 
 @pytest.mark.asyncio
-async def test_policy_actor_membership_revocation_denies_queued_claim(bots):
-    from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+@pytest.mark.parametrize("case", ["stopped", "expired", "different_card", "private", "deleted", "column_archived"])
+async def test_interval_rechecks_native_schedule_eligibility(bots, case):
+    f = bots
+    configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    run = reserve(f, event="interval", system=True)
+    with DbSession.atomic() as db:
+        if case == "stopped":
+            f.schedule.status = BotScheduleStatus.Stopped
+            db.update(f.schedule)
+        elif case == "expired":
+            f.schedule.running_type = BotScheduleRunningType.Duration
+            f.schedule.start_at, f.schedule.end_at = f.now - timedelta(hours=2), f.now - timedelta(hours=1)
+            db.update(f.schedule)
+        elif case == "different_card":
+            f.association.card_id = f.other_card.id
+            db.update(f.association)
+        elif case == "private":
+            f.card.visibility, f.card.owner_user_id, f.card.created_by_user_id = "PRIVATE", f.actor.id, f.actor.id
+            db.update(f.card)
+        elif case == "column_archived":
+            f.column.is_archive = True
+            db.update(f.column)
+        else:
+            f.bot.deleted_at = f.now
+            db.update(f.bot)
+    await run_rule(run)
+    f.execute.assert_not_awaited()
+    assert history()[0].status == "skipped"
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", [BotRequestOutcome.Accepted, BotRequestOutcome.Uncertain])
+async def test_interval_native_cron_and_rule_cron_share_stable_due_identity(bots, outcome):
+    f = bots
+    f.execute.return_value = outcome
+    configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    await _run_scheduler(f.bot, f.schedule, f.association, f.card)
+    f.execute.assert_not_awaited()
+    assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 1
+    assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 0
+    assert await run_due_rules(now=f.now + timedelta(seconds=239)) == 0
+    # Acceptance is unresolved execution, so a later slot cannot bypass it.
+    assert await run_due_rules(now=f.now + timedelta(seconds=240)) == 0
+    assert f.execute.await_count == 1
+    assert len({claim.idempotency_key for claim in history()}) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", [BotRequestOutcome.Accepted, BotRequestOutcome.Uncertain])
+async def test_transport_outcomes_are_truthful_and_not_automatically_replayed(bots, outcome):
+    f = bots
+    f.execute.return_value = outcome
+    run = reserve(f)
+    await run_rule(run)
+    await run_rule(run)
+    expected = "failed" if outcome == BotRequestOutcome.RetryableFailure else outcome.value
+    assert history()[0].status == expected
+    f.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_transport_keeps_uncertain_claim_without_replay(bots):
+    import asyncio
+    f = bots
+    f.execute.side_effect = asyncio.CancelledError
+    run = reserve(f)
+    with pytest.raises(asyncio.CancelledError):
+        await run_rule(run)
+    assert history()[0].status == "uncertain" and history()[0].error_code == "dispatch_cancelled"
+    await run_rule(run)
+    f.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_primary_hook_reread_does_not_use_replica(bots, monkeypatch):
+    f = bots
+    run = reserve(f)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: (_ for _ in ()).throw(AssertionError("replica authorization")))
+    await run_rule(run)
+    f.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_membership_revocation_denies_queued_common_claim(bots):
+    from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
     f = bots
     with DbSession.atomic() as db:
         owner = User(email="owner@example.test", firstname="Owner", lastname="", username="owner", password="unused", activated_at=f.now)
@@ -614,36 +406,80 @@ async def test_policy_actor_membership_revocation_denies_queued_claim(bots):
         db.update(f.project)
         member = models.ProjectAssignedUser(project_id=f.project.id, user_id=f.actor.id)
         db.insert(member)
-        role = models.ProjectRole(project_id=f.project.id, user_id=f.actor.id, actions=[ProjectRoleAction.Read.value])
-        db.insert(role)
-    binding, claim = policy_claim(f)
-    assert claim is not None
+        db.insert(models.ProjectRole(project_id=f.project.id, user_id=f.actor.id, actions=[ProjectRoleAction.Read.value]))
+    run = reserve(f)
     with DbSession.atomic() as db:
         db.delete(member)
-    await _dispatch_workflow_bot(claim, binding)
-    f.execute.assert_not_awaited()
+    await run_rule(run)
     assert history()[0].error_code == "workflow_actor_revoked"
+    f.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_policy_multiple_selected_bots_have_distinct_claims_and_one_webhook(bots, monkeypatch):
-    from langboard_shared.tasks.bots.utils import BotTaskHelper
-    from langboard_shared.tasks.bots.utils import BotTaskHelper as _helper
-    helper_module = import_module(_helper.__module__)
+async def test_duplicate_native_scopes_do_not_duplicate_selected_dispatch(bots):
     f = bots
-    webhooks = []
-    monkeypatch.setattr(helper_module.WebhookTask, "webhook_task", lambda model: webhooks.append(model))
     with DbSession.atomic() as db:
-        other = Bot(name="Other", bot_uname="other", platform=BotPlatform.Default,
-                    platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
-        db.insert(other)
-        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[DomainEventType.CardMoved]))
-        f.stage.policy_bots = [{"bot_uid": bot.get_uid()} for bot in (f.bot, other)]
-        db.update(f.stage)
-    candidates = BotTaskHelper.get_scoped_bots(DomainEventType.CardMoved, project_id=f.project.id,
-                                              project_column_id=f.column.id, card_id=f.card.id)
-    await BotTaskHelper.run_card_event(f.actor, f.card, candidates, DomainEventType.CardMoved,
-                                      BotTaskDataHelper.create_card(f.actor, f.project, f.card), f.project)
-    assert f.execute.await_count == 2
-    assert len(history()) == 2 and len({row.execution_key for row in history()}) == 2
-    assert len(webhooks) == 1
+        db.insert(models.ProjectBotScope(bot_id=f.bot.id, project_id=f.project.id, conditions=[DomainEventType.CardMoved]))
+    await run_rule(reserve(f))
+    f.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_definite_rejection_retries_same_action_identity_with_bounded_backoff(bots):
+    f = bots
+    f.execute.return_value = BotRequestOutcome.RetryableFailure
+    run_id = reserve(f)
+    initial_key = history()[0].idempotency_key
+    for attempt in range(1, 4):
+        await run_rule(run_id)
+        claim = history()[0]
+        assert claim.attempt == attempt and claim.idempotency_key == initial_key
+        assert len(history()) == 1 and len(claim.attempts) == attempt
+        if attempt < 3:
+            assert claim.status == "queued"
+            with DbSession.atomic() as db:
+                run = rows(db, WorkflowRuleRun)[0]
+                assert utc(run.next_attempt_at) > utc(SafeDateTime.now())
+                run.next_attempt_at = SafeDateTime.now() - timedelta(seconds=1)
+                db.update(run)
+        else:
+            assert claim.status == "failed" and claim.error_code == "retry_exhausted"
+    await run_rule(run_id)
+    assert f.execute.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_simultaneous_same_event_claims_admit_one_dispatch(bots):
+    f = bots
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("Concurrent row-lock admission requires PostgreSQL")
+    start = Barrier(2)
+
+    def claim():
+        start.wait(timeout=5)
+        return reserve(f)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        claims = list(executor.map(lambda _: claim(), range(2)))
+    assert claims[0] == claims[1]
+    assert len(history()) == 1
+    await run_rule(claims[0])
+    await run_rule(claims[1])
+    f.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_interval_slots_cannot_reset_exhausted_retry_budget(bots):
+    f = bots
+    configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    f.execute.return_value = BotRequestOutcome.RetryableFailure
+    assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 1
+    for _ in range(2):
+        with DbSession.atomic() as db:
+            pending = rows(db, WorkflowRuleRun)[0]
+            pending.next_attempt_at = f.now
+            db.update(pending)
+        await run_rule(pending.id, now=f.now + timedelta(seconds=120))
+    assert history()[0].error_code == "retry_exhausted"
+    assert await run_due_rules(now=f.now + timedelta(seconds=240)) == 0
+    assert f.execute.await_count == 3 and len(history()) == 1

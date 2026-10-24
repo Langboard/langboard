@@ -50,11 +50,11 @@ def get_workflow_effect_history(
     return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
-def _save(form: SaveWorkflowStageForm, service: DomainService, uid: str | None = None) -> JsonResponse:
+def _save(form: SaveWorkflowStageForm, service: DomainService, uid: str | None = None, *, actor: User | None = None) -> JsonResponse:
     if uid and form.expected_revision is None:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     try:
-        stage = service.workflow_stage.save(form.model_dump(), uid)
+        stage = service.workflow_stage.save(form.model_dump(), uid, actor=actor)
     except WorkflowStageEditConflict as exc:
         raise ApiException.Conflict_409(ApiErrorCode.EX3004) from exc
     except (ValueError, IntegrityError) as exc:
@@ -67,17 +67,17 @@ def _save(form: SaveWorkflowStageForm, service: DomainService, uid: str | None =
 @AppRouter.api.post("/settings/workflow-stages", tags=["AppSettings.WorkflowStage"])
 @RoleFilter.add(SettingRole, [SettingRoleAction.WorkflowStageCreate], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
-def create_workflow_stage(form: SaveWorkflowStageForm, service: DomainService = DomainService.scope()) -> JsonResponse:
-    return _save(form, service)
+def create_workflow_stage(form: SaveWorkflowStageForm, service: DomainService = DomainService.scope(), user: User = Auth.scope("user")) -> JsonResponse:
+    return _save(form, service, actor=user)
 
 
 @AppRouter.api.put("/settings/workflow-stages/{stage_uid}", tags=["AppSettings.WorkflowStage"])
 @RoleFilter.add(SettingRole, [SettingRoleAction.WorkflowStageUpdate], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
 def update_workflow_stage(
-    stage_uid: str, form: SaveWorkflowStageForm, service: DomainService = DomainService.scope()
+    stage_uid: str, form: SaveWorkflowStageForm, service: DomainService = DomainService.scope(), user: User = Auth.scope("user")
 ) -> JsonResponse:
-    return _save(form, service, stage_uid)
+    return _save(form, service, stage_uid, actor=user)
 
 
 @AppRouter.api.post("/settings/workflow-stages/{stage_uid}/deactivate", tags=["AppSettings.WorkflowStage"])

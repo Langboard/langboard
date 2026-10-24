@@ -2,7 +2,8 @@
 
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType, ProjectRole
+from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType, ProjectRole, Project
+from test_entry_effects import set_entry_actions
 from test_entry_effects import flow as flow  # noqa: F401
 
 
@@ -10,9 +11,10 @@ from test_entry_effects import flow as flow  # noqa: F401
 def family(request):
     f = request.getfixturevalue("flow")
     for model in (GlobalCardRelationshipType, CardRelationship, ProjectRole):
-        model.__table__.create(f.engine)
+        model.__table__.create(f.engine, checkfirst=True)
     with DbSession.atomic() as db:
-        f.stage.entry_effects = ["confirm_descendant_move"]
+        set_entry_actions(f.stage, [])
+        f.stage.confirm_descendant_move = True
         db.update(f.stage)
         kind = GlobalCardRelationshipType(
             parent_name="Parent", child_name="Child", machine_semantic="contains", is_system_default=True
@@ -156,7 +158,7 @@ def test_corrupt_descendant_cycle_visits_each_card_once(family):
 def test_disabled_option_keeps_existing_single_card_move(family):
     f = family
     with DbSession.atomic() as db:
-        f.stage.entry_effects = []
+        f.stage.confirm_descendant_move = False
         db.update(f.stage)
     assert move(f) is True
     assert all(positions(f)[child.id] == f.old.id for child in f.children)
@@ -186,7 +188,7 @@ def test_rebound_target_requires_current_stage_confirmation(family):
     prompt = move(f)
     with DbSession.atomic() as db:
         replacement = WorkflowStageDefinition(
-            key="replacement", name="Replacement", entry_effects=["confirm_descendant_move"]
+            key="replacement", name="Replacement", confirm_descendant_move=True
         )
         db.insert(replacement)
     with f.engine.begin() as connection:
@@ -269,10 +271,14 @@ def test_ineligible_descendant_rejects_complete_family_without_effects(family, k
     from sqlalchemy import text
 
     f = family
+    if kind == "cross_board":
+        from sqlalchemy.orm import Session
+        with Session(f.engine) as authority:
+            authority.add(Project(id=2, owner_id=1, title="Foreign"))
+            authority.commit()
     with DbSession.atomic() as db:
         child = db.exec(SqlBuilder.select.table(Card).where(Card.id == f.children[1].id)).first()
         if kind == "cross_board":
-            db.exec(text("INSERT INTO project(id) VALUES (2)"))
             child.project_id = 2
             db.update(child)
         elif kind == "linked_mirror":

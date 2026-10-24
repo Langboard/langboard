@@ -134,11 +134,20 @@ def test_native_bundle_and_project_columns_share_registry_guidance(registry, mon
     assert adapter.get_card_bundle_source("p", "c", frozenset()) is None
 
 
-def test_continuous_workflow_guidance_excludes_unrecognized_storage_fields():
+def test_normalized_workflow_guidance_excludes_unrecognized_storage_fields():
     from langboard.card_workspace.application.projections import public_workflow_stages
-    source = {"active": {"key": "active", "continuous_effects": {"auto_compact": True, "auto_archive": False,
-        "interval_seconds": 300, "archive_after_seconds": 86400, "compact_after_characters": 24000, "credential": "private-fixture"}, "storage": "private-fixture"}}
+    source = {"active": {"key": "active", "confirm_descendant_move": True, "rules": [{
+        "name": "Compact discussion", "is_enabled": True,
+        "trigger": {"kind": "event", "event_type": "card_comment_added"},
+        "condition_match": "any", "conditions": [{"kind": "uncompacted_characters", "operator": "gte", "value": 24000}],
+        "actions": [{"kind": "comments.compact", "executor": {"kind": "compactor"}, "config": {},
+                     "requires_previous_success": False, "credential": "private-fixture"}],
+        "storage": "private-fixture"}], "storage": "private-fixture"}}
     result = public_workflow_stages(source)
-    assert result["active"]["continuous_effects"] == {"auto_compact": True, "auto_archive": False,
-        "interval_seconds": 300, "archive_after_seconds": 86400, "compact_after_characters": 24000}
+    assert result["active"]["confirm_descendant_move"] is True
+    rule = result["active"]["rules"][0]
+    assert rule == {"name": "Compact discussion", "is_enabled": True,
+                    "trigger": {"kind": "event", "event_type": "card_comment_added"},
+                    "condition_match": "any", "conditions": [{"kind": "uncompacted_characters", "operator": "gte", "value": 24000}],
+                    "actions": [{"kind": "comments.compact"}]}
     assert "private-fixture" not in str(result)

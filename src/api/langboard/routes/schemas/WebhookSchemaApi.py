@@ -169,12 +169,12 @@ def webhook_openapi() -> JsonResponse:
 
 
 @AppRouter.api.get(
-    "/schema/bot/trigger-conditions",
+    "/schema/events",
     tags=["Schema"],
-    responses=OpenApiSchema().suc({"conditions": DomainEventType}).get(),
+    responses=OpenApiSchema().suc({"events": DomainEventType}).get(),
 )
-def get_bot_trigger_conditions():
-    return JsonResponse(content={"conditions": [condition.value for condition in DomainEventType]})
+def get_domain_events():
+    return JsonResponse(content={"events": [event.value for event in DomainEventType]})
 
 
 def _make_object_property(schema_name: str, schema: dict[str, Any]):

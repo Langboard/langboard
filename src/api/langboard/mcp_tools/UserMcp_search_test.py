@@ -95,7 +95,7 @@ def test_search_resolves_distinct_workflow_once_and_keeps_bounded_description():
             "released": {
                 "key": "released",
                 "counts_as_completed": True,
-                "entry_effects": ["stop_running_timers"],
+                "rules": [{"name": "Stop timers", "is_enabled": True, "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [], "actions": [{"kind": "timers.stop"}]}],
                 "translations": {"ko": {"name": "완료"}},
             }
         }
@@ -114,7 +114,7 @@ def test_search_resolves_distinct_workflow_once_and_keeps_bounded_description():
     resolve.assert_called_once_with({"released"})
     columns.assert_called_once_with("p", {"c"})
     assert service.card.search_context_by_project.call_args.kwargs["include_work_state"] is True
-    assert response["workflow_stages"]["released"]["entry_effects"] == ["stop_running_timers"]
+    assert response["workflow_stages"]["released"]["rules"][0]["actions"] == [{"kind": "timers.stop"}]
     assert "translations" not in response["workflow_stages"]["released"]
     assert all(
         item["description"] == {"content": "match"}

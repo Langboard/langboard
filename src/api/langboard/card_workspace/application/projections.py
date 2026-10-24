@@ -382,11 +382,12 @@ def public_workflow_stages(stages: dict[str, dict[str, Any]]) -> dict[str, dict[
     return {
         key: {
             **pick(stage, ("key", "name", "description", "color", "is_active", "counts_as_completed",
-                           "active_queue_policy", "overdue_policy", "entry_effects"), 4000),
-            **({"continuous_effects": pick(stage["continuous_effects"],
-                ("auto_compact", "auto_archive", "interval_seconds", "archive_after_seconds", "compact_after_characters",
-                 "compact_after_comments", "compact_after_turns"))}
-               if isinstance(stage.get("continuous_effects"), dict) else {}),
+                           "active_queue_policy", "overdue_policy", "confirm_descendant_move"), 4000),
+            "rules": [{"name": rule["name"], "is_enabled": rule["is_enabled"],
+                       "trigger": rule["trigger"], "condition_match": rule["condition_match"],
+                       "conditions": rule["conditions"],
+                       "actions": [{"kind": action["kind"]} for action in rule["actions"]]}
+                      for rule in stage.get("rules", [])],
         }
         for key, stage in stages.items()
     }

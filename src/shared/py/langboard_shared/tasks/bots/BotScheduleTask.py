@@ -1,7 +1,8 @@
-from ...ai import BotDefaultTrigger, BotScheduleHelper
+from ...ai import BotScheduleHelper
 from ...core.broker import Broker
 from ...core.db import BaseDbModel, DbSession, SqlBuilder
 from ...core.types import SafeDateTime
+from ...domain.constants.DomainEventType import DomainEventType
 from ...domain.models import Bot, Card, Project, ProjectColumn
 from ...domain.models.bases import BaseBotScheduleModel
 from ...domain.models.BotLog import BotLogType
@@ -25,7 +26,7 @@ from .utils.requests.Utils import create_request
 
 
 @BotTaskSchemaHelper.schema(
-    BotDefaultTrigger.BotCronScheduled,
+    DomainEventType.BotCronScheduled,
     {
         "project_uid": "string",
         "project_column_uid": "string",
@@ -166,6 +167,7 @@ async def _run_scheduler(
     model: BaseDbModel | None = None,
     *,
     workflow: bool = False,
+    workflow_claim: dict | None = None,
 ):
     if bot_schedule.running_type == BotScheduleRunningType.Onetime:
         context = load_schedule_context(bot_schedule.id, schedule_model.__tablename__, schedule_model.id)
@@ -186,7 +188,7 @@ async def _run_scheduler(
             return
 
     if isinstance(model, Card) and not workflow:
-        from .WorkflowCompactionTask import run_workflow_bound_schedule
+        from ..WorkflowRuleTask import run_workflow_bound_schedule
 
         if await run_workflow_bound_schedule(bot, bot_schedule, schedule_model, model):
             return []
@@ -223,6 +225,8 @@ async def _run_scheduler(
         else:
             return
 
+    if workflow_claim:
+        data["workflow_rule"] = workflow_claim
     lease = None
     if bot_schedule.running_type == BotScheduleRunningType.Onetime:
         run = reserve_schedule_run(bot_schedule, schedule_model, now=SafeDateTime.now())
@@ -249,7 +253,7 @@ async def _run_scheduler(
     try:
         outcomes = await BotTaskHelper.run(
             bot,
-            BotDefaultTrigger.BotCronScheduled,
+            DomainEventType.BotCronScheduled,
             data,
             project,
             model,
@@ -294,7 +298,7 @@ async def _run_scheduler(
 async def _record_admission_failure(bot, data, project, model, run):
     if run.state in {"failed", "uncertain"}:
         notify_schedule_failure(run.id)
-    request = create_request(bot, BotDefaultTrigger.BotCronScheduled.value, data, project, model)
+    request = create_request(bot, DomainEventType.BotCronScheduled.value, data, project, model)
     if request and request._can_dispatch_scope():
         await request._create_log(
             BotLogType.Error,

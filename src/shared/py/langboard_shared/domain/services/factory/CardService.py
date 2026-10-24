@@ -74,11 +74,11 @@ from ..CardAppMutation import guard_card_app_mutation, require_card_app_mutation
 from ..CardApprovalGate import pending_card_approvals
 from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
-from ..DecisionGate import DecisionGate
 from ..CardVerification import VerificationConflict, VerificationSubmission
 from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
 from ..CardWorkState import project_work_state
 from ..CompactorBoardAuthority import require_compactor_card
+from ..DecisionGate import DecisionGate
 from ..DependencyPolicy import dependency_blockers
 from ..ExecutionGeneration import execution_generations
 from .CardContentBlockService import CardContentBlockService
@@ -2301,6 +2301,8 @@ class CardService(BaseDomainService):
                 created_by_bot_id=user_or_bot.id if isinstance(user_or_bot, Bot) else None,
                 project_id=project.id,
                 project_column_id=column.id,
+                workflow_stage_entered_key=column.workflow_stage,
+                workflow_stage_entered_at=SafeDateTime.now() if column.workflow_stage else None,
                 title=title,
                 description=description or EditorContentModel(),
                 deadline_at=deadline_at,
@@ -2978,7 +2980,7 @@ class CardService(BaseDomainService):
                 WorkflowStageDefinition.key == target.workflow_stage,
             )
         ).first()
-        if stage is None or "confirm_descendant_move" not in stage.entry_effects:
+        if stage is None or not stage.confirm_descendant_move:
             return None
         stage = db.exec(
             SqlBuilder.select.table(WorkflowStageDefinition)
@@ -2988,7 +2990,7 @@ class CardService(BaseDomainService):
             .with_for_update()
             .execution_options(populate_existing=True)
         ).first()
-        if stage is None or "confirm_descendant_move" not in stage.entry_effects:
+        if stage is None or not stage.confirm_descendant_move:
             return None
 
         # The board fence is also held by native relationship writers. Only the
@@ -3128,6 +3130,10 @@ class CardService(BaseDomainService):
                 from ..AppCardArchive import record_app_card_archive
 
                 record_app_card_archive(execution.db, user_or_bot, project, card)
+            if new_column and not card.is_linked_resource and isinstance(user_or_bot, (User, Bot)):
+                prepare = vars(CardBotTask.card_moved).get("_workflow_prepare")
+                if prepare is not None:
+                    prepare(user_or_bot, project, card, old_column, False)
             execution.db.after_commit(
                 lambda: self.notify_order_changed(user_or_bot, project, card, old_column, new_column)
             )
@@ -3307,7 +3313,7 @@ class CardService(BaseDomainService):
 
         return True
 
-    def archive_automatically(self, project_id, profile_id, card_id, *, now=None) -> dict[str, str]:
+    def archive_automatically(self, project_id, profile_id, card_id, *, rule_id, now=None) -> dict[str, str]:
         """Archive verified work under explicit current profile authority; no model decision."""
         started_at, started_clock = SafeDateTime.now(), monotonic_ns()
         now = now or started_at
@@ -3344,10 +3350,14 @@ class CardService(BaseDomainService):
                 stage is None
                 or not stage.is_active
                 or not stage.counts_as_completed
-                or stage.continuous_effects.get("auto_archive") is not True
+
             ):
                 return {"status": "skipped", "reason": "policy_changed"}
-            delay = stage.continuous_effects.get("archive_after_seconds", 86400)
+            from .WorkflowRuleService import action_policy
+            policy = action_policy(db, stage, rule_id, "card.archive")
+            if policy is None:
+                return {"status": "skipped", "reason": "policy_changed"}
+            delay = policy[1].config["archive_after_seconds"]
             if type(delay) is not int or not 0 <= delay <= 31_536_000:
                 return {"status": "skipped", "reason": "policy_changed"}
             entered = card.workflow_stage_entered_at
@@ -3386,8 +3396,7 @@ class CardService(BaseDomainService):
             archive = self.repo.project_column.get_or_create_archive_if_not_exists(project.id)
             if not self._change_order(profile, project, card, 0, archive):
                 raise ValueError("Automatic archive movement failed")
-            db.insert(
-                WorkflowEffectRun(
+            effect_run = WorkflowEffectRun(
                     stage_id=stage.id,
                     stage_key=stage.key,
                     stage_revision=stage.edit_revision(),
@@ -3405,8 +3414,8 @@ class CardService(BaseDomainService):
                     duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000),
                     result={"archived": 1},
                 )
-            )
-            return {"status": "completed"}
+            db.insert(effect_run)
+            return {"status": "completed", "legacy_effect_run_uid": effect_run.get_uid()}
 
     @guard_card_app_mutation
     def archive(self, user_or_bot: TUserOrBot, project: TProjectParam | None, card: TCardParam | None) -> bool | None:

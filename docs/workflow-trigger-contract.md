@@ -1,6 +1,6 @@
 # 워크플로우 공통 트리거 계약
 
-상태: 사용자 수정 반영 — 호환 어댑터 없이 구 트리거를 퇴역하는 목표 설계. 현재 `entry_effects`, `entry_bots`, `policy_bots`, `continuous_effects` 구현을 이 계약으로 전환한다. 이 문서만으로 런타임 전환이 완료된 것은 아니다.
+상태: 공통 규칙 모델·실행기·설정 UI의 소스 전환 구현됨. 구 실행 필드와 실행기는 제거했다. 실제 PostgreSQL 변환 및 회귀 검증은 아래 근거를 따른다. 카나리 배포·실제 제공자 전달 인수는 별도 게이트로 남아 있다.
 
 ## 1. 기본 구조
 
@@ -95,4 +95,8 @@
 
 ## 현재 근거
 
-현재 별도 저장 경로는 WorkflowStageDefinition, 정규화는 WorkflowStageService, 내부 진입 효과는 WorkflowStagePolicyService, 봇 claim/dispatch는 WorkflowCompactionTask와 WorkflowPolicyBotTask에 존재한다. afcbbbbad의 policy_bots 데이터는 명시적으로 변환하고 해당 구 실행 경로는 제거한다. 이번 설계의 공통 규칙 모델·실행 소유권 전환은 아직 구현되지 않았다.
+2026-10-24 공통 WorkflowRule/Condition/Action/RuleRun/ActionRun과 WorkflowRuleTask로 전환했다. 구 BotDefaultTrigger, WorkflowCompactionTask, WorkflowPolicyBotTask 및 구 cron 스크립트를 삭제했다. 구 설정 네 필드는 acde123f4567 migration에서 검증 후 변환·제거한다. DomainEventType만 이벤트 종류를 정의한다. 의미가 유지되는 이벤트 wire 값은 보존하며 별칭을 제공하지 않는다.
+
+실제 PostgreSQL 전체 chain 및 populated 이력 보존 검증 1개, 공통 실행·압축·아카이브·단계 회귀 453개가 통과했다. 해당 통합 실행의 6개 skip은 SQLite 변형에서 PostgreSQL 전용 동시성을 실행하지 않거나 별도 단계 fixture 환경을 사용한 항목이며, 단계 전용 PostgreSQL 검증은 별도 수행한다. 소스 통합 회귀 237개, UI 전체 40개와 불변 이력 보강 2개 및 typecheck가 통과했다. UI 증거는 fixture 기반이며 실제 카나리 전달 증거가 아니다.
+
+원시 로그와 명령은 .abathur/evidence/common-workflow-pg-20261024 및 common-workflow-root-20261024에 보관한다. 배포 전 구 생산자·worker 정지와 불확실한 구 실행의 조정이 필요하다. 구 실행을 다시 켜는 복구 경로는 제공하지 않는다.

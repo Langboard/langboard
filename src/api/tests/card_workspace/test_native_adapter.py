@@ -1043,7 +1043,7 @@ def test_created_card_projects_authenticated_creator_before_publish(
     monkeypatch.setattr(actor_type, "get_fullname", lambda _: "Creator")
     monkeypatch.setattr(actor_type, "api_response", lambda _: {"avatar": None, "email": "private", "api_key": "secret"})
     project = SimpleNamespace(id=1, owner_id=99)
-    column = SimpleNamespace(id=2, is_archive=False)
+    column = SimpleNamespace(id=2, is_archive=False, workflow_stage=None)
     monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *_: (project, column))
     committed: list[bool] = []
 
@@ -1134,12 +1134,10 @@ def test_created_card_projects_authenticated_creator_before_publish(
 
 
 def test_project_card_page_resolves_policies_once_for_only_visible_stages():
-    from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
-
-    effects = WorkflowStageService.normalize_continuous_effects({
-        "auto_compact": True, "compact_after_characters": 500000,
-        "compact_after_comments": 25, "compact_after_turns": 10,
-    })
+    rule = {"name": "Stop timers", "is_enabled": True,
+            "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [],
+            "actions": [{"kind": "timers.stop", "executor": {"kind": "event_actor"},
+                         "config": {}, "requires_previous_success": False}]}
     items = [
         {"uid": "1", "work_state": {"workflow_stage": "released", "completed": True}},
         {"uid": "2", "work_state": {"workflow_stage": "released", "completed": True}},
@@ -1150,10 +1148,10 @@ def test_project_card_page_resolves_policies_once_for_only_visible_stages():
             "released": {
                 "key": "released",
                 "counts_as_completed": True,
-                "entry_effects": ["stop_running_timers"],
+                "confirm_descendant_move": True,
+                "rules": [rule],
                 "translations": {"ko": {"name": "완료"}},
                 "private": "hidden",
-                "continuous_effects": {**effects, "private": "hidden"},
             }
         }
     )
@@ -1165,8 +1163,8 @@ def test_project_card_page_resolves_policies_once_for_only_visible_stages():
     assert service.card.get_api_page_by_project.call_args.kwargs["channel"] == native_module.CollaborationChannel.Mcp
     resolve.assert_called_once_with({"released"})
     assert page.workflow_stages == {
-        "released": {"key": "released", "counts_as_completed": True, "entry_effects": ["stop_running_timers"],
-                     "continuous_effects": effects}
+        "released": {"key": "released", "counts_as_completed": True, "confirm_descendant_move": True,
+                     "rules": [{**rule, "actions": [{"kind": "timers.stop"}]}]}
     }
     service.card.get_api_page_by_project.return_value = ([], 0, None)
     resolve.reset_mock()

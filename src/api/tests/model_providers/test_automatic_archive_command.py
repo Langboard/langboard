@@ -19,6 +19,7 @@ from langboard_shared.domain.models import (
     Checklist,
     GlobalCardRelationshipType,
     ProjectColumn,
+    ProjectActivity,
     WorkflowEffectRun,
     WorkflowStageDefinition,
 )
@@ -29,6 +30,9 @@ from langboard_shared.domain.services.factory.CardService import CardService
 from sqlalchemy import select
 
 
+from src.api.tests.model_providers.workflow_rule_fixtures import configure_rule, create_rule_tables, rule_id
+
+
 module = importlib.import_module(CardService.__module__)
 
 
@@ -37,16 +41,17 @@ def archive_command(compactions, board, monkeypatch):
     _, actor, card, profile, *_ = compactions
     project = board[2]
     for model in (CardAppOwnership, CardChangeReceipt, GlobalCardRelationshipType, CardRelationship, CardVerificationRecord,
-                  Checklist, Checkitem, CompactorBoardGrant):
+                  Checklist, Checkitem, CompactorBoardGrant, ProjectActivity):
         model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    create_rule_tables()
     now = SafeDateTime.now()
     with DbSession.atomic() as db:
         column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)).first()
         column.workflow_stage = "archive_ready"
         db.update(column)
-        stage = WorkflowStageDefinition(key="archive_ready", name="Verified work", counts_as_completed=True,
-                                        continuous_effects={"auto_archive": True, "archive_after_seconds": 3600})
+        stage = WorkflowStageDefinition(key="archive_ready", name="Verified work", counts_as_completed=True)
         db.insert(stage)
+        configure_rule(db, stage, compact=False, archive=True)
         grant = CompactorBoardGrant(project_id=project.id, internal_bot_id=profile.id,
                                    granted_by_user_id=actor.id, can_read=True, can_compact=False, can_archive=True)
         db.insert(grant)
@@ -75,13 +80,14 @@ def archive_command(compactions, board, monkeypatch):
     monkeypatch.setattr(module.CardBotTask, "card_moved", tasks[1])
     monkeypatch.setattr(module.CardActivityTask, "card_moved", tasks[2])
     return SimpleNamespace(service=DomainService().card, project=project, card=card, profile=profile,
-                           grant=grant, stage=stage, verification=verification, now=now,
+                           grant=grant, stage=stage, rule_id=rule_id(stage), verification=verification, now=now,
                            approvals=approvals, published=published, tasks=tasks)
 
 
 def test_archive_uses_existing_move_and_one_profile_receipt(archive_command):
     f = archive_command
-    assert f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, now=f.now) == {"status": "completed"}
+    result = f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id, now=f.now)
+    assert result["status"] == "completed"
     with DbSession.use(readonly=False) as db:
         card = db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first()
         column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)).first()
@@ -91,9 +97,10 @@ def test_archive_uses_existing_move_and_one_profile_receipt(archive_command):
     assert len(runs) == 1
     assert [(change.card_id, change.change_seq) for change in changes] == [(f.card.id, 8)]
     run = runs[0]
+    assert result["legacy_effect_run_uid"] == run.get_uid()
     assert (run.actor_type, run.actor_id, run.profile_id, run.source, run.effects, run.result) == (
         "profile", f.profile.id, f.profile.id, "continuous", ["auto_archive"], {"archived": 1})
-    assert f.service.archive_automatically(f.project.id, f.profile.id, f.card.id)["reason"] == "already_archived"
+    assert f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id)["reason"] == "already_archived"
     f.published.assert_called_once()
     for task in f.tasks:
         task.assert_not_called()
@@ -101,86 +108,100 @@ def test_archive_uses_existing_move_and_one_profile_receipt(archive_command):
 
 @pytest.fixture
 def scheduled_archive(archive_command):
-    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
-
     f = archive_command
-    WorkflowCompactionSchedule.__table__.create(DbEngine.get_main_engine())
     with DbSession.atomic() as db:
         f.profile.is_default = True
         db.update(f.profile)
     return f
 
 
+def archive_runs():
+    from langboard_shared.domain.models import WorkflowRuleRun, WorkflowActionRun
+    with DbSession.use(readonly=False) as db:
+        return (db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all(),
+                db.exec(SqlBuilder.select.table(WorkflowActionRun).order_by(WorkflowActionRun.id)).all())
+
+
 @pytest.mark.parametrize("compact", [False, True])
 async def test_worker_archives_with_or_without_compaction_and_stops_rescanning(scheduled_archive, monkeypatch, compact):
-    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
     from langboard_shared.domain.services.factory.CardCommentCompactionService import CardCommentCompactionService
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
 
     f = scheduled_archive
     with DbSession.atomic() as db:
         f.grant.can_compact = compact
-        f.stage.continuous_effects = {**f.stage.continuous_effects, "auto_compact": compact}
+        configure_rule(db, f.stage, compact=compact, archive=True, characters=1)
         db.update(f.grant)
-        db.update(f.stage)
-    generate = AsyncMock(return_value={"status": "skipped", "reason": "below_threshold"})
+    generate = AsyncMock(return_value={"status": "completed"})
     monkeypatch.setattr(CardCommentCompactionService, "generate_automatic", generate)
-    assert await run_due_compactions(now=f.now) == 1
+    assert await run_due_rules(now=f.now) == 1
     assert generate.await_count == int(compact)
     with DbSession.use(readonly=False) as db:
         assert db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first().archived_at is not None
         assert len(db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()) == 1
-        state = db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first()
-        assert state.last_status == "completed" and state.lease_token is None
-    assert await run_due_compactions(now=f.now + timedelta(hours=1)) == 0
+    runs, claims = archive_runs()
+    assert runs[0].status == "succeeded"
+    assert len(claims) == 1 + int(compact)
+    assert all(claim.status == "succeeded" and claim.lease_expires_at is None for claim in claims)
+    assert all(claim.executor_id == f.profile.id and claim.attempt == 1 for claim in claims)
+    assert await run_due_rules(now=f.now + timedelta(hours=1)) == 0
 
 
 async def test_worker_rechecks_archive_grant_after_scan(scheduled_archive, monkeypatch):
-    from langboard_shared.tasks.bots import WorkflowCompactionTask as worker
+    from langboard_shared.tasks import WorkflowRuleTask as worker
 
     f = scheduled_archive
-    original = worker._due
+    original = worker._admit_intervals
 
-    def due(*args):
-        rows = original(*args)
+    def admit(*args):
+        count = original(*args)
         with DbSession.atomic() as db:
             f.grant.can_archive = False
             db.update(f.grant)
-        return rows
+        return count
 
-    monkeypatch.setattr(worker, "_due", due)
-    assert await worker.run_due_compactions(now=f.now) == 0
+    monkeypatch.setattr(worker, "_admit_intervals", admit)
+    assert await worker.run_due_rules(now=f.now) == 1
+    assert archive_runs()[0][0].status == "skipped"
+    assert archive_runs()[1][0].attempt == 0
     f.published.assert_not_called()
 
 
 async def test_worker_preserves_interval_when_archive_is_not_verified(scheduled_archive):
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
 
     f = scheduled_archive
     with DbSession.atomic() as db:
         f.verification.decision = "partial"
         db.update(f.verification)
-    assert await run_due_compactions(now=f.now) == 1
-    assert await run_due_compactions(now=f.now + timedelta(seconds=59)) == 0
+    assert await run_due_rules(now=f.now) == 1
+    assert await run_due_rules(now=f.now + timedelta(seconds=59)) == 0
+    runs, claims = archive_runs()
+    assert runs[0].status == "skipped" and claims[0].result == {"status": "skipped", "reason": "verification_required"}
     f.published.assert_not_called()
 
 
-async def test_worker_does_not_hide_failed_compaction_by_archiving(scheduled_archive, monkeypatch):
-    from langboard_shared.domain.models.WorkflowCompactionSchedule import WorkflowCompactionSchedule
+@pytest.mark.parametrize("status", ["failed", "skipped"])
+async def test_worker_does_not_hide_failed_compaction_by_archiving(scheduled_archive, monkeypatch, status):
     from langboard_shared.domain.services.factory.CardCommentCompactionService import CardCommentCompactionService
-    from langboard_shared.tasks.bots.WorkflowCompactionTask import run_due_compactions
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
 
     f = scheduled_archive
     with DbSession.atomic() as db:
         f.grant.can_compact = True
-        f.stage.continuous_effects = {**f.stage.continuous_effects, "auto_compact": True}
+        configure_rule(db, f.stage, compact=True, archive=True, characters=1)
         db.update(f.grant)
-        db.update(f.stage)
-    generate = AsyncMock(return_value={"status": "failed", "error_code": "provider_unavailable"})
+    result = {"status": status, **({"error_code": "provider_unavailable"} if status == "failed" else {"reason": "below_threshold"})}
+    generate = AsyncMock(return_value=result)
     monkeypatch.setattr(CardCommentCompactionService, "generate_automatic", generate)
-    assert await run_due_compactions(now=f.now) == 1
+    assert await run_due_rules(now=f.now) == 1
+    runs, claims = archive_runs()
+    assert runs[0].status == status
+    by_kind = {claim.kind: claim for claim in claims}
+    assert by_kind["comments.compact"].status == status
+    assert by_kind["card.archive"].status == "skipped"
+    assert by_kind["card.archive"].error_code == "predecessor_not_succeeded"
     with DbSession.use(readonly=False) as db:
-        assert db.exec(SqlBuilder.select.table(WorkflowCompactionSchedule)).first().last_status == "failed"
         assert db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first().archived_at is None
     f.published.assert_not_called()
 
@@ -189,7 +210,8 @@ async def test_worker_does_not_hide_failed_compaction_by_archiving(scheduled_arc
     ("delay", "not_due"), ("entry", "entry_evidence_missing"), ("policy", "policy_changed"),
     ("completion", "policy_changed"), ("verification", "verification_required"),
     ("revision", "verification_required"), ("approval", "approval_pending"),
-    ("unfinished", "unfinished_work"), ("dependency", "dependency_pending"),
+    ("unfinished", "unfinished_work"), ("timer_started", "unfinished_work"),
+    ("timer_paused", "unfinished_work"), ("dependency", "dependency_pending"),
 ])
 def test_archive_rechecks_current_native_gates(archive_command, change, reason):
     f = archive_command
@@ -199,13 +221,19 @@ def test_archive_rechecks_current_native_gates(archive_command, change, reason):
         elif change == "entry":
             f.card.workflow_stage_entered_at = None
         elif change == "policy":
-            f.stage.continuous_effects = {"auto_archive": False}
+            configure_rule(db, f.stage, compact=False, archive=True, enabled=False)
         elif change == "completion":
             f.stage.counts_as_completed = False
         elif change == "verification":
             f.verification.decision = "partial"
         elif change == "revision":
             f.card.last_change_seq = 8
+        elif change in {"timer_started", "timer_paused"}:
+            from langboard_shared.domain.models.Checkitem import CheckitemStatus
+            checklist = Checklist(card_id=f.card.id, title="Completed with active timer")
+            db.insert(checklist)
+            db.insert(Checkitem(checklist_id=checklist.id, title="Checked work", is_checked=True, user_id=f.grant.granted_by_user_id,
+                                status=CheckitemStatus.Started if change == "timer_started" else CheckitemStatus.Paused))
         elif change == "unfinished":
             checklist = Checklist(card_id=f.card.id, title="Unfinished")
             db.insert(checklist)
@@ -225,7 +253,7 @@ def test_archive_rechecks_current_native_gates(archive_command, change, reason):
             db.update(row)
     if change == "approval":
         f.approvals.return_value = {int(f.card.id): 1}
-    assert f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, now=f.now) == {"status": "skipped", "reason": reason}
+    assert f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id, now=f.now) == {"status": "skipped", "reason": reason}
     f.published.assert_not_called()
 
 
@@ -244,7 +272,7 @@ def test_archive_never_borrows_user_authority(archive_command, change):
         db.update(f.card)
         db.update(f.grant)
     with pytest.raises(CompactorAuthorityError):
-        f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, now=f.now)
+        f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id, now=f.now)
     f.published.assert_not_called()
 
 
@@ -259,7 +287,7 @@ def test_archive_and_profile_receipt_roll_back_together(archive_command, monkeyp
 
     monkeypatch.setattr(DbSession, "insert", fail_history)
     with pytest.raises(RuntimeError, match="receipt persistence" ):
-        f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, now=f.now)
+        f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id, now=f.now)
     with DbSession.use(readonly=False) as db:
         assert db.exec(select(Card.archived_at).where(Card.id == f.card.id)).first() == (None,)
         assert db.exec(SqlBuilder.select.table(CardChangeReceipt)).all() == []
@@ -273,7 +301,7 @@ def test_archive_excludes_app_owned_cards(archive_command):
     with DbSession.atomic() as db:
         db.insert(CardAppOwnership(card_id=f.card.id, app_key="github"))
     with pytest.raises(AppGovernanceDenied):
-        f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, now=f.now)
+        f.service.archive_automatically(f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id, now=f.now)
     f.published.assert_not_called()
 
 
@@ -284,7 +312,7 @@ def test_concurrent_archive_has_one_movement_and_receipt(archive_command):
     if DbEngine.get_main_engine().dialect.name != "postgresql":
         pytest.skip("Row-lock serialization requires PostgreSQL")
     with ThreadPoolExecutor(max_workers=2) as workers:
-        futures = [workers.submit(f.service.archive_automatically, f.project.id, f.profile.id, f.card.id, now=f.now)
+        futures = [workers.submit(f.service.archive_automatically, f.project.id, f.profile.id, f.card.id, rule_id=f.rule_id, now=f.now)
                    for _ in range(2)]
         results = [future.result(timeout=15) for future in futures]
     assert sorted(result["status"] for result in results) == ["completed", "skipped"]

@@ -19,7 +19,7 @@ from ....domain.services.WorkflowCompactionHistory import finish_compaction_hist
 
 
 POLICY_VERSION = 1
-FAILURE_CODES = {"source_changed", "permission_changed", "provider_changed", "provider_error", "invalid_result", "cancelled"}
+FAILURE_CODES = {"source_changed", "permission_changed", "provider_changed", "provider_error", "invalid_result", "cancelled", "generation_failed", "provider_unconfigured"}
 
 
 def provider_revision(binding: InternalBot) -> str:

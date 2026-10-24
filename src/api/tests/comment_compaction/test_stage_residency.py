@@ -6,6 +6,7 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import CardCommentCompaction
 from langboard_shared.domain.services.factory.WorkflowStagePolicyService import WorkflowStagePolicyService
+from src.api.tests.model_providers.workflow_rule_fixtures import rule_id
 from src.api.tests.model_providers.conftest import compactions  # noqa: F401
 from src.api.tests.model_providers.test_comment_compaction_command import (
     automatic_command,  # noqa: F401
@@ -40,7 +41,7 @@ async def test_automatic_result_rechecks_stage_residency(automatic_command, boar
         return draft(snapshot)
 
     monkeypatch.setattr(command, "request_compaction_draft", generate)
-    result = await service.generate_automatic(project, binding, card)
+    result = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     with DbSession.use(readonly=False) as db:
         record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
     if reenter:

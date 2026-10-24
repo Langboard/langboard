@@ -1,5 +1,13 @@
-import { test, expect } from "@playwright/test";
-import type { IWorkflowStage } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
+import { test, expect, type Request } from "@playwright/test";
+import { gunzipSync } from "node:zlib";
+import { DomainEventType } from "@/core/events/DomainEventType";
+import type { IWorkflowRule, IWorkflowStage } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
+
+const requestJSON = (request: Request) => {
+    const body = request.postDataBuffer();
+    if (!body) return {};
+    return JSON.parse((request.headers()["content-encoding"] === "gzip" ? gunzipSync(body) : body).toString());
+};
 
 const existing = (): IWorkflowStage => ({
     revision: "a".repeat(64),
@@ -14,13 +22,33 @@ const existing = (): IWorkflowStage => ({
     counts_as_completed: true,
     active_queue_policy: "exclude",
     overdue_policy: "suppress",
-    entry_effects: [],
+    confirm_descendant_move: false,
+    rules: [],
     translations: {
         en: { name: "Closed", description: "Accepted work" },
         ko: { name: "완료", description: "완료 업무" },
         ja: { name: "完了", description: "完了業務" },
         zh: { name: "已完成", description: "已完成工作" },
     },
+});
+
+const botRule = (botUID: string): IWorkflowRule => ({
+    uid: "saved-rule",
+    revision: 7,
+    name: "Saved bot rule",
+    is_enabled: true,
+    trigger: { kind: "event", event_type: DomainEventType.CardCommentAdded },
+    condition_match: "all",
+    conditions: [],
+    actions: [
+        {
+            uid: "saved-action",
+            kind: "bot.invoke",
+            executor: { kind: "bot", uid: botUID },
+            config: { bot_uid: botUID },
+            requires_previous_success: false,
+        },
+    ],
 });
 
 const effectRun = (uid: string, started = "2026-10-21T03:00:00Z") => ({
@@ -57,8 +85,8 @@ for (const width of [1440, 390]) {
             cursors.push(url.searchParams.get("before"));
             return route.fulfill({
                 json: url.searchParams.has("before")
-                    ? { items: [effectRun("one"), effectRun("two")], next_cursor: null }
-                    : { items: [effectRun("one")], next_cursor: "one" },
+                    ? { items: [], legacy_items: [effectRun("one"), effectRun("two")], next_cursor: null }
+                    : { items: [], legacy_items: [effectRun("one")], next_cursor: "one" },
             });
         });
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
@@ -118,7 +146,8 @@ for (const width of [1440, 390]) {
             }
             await route.fulfill({
                 json: {
-                    items: [effectRun("run", url.pathname.includes("/existing/") ? "2020-01-01T00:00:00Z" : "2026-10-21T03:00:00Z")],
+                    items: [],
+                    legacy_items: [effectRun("run", url.pathname.includes("/existing/") ? "2020-01-01T00:00:00Z" : "2026-10-21T03:00:00Z")],
                     next_cursor: null,
                 },
             });
@@ -144,7 +173,9 @@ for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 1000 });
         await page.route("**/settings/workflow-stages**", (route) =>
             route.fulfill({
-                json: new URL(route.request().url()).pathname.endsWith("/history") ? { items: [], next_cursor: null } : { stages: [existing()] },
+                json: new URL(route.request().url()).pathname.endsWith("/history")
+                    ? { items: [], legacy_items: [], next_cursor: null }
+                    : { stages: [existing()] },
             })
         );
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
@@ -254,7 +285,7 @@ for (const width of [1280, 390])
                 fail = false;
                 return route.fulfill({ status: 500, headers, json: { error: "test unavailable" } });
             }
-            const stage = { ...route.request().postDataJSON(), revision: "b".repeat(64), uid: "saved", is_active: true, is_builtin: false };
+            const stage = { ...requestJSON(route.request()), revision: "b".repeat(64), uid: "saved", is_active: true, is_builtin: false };
             stages = [stage];
             return route.fulfill({ headers, json: { stage } });
         });
@@ -278,7 +309,9 @@ for (const width of [1280, 390])
         await page.getByLabel("Count as completed", { exact: true }).check();
         await page.getByLabel("Active queue", { exact: true }).selectOption("exclude");
         await page.getByLabel("Hide overdue", { exact: true }).check();
-        await page.getByLabel("Stop running timers", { exact: true }).check();
+        await page.getByRole("button", { name: "Add rule", exact: true }).click();
+        await page.getByLabel("Rule name", { exact: true }).fill("Stop timers");
+        await page.getByLabel("Add action", { exact: true }).selectOption("timers.stop");
         await page.getByRole("button", { name: "한국어", exact: true }).click();
         await page.getByLabel("Stage name", { exact: true }).fill("출시");
         await page.getByLabel("Stage description", { exact: true }).fill("인수 완료");
@@ -304,7 +337,7 @@ for (const width of [1280, 390])
         await page.getByRole("button", { name: "Close", exact: true }).click();
         await page.reload();
         await page.getByRole("button", { name: /^Released/ }).click();
-        await expect(page.getByLabel("Stop running timers", { exact: true })).toBeChecked();
+        await expect(page.getByRole("group", { name: "Action 1", exact: true })).toContainText("Stop running timers");
         await expect(page.getByLabel("Color hex code", { exact: true })).toHaveValue("#8B5CF6");
         await expect(page.getByLabel("Active queue", { exact: true })).toHaveValue("exclude");
         await page.getByRole("button", { name: "한국어", exact: true }).click();
@@ -357,7 +390,7 @@ test("read-only stage settings prevent mutations", async ({ page }) => {
 });
 
 test("conflict preserves the draft and reload requires explicit discard", async ({ page }) => {
-    let latest: IWorkflowStage = { ...existing(), policy_bots: [{ bot_uid: "saved-policy-bot" }] };
+    let latest: IWorkflowStage = { ...existing(), rules: [botRule("saved-policy-bot")] };
     let writes = 0;
     await page.route("**/settings/workflow-stages**", async (route) => {
         const headers = {
@@ -369,18 +402,18 @@ test("conflict preserves the draft and reload requires explicit discard", async 
         if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
         if (route.request().method() === "GET") return route.fulfill({ headers, json: { stages: [latest] } });
         writes++;
-        expect(route.request().postDataJSON().expected_revision).toBe("a".repeat(64));
+        expect(requestJSON(route.request()).expected_revision).toBe("a".repeat(64));
         latest = { ...latest, name: "Latest server name", revision: "b".repeat(64) };
         return route.fulfill({ status: 409, headers, json: { code: "EX3004" } });
     });
     await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
     await page.getByRole("button", { name: /^Closed/ }).click();
     await page.getByLabel("Stage name", { exact: true }).fill("Unsaved local name");
-    const policy = page.getByRole("group", { name: "Stage policy bots", exact: true });
-    await policy.getByRole("button", { name: "Remove bot", exact: true }).click();
+    const policy = page.getByRole("group", { name: "Workflow rules", exact: true });
+    await policy.getByRole("button", { name: "Remove rule", exact: true }).click();
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Your draft is preserved");
-    await expect(policy.getByRole("button", { name: "Remove bot", exact: true })).toHaveCount(0);
+    await expect(policy.getByRole("button", { name: "Remove rule", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Stage name", { exact: true })).toHaveValue("Unsaved local name");
     await page.getByRole("alert").getByRole("button", { name: "Refresh", exact: true }).click();
     const confirm = page.getByRole("dialog", { name: "Discard unsaved changes?", exact: true });
@@ -389,7 +422,7 @@ test("conflict preserves the draft and reload requires explicit discard", async 
     await page.getByRole("alert").getByRole("button", { name: "Refresh", exact: true }).click();
     await confirm.getByRole("button", { name: "Discard changes", exact: true }).click();
     await expect(page.getByLabel("Stage name", { exact: true })).toHaveValue("Latest server name");
-    await expect(policy.getByText("saved-policy-bot (Unavailable)", { exact: true })).toBeVisible();
+    await expect(policy.getByLabel("Bot", { exact: true })).toHaveValue("saved-policy-bot");
     await expect(page.getByRole("alert")).not.toBeVisible();
     expect(writes).toBe(1);
 });
@@ -424,79 +457,126 @@ test("discard confirmation preserves draft on cancel and closes without writes o
 });
 
 for (const width of [1440, 390]) {
-    test(`continuous effects save and reload with human time units at ${width}px`, async ({ page }) => {
+    test(`common rules save compaction OR thresholds and ordered archive with human time units at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
-        let saved = {
-            ...existing(),
-            continuous_effects: { auto_compact: false, auto_archive: false, interval_seconds: 300, archive_after_seconds: 86400 },
-        };
+        let saved = existing();
         let writes = 0;
         await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [saved] } }));
         await page.route("**/settings/workflow-stages/existing", async (route) => {
-            writes += 1;
-            const payload = route.request().postDataJSON();
+            const payload = requestJSON(route.request());
             expect(payload.expected_revision).toBe(saved.revision);
-            expect(payload.continuous_effects).toEqual({
-                bots: [],
-                auto_compact: true,
-                auto_archive: true,
-                interval_seconds: 120,
-                archive_after_seconds: 7200,
-                compact_after_characters: 24000,
-                compact_after_comments: 25,
-                compact_after_turns: 10,
-            });
+            expect(Object.keys(payload).sort()).toEqual(
+                [
+                    "key",
+                    "name",
+                    "description",
+                    "color",
+                    "order",
+                    "counts_as_completed",
+                    "active_queue_policy",
+                    "overdue_policy",
+                    "confirm_descendant_move",
+                    "translations",
+                    "rules",
+                    "expected_revision",
+                ].sort()
+            );
+            expect(payload.rules).toEqual([
+                {
+                    name: "Compact and archive",
+                    is_enabled: true,
+                    trigger: { kind: "interval", interval_seconds: 150 },
+                    condition_match: "any",
+                    conditions: [
+                        { kind: "uncompacted_characters", operator: "gte", value: 24000 },
+                        { kind: "uncompacted_comments", operator: "gte", value: 25 },
+                        { kind: "uncompacted_turns", operator: "gte", value: 10 },
+                    ],
+                    actions: [
+                        { kind: "comments.compact", executor: { kind: "compactor" }, config: {}, requires_previous_success: false },
+                        {
+                            kind: "card.archive",
+                            executor: { kind: "compactor" },
+                            config: { archive_after_seconds: 7200 },
+                            requires_previous_success: true,
+                        },
+                    ],
+                },
+            ]);
             saved = { ...saved, ...payload, revision: "b".repeat(64) };
+            writes++;
             await route.fulfill({ json: { stage: saved } });
         });
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await page.getByLabel("Auto compact comments", { exact: true }).check();
-        await expect(page.getByLabel("Compact after characters", { exact: true })).toHaveValue("12000");
-        await page.getByLabel("Compact after characters", { exact: true }).fill("24000");
-        await expect(page.getByLabel("Compact after comments", { exact: true })).toHaveValue("0");
-        await expect(page.getByLabel("Compact after conversation turns", { exact: true })).toHaveValue("0");
-        await page.getByLabel("Compact after comments", { exact: true }).fill("25");
-        await page.getByLabel("Compact after conversation turns", { exact: true }).fill("10");
-        await page.getByLabel("Auto archive cards", { exact: true }).check();
-        await page.getByLabel("Check interval (minutes)", { exact: true }).fill("2");
+        await page.getByRole("button", { name: "Add rule", exact: true }).click();
+        await page.getByLabel("Trigger", { exact: true }).selectOption("interval");
+        await page.getByLabel("Rule interval minutes", { exact: true }).fill("2.5");
+        await page.getByLabel("Rule name", { exact: true }).fill("Compact and archive");
+        await page.getByLabel("Add action", { exact: true }).selectOption("comments.compact");
+        await expect(page.getByLabel("Condition match", { exact: true })).toHaveValue("any");
+        await expect(page.getByLabel("Condition match", { exact: true })).toBeDisabled();
+        await page.getByLabel("Condition value 1", { exact: true }).fill("24000");
+        for (const [index, kind, value] of [
+            [2, "uncompacted_comments", "25"],
+            [3, "uncompacted_turns", "10"],
+        ] as const) {
+            await page.getByRole("button", { name: "Add condition", exact: true }).click();
+            await page.getByLabel(`Condition type ${index}`, { exact: true }).selectOption(kind);
+            await page.getByLabel(`Condition value ${index}`, { exact: true }).fill(value);
+        }
+        await page.getByLabel("Add action", { exact: true }).selectOption("card.archive");
         await page.getByLabel("Archive after (hours)", { exact: true }).fill("2");
+        const archive = page.getByRole("group", { name: "Action 2", exact: true });
+        await expect(archive.getByLabel("Require previous action success")).toBeChecked();
+        await expect(archive.getByLabel("Require previous action success")).toBeDisabled();
+        await expect(archive).toContainText("explicit current board grant");
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect.poll(() => writes).toBe(1);
         await page.reload();
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await expect(page.getByLabel("Auto compact comments", { exact: true })).toBeChecked();
-        await expect(page.getByLabel("Auto archive cards", { exact: true })).toBeChecked();
-        await expect(page.getByLabel("Compact after characters", { exact: true })).toHaveValue("24000");
-        await expect(page.getByLabel("Compact after comments", { exact: true })).toHaveValue("25");
-        await expect(page.getByLabel("Compact after conversation turns", { exact: true })).toHaveValue("10");
-        await expect(page.getByLabel("Check interval (minutes)", { exact: true })).toHaveValue("2");
+        await expect(page.getByLabel("Condition value 1", { exact: true })).toHaveValue("24000");
+        await expect(page.getByLabel("Condition value 2", { exact: true })).toHaveValue("25");
+        await expect(page.getByLabel("Condition value 3", { exact: true })).toHaveValue("10");
+        await expect(page.getByLabel("Rule interval minutes", { exact: true })).toHaveValue("2.5");
         await expect(page.getByLabel("Archive after (hours)", { exact: true })).toHaveValue("2");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.getByLabel("Archive after (hours)", { exact: true }).scrollIntoViewIfNeeded();
+        await page.getByRole("dialog").screenshot({ path: `.verification/workflow-common-rules-${width}.png` });
     });
-}
 
-for (const width of [1440, 390]) {
-    test(`author entry notification saves and reloads at ${width}px`, async ({ page }) => {
+    test(`author notification rule saves typed conditions and reloads at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         let saved = existing();
         await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [saved] } }));
         await page.route("**/settings/workflow-stages/existing", async (route) => {
-            const payload = route.request().postDataJSON();
-            expect(payload.entry_effects).toEqual(["notify_author_on_entry"]);
+            const payload = requestJSON(route.request());
+            expect(payload.rules).toEqual([
+                {
+                    name: "Notify author",
+                    is_enabled: true,
+                    trigger: { kind: "stage_entered" },
+                    condition_match: "all",
+                    conditions: [{ kind: "actor_is_not_author", operator: "eq", value: true }],
+                    actions: [{ kind: "author.notify", executor: { kind: "event_actor" }, config: {}, requires_previous_success: false }],
+                },
+            ]);
             saved = { ...saved, ...payload, revision: "b".repeat(64) };
             await route.fulfill({ json: { stage: saved } });
         });
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await page.getByLabel("Notify the author when someone else enters this stage", { exact: true }).check();
+        await page.getByRole("button", { name: "Add rule", exact: true }).click();
+        await page.getByLabel("Rule name", { exact: true }).fill("Notify author");
+        await page.getByRole("button", { name: "Add condition", exact: true }).click();
+        await page.getByLabel("Add action", { exact: true }).selectOption("author.notify");
         await page.getByRole("button", { name: "Save", exact: true }).click();
-        await expect.poll(() => saved.entry_effects).toEqual(["notify_author_on_entry"]);
+        await expect.poll(() => saved.rules.length).toBe(1);
         await page.reload();
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await expect(page.getByLabel("Notify the author when someone else enters this stage", { exact: true })).toBeChecked();
-        await expect(page.getByLabel("Complete unchecked items", { exact: true })).not.toBeChecked();
-        await expect(page.getByLabel("Stop running timers", { exact: true })).not.toBeChecked();
+        await expect(page.getByLabel("Condition type 1", { exact: true })).toHaveValue("actor_is_not_author");
+        await expect(page.getByLabel("Condition value 1", { exact: true })).toHaveValue("true");
+        await expect(page.getByRole("group", { name: "Action 1", exact: true })).toContainText("Notify the author");
         await page.getByRole("dialog").screenshot({ path: `.verification/author-entry-notification-${width}.png` });
     });
 }
@@ -511,7 +591,8 @@ for (const width of [1440, 390]) {
             expect(route.request().method()).toBe("GET");
             return route.fulfill({
                 json: {
-                    items: statuses.map((status) => ({
+                    items: [],
+                    legacy_items: statuses.map((status) => ({
                         ...effectRun(status),
                         source: status === "running" ? "continuous" : "manual",
                         actor_type: status === "running" ? "profile" : "user",
@@ -556,8 +637,9 @@ for (const width of [1440, 390]) {
         let saved = existing();
         await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [saved] } }));
         await page.route("**/settings/workflow-stages/existing", async (route) => {
-            const payload = route.request().postDataJSON();
-            expect(payload.entry_effects).toEqual(["confirm_descendant_move"]);
+            const payload = requestJSON(route.request());
+            expect(payload.confirm_descendant_move).toBe(true);
+            expect(payload.rules).toEqual([]);
             saved = { ...saved, ...payload, revision: "b".repeat(64) };
             await route.fulfill({ json: { stage: saved } });
         });
@@ -565,12 +647,11 @@ for (const width of [1440, 390]) {
         await page.getByRole("button", { name: /^Closed/ }).click();
         await page.getByLabel("Ask to move descendants when a root card enters this stage", { exact: true }).check();
         await page.getByRole("button", { name: "Save", exact: true }).click();
-        await expect.poll(() => saved.entry_effects).toEqual(["confirm_descendant_move"]);
+        await expect.poll(() => saved.confirm_descendant_move).toBe(true);
         await page.reload();
         await page.getByRole("button", { name: /^Closed/ }).click();
         await expect(page.getByLabel("Ask to move descendants when a root card enters this stage", { exact: true })).toBeChecked();
-        await expect(page.getByLabel("Complete unchecked items", { exact: true })).not.toBeChecked();
-        await expect(page.getByLabel("Stop running timers", { exact: true })).not.toBeChecked();
+        await expect(page.getByRole("group", { name: /^Action [0-9]+$/ })).toHaveCount(0);
         await page.getByRole("dialog").screenshot({ path: `.verification/root-family-confirmation-${width}.png` });
     });
 }
@@ -579,7 +660,7 @@ for (const choice of ["Move all descendants", "Move only this card", "Cancel"]) 
     test(`family move confirmation ${choice}`, async ({ page }) => {
         const requests: Record<string, unknown>[] = [];
         await page.route("**/board/board/card/root/order", async (route) => {
-            requests.push(route.request().postDataJSON());
+            requests.push(requestJSON(route.request()));
             await route.fulfill({ json: requests.length === 1 ? { confirmation_required: true, confirmation_revision: "revision-one" } : {} });
         });
         await page.goto("/src/pages/SettingsPage/CardFamilyMove.fixture.html");
@@ -598,121 +679,89 @@ for (const choice of ["Move all descendants", "Move only this card", "Cancel"]) 
 }
 
 for (const width of [1440, 390]) {
-    test(`workflow bot bindings ${width}px persist policy, native triggers and per-binding interval`, async ({ page }) => {
+    test(`workflow bot rules ${width}px preserve unavailable references, permissions and exact writes`, async ({ page }) => {
         await page.setViewportSize({ width, height: 1100 });
-        let stage: IWorkflowStage = { ...existing(), policy_bots: [{ bot_uid: "saved-missing-bot" }] };
+        let stage: IWorkflowStage = { ...existing(), rules: [botRule("saved-missing-bot")] };
         let saved: Record<string, unknown> | undefined;
-        const bot = { uid: "123456789ab", name: "Workflow assistant", entry_available: true, policy_available: true };
-        const unavailable = { uid: "123456789ac", name: "Unavailable assistant", entry_available: false, policy_available: true };
+        const bot = { uid: "available-bot", name: "Available bot", entry_available: true, policy_available: true };
+        const unavailable = { uid: "unavailable-bot", name: "Unavailable bot", entry_available: false, policy_available: false };
         await page.route("**/settings/workflow-stages**", async (route) => {
             if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
             const url = new URL(route.request().url());
+            if (url.pathname.endsWith("/history")) return route.fulfill({ json: { items: [], legacy_items: [], next_cursor: null } });
             if (url.pathname.endsWith("/bot-options"))
                 return route.fulfill({
                     json: {
-                        bots: [
-                            bot,
-                            unavailable,
-                            { uid: "inactive-policy", name: "Inactive policy", entry_available: false, policy_available: false },
+                        bots: [bot, unavailable],
+                        schedules: [
+                            { uid: "active-schedule", bot_uid: bot.uid, card_uid: "card", name: "Active schedule", is_available: true },
+                            { uid: "frozen-schedule", bot_uid: bot.uid, card_uid: "card", name: "Frozen schedule", is_available: false },
                         ],
-                        schedules: [{ uid: "123456789ad", bot_uid: bot.uid, card_uid: "card", name: "Delivery card", is_available: true }],
-                    },
-                });
-            if (url.pathname.endsWith("/history"))
-                return route.fulfill({
-                    json: {
-                        items: [
-                            {
-                                ...effectRun("bot-run"),
-                                source: "bot_entry",
-                                status: "accepted",
-                                actor_type: "bot",
-                                effects: [`bot:${bot.uid}`, "card_moved"],
-                                result: { accepted: 1 },
-                            },
-                        ],
-                        next_cursor: null,
                     },
                 });
             if (route.request().method() === "PUT") {
-                saved = route.request().postDataJSON();
-                stage = { ...stage, ...saved, revision: "b".repeat(64) } as IWorkflowStage;
+                saved = requestJSON(route.request());
+                stage = { ...stage, ...saved, revision: "b".repeat(64) };
                 return route.fulfill({ json: { stage } });
             }
             return route.fulfill({ json: { stages: [stage] } });
         });
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await expect(page.getByLabel("Add entry bot").getByRole("option", { name: /Unavailable assistant/ })).toHaveAttribute("disabled", "");
-        const policy = page.getByRole("group", { name: "Stage policy bots", exact: true });
-        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
-        await expect(policy).toContainText(
-            "Uses each bot's configured events while the card remains in this stage. Frozen or unmatched hooks do not run."
-        );
-        await expect(page.getByLabel("Add stage policy bot").getByRole("option", { name: /Inactive policy/ })).toHaveAttribute("disabled", "");
-        await page.getByLabel("Add stage policy bot", { exact: true }).selectOption(bot.uid);
-        await policy.getByRole("button", { name: "Remove bot", exact: true }).nth(1).click();
-        await expect(policy.locator("p").filter({ hasText: new RegExp(`^${bot.name}$`) })).toHaveCount(0);
-        await page.getByLabel("Add stage policy bot", { exact: true }).selectOption(unavailable.uid);
-        await expect(page.getByLabel("Add stage policy bot").getByRole("option", { name: unavailable.name, exact: true })).toHaveAttribute(
-            "disabled",
-            ""
-        );
-        await page.getByRole("button", { name: "Close", exact: true }).click();
-        await page
-            .getByRole("dialog", { name: "Discard unsaved changes?", exact: true })
-            .getByRole("button", { name: "Cancel", exact: true })
-            .click();
+        await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
+        await expect(page.getByLabel("Bot", { exact: true }).locator('option[value="unavailable-bot"]')).toHaveJSProperty("disabled", true);
         await page.getByRole("tab", { name: "History", exact: true }).click();
         await page.getByRole("tab", { name: "Settings", exact: true }).click();
-        await expect(policy.locator("p").filter({ hasText: new RegExp(`^${unavailable.name}$`) })).toBeVisible();
-        await page.getByLabel("Add entry bot").selectOption(bot.uid);
-        await page.getByLabel("Add interval bot").selectOption(bot.uid);
-        await expect(page.getByLabel("Card schedule 1", { exact: true })).toHaveValue("123456789ad");
-        await page.getByLabel("Bot interval minutes").fill("2.5");
+        await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
+        await page.getByRole("button", { name: "Add rule", exact: true }).click();
+        const rule = page.getByRole("group", { name: "Rule 2", exact: true });
+        await rule.getByLabel("Rule name", { exact: true }).fill("Scheduled bot");
+        await rule.getByLabel("Trigger", { exact: true }).selectOption("interval");
+        await rule.getByLabel("Rule interval minutes", { exact: true }).fill("2.5");
+        await rule.getByLabel("Add action", { exact: true }).selectOption("bot.invoke");
+        await rule.getByLabel("Bot", { exact: true }).selectOption(bot.uid);
+        await expect(rule.getByLabel("Card schedule", { exact: true })).toHaveValue("active-schedule");
+        await expect(rule.getByLabel("Card schedule", { exact: true }).locator('option[value="frozen-schedule"]')).toHaveJSProperty("disabled", true);
+        await expect(rule).toContainText("independent eligibility checks");
         await page.getByRole("button", { name: "Save", exact: true }).click();
-        await expect.poll(() => saved?.entry_bots).toEqual([{ bot_uid: bot.uid, condition: "card_moved" }]);
-        expect(saved?.policy_bots).toEqual([{ bot_uid: "saved-missing-bot" }, { bot_uid: unavailable.uid }]);
+        await expect.poll(() => saved).toBeTruthy();
         expect(saved?.expected_revision).toBe("a".repeat(64));
-        expect((saved?.continuous_effects as { bots: unknown[] }).bots).toEqual([
+        const writtenRules = saved?.rules as IWorkflowRule[];
+        expect(writtenRules[0]).toEqual({ ...botRule("saved-missing-bot"), revision: undefined });
+        expect(Object.keys(writtenRules[0])).not.toContain("revision");
+        expect(writtenRules[1].trigger).toEqual({ kind: "interval", interval_seconds: 150 });
+        expect(writtenRules[1].actions).toEqual([
             {
-                bot_uid: bot.uid,
-                condition: "bot_cron_scheduled",
-                schedule_uid: "123456789ad",
-                interval_seconds: 150,
+                kind: "bot.invoke",
+                executor: { kind: "bot", uid: bot.uid },
+                config: { bot_uid: bot.uid, schedule_uid: "active-schedule" },
+                requires_previous_success: false,
             },
         ]);
         await page.reload();
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
-        await expect(policy.locator("p").filter({ hasText: new RegExp(`^${unavailable.name}$`) })).toBeVisible();
+        await expect(page.getByRole("group", { name: "Rule 1", exact: true }).getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
+        await expect(rule.getByLabel("Rule interval minutes", { exact: true })).toHaveValue("2.5");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await policy.screenshot({ path: `.verification/workflow-policy-bots-${width}.png` });
-        await expect(page.getByLabel("Bot interval minutes")).toHaveValue("2.5");
-        await page.getByLabel("Bot interval minutes").scrollIntoViewIfNeeded();
         await page.getByRole("dialog").screenshot({ path: `.verification/workflow-bot-bindings-${width}.png` });
         await page.evaluate(() => document.documentElement.classList.add("dark"));
-        const darkBackground = await page.locator("body").evaluate((element) => getComputedStyle(element).backgroundColor);
-        await expect(page.getByRole("dialog")).toHaveCSS("background-color", darkBackground);
+        const background = await page.locator("body").evaluate((element) => getComputedStyle(element).backgroundColor);
+        await expect(page.getByRole("dialog")).toHaveCSS("background-color", background);
         await page.getByRole("dialog").screenshot({ path: `.verification/workflow-bot-bindings-${width}-dark.png` });
-        await page.getByRole("tab", { name: "History", exact: true }).click();
-        await expect(page.getByRole("region", { name: "Effect history" }).getByText("Dispatch accepted", { exact: true })).toBeVisible();
-        await page.getByText("Effect details", { exact: true }).click();
-        await expect(page.getByText("Dispatch accepted; see bot logs for execution details.", { exact: true })).toBeVisible();
     });
-}
 
-for (const width of [1440, 390]) {
-    test(`stage policy bots ${width}px preserve unavailable bindings when options fail`, async ({ page }) => {
+    test(`workflow bot rules ${width}px preserve unavailable saved references when options fail`, async ({ page }) => {
         await page.setViewportSize({ width, height: 1100 });
-        let stage: IWorkflowStage = { ...existing(), policy_bots: [{ bot_uid: "saved-missing-bot" }] };
+        let stage: IWorkflowStage = { ...existing(), rules: [botRule("saved-missing-bot")] };
         let writes = 0;
         await page.route("**/settings/workflow-stages**", async (route) => {
             if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
             if (new URL(route.request().url()).pathname.endsWith("/bot-options")) return route.fulfill({ status: 503, json: {} });
             if (route.request().method() === "PUT") {
-                const payload = route.request().postDataJSON();
-                expect(payload.policy_bots).toEqual([{ bot_uid: "saved-missing-bot" }]);
+                const payload = requestJSON(route.request());
+                expect(payload.rules[0].actions[0].config.bot_uid).toBe("saved-missing-bot");
+                expect(payload.rules[0].uid).toBe("saved-rule");
+                expect(payload.rules[0].actions[0].uid).toBe("saved-action");
                 stage = { ...stage, ...payload, revision: "b".repeat(64) };
                 writes++;
                 return route.fulfill({ json: { stage } });
@@ -721,15 +770,230 @@ for (const width of [1440, 390]) {
         });
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
-        const policy = page.getByRole("group", { name: "Stage policy bots", exact: true });
-        await expect(policy.getByRole("status")).toHaveText("Bot options unavailable. Saved bindings are preserved.");
-        await expect(page.getByLabel("Add stage policy bot", { exact: true })).toBeDisabled();
-        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
+        await expect(page.getByRole("status")).toHaveText("Bot options unavailable. Saved bindings are preserved.");
+        await expect(page.getByLabel("Bot", { exact: true })).toBeDisabled();
+        await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
         await page.getByLabel("Stage description", { exact: true }).fill("Updated description");
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect.poll(() => writes).toBe(1);
         await page.reload();
         await page.getByRole("button", { name: /^Closed/ }).click();
-        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
+        await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("saved-missing-bot");
     });
+}
+
+for (const width of [1440, 390]) {
+    test(`common rule history ${width}px shows revisions, actors, executors, outcomes and preserved evidence`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        let writes = 0;
+        let stage: IWorkflowStage = { ...existing(), rules: [{ ...botRule("current-bot"), uid: "rule-history", revision: 18 }] };
+        const historicalSnapshot = {
+            ...botRule("bot-history"),
+            uid: "rule-history",
+            stage_key: "closed",
+            name: "Original admitted rule",
+            revision: 17,
+            conditions: [{ kind: "uncompacted_comments", operator: "gte", value: 10 }],
+            actions: [{ ...botRule("bot-history").actions[0], uid: "action-history" }],
+        };
+        const statuses = ["queued", "running", "accepted", "succeeded", "failed", "skipped", "cancelled", "uncertain"];
+        await page.route("**/settings/workflow-stages**", (route) => {
+            if (route.request().method() === "PUT") {
+                writes++;
+                stage = { ...stage, ...requestJSON(route.request()), revision: "b".repeat(64) };
+                return route.fulfill({ json: { stage } });
+            }
+            if (!new URL(route.request().url()).pathname.endsWith("/history")) return route.fulfill({ json: { stages: [stage] } });
+            return route.fulfill({
+                json: {
+                    items: statuses.map((status) => ({
+                        uid: status,
+                        rule_uid: "rule-history",
+                        rule_revision: 17,
+                        configured_by_uid: status === "skipped" ? null : "settings-author-history",
+                        rule_snapshot: historicalSnapshot,
+                        event_id: `event-${status}`,
+                        event_type: "card_comment_added",
+                        occurred_at: "2026-10-24T03:00:00Z",
+                        actor_uid: "actor-history",
+                        actor_type: "user",
+                        project_uid: "board-source",
+                        card_uid: "card-source",
+                        residency: "2026-10-23T03:00:00Z",
+                        condition_results: [{ kind: "uncompacted_comments", matched: true }],
+                        status,
+                        actions: [
+                            {
+                                uid: `action-run-${status}`,
+                                action_uid: "action-history",
+                                kind: "bot.invoke",
+                                executor_uid: "bot-history",
+                                executor_type: "bot",
+                                status,
+                                attempt: 2,
+                                idempotency_key: `idempotency-${status}`,
+                                result: { bot_log_uid: "log-history", note: "<img src=x onerror=alert(1)>" },
+                                error_code: status === "failed" ? "provider_error" : null,
+                                started_at: "2026-10-24T03:00:00Z",
+                                finished_at: status === "succeeded" ? "2026-10-24T03:01:00Z" : null,
+                            },
+                        ],
+                    })),
+                    legacy_items: [effectRun("legacy-history")],
+                    next_cursor: null,
+                },
+            });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        const history = page.getByRole("region", { name: "Effect history", exact: true });
+        const runs = history.locator("article");
+        await expect(runs).toHaveCount(8);
+        for (const status of ["Queued", "Running", "Dispatch accepted", "Succeeded", "Failed", "Skipped", "Cancelled", "Uncertain"])
+            await expect(runs.getByText(status, { exact: true })).toHaveCount(1);
+        const accepted = runs.filter({ hasText: "event-accepted" });
+        await accepted.getByText("Rule details", { exact: true }).click();
+        await expect(accepted).toContainText("Revision: 17");
+        await expect(accepted).toContainText("Actor: user actor-history");
+        await expect(accepted).toContainText("Settings author: settings-author-history");
+        await expect(runs.filter({ hasText: "event-skipped" })).toContainText("Settings author: Unknown settings author");
+        const snapshot = accepted.getByRole("region", { name: "Historical rule snapshot", exact: true });
+        await expect(snapshot).toBeVisible();
+        expect(JSON.parse(await snapshot.locator("pre").innerText())).toEqual(historicalSnapshot);
+        await expect(accepted).toContainText("Executor: bot bot-history");
+        await expect(accepted).toContainText("Attempt: 2");
+        await expect(accepted).toContainText("log-history");
+        await expect(accepted).toContainText("Dispatch accepted; see bot logs for execution details.");
+        await expect(accepted).not.toContainText("Succeeded");
+        await expect(history.locator("img")).toHaveCount(0);
+        await expect(history.getByText("Preserved historical effects (read only)", { exact: true })).toBeVisible();
+        await expect(accepted.getByRole("link", { name: "Open card" })).toHaveAttribute("href", "/board/board-source/card-source");
+        expect(writes).toBe(0);
+        await page.getByRole("tab", { name: "Settings", exact: true }).click();
+        await page.getByLabel("Rule name", { exact: true }).fill("Current modified rule");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => writes).toBe(1);
+        expect(stage.rules[0].name).toBe("Current modified rule");
+        expect(stage.rules[0].uid).toBe(historicalSnapshot.uid);
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        await accepted.getByText("Rule details", { exact: true }).click();
+        await expect(snapshot).toBeVisible();
+        expect(JSON.parse(await snapshot.locator("pre").innerText())).toEqual(historicalSnapshot);
+        await expect(snapshot).not.toContainText("Current modified rule");
+        await expect(accepted).toContainText("Settings author: settings-author-history");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.getByRole("dialog").screenshot({ path: `.verification/workflow-common-history-${width}.png` });
+    });
+
+    test(`common rule editor ${width}px preserves action identities and enforces compaction safety on reorder`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        let saved: IWorkflowStage | undefined;
+        const stage = {
+            ...existing(),
+            rules: [
+                {
+                    uid: "rule-ordered",
+                    revision: 3,
+                    name: "Ordered rule",
+                    is_enabled: true,
+                    trigger: { kind: "stage_entered" as const },
+                    condition_match: "any" as const,
+                    conditions: [{ kind: "uncompacted_comments" as const, operator: "gte" as const, value: 10 }],
+                    actions: [
+                        {
+                            uid: "compact-action",
+                            kind: "comments.compact" as const,
+                            executor: { kind: "compactor" as const },
+                            config: {},
+                            requires_previous_success: false,
+                        },
+                        {
+                            uid: "archive-action",
+                            kind: "card.archive" as const,
+                            executor: { kind: "compactor" as const },
+                            config: { archive_after_seconds: 7200 },
+                            requires_previous_success: true,
+                        },
+                    ],
+                },
+            ],
+        };
+        await page.route("**/settings/workflow-stages**", (route) => {
+            if (route.request().method() === "PUT") {
+                saved = { ...stage, ...requestJSON(route.request()) };
+                return route.fulfill({ json: { stage: saved } });
+            }
+            return route.fulfill({ json: { stages: [stage] } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await page.getByRole("group", { name: "Action 2", exact: true }).getByRole("button", { name: "Move action up", exact: true }).click();
+        await expect(page.getByRole("group", { name: "Action 1", exact: true })).toContainText("Auto archive cards");
+        await expect(page.getByRole("group", { name: "Action 1", exact: true }).getByLabel("Require previous action success")).not.toBeChecked();
+        await page.getByRole("group", { name: "Action 1", exact: true }).getByRole("button", { name: "Move action down", exact: true }).click();
+        await expect(page.getByRole("group", { name: "Action 2", exact: true }).getByLabel("Require previous action success")).toBeChecked();
+        await page.getByRole("button", { name: "Remove condition", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+        await expect(page.getByRole("alert")).toContainText("positive OR threshold");
+        await page.getByRole("button", { name: "Add condition", exact: true }).click();
+        await page.getByLabel("Trigger", { exact: true }).selectOption("event");
+        await page.getByLabel("Event type", { exact: true }).selectOption(DomainEventType.CardUpdated);
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => saved).toBeTruthy();
+        expect(saved?.rules[0].trigger).toEqual({ kind: "event", event_type: "card_updated" });
+        expect(saved?.rules[0].actions.map((action) => action.uid)).toEqual(["compact-action", "archive-action"]);
+        expect(saved?.rules[0].actions.map((action) => action.requires_previous_success)).toEqual([false, true]);
+        expect(Object.keys(saved?.rules[0] ?? {})).not.toContain("revision");
+    });
+}
+
+for (const width of [1440, 390]) {
+    for (const [locale, stageName, rulesLabel, addRule, triggerLabel, ruleName, actionLabel, compactLabel, matchLabel, anyLabel] of [
+        [
+            "en-US",
+            "Closed",
+            "Workflow rules",
+            "Add rule",
+            "Trigger",
+            "Rule name",
+            "Add action",
+            "Compact comments",
+            "Condition match",
+            "Any condition",
+        ],
+        ["ko-KR", "완료", "워크플로우 규칙", "규칙 추가", "트리거", "규칙 이름", "액션 추가", "댓글 압축", "조건 결합", "하나 이상 충족"],
+        [
+            "ja-JP",
+            "完了",
+            "ワークフロールール",
+            "ルールを追加",
+            "トリガー",
+            "ルール名",
+            "アクションを追加",
+            "コメントを圧縮",
+            "条件の組み合わせ",
+            "いずれかを満たす",
+        ],
+        ["zh-CN", "已完成", "工作流规则", "添加规则", "触发器", "规则名称", "添加操作", "压缩评论", "条件匹配", "满足任一条件"],
+    ]) {
+        test(`common rules ${locale} ${width}px localize editor and fit viewport`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 1000 });
+            await page.addInitScript((language) => localStorage.setItem("lang", language), locale);
+            await page.route("**/settings/workflow-stages**", (route) => route.fulfill({ json: { stages: [existing()] } }));
+            await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+            await page.getByRole("button", { name: new RegExp(`^${stageName}`) }).click();
+            const rules = page.getByRole("group", { name: rulesLabel, exact: true });
+            await rules.getByRole("button", { name: addRule, exact: true }).click();
+            await rules.getByLabel(ruleName, { exact: true }).fill("Localized rule");
+            await rules.getByLabel(triggerLabel, { exact: true }).selectOption("event");
+            await rules.getByLabel(actionLabel, { exact: true }).selectOption("comments.compact");
+            await expect(rules.getByLabel(matchLabel, { exact: true })).toHaveValue("any");
+            await expect(rules.getByLabel(matchLabel, { exact: true }).locator("option:checked")).toHaveText(anyLabel);
+            await expect(rules.getByRole("group", { name: /1$/, exact: false }).last()).toContainText(compactLabel);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await rules.getByLabel(actionLabel, { exact: true }).scrollIntoViewIfNeeded();
+            await page.getByRole("dialog").screenshot({ path: `.verification/workflow-common-${locale}-${width}.png` });
+        });
+    }
 }

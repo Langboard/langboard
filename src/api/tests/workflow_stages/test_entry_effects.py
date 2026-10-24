@@ -32,6 +32,7 @@ from langboard_shared.domain.models import (
     Checklist,
     GlobalCardRelationshipType,
     GlobalLabel,
+    Organization,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
@@ -40,17 +41,36 @@ from langboard_shared.domain.models import (
     User,
     WebhookSetting,
     WorkflowEffectRun,
+    WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun,
+    ProjectRole,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
+from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
     CheckitemTimerRecordRepository,
 )
 from langboard_shared.publishers import CheckitemPublisher
 from sqlalchemy import create_engine, event, select, text
+from sqlalchemy.orm import Session
+
+
+def set_entry_actions(stage, kinds, *, conditions=None):
+    """Persist public normalized definitions using the real rule repository path."""
+    from langboard_shared.domain.services.factory.WorkflowRuleService import replace_rules
+
+    rules = [] if not kinds else [{
+        "name": "Native entry safety", "is_enabled": True,
+        "trigger": {"kind": "stage_entered"}, "condition_match": "all",
+        "conditions": conditions or [],
+        "actions": [{"kind": kind, "executor": {"kind": "event_actor"},
+                     "config": {}, "requires_previous_success": False} for kind in kinds],
+    }]
+    with DbSession.atomic() as db:
+        replace_rules(db, stage, rules)
 
 
 @pytest.fixture
@@ -84,13 +104,9 @@ def flow(monkeypatch, request):
             connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
 
         engine.dispose()
-    # Both database backends exercise the real project lock before moving cards.
-    with engine.begin() as connection:
-        connection.execute(text("CREATE TABLE project(id BIGINT PRIMARY KEY, deleted_at TIMESTAMP)"))
-        connection.execute(text("INSERT INTO project(id) VALUES (1)"))
-        connection.execute(text('CREATE TABLE "user"(id BIGINT PRIMARY KEY, activated_at TIMESTAMP, deleted_at TIMESTAMP, is_admin BOOLEAN NOT NULL DEFAULT FALSE)'))
-        connection.execute(text('INSERT INTO "user"(id, activated_at) VALUES (1, CURRENT_TIMESTAMP)'))
     for model in (
+        User, Organization, Project, ProjectAssignedUser, ProjectRole,
+        WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun,
         WorkflowStageDefinition,
         WorkflowEffectRun,
         ProjectColumn,
@@ -106,17 +122,25 @@ def flow(monkeypatch, request):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
-    project = Project(id=1, name="QA", title="QA")
+    project = Project(id=1, owner_id=1, title="QA")
+    actor = User(id=1, firstname="Test", lastname="Actor", email="actor@example.invalid",
+                 password="test-only", activated_at=SafeDateTime.now())
     stage = WorkflowStageDefinition(
-        key="released", name="Released", color="#64748B", entry_effects=["complete_checkitems"]
+        key="released", name="Released", color="#64748B"
     )
     old = ProjectColumn(project_id=1, name="Active", workflow_stage=None)
     new = ProjectColumn(project_id=1, name="Released", workflow_stage="released")
     same = ProjectColumn(project_id=1, name="Same stage", workflow_stage="released")
     archive = ProjectColumn(project_id=1, name="Archive", is_archive=True, workflow_stage=None)
+    with Session(engine, expire_on_commit=False) as authority:
+        authority.add(actor)
+        authority.flush()
+        authority.add(project)
+        authority.commit()
     with DbSession.atomic() as db:
         for row in (stage, old, new, same, archive):
             db.insert(row)
+        set_entry_actions(stage, ["checkitems.complete"])
         card = Card(project_id=1, project_column_id=old.id, title="QA")
         db.insert(card)
         checklist = Checklist(card_id=card.id, title="QA")
@@ -152,6 +176,9 @@ def flow(monkeypatch, request):
         return services[cls]
 
     service = get(CardService)
+    monkeypatch.setattr("langboard_shared.domain.services.DomainService",
+                        lambda: SimpleNamespace(card=service, checkitem=get(CheckitemService),
+                                                notification=get(NotificationService)))
     notifications = []
     service.notify_order_changed = lambda *_: notifications.append(snapshot(engine, card.id))
     change_sequences = count(99)
@@ -170,14 +197,7 @@ def flow(monkeypatch, request):
         service=service,
         bulk=get(CheckitemService),
         project=project,
-        actor=User(
-            id=1,
-            firstname="Test",
-            lastname="Actor",
-            email="actor@example.invalid",
-            password="test-only",
-            activated_at=SafeDateTime.now(),
-        ),
+        actor=actor,
         card=card,
         old=old,
         new=new,
@@ -223,11 +243,12 @@ def test_concurrent_card_reorders_do_not_deadlock(flow, monkeypatch, native_read
             GlobalCardRelationshipType,
             ProjectAssignedUser,
             GlobalLabel,
+    Organization,
             ProjectLabel,
             CardAssignedUser,
             CardAssignedProjectLabel,
         ):
-            model.__table__.create(f.engine)
+            model.__table__.create(f.engine, checkfirst=True)
         from langboard_shared.domain.models import CardRelationship
 
         CardRelationship.__table__.create(f.engine)
@@ -395,7 +416,7 @@ def test_stage_residency_tracks_observed_entries_without_backfill(flow):
 
     assert residency() == (None, None)
     with DbSession.atomic() as db:
-        f.stage.entry_effects = []
+        set_entry_actions(f.stage, [])
         db.update(f.stage)
     f.service.change_order(f.actor, f.project, f.card, 0, f.new)
     first = residency()
@@ -429,15 +450,19 @@ def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):
     f.summary.assert_called_once()
     assert len(f.summary.call_args.args[2]) == 3
     with DbSession.use(readonly=False) as db:
-        runs = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()
+        runs = db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all()
         assert len(runs) == 1
         run = runs[0]
-        assert (run.stage_id, run.stage_key, run.stage_revision) == (f.stage.id, "released", f.stage.edit_revision())
-        assert (run.project_id, run.card_id, run.actor_id, run.actor_type, run.source) == (1, f.card.id, 1, "user", "entry")
-        assert run.effects == ["complete_checkitems"]
+        assert (run.stage_id, run.stage_revision) == (f.stage.id, f.stage.edit_revision())
+        assert run.rule_revision == 1 and run.event_type == "stage_entered"
+        assert (run.project_id, run.card_id, run.actor_id, run.actor_type) == (1, f.card.id, 1, "user")
+        actions = db.exec(SqlBuilder.select.table(WorkflowActionRun).where(WorkflowActionRun.rule_run_id == run.id)).all()
+        assert len(actions) == 1 and actions[0].kind == "checkitems.complete"
+        assert actions[0].status == "succeeded"
         assert run.status == "succeeded"
-        assert run.result == {"completed": 3, "stopped": 2}
-        assert run.duration_ms >= 0 and run.finished_at >= run.started_at
+        assert actions[0].result == {"completed": 3, "stopped": 2}
+        assert run.finished_at >= run.occurred_at
+        assert actions[0].finished_at >= actions[0].started_at
     assert f.notifications[0] == (column, items, timers)
     assert f.service.change_order(f.actor, f.project, f.card, 0, f.same) is True
     assert snapshot(f.engine, f.card.id)[2] == 4
@@ -445,13 +470,13 @@ def test_move_completes_once_stops_started_and_paused_preserves_cardified(flow):
     assert f.bulk.complete_unchecked_by_card(f.actor, f.project, f.card) == {"completed": 0, "stopped": 0}
     f.summary.assert_called_once()
     with DbSession.use(readonly=False) as db:
-        assert len(db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()) == 1
+        assert len(db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all()) == 1
 
 
 def test_stop_only_keeps_unchecked_and_inactive_definition_applies(flow):
     f = flow
     with DbSession.atomic() as db:
-        f.stage.entry_effects = ["stop_running_timers"]
+        set_entry_actions(f.stage, ["timers.stop"])
         f.stage.is_active = False
         db.update(f.stage)
     f.service.change_order(f.actor, f.project, f.card, 0, f.new)
@@ -481,7 +506,7 @@ def test_missing_timer_fact_rolls_back_movement_and_every_item(flow):
     f.summary.assert_not_called()
     assert f.notifications == []
     with DbSession.use(readonly=False) as db:
-        assert db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all() == []
+        assert db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all() == []
 
 
 def test_outer_rollback_suppresses_summary_and_movement_notifications(flow):
@@ -497,7 +522,7 @@ def test_outer_rollback_suppresses_summary_and_movement_notifications(flow):
     f.summary.assert_not_called()
     assert f.notifications == []
     with DbSession.use(readonly=False) as db:
-        assert db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all() == []
+        assert db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all() == []
 
 
 def test_same_stage_does_not_complete_new_unchecked_item(flow):
@@ -603,14 +628,25 @@ def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flo
     monkeypatch.setattr(notification_service, "convert_to_api_response", lambda *_: {})
     monkeypatch.setattr(import_module(NotificationService.__module__), "publish_pending_work_events", work)
     with DbSession.atomic() as db:
-        f.stage.entry_effects = [] if case == "disabled" else ["notify_author_on_entry"]
+        set_entry_actions(f.stage, [] if case == "disabled" else ["author.notify"],
+                          conditions=[{"kind": "actor_is_not_author", "operator": "eq", "value": True}])
         f.card.created_by_user_id = None if case == "no_author" else recipient.id
         db.update(f.stage)
         db.update(f.card)
         if case == "same_stage":
             f.old.workflow_stage = f.new.workflow_stage
             db.update(f.old)
-    actor = recipient.model_copy(update={"id": recipient.id if case == "self" else 2})
+    actor = recipient if case == "self" else User(
+        id=2, firstname="Other", lastname="Actor", email="other-actor@example.invalid",
+        password="test-only", activated_at=SafeDateTime.now())
+    if actor.id != recipient.id:
+        actor.email = "other-actor@example.invalid"
+        with Session(f.engine, expire_on_commit=False) as authority:
+            authority.add(actor)
+            authority.commit()
+        with DbSession.atomic() as db:
+            db.insert(ProjectAssignedUser(project_id=f.project.id, user_id=actor.id))
+            db.insert(ProjectRole(project_id=f.project.id, user_id=actor.id, actions=["read", "card_update"]))
     stale_card = f.card.model_copy(deep=True)
     def move():
         with DbSession.atomic():
@@ -638,9 +674,11 @@ def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flo
             assert note.message_vars == {"stage_key": "released", "column_name": "Released"}
             assert note.web_visible is (case != "unsubscribed")
             assert note in notification_service.repo.user_notification.get_pending_work_events()
-            runs = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()
+            runs = db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all()
             assert len(runs) == 1
-            assert runs[0].result == {"completed": 0, "stopped": 0, "notified": 1}
+            claims = db.exec(SqlBuilder.select.table(WorkflowActionRun).where(WorkflowActionRun.rule_run_id == runs[0].id)).all()
+            assert len(claims) == 1 and claims[0].kind == "author.notify"
+            assert claims[0].result == {"notified": 1} and claims[0].status == "succeeded"
     assert fanout.call_count == int(case in {"other", "retry", "reorder"})
     assert work.call_count == int(expected)
     # A notify-only effect must never finish checkitems or stop timers.

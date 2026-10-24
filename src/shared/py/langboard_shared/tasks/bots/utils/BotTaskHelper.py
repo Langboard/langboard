@@ -1,5 +1,4 @@
 from typing import Any, overload
-from ....ai import BotDefaultTrigger
 from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.logger import Logger
 from ....core.types import SnowflakeID
@@ -108,9 +107,10 @@ class BotTaskHelper:
     @staticmethod
     async def run_card_event(actor, card, bots, event, data, project, *, emit_webhook=True):
         """Route native card hooks through current-stage policy admission once per bot."""
-        from ..WorkflowPolicyBotTask import run_policy_bots
+        from ....domain.services.factory.WorkflowRuleService import selected_bots
 
-        selected = await run_policy_bots(actor, card, event, data, project, {item[0].get_uid() for item in bots})
+        with DbSession.use(readonly=False) as db:
+            selected = selected_bots(db, card, event.value)
         if selected and emit_webhook and BotTaskHelper.can_dispatch_card_scope(data, project, None):
             WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
             emit_webhook = False
@@ -123,7 +123,7 @@ class BotTaskHelper:
     @staticmethod
     async def run(
         bots: Bot | list[Bot],
-        event: DomainEventType | BotDefaultTrigger,
+        event: DomainEventType,
         data: dict[str, Any],
         project: Project | None = None,
         scope_model: BaseDbModel | None = None,
@@ -134,7 +134,7 @@ class BotTaskHelper:
     @staticmethod
     async def run(
         bots: list[tuple[Bot, BaseDbModel]],
-        event: DomainEventType | BotDefaultTrigger,
+        event: DomainEventType,
         data: dict[str, Any],
         project: Project | None = None,
         *,
@@ -143,7 +143,7 @@ class BotTaskHelper:
     @staticmethod
     async def run(
         bots: Bot | list[Bot] | list[tuple[Bot, BaseDbModel]],
-        event: DomainEventType | BotDefaultTrigger,
+        event: DomainEventType,
         data: dict[str, Any],
         project: Project | None = None,
         scope_model: BaseDbModel | None = None,

@@ -14,7 +14,7 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Card, SettingRole, WorkflowEffectRun
+from langboard_shared.domain.models import Card, SettingRole, WorkflowEffectRun, WorkflowRuleRun, WorkflowActionRun, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility, CollaborationChannel
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
@@ -29,7 +29,8 @@ def history(board, monkeypatch):
     _, user, project, member, role, columns, stages = board
     engine = DbEngine.get_main_engine()
     Card.__table__.create(engine)
-    WorkflowEffectRun.__table__.create(engine)
+    for model in (WorkflowEffectRun, WorkflowRuleRun, WorkflowActionRun, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction):
+        model.__table__.create(engine)
     cards = []
     with DbSession.atomic() as db:
         for i, (visibility, owner) in enumerate([
@@ -44,16 +45,21 @@ def history(board, monkeypatch):
                         archived_at=SafeDateTime.now() if i == 5 else None)
             db.insert(card)
             cards.append(card)
-            db.insert(WorkflowEffectRun(
-                stage_id=stages[0].id, stage_key=stages[0].key, stage_revision=stages[0].edit_revision(),
+            run = WorkflowRuleRun(
+                rule_id=100, rule_revision=1, event_id=f"event-{i}", event_type="stage_entered",
+                residency=SafeDateTime.now().isoformat(), status="succeeded",
+                stage_id=stages[0].id, stage_revision=stages[0].edit_revision(),
                 project_id=card.project_id, card_id=card.id, actor_id=2, actor_type="user",
-                source="entry", effects=["stop_running_timers"], duration_ms=5,
-                result={"completed": 0, "stopped": 1},
-            ))
-        db.insert(WorkflowEffectRun(
-            stage_id=stages[1].id, stage_key=stages[1].key, stage_revision="b" * 64,
-            project_id=10, card_id=cards[0].id, actor_id=2, actor_type="bot", source="entry",
-            effects=["complete_checkitems"], duration_ms=1, result={"completed": 1, "stopped": 0},
+            )
+            db.insert(run)
+            db.insert(WorkflowActionRun(rule_run_id=run.id, action_id=200, kind="timers.stop",
+                executor_id=2, executor_type="event_actor", status="succeeded",
+                idempotency_key=f"history-{i}", result={"completed": 0, "stopped": 1}))
+        db.insert(WorkflowRuleRun(
+            rule_id=101, rule_revision=2, event_id="other-stage", event_type="stage_entered",
+            residency=SafeDateTime.now().isoformat(), status="succeeded",
+            stage_id=stages[1].id, stage_revision="b" * 64,
+            project_id=10, card_id=cards[0].id, actor_id=2, actor_type="bot",
         ))
     card_service = CardService(lambda _: None, lambda _: None, None)
     service = WorkflowStageService(lambda cls: card_service if cls is CardService else None, lambda _: None, None)
@@ -74,6 +80,11 @@ def test_history_filters_before_paging_retains_archived_and_separates_workflows(
                                          channel=CollaborationChannel.HumanUI)
     assert [row["card_uid"] for row in third["items"]] == [f.cards[0].get_uid()]
     assert third["next_cursor"] is None
+    assert first["legacy_items"] == []
+    action = first["items"][0]["actions"][0]
+    assert action["kind"] == "timers.stop" and action["status"] == "succeeded"
+    assert action["result"] == {"completed": 0, "stopped": 1}
+    assert action["executor_type"] == "event_actor"
     api_rows = f.service.get_effect_history(f.user, f.stages[0].get_uid())["items"]
     assert [row["card_uid"] for row in api_rows] == [f.cards[5].get_uid(), f.cards[0].get_uid()]
     other = f.service.get_effect_history(f.user, f.stages[1].get_uid())
@@ -81,8 +92,9 @@ def test_history_filters_before_paging_retains_archived_and_separates_workflows(
     with pytest.raises(ValueError, match="cursor"):
         f.service.get_effect_history(f.user, f.stages[1].get_uid(), before=first["next_cursor"])
     assert set(first["items"][0]) == {
-        "uid", "source", "status", "effects", "started_at", "finished_at", "duration_ms", "result",
-        "project_uid", "card_uid", "actor_uid", "actor_type", "profile", "error_code", "stage_revision",
+        "uid", "status", "finished_at", "project_uid", "card_uid", "actor_uid", "actor_type",
+        "error_code", "stage_revision", "rule_uid", "rule_revision", "event_id", "event_type",
+        "occurred_at", "residency", "condition_results", "actions", "configured_by_uid", "rule_snapshot",
     }
 
 
@@ -92,15 +104,15 @@ def test_history_preserves_run_configuration_revision_after_stage_edit(history):
     before = f.service.get_effect_history(f.user, f.stages[0].get_uid())["items"]
     assert before and {row["stage_revision"] for row in before} == {original_revision}
     with DbSession.atomic() as db:
-        f.stages[0].entry_effects = ["complete_checkitems"]
+        f.stages[0].confirm_descendant_move = True
         f.stages[0].name = "Changed after execution"
         db.update(f.stages[0])
     assert f.stages[0].edit_revision() != original_revision
     after = f.service.get_effect_history(f.user, f.stages[0].get_uid())["items"]
     assert after == before
     with DbSession.atomic() as db:
-        stored = db.exec(SqlBuilder.select.table(WorkflowEffectRun).where(
-            WorkflowEffectRun.stage_id == f.stages[0].id,
+        stored = db.exec(SqlBuilder.select.table(WorkflowRuleRun).where(
+            WorkflowRuleRun.stage_id == f.stages[0].id,
         )).all()
         assert stored and {row.stage_revision for row in stored} == {original_revision}
 
@@ -124,7 +136,7 @@ def test_history_rechecks_cached_authority(history, revocation, channel):
                 row.deleted_at = SafeDateTime.now()
             db.update(row)
     result = f.service.get_effect_history(cached_user, f.stages[0].get_uid(), channel=channel)
-    assert result is None if revocation == "account" else result == {"items": [], "next_cursor": None}
+    assert result is None if revocation == "account" else result == {"items": [], "legacy_items": [], "next_cursor": None}
 
 
 @pytest.mark.parametrize("channel", [CollaborationChannel.Api, CollaborationChannel.HumanUI])
@@ -146,7 +158,7 @@ def test_history_rechecks_admin_status_after_board_role_revocation(history, chan
         db.update(f.user)
     assert cached_admin.is_admin
     assert f.service.get_effect_history(cached_admin, f.stages[0].get_uid(), channel=channel) == {
-        "items": [], "next_cursor": None,
+        "items": [], "legacy_items": [], "next_cursor": None,
     }
 
 
@@ -208,7 +220,7 @@ def test_authenticated_history_requires_admin_setting_read_and_revalidates_card_
             db.delete(f.member)
         revoked = client.get(url, headers=headers)
         assert revoked.status_code == 200
-        assert revoked.json() == {"items": [], "next_cursor": None}
+        assert revoked.json() == {"items": [], "legacy_items": [], "next_cursor": None}
         with DbSession.atomic() as db:
             setting_role.actions = []
             db.update(setting_role)
@@ -230,10 +242,49 @@ def test_expired_compaction_lease_is_reported_uncertain_without_rewriting_eviden
         )
         db.insert(receipt)
     page = f.service.get_effect_history(f.user, f.stages[0].get_uid(), channel=CollaborationChannel.HumanUI)
-    row = next(item for item in page["items"] if item["uid"] == receipt.get_uid())
+    row = next(item for item in page["legacy_items"] if item["uid"] == receipt.get_uid())
     assert row["status"] == "uncertain" and row["error_code"] == "lease_expired"
     assert row["profile"] == {"uid": receipt.profile_id.to_short_code(), "display_name": "컴팩터"}
     assert "execution_key" not in row
     with DbSession.use(readonly=False) as db:
         stored = db.exec(SqlBuilder.select.table(WorkflowEffectRun).where(WorkflowEffectRun.id == receipt.id)).first()
         assert stored.status == "running" and stored.error_code is None
+
+
+def test_legacy_evidence_shares_current_acl_pagination_without_rewrite(history):
+    f = history
+    receipts = []
+    with DbSession.atomic() as db:
+        for card in f.cards:
+            receipt = WorkflowEffectRun(
+                stage_id=f.stages[0].id, stage_key=f.stages[0].key,
+                stage_revision="d" * 64, project_id=card.project_id, card_id=card.id,
+                actor_id=2, actor_type="user", source="entry",
+                effects=["stop_running_timers"], duration_ms=5,
+                result={"completed": 0, "stopped": 1},
+            )
+            db.insert(receipt)
+            receipts.append(receipt)
+    seen = []
+    cursor = None
+    while True:
+        page = f.service.get_effect_history(f.user, f.stages[0].get_uid(), before=cursor,
+                                            limit=1, channel=CollaborationChannel.HumanUI)
+        assert len(page["items"]) + len(page["legacy_items"]) == 1
+        seen.extend(page["legacy_items"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert [row["card_uid"] for row in seen] == [f.cards[i].get_uid() for i in (5, 2, 0)]
+    assert all(row["stage_revision"] == "d" * 64 and row["result"] == {"completed": 0, "stopped": 1}
+               for row in seen)
+    with DbSession.atomic() as db:
+        db.delete(f.member)
+    assert f.service.get_effect_history(f.user, f.stages[0].get_uid()) == {
+        "items": [], "legacy_items": [], "next_cursor": None,
+    }
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(WorkflowEffectRun)).all()
+        assert {row.id for row in stored} == {row.id for row in receipts}
+        assert all(row.stage_revision == "d" * 64 and row.effects == ["stop_running_timers"]
+                   and row.result == {"completed": 0, "stopped": 1} for row in stored)

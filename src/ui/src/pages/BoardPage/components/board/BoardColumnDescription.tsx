@@ -132,22 +132,14 @@ function BoardColumnDescription({ column }: { column: ProjectColumn.TModel }) {
                                     {t(selectedStage.overdue_policy === "suppress" ? "settings.Hide overdue" : "board.Normal overdue rules")}
                                 </p>
                                 <p>
-                                    {t("settings.Entry effects")}: {formatNumber(selectedStage.entry_effects.length, i18n.language)}
+                                    {t("settings.Workflow rules")}: {formatNumber(selectedStage.rules.length, i18n.language)}
                                 </p>
-                                {selectedStage.entry_effects.map((effect) => (
-                                    <p key={effect}>
-                                        {t(
-                                            `settings.${
-                                                {
-                                                    complete_checkitems: "Complete unchecked items",
-                                                    stop_running_timers: "Stop running timers",
-                                                    notify_author_on_entry: "Notify the author when someone else enters this stage",
-                                                    confirm_descendant_move: "Ask to move descendants when a root card enters this stage",
-                                                }[effect] ?? effect
-                                            }`
-                                        )}
-                                    </p>
+                                {selectedStage.rules.map((rule, index) => (
+                                    <p key={rule.uid ?? index}>{rule.name}</p>
                                 ))}
+                                {selectedStage.confirm_descendant_move && (
+                                    <p>{t("settings.Ask to move descendants when a root card enters this stage")}</p>
+                                )}
                             </div>
                         )}
                         <div className="flex justify-end gap-2">

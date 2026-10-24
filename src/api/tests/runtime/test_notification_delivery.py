@@ -444,9 +444,10 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
-        call(cron, "* * * * *", "/app/scripts/run_workflow_compaction.sh", "workflow-compaction"),
+        call(cron, "* * * * *", "/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 8
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 9
     cron_utils.reload_cron.assert_called_once_with()
 
 
@@ -462,6 +463,7 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
     ServerRunner.run()
 
     assert cron_utils.remove_job.call_args_list == [
+        call(cron, "workflow-compaction"),
         call(cron, "execution-outbox-recovery"),
         call(cron, "app-event-recovery"),
         call(cron, "github-health-recovery"),
@@ -469,7 +471,8 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "ollama-pull-recovery"),
         call(cron, "document-cleanup-recovery"),
         call(cron, "internal-bot-run-recovery"),
-        call(cron, "workflow-compaction"),
+        call(cron, "bot-schedule-recovery"),
+        call(cron, "workflow-rules"),
     ]
     assert cron_utils.create_job.call_args_list == [
         call(cron, "* * * * *", "/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
@@ -479,9 +482,10 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
-        call(cron, "* * * * *", "/app/scripts/run_workflow_compaction.sh", "workflow-compaction"),
+        call(cron, "* * * * *", "/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 8
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 10
     cron_utils.reload_cron.assert_called_once_with()
 
 

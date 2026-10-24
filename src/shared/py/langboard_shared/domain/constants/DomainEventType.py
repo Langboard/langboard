@@ -2,6 +2,11 @@ from enum import Enum
 
 
 class DomainEventType(Enum):
+    # Bot lifecycle and scheduled delivery
+    BotCreated = "bot_created"
+    BotMentioned = "bot_mentioned"
+    BotCronScheduled = "bot_cron_scheduled"
+
     # Project
     ProjectUpdated = "project_updated"
     ProjectDeleted = "project_deleted"

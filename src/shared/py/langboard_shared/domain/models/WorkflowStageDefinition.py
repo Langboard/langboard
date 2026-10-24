@@ -19,10 +19,7 @@ class WorkflowStageDefinition(BaseDbModel, table=True):
     counts_as_completed: bool = Field(default=False, nullable=False, api_field=ApiField())
     active_queue_policy: str = Field(default="conditional", nullable=False, api_field=ApiField())
     overdue_policy: str = Field(default="normal", nullable=False, api_field=ApiField())
-    entry_effects: list[str] = Field(default_factory=list, nullable=False, sa_type=JSON, api_field=ApiField())
-    entry_bots: list[dict] = Field(default_factory=list, nullable=False, sa_type=JSON, api_field=ApiField())
-    policy_bots: list[dict] = Field(default_factory=list, nullable=False, sa_type=JSON, api_field=ApiField())
-    continuous_effects: dict = Field(default_factory=dict, nullable=False, sa_type=JSON, api_field=ApiField())
+    confirm_descendant_move: bool = Field(default=False, nullable=False, api_field=ApiField())
     translations: dict[str, dict[str, str]] = Field(
         default_factory=dict, nullable=False, sa_type=JSON, api_field=ApiField()
     )
@@ -31,7 +28,9 @@ class WorkflowStageDefinition(BaseDbModel, table=True):
         return {}
 
     def edit_revision(self) -> str:
-        values = super().api_response()
+        from ..services.factory.WorkflowRuleService import stage_rules
+
+        values = {**super().api_response(), "rules": stage_rules(self.id)}
         for key in ("created_at", "updated_at"):
             value = values.get(key)
             if isinstance(value, datetime):
@@ -40,7 +39,9 @@ class WorkflowStageDefinition(BaseDbModel, table=True):
         return hashlib.sha256(payload.encode()).hexdigest()
 
     def api_response(self, **kwargs) -> dict[str, Any]:
-        return {**super().api_response(**kwargs), "revision": self.edit_revision()}
+        from ..services.factory.WorkflowRuleService import stage_rules
+
+        return {**super().api_response(**kwargs), "rules": stage_rules(self.id), "revision": self.edit_revision()}
 
     def _get_repr_keys(self) -> list[str | tuple[str, str]]:
         return ["key", "name", "is_active"]
