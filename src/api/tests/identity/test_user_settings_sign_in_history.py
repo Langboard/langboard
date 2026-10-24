@@ -10,15 +10,31 @@ from langboard.routes.settings.UserSettingsApi import get_users_page_in_settings
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import User, UserProfile, UserSignInHistory
+from langboard_shared.domain.models import ProjectActivity, ProjectWikiActivity, User, UserProfile, UserSignInHistory
 from langboard_shared.domain.services.factory.UserService import UserService
 from langboard_shared.infrastructure.repositories.factory.UserRepository import UserRepository
 from sqlalchemy import create_engine, event
 
 
+def _create_settings_tables(engine, models):
+    tables = {model.__table__ for model in models}
+    if engine.dialect.name == "postgresql":
+        # Native FK enforcement requires the real referenced schema, unlike SQLite defaults.
+        pending = list(tables)
+        while pending:
+            for foreign_key in pending.pop().foreign_keys:
+                referenced = foreign_key.column.table
+                if referenced not in tables:
+                    tables.add(referenced)
+                    pending.append(referenced)
+    metadata = models[0].__table__.metadata
+    metadata.create_all(engine, tables=list(tables))
+    return tables
+
+
 def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'sign-ins.sqlite'}")
-    for model in (User, UserProfile, UserSignInHistory):
+    for model in (User, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -58,6 +74,7 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
         result = service.get_api_list_in_settings()
         by_email = {row["email"]: row for row in result}
         assert len(result) == 3
+        assert all(row["latest_business_activity_at"] is None for row in result)
         assert by_email[users[0].email]["last_signed_in_at"] == now
         assert by_email[users[0].email]["account_status"] == "active"
         assert by_email[users[1].email]["last_signed_in_at"] is None
@@ -132,6 +149,8 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
         User,
         UserProfile,
         UserSignInHistory,
+        ProjectActivity,
+        ProjectWikiActivity,
         SettingRole,
         ApiKeyRole,
         McpRole,
@@ -187,6 +206,7 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
             assert detail.json()["user"]["uid"] == actor.get_uid()
             assert detail.json()["user"]["setting_role_actions"] == ["user_read"]
             assert detail.json()["user"]["last_signed_in_at"] is None
+            assert detail.json()["user"]["latest_business_activity_at"] is None
             assert not {"password", "session", "access_token", "refresh_token"} & detail.json()["user"].keys()
             assert client.get("/settings/users/invalid", headers=headers).status_code == 400
             for params in (
@@ -197,6 +217,20 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                 {"last_signed_in_from": "2026-10-24T10:00:00+09:99"},
                 {"last_signed_in_from": "2026-10-24T10:00:00Z", "last_signed_in_before": "2026-10-24T10:00:00Z"},
                 {"last_signed_in_from": "2026-10-25T10:00:00Z", "last_signed_in_before": "2026-10-24T10:00:00Z"},
+                {"last_business_activity_from": "2026-10-24T10:00:00"},
+                {"last_business_activity_before": "2026-02-30T10:00:00Z"},
+                {"last_business_activity_from": "1792807200"},
+                {"last_business_activity_from": "2026-10-24T10:00:00+24:00"},
+                {"last_business_activity_from": "2026-10-24T10:00:00+09:99"},
+                {"last_business_activity_from": "x" * 41},
+                {
+                    "last_business_activity_from": "2026-10-24T10:00:00Z",
+                    "last_business_activity_before": "2026-10-24T10:00:00Z",
+                },
+                {
+                    "last_business_activity_from": "2026-10-25T10:00:00Z",
+                    "last_business_activity_before": "2026-10-24T10:00:00Z",
+                },
                 {"page": 0},
                 {"page": 1000001},
                 {"limit": 0},
@@ -248,6 +282,16 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                     user_id=target.id, is_success=True, signed_in_at=datetime(2026, 10, 24, 1, tzinfo=timezone.utc)
                 )
                 db.insert(history)
+                from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
+
+                db.insert(
+                    ProjectActivity(
+                        user_id=target.id,
+                        project_id=1,
+                        activity_type=ProjectActivityType.CardUpdated,
+                        created_at=datetime(2026, 10, 24, 2, tzinfo=timezone.utc),
+                    )
+                )
             # Native HTTP: the matching user sits outside the unfiltered first page.
             unfiltered = client.get(
                 endpoint, headers=headers, params={"limit": 1, "sort_by": "email", "sort_direction": "asc"}
@@ -274,6 +318,35 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                 client.get(endpoint, headers=headers, params={"account_status": "inactive", **bounds}).json()[
                     "total_records"
                 ]
+                == 0
+            )
+            business_bounds = {
+                "last_business_activity_from": "2026-10-24T11:00:00+09:00",
+                "last_business_activity_before": "2026-10-24T02:00:01Z",
+            }
+            business_page = client.get(endpoint, headers=headers, params={"limit": 1, **bounds, **business_bounds})
+            assert business_page.status_code == 200, business_page.text
+            assert business_page.json()["total_records"] == 1
+            business_record = business_page.json()["records"][0]
+            assert business_record["uid"] == target.get_uid()
+            assert datetime.fromisoformat(business_record["latest_business_activity_at"]) == datetime(
+                2026, 10, 24, 2, tzinfo=timezone.utc
+            )
+            business_detail = client.get(f"/settings/users/{target.get_uid()}", headers=headers)
+            assert (
+                business_detail.json()["user"]["latest_business_activity_at"]
+                == business_record["latest_business_activity_at"]
+            )
+            assert (
+                client.get(endpoint, headers=headers, params={"page": 2, "limit": 1, **business_bounds}).json()[
+                    "records"
+                ]
+                == []
+            )
+            assert (
+                client.get(
+                    endpoint, headers=headers, params={"last_business_activity_before": "2026-10-24T02:00:00Z"}
+                ).json()["total_records"]
                 == 0
             )
             target_access, target_refresh = AuthSecurity.authenticate(target.id)
@@ -481,9 +554,8 @@ def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, mon
     if backend == "postgresql" and not database_url:
         pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
     engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'range.sqlite'}")
-    models = (User, UserProfile, UserSignInHistory)
-    for model in models:
-        model.__table__.create(engine)
+    models = (User, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity)
+    tables = _create_settings_tables(engine, models)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     start = datetime(2026, 10, 24, 1, tzinfo=timezone.utc)
@@ -540,6 +612,135 @@ def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, mon
         assert row["account_status"] == "active"
         assert row["setting_role_actions"] == [] and row["api_key_role_actions"] == [] and row["mcp_role_actions"] == []
     finally:
-        for model in reversed(models):
-            model.__table__.drop(engine)
+        User.__table__.metadata.drop_all(engine, tables=list(tables))
+        engine.dispose()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgresql"])
+def test_business_activity_uses_latest_persisted_actor_mutation(tmp_path, monkeypatch, backend):
+    from langboard.routes.settings.UserSettingsApi import get_user_in_settings
+    from langboard_shared.domain.models import Bot, Project, ProjectWiki, UserActivity
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
+    from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
+    from langboard_shared.domain.models.UserActivity import UserActivityType
+    from langboard_shared.tasks.activities.utils.ActivityTaskHelper import ActivityTaskHelper
+
+    database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if backend == "postgresql" and not database_url:
+        pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
+    engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'business.sqlite'}")
+    models = (
+        User,
+        Bot,
+        Project,
+        ProjectWiki,
+        UserProfile,
+        UserSignInHistory,
+        ProjectActivity,
+        ProjectWikiActivity,
+        UserActivity,
+    )
+    tables = _create_settings_tables(engine, models)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    start = datetime(2026, 10, 24, 1, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    users = []
+    with DbSession.atomic() as db:
+        for index in range(6):
+            user = User(
+                firstname="Business",
+                lastname=str(index),
+                username=f"business-{index}",
+                email=f"business-{index}@example.invalid",
+                password="fixture-only",
+                activated_at=start,
+                deleted_at=start if index == 5 else None,
+            )
+            db.insert(user)
+            users.append(user)
+        project = Project(title="Business fixture", owner_id=users[3].id)
+        db.insert(project)
+        wiki = ProjectWiki(title="Activity wiki", project_id=project.id)
+        db.insert(wiki)
+        bot = Bot(
+            name="Activity fixture",
+            bot_uname="activity-fixture",
+            app_api_token="fixture-only",
+            platform=BotPlatform.Default,
+            platform_running_type=BotPlatformRunningType.Default,
+        )
+        db.insert(bot)
+        # A resource owner or name embedded in history must never become its actor.
+        for actor, kind, at in (
+            (users[0], ProjectActivityType.CardCreated, start - timedelta(days=1)),
+            (users[0], ProjectActivityType.CardUpdated, start),
+            (users[0], ProjectActivityType.ProjectInvitedUserAccepted, end + timedelta(days=1)),
+            (users[1], ProjectActivityType.CardCommentAdded, start),
+            (users[1], ProjectActivityType.CardDeleted, end),
+            (users[4], ProjectActivityType.ProjectInvitedUserAccepted, end),
+            (users[5], ProjectActivityType.CardCreated, start),
+            (bot, ProjectActivityType.CardUpdated, end + timedelta(days=2)),
+        ):
+            ActivityTaskHelper(ProjectActivity).record(
+                actor, {"subject_user_id": int(users[3].id)}, project_id=project.id, activity_type=kind, created_at=at
+            )
+        for kind, at in (
+            (ProjectWikiActivityType.WikiCreated, start - timedelta(days=1)),
+            (ProjectWikiActivityType.WikiUpdated, start + timedelta(minutes=30)),
+            (ProjectWikiActivityType.WikiAssigneesUpdated, end + timedelta(days=1)),
+        ):
+            ActivityTaskHelper(ProjectWikiActivity).record(
+                users[2], {}, project_id=project.id, project_wiki_id=wiki.id, activity_type=kind, created_at=at
+            )
+        ActivityTaskHelper(UserActivity).record(users[3], {}, activity_type=UserActivityType.Activated, created_at=end)
+        db.insert(UserSignInHistory(user_id=users[3].id, is_success=True, signed_in_at=end))
+        db.insert(UserSignInHistory(user_id=users[0].id, is_success=True, signed_in_at=start - timedelta(days=3)))
+    repository = UserRepository(lambda _: None, lambda _: None)
+    roles = SimpleNamespace(
+        **{name: SimpleNamespace(get_list=Mock(return_value=[])) for name in ("api_key", "setting", "mcp")}
+    )
+    service = UserService(lambda _: None, lambda _: None, SimpleNamespace(user=repository, role=roles))
+    try:
+        records = service.get_api_list_in_settings(sort_by="email", sort_direction="asc")
+        assert [row["latest_business_activity_at"] for row in records] == [
+            start,
+            end,
+            start + timedelta(minutes=30),
+            None,
+            None,
+        ]
+        assert records[0]["last_signed_in_at"] == start - timedelta(days=3)
+        assert records[3]["last_signed_in_at"] == end
+        # Preserve the original repository triple contract.
+        assert all(len(row) == 3 for row in repository.get_all_with_profile_in_settings())
+        bounds = dict(last_business_activity_from=start, last_business_activity_before=end)
+        pages = [
+            service.get_api_list_in_settings(offset=i, limit=1, sort_by="email", sort_direction="asc", **bounds)
+            for i in range(3)
+        ]
+        assert [page[0]["uid"] for page in pages[:2]] == [users[0].get_uid(), users[2].get_uid()]
+        assert pages[2] == []
+        assert service.count_in_settings(**bounds) == 2
+        assert service.count_in_settings(last_business_activity_from=end) == 1
+        assert service.count_in_settings(last_business_activity_before=end) == 2
+        assert service.count_in_settings(exclude_user_uid=users[0].get_uid(), **bounds) == 1
+        assert service.count_in_settings(column_filters={"email": "business-2"}, **bounds) == 1
+        assert service.count_in_settings(last_signed_in_from=end, **bounds) == 0
+        api_service = SimpleNamespace(user=service)
+        response = get_users_page_in_settings(
+            last_business_activity_from="2026-10-24T10:00:00+09:00",
+            last_business_activity_before="2026-10-24T11:00:00+09:00",
+            service=api_service,
+        )
+        payload = json.loads(response.body)
+        assert payload["total_records"] == 2
+        assert {row["uid"] for row in payload["records"]} == {users[0].get_uid(), users[2].get_uid()}
+        detail = json.loads(get_user_in_settings(user_uid=users[2].get_uid(), service=api_service).body)["user"]
+        assert detail["latest_business_activity_at"] == next(
+            row["latest_business_activity_at"] for row in payload["records"] if row["uid"] == users[2].get_uid()
+        )
+    finally:
+        User.__table__.metadata.drop_all(engine, tables=list(tables))
         engine.dispose()

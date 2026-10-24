@@ -7,14 +7,18 @@ from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TUserParam
 from ....domain.models import (
     IdentityProvider,
+    ProjectActivity,
     ProjectAssignedUser,
     ProjectUserRelationship,
+    ProjectWikiActivity,
     User,
     UserEmail,
     UserIdentityLink,
     UserProfile,
     UserSignInHistory,
 )
+from ....domain.models.ProjectActivity import ProjectActivityType
+from ....domain.models.ProjectWikiActivity import ProjectWikiActivityType
 from ....helpers import InfraHelper
 
 
@@ -44,6 +48,80 @@ class UserRepository(BaseRepository[User]):
             )
 
     @staticmethod
+    def _latest_business_activity():
+        """Use persisted mutation actors, excluding identity and access configuration.
+
+        Explicit allowlists keep future read-only/security events out by default.
+        UserActivity is only a mirror and is absent for some atomic card mutations.
+        """
+        project_actions = (
+            ProjectActivityType.ProjectCreated,
+            ProjectActivityType.ProjectUpdated,
+            ProjectActivityType.ProjectDeleted,
+            ProjectActivityType.ProjectColumnCreated,
+            ProjectActivityType.ProjectColumnNameChanged,
+            ProjectActivityType.ProjectColumnDeleted,
+            ProjectActivityType.ProjectLabelCreated,
+            ProjectActivityType.ProjectLabelUpdated,
+            ProjectActivityType.ProjectLabelDeleted,
+            ProjectActivityType.CardCreated,
+            ProjectActivityType.CardLinked,
+            ProjectActivityType.CardCloned,
+            ProjectActivityType.CardUpdated,
+            ProjectActivityType.CardMoved,
+            ProjectActivityType.CardAssignedUsersUpdated,
+            ProjectActivityType.CardLabelsUpdated,
+            ProjectActivityType.CardDeleted,
+            ProjectActivityType.CardAttachmentUploaded,
+            ProjectActivityType.CardAttachmentNameChanged,
+            ProjectActivityType.CardAttachmentDeleted,
+            ProjectActivityType.CardCommentAdded,
+            ProjectActivityType.CardCommentUpdated,
+            ProjectActivityType.CardCommentDeleted,
+            ProjectActivityType.CardCommentReacted,
+            ProjectActivityType.CardCommentUnreacted,
+            ProjectActivityType.CardRelationshipsUpdated,
+            ProjectActivityType.CardChecklistCreated,
+            ProjectActivityType.CardChecklistTitleChanged,
+            ProjectActivityType.CardChecklistChecked,
+            ProjectActivityType.CardChecklistUnchecked,
+            ProjectActivityType.CardChecklistDeleted,
+            ProjectActivityType.CardCheckitemCreated,
+            ProjectActivityType.CardCheckitemTitleChanged,
+            ProjectActivityType.CardCheckitemTimerStarted,
+            ProjectActivityType.CardCheckitemTimerPaused,
+            ProjectActivityType.CardCheckitemTimerStopped,
+            ProjectActivityType.CardCheckitemChecked,
+            ProjectActivityType.CardCheckitemUnchecked,
+            ProjectActivityType.CardCheckitemCardified,
+            ProjectActivityType.CardCheckitemDeleted,
+        )
+        wiki_actions = (
+            ProjectWikiActivityType.WikiCreated,
+            ProjectWikiActivityType.WikiUpdated,
+            ProjectWikiActivityType.WikiDeleted,
+        )
+        events = (
+            select(ProjectActivity.column("user_id"), ProjectActivity.column("created_at"))
+            .where(
+                ProjectActivity.column("activity_type").in_(project_actions), ProjectActivity.column("bot_id").is_(None)
+            )
+            .union_all(
+                select(ProjectWikiActivity.column("user_id"), ProjectWikiActivity.column("created_at")).where(
+                    ProjectWikiActivity.column("activity_type").in_(wiki_actions),
+                    ProjectWikiActivity.column("bot_id").is_(None),
+                )
+            )
+            .subquery()
+        )
+        return (
+            select(func.max(events.c.created_at))
+            .where(events.c.user_id == User.column("id"))
+            .correlate(User)
+            .scalar_subquery()
+        )
+
+    @staticmethod
     def _settings_filters(
         query: str = "",
         account_status: str = "all",
@@ -52,6 +130,8 @@ class UserRepository(BaseRepository[User]):
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
         user_uid: str | None = None,
     ):
         filters = [User.column("deleted_at").is_(None)]
@@ -85,6 +165,12 @@ class UserRepository(BaseRepository[User]):
                 filters.append(latest >= last_signed_in_from)
             if last_signed_in_before is not None:
                 filters.append(latest < last_signed_in_before)
+        if last_business_activity_from is not None or last_business_activity_before is not None:
+            latest = UserRepository._latest_business_activity()
+            if last_business_activity_from is not None:
+                filters.append(latest >= last_business_activity_from)
+            if last_business_activity_before is not None:
+                filters.append(latest < last_business_activity_before)
         query = query.strip()
         if query:
             matches = [
@@ -109,6 +195,8 @@ class UserRepository(BaseRepository[User]):
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
     ) -> int:
         with DbSession.use(readonly=True) as db:
             return (
@@ -121,6 +209,8 @@ class UserRepository(BaseRepository[User]):
                             exclude_user_uid=exclude_user_uid,
                             last_signed_in_from=last_signed_in_from,
                             last_signed_in_before=last_signed_in_before,
+                            last_business_activity_from=last_business_activity_from,
+                            last_business_activity_before=last_business_activity_before,
                         )
                     )
                 ).first()
@@ -138,9 +228,12 @@ class UserRepository(BaseRepository[User]):
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
         sort_by: str = "created_at",
         sort_direction: str = "desc",
         user_uid: str | None = None,
+        _with_business_activity: bool = False,
     ):
         filters = self._settings_filters(
             query,
@@ -149,6 +242,8 @@ class UserRepository(BaseRepository[User]):
             exclude_user_uid=exclude_user_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
+            last_business_activity_from=last_business_activity_from,
+            last_business_activity_before=last_business_activity_before,
             user_uid=user_uid,
         )
         if sort_by not in ("email", "firstname", "lastname", "created_at") or sort_direction not in ("asc", "desc"):
@@ -172,8 +267,11 @@ class UserRepository(BaseRepository[User]):
             .group_by(UserSignInHistory.column("user_id"))
             .subquery()
         )
+        columns = [User, UserProfile, last_sign_ins.c.last_signed_in_at]
+        if _with_business_activity:
+            columns.append(self._latest_business_activity().label("latest_business_activity_at"))
         query = (
-            SqlBuilder.select.tables(User, UserProfile, last_sign_ins.c.last_signed_in_at)
+            SqlBuilder.select.tables(*columns)
             .outerjoin(UserProfile, User.column("id") == UserProfile.column("user_id"))
             .outerjoin(last_sign_ins, User.column("id") == last_sign_ins.c.user_id)
             .where(User.column("id").in_(page_ids))
@@ -185,6 +283,10 @@ class UserRepository(BaseRepository[User]):
             result = db.exec(query)
             records = result.all()
         return records
+
+    def get_all_with_profile_and_activity_in_settings(self, **kwargs):
+        """Add business activity without changing the existing three-column caller contract."""
+        return self.get_all_with_profile_in_settings(**kwargs, _with_business_activity=True)
 
     def count_not_deleted(self) -> int:
         with DbSession.use(readonly=True) as db:

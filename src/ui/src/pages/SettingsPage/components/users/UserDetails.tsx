@@ -18,6 +18,7 @@ interface IUserDetails {
     account_status: "active" | "inactive";
     created_at: string;
     last_signed_in_at: string | null;
+    latest_business_activity_at: string | null;
     is_admin: bool;
     setting_role_actions: string[];
     api_key_role_actions: string[];
@@ -104,6 +105,17 @@ function UserDetailsContent({ uid }: { uid: string }) {
                         <dt className="text-muted-foreground">{t("settings.Last successful sign-in")}</dt>
                         <dd>
                             {data.last_signed_in_at ? <DateDistance date={new Date(data.last_signed_in_at)} /> : t("settings.No recorded sign-in")}
+                        </dd>
+                        <dt className="text-muted-foreground">{t("settings.Latest business activity")}</dt>
+                        <dd>
+                            {data.latest_business_activity_at ? (
+                                <DateDistance
+                                    date={new Date(data.latest_business_activity_at)}
+                                    title={new Date(data.latest_business_activity_at).toISOString()}
+                                />
+                            ) : (
+                                t("settings.No recorded business activity")
+                            )}
                         </dd>
                     </dl>
                     <section className="space-y-2 border-t pt-4">

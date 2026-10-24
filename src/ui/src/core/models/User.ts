@@ -31,6 +31,7 @@ export interface Interface extends IBaseModel {
     position?: string;
     activated_at?: Date;
     last_signed_in_at?: Date | null;
+    latest_business_activity_at?: Date | null;
     setting_role_actions: SettingRole.TActions[];
     mcp_role_actions: McpRole.TActions[];
 }
@@ -155,6 +156,9 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
         if (Utils.Type.isString(model.last_signed_in_at)) {
             model.last_signed_in_at = new Date(model.last_signed_in_at);
         }
+        if (Utils.Type.isString(model.latest_business_activity_at)) {
+            model.latest_business_activity_at = new Date(model.latest_business_activity_at);
+        }
         return model;
     }
 
@@ -177,6 +181,7 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
             avatar: undefined,
             activated_at: undefined,
             last_signed_in_at: undefined,
+            latest_business_activity_at: undefined,
             is_admin: undefined,
             industry: "",
             purpose: "",
@@ -274,6 +279,10 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
     }
     public set activated_at(value: string | Date | undefined) {
         this.update({ activated_at: value as unknown as Date });
+    }
+
+    public get latest_business_activity_at(): Date | null | undefined {
+        return this.getValue("latest_business_activity_at");
     }
 
     public get last_signed_in_at(): Date | null | undefined {

@@ -615,5 +615,13 @@
     "Sign-in range help": "현지 시간입니다. 마지막 로그인 성공 시각으로 필터링하며 기록이 없는 계정은 제외됩니다.",
     "Invalid sign-in range": "유효하고 중복되지 않는 현지 시간을 입력하고 시작을 종료보다 앞서 지정하세요.",
   "Attempt history": "시도 이력",
-  "Duration unavailable": "실행 시간 확인 불가"
+  "Duration unavailable": "실행 시간 확인 불가",
+  "Latest business activity": "마지막 업무 변경 활동",
+  "No recorded business activity": "기록된 업무 활동 없음",
+  "Business activity from": "업무 활동 시작 (포함)",
+  "Business activity before": "업무 활동 종료 (제외)",
+  "Apply business activity range": "업무 활동 기간 적용",
+  "Clear business activity range": "업무 활동 기간 지우기",
+  "Business activity range help": "현지 시각을 UTC로 변환합니다. 시작 시각은 포함하고 종료 시각은 제외합니다. 로그인과 별도로 업무 변경 활동을 필터링합니다.",
+  "Invalid business activity range": "시작이 종료보다 앞선 유효하고 모호하지 않은 현지 시각을 입력하세요."
 }

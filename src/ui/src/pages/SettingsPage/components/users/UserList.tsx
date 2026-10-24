@@ -39,6 +39,10 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [signInBefore, setSignInBefore] = useState("");
     const [signInRange, setSignInRange] = useState<{ from?: string; before?: string }>({});
     const [rangeError, setRangeError] = useState(false);
+    const [businessActivityFrom, setBusinessActivityFrom] = useState("");
+    const [businessActivityBefore, setBusinessActivityBefore] = useState("");
+    const [businessActivityRange, setBusinessActivityRange] = useState<{ from?: string; before?: string }>({});
+    const [businessActivityRangeError, setBusinessActivityRangeError] = useState(false);
     const [rows, setRows] = useState<User.TModel[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -98,6 +102,8 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 account_status: accountStatus,
                 last_signed_in_from: signInRange.from,
                 last_signed_in_before: signInRange.before,
+                last_business_activity_from: businessActivityRange.from,
+                last_business_activity_before: businessActivityRange.before,
                 ...columnFilters,
                 exclude_user_uid: currentUser.uid,
                 sort_by: sort.key || "created_at",
@@ -132,7 +138,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 if (!abort.signal.aborted) setLoading(false);
             });
         return () => abort.abort();
-    }, [page, search, columnFilters, sort, accountStatus, signInRange, currentUser.uid, revision, setSelectedUsers]);
+    }, [page, search, columnFilters, sort, accountStatus, signInRange, businessActivityRange, currentUser.uid, revision, setSelectedUsers]);
 
     const paginate = (options: IPaginateOptions) => {
         setPage(options.page ?? 1);
@@ -207,6 +213,51 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
             {rangeError && (
                 <p role="alert" className="mb-3 text-destructive">
                     {t("settings.Invalid sign-in range")}
+                </p>
+            )}
+            <form
+                className="mb-3 flex flex-wrap items-end gap-3"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    try {
+                        const from = localSignInBound(businessActivityFrom);
+                        const before = localSignInBound(businessActivityBefore);
+                        if (from && before && from >= before) throw new Error("Invalid range");
+                        setBusinessActivityRangeError(false);
+                        setBusinessActivityRange({ from, before });
+                        setPage(1);
+                    } catch {
+                        setBusinessActivityRangeError(true);
+                    }
+                }}
+            >
+                <label>
+                    <span className="mb-1 block text-sm">{t("settings.Business activity from")}</span>
+                    <Input type="datetime-local" value={businessActivityFrom} onChange={(event) => setBusinessActivityFrom(event.target.value)} />
+                </label>
+                <label>
+                    <span className="mb-1 block text-sm">{t("settings.Business activity before")}</span>
+                    <Input type="datetime-local" value={businessActivityBefore} onChange={(event) => setBusinessActivityBefore(event.target.value)} />
+                </label>
+                <Button type="submit">{t("settings.Apply business activity range")}</Button>
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                        setBusinessActivityFrom("");
+                        setBusinessActivityBefore("");
+                        setBusinessActivityRange({});
+                        setBusinessActivityRangeError(false);
+                        setPage(1);
+                    }}
+                >
+                    {t("settings.Clear business activity range")}
+                </Button>
+            </form>
+            <p className="mb-3 text-sm text-muted-foreground">{t("settings.Business activity range help")}</p>
+            {businessActivityRangeError && (
+                <p role="alert" className="mb-3 text-destructive">
+                    {t("settings.Invalid business activity range")}
                 </p>
             )}
             {error && (
@@ -329,6 +380,13 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                         render: ({ row }) => <UserListItemLastSignIn user={row} />,
                     },
                     {
+                        key: "latest_business_activity_at",
+                        header: t("settings.Latest business activity"),
+                        align: "center",
+                        width: "min-w-40",
+                        render: ({ row }) => <UserListItemBusinessActivity user={row} />,
+                    },
+                    {
                         key: "type",
                         header: t("common.More"),
                         align: "center",
@@ -355,6 +413,16 @@ function UserListItemLastSignIn({ user }: { user: User.TModel }) {
     const [t] = useTranslation();
     const signedInAt = user.useField("last_signed_in_at");
     return signedInAt ? <DateDistance date={signedInAt} /> : <span className="text-muted-foreground">{t("settings.No recorded sign-in")}</span>;
+}
+
+function UserListItemBusinessActivity({ user }: { user: User.TModel }) {
+    const [t] = useTranslation();
+    const activityAt = user.useField("latest_business_activity_at");
+    return activityAt ? (
+        <DateDistance date={activityAt} title={activityAt.toISOString()} />
+    ) : (
+        <span className="text-muted-foreground">{t("settings.No recorded business activity")}</span>
+    );
 }
 
 export default UserList;

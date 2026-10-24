@@ -111,6 +111,7 @@ def link_user_oidc_identity(
                             "activated_at": "string?",
                             "account_status": "string",
                             "last_signed_in_at": "string?",
+                            "latest_business_activity_at": "string?",
                             "is_admin": "bool",
                             "setting_role_actions": [ALL_GRANTED, SettingRoleAction],
                             "api_key_role_actions": [ALL_GRANTED, ApiKeyRoleAction],
@@ -193,6 +194,14 @@ def get_users_page_in_settings(
         str | None,
         Query(max_length=40, description="Latest successful sign-in, exclusive ISO 8601 timezone-aware upper bound"),
     ] = None,
+    last_business_activity_from: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest business mutation, inclusive ISO 8601 timezone-aware lower bound"),
+    ] = None,
+    last_business_activity_before: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest business mutation, exclusive ISO 8601 timezone-aware upper bound"),
+    ] = None,
     sort_by: Literal["email", "firstname", "lastname", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     service: DomainService = DomainService.scope(),
@@ -200,6 +209,10 @@ def get_users_page_in_settings(
     signed_in_from = _sign_in_bound(last_signed_in_from)
     signed_in_before = _sign_in_bound(last_signed_in_before)
     if signed_in_from is not None and signed_in_before is not None and signed_in_from >= signed_in_before:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    business_from = _sign_in_bound(last_business_activity_from)
+    business_before = _sign_in_bound(last_business_activity_before)
+    if business_from is not None and business_before is not None and business_from >= business_before:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     return JsonResponse(
         content={
@@ -212,6 +225,8 @@ def get_users_page_in_settings(
                 exclude_user_uid=exclude_user_uid,
                 last_signed_in_from=signed_in_from,
                 last_signed_in_before=signed_in_before,
+                last_business_activity_from=business_from,
+                last_business_activity_before=business_before,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
             ),
@@ -222,6 +237,8 @@ def get_users_page_in_settings(
                 exclude_user_uid=exclude_user_uid,
                 last_signed_in_from=signed_in_from,
                 last_signed_in_before=signed_in_before,
+                last_business_activity_from=business_from,
+                last_business_activity_before=business_before,
             ),
             "page": page,
             "limit": limit,

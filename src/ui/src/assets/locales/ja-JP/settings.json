@@ -615,5 +615,13 @@
     "Sign-in range help": "現地時間です。最後に成功したログインで絞り込み、記録のないアカウントは除外します。",
     "Invalid sign-in range": "有効で曖昧でない現地時刻を入力し、開始を終了より前にしてください。",
   "Attempt history": "試行履歴",
-  "Duration unavailable": "実行時間不明"
+  "Duration unavailable": "実行時間不明",
+  "Latest business activity": "最新の業務変更活動",
+  "No recorded business activity": "業務活動の記録なし",
+  "Business activity from": "業務活動の開始（含む）",
+  "Business activity before": "業務活動の終了（含まない）",
+  "Apply business activity range": "業務活動期間を適用",
+  "Clear business activity range": "業務活動期間をクリア",
+  "Business activity range help": "現地時刻をUTCに変換します。開始を含み、終了を含みません。ログインとは独立して業務変更を絞り込みます。",
+  "Invalid business activity range": "開始が終了より前の、有効で曖昧でない現地時刻を入力してください。"
 }

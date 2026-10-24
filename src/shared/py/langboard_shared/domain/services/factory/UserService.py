@@ -55,11 +55,13 @@ class UserService(BaseDomainService):
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
         sort_by: str = "created_at",
         sort_direction: str = "desc",
         user_uid: str | None = None,
     ) -> list[dict[str, Any]]:
-        users = self.repo.user.get_all_with_profile_in_settings(
+        users = self.repo.user.get_all_with_profile_and_activity_in_settings(
             offset=offset,
             limit=limit,
             query=query,
@@ -68,6 +70,8 @@ class UserService(BaseDomainService):
             exclude_user_uid=exclude_user_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
+            last_business_activity_from=last_business_activity_from,
+            last_business_activity_before=last_business_activity_before,
             sort_by=sort_by,
             sort_direction=sort_direction,
             user_uid=user_uid,
@@ -75,17 +79,17 @@ class UserService(BaseDomainService):
         if not users:
             return []
 
-        api_key_roles = self.repo.role.api_key.get_list(user_id=cast(SnowflakeID, [user.id for user, _, _ in users]))
+        api_key_roles = self.repo.role.api_key.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         api_key_role_actions_dicts = {role.user_id: role.actions for role in api_key_roles}
 
-        setting_roles = self.repo.role.setting.get_list(user_id=cast(SnowflakeID, [user.id for user, _, _ in users]))
+        setting_roles = self.repo.role.setting.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         setting_role_actions_dicts = {role.user_id: role.actions for role in setting_roles}
 
-        mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [user.id for user, _, _ in users]))
+        mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         mcp_role_actions_dicts = {role.user_id: role.actions for role in mcp_roles}
 
         api_list = []
-        for user, profile, last_signed_in_at in users:
+        for user, profile, last_signed_in_at, latest_business_activity_at in users:
             api_user = user.api_response()
             if profile:
                 api_user.update(profile.api_response())
@@ -106,6 +110,11 @@ class UserService(BaseDomainService):
                 if last_signed_in_at and last_signed_in_at.tzinfo is None
                 else last_signed_in_at
             )
+            api_user["latest_business_activity_at"] = (
+                latest_business_activity_at.replace(tzinfo=timezone.utc)
+                if latest_business_activity_at and latest_business_activity_at.tzinfo is None
+                else latest_business_activity_at
+            )
             api_user["is_admin"] = user.is_admin
             api_user["setting_role_actions"] = setting_role_actions_dicts.get(user.id, [])
             api_user["api_key_role_actions"] = api_key_role_actions_dicts.get(user.id, [])
@@ -123,6 +132,8 @@ class UserService(BaseDomainService):
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
     ) -> int:
         return self.repo.user.count_in_settings(
             query=query,
@@ -131,6 +142,8 @@ class UserService(BaseDomainService):
             exclude_user_uid=exclude_user_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
+            last_business_activity_from=last_business_activity_from,
+            last_business_activity_before=last_business_activity_before,
         )
 
     def count_not_deleted(self) -> int:
