@@ -11,23 +11,15 @@ if TYPE_CHECKING:
 
 
 SUPPORTED_PROVIDERS = frozenset({"OpenAI", "OpenAI Compatible", "LiteLLM"})
-EMBEDDING_MAX_RETRIES = 1
-# OpenAI 3.24.0 accepts Retry-After delays up to 120 seconds, including retry-after-ms.
-# Recheck this bound with the official-client regression when upgrading the SDK lock.
-EMBEDDING_MAX_RETRY_DELAY_SECONDS = 120
+# Embedding POST execution is ambiguous after transport/server failure. An SDK
+# retry can repeat paid inference even while the local cache retains its claim.
+EMBEDDING_MAX_RETRIES = 0
 EMBEDDING_LEASE_MARGIN_SECONDS = 30
 
 
 def embedding_inference_budget_seconds(timeout_seconds: float) -> float:
-    """Budget configured attempts, supported SDK delays and cache publication margin.
-
-    A finite lease cannot cover arbitrary process suspension or remote ambiguity.
-    """
-    return (
-        (EMBEDDING_MAX_RETRIES + 1) * timeout_seconds
-        + EMBEDDING_MAX_RETRIES * EMBEDDING_MAX_RETRY_DELAY_SECONDS
-        + EMBEDDING_LEASE_MARGIN_SECONDS
-    )
+    """Bound undispatched claims and waiter latency, never remote execution."""
+    return timeout_seconds + EMBEDDING_LEASE_MARGIN_SECONDS
 
 
 def snapshot_embedding_config(value: str, binding_uid: str, *, explicit: bool = False) -> dict | None:

@@ -140,6 +140,20 @@ def test_provider_failure_retains_prior_pointer_and_redacts_error(monkeypatch, t
     assert "confidential" not in failure["error"]
 
 
+def test_uncertain_provider_outcome_is_explicit_and_preserves_prior_pointer(monkeypatch, tmp_path):
+    from langboard_shared.tasks.docling.DocumentEmbeddingCache import EmbeddingInferenceUncertain
+
+    service, _, _ = fixture(monkeypatch, tmp_path)
+    task.stage_vector_generation.side_effect = EmbeddingInferenceUncertain()
+    asyncio.run(task.embed_transcription(service, "attachment", "current"))
+    failure = service.docling_metadata.publish_document_embedding.call_args.args[-1]
+    assert failure["status"] == "failed"
+    assert failure["pointer"]["generation"] == "old"
+    assert "outcome uncertain" in failure["error"]
+    assert "automatic resend disabled" in failure["error"]
+    assert "reconciliation required" in failure["error"]
+
+
 @pytest.mark.parametrize("splitter_changed", [False, True])
 def test_same_model_reindex_honors_explicit_splitter_changes(monkeypatch, tmp_path, splitter_changed):
     from copy import deepcopy

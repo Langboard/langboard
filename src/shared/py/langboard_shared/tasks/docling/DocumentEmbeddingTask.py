@@ -9,7 +9,12 @@ from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
 from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
-from .DocumentEmbeddingCache import CHUNK_VERSION, cached_document_embeddings, release_cache_references
+from .DocumentEmbeddingCache import (
+    CHUNK_VERSION,
+    EmbeddingInferenceUncertain,
+    cached_document_embeddings,
+    release_cache_references,
+)
 from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrievalSettings
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
@@ -224,7 +229,15 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
             attachment_uid,
             generation,
             content_hash,
-            {**old, "status": "failed", "error": "Embedding failed; the previous searchable generation is retained"},
+            {
+                **old, "status": "failed",
+                "error": (
+                    "Inference dispatched or outcome uncertain; automatic resend disabled; reconciliation required. "
+                    "The previous searchable generation is retained"
+                    if isinstance(error, EmbeddingInferenceUncertain)
+                    else "Embedding failed; the previous searchable generation is retained"
+                ),
+            },
             expected_embedding=old,
         )
     service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)

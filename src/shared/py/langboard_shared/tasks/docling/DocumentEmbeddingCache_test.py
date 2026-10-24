@@ -2,14 +2,12 @@
 
 import asyncio
 import os
-import time
 from contextlib import closing
 from datetime import timedelta
 from hashlib import sha256
 from json import dumps
 from unittest.mock import Mock
 from uuid import uuid4
-import anyio
 import httpx
 import langchain_openai
 import pytest
@@ -20,6 +18,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from langboard_shared.tasks.docling.DocumentEmbedding import create_document_embeddings
 from langboard_shared.tasks.docling.DocumentEmbeddingCache import (
+    EmbeddingInferenceUncertain,
     cached_document_embeddings,
     recover_expired_cache_references,
 )
@@ -120,12 +119,18 @@ def test_chunk_configuration_and_version_are_part_of_cache_identity(cache_store)
 
 
 @pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
-def test_official_retry_after_preserves_ownership_and_waiters(cache_store, monkeypatch, use_async):
+@pytest.mark.parametrize("failure", ["response-loss", "server-error"])
+def test_official_ambiguous_failure_never_repeats_inference(cache_store, monkeypatch, use_async, failure):
+    async def no_delay(seconds):
+        pass
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    monkeypatch.setattr("anyio.sleep", no_delay)
+
     now = SafeDateTime.now()
     elapsed = [0.0]
     monkeypatch.setattr(SafeDateTime, "now", lambda: now + timedelta(seconds=elapsed[0]))
-    monkeypatch.setattr(time, "monotonic", lambda: elapsed[0])
-    requests, delays = [], []
+    requests = []
     constructor = langchain_openai.OpenAIEmbeddings
     value = dumps({
         "agent_llm": "OpenAI Compatible",
@@ -137,15 +142,11 @@ def test_official_retry_after_preserves_ownership_and_waiters(cache_store, monke
     def handle(request):
         assert DbSession._atomic_session.get() is None
         requests.append(request)
-        elapsed[0] += 1  # Both HTTP attempts consume their configured timeout budget.
-        if len(requests) == 1:
-            return httpx.Response(503, headers={"retry-after": "120"}, json={
-                "error": {"message": "retry fixture", "type": "server_error"},
-            })
-        return httpx.Response(200, json={
-            "object": "list", "model": "fixture-embedding",
-            "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]}],
-            "usage": {"prompt_tokens": 1, "total_tokens": 1},
+        if failure == "response-loss":
+            # Provider accepted the body; the client never receives its result.
+            raise httpx.ReadError("accepted response lost", request=request)
+        return httpx.Response(503, headers={"retry-after": "120"}, json={
+            "error": {"message": "unknown execution outcome", "type": "server_error"},
         })
 
     async def run():
@@ -155,36 +156,124 @@ def test_official_retry_after_preserves_ownership_and_waiters(cache_store, monke
                     **kwargs, http_client=sync_client, http_async_client=async_client,
                 ))
                 provider = create_document_embeddings(value, {"https://fixture.invalid/v1"})
-                assert provider.max_retries == 1
-                with (
-                    cached_document_embeddings(provider, **settings()) as first,
-                    cached_document_embeddings(provider, **settings()) as second,
-                    closing(second._embedding_steps(["same chunk"])) as waiter,
-                ):
-                    def advance_delay(delay):
-                        delays.append(delay)
+                with cached_document_embeddings(provider, **settings()) as first:
+                    with pytest.raises(EmbeddingInferenceUncertain):
+                        if use_async:
+                            await first.aembed_documents(["same chunk"])
+                        else:
+                            first.embed_documents(["same chunk"])
+                assert len(requests) == 1
+                elapsed[0] += 9 * 60 * 60
+                recover_expired_cache_references()
+                with cached_document_embeddings(provider, **settings()) as second:
+                    _, vector, owned = second._claim(second._key("same chunk"))
+                    assert vector is None and not owned
+                    elapsed_clock = [0.0]
+                    monkeypatch.setattr("time.monotonic", lambda: elapsed_clock[0])
+                    with closing(second._embedding_steps(["same chunk"])) as waiter:
                         assert next(waiter) == ("wait", 0.1)
-                        elapsed[0] += delay
-                        _, _, owned = second._claim(second._key("same chunk"))
-                        assert not owned, "Supported SDK retry must retain the first uploader's lease"
-                        assert next(waiter) == ("wait", 0.1)
-
-                    async def async_delay(delay):
-                        advance_delay(delay)
-
-                    # Only replace clocks and sleeps; the official SDK parses and retries the response.
-                    monkeypatch.setattr(time, "sleep", advance_delay)
-                    monkeypatch.setattr(anyio, "sleep", async_delay)
-                    expected = [[0.1, 0.2, 0.3]]
-                    result = (
-                        await first.aembed_documents(["same chunk"])
-                        if use_async else first.embed_documents(["same chunk"])
-                    )
-                    assert result == expected
-                    with pytest.raises(StopIteration) as completed:
-                        next(waiter)
-                    assert completed.value.value == expected
-                    assert second.embed_documents(["same chunk"]) == expected
+                        elapsed_clock[0] += second.inference_budget_seconds + 1
+                        with pytest.raises(EmbeddingInferenceUncertain, match="automatic resend disabled"):
+                            next(waiter)
+                assert len(requests) == 1
 
     asyncio.run(run())
-    assert len(requests) == 2 and delays == [120.0]
+
+
+def test_late_worker_keeps_ownership_and_publishes_without_duplicate(cache_store, monkeypatch):
+    from langchain_core.embeddings import Embeddings
+
+    now = SafeDateTime.now()
+    elapsed = [0.0]
+    monkeypatch.setattr(SafeDateTime, "now", lambda: now + timedelta(seconds=elapsed[0]))
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            raise AssertionError("Generator drives the controlled dispatch boundary")
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    with (
+        cached_document_embeddings(Provider(), **settings()) as first,
+        cached_document_embeddings(Provider(), **settings()) as second,
+        closing(first._embedding_steps(["same chunk"])) as worker,
+    ):
+        assert next(worker) == ("embed", ["same chunk"])
+        elapsed[0] += first.inference_budget_seconds + 1
+        _, _, owned = second._claim(second._key("same chunk"))
+        assert not owned
+        with pytest.raises(StopIteration) as completed:
+            worker.send([[1.0, 2.0, 3.0]])
+        assert completed.value.value == [[1.0, 2.0, 3.0]]
+        assert second.embed_documents(["same chunk"]) == [[1.0, 2.0, 3.0]]
+
+
+def test_official_rejection_releases_claim_but_undispatched_batches_remain_retryable(cache_store):
+    from langchain_core.embeddings import Embeddings
+    from openai import RateLimitError
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            raise AssertionError("Controlled dispatch boundary")
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    texts = [f"chunk {index}" for index in range(33)]
+    with cached_document_embeddings(Provider(), **settings()) as first:
+        worker = first._embedding_steps(texts)
+        assert next(worker)[0] == "embed"
+        response = httpx.Response(429, request=httpx.Request("POST", "https://fixture.invalid/v1/embeddings"))
+        with pytest.raises(RateLimitError):
+            worker.throw(RateLimitError("rejected before inference", response=response, body=None))
+        assert not first.uncertain
+        with cached_document_embeddings(Provider(), **settings()) as second:
+            assert all(second._claim(second._key(value))[2] for value in texts)
+
+
+def test_ambiguous_batch_releases_only_undispatched_claims(cache_store):
+    from langchain_core.embeddings import Embeddings
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            raise AssertionError
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    texts = [f"chunk {index}" for index in range(33)]
+    with cached_document_embeddings(Provider(), **settings()) as first:
+        worker = first._embedding_steps(texts)
+        _, dispatched = next(worker)
+        with pytest.raises(EmbeddingInferenceUncertain):
+            worker.throw(RuntimeError("response lost"))
+        with cached_document_embeddings(Provider(), **settings()) as second:
+            for value in texts:
+                assert second._claim(second._key(value))[2] == (value not in dispatched)
+
+
+def test_rejected_later_batch_preserves_successful_inference_for_retry(cache_store):
+    from langchain_core.embeddings import Embeddings
+    from openai import RateLimitError
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            raise AssertionError
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    texts = [f"chunk {index}" for index in range(33)]
+    with cached_document_embeddings(Provider(), **settings()) as first:
+        worker = first._embedding_steps(texts)
+        _, completed = next(worker)
+        _, rejected = worker.send([[1.0, 2.0, 3.0] for _ in completed])
+        response = httpx.Response(429, request=httpx.Request("POST", "https://fixture.invalid/v1/embeddings"))
+        with pytest.raises(RateLimitError):
+            worker.throw(RateLimitError("rejected", response=response, body=None))
+    with cached_document_embeddings(Provider(), **settings()) as second:
+        for value in completed:
+            _, vector, owned = second._claim(second._key(value))
+            assert vector == [1.0, 2.0, 3.0] and not owned
+        assert all(second._claim(second._key(value))[2] for value in rejected)

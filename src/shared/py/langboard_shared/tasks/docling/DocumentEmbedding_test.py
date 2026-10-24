@@ -117,7 +117,7 @@ def test_vector_snapshot_refreshes_only_same_endpoint_credentials():
 
 
 @pytest.mark.parametrize("failure", ["timeout", "server_error"])
-def test_official_async_client_retries_transient_document_requests(monkeypatch, failure):
+def test_official_async_client_does_not_resend_ambiguous_document_requests(monkeypatch, failure):
     import asyncio
 
     requests = []
@@ -153,7 +153,10 @@ def test_official_async_client_retries_transient_document_requests(monkeypatch, 
                 }
             )
             embedding = create_document_embeddings(value, {"https://fixture.invalid/v1"})
-            assert await embedding.aembed_documents(["private fixture document"]) == [[0.1, 0.2, 0.3]]
+            from openai import APITimeoutError, InternalServerError
+
+            with pytest.raises(APITimeoutError if failure == "timeout" else InternalServerError):
+                await embedding.aembed_documents(["private fixture document"])
 
     asyncio.run(run())
-    assert len(requests) == 2
+    assert len(requests) == 1

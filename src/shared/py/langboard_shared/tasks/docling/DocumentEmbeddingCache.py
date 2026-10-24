@@ -31,6 +31,11 @@ class EmbeddingCacheUnavailable(RuntimeError):
     pass
 
 
+class EmbeddingInferenceUncertain(EmbeddingCacheUnavailable):
+    def __init__(self):
+        super().__init__("Inference dispatched or outcome uncertain; automatic resend disabled; reconciliation required")
+
+
 def _utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
@@ -193,7 +198,7 @@ class CachedDocumentEmbeddings:
                     )
             return entry.id, entry.vector, owned
 
-    def _release_claims(self, identifiers, *, attempted):
+    def _release_claims(self, identifiers):
         with DbSession.atomic() as db:
             db.exec(
                 update(DocumentEmbeddingCache)
@@ -201,13 +206,7 @@ class CachedDocumentEmbeddings:
                     DocumentEmbeddingCache.id.in_(identifiers),
                     DocumentEmbeddingCache.lease_token == self.token,
                 )
-                .values(
-                    **(
-                        {"lease_expires_at": SafeDateTime.now()}
-                        if attempted
-                        else {"lease_token": None, "lease_expires_at": None}
-                    )
-                )
+                .values(lease_token=None, lease_expires_at=None)
             )
 
     def _renew_claims(self, identifiers):
@@ -220,6 +219,23 @@ class CachedDocumentEmbeddings:
                     DocumentEmbeddingCache.lease_expires_at > SafeDateTime.now(),
                 )
                 .values(lease_expires_at=SafeDateTime.now() + timedelta(seconds=self.inference_budget_seconds))
+            )
+            if changed != len(identifiers):
+                raise EmbeddingCacheUnavailable("Inference lease no longer belongs to this attempt")
+
+    def _begin_inference(self, identifiers):
+        # NULL expiry with a token is a durable dispatched/unknown outcome.
+        # It must survive process loss, reference expiry and arbitrary suspension:
+        # the provider has no contract for recovering or deduplicating this POST.
+        with DbSession.atomic() as db:
+            changed = db.exec(
+                update(DocumentEmbeddingCache)
+                .where(
+                    DocumentEmbeddingCache.id.in_(identifiers),
+                    DocumentEmbeddingCache.lease_token == self.token,
+                    DocumentEmbeddingCache.lease_expires_at > SafeDateTime.now(),
+                )
+                .values(lease_expires_at=None)
             )
             if changed != len(identifiers):
                 raise EmbeddingCacheUnavailable("Inference lease no longer belongs to this attempt")
@@ -269,7 +285,7 @@ class CachedDocumentEmbeddings:
             return [self._ready[text] for text in texts]
         unique = {self._key(text): text for text in texts}
         entries, vectors, owned = {}, {}, {}
-        attempted = False
+        attempted = set()
         try:
             for key in sorted(unique):
                 identifier, vector, claimed = self._claim(key)
@@ -287,7 +303,9 @@ class CachedDocumentEmbeddings:
                 remaining = claims[offset:]
                 self._renew_claims([identifier for _, identifier in remaining])
                 batch = remaining[:INFERENCE_BATCH_SIZE]
-                attempted = True
+                identifiers = [identifier for _, identifier in batch]
+                self._begin_inference(identifiers)
+                attempted.update(identifiers)
                 generated = yield "embed", [unique[key] for key, _ in batch]
                 with DbSession.atomic() as db:
                     for (key, identifier), vector in zip(batch, generated, strict=True):
@@ -296,7 +314,7 @@ class CachedDocumentEmbeddings:
                             .where(
                                 DocumentEmbeddingCache.id == identifier,
                                 DocumentEmbeddingCache.lease_token == self.token,
-                                DocumentEmbeddingCache.lease_expires_at > SafeDateTime.now(),
+                                DocumentEmbeddingCache.lease_expires_at.is_(None),
                             )
                             .values(vector=vector, lease_token=None, lease_expires_at=None)
                         )
@@ -323,7 +341,7 @@ class CachedDocumentEmbeddings:
                 if len(vectors) == len(unique):
                     break
                 if time.monotonic() >= deadline:
-                    raise EmbeddingCacheUnavailable("Concurrent inference remains pending")
+                    raise EmbeddingInferenceUncertain()
                 yield "wait", 0.1
 
             from langchain_core.embeddings import Embeddings
@@ -340,10 +358,19 @@ class CachedDocumentEmbeddings:
             result = validated_embeddings(CachedResults(), self.namespace[-1]).embed_documents(texts)
             self._ready.update(zip(texts, result, strict=True))
             return result
-        except BaseException:
-            self.uncertain = attempted
-            if owned:
-                self._release_claims(list(owned.values()), attempted=attempted)
+        except BaseException as error:
+            from openai import APIStatusError
+
+            # Explicit client rejection has no inference result to reconcile.
+            # Timeout/conflict/server errors remain ambiguous across providers.
+            if isinstance(error, APIStatusError) and error.status_code in {400, 401, 403, 404, 413, 422, 429}:
+                attempted.clear()
+            self.uncertain = bool(attempted) or bool(vectors)
+            undispatched = set(owned.values()) - attempted
+            if undispatched:
+                self._release_claims(list(undispatched))
+            if attempted:
+                raise EmbeddingInferenceUncertain() from error
             raise
 
     async def aembed_query(self, text):
