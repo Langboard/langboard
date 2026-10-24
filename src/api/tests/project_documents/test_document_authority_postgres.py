@@ -2,13 +2,12 @@
 
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-
 import pytest
-from sqlalchemy import delete, select, update
 from langboard_shared.domain.models import ProjectAssignedUser, ProjectAttachment, ProjectRole
 from langboard_shared.domain.models.ProjectAttachmentDocument import ProjectAttachmentDocument
 from langboard_shared.domain.services import ProjectDocumentQuery as query
 from langboard_shared.tasks.docling import DocumentVectorQuery
+from sqlalchemy import delete, select, update
 
 
 _spec = spec_from_file_location("postgres_document_fixture", Path(__file__).with_name("test_project_document_read.py"))
