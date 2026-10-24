@@ -212,3 +212,61 @@ async def test_next_interval_after_acceptance_rechecks_current_context(bots, bou
         assert runs[1].status == ("skipped" if boundary == "schedule_stopped" else "accepted")
         assert runs[1].rule_revision == original_revision + (boundary == "revision")
         assert runs[1].residency == (utc(f.card.workflow_stage_entered_at).isoformat() if boundary == "residency" else original_residency)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expired", [True, False])
+@pytest.mark.parametrize("boundary", ["visibility", "conditions"])
+async def test_dispatch_lease_survives_current_context_revocation(bots, expired, boundary):
+    from langboard_shared.tasks.WorkflowRuleTask import _admit_intervals
+
+    f = bots
+    if boundary == "visibility":
+        _fixtures.configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+        assert _admit_intervals(f.now + timedelta(seconds=120), 5) == 1
+    else:
+        from langboard_shared.domain.services.factory.WorkflowRuleService import replace_rules
+        definition = _fixtures.definition(f.bot.get_uid())
+        definition["conditions"] = [{"kind": "actor_is_not_author", "operator": "eq", "value": True}]
+        with DbSession.atomic() as db:
+            replace_rules(db, f.stage, [definition])
+        _fixtures.reserve(f)
+    with DbSession.atomic() as db:
+        run = rows(db, WorkflowRuleRun)[0]
+        run_id = run.id
+        run.status = "running"
+        db.update(run)
+        claim = rows(db, WorkflowActionRun)[0]
+        claim.status, claim.attempt = "running", 1
+        claim.started_at = f.now - timedelta(minutes=10)
+        claim.lease_expires_at = f.now + timedelta(minutes=-1 if expired else 10)
+        db.update(claim)
+        if boundary == "visibility":
+            f.card.visibility = "PRIVATE"
+            f.card.owner_user_id = f.actor.id
+        f.card.created_by_user_id = f.actor.id
+        db.update(f.card)
+
+    await _fixtures.run_rule(run_id, now=f.now + timedelta(seconds=120))
+    f.execute.assert_not_awaited()
+    with DbSession.atomic() as db:
+        claim = rows(db, WorkflowActionRun)[0]
+        assert claim.status == ("uncertain" if expired else "running")
+        assert claim.attempt == 1
+        if expired:
+            assert claim.error_code == "lease_expired"
+            assert claim.finished_at is not None and claim.lease_expires_at is None
+            assert claim.attempts[-1]["status"] == "uncertain"
+        else:
+            assert claim.error_code is None and claim.finished_at is None
+            assert claim.lease_expires_at is not None and claim.attempts == []
+        assert rows(db, WorkflowRuleRun)[0].status == ("uncertain" if expired else "running")
+        f.card.visibility = "INTERNAL"
+        f.card.owner_user_id = None
+        db.update(f.card)
+
+    # Restoring access does not make the unresolved transport safe to repeat.
+    if boundary == "visibility":
+        assert _admit_intervals(f.now + timedelta(seconds=240), 5) == 0
+    await _fixtures.run_rule(run_id, now=f.now + timedelta(seconds=240))
+    f.execute.assert_not_awaited()

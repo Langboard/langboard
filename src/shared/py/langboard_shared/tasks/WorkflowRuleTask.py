@@ -240,18 +240,28 @@ async def run_rule(run_id, *, now=None):
         if (run is None or run.status not in {"queued", "running"}
                 or utc(run.next_attempt_at) > evaluation_now):
             return
+        claims = rows(db, WorkflowActionRun, rule_run_id=run.id)
+        # Recover transport receipts before context changes can close the run.
+        # A live dispatcher still owns its lease; an expired one is ambiguous.
+        if any(claim.status == "running" and claim.lease_expires_at
+               and utc(claim.lease_expires_at) > utc(SafeDateTime.now()) for claim in claims):
+            return
+        for claim in claims:
+            if claim.status == "running":
+                _finish_action(db, claim, "uncertain", error="lease_expired")
+        unmatched_status = "uncertain" if any(claim.status == "uncertain" for claim in claims) else "skipped"
         try:
             context = _current(db, run)
             run.condition_results, matched = _conditions(db, service, run, context, evaluation_now)
         except Exception as error:
-            run.status, run.error_code, run.finished_at = "skipped", getattr(error, "code", str(error))[:64], SafeDateTime.now()
+            run.status, run.error_code, run.finished_at = unmatched_status, getattr(error, "code", str(error))[:64], SafeDateTime.now()
             for claim in rows(db, WorkflowActionRun, rule_run_id=run.id):
                 if claim.status == "queued":
                     _finish_action(db, claim, "skipped", error=run.error_code)
             db.update(run)
             return
         if not matched:
-            run.status, run.finished_at = "skipped", SafeDateTime.now()
+            run.status, run.finished_at = unmatched_status, SafeDateTime.now()
             for claim in rows(db, WorkflowActionRun, rule_run_id=run.id):
                 if claim.status == "queued":
                     _finish_action(db, claim, "skipped", error="conditions_not_met")
