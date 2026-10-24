@@ -340,12 +340,10 @@ def update_user_in_settings(
             form_dict["activated_at"] = None
 
     try:
-        service.user.update(target_user, form_dict, from_setting=True)
+        if not service.user.update(target_user, form_dict, from_setting=True):
+            raise ApiException.NotFound_404(ApiErrorCode.NF1004)
     except UserOwnershipError:
         raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
-
-    if form.password:
-        service.user.change_password(target_user, form.password)
 
     return JsonResponse()
 

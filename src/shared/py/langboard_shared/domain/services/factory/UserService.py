@@ -273,6 +273,8 @@ class UserService(BaseDomainService):
                 if type(expected) is not int or expected != current.avatar_revision:
                     raise AvatarError("avatar_revision_conflict", 409)
             result = self._update_locked(current, form, from_setting, db)
+            if from_setting and form.get("password"):
+                self.change_password(current, form["password"])
 
             # Keep callers holding the authenticated model consistent after commit.
             def refresh_caller():
