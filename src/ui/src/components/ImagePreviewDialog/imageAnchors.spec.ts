@@ -473,3 +473,33 @@ for (const control of ["numeric zoom", "Fit image"] as const) {
         expect(fitted.y + fitted.height / 2).toBeCloseTo(viewport.height / 2, 0);
     });
 }
+
+for (const control of ["keyboard", "image number", "next button"] as const) {
+    test(`${control} cannot change the image during an annotation gesture`, async ({ page }) => {
+        await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
+        await page.getByRole("button", { name: "Image gallery", exact: true }).click();
+        await page.getByRole("button", { name: "Image region", exact: true }).click();
+        const surface = page.getByRole("button", { name: "Place image annotation" });
+        const box = (await surface.boundingBox())!;
+        await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
+        const imageNumber = page.getByRole("spinbutton").first();
+        if (control === "keyboard") {
+            await page.getByRole("button", { name: "Image region", exact: true }).focus();
+            await page.keyboard.press("ArrowRight");
+        } else if (control === "image number") await imageNumber.fill("2");
+        else
+            await page
+                .getByRole("dialog")
+                .locator("button:has(svg.lucide-chevron-right)")
+                .evaluate((button: HTMLButtonElement) => button.click());
+        await expect(imageNumber).toHaveValue("1");
+        await expect(page.getByRole("dialog").locator("img")).toHaveAttribute("alt", "First evidence");
+        await page.mouse.up();
+        await expect(page.getByRole("button", { name: "Comment", exact: true })).toBeEnabled();
+        await imageNumber.fill("2");
+        await expect(imageNumber).toHaveValue("2");
+        await expect(page.getByRole("dialog").locator("img")).toHaveAttribute("alt", "Second evidence");
+    });
+}

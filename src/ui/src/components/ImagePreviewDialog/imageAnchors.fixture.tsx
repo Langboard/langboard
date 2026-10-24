@@ -10,6 +10,8 @@ import { BoardCardProvider, useBoardCardPanel, useBoardCard } from "@/core/provi
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
 import BoardComment from "@/pages/BoardPage/components/card/comment/BoardComment";
 import ImageThumbnail from "./ImageThumbnail";
+import ImagePreviewDialog from ".";
+import { createPortal } from "react-dom";
 import { api } from "@/core/helpers/Api";
 import { getCardCommentDraftStore } from "@/core/stores/CardCommentDraftStore";
 import { useNativeImageComments } from "./NativeImageCommentContext";
@@ -115,10 +117,24 @@ function Surface() {
     const native = useNativeImageComments();
     const comments = ProjectCardComment.Model.useModels((model) => model.card_uid === currentCard.uid, [currentCard.uid]);
     const [draft, setDraft] = useState("");
+    const [galleryOpen, setGalleryOpen] = useState(false);
     return (
         <div ref={commentSurfaceRef} className="min-w-0 p-8">
             <ImageThumbnail src={url} alt="Native evidence" />
             <ImageThumbnail src={`${url}?generic=true`} alt="Generic evidence" />
+            <button onClick={() => setGalleryOpen(true)}>Image gallery</button>
+            {galleryOpen &&
+                createPortal(
+                    <ImagePreviewDialog
+                        files={[
+                            { name: "First evidence", url, type: "image/svg+xml" },
+                            { name: "Second evidence", url: `${url}?second=true`, type: "image/svg+xml" },
+                        ]}
+                        initialIndex={0}
+                        onClose={() => setGalleryOpen(false)}
+                    />,
+                    document.body
+                )}
             <div data-card-description>
                 <p data-slate-node="element">Text evidence selection</p>
             </div>

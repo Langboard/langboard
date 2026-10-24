@@ -100,24 +100,19 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
         e.stopPropagation();
     };
 
+    const selectImage = (index: number) => {
+        if (annotationGestureActive.current) return;
+        setCurrentIndex(index);
+        setZoom(1);
+        setPan({ x: 0, y: 0 });
+    };
+
     const goPrev = () => {
-        if (currentIndex - 1 >= 0) {
-            setCurrentIndex(currentIndex - 1);
-            setZoom(1);
-        } else {
-            setCurrentIndex(files.length - 1);
-            setZoom(1);
-        }
+        selectImage(currentIndex > 0 ? currentIndex - 1 : files.length - 1);
     };
 
     const goNext = () => {
-        if (currentIndex + 1 <= files.length - 1) {
-            setCurrentIndex(currentIndex + 1);
-            setZoom(1);
-        } else {
-            setCurrentIndex(0);
-            setZoom(1);
-        }
+        selectImage(currentIndex + 1 < files.length ? currentIndex + 1 : 0);
     };
 
     return (
@@ -218,7 +213,7 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
                                 value={currentIndex + 1}
                                 min={1}
                                 max={files.length}
-                                onChange={(e) => setCurrentIndex(Math.max(0, Math.min(files.length - 1, Number(e.target.value) - 1)))}
+                                onChange={(e) => selectImage(Math.max(0, Math.min(files.length - 1, Number(e.target.value) - 1)))}
                                 variant="ghost"
                                 className="h-auto w-10 p-0 text-center"
                             />
