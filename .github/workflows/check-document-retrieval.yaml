@@ -5,6 +5,11 @@ on:
     paths:
       - Dockerfile
       - src/api/tests/test_document_retrieval_image.py
+      - src/api/tests/project_documents/**
+      - src/api/tests/card_cross_board/test_card_mirrors.py
+      - src/shared/py/langboard_shared/domain/services/ProjectDocumentQuery.py
+      - src/shared/py/langboard_shared/domain/services/factory/ProjectDocumentService.py
+      - src/shared/py/langboard_shared/domain/models/ProjectAttachment*.py
       - .github/workflows/check-document-retrieval.yaml
       - src/shared/py/langboard_shared/tasks/docling/DocumentSplitter*
       - src/shared/py/langboard_shared/tasks/docling/DocumentRetrievalSettings*
@@ -34,12 +39,25 @@ jobs:
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: langboard_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d langboard_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         shell: bash
     env:
       PROJECT_NAME: langboard
-      PYTHONPATH: src/shared/py
+      PYTHONPATH: src/shared/py:src/api
+      LANGBOARD_MIRROR_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
     steps:
       - name: Prepare standard job tools
         env:
@@ -57,6 +75,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --frozen --extra document-retrieval
+      - name: Verify native document authority and lifecycle
+        run: uv run --no-sync pytest -q src/api/tests/project_documents
       - run: uv run --no-sync pytest -q src/api/tests/test_document_retrieval_image.py src/shared/py/langboard_shared/tasks/docling/DocumentRetrievalSettings_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSplitter_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbedding_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingCache_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorGeneration_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorQuery_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSqliteVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingTask_test.py src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService_test.py src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService_document_test.py
       - name: Verify retrieval does not install local inference runtimes
         run: |
