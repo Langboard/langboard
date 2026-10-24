@@ -52,9 +52,10 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
     const editorName = `${card.uid}-comment-${comment.uid}`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
     const projectMembers = card.useForeignFieldArray("project_members");
+    const visibility = card.useField("visibility");
     const editorRef = useRef<TEditor>(null);
     const bots = BotModel.Model.useModels(() => true);
-    const mentionables = useMemo(() => [...projectMembers, ...bots], [projectMembers, bots]);
+    const mentionables = useMemo(() => (visibility === "PRIVATE" ? [] : [...projectMembers, ...bots]), [visibility, projectMembers, bots]);
     const cards = ProjectCard.Model.useModels((model) => model.uid !== card.uid && model.project_uid === projectUID, [projectUID, card]);
     const content = comment.useField("content");
     const anchor = comment.useField("anchor");

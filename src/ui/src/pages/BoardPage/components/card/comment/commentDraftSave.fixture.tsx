@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef, useState } from "react";
+import React, { createContext, useContext, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import BoardCommentForm from "./BoardCommentForm";
 import BoardComment from "./BoardComment";
@@ -49,8 +49,9 @@ export const EEditorType = { CardComment: "edit", CardNewComment: "new" };
 export const Empty = () => null;
 export const resolveCardCommentAnchorElement = () => null;
 export const isModel = () => true;
-export const BotModel = { Model: { useModels: () => [] } };
-export const ProjectCard = BotModel;
+const bots = [{ uid: "bot", name: "Test bot" }];
+export const BotModel = { Model: { useModels: () => bots } };
+export const ProjectCard = { Model: { useModels: () => [] } };
 const CommentContext = createContext<unknown>(null);
 export const ModelRegistry = {
     ProjectCardComment: {
@@ -59,11 +60,23 @@ export const ModelRegistry = {
     },
 };
 export const ProjectRole = { EAction: { Read: "read" } };
-export function PlateEditor({ value, setValue, readOnly }: { value: IEditorContent; setValue: (value: IEditorContent) => void; readOnly?: boolean }) {
+// Component-boundary mock: exposes candidate props, not the native Plate mention popup.
+export function PlateEditor({
+    value,
+    setValue,
+    readOnly,
+    mentionables,
+}: {
+    value: IEditorContent;
+    setValue: (value: IEditorContent) => void;
+    readOnly?: boolean;
+    mentionables: { uid: string }[];
+}) {
     const [text, setText] = useState(value.content);
     return (
         <textarea
             aria-label="Comment content"
+            data-mention-candidates={JSON.stringify(mentionables.map(({ uid }) => uid))}
             value={text}
             readOnly={readOnly}
             onChange={(event) => {
@@ -85,7 +98,21 @@ export const useMutation = () => ({
     },
 });
 const user = { uid: "user", firstname: "Test", lastname: "User", useField: () => false, isValidUser: () => true, isDeletedUser: () => false };
-const card = { uid: "card", useField: () => "PUBLIC", useForeignFieldArray: () => [] };
+const projectMembers = [user, { ...user, uid: "other-user" }];
+let visibility = new URLSearchParams(location.search).get("visibility") ?? "SHARED";
+const visibilityListeners = new Set<() => void>();
+const card = {
+    uid: "card",
+    useField: () =>
+        useSyncExternalStore(
+            (listener) => {
+                visibilityListeners.add(listener);
+                return () => visibilityListeners.delete(listener);
+            },
+            () => visibility
+        ),
+    useForeignFieldArray: () => projectMembers,
+};
 const comment = {
     uid: "comment",
     content: { content: "Saved original" },
@@ -130,6 +157,17 @@ function Fixture() {
     const version = useRef(0);
     return (
         <main>
+            {["PRIVATE", "INTERNAL", "SHARED"].map((nextVisibility) => (
+                <button
+                    key={nextVisibility}
+                    onClick={() => {
+                        visibility = nextVisibility;
+                        visibilityListeners.forEach((listener) => listener());
+                    }}
+                >
+                    Set visibility {nextVisibility}
+                </button>
+            ))}
             <button
                 onClick={() => {
                     const callbacks = pending;

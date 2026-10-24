@@ -158,3 +158,31 @@ for (const mode of ["panel", "mobile", "edit"]) {
         });
     }
 }
+
+// Uses real BoardComment with a mocked PlateEditor; verifies candidate props only.
+for (const visibility of ["PRIVATE", "INTERNAL", "SHARED"]) {
+    test(`comment draft save: edit mention candidates: ${visibility} and reactive changes`, async ({ page }) => {
+        page.on("pageerror", (error) => {
+            throw error;
+        });
+        await page.goto(`${baseURL}/?mode=edit&visibility=${visibility}`);
+        await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+        const editor = page.getByRole("textbox", { name: "Comment content" });
+        const candidates = (currentVisibility: string) => JSON.stringify(currentVisibility === "PRIVATE" ? [] : ["user", "other-user", "bot"]);
+        await expect(editor).toHaveAttribute("data-mention-candidates", candidates(visibility));
+        await expect(editor).toBeEditable();
+        await editor.fill("Draft survives visibility changes");
+        for (const nextVisibility of ["INTERNAL", "PRIVATE", "SHARED", "PRIVATE"]) {
+            await page.getByRole("button", { name: `Set visibility ${nextVisibility}`, exact: true }).click();
+            await expect(editor).toHaveAttribute("data-mention-candidates", candidates(nextVisibility));
+            await expect(editor).toHaveValue("Draft survives visibility changes");
+        }
+        await page.getByRole("button", { name: "common.Save", exact: true }).click();
+        await page.getByRole("button", { name: "Resolve success", exact: true }).click();
+        await page.getByRole("button", { name: "Inspect draft", exact: true }).click();
+        const state = JSON.parse(await page.locator("output").innerText());
+        expect(state.submitted).toBe("Draft survives visibility changes");
+        expect(state.draft).toBe("");
+        expect(state.currentEditor).toBeNull();
+    });
+}
