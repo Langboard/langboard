@@ -180,7 +180,22 @@ async def run_workflow_bound_schedule(bot, schedule, association, card):
             return True
     return False
 
-def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=None, residency=None):
+def _policy_actor_authorized(db, actor, project):
+    from ...domain.models import ProjectAssignedUser, ProjectRole
+    from ...domain.models.ProjectRole import ProjectRoleAction
+
+    if actor.is_admin or project.owner_id == actor.id:
+        return True
+    member = db.exec(SqlBuilder.select.table(ProjectAssignedUser).where(
+        ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id,
+    ).execution_options(populate_existing=True)).first()
+    role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+        ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id,
+    ).execution_options(populate_existing=True)).first()
+    return member is not None and role is not None and role.is_granted(ProjectRoleAction.Read)
+
+
+def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=None, residency=None, condition=None, event_key=None):
     """Serialize each card's claims before external I/O; uncertain runs are never replayed."""
     from ...domain.models import Bot, User, WorkflowEffectRun
     from ...domain.services.factory.WorkflowStageService import WorkflowStageService
@@ -202,7 +217,8 @@ def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=Non
             return None
         continuous = source == "bot_interval"
         configured = WorkflowStageService.normalize_bot_bindings(
-            stage.continuous_effects.get("bots", []) if continuous else stage.entry_bots, continuous=continuous,
+            stage.continuous_effects.get("bots", []) if continuous else (stage.policy_bots if source == "bot_policy" else stage.entry_bots),
+            continuous=continuous, policy=source == "bot_policy",
         )
         if binding not in configured:
             return None
@@ -216,6 +232,8 @@ def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=Non
         actor = db.exec(SqlBuilder.select.table(User).where(User.id == (actor_id or project.owner_id))).first()
         if bot is None or bot.deleted_at or actor is None or actor.deleted_at or not actor.activated_at:
             return None
+        if source == "bot_policy" and not _policy_actor_authorized(db, actor, project):
+            return None
         previous = SqlBuilder.select.table(WorkflowEffectRun).where(
             WorkflowEffectRun.stage_id == stage.id, WorkflowEffectRun.card_id == card.id,
             WorkflowEffectRun.actor_id == bot.id, WorkflowEffectRun.source == source,
@@ -223,6 +241,8 @@ def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=Non
         if continuous:
             previous = previous.where(or_(WorkflowEffectRun.started_at > now - timedelta(seconds=binding["interval_seconds"]),
                 and_(WorkflowEffectRun.status == "running", WorkflowEffectRun.lease_expires_at > now)))
+        elif source == "bot_policy":
+            previous = previous.where(WorkflowEffectRun.execution_key == event_key)
         else:
             previous = previous.where(WorkflowEffectRun.execution_key == f"entry:{stage.id}:{card.id}:{bot.id}:{residency}")
         if db.exec(previous).first() is not None:
@@ -230,9 +250,9 @@ def _claim_workflow_bot(stage_id, card_id, binding, source, now, *, actor_id=Non
         run = WorkflowEffectRun(
             stage_id=stage.id, stage_key=stage.key, stage_revision=stage.edit_revision(),
             project_id=project.id, card_id=card.id, actor_id=bot.id, actor_type="bot", source=source,
-            status="running", effects=[f"bot:{bot.get_uid()}", binding["condition"]],
+            status="running", effects=[f"bot:{bot.get_uid()}", condition or binding["condition"]],
             started_at=now, finished_at=now, duration_ms=0, result={},
-            execution_key=(f"entry:{stage.id}:{card.id}:{bot.id}:{residency}" if not continuous else f"interval:{uuid4().hex}"),
+            execution_key=(event_key if source == "bot_policy" else f"entry:{stage.id}:{card.id}:{bot.id}:{residency}" if not continuous else f"interval:{uuid4().hex}"),
             lease_expires_at=now + timedelta(seconds=Env.AI_REQUEST_TIMEOUT * (Env.AI_REQUEST_TRIALS + 1) + 60),
         )
         db.insert(run)
@@ -266,7 +286,7 @@ async def _dispatch_workflow_bot(claim, binding, *, data=None):
                               .execution_options(populate_existing=True)).first()
             bot = db.exec(SqlBuilder.select.table(Bot).where(Bot.id == run.actor_id)
                           .execution_options(populate_existing=True)).first()
-            configured = (stage.continuous_effects.get("bots", []) if run.source == "bot_interval" else stage.entry_bots) if stage else []
+            configured = (stage.continuous_effects.get("bots", []) if run.source == "bot_interval" else (stage.policy_bots if run.source == "bot_policy" else stage.entry_bots)) if stage else []
             if (card is None or card.deleted_at or card.archived_at or card.is_linked_resource
                     or card.visibility not in {"INTERNAL", "SHARED"}
                     or column is None or column.deleted_at or column.is_archive
@@ -282,6 +302,11 @@ async def _dispatch_workflow_bot(claim, binding, *, data=None):
             ):
                 error = "workflow_residency_changed"
                 return
+        if run.source == "bot_policy":
+            with DbSession.use(readonly=False) as db:
+                if not _policy_actor_authorized(db, actor, project):
+                    error = "workflow_actor_revoked"
+                    return
         if run.source == "bot_interval":
             from .BotScheduleTask import _run_scheduler
             with DbSession.use(readonly=False) as db:
@@ -293,7 +318,13 @@ async def _dispatch_workflow_bot(claim, binding, *, data=None):
             elif any(outcome in outcomes for outcome in (BotRequestOutcome.RetryableFailure, BotRequestOutcome.PermanentFailure)):
                 status = "failed"
             return
-        condition = BotTriggerCondition(binding["condition"])
+        if run.source == "bot_policy" and (
+            card.workflow_stage_entered_key != stage.key or card.workflow_stage_entered_at is None
+            or run.execution_key.split(":", 2)[1] != _utc(card.workflow_stage_entered_at).isoformat().replace(":", "_")
+        ):
+            error = "workflow_residency_changed"
+            return
+        condition = BotTriggerCondition(run.effects[-1])
         # Selection never creates a Hook or bypasses its conditions/frozen state.
         # Native scope lookup uses replicas by default. This authorization reread
         # shares a short primary transaction, which closes before transport starts.

@@ -421,6 +421,7 @@ class WorkflowStageService(BaseDomainService):
 
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(user, CollaborationChannel.Api)
         entry_bots = set()
+        policy_bots = set()
         from datetime import timezone
 
         def utc(value):
@@ -428,11 +429,15 @@ class WorkflowStageService(BaseDomainService):
 
         now = utc(SafeDateTime.now())
         with DbSession.use(readonly=False) as db:
-            for model in BotHelper.get_scope_model_classes_by_condition(BotTriggerCondition.CardMoved):
+            card_conditions = {condition for condition in BotTriggerCondition if condition.value.startswith("card_")}
+            models = set().union(*(BotHelper.get_scope_model_classes_by_condition(condition) for condition in card_conditions))
+            for model in models:
                 default_model = BotHelper.get_default_scope_model_class(model.get_scope_column_name())
                 defaults = {row.bot_default_scope_branch_id: row.conditions for row in db.exec(SqlBuilder.select.table(default_model)).all()} if default_model else {}
                 for scope in db.exec(SqlBuilder.select.table(model).where(model.is_frozen.is_(False))).all():
                     conditions = defaults.get(scope.default_scope_branch_id, []) if scope.default_scope_branch_id else scope.conditions
+                    if any(condition in conditions for condition in card_conditions):
+                        policy_bots.add(scope.bot_id)
                     if BotTriggerCondition.CardMoved in conditions:
                         entry_bots.add(scope.bot_id)
             bots = db.exec(SqlBuilder.select.table(Bot)).all()
@@ -444,7 +449,8 @@ class WorkflowStageService(BaseDomainService):
                        Card.visibility.in_(["INTERNAL", "SHARED"]), Card.source_type.is_(None),
                        card_visibility_scope_by_project(contexts))).all()
         return {
-            "bots": [{"uid": bot.get_uid(), "name": bot.name, "entry_available": bot.id in entry_bots} for bot in bots],
+            "bots": [{"uid": bot.get_uid(), "name": bot.name, "entry_available": bot.id in entry_bots,
+                      "policy_available": bot.id in policy_bots} for bot in bots],
             "schedules": [{"uid": schedule.get_uid(), "bot_uid": InfraHelper.convert_uid(schedule.bot_id),
                            "card_uid": card.get_uid(), "name": card.title,
                            "is_available": schedule.status == BotScheduleStatus.Started
@@ -500,22 +506,22 @@ class WorkflowStageService(BaseDomainService):
         return {key: stage.api_response() for key, stage in self.repo.workflow_stage.get_by_keys(keys).items()}
 
     @staticmethod
-    def normalize_bot_bindings(value: list, *, continuous: bool = False) -> list[dict]:
+    def normalize_bot_bindings(value: list, *, continuous: bool = False, policy: bool = False) -> list[dict]:
         if not isinstance(value, list) or len(value) > 20:
             raise ValueError("Invalid workflow bot bindings")
         bindings = []
         seen = set()
         for binding in value:
-            allowed = {"bot_uid", "condition", "interval_seconds", "schedule_uid"} if continuous else {"bot_uid", "condition"}
+            allowed = {"bot_uid"} if policy else ({"bot_uid", "condition", "interval_seconds", "schedule_uid"} if continuous else {"bot_uid", "condition"})
             if not isinstance(binding, dict) or set(binding) - allowed:
                 raise ValueError("Invalid workflow bot binding")
             uid, condition = binding.get("bot_uid"), binding.get("condition")
-            if not isinstance(uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", uid) or condition != ("bot_cron_scheduled" if continuous else "card_moved"):
+            if not isinstance(uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", uid) or (not policy and condition != ("bot_cron_scheduled" if continuous else "card_moved")):
                 raise ValueError("Workflow bots require a matching existing card hook")
             if uid in seen:
                 raise ValueError("Duplicate workflow bot binding")
             seen.add(uid)
-            item = {"bot_uid": uid, "condition": condition}
+            item = {"bot_uid": uid} if policy else {"bot_uid": uid, "condition": condition}
             if continuous:
                 schedule_uid = binding.get("schedule_uid")
                 if not isinstance(schedule_uid, str) or not re.fullmatch(r"[a-zA-Z0-9]{11}", schedule_uid):
@@ -559,6 +565,7 @@ class WorkflowStageService(BaseDomainService):
             "overdue_policy",
             "entry_effects",
             "entry_bots",
+            "policy_bots",
             "continuous_effects",
             "translations",
         }:
@@ -569,6 +576,9 @@ class WorkflowStageService(BaseDomainService):
         entry_bots = fields.pop("entry_bots", None)
         if entry_bots is not None or stage is None:
             fields["entry_bots"] = self.normalize_bot_bindings(entry_bots if entry_bots is not None else [])
+        policy_bots = fields.pop("policy_bots", None)
+        if policy_bots is not None or stage is None:
+            fields["policy_bots"] = self.normalize_bot_bindings(policy_bots if policy_bots is not None else [], policy=True)
         continuous = fields.pop("continuous_effects", None)
         if continuous is not None or stage is None:
             fields["continuous_effects"] = self.normalize_continuous_effects(continuous if continuous is not None else {})

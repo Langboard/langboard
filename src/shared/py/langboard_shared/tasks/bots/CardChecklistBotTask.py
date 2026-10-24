@@ -21,7 +21,8 @@ async def card_checklist_created(user_or_bot: User | Bot, project: Project, card
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardChecklistCreated,
         _create_data(user_or_bot, project, card, checklist),
@@ -38,7 +39,8 @@ async def card_checklist_title_changed(user_or_bot: User | Bot, project: Project
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardChecklistTitleChanged,
         _create_data(user_or_bot, project, card, checklist),
@@ -55,7 +57,8 @@ async def card_checklist_checked(user_or_bot: User | Bot, project: Project, card
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardChecklistChecked,
         _create_data(user_or_bot, project, card, checklist),
@@ -72,7 +75,8 @@ async def card_checklist_unchecked(user_or_bot: User | Bot, project: Project, ca
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardChecklistUnchecked,
         _create_data(user_or_bot, project, card, checklist),
@@ -89,7 +93,8 @@ async def card_checklist_deleted(user_or_bot: User | Bot, project: Project, card
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardChecklistDeleted,
         _create_data(user_or_bot, project, card, checklist),

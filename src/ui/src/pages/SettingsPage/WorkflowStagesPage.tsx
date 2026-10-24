@@ -38,6 +38,7 @@ const blank = (): TWorkflowInput => ({
     overdue_policy: "normal",
     entry_effects: [],
     entry_bots: [],
+    policy_bots: [],
     continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS },
     translations: Object.fromEntries(Object.keys(LANGUAGES).map((key) => [key, { name: "", description: "" }])),
 });
@@ -112,6 +113,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             overdue_policy,
             entry_effects,
             entry_bots,
+            policy_bots,
             continuous_effects,
             translations,
         } = stage ?? { ...blank(), uid: undefined };
@@ -128,6 +130,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             overdue_policy,
             entry_effects: [...entry_effects],
             entry_bots: [...(entry_bots ?? [])],
+            policy_bots: [...(policy_bots ?? [])],
             continuous_effects: { ...CONTINUOUS_EFFECT_DEFAULTS, ...continuous_effects },
             translations: { ...blank().translations, ...translations, en: { name, description } },
         });
@@ -578,6 +581,66 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                             onChange={(event) => edit({ overdue_policy: event.target.checked ? "suppress" : "normal" })}
                                         />
                                         {t("settings.Hide overdue")}
+                                    </label>
+                                </fieldset>
+                                <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
+                                    <legend className="px-1 text-sm font-medium">{t("settings.Stage policy bots")}</legend>
+                                    <p className="text-xs text-muted-foreground">
+                                        {t(
+                                            "settings.Uses each bot's configured events while the card remains in this stage. Frozen or unmatched hooks do not run."
+                                        )}
+                                    </p>
+                                    {botOptionsError && (
+                                        <p role="status" className="text-xs">
+                                            {t("settings.Bot options unavailable. Saved bindings are preserved.")}
+                                        </p>
+                                    )}
+                                    {(draft.policy_bots ?? []).map((binding, index) => (
+                                        <div key={binding.bot_uid} className="space-y-2 rounded-md border p-2">
+                                            <p className="text-sm">
+                                                {botOptions.bots.find((bot) => bot.uid === binding.bot_uid)?.name ??
+                                                    `${binding.bot_uid} (${t("settings.Unavailable")})`}
+                                            </p>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => edit({ policy_bots: (draft.policy_bots ?? []).filter((_, i) => i !== index) })}
+                                            >
+                                                {t("settings.Remove bot")}
+                                            </Button>
+                                        </div>
+                                    ))}
+                                    <label className="block space-y-1 text-sm">
+                                        {t("settings.Add stage policy bot")}
+                                        <select
+                                            className="select w-full rounded-md border bg-background p-2"
+                                            value=""
+                                            aria-label={t("settings.Add stage policy bot")}
+                                            disabled={
+                                                !hasRoleAction(SettingRole.EAction.BotRead) ||
+                                                botOptionsError ||
+                                                (draft.policy_bots ?? []).length >= 20
+                                            }
+                                            onChange={(event) => {
+                                                const bot_uid = event.target.value;
+                                                if (bot_uid) edit({ policy_bots: [...(draft.policy_bots ?? []), { bot_uid }] });
+                                            }}
+                                        >
+                                            <option value="">{t("settings.Select bot")}</option>
+                                            {botOptions.bots.map((bot) => (
+                                                <option
+                                                    key={bot.uid}
+                                                    value={bot.uid}
+                                                    disabled={
+                                                        !bot.policy_available ||
+                                                        (draft.policy_bots ?? []).some((binding) => binding.bot_uid === bot.uid)
+                                                    }
+                                                >
+                                                    {bot.name}
+                                                    {!bot.policy_available ? ` (${t("settings.No active configured card event hook")})` : ""}
+                                                </option>
+                                            ))}
+                                        </select>
                                     </label>
                                 </fieldset>
                                 <fieldset disabled={!canSave || busy} className="space-y-2 rounded-xl border p-3">

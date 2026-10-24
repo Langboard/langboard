@@ -21,6 +21,7 @@ class WorkflowStageDefinition(BaseDbModel, table=True):
     overdue_policy: str = Field(default="normal", nullable=False, api_field=ApiField())
     entry_effects: list[str] = Field(default_factory=list, nullable=False, sa_type=JSON, api_field=ApiField())
     entry_bots: list[dict] = Field(default_factory=list, nullable=False, sa_type=JSON, api_field=ApiField())
+    policy_bots: list[dict] = Field(default_factory=list, nullable=False, sa_type=JSON, api_field=ApiField())
     continuous_effects: dict = Field(default_factory=dict, nullable=False, sa_type=JSON, api_field=ApiField())
     translations: dict[str, dict[str, str]] = Field(
         default_factory=dict, nullable=False, sa_type=JSON, api_field=ApiField()

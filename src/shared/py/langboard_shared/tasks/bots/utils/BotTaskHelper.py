@@ -105,6 +105,20 @@ class BotTaskHelper:
 
         return records
 
+    @staticmethod
+    async def run_card_event(actor, card, bots, event, data, project, *, emit_webhook=True):
+        """Route native card hooks through current-stage policy admission once per bot."""
+        from ..WorkflowPolicyBotTask import run_policy_bots
+
+        selected = await run_policy_bots(actor, card, event, data, project, {item[0].get_uid() for item in bots})
+        if selected and emit_webhook and BotTaskHelper.can_dispatch_card_scope(data, project, None):
+            WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
+            emit_webhook = False
+        return await BotTaskHelper.run(
+            [item for item in bots if item[0].get_uid() not in selected],
+            event, data, project, emit_webhook=emit_webhook,
+        )
+
     @overload
     @staticmethod
     async def run(

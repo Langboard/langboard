@@ -21,7 +21,8 @@ async def card_attachment_uploaded(user_or_bot: User | Bot, project: Project, ca
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardAttachmentUploaded,
         _create_data(user_or_bot, project, card, attachment),
@@ -40,7 +41,8 @@ async def card_attachment_name_changed(
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardAttachmentNameChanged,
         _create_data(user_or_bot, project, card, attachment),
@@ -57,7 +59,8 @@ async def card_attachment_deleted(user_or_bot: User | Bot, project: Project, car
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardAttachmentDeleted,
         _create_data(user_or_bot, project, card, attachment),

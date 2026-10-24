@@ -72,7 +72,8 @@ def bots(monkeypatch, request):
     request.addfinalizer(cleanup)
     names = ["Bot", "BotSchedule", "CardBotSchedule", "CardBotScope", "ProjectBotScope", "ProjectColumnBotScope",
              "CardBotDefaultScope", "ProjectBotDefaultScope", "ProjectColumnBotDefaultScope", "User", "Project",
-             "Card", "ProjectColumn", "WorkflowEffectRun", "WorkflowStageDefinition", "BotScheduleRun"]
+             "Card", "ProjectColumn", "WorkflowEffectRun", "WorkflowStageDefinition", "BotScheduleRun",
+             "ProjectAssignedUser", "ProjectRole"]
     tables = [getattr(models, name).__table__ for name in names]
     # SQLite permits absent FK targets; PostgreSQL requires the actual dependency tables.
     for table in tables:
@@ -263,7 +264,7 @@ def test_options_include_only_visible_card_schedules_and_minimal_bot_identity(bo
     contexts = {f.project.id: CardVisibilityContext(CollaborationChannel.Api, True, True, True, actor_user_id=f.actor.id)}
     service = WorkflowStageService(lambda _: SimpleNamespace(resolve_work_visibility_contexts=lambda *_: contexts), None, None)
     options = service.get_bot_options(f.actor)
-    assert options["bots"] == [{"uid": f.bot.get_uid(), "name": f.bot.name, "entry_available": True}]
+    assert options["bots"] == [{"uid": f.bot.get_uid(), "name": f.bot.name, "entry_available": True, "policy_available": True}]
     assert options["schedules"] == [{"uid": f.schedule.get_uid(), "bot_uid": f.bot.get_uid(), "card_uid": f.card.get_uid(),
                                      "name": f.card.title, "is_available": True}]
     contexts.clear()
@@ -480,3 +481,169 @@ async def test_simultaneous_same_card_claims_admit_one_dispatch(bots, source):
     rows = history()
     assert len(rows) == 1 and rows[0].status == "accepted" and rows[0].result == {"accepted": 1}
     assert _claim_workflow_bot(f.stage.id, f.card.id, binding, source, f.now, **kwargs) is None
+
+
+def policy_claim(f, *, event=BotTriggerCondition.CardCommentAdded, key="one-event"):
+    binding = {"bot_uid": f.bot.get_uid()}
+    with DbSession.atomic() as db:
+        f.stage.policy_bots = [binding]
+        f.hook.conditions = [event]
+        db.update(f.stage)
+        db.update(f.hook)
+    residency = _utc(f.card.workflow_stage_entered_at).isoformat()
+    return binding, _claim_workflow_bot(
+        f.stage.id, f.card.id, binding, "bot_policy", f.now, actor_id=f.actor.id,
+        residency=residency, condition=event.value,
+        event_key=f"policy:{residency.replace(':', '_')}:{key}",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event", [condition for condition in BotTriggerCondition if condition.value.startswith("card_") and condition != BotTriggerCondition.CardDeleted])
+async def test_policy_native_card_event_runs_once_with_existing_condition(bots, event):
+    from langboard_shared.tasks.bots.utils import BotTaskHelper
+
+    f = bots
+    binding = {"bot_uid": f.bot.get_uid()}
+    with DbSession.atomic() as db:
+        f.stage.policy_bots = [binding]
+        f.hook.conditions = [event]
+        db.update(f.stage)
+        db.update(f.hook)
+        if event == BotTriggerCondition.CardCreated:
+            db.insert(models.ProjectBotScope(bot_id=f.bot.id, project_id=f.project.id, conditions=[event]))
+    candidates = BotTaskHelper.get_scoped_bots(event, project_id=f.project.id,
+                                              project_column_id=f.column.id, card_id=f.card.id)
+    data = BotTaskDataHelper.create_card(f.actor, f.project, f.card)
+    await BotTaskHelper.run_card_event(f.actor, f.card, candidates + candidates, event, data, f.project)
+    f.execute.assert_awaited_once()
+    rows = history()
+    assert len(rows) == 1 and rows[0].source == "bot_policy"
+    assert rows[0].status == "accepted" and rows[0].result == {"accepted": 1}
+    assert rows[0].effects[-1] == event.value  # Transport acceptance does not claim effect completion.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["frozen", "condition", "binding", "stage", "residency", "actor", "bot", "archive"])
+async def test_policy_claim_rereads_current_authority(bots, case):
+    f = bots
+    binding, claim = policy_claim(f)
+    assert claim is not None
+    with DbSession.atomic() as db:
+        if case == "frozen":
+            f.hook.is_frozen = True
+            db.update(f.hook)
+        elif case == "condition":
+            f.hook.conditions = [BotTriggerCondition.CardUpdated]
+            db.update(f.hook)
+        elif case == "binding":
+            f.stage.policy_bots = []
+            db.update(f.stage)
+        elif case == "stage":
+            f.column.workflow_stage = None
+            db.update(f.column)
+        elif case == "residency":
+            f.card.workflow_stage_entered_at = f.now + timedelta(seconds=1)
+            db.update(f.card)
+        elif case == "actor":
+            f.actor.activated_at = None
+            db.update(f.actor)
+        elif case == "bot":
+            f.bot.deleted_at = f.now
+            db.update(f.bot)
+        elif case == "archive":
+            f.card.archived_at = f.now
+            db.update(f.card)
+    await _dispatch_workflow_bot(claim, binding)
+    f.execute.assert_not_awaited()
+    assert history()[0].status == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_policy_entry_overlap_dispatches_only_once(bots):
+    f = bots
+    with DbSession.atomic() as db:
+        f.stage.policy_bots = [{"bot_uid": f.bot.get_uid()}]
+        db.update(f.stage)
+    await _run_card_moved(f.actor, f.project, f.card, f.old)
+    f.execute.assert_awaited_once()
+    assert len(history()) == 1 and history()[0].source == "bot_entry"
+
+
+@pytest.mark.asyncio
+async def test_policy_claim_duplicate_event_key_does_not_replay(bots):
+    f = bots
+    binding, claim = policy_claim(f)
+    await _dispatch_workflow_bot(claim, binding)
+    _, duplicate = policy_claim(f)
+    assert duplicate is None
+    assert len(history()) == 1
+
+
+def test_policy_options_support_comment_only_native_hook(bots):
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
+
+    f = bots
+    with DbSession.atomic() as db:
+        f.hook.conditions = [BotTriggerCondition.CardCommentAdded]
+        db.update(f.hook)
+    contexts = {f.project.id: CardVisibilityContext(CollaborationChannel.Api, True, True, True, actor_user_id=f.actor.id)}
+    service = WorkflowStageService(lambda _: SimpleNamespace(resolve_work_visibility_contexts=lambda *_: contexts), None, None)
+    option = service.get_bot_options(f.actor)["bots"][0]
+    assert option["policy_available"] is True and option["entry_available"] is False
+
+
+def test_policy_binding_validation_owns_no_trigger_dialect():
+    binding = {"bot_uid": "123456789ab"}
+    assert WorkflowStageService.normalize_bot_bindings([binding], policy=True) == [binding]
+    for value in [[binding, binding], [{**binding, "condition": "card_updated"}], [{**binding, "interval_seconds": 60}], [{"bot_uid": "invalid"}]]:
+        with pytest.raises(ValueError):
+            WorkflowStageService.normalize_bot_bindings(value, policy=True)
+
+
+@pytest.mark.asyncio
+async def test_policy_actor_membership_revocation_denies_queued_claim(bots):
+    from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+
+    f = bots
+    with DbSession.atomic() as db:
+        owner = User(email="owner@example.test", firstname="Owner", lastname="", username="owner", password="unused", activated_at=f.now)
+        db.insert(owner)
+        f.project.owner_id = owner.id
+        db.update(f.project)
+        member = models.ProjectAssignedUser(project_id=f.project.id, user_id=f.actor.id)
+        db.insert(member)
+        role = models.ProjectRole(project_id=f.project.id, user_id=f.actor.id, actions=[ProjectRoleAction.Read.value])
+        db.insert(role)
+    binding, claim = policy_claim(f)
+    assert claim is not None
+    with DbSession.atomic() as db:
+        db.delete(member)
+    await _dispatch_workflow_bot(claim, binding)
+    f.execute.assert_not_awaited()
+    assert history()[0].error_code == "workflow_actor_revoked"
+
+
+@pytest.mark.asyncio
+async def test_policy_multiple_selected_bots_have_distinct_claims_and_one_webhook(bots, monkeypatch):
+    from langboard_shared.tasks.bots.utils import BotTaskHelper
+    from langboard_shared.tasks.bots.utils import BotTaskHelper as _helper
+    helper_module = import_module(_helper.__module__)
+    f = bots
+    webhooks = []
+    monkeypatch.setattr(helper_module.WebhookTask, "webhook_task", lambda model: webhooks.append(model))
+    with DbSession.atomic() as db:
+        other = Bot(name="Other", bot_uname="other", platform=BotPlatform.Default,
+                    platform_running_type=BotPlatformRunningType.Default, app_api_token="test")
+        db.insert(other)
+        db.insert(CardBotScope(bot_id=other.id, card_id=f.card.id, conditions=[BotTriggerCondition.CardMoved]))
+        f.stage.policy_bots = [{"bot_uid": bot.get_uid()} for bot in (f.bot, other)]
+        db.update(f.stage)
+    candidates = BotTaskHelper.get_scoped_bots(BotTriggerCondition.CardMoved, project_id=f.project.id,
+                                              project_column_id=f.column.id, card_id=f.card.id)
+    await BotTaskHelper.run_card_event(f.actor, f.card, candidates, BotTriggerCondition.CardMoved,
+                                      BotTaskDataHelper.create_card(f.actor, f.project, f.card), f.project)
+    assert f.execute.await_count == 2
+    assert len(history()) == 2 and len({row.execution_key for row in history()}) == 2
+    assert len(webhooks) == 1

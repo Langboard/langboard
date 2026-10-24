@@ -357,7 +357,7 @@ test("read-only stage settings prevent mutations", async ({ page }) => {
 });
 
 test("conflict preserves the draft and reload requires explicit discard", async ({ page }) => {
-    let latest = existing();
+    let latest: IWorkflowStage = { ...existing(), policy_bots: [{ bot_uid: "saved-policy-bot" }] };
     let writes = 0;
     await page.route("**/settings/workflow-stages**", async (route) => {
         const headers = {
@@ -376,8 +376,11 @@ test("conflict preserves the draft and reload requires explicit discard", async 
     await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
     await page.getByRole("button", { name: /^Closed/ }).click();
     await page.getByLabel("Stage name", { exact: true }).fill("Unsaved local name");
+    const policy = page.getByRole("group", { name: "Stage policy bots", exact: true });
+    await policy.getByRole("button", { name: "Remove bot", exact: true }).click();
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Your draft is preserved");
+    await expect(policy.getByRole("button", { name: "Remove bot", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Stage name", { exact: true })).toHaveValue("Unsaved local name");
     await page.getByRole("alert").getByRole("button", { name: "Refresh", exact: true }).click();
     const confirm = page.getByRole("dialog", { name: "Discard unsaved changes?", exact: true });
@@ -386,6 +389,7 @@ test("conflict preserves the draft and reload requires explicit discard", async 
     await page.getByRole("alert").getByRole("button", { name: "Refresh", exact: true }).click();
     await confirm.getByRole("button", { name: "Discard changes", exact: true }).click();
     await expect(page.getByLabel("Stage name", { exact: true })).toHaveValue("Latest server name");
+    await expect(policy.getByText("saved-policy-bot (Unavailable)", { exact: true })).toBeVisible();
     await expect(page.getByRole("alert")).not.toBeVisible();
     expect(writes).toBe(1);
 });
@@ -594,19 +598,23 @@ for (const choice of ["Move all descendants", "Move only this card", "Cancel"]) 
 }
 
 for (const width of [1440, 390]) {
-    test(`workflow bot bindings ${width}px persist native triggers and per-binding interval`, async ({ page }) => {
+    test(`workflow bot bindings ${width}px persist policy, native triggers and per-binding interval`, async ({ page }) => {
         await page.setViewportSize({ width, height: 1100 });
-        let stage = existing();
+        let stage: IWorkflowStage = { ...existing(), policy_bots: [{ bot_uid: "saved-missing-bot" }] };
         let saved: Record<string, unknown> | undefined;
-        const bot = { uid: "123456789ab", name: "Workflow assistant", entry_available: true };
-        const unavailable = { uid: "123456789ac", name: "Unavailable assistant", entry_available: false };
+        const bot = { uid: "123456789ab", name: "Workflow assistant", entry_available: true, policy_available: true };
+        const unavailable = { uid: "123456789ac", name: "Unavailable assistant", entry_available: false, policy_available: true };
         await page.route("**/settings/workflow-stages**", async (route) => {
             if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
             const url = new URL(route.request().url());
             if (url.pathname.endsWith("/bot-options"))
                 return route.fulfill({
                     json: {
-                        bots: [bot, unavailable],
+                        bots: [
+                            bot,
+                            unavailable,
+                            { uid: "inactive-policy", name: "Inactive policy", entry_available: false, policy_available: false },
+                        ],
                         schedules: [{ uid: "123456789ad", bot_uid: bot.uid, card_uid: "card", name: "Delivery card", is_available: true }],
                     },
                 });
@@ -636,12 +644,36 @@ for (const width of [1440, 390]) {
         await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
         await page.getByRole("button", { name: /^Closed/ }).click();
         await expect(page.getByLabel("Add entry bot").getByRole("option", { name: /Unavailable assistant/ })).toHaveAttribute("disabled", "");
+        const policy = page.getByRole("group", { name: "Stage policy bots", exact: true });
+        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
+        await expect(policy).toContainText(
+            "Uses each bot's configured events while the card remains in this stage. Frozen or unmatched hooks do not run."
+        );
+        await expect(page.getByLabel("Add stage policy bot").getByRole("option", { name: /Inactive policy/ })).toHaveAttribute("disabled", "");
+        await page.getByLabel("Add stage policy bot", { exact: true }).selectOption(bot.uid);
+        await policy.getByRole("button", { name: "Remove bot", exact: true }).nth(1).click();
+        await expect(policy.locator("p").filter({ hasText: new RegExp(`^${bot.name}$`) })).toHaveCount(0);
+        await page.getByLabel("Add stage policy bot", { exact: true }).selectOption(unavailable.uid);
+        await expect(page.getByLabel("Add stage policy bot").getByRole("option", { name: unavailable.name, exact: true })).toHaveAttribute(
+            "disabled",
+            ""
+        );
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+        await page
+            .getByRole("dialog", { name: "Discard unsaved changes?", exact: true })
+            .getByRole("button", { name: "Cancel", exact: true })
+            .click();
+        await page.getByRole("tab", { name: "History", exact: true }).click();
+        await page.getByRole("tab", { name: "Settings", exact: true }).click();
+        await expect(policy.locator("p").filter({ hasText: new RegExp(`^${unavailable.name}$`) })).toBeVisible();
         await page.getByLabel("Add entry bot").selectOption(bot.uid);
         await page.getByLabel("Add interval bot").selectOption(bot.uid);
         await expect(page.getByLabel("Card schedule 1", { exact: true })).toHaveValue("123456789ad");
         await page.getByLabel("Bot interval minutes").fill("2.5");
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect.poll(() => saved?.entry_bots).toEqual([{ bot_uid: bot.uid, condition: "card_moved" }]);
+        expect(saved?.policy_bots).toEqual([{ bot_uid: "saved-missing-bot" }, { bot_uid: unavailable.uid }]);
+        expect(saved?.expected_revision).toBe("a".repeat(64));
         expect((saved?.continuous_effects as { bots: unknown[] }).bots).toEqual([
             {
                 bot_uid: bot.uid,
@@ -652,6 +684,10 @@ for (const width of [1440, 390]) {
         ]);
         await page.reload();
         await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
+        await expect(policy.locator("p").filter({ hasText: new RegExp(`^${unavailable.name}$`) })).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await policy.screenshot({ path: `.verification/workflow-policy-bots-${width}.png` });
         await expect(page.getByLabel("Bot interval minutes")).toHaveValue("2.5");
         await page.getByLabel("Bot interval minutes").scrollIntoViewIfNeeded();
         await page.getByRole("dialog").screenshot({ path: `.verification/workflow-bot-bindings-${width}.png` });
@@ -663,5 +699,37 @@ for (const width of [1440, 390]) {
         await expect(page.getByRole("region", { name: "Effect history" }).getByText("Dispatch accepted", { exact: true })).toBeVisible();
         await page.getByText("Effect details", { exact: true }).click();
         await expect(page.getByText("Dispatch accepted; see bot logs for execution details.", { exact: true })).toBeVisible();
+    });
+}
+
+for (const width of [1440, 390]) {
+    test(`stage policy bots ${width}px preserve unavailable bindings when options fail`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1100 });
+        let stage: IWorkflowStage = { ...existing(), policy_bots: [{ bot_uid: "saved-missing-bot" }] };
+        let writes = 0;
+        await page.route("**/settings/workflow-stages**", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            if (new URL(route.request().url()).pathname.endsWith("/bot-options")) return route.fulfill({ status: 503, json: {} });
+            if (route.request().method() === "PUT") {
+                const payload = route.request().postDataJSON();
+                expect(payload.policy_bots).toEqual([{ bot_uid: "saved-missing-bot" }]);
+                stage = { ...stage, ...payload, revision: "b".repeat(64) };
+                writes++;
+                return route.fulfill({ json: { stage } });
+            }
+            return route.fulfill({ json: { stages: [stage] } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        const policy = page.getByRole("group", { name: "Stage policy bots", exact: true });
+        await expect(policy.getByRole("status")).toHaveText("Bot options unavailable. Saved bindings are preserved.");
+        await expect(page.getByLabel("Add stage policy bot", { exact: true })).toBeDisabled();
+        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
+        await page.getByLabel("Stage description", { exact: true }).fill("Updated description");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => writes).toBe(1);
+        await page.reload();
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        await expect(policy.getByText("saved-missing-bot (Unavailable)", { exact: true })).toBeVisible();
     });
 }

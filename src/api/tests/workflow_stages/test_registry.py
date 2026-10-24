@@ -190,7 +190,7 @@ def test_migration_installs_six_translated_policies_without_entry_effects():
     with engine.begin() as connection:
         with Operations.context(MigrationContext.configure(connection)):
             module.upgrade()
-        columns = [column for column in WorkflowStageDefinition.__table__.columns if column.name not in {"continuous_effects", "entry_bots"}]
+        columns = [column for column in WorkflowStageDefinition.__table__.columns if column.name not in {"continuous_effects", "entry_bots", "policy_bots"}]
         rows = connection.execute(select(*columns)).mappings().all()
         assert len(rows) == 6
         assert {row["key"] for row in rows} == {"backlog", "ready", "active", "review", "closed", "reference"}
@@ -333,3 +333,18 @@ def test_character_only_policy_retains_character_default_and_disables_new_thresh
     assert stage.continuous_effects["compact_after_characters"] == 24000
     assert stage.continuous_effects["compact_after_comments"] == 0
     assert stage.continuous_effects["compact_after_turns"] == 0
+
+
+def test_policy_bots_save_form_revision_and_legacy_omission_preserve_bindings(registry):
+    service, _ = registry
+    binding = {"bot_uid": "123456789ab"}
+    stage = service.save(form(policy_bots=[binding]))
+    original = stage.edit_revision()
+    assert service.get_api_list()[0]["policy_bots"] == [binding]
+    legacy = form()
+    legacy.pop("policy_bots")
+    service.save({**legacy, "name": "Updated"}, stage.get_uid())
+    assert service.get_api_list()[0]["policy_bots"] == [binding]
+    assert service.get_api_list()[0]["revision"] != original
+    service.save(form(policy_bots=[]), stage.get_uid())
+    assert service.get_api_list()[0]["policy_bots"] == []

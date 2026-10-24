@@ -21,7 +21,8 @@ async def card_comment_added(user_or_bot: User | Bot, project: Project, card: Ca
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots, BotTriggerCondition.CardCommentAdded, _create_data(user_or_bot, project, card, comment), project
     )
 
@@ -35,7 +36,8 @@ async def card_comment_updated(user_or_bot: User | Bot, project: Project, card: 
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots, BotTriggerCondition.CardCommentUpdated, _create_data(user_or_bot, project, card, comment), project
     )
 
@@ -49,7 +51,8 @@ async def card_comment_deleted(user_or_bot: User | Bot, project: Project, card: 
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots, BotTriggerCondition.CardCommentDeleted, _create_data(user_or_bot, project, card, comment), project
     )
 
@@ -65,7 +68,8 @@ async def card_comment_reacted(
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardCommentReacted,
         _create_data(user_or_bot, project, card, comment, {"reaction_type": reaction}),
@@ -84,7 +88,8 @@ async def card_comment_unreacted(
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardCommentUnreacted,
         _create_data(user_or_bot, project, card, comment, {"reaction_type": reaction}),

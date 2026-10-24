@@ -8,7 +8,7 @@ export interface IWorkflowBotBinding {
     interval_seconds?: number;
 }
 export interface IWorkflowBotOptions {
-    bots: { uid: string; name: string; entry_available: boolean }[];
+    bots: { uid: string; name: string; entry_available: boolean; policy_available: boolean }[];
     schedules: { uid: string; bot_uid: string; card_uid: string; name: string; is_available: boolean }[];
 }
 export const CONTINUOUS_EFFECT_DEFAULTS = {
@@ -37,6 +37,7 @@ export interface IWorkflowStage {
     overdue_policy: "normal" | "suppress";
     entry_effects: string[];
     entry_bots?: IWorkflowBotBinding[];
+    policy_bots?: { bot_uid: string }[];
     continuous_effects?: Partial<typeof CONTINUOUS_EFFECT_DEFAULTS>;
     translations: Record<string, { name: string; description: string }>;
 }

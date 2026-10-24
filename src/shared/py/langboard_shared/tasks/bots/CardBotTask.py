@@ -16,7 +16,8 @@ async def card_created(user_or_bot: User | Bot, project: Project, card: Card):
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots, BotTriggerCondition.CardCreated, BotTaskDataHelper.create_card(user_or_bot, project, card), project
     )
 
@@ -30,7 +31,8 @@ async def card_updated(user_or_bot: User | Bot, project: Project, card: Card):
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots, BotTriggerCondition.CardUpdated, BotTaskDataHelper.create_card(user_or_bot, project, card), project
     )
 
@@ -63,7 +65,8 @@ async def _run_card_moved(user_or_bot, project, card, old_column, emit_webhook=F
         selected = []
     else:
         selected = await _run_workflow_entry_bots(user_or_bot, card, data)
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         [item for item in bots if item[0].get_uid() not in selected],
         BotTriggerCondition.CardMoved,
         data,
@@ -134,7 +137,8 @@ async def card_labels_updated(user_or_bot: User | Bot, project: Project, card: C
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardLabelsUpdated,
         BotTaskDataHelper.create_card(user_or_bot, project, card),
@@ -151,7 +155,8 @@ async def card_relationship_updated(user_or_bot: User | Bot, project: Project, c
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots,
         BotTriggerCondition.CardRelationshipsUpdated,
         BotTaskDataHelper.create_card(user_or_bot, project, card),
@@ -168,6 +173,7 @@ async def card_deleted(user_or_bot: User | Bot, project: Project, card: Card):
         project_column_id=card.project_column_id,
         card_id=card.id,
     )
-    await BotTaskHelper.run(
+    await BotTaskHelper.run_card_event(
+        user_or_bot, card,
         bots, BotTriggerCondition.CardDeleted, BotTaskDataHelper.create_card(user_or_bot, project, card), project
     )
