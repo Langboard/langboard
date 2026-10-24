@@ -39,6 +39,7 @@ from langboard_shared.domain.services.factory.CardCommentService import CardComm
 from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
 from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
 from langboard_shared.Env import Env
+from PIL import Image
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 from test_card_change_counts import counts as _counts
@@ -108,6 +109,9 @@ def test_image_comment_native_outbox_is_atomic_and_replay_is_silent(
     adapters, native_delivery, notification_recipient, monkeypatch, outcome
 ):
     f, observed = adapters, native_delivery
+    source = Env.LOCAL_STORAGE_DIR / "card_attachment" / "immutable-image"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (200, 100)).save(source, format="PNG")
     with DbSession.atomic() as db:
         image = CardAttachment(
             card_id=f.card.id,

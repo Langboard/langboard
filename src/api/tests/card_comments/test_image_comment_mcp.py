@@ -38,7 +38,7 @@ def image_board(mirror_board, monkeypatch):  # noqa: F811 - imported native fixt
         destination.write(b.image_bytes)
         return True
 
-    monkeypatch.setattr(Storage, "download", download)
+    monkeypatch.setattr(Storage, "_download", download)
     for model in (CardComment, CardAttachment):
         model.__table__.create(b.engine)
     b.service.mark_card_changed = Mock()

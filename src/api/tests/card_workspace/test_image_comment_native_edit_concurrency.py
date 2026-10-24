@@ -25,7 +25,7 @@ def image_edit_board(native_edit_board, monkeypatch):  # noqa: F811 - imported n
         destination.write(output.getvalue())
         return True
 
-    monkeypatch.setattr(Storage, "download", download)
+    monkeypatch.setattr(Storage, "_download", download)
     with DbSession.atomic() as db:
         f.image = CardAttachment(
             card_id=f.card.id,

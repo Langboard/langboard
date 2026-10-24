@@ -54,7 +54,7 @@ def images(mirror_board, monkeypatch):  # noqa: F811 - imported native fixture
         return True
 
     b.download = Mock(side_effect=download)
-    monkeypatch.setattr(Storage, "download", b.download)
+    monkeypatch.setattr(Storage, "_download", b.download)
     CardAttachment.__table__.create(b.engine)
     CardComment.__table__.create(b.engine)
     with DbSession.use(readonly=False) as db:

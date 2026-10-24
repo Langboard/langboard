@@ -150,7 +150,7 @@ def create_image_comment(
         stored = (attachment.file.storage_type, attachment.file.storage_name, attachment.file.filename)
         with BoundedImageBuffer(MAX_IMAGE_BYTES) as buffer:
             try:
-                found = Storage.download(*stored, buffer)
+                found = Storage.download_file(attachment.file, buffer)
                 if not found or buffer.exceeded:
                     return None
                 _, width, height = image_metadata(buffer.getvalue())

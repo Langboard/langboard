@@ -571,6 +571,7 @@ def test_refresh_cannot_commit_after_repeated_unknown_invalidation(receipt_stora
             board_binding_id=binding.id,
             connection_id=connection.id,
             resource_type="repository",
+            is_selected=True,
             external_resource_id="99",
             access_state="unknown",
             health="unavailable",
@@ -684,6 +685,7 @@ def test_receipt_refresh_revalidates_authority_and_scopes_installation(private_r
                 board_binding_id=binding.id,
                 connection_id=connection.id,
                 resource_type="repository",
+                is_selected=True,
                 external_resource_id=str(installation_id),
                 access_state="unknown",
                 health="unavailable",
@@ -767,6 +769,7 @@ def test_receipt_refresh_is_limited_to_25_resource_pages(private_receipt_storage
                 board_binding_id=binding.id,
                 connection_id=connection.id,
                 resource_type="repository",
+                is_selected=True,
                 external_resource_id=str(100 + i),
                 resource_path=[{"type": "installation", "id": "17"}, {"type": "account", "id": "7"}],
             )
@@ -777,6 +780,7 @@ def test_receipt_refresh_is_limited_to_25_resource_pages(private_receipt_storage
                     board_binding_id=binding.id,
                     connection_id=connection.id,
                     resource_type="repository",
+                    is_selected=True,
                     external_resource_id=str(1000 + i),
                     resource_path=[{"type": "installation", "id": "18"}, {"type": "account", "id": "7"}],
                 )
@@ -840,23 +844,33 @@ def test_receipt_page_rechecks_scoped_changes_after_api(private_receipt_storage,
         for uid, installation in [(99, 17), (100, 17), (101, 18)]:
             row = AppResourceBinding(
                 board_binding_id=binding.id, connection_id=connection.id,
-                resource_type="repository", external_resource_id=str(uid),
+                resource_type="repository", is_selected=True, external_resource_id=str(uid),
                 resource_path=[{"type": "installation", "id": str(installation)}, {"type": "account", "id": "7"}],
             )
             db.insert(row)
             rows.append(row)
     body, signature = signed({"action": "created", "installation": payload["installation"]})
     receipt = receive_lifecycle(service, board[1], connection.get_uid(), body, signature, "installation", str(uuid4()))
+    with DbSession.use(readonly=False) as db:
+        invalidated = db.exec(SqlBuilder.select.table(AppResourceBinding).where(AppResourceBinding.id == rows[0].id)).first()
+        invalidated_health = invalidated.health
+        assert invalidated_health == "unavailable"
+
+    changed_snapshot = {}
 
     def inspect(*args, **kwargs):
         assert kwargs["repository_ids"] == (99, 100)
         with DbSession.use(readonly=False) as db:
-            row = rows[2] if change == "unrelated" else rows[0]
+            target = rows[2] if change == "unrelated" else rows[0]
+            row = db.exec(SqlBuilder.select.table(AppResourceBinding).where(AppResourceBinding.id == target.id)).first()
             if change == "selection":
                 row.is_selected = False
             else:
                 row.access_revision += 1
             db.update(row)
+        with DbSession.use(readonly=False) as db:
+            committed = db.exec(SqlBuilder.select.table(AppResourceBinding).where(AppResourceBinding.id == target.id)).first()
+            changed_snapshot.update(committed.model_dump())
         return {"repositories": [{"id": uid, "archived": False} for uid in (99, 100)]}
 
     monkeypatch.setattr(resources, "inspect_installation", inspect)
@@ -867,8 +881,11 @@ def test_receipt_page_rechecks_scoped_changes_after_api(private_receipt_storage,
             refresh_receipt_resources(service, receipt["receipt_uid"], board[2].get_uid())
     with DbSession.use(readonly=False) as db:
         stored = db.exec(SqlBuilder.select.table(AppResourceBinding).where(AppResourceBinding.id == rows[0].id)).first()
-        assert stored.health == ("healthy" if change == "unrelated" else "unknown")
+        assert stored.health == ("healthy" if change == "unrelated" else invalidated_health)
         assert stored.is_selected == (change != "selection")
+        if change != "unrelated":
+            assert stored.model_dump() == changed_snapshot
+            assert stored.access_revision == (2 if change == "access_revision" else 1)
 
 
 def test_receipt_refresh_fences_connection_changed_between_receipt_and_query(receipt_storage, monkeypatch):
@@ -919,6 +936,7 @@ def health_job(private_receipt_storage, monkeypatch):
                         board_binding_id=binding.id,
                         connection_id=connection.id,
                         resource_type="repository",
+                        is_selected=True,
                         external_resource_id=str(100 + i),
                         resource_path=[
                             {"type": "installation", "id": str(installation_id)},
@@ -964,7 +982,7 @@ def test_organization_health_worker_rechecks_live_scope(private_receipt_storage,
         binding = BoardAppBinding(project_id=board[2].id, app_key="github")
         db.insert(binding)
         resource = AppResourceBinding(board_binding_id=binding.id, connection_id=connection.id,
-            resource_type="repository", external_resource_id="99", access_state="granted", health="healthy",
+            resource_type="repository", is_selected=True, external_resource_id="99", access_state="granted", health="healthy",
             resource_path=[{"type": "installation", "id": "17"}, {"type": "account", "id": "7"}])
         db.insert(resource)
     body, signature = signed({"action": "unsuspend", "installation": payload["installation"]})

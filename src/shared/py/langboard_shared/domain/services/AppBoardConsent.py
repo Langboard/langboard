@@ -88,7 +88,7 @@ def save_board_consent(actor, project_id, app_key, capabilities, expected_revisi
                 raise ValueError("Signal access requires declared sources")
         binding.granted_capabilities = sorted(capabilities)
         binding.state = "enabled" if capabilities else "disabled"
-        if not capabilities:
+        if "workflow.transition" not in capabilities:
             binding.stage_transitions_enabled = False
         if "events.receive" not in capabilities:
             if binding.archive_sync_types:
