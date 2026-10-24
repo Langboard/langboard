@@ -35,6 +35,7 @@ def gate_native(base_native, monkeypatch):
         "card_app_ownership",
         "card_change_receipt",
         "workflow_effect_run",
+        "workflow_rule",
         "card_assigned_user",
         "card_assigned_project_label",
         "card_attachment",
@@ -236,7 +237,7 @@ def test_native_family_descendant_denial_rolls_back_parent(gate_native):
                 m.WorkflowStageDefinition.key == target.workflow_stage
             )
         ).first()
-        stage.entry_effects = ["confirm_descendant_move"]
+        stage.confirm_descendant_move = True
         db.update(stage)
         child = m.Card(project_id=board.id, project_column_id=old.id, title="Gated child", visibility="SHARED")
         db.insert(child)
