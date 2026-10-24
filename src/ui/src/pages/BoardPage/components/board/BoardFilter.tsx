@@ -13,7 +13,7 @@ import Label from "@/components/base/Label";
 import Popover from "@/components/base/Popover";
 import Skeleton from "@/components/base/Skeleton";
 import UserAvatar from "@/components/UserAvatar";
-import { IFilterMap, useBoard } from "@/core/providers/BoardProvider";
+import { BOARD_FILTER_KEYS, IFilterMap, useBoard } from "@/core/providers/BoardProvider";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
 import BoardLabelListItem from "@/pages/BoardPage/components/board/BoardLabelListItem";
@@ -39,10 +39,14 @@ function BoardFilter() {
     const [t, i18n] = useTranslation();
     const [, setSearchParams] = usePageSearchParams();
     const [open, setOpen] = useState(false);
+    const [viewName, setViewName] = useState("");
     const favorites = useBoardFilterPreferences(currentUser.uid, project.uid);
     const stages = useProjectWorkflowStages(
         project.uid,
-        open || Boolean(filters.workflow_stages?.length) || favorites.pins.some((pin) => pin.key === "workflow_stages")
+        open ||
+            Boolean(filters.workflow_stages?.length) ||
+            favorites.pins.some((pin) => pin.key === "workflow_stages") ||
+            favorites.views.some((view) => view.filters.some((pin) => pin.key === "workflow_stages"))
     );
     const stageName = (key: string) => {
         const stage = stages.data?.find((item) => item.key === key);
@@ -153,6 +157,16 @@ function BoardFilter() {
         }
     };
 
+    const combination = BOARD_FILTER_KEYS.flatMap((key) => (filters[key] ?? []).map((value) => ({ key, value })));
+    const restoreView = (conditions: typeof combination) => {
+        // Replace the entire combination before the existing pane-aware URL writer runs once.
+        Object.keys(filters).forEach((key) => delete filters[key]);
+        conditions.forEach(({ key, value }) => {
+            filters[key] = [...(filters[key] ?? []), value];
+        });
+        navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
+    };
+
     const content = (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
             <BoardWorkSummary />
@@ -169,7 +183,7 @@ function BoardFilter() {
                         {countAppliedFilters > 0 && <span>{` (${formatNumber(countAppliedFilters, i18n.language)})`}</span>}
                     </Button>
                 </Popover.Trigger>
-                <Popover.Content align="end" className="w-[34rem] max-w-[calc(100vw-2rem)] p-0">
+                <Popover.Content align="end" className="max-h-[calc(100dvh-2rem)] w-[34rem] max-w-[calc(100vw-2rem)] overflow-y-auto p-0">
                     <div className="space-y-2 border-b p-3">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-medium">{t("board.Filters")}</span>
@@ -183,6 +197,55 @@ function BoardFilter() {
                             value={filters.keyword?.join(",") ?? ""}
                             onChange={setFilterKeyword}
                         />
+                    </div>
+                    <div role="group" aria-label={t("board.filters.Saved views")} className="space-y-2 border-b p-3">
+                        <Label>{t("board.filters.Saved views")}</Label>
+                        <div className="flex gap-2">
+                            <Input
+                                aria-label={t("board.filters.View name")}
+                                placeholder={t("board.filters.View name")}
+                                value={viewName}
+                                maxLength={64}
+                                onChange={(event) => setViewName(event.currentTarget.value)}
+                            />
+                            <Button
+                                size="sm"
+                                disabled={favorites.busy || !favorites.canSave(viewName, combination)}
+                                onClick={() => favorites.saveView(viewName, combination)}
+                            >
+                                {t("board.filters.Save view")}
+                            </Button>
+                        </div>
+                        <div className="max-h-32 overflow-y-auto">
+                            {favorites.views.map((view) => {
+                                const ready = view.filters.every((pin) => available(pin.key, pin.value));
+                                return (
+                                    <div key={view.name} className="flex items-center gap-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="min-w-0 flex-1 justify-start"
+                                            disabled={!ready}
+                                            title={ready ? view.name : t("board.filters.Unavailable saved filter")}
+                                            aria-label={`${t("board.filters.Restore view")}: ${view.name}`}
+                                            onClick={() => restoreView(view.filters)}
+                                        >
+                                            <span className="truncate">{view.name}</span>
+                                            {!ready && <span>{t("board.filters.Unavailable saved filter")}</span>}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={favorites.busy}
+                                            aria-label={`${t("board.filters.Delete view")}: ${view.name}`}
+                                            onClick={() => favorites.deleteView(view.name)}
+                                        >
+                                            <IconComponent icon="x" className="size-3" />
+                                        </Button>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                     <div className="flex h-[min(24rem,60vh)] min-h-0">
                         <nav

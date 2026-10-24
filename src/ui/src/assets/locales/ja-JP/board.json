@@ -87,7 +87,12 @@
       "year": "今年",
       "overdue": "期限超過",
       "none": "期限なし"
-    }
+    },
+    "Saved views": "保存したビュー",
+    "View name": "ビュー名",
+    "Save view": "ビューを保存",
+    "Restore view": "ビューを適用",
+    "Delete view": "ビューを削除"
   },
   "Add column": "列を追加",
   "Add a card": "カードを追加",

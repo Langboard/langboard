@@ -14,6 +14,8 @@ class UserBoardFilterPreference(BaseDbModel, table=True):
     revision: int = Field(default=1, nullable=False)
     pinned_filters: list[dict] = Field(default_factory=list, sa_type=JSON, nullable=False)
 
+    saved_views: list[dict] = Field(default_factory=list, sa_type=JSON, nullable=False)
+
     def notification_data(self) -> dict:
         return {}
 

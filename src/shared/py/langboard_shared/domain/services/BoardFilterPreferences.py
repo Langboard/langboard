@@ -51,12 +51,41 @@ class BoardFilterPin(BaseModel):
         return self
 
 
-def board_filter_preferences(actor, project_id, *, pinned_filters=None, expected_revision=None):
+class BoardFilterView(BaseModel):
+    model_config = {"extra": "forbid"}
+    name: str = Field(min_length=1, max_length=64, strict=True)
+    filters: list[BoardFilterPin] = Field(min_length=1, max_length=32)
+
+    @field_validator("name")
+    @classmethod
+    def nonempty_name(cls, value):
+        if not value.strip():
+            raise ValueError("Saved view name must not be blank")
+        return value.strip()
+
+    @field_validator("filters")
+    @classmethod
+    def unique_conditions(cls, conditions):
+        if len({(item.key, item.value) for item in conditions}) != len(conditions):
+            raise ValueError("Saved view conditions must be unique")
+        return conditions
+
+
+def validate_saved_views(value):
+    views = TypeAdapter(list[BoardFilterView]).validate_python(value)
+    if len(views) > 16 or len({view.name.casefold() for view in views}) != len(views):
+        raise ValueError("Saved views must be bounded and have unique names")
+    return [view.model_dump() for view in views]
+
+
+def board_filter_preferences(actor, project_id, *, pinned_filters=None, saved_views=None, expected_revision=None):
     if expected_revision is not None:
         pins = TypeAdapter(list[BoardFilterPin]).validate_python(pinned_filters)
         if len(pins) > 32 or len({(pin.key, pin.value) for pin in pins}) != len(pins):
             raise ValueError("Filter shortcuts must be bounded and unique")
         pinned_filters = [pin.model_dump() for pin in pins]
+        if saved_views is not None:
+            saved_views = validate_saved_views(saved_views)
     with DbSession.atomic() as db:
         # The existing account lock also serializes the first preference insert.
         actor = _actor(db, actor, for_update=expected_revision is not None)
@@ -70,6 +99,7 @@ def board_filter_preferences(actor, project_id, *, pinned_filters=None, expected
             )
         ).first()
         revision = row.revision if row else 0
+        views = saved_views if saved_views is not None else (row.saved_views if row else [])
         if expected_revision is not None:
             if revision != expected_revision:
                 raise PreferenceConflict()
@@ -81,12 +111,21 @@ def board_filter_preferences(actor, project_id, *, pinned_filters=None, expected
                         UserBoardFilterPreference.revision == expected_revision,
                     )
                     .values(
-                        pinned_filters=pinned_filters, revision=expected_revision + 1, updated_at=SafeDateTime.now()
+                        pinned_filters=pinned_filters,
+                        saved_views=views,
+                        revision=expected_revision + 1,
+                        updated_at=SafeDateTime.now(),
                     )
                 )
                 if changed != 1:
                     raise PreferenceConflict()
-                return {"revision": expected_revision + 1, "pinned_filters": pinned_filters}
-            row = UserBoardFilterPreference(user_id=actor.id, project_id=project_id, pinned_filters=pinned_filters)
+                return {"revision": expected_revision + 1, "pinned_filters": pinned_filters, "saved_views": views}
+            row = UserBoardFilterPreference(
+                user_id=actor.id, project_id=project_id, pinned_filters=pinned_filters, saved_views=views
+            )
             db.insert(row)
-        return {"revision": row.revision if row else 0, "pinned_filters": row.pinned_filters if row else []}
+        return {
+            "revision": row.revision if row else 0,
+            "pinned_filters": row.pinned_filters if row else [],
+            "saved_views": row.saved_views if row else [],
+        }

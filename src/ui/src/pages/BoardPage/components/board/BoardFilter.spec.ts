@@ -413,3 +413,95 @@ test("deadline unknown URL and malformed favorite receipts fail closed", async (
     await page.getByRole("button", { name: "Clear", exact: true }).click();
     await expect(page.getByRole("region", { name: "Results" }).locator("p")).toHaveCount(13);
 });
+
+for (const width of [1280, 390])
+    test(`named saved views replace the complete combination, persist and preserve pins at ${width}px`, async ({ page }) => {
+        type Pin = { key: string; value: string };
+        let account = "me";
+        let stored = { revision: 1, pinned_filters: [{ key: "columns", value: "ready" }], saved_views: [] as { name: string; filters: Pin[] }[] };
+        await page.route("**/board/fixture/filter-preferences", async (route) => {
+            if (account !== "me") return route.fulfill({ json: { revision: 0, pinned_filters: [], saved_views: [] } });
+            if (route.request().method() === "PUT") {
+                const body = route.request().postDataJSON();
+                expect(body.expected_revision).toBe(stored.revision);
+                stored = { ...stored, ...body, revision: stored.revision + 1 };
+            }
+            await route.fulfill({ json: { revision: stored.revision, pinned_filters: stored.pinned_filters, saved_views: stored.saved_views } });
+        });
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?filters=members:me,deadlines:week");
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await dialog.getByRole("textbox", { name: "View name", exact: true }).fill("My week");
+        await dialog.getByRole("button", { name: "Save view", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Restore view: My week", exact: true })).toBeEnabled();
+        expect(stored.saved_views).toEqual([
+            {
+                name: "My week",
+                filters: [
+                    { key: "members", value: "me" },
+                    { key: "deadlines", value: "week" },
+                ],
+            },
+        ]);
+        expect(stored.pinned_filters).toEqual([{ key: "columns", value: "ready" }]);
+        await page.screenshot({ path: `/tmp/ad15-saved-views-${width}.png` });
+        await expect(dialog.getByRole("button", { name: "Save view", exact: true })).toBeDisabled();
+        await dialog.getByRole("button", { name: "Clear", exact: true }).click();
+        await dialog.getByRole("textbox", { name: "Keyword", exact: true }).fill("changed");
+        await dialog.getByRole("button", { name: "Restore view: My week", exact: true }).click();
+        await expect(page.getByTestId("url")).toHaveText("?filters=members%3Ame%2Cdeadlines%3Aweek");
+        // BoardProvider navigates to the production path; remount the actual-component document with that URL query.
+        await page.goto(`/src/pages/BoardPage/components/board/BoardFilter.fixture.html${new URL(page.url()).search}`);
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        await dialog.getByRole("button", { name: "Clear", exact: true }).click();
+        await dialog.getByRole("button", { name: "Restore view: My week", exact: true }).click();
+        await expect(page.getByTestId("url")).toHaveText("?filters=members%3Ame%2Cdeadlines%3Aweek");
+        await page.keyboard.press("Escape");
+        account = "other";
+        await page.getByRole("button", { name: "Switch account", exact: true }).click();
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Restore view: My week", exact: true })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        account = "me";
+        await page.getByRole("button", { name: "Switch account", exact: true }).click();
+        await page.getByRole("button", { name: "Switch board", exact: true }).click();
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Restore view: My week", exact: true })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Switch board", exact: true }).click();
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+        await dialog.getByRole("button", { name: "Delete view: My week", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Restore view: My week", exact: true })).toHaveCount(0);
+        expect(stored.pinned_filters).toEqual([{ key: "columns", value: "ready" }]);
+    });
+
+test("unavailable named view is inert and stale delete reloads the newer combination", async ({ page }) => {
+    let reads = 0;
+    await page.route("**/board/fixture/filter-preferences", async (route) => {
+        if (route.request().method() === "PUT") return route.fulfill({ status: 409, json: { code: "EX1003" } });
+        reads++;
+        return route.fulfill({
+            json: {
+                revision: reads,
+                pinned_filters: [],
+                saved_views: [
+                    {
+                        name: "Removed status",
+                        filters: [
+                            { key: "columns", value: "deleted" },
+                            { key: "members", value: "me" },
+                        ],
+                    },
+                    ...(reads > 1 ? [{ name: "Newer week", filters: [{ key: "deadlines", value: "week" }] }] : []),
+                ],
+            },
+        });
+    });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?filters=members:me");
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Restore view: Removed status", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Delete view: Removed status", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Restore view: Newer week", exact: true })).toBeEnabled();
+    await expect(page.getByTestId("url")).toContainText("members:me");
+});

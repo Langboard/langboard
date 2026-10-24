@@ -7,7 +7,12 @@ from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from langboard_shared.domain.services.BoardFilterPreferences import BoardFilterPin, board_filter_preferences
+from langboard_shared.domain.services.BoardFilterPreferences import (
+    BoardFilterPin,
+    BoardFilterView,
+    board_filter_preferences,
+    validate_saved_views,
+)
 from langboard_shared.domain.services.UserAppPreferences import PreferenceConflict
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
@@ -19,6 +24,15 @@ class BoardFilterPreferencesForm(BaseFormModel):
     model_config = {"extra": "forbid"}
     expected_revision: int = Field(ge=0, le=2147483646, strict=True)
     pinned_filters: list[BoardFilterPin] = Field(max_length=32)
+
+    saved_views: list[BoardFilterView] | None = Field(default=None, max_length=16)
+
+    @field_validator("saved_views")
+    @classmethod
+    def unique_views(cls, views):
+        if views is not None:
+            validate_saved_views([view.model_dump() for view in views])
+        return views
 
     @field_validator("pinned_filters")
     @classmethod
@@ -62,5 +76,6 @@ def save_filter_preferences(
         user,
         project_uid,
         pinned_filters=[pin.model_dump() for pin in form.pinned_filters],
+        saved_views=[view.model_dump() for view in form.saved_views] if form.saved_views is not None else None,
         expected_revision=form.expected_revision,
     )

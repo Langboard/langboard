@@ -87,7 +87,12 @@
       "year": "올해",
       "overdue": "기한 초과",
       "none": "마감일 없음"
-    }
+    },
+    "Saved views": "저장된 보기",
+    "View name": "보기 이름",
+    "Save view": "보기 저장",
+    "Restore view": "보기 적용",
+    "Delete view": "보기 삭제"
   },
   "Add column": "열 추가",
   "Add a card": "카드 추가",

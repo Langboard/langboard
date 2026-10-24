@@ -87,7 +87,12 @@
       "year": "This year",
       "overdue": "Overdue",
       "none": "No deadline"
-    }
+    },
+    "Saved views": "Saved views",
+    "View name": "View name",
+    "Save view": "Save view",
+    "Restore view": "Restore view",
+    "Delete view": "Delete view"
   },
   "Add column": "Add column",
   "Add a card": "Add a card",

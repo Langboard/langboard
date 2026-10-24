@@ -38,6 +38,9 @@ on:
       - src/ui/playwright.card-decision.config.ts
       - src/ui/playwright.personal-signal-inbox.config.ts
       - src/ui/playwright.user-login-range.config.ts
+      - src/ui/playwright.filter.config.ts
+      - src/ui/src/pages/BoardPage/components/board/BoardFilter*
+      - src/ui/src/pages/BoardPage/components/board/useBoardFilterPreferences.ts
       - src/ui/src/pages/DashboardPage/PersonalSignalInbox*
       - src/ui/src/pages/BoardPage/components/board/SignalInboxPanel*
       - src/ui/src/pages/SettingsPage/components/users/UserList*
@@ -136,6 +139,11 @@ jobs:
         working-directory: src/ui
       - name: Verify latest successful login range controls
         run: yarn playwright test -c playwright.user-login-range.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify saved board filter combinations
+        run: yarn playwright test -c playwright.filter.config.ts BoardFilter.spec.ts
         env:
           CI: "true"
         working-directory: src/ui

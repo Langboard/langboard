@@ -87,7 +87,12 @@
       "year": "今年",
       "overdue": "已逾期",
       "none": "无截止日期"
-    }
+    },
+    "Saved views": "已保存的视图",
+    "View name": "视图名称",
+    "Save view": "保存视图",
+    "Restore view": "应用视图",
+    "Delete view": "删除视图"
   },
   "Add column": "添加列",
   "Add a card": "添加卡片",
