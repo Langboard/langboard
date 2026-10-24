@@ -199,3 +199,81 @@ async def test_native_fastmcp_dispatch_schema_and_current_revoked_replay(move_bo
             assert len(rows(ProjectActivity)) == 2
     finally:
         mcp_auth_context.reset(token)
+
+
+@pytest.mark.parametrize("operation", ["clone", "move"])
+@pytest.mark.parametrize("profile", ["raw", "oauth"])
+async def test_modern_confirmation_receipt_and_applied_replay(move_board, monkeypatch, operation, profile):
+    import importlib
+    from fastmcp import FastMCP
+    from langboard.mcp_integration.Providers import create_native_agent_provider
+    from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+
+    dependencies = importlib.import_module("langboard.mcp_integration.Dependencies")
+    server_module = importlib.import_module("langboard.mcp_integration.Server")
+    b = move_board
+    add_reader(b)
+    service = SimpleNamespace(card=b.service, close=lambda: None)
+
+    @asynccontextmanager
+    async def resource():
+        yield service
+
+    monkeypatch.setattr(dependencies, "_factory_dependency", lambda _: resource)
+    monkeypatch.setattr(server_module, "DomainService", lambda: service)
+    metadata = {"cross_board_card": McpTool.get_tool("cross_board_card")}
+    monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
+    monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata.get(name))
+    if profile == "oauth":
+        server = FastMCP("Native OAuth dispatch fixture", middleware=[MutationReceiptMiddleware()])
+        server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
+    else:
+        _, server = McpServer.get_http_app(profile)
+    # Exercise the native OAuth principal path without a legacy tool group.
+    principal = {"transport": "oauth", "user_or_bot": b.actor} if profile == "oauth" else {
+        "user_or_bot": b.actor,
+        "tool_group": SimpleNamespace(activated_at=object(), tools=["cross_board_card"]),
+    }
+    token = mcp_auth_context.set(principal)
+    args = {
+        "source_project_uid": b.source_board.get_uid(),
+        "source_card_uid": b.source.get_uid(),
+        "destination_project_uid": b.destination.get_uid(),
+        "destination_column_uid": b.column.get_uid(),
+        "operation": operation,
+        "request_uid": b.request_uid,
+    }
+
+    async def call(client, arguments):
+        return await client.call_tool(
+            "call_raw_tool" if profile == "raw" else "cross_board_card",
+            {"name": "cross_board_card", "arguments": arguments} if profile == "raw" else arguments,
+        )
+
+    try:
+        async with Client(server) as client:
+            preview = await call(client, args)
+            data = preview.structured_content
+            assert data["status"] == "confirmation_required" and data["changed"] is False
+            assert data["operation"] == operation and data["new_reader_count"] == 1
+            assert len(rows(Card)) == 1 and rows(Card)[0].project_id == b.source_board.id
+            assert rows(ProjectActivity) == []
+            receipt = preview.meta["mutation_receipt"]
+            assert receipt["tool"] == "cross_board_card"
+            assert receipt["outcome"] == "not_applied" and receipt["next_action"] == "read_and_review"
+            assert receipt["revision_conflict"] is False and receipt["retryable"] is False
+            confirmed = {**args, "confirmed": True, "confirmation_token": data["confirmation_token"]}
+            applied = await call(client, confirmed)
+            assert applied.structured_content["status"] == "applied" and applied.structured_content["changed"]
+            replay = await call(client, confirmed)
+            assert replay.structured_content["status"] == "unchanged"
+            assert replay.structured_content["changed"] is False
+            for result in (applied, replay):
+                assert result.meta["mutation_receipt"]["outcome"] == "applied"
+                assert result.meta["mutation_receipt"]["next_action"] == "none"
+            assert len(rows(Card)) == (1 if operation == "move" else 2)
+            assert len(rows(ProjectActivity)) == (2 if operation == "move" else 1)
+    finally:
+        mcp_auth_context.reset(token)
