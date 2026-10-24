@@ -77,11 +77,20 @@ class MutationReceiptMiddleware(Middleware):
             )
         if result.meta and "mutation_receipt" in result.meta:
             return result
+        data = result.structured_content
+        # Native visibility disclosure explicitly hands control to a human without
+        # applying the command. Other successful no-ops remain applied.
+        human_action_required = (
+            name in {"change_card_visibility", "update_card"}
+            and isinstance(data, dict)
+            and data.get("status") == "human_action_required"
+            and data.get("changed") is False
+        )
         receipt = MutationReceipt(
             request_id=request_id,
             tool=name,
-            outcome="unknown" if result.is_error else "applied",
-            next_action="read_resource" if result.is_error else "none",
+            outcome="unknown" if result.is_error else "not_applied" if human_action_required else "applied",
+            next_action="read_resource" if result.is_error else "read_and_review" if human_action_required else "none",
         )
         return ToolResult(
             content=result.content,

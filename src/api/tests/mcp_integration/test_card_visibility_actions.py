@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
 from langboard.mcp_integration.RoleFilter import McpRoleFilter
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
@@ -208,3 +209,79 @@ async def test_modern_domain_errors_do_not_disclose_details(registered_card_comm
             await client.call_tool("update_card", {"project_uid": "project0001", "card_uid": "card0000001", "change": {
                 "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}})
         assert "secret" not in str(error.value)
+
+
+@pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("route", ["direct", "canonical", "raw", "legacy"])
+async def test_visibility_receipts_match_native_persistence(visibility_card, registered_card_commands, monkeypatch, route):
+    b, registered = visibility_card, registered_card_commands
+    registered.service.card = b.owner
+    names = ("change_card_visibility", "update_card")
+    tools = {name: McpTool.get_tool(name) for name in names}
+    monkeypatch.setattr(McpTool, "get_tools", lambda: tools)
+    if route == "direct":
+        server = registered.server(*names)
+        server.add_middleware(MutationReceiptMiddleware())
+    else:
+        profile = {"canonical": "agent", "raw": "raw", "legacy": "compatibility"}[route]
+        _, server = McpServer.get_http_app(profile)
+    token = mcp_auth_context.set({
+        "transport": "oauth", "user_or_bot": b.user,
+        "tool_group": SimpleNamespace(activated_at=object(), tools=list(names)),
+    })
+    request_ids = []
+
+    async def call(client, visibility, expected):
+        arguments = {"project_uid": b.project.get_uid(), "card_uid": b.card.get_uid(),
+                     "visibility": visibility, "expected_visibility": expected}
+        name = "update_card" if route == "canonical" else "change_card_visibility"
+        payload = ({"project_uid": arguments["project_uid"], "card_uid": arguments["card_uid"],
+                    "change": {"action": "visibility", "visibility": visibility, "expected_visibility": expected}}
+                   if route == "canonical" else arguments)
+        if route == "raw":
+            return await client.call_tool("call_raw_tool", {"name": name, "arguments": payload})
+        return await client.call_tool(name, payload)
+
+    def receipt(result, outcome):
+        assert not result.is_error
+        value = (result.meta or {}).get("mutation_receipt")
+        if route == "legacy":
+            assert value is None
+            return
+        assert len(value["request_id"]) == 32
+        request_ids.append(value["request_id"])
+        assert value["tool"] == ("update_card" if route == "canonical" else "change_card_visibility")
+        assert value["outcome"] == outcome
+        assert value["retryable"] is False
+        assert value["revision_conflict"] is False
+        assert value["next_action"] == ("read_and_review" if outcome == "not_applied" else "none")
+
+    try:
+        async with Client(server) as client:
+            # A successful idempotent no-op remains applied despite changed:false.
+            unchanged = await call(client, "SHARED", "SHARED")
+            assert unchanged.structured_content == {"status": "unchanged", "changed": False, "visibility": "SHARED"}
+            receipt(unchanged, "applied")
+            assert persisted(b) == ("SHARED", [])
+            reduced = await call(client, "INTERNAL", "SHARED")
+            receipt(reduced, "applied")
+            assert persisted(b)[0] == "INTERNAL"
+            assert len(persisted(b)[1]) == 1
+            mutation = Mock(wraps=b.owner.change_visibility)
+            monkeypatch.setattr(b.owner, "change_visibility", mutation)
+            for _ in range(2):
+                handoff = await call(client, "SHARED", "INTERNAL")
+                assert handoff.structured_content["status"] == "human_action_required"
+                assert handoff.structured_content["changed"] is False
+                assert set(handoff.structured_content) == {
+                    "status", "changed", "visibility", "expected_visibility", "card_url", "message",
+                }
+                receipt(handoff, "not_applied")
+                assert persisted(b)[0] == "INTERNAL"
+                assert len(persisted(b)[1]) == 1
+            mutation.assert_not_called()
+            # A later successful command must not inherit the disclosure declaration.
+            receipt(await call(client, "INTERNAL", "INTERNAL"), "applied")
+        assert len(set(request_ids)) == len(request_ids)
+    finally:
+        mcp_auth_context.reset(token)
