@@ -74,6 +74,7 @@ from ..CardAppMutation import guard_card_app_mutation, require_card_app_mutation
 from ..CardApprovalGate import pending_card_approvals
 from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
+from ..DecisionGate import DecisionGate
 from ..CardVerification import VerificationConflict, VerificationSubmission
 from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
 from ..CardWorkState import project_work_state
@@ -2853,6 +2854,7 @@ class CardService(BaseDomainService):
         confirmation_revision: str | None = None,
         channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> bool | dict[str, Any] | None:
+        move_options = {} if channel == CollaborationChannel.Api else {"channel": channel}
         with DbSession.atomic() as db:
             params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
             if not params:
@@ -2938,7 +2940,7 @@ class CardService(BaseDomainService):
                         if owner is not None and owner.app_key is not None:
                             raise ValueError("App-owned cards cannot join a family move")
                         require_card_app_mutation(db, user_or_bot, child, project)
-                result = self._change_order(user_or_bot, project, card, order, new_column)
+                result = self._change_order(user_or_bot, project, card, order, new_column, **move_options)
                 if not result:
                     raise ValueError("Card movement failed")
                 if move_descendants:
@@ -2953,10 +2955,10 @@ class CardService(BaseDomainService):
                             )
                         ).first()
                         last = last[0] if isinstance(last, tuple) else last
-                        if not self._change_order(user_or_bot, project, child, (last or 0) + 1, new_column):
+                        if not self._change_order(user_or_bot, project, child, (last or 0) + 1, new_column, **move_options):
                             raise ValueError("Card family movement failed")
                 return result
-            return self._change_order(user_or_bot, project, card, order, new_column)
+            return self._change_order(user_or_bot, project, card, order, new_column, **move_options)
 
     def _root_move_family(self, db, project, card, new_column):
         target = InfraHelper.get_by_id_like(ProjectColumn, new_column) if new_column else None
@@ -3050,7 +3052,7 @@ class CardService(BaseDomainService):
         )
         return descendants, sha256("|".join(payload).encode()).hexdigest()
 
-    def _change_order(self, user_or_bot, project, card, order, new_column):
+    def _change_order(self, user_or_bot, project, card, order, new_column, *, channel=CollaborationChannel.Api):
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
             return None
@@ -3103,6 +3105,9 @@ class CardService(BaseDomainService):
                     return self._delete_card(user_or_bot, project, card)
                 if new_column.id == old_column.id:
                     new_column = None
+            DecisionGate(self).require(
+                execution.db, user_or_bot, project, card, old_column, new_column, channel=channel
+            )
             execution.watch_card_and_dependents(card.id)
             old_order = card.order
             entering_archive = bool(new_column and new_column.is_archive and not card.archived_at)

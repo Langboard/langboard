@@ -1,6 +1,9 @@
 import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
 import Popover from "@/components/base/Popover";
+import useGetGraphApprovals from "@/controllers/api/board/graphApprovals/useGetGraphApprovals";
+import { EGraphApprovalScopeTable, EGraphApprovalStatus } from "@/core/models/GraphApprovalRequestModel";
+import { getAuthStore } from "@/core/stores/AuthStore";
 import { useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
 import { ProjectRole } from "@/core/models/roles";
 import { useEffect, useRef, useState } from "react";
@@ -44,6 +47,7 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
     const [t] = useTranslation();
     const { projectUID, cardUID, page, locked, busy, pending, execute, reconfirm, reload } = useDecisions();
     const [sourceKind, setSourceKind] = useState("proposal");
+    const [approvalUID, setApprovalUID] = useState("");
     const [options, setOptions] = useState([
         { key: "option-1", label: "" },
         { key: "option-2", label: "" },
@@ -96,7 +100,7 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
         setConfirmed(false);
     }, [reconfirm]);
     const validPolicy =
-        sourceKind === "proposal"
+        sourceKind !== "poll"
             ? !!policy && (policy !== "k_of_n" || (Number.isInteger(required) && required >= 1 && required <= selected.length))
             : !!deadline &&
               options.length >= 2 &&
@@ -114,6 +118,7 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
         selected.length > 0 &&
         selected.length <= 256 &&
         !!page?.target_revision &&
+        (sourceKind !== "graph_approval" || !!approvalUID) &&
         (!deadline || (Number.isFinite(new Date(deadline).getTime()) && new Date(deadline).getTime() > Date.now()));
     return (
         <form
@@ -125,12 +130,13 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
                 const saved = await execute(`/board/${projectUID}/card/${cardUID}/decisions`, {
                     source_kind: sourceKind,
                     source_ref: cardUID,
+                    ...(sourceKind === "graph_approval" ? { approval_uid: approvalUID } : {}),
                     question: question.trim(),
                     target_revision: page!.target_revision,
                     participant_uids: actorSelection!.preview.actor_uids,
                     actor_sources: actorSelection!.sources,
                     expected_actor_snapshot: actorSelection!.preview.snapshot,
-                    ...(sourceKind === "proposal"
+                    ...(sourceKind !== "poll"
                         ? {
                               policy: {
                                   op: policy,
@@ -163,6 +169,7 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
                         value={sourceKind}
                         onChange={(event) => {
                             setSourceKind(event.target.value);
+                            setApprovalUID("");
                             setSelected([]);
                             setActorSelection(undefined);
                             setConfirmed(false);
@@ -170,8 +177,17 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
                     >
                         <option value="proposal">{t("card.decision.Proposal")}</option>
                         <option value="poll">{t("card.decision.Named single choice poll")}</option>
+                        <option value="graph_approval">{t("card.decision.HITL")}</option>
                     </select>
                 </label>
+                {sourceKind === "graph_approval" && (
+                    <PendingApprovalSelector
+                        onChange={(value) => {
+                            setApprovalUID(value);
+                            setConfirmed(false);
+                        }}
+                    />
+                )}
                 <label className="block">
                     {t("card.decision.Question")}
                     <textarea
@@ -186,7 +202,11 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
                         }}
                     />
                 </label>
-                <DecisionParticipantSelector key={sourceKind} sourceKind={sourceKind} onChange={setActorSelection} />
+                <DecisionParticipantSelector
+                    key={sourceKind}
+                    sourceKind={sourceKind === "graph_approval" ? "proposal" : sourceKind}
+                    onChange={setActorSelection}
+                />
                 <p>{t("card.decision.Selected count", { count: selected.length })}</p>
                 <ol className="space-y-2">
                     {selected.map((person, index) => (
@@ -211,7 +231,7 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
                         </li>
                     ))}
                 </ol>
-                {sourceKind === "proposal" && (
+                {sourceKind !== "poll" && (
                     <>
                         <label className="block">
                             {t("card.decision.Policy")}
@@ -358,5 +378,73 @@ function DecisionComposer({ onClose }: { onClose: () => void }) {
                 </Button>
             </div>
         </form>
+    );
+}
+
+function PendingApprovalSelector({ onChange }: { onChange: (uid: string) => void }) {
+    const [t] = useTranslation();
+    const { projectUID, cardUID, reconfirm, reportError } = useDecisions();
+    const [options, setOptions] = useState<{ uid: string; label: string }[]>([]);
+    const [value, setValue] = useState("");
+    const callback = useRef(onChange);
+    callback.current = onChange;
+    const { refetch } = useGetGraphApprovals(
+        { project_uid: projectUID, scope_table: EGraphApprovalScopeTable.Card, scope_uid: cardUID, status: EGraphApprovalStatus.Pending, limit: 100 },
+        { enabled: false, interceptToast: true }
+    );
+    useEffect(() => {
+        let alive = true;
+        const session = getAuthStore().getSessionVersion();
+        setOptions([]);
+        setValue("");
+        callback.current("");
+        void refetch().then((result) => {
+            if (!alive) return;
+            if (session !== getAuthStore().getSessionVersion() || result.isError) {
+                reportError(result.error, session);
+                return;
+            }
+            setOptions(
+                (result.data?.approvals ?? [])
+                    .filter(
+                        (approval) =>
+                            approval.project_uid === projectUID &&
+                            approval.scope_table === EGraphApprovalScopeTable.Card &&
+                            approval.scope_uid === cardUID &&
+                            approval.status === EGraphApprovalStatus.Pending &&
+                            approval.durable_run === true &&
+                            approval.decision_bound === false
+                    )
+                    .map((approval) => ({
+                        uid: approval.uid,
+                        label: `${approval.tool_name ?? approval.api_name ?? approval.action_type} (${approval.uid})`,
+                    }))
+            );
+        });
+        return () => {
+            alive = false;
+        };
+    }, [projectUID, cardUID, reconfirm, refetch]);
+    return (
+        <label className="block">
+            {t("card.decision.Native approval")}
+            <select
+                aria-label={t("card.decision.Native approval")}
+                className="w-full rounded border bg-background p-2"
+                value={value}
+                onChange={(event) => {
+                    setValue(event.target.value);
+                    callback.current(event.target.value);
+                }}
+            >
+                <option value="">{t("card.decision.Select pending approval")}</option>
+                {options.map((option) => (
+                    <option key={option.uid} value={option.uid}>
+                        {option.label}
+                    </option>
+                ))}
+            </select>
+            {!options.length && <span>{t("card.decision.No pending approvals")}</span>}
+        </label>
     );
 }

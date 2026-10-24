@@ -1,4 +1,4 @@
-from fastapi import File, Query, UploadFile, status
+from fastapi import File, Query, Request, UploadFile, status
 from fastmcp.exceptions import AuthorizationError
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.filter import AuthFilter
@@ -22,10 +22,15 @@ from langboard_shared.core.utils.Converter import convert_python_data
 from langboard_shared.domain.models import Bot, Card, Project, ProjectRole, ProjectWiki, ProjectWikiAttachment, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.ProjectWikiService import (
+    WikiSecretSelectionError,
+    WikiSecretSelectionForm,
+)
 from langboard_shared.filter import RoleFilter
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.security import Auth, RoleFinder
 from ...wiki_workspace.infrastructure import NativeWikiRepository
+from ..editor.EditorSyncApi import check_wiki_conversion_owner
 from .forms import (
     AssigneesForm,
     ChangeChildOrderForm,
@@ -33,6 +38,43 @@ from .forms import (
     ChangeWikiPublicForm,
     WikiForm,
 )
+
+
+@AppRouter.schema(form=WikiSecretSelectionForm, permission=ApiPermission.Edit)
+@AppRouter.api.post("/board/{project_uid}/wiki/{wiki_uid}/secret-selection", tags=["Board.Wiki"])
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def convert_wiki_selection_to_secret(
+    request: Request,
+    project_uid: str,
+    wiki_uid: str,
+    form: WikiSecretSelectionForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.secret_reference.convert_wiki_selection(
+            user,
+            project_uid,
+            wiki_uid,
+            form.expected_revision,
+            form.name,
+            form.selection,
+            collaboration_check=lambda generation: check_wiki_conversion_owner(request.headers, wiki_uid, generation),
+        )
+    except WikiSecretSelectionError as error:
+        codes = {
+            "unavailable": 403,
+            "stale_revision": 409,
+            "collaboration_active": 409,
+            "invalid_selection": 400,
+            "unsupported_selection": 400,
+            "invalid_name": 400,
+        }
+        return JsonResponse(
+            content={"error": error.code}, status_code=codes.get(error.code, 503), headers={"Cache-Control": "no-store"}
+        )
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.schema(permission=ApiPermission.Read)
@@ -252,7 +294,8 @@ def create_wiki_linked_card(
         create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "title"), "title", "title"
     ),
     collaborative_rich(
-        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "content"),
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "content")
+        + ":{editor_generation}",
         "content",
     ),
 )
@@ -288,13 +331,25 @@ def change_project_wiki_details(
         raise ApiException.Forbidden_403(ApiErrorCode.PE2005)
 
     form_dict = {}
-    for key in ChangeWikiDetailsForm.model_fields:
+    for key in ("title", "content"):
         value = getattr(form, key)
         if value is None:
             continue
         form_dict[key] = value
 
-    result = service.project_wiki.update(user_or_bot, project_uid, wiki_uid, form_dict)
+    from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConflict
+
+    try:
+        result = service.project_wiki.update(
+            user_or_bot,
+            project_uid,
+            wiki_uid,
+            form_dict,
+            expected_generation=form.editor_generation,
+            expected_revision=form.expected_revision,
+        )
+    except WikiContentConflict:
+        return JsonResponse({"error": "stale_editor"}, status_code=409)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2008)
 
@@ -453,6 +508,10 @@ def upload_wiki_attachment(
     collaborative_block(create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "title")),
     collaborative_block(
         create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "content")
+    ),
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "content")
+        + ":{editor_generation}"
     ),
     collaborative_block(
         create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "private-assignees")

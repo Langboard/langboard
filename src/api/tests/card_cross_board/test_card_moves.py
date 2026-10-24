@@ -18,6 +18,8 @@ from langboard_shared.domain.models import (
     CardAssignedUser,
     CardAttachment,
     CardComment,
+    CardDecisionGate,
+    DecisionCase,
     CardMetadata,
     CardRelationship,
     DocumentKeywordIndex,
@@ -51,6 +53,8 @@ from test_card_mirrors import mirror_board  # noqa: F401
 @pytest.fixture
 def move_board(clone_board, monkeypatch):  # noqa: F811
     b = clone_board
+    for model in (DecisionCase, CardDecisionGate):
+        model.__table__.create(b.engine)
     for model in (CardMetadata, DocumentKeywordIndex, DocumentVectorCleanup, WhisperThread, KeywordSearchConfiguration):
         model.__table__.create(b.engine)
     b.service.repo.metadata = MetadataRepository(None, None)

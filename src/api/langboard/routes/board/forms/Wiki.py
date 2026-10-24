@@ -11,6 +11,8 @@ class WikiForm(BaseFormModel):
 
 @form_model
 class ChangeWikiDetailsForm(BaseFormModel):
+    editor_generation: int | None = Field(None, ge=0, strict=True)
+    expected_revision: str | None = Field(None, pattern=r"^[0-9a-f]{64}$")
     title: str | None = Field(None, description="Wiki title")
     content: EditorContentModel | None = Field(None, description="Wiki content")
 

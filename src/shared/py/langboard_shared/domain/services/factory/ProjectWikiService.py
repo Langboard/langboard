@@ -1,4 +1,7 @@
+import hashlib
+import re
 from typing import Any, Literal
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Text, cast, func, literal_column, select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import defer
@@ -30,11 +33,138 @@ from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
 
 
+class WikiSecretSelection(BaseModel):
+    """Offsets address exact reviewed stored Markdown, measured in UTF16 code units."""
+
+    model_config = ConfigDict(extra="forbid")
+    start_utf16: int = Field(strict=True, ge=0)
+    end_utf16: int = Field(strict=True, gt=0)
+
+
+class WikiSecretSelectionForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    name: str = Field(strict=True, min_length=1, max_length=256)
+    selection: WikiSecretSelection
+
+
+class WikiSecretSelectionError(Exception):
+    """Safe failure codes only; never wrap provider or SQL exception messages."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+def wiki_secret_selection_bounds(content: str, selection: WikiSecretSelection) -> tuple[int, int]:
+    offsets = {0: 0}
+    units = 0
+    for index, char in enumerate(content):
+        units += 2 if ord(char) > 0xFFFF else 1
+        offsets[units] = index + 1
+    if (
+        selection.start_utf16 not in offsets
+        or selection.end_utf16 not in offsets
+        or selection.start_utf16 >= selection.end_utf16
+    ):
+        raise WikiSecretSelectionError("invalid_selection")
+    start, end = offsets[selection.start_utf16], offsets[selection.end_utf16]
+    # A masked reference must never become credential material, even partially.
+    for match in re.finditer(r"\[[^\]\n]*\]\(secret://[^)\n]*\)", content):
+        if start < match.end() and end > match.start():
+            raise WikiSecretSelectionError("unsupported_selection")
+    # This increment supports one literal Markdown text span. Formatting delimiters,
+    # links, code, escapes and block boundaries require a serializer-aware selector.
+    line_start = content.rfind("\n", 0, start) + 1
+    line_end = content.find("\n", end)
+    line_end = len(content) if line_end < 0 else line_end
+    line = content[line_start:line_end]
+    if (
+        "\n" in content[start:end]
+        or re.search(r"[\r\[\]`*_~<>|\\]", line)
+        or re.match(r"\s*(?:#{1,6} |>|[-+] |\d+[.)] |~~~|---)", line)
+        or "secret://" in content[start:end]
+    ):
+        raise WikiSecretSelectionError("unsupported_selection")
+    return start, end
+
+
 class ProjectWikiService(BaseDomainService):
     @staticmethod
     def name() -> str:
         """DO NOT EDIT THIS METHOD"""
         return "project_wiki"
+
+    def prepare_secret_selection(
+        self, db, actor: User, project_uid: str, wiki_uid: str, expected_revision: str, selection: WikiSecretSelection
+    ):
+        """Recheck native membership, read/write and wiki assignment under locks."""
+
+        def locked(model, *conditions):
+            return db.exec(
+                SqlBuilder.select.table(model)
+                .where(*conditions)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+
+        if not isinstance(actor, User):
+            raise WikiSecretSelectionError("unavailable")
+        current = locked(User, User.id == actor.id)
+        project = locked(Project, Project.id == InfraHelper.convert_id(project_uid))
+        if current is None or not current.activated_at or project is None:
+            raise WikiSecretSelectionError("unavailable")
+        member = locked(
+            ProjectAssignedUser, ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == current.id
+        )
+        role = locked(ProjectRole, ProjectRole.project_id == project.id, ProjectRole.user_id == current.id)
+        if (
+            project.owner_id != current.id
+            and member is None
+            or not current.is_admin
+            and (role is None or not role.is_granted(ProjectRoleAction.Read))
+        ):
+            raise WikiSecretSelectionError("unavailable")
+        wiki = locked(
+            ProjectWiki, ProjectWiki.id == InfraHelper.convert_id(wiki_uid), ProjectWiki.project_id == project.id
+        )
+        if wiki is None:
+            raise WikiSecretSelectionError("unavailable")
+        assigned = locked(
+            ProjectWikiAssignedUser,
+            ProjectWikiAssignedUser.project_wiki_id == wiki.id,
+            ProjectWikiAssignedUser.user_id == current.id,
+        )
+        if not wiki.is_public and not current.is_admin and assigned is None:
+            raise WikiSecretSelectionError("unavailable")
+        content = wiki.content.content
+        if hashlib.sha256(content.encode()).hexdigest() != expected_revision:
+            raise WikiSecretSelectionError("stale_revision")
+        start, end = wiki_secret_selection_bounds(content, selection)
+        return current, project, wiki, start, end
+
+    def persist_secret_selection(
+        self, db, actor: User, project: Project, wiki: ProjectWiki, before: str, after: str, masked_before: str
+    ) -> None:
+        """Keep new history/event payloads masked; earlier stored history is untouched."""
+        wiki.content = EditorContentModel(content=after)
+        if not self.repo.project_wiki.update_content_if_current(
+            wiki, before, expected_generation=wiki.editor_generation, advance_generation=True
+        ):
+            raise WikiSecretSelectionError("stale_revision")
+        # No plaintext pre-state is retained in deferred task arguments or history.
+        safe_wiki = wiki.model_copy(deep=True)
+        model = {"content": {"content": after}, "editor_generation": wiki.editor_generation}
+
+        def publish():
+            ProjectWikiPublisher.updated(project, safe_wiki, model)
+            self._publish_linked_card_changed(project, safe_wiki)
+            ProjectWikiActivityTask.project_wiki_updated(
+                actor, project, {"content": EditorContentModel(content=masked_before)}, safe_wiki
+            )
+            ProjectWikiBotTask.project_wiki_updated(actor, project, safe_wiki)
+
+        db.after_commit(publish)
 
     def get_by_id_like(self, wiki: TWikiParam | None) -> ProjectWiki | None:
         wiki = InfraHelper.get_by_id_like(ProjectWiki, wiki)
@@ -239,6 +369,9 @@ class ProjectWikiService(BaseDomainService):
         form: dict,
         *,
         expected_content: str | None = None,
+        expected_generation: int | None = None,
+        expected_revision: str | None = None,
+        advance_generation: bool = False,
     ) -> dict[str, Any] | Literal[True] | None:
         if expected_content is not None and set(form) != {"content"}:
             raise ValueError("Conditional wiki edits may change only content")
@@ -249,13 +382,36 @@ class ProjectWikiService(BaseDomainService):
 
         validators: TMutableValidatorMap = {"title": "not_empty", "content": "default"}
 
+        if "content" in form:
+            if type(expected_generation) is not int or expected_generation < 0:
+                raise WikiContentConflict("Refresh the editor before saving content")
+            if expected_content is None:
+                if (
+                    expected_revision is None
+                    or hashlib.sha256(wiki.content.content.encode()).hexdigest() != expected_revision
+                ):
+                    raise WikiContentConflict("Wiki changed after review")
+                expected_content = wiki.content.content
+            if wiki.editor_generation != expected_generation:
+                raise WikiContentConflict("Editor lineage changed; refresh the editor")
+
         old_record = self.apply_mutates(wiki, form, validators)
         if not old_record:
+            if expected_content is not None and not self.repo.project_wiki.update_content_if_current(
+                wiki, expected_content, expected_generation=expected_generation
+            ):
+                raise WikiContentConflict("Wiki changed after review")
             return True
 
         if expected_content is None:
             self.repo.project_wiki.update(wiki)
-        elif not self.repo.project_wiki.update_content_if_current(wiki, expected_content):
+        elif not self.repo.project_wiki.update_content_if_current(
+            wiki,
+            expected_content,
+            expected_generation=expected_generation,
+            advance_generation=advance_generation,
+            title=wiki.title if "title" in form else None,
+        ):
             raise WikiContentConflict("Wiki changed after review; no append saved")
 
         model: dict[str, Any] = {}
@@ -264,6 +420,8 @@ class ProjectWikiService(BaseDomainService):
                 continue
             model[key] = convert_python_data(getattr(wiki, key))
 
+        if "content" in model:
+            model["editor_generation"] = wiki.editor_generation
         ProjectWikiPublisher.updated(project, wiki, model)
         self._publish_linked_card_changed(project, wiki)
 

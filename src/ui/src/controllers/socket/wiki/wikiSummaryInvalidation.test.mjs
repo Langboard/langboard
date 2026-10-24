@@ -49,3 +49,78 @@ for (const [handler, data] of [
         client.clear();
     });
 }
+
+
+const name = "useBoardWikiPublicChangedHandlers";
+const source = fs.readFileSync(`src/controllers/socket/wiki/${name}.ts`, "utf8")
+    .replace(/^import .*;\n/gm, "")
+    .replace(/export interface /g, "interface ")
+    .replace(`export default ${name};`, `return ${name};`);
+const compiled = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
+}).outputText;
+test("publicity metadata and legacy events preserve editor state, ACL, and authorized hydration", async () => {
+for (const legacy of [false, true]) {
+    for (const mode of ["public", "assigned", "admin", "revoked", "newly-public"]) {
+        const wiki = {
+            uid: "wiki", title: "Current title", content: {content: "[masked]"},
+            editor_generation: 1, is_public: true, assigned_members: [], forbidden: mode === "newly-public",
+            changeToPrivate() { this.content = undefined; this.title = ""; this.forbidden = true; }
+        };
+        const patches = [];
+        const reads = [];
+        const dependencies = {
+            queryClient: {invalidateQueries(options) { reads.push(options); }}, resetWorkspaceSummaryQueries() {},
+            useSocketHandler: options => options.onProps.responseConverter,
+            ESocketTopic: {BoardWiki: "board_wiki"},
+            SocketEvents: {SERVER: {BOARD: {WIKI: {}}}},
+            ProjectWiki: {Model: {fromOne(patch) { patches.push(patch); Object.assign(wiki, patch); }}}
+        };
+        const factory = new Function(...Object.keys(dependencies), compiled)(...Object.values(dependencies));
+        const payload = {
+            uid: "wiki", is_public: mode === "public" || mode === "newly-public",
+            assigned_members: mode === "assigned" ? [{uid: "actor"}] : [],
+            ...(legacy ? {content: {content: "fixture-sensitive-value"}, editor_generation: 0, title: "Old title"} : {})
+        };
+        factory({projectUID: "board", wiki, currentUser: {uid: "actor", is_admin: mode === "admin"}})({wiki: payload});
+        assert.equal(wiki.editor_generation, 1);
+        assert.deepEqual(Object.keys(patches[0]).sort(), ["assigned_members", "created_at", "is_public", "uid", "updated_at"]);
+        if (mode === "revoked") {
+            assert.equal(wiki.forbidden, true);
+            assert.equal(wiki.content, undefined);
+        } else if (mode === "newly-public") {
+            assert.equal(wiki.forbidden, true, "read must succeed before revealing the placeholder");
+            assert.deepEqual(reads, [{queryKey: ["get-wikis-board"], exact: true}]);
+            // Execute the existing authorized list reader used by the invalidated observer.
+            const readerSource = fs.readFileSync("src/controllers/api/wiki/useGetWikis.ts", "utf8")
+                .replace(/^import .*;\n/gm, "")
+                .replace(/export interface /g, "interface ")
+                .replace("export default useGetWikis;", "return useGetWikis;");
+            const readerDependencies = {
+                Routing: {API: {BOARD: {WIKI: {GET_ALL: "/board/{uid}/wikis"}}}},
+                Utils: {String: {format: () => "/board/board/wikis"}},
+                api: {get: async () => ({data: {wikis: [{uid: "wiki", content: {content: "[masked]"},
+                    editor_generation: 1, forbidden: false, title: "Authorized title"}], project_members: []}})},
+                useQueryMutation: () => ({query: (key, fn) => {
+                    assert.deepEqual(key, reads[0].queryKey);
+                    return fn({signal: new AbortController().signal});
+                }}),
+                ProjectWiki: {Model: {fromArray: items => items.map(item => Object.assign(wiki, item))}},
+                User: {Model: {fromArray: items => items}}
+            };
+            const reader = new Function(...Object.keys(readerDependencies), ts.transpileModule(readerSource, {
+                compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS}
+            }).outputText)(...Object.values(readerDependencies));
+            await reader({project_uid: "board"});
+            assert.equal(wiki.forbidden, false);
+            assert.equal(wiki.content.content, "[masked]");
+            assert.equal(wiki.editor_generation, 1);
+        } else {
+            assert.equal(wiki.forbidden, false);
+            assert.equal(wiki.content.content, "[masked]");
+            assert.equal(wiki.title, "Current title");
+        }
+    }
+}
+console.log("10 native publicity converter cases and authorized hydration passed");
+});

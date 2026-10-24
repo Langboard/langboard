@@ -21,6 +21,7 @@ from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCo
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import VerificationEvidence, VerificationSubmission
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
 from langboard_shared.Env import Env
@@ -679,11 +680,14 @@ def change_card_order_or_move_column(
         normalized_column_uid = column_uid.strip()
         if not normalized_column_uid:
             raise ValueError("column_uid cannot be blank")
-    result = service.card.change_order(
-        user_or_bot, project_uid, card_uid, order, normalized_column_uid or "",
-        move_descendants=move_descendants, confirmation_revision=confirmation_revision,
-        channel=CollaborationChannel.Mcp,
-    )
+    try:
+        result = service.card.change_order(
+            user_or_bot, project_uid, card_uid, order, normalized_column_uid or "",
+            move_descendants=move_descendants, confirmation_revision=confirmation_revision,
+            channel=CollaborationChannel.Mcp,
+        )
+    except DecisionGateBlocked as exc:
+        return exc.payload()
     if isinstance(result, dict):
         return {**result, "message": "Ask whether to move all descendants or only this card; no move was performed."}
     if not result:

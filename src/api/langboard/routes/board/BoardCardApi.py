@@ -40,6 +40,7 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAgentExecution import card_agent_execution
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
@@ -614,6 +615,8 @@ def change_card_order_or_move_column(
             move_descendants=form.move_descendants, confirmation_revision=form.confirmation_revision,
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
         )
+    except DecisionGateBlocked as exc:
+        return JsonResponse(content=exc.payload(), status_code=409)
     except ValueError as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     if not result:

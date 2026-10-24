@@ -1,0 +1,983 @@
+"""Stored selection conversion uses an isolated native DB and an in-memory Vault."""
+
+import json
+from types import SimpleNamespace
+import pytest
+from langboard.wiki_workspace.domain import WikiSnapshot
+from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.security import KeyVault
+from langboard_shared.domain.models import ProjectWiki, ProjectWikiAssignedUser, SecretReference, SecretReferenceAudit
+from langboard_shared.domain.services.factory.ProjectWikiService import (
+    ProjectWikiService,
+    WikiSecretSelection,
+    WikiSecretSelectionError,
+    WikiSecretSelectionForm,
+    wiki_secret_selection_bounds,
+)
+from langboard_shared.infrastructure.repositories.factory.ProjectWikiRepository import ProjectWikiRepository
+
+
+@pytest.fixture
+def conversion(secrets, monkeypatch):
+    from langboard.middlewares.CollaborativeEditMiddleware import CollaborativeEditMiddleware
+
+    monkeypatch.setattr(CollaborativeEditMiddleware, "_get_active_collaborative_document_names", lambda *a: [])
+    secret_service, board, _ = secrets
+    engine = DbEngine.get_main_engine()
+    ProjectWiki.__table__.create(engine)
+    ProjectWikiAssignedUser.__table__.create(engine)
+    material = {}
+
+    def store(key, value):
+        material[key] = value
+        return key
+
+    provider = SimpleNamespace(
+        name=lambda: "fake-vault", store_secret=store, delete_key=lambda key: material.pop(key, None)
+    )
+    monkeypatch.setattr(KeyVault, "provider", provider)
+    repo = ProjectWikiRepository(lambda _: None, lambda _: None)
+    wiki_service = ProjectWikiService(lambda _: None, lambda _: None, SimpleNamespace(project_wiki=repo))
+    monkeypatch.setattr(
+        secret_service, "_raw_get_service", lambda cls: wiki_service if cls is ProjectWikiService else board[0]
+    )
+    events = []
+    import importlib
+
+    module = importlib.import_module(ProjectWikiService.__module__)
+    monkeypatch.setattr(module.ProjectWikiPublisher, "updated", lambda *args: events.append(("socket", args)))
+    monkeypatch.setattr(ProjectWikiService, "_publish_linked_card_changed", lambda *args: events.append(("card", args)))
+    monkeypatch.setattr(
+        module.ProjectWikiActivityTask, "project_wiki_updated", lambda *args: events.append(("activity", args))
+    )
+    monkeypatch.setattr(module.ProjectWikiBotTask, "project_wiki_updated", lambda *args: events.append(("bot", args)))
+    source = "앞😀: fixture-sensitive-value suffix"
+    with DbSession.use(readonly=False) as db:
+        board[4].actions = ["read", "update"]
+        db.update(board[4])
+        wiki = ProjectWiki(project_id=board[2].id, title="Fixture", order=0, content=EditorContentModel(content=source))
+        db.insert(wiki)
+    start = len("앞😀: ".encode("utf-16-le")) // 2
+    selection = WikiSecretSelection(start_utf16=start, end_utf16=start + len("fixture-sensitive-value"))
+    return secret_service, board, wiki_service, wiki, source, selection, material, events
+
+
+def call(fixture, **changes):
+    service, board, _, wiki, source, selection, _, _ = fixture
+    args = dict(
+        actor=board[1],
+        project_uid=board[2].get_uid(),
+        wiki_uid=wiki.get_uid(),
+        expected_revision=WikiSnapshot(wiki.get_uid(), wiki.title, source).revision,
+        name="wiki/selection",
+        selection=selection,
+    )
+    args.update(changes)
+    return service.convert_wiki_selection(**args, collaboration_check=lambda generation: None)
+
+
+def state(fixture):
+    with DbSession.use(readonly=False) as db:
+        wiki = db.exec(SqlBuilder.select.table(ProjectWiki)).first()
+        refs = db.exec(SqlBuilder.select.table(SecretReference)).all()
+        audits = db.exec(SqlBuilder.select.table(SecretReferenceAudit)).all()
+        return wiki.content.content, refs, audits
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_success_masks_selected_content_and_only_dispatches_safe_after_commit(conversion):
+    result = call(conversion)
+    stored, refs, audits = state(conversion)
+    assert stored == "앞😀: [••••](" + result["reference"]["uri"] + ") suffix"
+    assert list(conversion[6].values()) == ["fixture-sensitive-value"]
+    assert len(refs) == len(audits) == 1
+    assert audits[0].source_kind == "wiki"
+    assert result["revision"] == WikiSnapshot("w", "t", stored).revision
+    assert [event[0] for event in conversion[7]] == ["socket", "card", "activity", "bot"]
+    activity = conversion[7][2][1]
+    assert activity[2]["content"].content == "앞😀: [••••] suffix" and activity[3].content.content == stored
+    ordinary = json.dumps([result, [audit.model_dump(mode="json") for audit in audits]], default=str)
+    ordinary += repr(conversion[7])
+    assert "fixture-sensitive-value" not in ordinary and refs[0].locator not in ordinary
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize(
+    "failure",
+    ["stale", "membership", "read", "update", "private", "inactive", "bounds", "surrogate", "empty", "foreign"],
+)
+def test_invalid_or_revoked_selection_never_stores_material(conversion, failure):
+    service, board, wiki_service, wiki, source, selection, material, events = conversion
+    changes = {}
+    with DbSession.use(readonly=False) as db:
+        if failure == "membership":
+            db.delete(board[3], purge=True)
+        elif failure in {"read", "update"}:
+            board[4].actions = ["update"] if failure == "read" else ["read"]
+            db.update(board[4])
+        elif failure == "inactive":
+            board[1].activated_at = None
+            db.update(board[1])
+        elif failure == "private":
+            wiki.is_public = False
+            db.update(wiki)
+    if failure == "stale":
+        changes["expected_revision"] = "0" * 64
+    if failure == "bounds":
+        changes["selection"] = WikiSecretSelection(start_utf16=0, end_utf16=10000)
+    if failure == "surrogate":
+        changes["selection"] = WikiSecretSelection(start_utf16=2, end_utf16=3)
+    if failure == "empty":
+        changes["selection"] = WikiSecretSelection(start_utf16=1, end_utf16=1)
+    if failure == "foreign":
+        changes["project_uid"] = "B"
+    with pytest.raises(WikiSecretSelectionError):
+        call(conversion, **changes)
+    assert not material and not events
+    stored, refs, audits = state(conversion)
+    assert stored == source and not refs and not audits
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("failure", ["vault", "audit", "wiki", "cleanup"])
+def test_compensated_failures_leave_no_partial_db_or_event(conversion, monkeypatch, caplog, failure):
+    service, _, wiki_service, _, source, _, material, events = conversion
+    if failure == "vault":
+
+        def failing_store(*args):
+            raise RuntimeError("fixture-sensitive-value vault-locator")
+
+        monkeypatch.setattr(KeyVault.provider, "store_secret", failing_store)
+    elif failure == "audit":
+
+        def failing_audit(*args):
+            raise RuntimeError("fixture-sensitive-value vault-locator")
+
+        monkeypatch.setattr(service, "_audit", failing_audit)
+    else:
+
+        def failing_update(*args):
+            raise RuntimeError("fixture-sensitive-value vault-locator")
+
+        monkeypatch.setattr(wiki_service.repo.project_wiki, "update_content_if_current", failing_update)
+        if failure == "cleanup":
+
+            def failing_delete(*args):
+                raise RuntimeError("fixture-sensitive-value vault-locator")
+
+            monkeypatch.setattr(KeyVault.provider, "delete_key", failing_delete)
+    with pytest.raises(WikiSecretSelectionError) as caught:
+        call(conversion)
+    assert str(caught.value) == (
+        "cleanup_required"
+        if failure == "cleanup"
+        else "storage_outcome_unknown"
+        if failure == "vault"
+        else "conversion_failed"
+    )
+    assert "fixture-sensitive-value" not in str(caught.value)
+    assert "fixture-sensitive-value" not in caplog.text and "vault-locator" not in caplog.text
+    stored, refs, audits = state(conversion)
+    assert stored == source and not refs and not audits and not events
+    assert bool(material) == (failure == "cleanup")
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_nested_transaction_is_rejected_without_storage(conversion):
+    with DbSession.atomic():
+        with pytest.raises(RuntimeError, match="must own"):
+            call(conversion)
+    assert not conversion[6]
+
+
+@pytest.mark.parametrize("content,start,end", [("a😀b", 1, 3), ("abc", 0, 3)])
+def test_utf16_bounds(content, start, end):
+    left, right = wiki_secret_selection_bounds(content, WikiSecretSelection(start_utf16=start, end_utf16=end))
+    assert content[left:right] == ("😀" if "😀" in content else content)
+
+
+@pytest.mark.parametrize("content", ["a\nb", "**formatted**", "[••••](secret://ref/abc)", "# title"])
+def test_unsupported_ranges_reject_before_storage(content):
+    with pytest.raises(WikiSecretSelectionError, match="unsupported_selection"):
+        wiki_secret_selection_bounds(content, WikiSecretSelection(start_utf16=0, end_utf16=len(content)))
+
+
+def test_form_never_accepts_plaintext_or_slate_paths():
+    from pydantic import ValidationError
+
+    for extra in ({"text": "material"}, {"anchor": {"path": [0, 0], "offset": 1}}):
+        with pytest.raises(ValidationError):
+            WikiSecretSelectionForm.model_validate(
+                dict(
+                    expected_revision="a" * 64, name="wiki/name", selection={"start_utf16": 0, "end_utf16": 1, **extra}
+                )
+            )
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_commit_failure_redacts_actual_logger_and_compensates(conversion, caplog):
+    from sqlalchemy import event
+
+    engine = DbEngine.get_main_engine()
+
+    def fail_commit(connection):
+        raise RuntimeError("fixture-sensitive-value vault-locator-canary")
+
+    event.listen(engine, "commit", fail_commit)
+    try:
+        with pytest.raises(WikiSecretSelectionError, match="conversion_failed"):
+            call(conversion)
+    finally:
+        event.remove(engine, "commit", fail_commit)
+    assert "Sensitive database transaction failed" in caplog.text
+    assert "fixture-sensitive-value" not in caplog.text and "vault-locator-canary" not in caplog.text
+    stored, refs, audits = state(conversion)
+    assert stored == conversion[4] and not refs and not audits
+    assert not conversion[6] and not conversion[7]
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_after_commit_failure_redacts_actual_logger_without_undoing_success(conversion, monkeypatch, caplog):
+    import importlib
+
+    module = importlib.import_module(ProjectWikiService.__module__)
+
+    def fail_publish(*args):
+        raise RuntimeError("fixture-sensitive-value vault-locator-canary")
+
+    monkeypatch.setattr(module.ProjectWikiPublisher, "updated", fail_publish)
+    result = call(conversion)
+    assert result["reference"]["state"] == "active"
+    assert "Sensitive after-commit callback failed" in caplog.text
+    assert "fixture-sensitive-value" not in caplog.text and "vault-locator-canary" not in caplog.text
+    stored, refs, audits = state(conversion)
+    assert stored != conversion[4] and len(refs) == len(audits) == 1
+    assert len(conversion[6]) == 1
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_native_http_metadata_contract_and_current_authority(conversion, monkeypatch):
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.routes.board.BoardWikiApi import convert_wiki_selection_to_secret
+    from langboard_shared.core.caching import Cache
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+
+    secret_service, board, _, wiki, source, selection, material, _ = conversion
+    actor = board[1]
+    wrapper = SimpleNamespace(secret_reference=secret_service, project_wiki=conversion[2], close=lambda: None)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    monkeypatch.setattr(Cache, "get", lambda *a, **k: None)
+    monkeypatch.setattr(Cache, "set", lambda *a, **k: None)
+    monkeypatch.setattr(
+        importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: wrapper
+    )
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    for route in app.routes:
+        if getattr(route, "endpoint", None) is convert_wiki_selection_to_secret:
+            for dep in route.dependant.dependencies:
+                if dep.name == "service":
+                    app.dependency_overrides[dep.call] = lambda: wrapper
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    headers = {"Authorization": f"Bearer {access}"}
+    path = f"/board/{board[2].get_uid()}/wiki/{wiki.get_uid()}/secret-selection"
+    form = {
+        "expected_revision": WikiSnapshot("w", "t", source).revision,
+        "name": "wiki/http",
+        "selection": selection.model_dump(),
+    }
+    with TestClient(app) as client:
+        assert client.post(path, json=form).status_code == 401
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        assert client.post(path, json={**form, "text": "plaintext"}, headers=headers).status_code == 400
+        assert client.post(path, json={**form, "expected_revision": "0" * 64}, headers=headers).status_code == 409
+        assert not material
+        response = client.post(path, json=form, headers=headers)
+        assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+        assert "fixture-sensitive-value" not in response.text and "locator" not in response.text
+        assert response.json()["reference"]["scope"] == "project"
+        assert client.post(path, json=form, headers=headers).status_code == 409
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_real_duplicate_constraint_rolls_back_new_vault_value(conversion, caplog):
+    call(conversion)
+    stored, refs, _ = state(conversion)
+    first_material = dict(conversion[6])
+    conversion[7].clear()
+    with DbSession.use(readonly=False) as db:
+        second = ProjectWiki(
+            project_id=conversion[1][2].id,
+            title="Second",
+            order=1,
+            content=EditorContentModel(content="new-sensitive-value"),
+        )
+        db.insert(second)
+    with pytest.raises(WikiSecretSelectionError, match="conversion_failed"):
+        call(
+            conversion,
+            wiki_uid=second.get_uid(),
+            expected_revision=WikiSnapshot("w", "t", "new-sensitive-value").revision,
+            selection=WikiSecretSelection(start_utf16=0, end_utf16=19),
+        )
+    assert state(conversion)[0] == stored
+    assert len(state(conversion)[1]) == 1
+    assert conversion[6] == first_material and not conversion[7]
+    assert "fixture-sensitive-value" not in caplog.text and refs[0].locator not in caplog.text
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_uncertain_provider_write_is_reported_without_false_atomicity(conversion, monkeypatch):
+    material = conversion[6]
+
+    def uncertain_store(key, value):
+        material[key] = value
+        raise RuntimeError("fixture-sensitive-value ambiguous-locator")
+
+    monkeypatch.setattr(KeyVault.provider, "store_secret", uncertain_store)
+    with pytest.raises(WikiSecretSelectionError, match="storage_outcome_unknown"):
+        call(conversion)
+    stored, refs, audits = state(conversion)
+    assert stored == conversion[4] and not refs and not audits and not conversion[7]
+    # The provider never returned its locator. Physical cleanup cannot be asserted.
+    assert len(material) == 1
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize(
+    "source,start,end", [("~~credential~~", 2, 12), ("| credential |", 2, 12), ("x\rcredential", 2, 12)]
+)
+def test_unsupported_literal_lines_rejected_before_vault_storage(conversion, monkeypatch, source, start, end):
+    service, board, _, wiki, _, _, material, events = conversion
+    with DbSession.use(readonly=False) as db:
+        wiki.content = EditorContentModel(content=source)
+        db.update(wiki)
+    calls = []
+    monkeypatch.setattr(KeyVault.provider, "store_secret", lambda *args: calls.append(args))
+    with pytest.raises(WikiSecretSelectionError, match="unsupported_selection"):
+        call(
+            conversion,
+            expected_revision=WikiSnapshot("w", "t", source).revision,
+            selection=WikiSecretSelection(start_utf16=start, end_utf16=end),
+        )
+    assert not calls and not material and not events
+    assert state(conversion)[0] == source and not state(conversion)[1]
+
+
+@pytest.fixture
+def collaborative_reproduction_client(conversion, monkeypatch):
+    """Exercise JWT authentication and the real collaborative middleware boundary."""
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.middlewares.CollaborativeEditMiddleware import CollaborativeEditMiddleware
+    from langboard.routes.board.BoardWikiApi import convert_wiki_selection_to_secret
+    from langboard_shared.core.caching import Cache
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+
+    secret_service, board, _, wiki, source, selection, _, _ = conversion
+    wrapper = SimpleNamespace(secret_reference=secret_service, project_wiki=conversion[2], close=lambda: None)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    monkeypatch.setattr(Cache, "get", lambda *a, **k: None)
+    monkeypatch.setattr(Cache, "set", lambda *a, **k: None)
+    monkeypatch.setattr(
+        importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: wrapper
+    )
+    app = FastAPI()
+    assert any(getattr(route, "endpoint", None) is convert_wiki_selection_to_secret for route in AppRouter.api.routes)
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    app.add_middleware(CollaborativeEditMiddleware)
+    access, refresh = AuthSecurity.authenticate(board[1].id)
+    path = f"/board/{board[2].get_uid()}/wiki/{wiki.get_uid()}/secret-selection"
+    form = {
+        "expected_revision": WikiSnapshot("w", "t", source).revision,
+        "name": "wiki/collaboration-reproduction",
+        "selection": selection.model_dump(),
+    }
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        yield client, path, form, {"Authorization": f"Bearer {access}"}
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("draft_state", ["active", "unknown"])
+def test_collaborative_jwt_conversion_must_not_write_when_active_or_unknown(
+    conversion, collaborative_reproduction_client, monkeypatch, draft_state, record_property
+):
+    from unittest.mock import Mock
+    from langboard.middlewares.CollaborativeEditMiddleware import CollaborativeEditMiddleware
+
+    document_name = f"wiki:{conversion[3].get_uid()}:content"
+    coordinator = Mock(return_value=[document_name] if draft_state == "active" else None)
+    monkeypatch.setattr(CollaborativeEditMiddleware, "_get_active_collaborative_document_names", coordinator)
+    client, path, form, headers = collaborative_reproduction_client
+    response = client.post(path, json=form, headers=headers)
+    facts = {
+        "entrypoint": "native-jwt-http",
+        "draft_state": draft_state,
+        "http_status": response.status_code,
+        "coordinator_calls": coordinator.call_count,
+        "vault_writes": len(conversion[6]),
+        "wiki_changed": state(conversion)[0] != conversion[4],
+    }
+    record_property("missing_fence_reproduction", facts)
+    print(facts)
+    assert not conversion[6] and state(conversion)[0] == conversion[4]
+    assert response.status_code in {409, 503}
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("draft_state", ["active", "unknown"])
+def test_collaborative_native_mcp_conversion_must_not_write_when_active_or_unknown(
+    conversion, monkeypatch, draft_state, record_property
+):
+    from unittest.mock import Mock
+    from langboard.mcp_tools.WikiMcp import convert_wiki_selection_to_secret
+    from langboard.middlewares.CollaborativeEditMiddleware import CollaborativeEditMiddleware
+
+    service, board, _, wiki, source, selection, _, _ = conversion
+    document_name = f"wiki:{wiki.get_uid()}:content"
+    coordinator = Mock(return_value=[document_name] if draft_state == "active" else None)
+    monkeypatch.setattr(CollaborativeEditMiddleware, "_get_active_collaborative_document_names", coordinator)
+    from fastmcp.exceptions import ValidationError
+
+    with pytest.raises(ValidationError, match="collaboration_active|collaboration_unavailable"):
+        convert_wiki_selection_to_secret(
+            board[2].get_uid(),
+            wiki.get_uid(),
+            WikiSnapshot("w", "t", source).revision,
+            "wiki/mcp-collaboration-reproduction",
+            selection,
+            board[1],
+            SimpleNamespace(secret_reference=service),
+        )
+    result = {}
+    facts = {
+        "entrypoint": "native-mcp-command",
+        "draft_state": draft_state,
+        "coordinator_calls": coordinator.call_count,
+        "vault_writes": len(conversion[6]),
+        "wiki_changed": state(conversion)[0] != source,
+        "reference_created": bool(result.get("reference")),
+    }
+    record_property("missing_fence_reproduction", facts)
+    print(facts)
+    assert not conversion[6] and state(conversion)[0] == source
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_generation_rejects_delayed_save_and_missing_writer(conversion):
+    from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConflict
+
+    _, board, wiki_service, old_wiki, source, _, _, _ = conversion
+    result = call(conversion)
+    assert result["editor_generation"] == 1
+    stored = state(conversion)[0]
+    for generation in (None, 0):
+        with pytest.raises(WikiContentConflict):
+            wiki_service.update(
+                board[1],
+                board[2],
+                old_wiki,
+                {"content": EditorContentModel(content=source)},
+                expected_generation=generation,
+                expected_content=source,
+            )
+    assert state(conversion)[0] == stored
+    # The repository enforces generation even when the attacker knows current source.
+    old_wiki.content = EditorContentModel(content=source)
+    assert not wiki_service.repo.project_wiki.update_content_if_current(old_wiki, stored, expected_generation=0)
+    assert state(conversion)[0] == stored
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_old_generation_cannot_save_even_when_join_races_conversion(conversion):
+    _, board, wiki_service, old_wiki, source, _, _, _ = conversion
+    admitted = []
+    service = conversion[0]
+    result = service.convert_wiki_selection(
+        board[1],
+        board[2].get_uid(),
+        old_wiki.get_uid(),
+        WikiSnapshot("w", "t", source).revision,
+        "wiki/racing-join",
+        conversion[5],
+        collaboration_check=lambda generation: admitted.append(generation),
+    )
+    assert admitted == [0] and result["editor_generation"] == 1
+    # An owner admitted after an idle preflight still has generation 0. Its eventual save loses.
+    old_wiki.content = EditorContentModel(content=source)
+    stored = state(conversion)[0]
+    assert not wiki_service.repo.project_wiki.update_content_if_current(
+        old_wiki, stored, expected_generation=admitted[0]
+    )
+    assert state(conversion)[0] == stored
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_current_generation_can_save_and_stale_source_cannot(conversion):
+    call(conversion)
+    stored = state(conversion)[0]
+    wiki_service = conversion[2]
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(ProjectWiki)).first()
+    current.content = EditorContentModel(content=stored + " edited")
+    assert wiki_service.repo.project_wiki.update_content_if_current(current, stored, expected_generation=1)
+    assert state(conversion)[0] == stored + " edited"
+    current.content = EditorContentModel(content=conversion[4])
+    assert not wiki_service.repo.project_wiki.update_content_if_current(current, stored, expected_generation=1)
+    assert state(conversion)[0] == stored + " edited"
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_native_generation_authorization_rejects_old_and_unknown_lineages(conversion, monkeypatch):
+    import importlib
+
+    module = importlib.import_module("langboard.routes.auth.SocketAuthorization")
+    monkeypatch.setattr(module, "is_subscription_authorized", lambda *a: True)
+    wiki = conversion[3]
+    wrapper = SimpleNamespace(project_wiki=SimpleNamespace(get_by_id_like=lambda uid: wiki))
+    current = f"wiki:{wiki.get_uid()}:content:0"
+    assert module.authorized_editor_document_subscription(wrapper, conversion[1][1], current)
+    for name in (
+        current[:-1] + "1",
+        current[:-1] + "-1",
+        current[:-1] + "00",
+        current[:-1] + "bad",
+        current[:-1] + "9" * 5000,
+        current[:-1] + "2147483648",
+    ):
+        assert module.authorized_editor_document_subscription(wrapper, conversion[1][1], name) is None
+    call(conversion)
+    wiki.editor_generation = 1
+    assert module.authorized_editor_document_subscription(wrapper, conversion[1][1], current) is None
+    assert module.authorized_editor_document_subscription(wrapper, conversion[1][1], current[:-1] + "1")
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_native_http_delayed_content_save_cannot_restore_plaintext(
+    conversion, collaborative_reproduction_client, monkeypatch
+):
+    service = conversion[2]
+    monkeypatch.setattr(service, "is_assigned", lambda *a: True)
+    client, path, _, headers = collaborative_reproduction_client
+    call(conversion)
+    masked = state(conversion)[0]
+    path = path.replace("secret-selection", "details")
+    base = {"content": {"content": conversion[4]}, "expected_revision": WikiSnapshot("w", "t", conversion[4]).revision}
+    for extra in ({}, {"editor_generation": 0}, {"editor_generation": 1}):
+        response = client.put(path, json={**base, **extra}, headers=headers)
+        assert response.status_code == 409
+    assert state(conversion)[0] == masked
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_native_mcp_delayed_replace_cannot_restore_plaintext(conversion, monkeypatch):
+    from fastmcp.exceptions import ValidationError
+    from langboard.mcp_tools.WikiMcp import replace_wiki_content
+
+    service = conversion[2]
+    # Snapshot reads may use the replica in production; final shared CAS is on primary.
+    # This isolated fixture points both pools at its owned DB instead of the app-preview sentinel.
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    monkeypatch.setattr(service, "convert_to_api_response", lambda *a: {"forbidden": False})
+    monkeypatch.setattr(service, "is_assigned", lambda *a: True)
+    call(conversion)
+    masked = state(conversion)[0]
+    wrapper = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=lambda uid: conversion[1][2]), project_wiki=service
+    )
+    with pytest.raises(ValidationError):
+        replace_wiki_content(
+            conversion[1][2].get_uid(),
+            conversion[3].get_uid(),
+            WikiSnapshot("w", "t", conversion[4]).revision,
+            conversion[4],
+            conversion[1][1],
+            wrapper,
+        )
+    assert state(conversion)[0] == masked
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_generation_migration_preserves_source_and_requires_safe_downgrade(board):
+    import importlib.util
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+
+    path = Path(__file__).parents[2] / "langboard/migrations/versions/20261024040000-72f4c6e8a190.py"
+    spec = importlib.util.spec_from_file_location("wiki_generation_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    engine = DbEngine.get_main_engine()
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE project_wiki (id INTEGER PRIMARY KEY, content TEXT NOT NULL)"))
+        connection.execute(text("INSERT INTO project_wiki VALUES (1, 'preserved historical source')"))
+        with Operations.context(MigrationContext.configure(connection)):
+            module.upgrade()
+            row = connection.execute(text("SELECT content, editor_generation FROM project_wiki")).one()
+            assert row == ("preserved historical source", 0)
+            connection.execute(text("UPDATE project_wiki SET editor_generation=1"))
+            with pytest.raises(RuntimeError, match="cannot be dropped"):
+                module.downgrade()
+            connection.execute(text("UPDATE project_wiki SET editor_generation=0"))
+            module.downgrade()
+            assert (
+                connection.execute(text("SELECT content FROM project_wiki")).scalar() == "preserved historical source"
+            )
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_postgres_conversion_commit_fences_writer_waiting_on_same_row(conversion):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from time import monotonic, sleep
+    from sqlalchemy import text
+
+    entered, release, writer_started = Event(), Event(), Event()
+    service, board, wiki_service, old_wiki, source, selection, _, _ = conversion
+    engine = DbEngine.get_main_engine()
+
+    def owner_check(generation):
+        assert generation == 0
+        entered.set()
+        assert release.wait(5)
+
+    def convert():
+        return service.convert_wiki_selection(
+            board[1],
+            board[2].get_uid(),
+            old_wiki.get_uid(),
+            WikiSnapshot("w", "t", source).revision,
+            "wiki/concurrent",
+            selection,
+            collaboration_check=owner_check,
+        )
+
+    def delayed_save():
+        old_wiki.content = EditorContentModel(content=source + " stale edit")
+        writer_started.set()
+        return wiki_service.repo.project_wiki.update_content_if_current(old_wiki, source, expected_generation=0)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        conversion_future = pool.submit(convert)
+        try:
+            assert entered.wait(5)
+            stale_future = pool.submit(delayed_save)
+            assert writer_started.wait(5)
+            deadline = monotonic() + 2
+            waiting = False
+            while monotonic() < deadline:
+                with engine.connect() as connection:
+                    waiting = bool(
+                        connection.execute(
+                            text(
+                                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                                "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock' AND query LIKE '%project_wiki%'"
+                            )
+                        ).scalar()
+                    )
+                if waiting:
+                    break
+                sleep(0.01)
+            assert waiting, "stale writer must actually wait on conversion's live wiki row lock"
+        finally:
+            release.set()
+        assert conversion_future.result(timeout=5)["editor_generation"] == 1
+        assert stale_future.result(timeout=5) is False
+    stored, refs, audits = state(conversion)
+    assert "fixture-sensitive-value" not in stored and len(refs) == len(audits) == 1
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_board_chat_uses_current_generation_without_relabeling_old_context(conversion):
+    from langboard.routes.auth.forms.Socket import SocketBoardChatStartForm
+    from langboard.routes.auth.SocketAuthApi import _board_chat_active_documents
+
+    wiki = conversion[3]
+    name = f"wiki:{wiki.get_uid()}:content:0"
+    run = SimpleNamespace(scope_table="project_wiki", scope_uid=wiki.get_uid())
+    form = SocketBoardChatStartForm(active_document_names=[name])
+    assert _board_chat_active_documents(form, run, conversion[1][2].get_uid())[0]["section"] == "content"
+    call(conversion)
+    for old in (name, name.rsplit(":", 1)[0]):
+        with pytest.raises(Exception) as caught:
+            _board_chat_active_documents(
+                SocketBoardChatStartForm(active_document_names=[old]), run, conversion[1][2].get_uid()
+            )
+        assert getattr(caught.value, "status_code", None) == 403
+    fresh = name[:-1] + "1"
+    assert (
+        _board_chat_active_documents(
+            SocketBoardChatStartForm(active_document_names=[fresh]), run, conversion[1][2].get_uid()
+        )[0]["document_name"]
+        == fresh
+    )
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_native_current_generation_http_mcp_and_title_only_remain_usable(
+    conversion, collaborative_reproduction_client, monkeypatch
+):
+    from langboard.mcp_tools.WikiMcp import append_wiki_content
+
+    service = conversion[2]
+    monkeypatch.setattr(service, "is_assigned", lambda *a: True)
+    monkeypatch.setattr(service, "convert_to_api_response", lambda *a: {"forbidden": False})
+    client, path, _, headers = collaborative_reproduction_client
+    call(conversion)
+    monkeypatch.setattr(
+        service, "_raw_get_service", lambda cls: SimpleNamespace(notify_mentioned_in_wiki=lambda *a: None)
+    )
+    masked = state(conversion)[0]
+    details = path.replace("secret-selection", "details")
+    changed = masked + " reviewed edit"
+    response = client.put(
+        details,
+        json={
+            "content": {"content": changed},
+            "editor_generation": 1,
+            "expected_revision": WikiSnapshot("w", "t", masked).revision,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200 and response.json()["editor_generation"] == 1
+    assert state(conversion)[0] == changed
+    response = client.put(details, json={"title": "Still editable"}, headers=headers)
+    assert response.status_code == 200
+    wrapper = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=lambda uid: conversion[1][2]), project_wiki=service
+    )
+    result = append_wiki_content(
+        conversion[1][2].get_uid(),
+        conversion[3].get_uid(),
+        WikiSnapshot("w", "t", changed).revision,
+        "native append",
+        conversion[1][1],
+        wrapper,
+    )
+    assert result["wiki_uid"] == conversion[3].get_uid()
+    with DbSession.use(readonly=False) as db:
+        wiki = db.exec(SqlBuilder.select.table(ProjectWiki)).first()
+        assert wiki.editor_generation == 2 and "native append" in wiki.content.content
+    assert "fixture-sensitive-value" not in state(conversion)[0]
+
+
+@pytest.fixture
+def admission_conversion(conversion, monkeypatch, tmp_path):
+    """Use a real file and separate SQLite connections for native lock ordering."""
+    import sqlite3
+    from sqlalchemy import create_engine
+
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name != "sqlite":
+        yield conversion
+        return
+    path = tmp_path / "admission.sqlite"
+    with engine.connect() as source:
+        with sqlite3.connect(path) as destination:
+            source.connection.driver_connection.backup(destination)
+    owned = create_engine(f"sqlite:///{path}", connect_args={"timeout": 0.15})
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: owned)
+    try:
+        yield conversion
+    finally:
+        owned.dispose()
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_final_admission_rejects_conversion_in_progress_and_committed(admission_conversion):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from langboard.routes.auth.SocketAuthorization import editor_document_generation_is_current
+
+    conversion = admission_conversion
+    entered, release = Event(), Event()
+    service, board, _, wiki, source, selection, _, _ = conversion
+    name = f"wiki:{wiki.get_uid()}:content:0"
+
+    def check(generation):
+        entered.set()
+        assert release.wait(5)
+
+    def convert():
+        return service.convert_wiki_selection(
+            board[1],
+            board[2].get_uid(),
+            wiki.get_uid(),
+            WikiSnapshot("w", "t", source).revision,
+            "wiki/concurrent-admission",
+            selection,
+            collaboration_check=check,
+        )
+
+    # Preliminary authority is valid before native registration.
+    assert editor_document_generation_is_current(name)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(convert)
+        try:
+            assert entered.wait(5)
+            # MVCC still returns the old generation; this unlocked check is unsafe.
+            assert editor_document_generation_is_current(name)
+            # Registration happens now. NOWAIT must reject instead of deadlocking
+            # on the conversion's callback or admitting its old visible snapshot.
+            assert not editor_document_generation_is_current(name, admission=True)
+        finally:
+            release.set()
+        assert future.result(timeout=5)["editor_generation"] == 1
+    assert not editor_document_generation_is_current(name, admission=True)
+    assert editor_document_generation_is_current(name[:-1] + "1", admission=True)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_admission_lock_orders_conversion_owner_preflight(admission_conversion, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from time import monotonic, sleep
+    from langboard.routes.auth.SocketAuthorization import editor_document_generation_is_current
+    from sqlalchemy import text
+
+    conversion = admission_conversion
+    locked, release, attempted = Event(), Event(), Event()
+    service, board, _, wiki, source, selection, _, _ = conversion
+    name = f"wiki:{wiki.get_uid()}:content:0"
+    original_exec = DbSession.exec
+    engine = DbEngine.get_main_engine()
+    owner_registered = True
+
+    def controlled_exec(self, statement, *args, **kwargs):
+        result = original_exec(self, statement, *args, **kwargs)
+        clause = getattr(statement, "_for_update_arg", None)
+        if (clause is not None and clause.nowait) or str(statement) == "BEGIN IMMEDIATE" and not locked.is_set():
+            locked.set()
+            assert release.wait(5)
+        return result
+
+    monkeypatch.setattr(DbSession, "exec", controlled_exec)
+
+    def preflight(generation):
+        assert owner_registered
+        # Callback uses the unlocked path even while conversion holds the row.
+        assert editor_document_generation_is_current(name)
+        raise WikiSecretSelectionError("collaboration_active")
+
+    def convert():
+        with engine.connect() as db:
+            db.execute(text("select 1"))
+        attempted.set()
+        return service.convert_wiki_selection(
+            board[1],
+            board[2].get_uid(),
+            wiki.get_uid(),
+            WikiSnapshot("w", "t", source).revision,
+            "wiki/ordered-admission",
+            selection,
+            collaboration_check=preflight,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        admission = pool.submit(editor_document_generation_is_current, name, admission=True)
+        try:
+            assert locked.wait(5)
+            conversion_future = pool.submit(convert)
+            assert attempted.wait(5)
+            deadline = monotonic() + 2
+            waiting = False
+            while monotonic() < deadline:
+                if engine.dialect.name == "sqlite":
+                    from sqlalchemy.exc import OperationalError
+
+                    with engine.connect() as probe:
+                        probe.execute(text("PRAGMA busy_timeout=0"))
+                        with pytest.raises(OperationalError, match="locked"):
+                            probe.execute(text("BEGIN IMMEDIATE"))
+                    waiting = True
+                    break
+                with engine.connect() as connection:
+                    waiting = bool(
+                        connection.execute(
+                            text(
+                                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                                "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock' "
+                                "AND query LIKE '%project_wiki%'"
+                            )
+                        ).scalar()
+                    )
+                if waiting:
+                    break
+                sleep(0.02)
+            assert waiting, "final admission must hold the native database reservation"
+            assert not conversion_future.done()
+        finally:
+            release.set()
+        assert admission.result(timeout=5)
+        with pytest.raises(WikiSecretSelectionError, match="collaboration_active"):
+            conversion_future.result(timeout=5)
+    assert state(conversion)[0] == source
+    assert not conversion[6]
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("is_public", [True, False])
+def test_delayed_publicity_cannot_publish_preconversion_content(conversion, monkeypatch, is_public):
+    """Resume a captured publicity request after native conversion commits."""
+    import importlib
+    from langboard_shared.infrastructure.repositories.factory.ProjectWikiAssignedUserRepository import (
+        ProjectWikiAssignedUserRepository,
+    )
+
+    module = importlib.import_module(ProjectWikiService.__module__)
+    _, board, service, stale_wiki, source, _, _, _ = conversion
+    service.repo.project_wiki_assigned_user = ProjectWikiAssignedUserRepository(lambda _: None, lambda _: None)
+    service.repo.project_assigned_user = SimpleNamespace(find_by_user_and_project=lambda *args: board[3])
+    for tasks in (module.ProjectWikiActivityTask, module.ProjectWikiBotTask):
+        monkeypatch.setattr(tasks, "project_wiki_publicity_changed", lambda *args: None)
+    publications = []
+    monkeypatch.setattr(
+        module.ProjectWikiPublisher, "put_dispather", lambda model, event: publications.append((model, event))
+    )
+    original_update = service.repo.project_wiki.update
+
+    def conversion_before_publicity_update(wiki):
+        result = call(conversion)
+        assert result["editor_generation"] == 1
+        assert wiki.content.content == source and wiki.editor_generation == 0
+        return original_update(wiki)
+
+    monkeypatch.setattr(service.repo.project_wiki, "update", conversion_before_publicity_update)
+    result = service.change_public(board[1], board[2], stale_wiki, is_public)
+    assert result is not None
+    stored, _, _ = state(conversion)
+    assert "fixture-sensitive-value" not in stored
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(ProjectWiki)).first()
+        assert current.editor_generation == 1 and current.is_public == is_public
+        assignments = db.exec(SqlBuilder.select.table(ProjectWikiAssignedUser)).all()
+        assert len(assignments) == (0 if is_public else 1)
+        if assignments:
+            assert assignments[0].user_id == board[1].id
+    assert len(publications) == 1
+    payload, event = publications[0]
+    assert "fixture-sensitive-value" not in json.dumps(payload, default=str)
+    assert set(payload["wiki"]) == {"uid", "is_public", "assigned_members"}
+    assert payload["wiki"]["uid"] == stale_wiki.get_uid()
+    assert payload["wiki"]["is_public"] == is_public
+    assert len(payload["wiki"]["assigned_members"]) == (0 if is_public else 1)
+    assert event.event == f"board:wiki:public:changed:{stale_wiki.get_uid()}"
+    # Legacy fromOne updates only supplied keys: safe on an existing model.
+    legacy_model = {"content": stored, "editor_generation": 1, **payload["wiki"]}
+    legacy_model.update(payload["wiki"])
+    assert legacy_model["content"] == stored and legacy_model["editor_generation"] == 1

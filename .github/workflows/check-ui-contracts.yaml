@@ -35,6 +35,24 @@ on:
       - src/ui/yarn.lock
       - src/ui/src/pages/BoardPage/components/board/BoardSchedule*.ts*
       - src/ui/src/controllers/api/dashboard/useGetSchedule*.ts
+      - src/ui/playwright.card-decision.config.ts
+      - src/ui/playwright.wiki-secret-selection.config.ts
+      - src/ui/vite.config.ts
+      - src/ui/src/pages/BoardPage/components/card/decision/**
+      - src/ui/src/pages/BoardPage/components/card/action/decision/**
+      - src/ui/src/components/Editor/**
+      - src/ui/src/components/plate-ui/**
+      - src/ui/src/core/providers/EditorDataProvider.tsx
+      - src/ui/src/core/providers/BoardWikiProvider.tsx
+      - src/ui/src/core/stores/AuthStore.ts
+      - src/ui/src/core/helpers/Api.ts
+      - src/ui/src/core/models/ProjectWiki.ts
+      - src/ui/src/core/models/GraphApprovalRequestModel.ts
+      - src/ui/src/core/utils/SecretReferenceLink.ts
+      - src/ui/src/controllers/api/wiki/**
+      - src/ui/src/pages/BoardPage/components/wiki/**
+      - src/ui/src/assets/locales/*/card.json
+      - src/ui/src/assets/locales/*/wiki.json
       - src/shared/ts/**
   workflow_dispatch:
 
@@ -84,4 +102,20 @@ jobs:
         working-directory: src/ui
       - name: Verify local-day Schedule range boundaries
         run: TZ=America/New_York node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardScheduleRange.test.ts
+        working-directory: src/ui
+      - name: Verify Wiki secret selection offsets and revision hashes
+        run: node --experimental-strip-types --test src/components/Editor/wiki-secret-selection.test.ts
+        working-directory: src/ui
+      - name: Install Playwright Chromium
+        run: yarn playwright install --with-deps chromium
+        working-directory: src/ui
+      - name: Verify mounted Card Decision contracts
+        run: yarn playwright test -c playwright.card-decision.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify mounted Wiki secret selection contracts
+        run: yarn playwright test -c playwright.wiki-secret-selection.config.ts
+        env:
+          CI: "true"
         working-directory: src/ui

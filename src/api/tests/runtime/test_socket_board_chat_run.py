@@ -756,12 +756,14 @@ def test_board_chat_document_schema_matches_existing_editor_fields(
             ],
             ["board-column-name", "bot-schedule"],
         ),
-        ("project_wiki", [f"wiki:{CARD_UID}:content"], ["wiki"]),
+        ("project_wiki", [f"wiki:{CARD_UID}:content:7"], ["wiki"]),
     ],
 )
 def test_board_chat_active_documents_match_scope(
-    scope_table: str, document_names: list[str], expected_types: list[str]
+    monkeypatch: MonkeyPatch, scope_table: str, document_names: list[str], expected_types: list[str]
 ) -> None:
+    generation_is_current = Mock(side_effect=lambda name: name == f"wiki:{CARD_UID}:content:7")
+    monkeypatch.setattr(SocketAuthApi, "editor_document_generation_is_current", generation_is_current)
     run = InternalBotRun(
         request_key="scope-test",
         request_digest="scope-test",
@@ -777,6 +779,17 @@ def test_board_chat_active_documents_match_scope(
     documents = SocketAuthApi._board_chat_active_documents(form, run, PROJECT_UID)
     assert [document["document_name"] for document in documents] == document_names
     assert [document["type"] for document in documents] == expected_types
+    if scope_table == "project_wiki":
+        generation_is_current.assert_called_once_with(document_names[0])
+        for rejected_name in (f"wiki:{CARD_UID}:content", f"wiki:{CARD_UID}:content:6"):
+            generation_is_current.reset_mock()
+            with pytest.raises(ApiException.Forbidden_403):
+                SocketAuthApi._board_chat_active_documents(
+                    SocketBoardChatStartForm(active_document_names=[rejected_name]), run, PROJECT_UID
+                )
+            generation_is_current.assert_called_once_with(rejected_name)
+    else:
+        generation_is_current.assert_not_called()
 
     wrong_schedule = SocketBoardChatStartForm(
         active_document_names=[f"bot-schedule:{PROJECT_UID}:card-{SnowflakeID(99).to_short_code()}-daily"]
@@ -1312,10 +1325,11 @@ def test_board_chat_resume_claim_requires_owner_role_and_matching_run(monkeypatc
     def fail_token(*_args: object) -> str:
         raise RuntimeError("Token service unavailable")
 
+    service.internal_bot_run.claim_board_chat_resume.return_value = run
     monkeypatch.setattr(SocketAuthApi.AuthSecurity, "create_bot_one_time_token", fail_token)
     with pytest.raises(RuntimeError, match="Token service unavailable"):
         SocketAuthApi.claim_socket_board_chat_resume(make_request(), PROJECT_UID, form, service)
-    service.internal_bot_run.claim_board_chat_resume.assert_not_called()
+    service.internal_bot_run.claim_board_chat_resume.assert_called_once()
 
 
 @pytest.mark.parametrize(

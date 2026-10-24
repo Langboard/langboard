@@ -39,13 +39,22 @@ export default function DecisionView({ decision }: { decision: Decision }) {
         setOptionUID("");
     }, [decision.uid, decision.revision, reconfirm]);
     const poll = decision.source_kind === "poll" ? decision.poll : undefined;
+    const hitl = decision.source_kind === "graph_approval";
     const canRespond = decision.allowed_actions.includes("respond");
     return (
         <article aria-label={decision.question} className="min-w-0 space-y-3 break-words rounded border p-3">
             <h3 className="whitespace-pre-wrap font-semibold">{decision.question}</h3>
             <p>
-                {t("card.decision.State")}: {t(`card.decision.${decision.state}`, { defaultValue: decision.state })}
+                {t(hitl ? "card.decision.HITL policy state" : "card.decision.State")}:{" "}
+                {t(`card.decision.${decision.state}`, { defaultValue: decision.state })}
             </p>
+            {hitl && (
+                <div className="space-y-1">
+                    <p>{t("card.decision.HITL")}</p>
+                    <p>{t("card.decision.HITL manual resume")}</p>
+                    {decision.state === "passed" && <p>{t("card.decision.HITL passed")}</p>}
+                </div>
+            )}
             {decision.blocked_reason && (
                 <p>
                     {t("card.decision.Reason")}: {t(`card.decision.${decision.blocked_reason}`, { defaultValue: decision.blocked_reason })}
@@ -65,6 +74,12 @@ export default function DecisionView({ decision }: { decision: Decision }) {
                     <dd>
                         {decision.source_kind}: {decision.source_ref}
                     </dd>
+                    {hitl && (
+                        <>
+                            <dt>{t("card.decision.Native approval")}</dt>
+                            <dd>{decision.approval_uid ?? t("card.decision.Unavailable")}</dd>
+                        </>
+                    )}
                     <dt>{t("card.decision.Target revision")}</dt>
                     <dd>{decision.target_revision}</dd>
                     <dt>{t("card.decision.Policy revision")}</dt>

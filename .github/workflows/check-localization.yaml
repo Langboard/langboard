@@ -7,6 +7,7 @@ on:
       - .github/workflows/check-localization.yaml
       - src/ui/src/**/*.ts
       - src/ui/src/**/*.tsx
+      - src/ui/src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs
       - src/ui/src/assets/locales/**
       - src/ui/src/i18n.ts
       - src/ui/src/constants.ts

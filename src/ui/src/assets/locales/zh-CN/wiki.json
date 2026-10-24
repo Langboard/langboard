@@ -20,5 +20,14 @@
   "Remove from board": "从看板中移除",
   "Remove linked card question": "要从看板中移除此关联卡片吗？原始维基不会更改。",
   "Linked card removed": "已从看板中移除关联卡片。",
-  "New page": "新页面"
+  "New page": "新页面",
+  "secretSelection": {
+    "convert": "转换为密钥",
+    "name": "密钥名称（请勿输入所选值）",
+    "help": "保存后重新选择一行纯文本。不支持格式和引用。",
+    "saveFirst": "请保存更改，然后重新选择文本。",
+    "unsupported": "请选择一行纯文本。不支持格式、链接和密钥引用。",
+    "success": "已将所选内容转换为遮蔽的密钥引用。",
+    "failed": "转换或刷新失败。草稿已保留。服务器可能已完成转换，请在重试前刷新。"
+  }
 }

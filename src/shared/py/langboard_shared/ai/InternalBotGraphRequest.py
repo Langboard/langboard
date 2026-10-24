@@ -278,7 +278,7 @@ def build_board_chat_bot_request(
             bot, user, message, project_session.get_uid(), project_uid, rest_data, file_path
         )
 
-    return build_internal_bot_graph_request(
+    request = build_internal_bot_graph_request(
         bot,
         user,
         message,
@@ -289,6 +289,8 @@ def build_board_chat_bot_request(
         run_id=run.client_task_id,
         thread_scope="session",
     )
+    request["tweaks"]["Graph"]["execution_plan_version"] = 1
+    return request
 
 
 def build_editor_graph_request(
@@ -351,7 +353,7 @@ def build_editor_graph_request(
 
     project_uid = run.project_id.to_short_code()
     session_id = f"{user.get_uid()}-{project_uid}"
-    return build_internal_bot_graph_request(
+    request = build_internal_bot_graph_request(
         bot,
         user,
         message,
@@ -367,6 +369,8 @@ def build_editor_graph_request(
         run_id=run.client_task_id,
         tweaks={"Prompt": {"prompt": system}},
     )
+    request["tweaks"]["Graph"]["execution_plan_version"] = 1
+    return request
 
 
 def _string_list(value: object) -> list[str]:

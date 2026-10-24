@@ -77,7 +77,7 @@ defmodule LangboardSocketWeb.EditorSyncController do
        when is_binary(name) and byte_size(name) <= 512 do
     case String.split(name, ":") do
       ["card", uid, "description"] when uid != "" -> {:ok, name}
-      ["wiki", uid, "content"] when uid != "" -> {:ok, name}
+      ["wiki", uid, "content", generation] when uid != "" and generation != "" -> {:ok, name}
       _result -> {:error, :invalid_payload}
     end
   end

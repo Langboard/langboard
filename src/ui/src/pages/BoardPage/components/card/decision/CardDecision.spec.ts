@@ -23,6 +23,13 @@ const proposal = (): Decision => ({
     blocked_reason: null,
     effect_result: null,
 });
+const hitl = (): Decision => ({
+    ...proposal(),
+    source_kind: "graph_approval",
+    approval_uid: "Approval001",
+    automatic_resume: false,
+    question: "Approve native execution?",
+});
 const poll = (visible = false, closed = false): Decision => ({
     ...proposal(),
     source_kind: "poll",
@@ -89,11 +96,85 @@ async function transport(
         group?: boolean;
         previewStatus?: number;
         previewDelay?: number;
+        gateInitial?: Record<string, string>[];
+        gateStatus?: number;
+        gateAmbiguous?: boolean;
+        gateDelay?: number;
+        approvalDelay?: number;
+        noApprovals?: boolean;
+        readFailure?: "network" | 503;
     } = {}
 ) {
     let cases = config.initial ?? [];
     const calls: { method: string; path: string; data: Record<string, unknown>; query: URLSearchParams }[] = [];
     let failed = false;
+    let decisionReads = 0;
+    let gates = config.gateInitial ?? [];
+    let gateFailed = false;
+    await page.route(/\/board\/Board000001\/graph-approvals(?:[/?]|$)/, async (route) => {
+        const url = new URL(route.request().url());
+        calls.push({ method: route.request().method(), path: url.pathname, data: {}, query: url.searchParams });
+        if (config.approvalDelay) await new Promise((resolve) => setTimeout(resolve, config.approvalDelay));
+        const approval = {
+            uid: "Approval001",
+            project_uid: "Board000001",
+            scope_table: "card",
+            scope_uid: "Card0000001",
+            origin_type: "chat",
+            status: "pending",
+            action_type: "update",
+            permission: "card_update",
+            thread_id: "thread",
+            run_id: "run",
+            preview_payload: {},
+            durable_run: true,
+            decision_bound: false,
+            created_at: "2026-10-24T08:00:00Z",
+            updated_at: "2026-10-24T08:00:00Z",
+        };
+        return route.fulfill({
+            json: {
+                approvals: config.noApprovals
+                    ? []
+                    : [
+                          approval,
+                          { ...approval, uid: "Bound000001", decision_bound: true },
+                          { ...approval, uid: "Unknown0001", decision_bound: undefined },
+                          { ...approval, uid: "WrongCard01", scope_uid: "Card0000002" },
+                          { ...approval, uid: "WrongBoard1", project_uid: "Board000002" },
+                          { ...approval, uid: "WrongScope1", scope_table: "project", scope_uid: "Board000001" },
+                          { ...approval, uid: "Resolved001", status: "resolved" },
+                      ],
+            },
+        });
+    });
+    await page.route(/\/board\/Board000001\/(?:card\/Card000000[12]\/decision-gate|workflow-stages)(?:[/?]|$)/, async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const data = request.postDataJSON() ?? {};
+        calls.push({ method: request.method(), path: url.pathname, data, query: url.searchParams });
+        if (url.pathname.endsWith("workflow-stages"))
+            return route.fulfill({
+                json: {
+                    stages: [
+                        { key: "review", name: "Review", is_active: true },
+                        { key: "retired", name: "Retired stage", is_active: false },
+                    ],
+                },
+            });
+        if (request.method() === "GET") {
+            if (config.gateDelay) await new Promise((resolve) => setTimeout(resolve, config.gateDelay));
+            return route.fulfill({ json: { gates: url.pathname.includes("Card0000002") ? [] : gates } });
+        }
+        if (config.gateStatus) return route.fulfill({ status: config.gateStatus, json: { code: "decision_gate_blocked", reason: "round_changed" } });
+        if (request.method() === "PUT") gates = [data];
+        else gates = [];
+        if (config.gateAmbiguous && !gateFailed) {
+            gateFailed = true;
+            return route.abort("failed");
+        }
+        return route.fulfill({ json: request.method() === "PUT" ? data : { removed: true } });
+    });
     await page.route(
         new RegExp(
             "/board/Board000001/(?:card/Card000000[12]/(?:decisions|decision-actors/(?:candidates|preview))" +
@@ -127,6 +208,11 @@ async function transport(
                             total_records: 16,
                         },
                     });
+                decisionReads++;
+                if (config.readFailure && [2, 3].includes(decisionReads)) {
+                    if (config.readFailure === "network") return route.abort("failed");
+                    return route.fulfill({ status: config.readFailure, json: { code: "unavailable" } });
+                }
                 return route.fulfill({
                     json: {
                         items: url.pathname.includes("Card0000002") ? [] : cases,
@@ -195,7 +281,7 @@ async function transport(
             } else
                 cases = [
                     {
-                        ...(data.source_kind === "poll" ? poll() : proposal()),
+                        ...(data.source_kind === "poll" ? poll() : data.source_kind === "graph_approval" ? hitl() : proposal()),
                         question: String(data.question),
                         policy: data.policy,
                         participant_uids: data.participant_uids as string[],
@@ -566,3 +652,281 @@ test("delayed preview cannot restore actors after source mutation or native card
     await expect(page.getByLabel("I confirm these 1 resolved participants", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Create decision", exact: true })).toBeDisabled();
 });
+
+const gateBinding = () => ({
+    target_stage: "review",
+    decision_uid: uid,
+    round_id: round,
+    target_revision: "target-revision",
+    policy_revision: "policy-revision",
+});
+async function chooseGate(page: Page) {
+    const gate = page.getByRole("region", { name: "Stage gates", exact: true });
+    await gate.getByRole("combobox", { name: "Target stage", exact: true }).selectOption("review");
+    await gate.getByRole("combobox", { name: "Gate proposal", exact: true }).selectOption(uid);
+    await gate.getByLabel("I confirm this gate change and the displayed proposal identity", { exact: true }).check();
+    return gate;
+}
+test("stage gate saves exact proposal identity, filters inactive stages and removes with confirmation", async ({ page }) => {
+    const calls = await transport(page, { initial: [proposal()] });
+    await loaded(page);
+    await expand(page);
+    const gate = await chooseGate(page);
+    await expect(gate.locator("option[value=retired]")).toHaveCount(0);
+    await gate.getByRole("button", { name: "Save stage gate", exact: true }).click();
+    await expect(gate.getByRole("button", { name: "Remove gate for review", exact: true })).toBeVisible();
+    expect(calls.filter((call) => call.method === "PUT").map((call) => call.data)).toEqual([gateBinding()]);
+    await gate.getByRole("button", { name: "Remove gate for review", exact: true }).click();
+    await expect(gate.getByRole("button", { name: "Confirm gate removal", exact: true })).toBeDisabled();
+    await gate.getByLabel("I confirm this gate change and the displayed proposal identity", { exact: true }).check();
+    await gate.getByRole("button", { name: "Confirm gate removal", exact: true }).click();
+    await expect(gate.getByText("No stage gates configured.", { exact: true })).toBeVisible();
+    expect(calls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual([
+        "/board/Board000001/card/Card0000001/decision-gate/review",
+    ]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+test("read-only gate retains readable proposal and revisions without configuration controls", async ({ page }) => {
+    const calls = await transport(page, { initial: [proposal()], gateInitial: [gateBinding()] });
+    await loaded(page, "?readonly");
+    await expand(page);
+    const gate = page.getByRole("region", { name: "Stage gates", exact: true });
+    await expect(gate.getByText("Gate proposal: Approve the original plan? (Dec00000001)", { exact: true })).toBeVisible();
+    await expect(gate.getByText(`Round: ${round}`, { exact: true })).toBeVisible();
+    await expect(gate.getByRole("button")).toHaveCount(0);
+    await expect(gate.getByRole("combobox")).toHaveCount(0);
+    expect(calls.some((call) => ["PUT", "DELETE"].includes(call.method))).toBe(false);
+});
+test("Poll is never a gate proposal and zero decisions add no gate section", async ({ page }) => {
+    await transport(page, { initial: [poll()] });
+    await loaded(page);
+    await expand(page);
+    const gate = page.getByRole("region", { name: "Stage gates", exact: true });
+    await expect(gate.getByRole("combobox", { name: "Gate proposal", exact: true }).locator("option")).toHaveCount(1);
+    await expect(gate.getByRole("button", { name: "Save stage gate", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Switch card", exact: true }).click();
+    await expect(gate).toHaveCount(0);
+});
+test("ambiguous gate mutation requires read before retry and preserves committed binding", async ({ page }) => {
+    const calls = await transport(page, { initial: [proposal()], gateAmbiguous: true });
+    await loaded(page);
+    await expand(page);
+    const gate = await chooseGate(page);
+    await gate.getByRole("button", { name: "Save stage gate", exact: true }).click();
+    await expect(gate.getByRole("button", { name: "Save stage gate", exact: true })).toBeDisabled();
+    const reads = calls.filter((call) => call.method === "GET" && call.path.endsWith("decision-gate")).length;
+    await gate.getByRole("button", { name: "Reload stage gates", exact: true }).click();
+    await expect(gate.getByRole("button", { name: "Remove gate for review", exact: true })).toBeVisible();
+    expect(calls.filter((call) => call.method === "GET" && call.path.endsWith("decision-gate")).length).toBeGreaterThan(reads);
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
+});
+for (const status of [403, 409])
+    test(`${status} gate write requires current data and reconfirmation`, async ({ page }) => {
+        const calls = await transport(page, { initial: [proposal()], gateStatus: status });
+        await loaded(page);
+        await expand(page);
+        const gate = await chooseGate(page);
+        await gate.getByRole("button", { name: "Save stage gate", exact: true }).click();
+        await expect(gate.getByRole("button", { name: "Save stage gate", exact: true })).toBeDisabled();
+        await page.getByRole("button", { name: "Reload and reconfirm", exact: true }).click();
+        await expect(gate.getByLabel("I confirm this gate change and the displayed proposal identity", { exact: true })).not.toBeChecked();
+        expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
+    });
+test("delayed gate read cannot apply after a card switch", async ({ page }) => {
+    const calls = await transport(page, { initial: [proposal()], gateInitial: [gateBinding()], gateDelay: 700 });
+    await loaded(page);
+    await expand(page);
+    await expect.poll(() => calls.filter((call) => call.path.endsWith("decision-gate")).length).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Switch card", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Stage gates", exact: true })).toHaveCount(0);
+    await expect(page.getByText("Remove gate for review", { exact: true })).toHaveCount(0);
+});
+
+test("gate cannot write a confirmation retained from an expired session", async ({ page }) => {
+    const calls = await transport(page, { initial: [proposal()] });
+    await loaded(page);
+    await expand(page);
+    const gate = await chooseGate(page);
+    await page.getByRole("button", { name: "Expire session", exact: true }).click();
+    await expect(page.getByTestId("auth-identity")).toHaveText("signed out");
+    await expect(gate).toHaveCount(0);
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(0);
+});
+test("late gate read from expired session cannot expose retained bindings", async ({ page }) => {
+    const calls = await transport(page, { initial: [proposal()], gateInitial: [gateBinding()], gateDelay: 700 });
+    await loaded(page);
+    await expand(page);
+    await expect.poll(() => calls.filter((call) => call.path.endsWith("decision-gate")).length).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Expire session", exact: true }).click();
+    await expect(page.getByTestId("auth-identity")).toHaveText("signed out");
+    await expect(page.getByRole("region", { name: "Stage gates", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Remove gate for review", exact: true })).toHaveCount(0);
+});
+
+async function composeHITL(page: Page) {
+    await compose(page);
+    await page.getByRole("combobox", { name: "Decision type", exact: true }).selectOption("graph_approval");
+    await page.getByRole("combobox", { name: "Native approval", exact: true }).selectOption("Approval001");
+    await page.getByLabel("Question", { exact: true }).fill("Approve native execution?");
+    await page.getByLabel("Ada Reader", { exact: true }).check();
+    await confirmActors(page, 1);
+    await page.getByRole("combobox", { name: "Approval policy", exact: true }).selectOption("all");
+    await page.getByLabel("I confirm the question, policy and 1 selected participants", { exact: true }).check();
+}
+test("HITL creates exact same-card pending binding using proposal participant authorization", async ({ page }) => {
+    const calls = await transport(page);
+    await loaded(page);
+    await composeHITL(page);
+    const picker = page.getByRole("combobox", { name: "Native approval", exact: true });
+    await expect(picker.locator("option")).toHaveCount(2);
+    expect(calls.find((call) => call.path.endsWith("/graph-approvals"))?.query.get("scope_uid")).toBe("Card0000001");
+    expect(calls.find((call) => call.path.endsWith("/graph-approvals"))?.query.get("scope_table")).toBe("card");
+    expect(calls.find((call) => call.path.endsWith("/graph-approvals"))?.query.get("status")).toBe("pending");
+    await page.getByRole("button", { name: "Create decision", exact: true }).click();
+    await expand(page);
+    await expect(page.getByText("HITL policy state: Pending", { exact: true })).toBeVisible();
+    await page.getByText("Original source and policy", { exact: true }).click();
+    await expect(page.getByText("Approval001", { exact: true })).toBeVisible();
+    const write = calls.find((call) => call.method === "POST" && call.path.endsWith("/decisions"));
+    expect(write?.data).toMatchObject({
+        source_kind: "graph_approval",
+        source_ref: "Card0000001",
+        approval_uid: "Approval001",
+        policy: { op: "all" },
+        participant_uids: [actor],
+    });
+    expect(write?.data).not.toHaveProperty("poll");
+    expect(calls.filter((call) => call.path.endsWith("/preview")).every((call) => call.data.source_kind === "proposal")).toBe(true);
+    expect(calls.filter((call) => call.path.endsWith("/candidates")).every((call) => call.query.get("source_kind") === "proposal")).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+test("HITL response persists policy pass without execution or native resume", async ({ page }) => {
+    const calls = await transport(page, { initial: [hitl()], ambiguous: true });
+    const nativeCalls: string[] = [];
+    page.on("request", (request) => {
+        if (/resume|claim|complete/.test(new URL(request.url()).pathname)) nativeCalls.push(request.url());
+    });
+    await loaded(page);
+    await expand(page);
+    await page.getByLabel("Approve", { exact: true }).check();
+    await page.getByLabel("I confirm this response for the displayed round and target", { exact: true }).check();
+    await page.getByRole("button", { name: "Submit response", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Submit response", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Retry exact command", exact: true }).click();
+    await expect(page.getByText("HITL policy state: Passed", { exact: true })).toBeVisible();
+    await expect(page.getByText("Policy passed. Execution has not started from this response.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Automatic resume is off.", { exact: false })).toBeVisible();
+    await expect(page.getByText("Execution result:", { exact: false })).toContainText("No execution result");
+    const writes = calls.filter((call) => call.method === "POST");
+    expect(writes).toHaveLength(2);
+    expect(writes[0].data).toEqual(writes[1].data);
+    expect(writes[0].data).toMatchObject({
+        round_id: round,
+        expected_revision: 0,
+        target_revision: "target-revision",
+        policy_revision: "policy-revision",
+        choice: "approve",
+    });
+    expect(nativeCalls).toEqual([]);
+    const gate = page.getByRole("region", { name: "Stage gates", exact: true });
+    await expect(gate.getByRole("combobox", { name: "Gate proposal", exact: true }).locator("option")).toHaveCount(1);
+});
+test("HITL no pending approval cannot create; Poll stays separate", async ({ page }) => {
+    const calls = await transport(page, { noApprovals: true });
+    await loaded(page);
+    await compose(page);
+    await page.getByRole("combobox", { name: "Decision type", exact: true }).selectOption("graph_approval");
+    await expect(page.getByText("No pending approvals for this card.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create decision", exact: true })).toBeDisabled();
+    await page.getByRole("combobox", { name: "Decision type", exact: true }).selectOption("poll");
+    await expect(page.getByRole("combobox", { name: "Native approval", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Approval policy", exact: true })).toHaveCount(0);
+    expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/decisions"))).toHaveLength(0);
+});
+test("HITL readonly card displays policy without creation or response authority", async ({ page }) => {
+    const calls = await transport(page, { initial: [{ ...hitl(), allowed_actions: [] }] });
+    await loaded(page, "?readonly");
+    await page.getByRole("button", { name: "Actions", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Add decision", exact: true, includeHidden: true })).toHaveCount(0);
+    await expand(page);
+    await expect(page.getByText("HITL policy state: Pending", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Submit response", exact: true })).toHaveCount(0);
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(0);
+});
+test("HITL confirmed creation loses authority on expired session", async ({ page }) => {
+    const calls = await transport(page);
+    await loaded(page);
+    await composeHITL(page);
+    await page.getByRole("button", { name: "Expire session", exact: true, includeHidden: true }).dispatchEvent("click");
+    await expect(page.getByTestId("auth-identity")).toHaveText("signed out");
+    await expect(page.getByRole("button", { name: "Create decision", exact: true })).toHaveCount(0);
+    expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/decisions"))).toHaveLength(0);
+});
+test("HITL ambiguous creation reuses immutable exact approval binding", async ({ page }) => {
+    const calls = await transport(page, { ambiguous: true });
+    await loaded(page);
+    await composeHITL(page);
+    await page.getByRole("button", { name: "Create decision", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Create decision", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Retry exact command", exact: true }).click();
+    await expect(page.locator("[data-card-outline-section=decisions]")).toBeVisible();
+    const writes = calls.filter((call) => call.method === "POST" && call.path.endsWith("/decisions"));
+    expect(writes).toHaveLength(2);
+    expect(writes[0].data).toEqual(writes[1].data);
+    expect(writes[0].data.approval_uid).toBe("Approval001");
+});
+
+test("HITL delayed approval list cannot cross card or expired session", async ({ page }) => {
+    const calls = await transport(page, { approvalDelay: 700 });
+    await loaded(page);
+    await compose(page);
+    await page.getByRole("combobox", { name: "Decision type", exact: true }).selectOption("graph_approval");
+    await expect.poll(() => calls.some((call) => call.path.endsWith("/graph-approvals"))).toBe(true);
+    await page.getByRole("button", { name: "Switch card", exact: true, includeHidden: true }).dispatchEvent("click");
+    await expect(page.getByRole("button", { name: "Create decision", exact: true })).toHaveCount(0);
+    await compose(page);
+    await page.getByRole("combobox", { name: "Decision type", exact: true }).selectOption("graph_approval");
+    await expect(page.getByRole("combobox", { name: "Native approval", exact: true }).locator("option[value=Approval001]")).toHaveCount(0);
+    await page.getByRole("button", { name: "Expire session", exact: true, includeHidden: true }).dispatchEvent("click");
+    await expect(page.getByTestId("auth-identity")).toHaveText("signed out");
+    await expect(page.getByRole("combobox", { name: "Native approval", exact: true })).toHaveCount(0);
+    expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/decisions"))).toHaveLength(0);
+});
+for (const status of [403, 409])
+    test(`HITL ${status} native deny requires reread and fresh confirmation`, async ({ page }) => {
+        const calls = await transport(page, { status });
+        await loaded(page);
+        await composeHITL(page);
+        await page.getByRole("button", { name: "Create decision", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Create decision", exact: true })).toBeDisabled();
+        await page.getByRole("button", { name: "Reload and reconfirm", exact: true }).click();
+        await expect(page.getByLabel("I confirm the question, policy and 0 selected participants", { exact: true })).not.toBeChecked();
+        await expect(page.getByRole("button", { name: "Create decision", exact: true })).toBeDisabled();
+        expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/decisions"))).toHaveLength(1);
+    });
+
+for (const failure of ["network", 503] as const)
+    test(`failed authoritative ${failure} reread locks retained decisions until successful explicit reload`, async ({ page }) => {
+        const calls = await transport(page, { initial: [proposal()], readFailure: failure });
+        await loaded(page);
+        await expand(page);
+        await page.getByLabel("Approve", { exact: true }).check();
+        await page.getByLabel("I confirm this response for the displayed round and target", { exact: true }).check();
+        await expect(page.getByRole("button", { name: "Submit response", exact: true })).toBeEnabled();
+        await page.getByRole("button", { name: "Refresh current data", exact: true }).click();
+        const reload = page.getByRole("button", { name: "Reload and reconfirm", exact: true });
+        await expect(reload).toBeEnabled();
+        await expect(page.getByRole("button", { name: "Submit response", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Retry exact command", exact: true })).toHaveCount(0);
+        await reload.click();
+        await expect.poll(() => calls.filter((call) => call.method === "GET" && call.path.endsWith("/decisions")).length).toBe(3);
+        await expect(reload).toBeEnabled();
+        await expect(page.getByRole("button", { name: "Submit response", exact: true })).toBeDisabled();
+        await reload.click();
+        await expect(reload).toHaveCount(0);
+        await expect(page.getByLabel("I confirm this response for the displayed round and target", { exact: true })).not.toBeChecked();
+        await page.getByLabel("Approve", { exact: true }).check();
+        await page.getByLabel("I confirm this response for the displayed round and target", { exact: true }).check();
+        await expect(page.getByRole("button", { name: "Submit response", exact: true })).toBeEnabled();
+        expect(calls.filter((call) => call.method === "POST")).toHaveLength(0);
+    });

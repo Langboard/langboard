@@ -24,6 +24,7 @@ from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
 from .AttachmentStorageObject import AttachmentStorageObject, AttachmentStorageReference
 from .BoardAppBinding import BoardAppBinding
+from .BoardTeam import BoardTeam, BoardTeamCommand, BoardTeamMember
 from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotLog import BotLog
@@ -62,6 +63,9 @@ from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
 from .CompactorBoardGrant import CompactorBoardGrant
+from .DecisionCase import DecisionCase
+from .DecisionOption import DecisionOption
+from .DecisionResponse import DecisionResponse
 from .DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from .DocumentExtractionCache import DocumentExtractionCache, DocumentExtractionCacheReference
 from .DocumentKeywordIndex import DocumentKeywordIndex
@@ -148,6 +152,9 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "BoardTeam",
+    "BoardTeamMember",
+    "BoardTeamCommand",
     "CardChangeReceipt",
     'AttachmentStorageObject',
     'AttachmentStorageReference',
@@ -212,6 +219,9 @@ __all__ = [
     'DocumentVectorCleanup',
     'DocumentExtractionCache',
     'DocumentExtractionCacheReference',
+    'DecisionCase',
+    'DecisionResponse',
+    'DecisionOption',
     'DocumentEmbeddingCache',
     'DocumentEmbeddingCacheReference',
     'DocumentKeywordIndex',
@@ -311,3 +321,5 @@ __all__ = [
 
 # Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401
+
+from .CardDecisionGate import CardDecisionGate

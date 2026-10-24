@@ -38,6 +38,7 @@ from ..models.ProjectRole import ProjectRoleAction
 from .AppGovernance import lock_policy_mutation
 from .CardCloneOperations import _readers, _rows
 from .CardCrossBoardOperations import _grant, readable_original
+from .DecisionGate import DecisionGate
 from .factory.WorkflowStagePolicyService import WorkflowStagePolicyService
 
 
@@ -216,6 +217,7 @@ def move_card(
                 "new_reader_uids": [InfraHelper.convert_uid(uid) for uid in sorted(new_readers - old_readers)],
                 "excluded": excluded,
             }
+        DecisionGate(service).require(db, actor, source_board, card, from_column, column, channel=channel)
         # Keep attachment identities and source bytes; invalidate only derived locations.
         from .factory.DoclingMetadataService import DoclingMetadataService
 

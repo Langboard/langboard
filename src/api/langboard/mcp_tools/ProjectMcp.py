@@ -1,13 +1,17 @@
 from re import fullmatch
 from typing import Annotated
 from uuid import UUID
+from fastmcp.exceptions import ValidationError
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, ProjectRole, User
+from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowConflict
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
 from pydantic import Field, StringConstraints
+from pydantic.experimental.missing_sentinel import MISSING
 from ..mcp_integration import McpRoleFilter, McpTool
 
 
@@ -189,6 +193,42 @@ def get_project_columns(project_uid: str, service: DomainService) -> list[dict]:
     if not p:
         raise ValueError("Project not found")
     return service.project_column.get_api_list_by_project(p)
+
+
+@McpTool.add(description="Get native workflow stage options available to a project.")
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def get_project_workflow_stages(project_uid: str, service: DomainService) -> dict:
+    return {"stages": service.project_column.get_workflow_stage_options(project_uid)}
+
+
+@McpTool.add(
+    description="Set a column's explicit workflow stage; null clears it. Read current columns first. "
+    "Provide expected_workflow_stage (including null) to reject a stale value; omit to skip that check."
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+def change_column_workflow_stage(
+    project_uid: str,
+    column_uid: str,
+    workflow_stage: str | None,
+    service: DomainService,
+    expected_workflow_stage: str | None | MISSING = MISSING,
+) -> dict:
+    if workflow_stage is not None and not isinstance(workflow_stage, str):
+        raise ValidationError("VA0000: Workflow stage must be a string or null")
+    expected = {}
+    if expected_workflow_stage is not MISSING:
+        if expected_workflow_stage is not None and not isinstance(expected_workflow_stage, str):
+            raise ValidationError("VA0000: Expected workflow stage must be a string or null")
+        expected = {"check_expected": True, "expected_workflow_stage": expected_workflow_stage}
+    try:
+        changed = service.project_column.change_workflow_stage(project_uid, column_uid, workflow_stage, **expected)
+    except ProjectColumnWorkflowConflict:
+        raise ValidationError("EX2001: Column workflow stage changed; read current columns before updating") from None
+    except ValueError as exc:
+        raise ValidationError(f"VA0000: {exc}") from exc
+    if not changed:
+        raise ValidationError("NF2004: Column not found in project")
+    return {"workflow_stage": workflow_stage}
 
 
 def _active_column_order(project_uid: str, service: DomainService) -> list[dict]:
@@ -455,7 +495,12 @@ def change_column_order(
 @McpTool.add(description="Delete a column from a project.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 def delete_column(project_uid: str, column_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
-    result = service.project_column.delete(user_or_bot, project_uid, column_uid)
+    try:
+        result = service.project_column.delete(
+            user_or_bot, project_uid, column_uid, channel=CollaborationChannel.Mcp,
+        )
+    except DecisionGateBlocked as exc:
+        return exc.payload()
     if not result:
         raise ValueError("Failed")
     return {"message": "Deleted"}

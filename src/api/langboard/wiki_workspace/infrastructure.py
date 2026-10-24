@@ -28,6 +28,7 @@ class NativeWikiRepository(WikiRepository):
     def __init__(self, user: User, service: DomainService) -> None:
         self.user = user
         self.service = service
+        self._generations: dict[str, int] = {}
 
     def _wiki(self, project_uid: str, wiki_uid: str) -> ProjectWiki:
         project = self.service.project.get_by_id_like(project_uid)
@@ -41,6 +42,7 @@ class NativeWikiRepository(WikiRepository):
     def snapshot(self, project_uid: str, wiki_uid: str) -> WikiSnapshot:
         """Check current per-wiki visibility before returning exact Markdown."""
         wiki = self._wiki(project_uid, wiki_uid)
+        self._generations[wiki_uid] = wiki.editor_generation
         return WikiSnapshot(wiki.get_uid(), wiki.title, wiki.content.content)
 
     def linked_revisions(self, project_uid: str, wiki_uids: list[str]) -> dict[str, str]:
@@ -82,7 +84,13 @@ class NativeWikiRepository(WikiRepository):
         if not self.service.project_wiki.is_assigned(self.user, wiki):
             raise AuthorizationError("Current user cannot edit this private wiki")
         result = self.service.project_wiki.update(
-            self.user, project_uid, wiki, {"content": EditorContentModel(content=after)}, expected_content=before
+            self.user,
+            project_uid,
+            wiki,
+            {"content": EditorContentModel(content=after)},
+            expected_content=before,
+            expected_generation=self._generations.get(wiki_uid),
+            advance_generation=True,
         )
         if result is None:
             raise ValueError("Wiki not found")

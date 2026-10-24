@@ -20,7 +20,13 @@ useAuthStore.setState({ state: "loaded", pageLoaded: true, currentUser: user });
 api.defaults.baseURL = location.origin;
 const networkAdapter = api.defaults.adapter;
 api.interceptors.request.use((config) => {
-    if (config.url?.includes("/decisions") || config.url?.includes("/decision-actors/")) {
+    if (
+        config.url?.includes("/graph-approvals") ||
+        config.url?.includes("/decisions") ||
+        config.url?.includes("/decision-actors/") ||
+        config.url?.includes("/decision-gate") ||
+        config.url?.endsWith("/workflow-stages")
+    ) {
         config.adapter = networkAdapter;
         return config;
     }
@@ -76,6 +82,7 @@ function Fixture() {
                     className="flex h-[calc(100dvh-80px)] w-[calc(100vw-24px)] max-w-5xl flex-col overflow-hidden p-0"
                 >
                     <button onClick={() => setCardUID(cardUID === "Card0000001" ? "Card0000002" : "Card0000001")}>Switch card</button>
+                    <button onClick={() => useAuthStore.getState().removeToken()}>Expire session</button>
                     <output data-testid="auth-identity">{authUser?.uid ?? "signed out"}</output>
                     <BoardCardSectionSaveProvider>
                         <BoardCard projectUID="Board000001" cardUID={cardUID} currentUser={user} viewportRef={ref} />

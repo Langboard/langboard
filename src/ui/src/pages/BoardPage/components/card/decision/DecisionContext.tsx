@@ -16,6 +16,8 @@ export type Decision = {
     round_id: string;
     source_kind: string;
     source_ref: string;
+    approval_uid?: string | null;
+    automatic_resume?: boolean;
     question: string;
     revision: number;
     target_revision: string;
@@ -127,10 +129,21 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
         setLoading(true);
         api.get(base, { params: { limit: 15, before: cursor }, signal: controller.signal })
             .then(({ data }) => {
-                if (current && session === getAuthStore().getSessionVersion()) setPage(data);
+                if (!current) return;
+                if (session !== getAuthStore().getSessionVersion()) {
+                    invalidate(undefined, session);
+                    return;
+                }
+                setPage(data);
             })
             .catch((error) => {
-                if (current) invalidate(error, session);
+                if (!current) return;
+                invalidate(error, session);
+                setLoading(false);
+                setStale(true);
+                setPending(undefined);
+                setReconfirm((value) => value + 1);
+                setMessage(t("card.decision.Reload required"));
             })
             .finally(() => {
                 if (current) setLoading(false);
@@ -141,7 +154,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
         };
     }, [base, cursor, refresh, sourceRevision, stale]);
     const run = async (command: Command) => {
-        if (submitting.current || stale) return false;
+        if (submitting.current || loading || stale) return false;
         submitting.current = true;
         setBusy(true);
         setPending(command);
@@ -197,7 +210,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
                 reconfirm,
                 locked: busy || loading || stale || !!pending,
                 execute: (url, data) =>
-                    pending || submitting.current || stale
+                    pending || submitting.current || loading || stale
                         ? Promise.resolve(false)
                         : run({ url, data: { ...data, request_id: crypto.randomUUID() } }),
                 retry: () => {

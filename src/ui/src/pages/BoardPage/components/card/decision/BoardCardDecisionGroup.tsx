@@ -1,6 +1,7 @@
 import Button from "@/components/base/Button";
 import { useTranslation } from "react-i18next";
 import { useDecisions } from "./DecisionContext";
+import DecisionGate from "./DecisionGate";
 import DecisionView, { DecisionStatus } from "./DecisionView";
 
 export default function BoardCardDecisionGroup() {
@@ -22,6 +23,7 @@ export default function BoardCardDecisionGroup() {
                     {page?.items.map((decision) => (
                         <DecisionView key={decision.uid} decision={decision} />
                     ))}
+                    <DecisionGate />
                     <nav aria-label={t("card.decision.Decision pages")} className="flex flex-wrap gap-2">
                         <Button size="sm" disabled={locked || !hasPrevious} onClick={previous}>
                             {t("card.decision.Previous")}
