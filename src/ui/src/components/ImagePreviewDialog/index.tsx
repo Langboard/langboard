@@ -238,7 +238,10 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
                                 value={Math.round(zoom * 100)}
                                 min={50}
                                 max={150}
-                                onChange={(e) => setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)))}
+                                onChange={(e) => {
+                                    if (annotationGestureActive.current) return;
+                                    setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)));
+                                }}
                                 variant="ghost"
                                 className="h-auto w-10 p-0 text-center"
                             />
@@ -248,6 +251,7 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
                             variant="ghost"
                             size="sm"
                             onClick={() => {
+                                if (annotationGestureActive.current) return;
                                 setZoom(1);
                                 setPan({ x: 0, y: 0 });
                             }}

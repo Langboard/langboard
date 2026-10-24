@@ -421,3 +421,55 @@ for (const cancellation of ["Escape", "Cancel", "mode switch", "lost capture"] a
         await expect(page.getByRole("button", { name: "Comment", exact: true })).toBeEnabled();
     });
 }
+
+for (const control of ["numeric zoom", "Fit image"] as const) {
+    test(`${control} during rectangle drag preserves its transform and resumes after release`, async ({ page }) => {
+        await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
+        await page.getByRole("button", { name: "Native evidence" }).click();
+        const zoom = page.getByRole("spinbutton").last();
+        await zoom.fill("125");
+        await zoom.blur();
+        const image = page.getByRole("dialog").locator("img");
+        const imageBox = (await image.boundingBox())!;
+        await page.mouse.move(imageBox.x + imageBox.width / 2, imageBox.y + imageBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(imageBox.x + imageBox.width / 2 + 35, imageBox.y + imageBox.height / 2 + 25);
+        await page.mouse.up();
+        await page.getByRole("button", { name: "Image region", exact: true }).click();
+        const surface = page.getByRole("button", { name: "Place image annotation" });
+        const box = (await surface.boundingBox())!;
+        await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+        expect(await surface.evaluate((element) => element.hasPointerCapture(1))).toBe(true);
+        if (control === "numeric zoom") await zoom.fill("150");
+        else {
+            await page.getByRole("button", { name: "Fit image", exact: true }).focus();
+            await page.keyboard.press("Enter");
+        }
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        expect.soft(await zoom.inputValue()).toBe("125");
+        expect.soft(await image.boundingBox()).toEqual(box);
+        await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
+        await page.mouse.up();
+        await page.getByRole("button", { name: "Comment", exact: true }).focus();
+        await page.keyboard.press("Enter");
+        await page.locator("[contenteditable=true]:visible").fill(`${control} stable rectangle`);
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        const { anchor } = JSON.parse(await page.locator("#request").innerText());
+        console.log(`${control} rectangle coordinates:`, JSON.stringify(anchor));
+        expect.soft(anchor.x).toBeCloseTo(240, 0);
+        expect.soft(anchor.y).toBeCloseTo(160, 0);
+        expect.soft(anchor.width).toBeCloseTo(480, 0);
+        expect.soft(anchor.height).toBeCloseTo(320, 0);
+        await page.getByRole("button", { name: "Jump saved saved-1" }).click();
+        await zoom.fill("150");
+        await expect(zoom).toHaveValue("150");
+        await page.getByRole("button", { name: "Fit image", exact: true }).click();
+        await expect(zoom).toHaveValue("100");
+        const fitted = (await image.boundingBox())!;
+        const viewport = page.viewportSize()!;
+        expect(fitted.x + fitted.width / 2).toBeCloseTo(viewport.width / 2, 0);
+        expect(fitted.y + fitted.height / 2).toBeCloseTo(viewport.height / 2, 0);
+    });
+}
