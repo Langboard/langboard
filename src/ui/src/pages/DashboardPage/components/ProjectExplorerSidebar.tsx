@@ -19,6 +19,7 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/DashboardPage/components/ProjectDiscovery";
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
+import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
 import ProjectCollectionTree from "./ProjectCollectionTree";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectCollectionDialog from "./ProjectCollectionDialog";
@@ -381,6 +382,7 @@ function ProjectExplorerItem({
             >
                 <IconComponent icon={starred ? "star" : "folder-kanban"} size="4" />
                 <span className="truncate">{title}</span>
+                <ProjectUnreadIndicator project={project} className="static ml-auto shrink-0" />
             </button>
             {split && (
                 <Button

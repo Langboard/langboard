@@ -1,5 +1,69 @@
 import { expect, test } from "@playwright/test";
 
+for (const width of [320, 1280])
+    for (const dark of [false, true]) {
+        test(`Explorer unread counts retain row interactions at ${width}px, dark=${dark}`, async ({ page }, testInfo) => {
+            const errors: string[] = [];
+            page.on("pageerror", (error) => errors.push(error.message));
+            await page.setViewportSize({ width, height: 1000 });
+            await page.goto("/src/pages/DashboardPage/components/explorer-recovery.fixture.html?unread");
+            if (dark) await page.locator("html").evaluate((element) => element.classList.add("dark"));
+            const explorer = page.getByRole("navigation", { name: "Explorer", exact: true });
+            const row = (index: number) => explorer.getByRole("button", { name: new RegExp(`^Unread board ${index} with`) });
+            await expect(row(0)).toBeVisible();
+            for (const [index, count, text] of [
+                [0, 0, ""],
+                [1, 1, ""],
+                [2, 2, "2"],
+                [3, 99, "99"],
+                [4, 100, "99+"],
+                [5, 105, "99+"],
+                [6, 1, ""],
+            ] as const) {
+                const indicator = row(index).getByRole("img");
+                if (!count) {
+                    await expect(indicator).toHaveCount(0);
+                    continue;
+                }
+                await expect(indicator).toHaveText(text);
+                await expect(indicator).toHaveAttribute("aria-label", index === 6 ? "Unread changes" : `${count} unread board cards`);
+                const badgeBox = await indicator.boundingBox();
+                const buttonBox = await row(index).boundingBox();
+                const titleBox = await row(index).locator("span.truncate").boundingBox();
+                expect(badgeBox && buttonBox && titleBox).toBeTruthy();
+                expect(badgeBox!.x).toBeGreaterThanOrEqual(titleBox!.x + titleBox!.width);
+                expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(buttonBox!.x + buttonBox!.width);
+                expect(await indicator.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
+            }
+            const workload = row(2).locator("..").locator("[aria-label='4 open cards']");
+            await expect(workload).toBeVisible();
+            await page.screenshot({ path: testInfo.outputPath("explorer-unread.png"), fullPage: true });
+            await page.getByRole("button", { name: "Apply live count", exact: true }).click();
+            await expect(row(2).getByRole("img")).toHaveAttribute("aria-label", "105 unread board cards");
+            await expect(workload).toBeVisible();
+            if (width >= 768) {
+                const split = row(2)
+                    .locator("..")
+                    .getByRole("button", { name: /^Open .* in split view$/ });
+                await split.focus();
+                await split.click();
+                await expect(split).toBeDisabled();
+                await expect(row(2).getByRole("img")).toHaveText("99+");
+            }
+            await explorer.getByRole("textbox", { name: "Search projects", exact: true }).fill("Unread board 2");
+            await expect(explorer.getByRole("button", { name: /^Unread board/ })).toHaveCount(1);
+            await expect(row(2).getByRole("img")).toHaveText("99+");
+            await row(2).click();
+            await expect(page.getByLabel("Current route", { exact: true })).toHaveText("/board/unread-2");
+            await expect(row(2)).toHaveAttribute("aria-current", "page");
+            await page.getByRole("button", { name: "Mark board read", exact: true }).click();
+            await expect(row(2).getByRole("img")).toHaveCount(0);
+            await expect(workload).toBeVisible();
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            expect(errors).toEqual([]);
+        });
+    }
+
 for (const cached of [false, true]) {
     test(`Explorer displays failed ${cached ? "refresh" : "initial load"} and recovers through Retry`, async ({ page }) => {
         await page.goto(`/src/pages/DashboardPage/components/explorer-recovery.fixture.html${cached ? "?cached" : ""}`);
