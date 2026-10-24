@@ -3,10 +3,10 @@ import importlib
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from langboard_shared.ai import BotDefaultTrigger
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import Card, CardComment, Checkitem, Checklist
 from langboard_shared.tasks.bots.utils import BotTaskHelper as helper_class
 from langboard_shared.tasks.bots.utils.BotTaskHelper import BotTaskHelper
@@ -21,7 +21,7 @@ async def test_private_scope_stops_before_webhook_or_request(current_card, monke
     request = Mock(return_value=None)
     monkeypatch.setattr(module.WebhookTask, 'webhook_task', webhook)
     monkeypatch.setattr(module, 'create_request', request)
-    await BotTaskHelper.run(SimpleNamespace(), BotDefaultTrigger.BotMentioned,
+    await BotTaskHelper.run(SimpleNamespace(), DomainEventType.BotMentioned,
         {'card_uid': card.get_uid()}, project, card)
     webhook.assert_not_called()
     request.assert_not_called()
@@ -29,7 +29,7 @@ async def test_private_scope_stops_before_webhook_or_request(current_card, monke
         card.visibility = 'SHARED'
         card.owner_user_id = None
         db.update(card)
-    await BotTaskHelper.run(SimpleNamespace(), BotDefaultTrigger.BotMentioned,
+    await BotTaskHelper.run(SimpleNamespace(), DomainEventType.BotMentioned,
         {'card_uid': card.get_uid()}, project, card)
     assert webhook.call_count == request.call_count == 1
 

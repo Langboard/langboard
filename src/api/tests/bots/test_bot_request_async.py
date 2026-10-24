@@ -167,13 +167,13 @@ async def test_connection_failure_is_retryable_but_not_replayed_here(bot_request
 
 @pytest.mark.asyncio
 async def test_helper_preserves_each_native_dispatch_outcome(monkeypatch):
-    from langboard_shared.ai import BotDefaultTrigger
+    from langboard_shared.domain.constants.DomainEventType import DomainEventType
     from langboard_shared.tasks.bots.utils.BotTaskHelper import BotTaskHelper
 
     helper = importlib.import_module("langboard_shared.tasks.bots.utils.BotTaskHelper")
     requests = [SimpleNamespace(execute=AsyncMock(return_value=outcome)) for outcome in BotRequestOutcome]
     monkeypatch.setattr(BotTaskHelper, "can_dispatch_card_scope", lambda *_: True)
     monkeypatch.setattr(helper, "create_request", lambda bot, *_: bot)
-    assert await BotTaskHelper.run(requests, BotDefaultTrigger.BotCronScheduled, {}, emit_webhook=False) == list(
+    assert await BotTaskHelper.run(requests, DomainEventType.BotCronScheduled, {}, emit_webhook=False) == list(
         BotRequestOutcome
     )
