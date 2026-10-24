@@ -148,6 +148,56 @@ async def test_nested_graph_interrupt_resumes_without_executing_unapproved_tool(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [True, False])
+async def test_tool_interrupt_bubbles_to_parent_and_resumes(approved):
+    from typing import TypedDict
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import Command, interrupt
+
+    writes = []
+
+    async def echo(value: int):
+        if interrupt({"value": value}):
+            writes.append(value)
+            return {"value": value}
+        return "not approved"
+
+    tool = StructuredTool.from_function(coroutine=echo, name="echo", description="Echo")
+
+    async def model(_, messages):
+        return (
+            AIMessage(content="done")
+            if any(isinstance(m, ToolMessage) for m in messages)
+            else AIMessage(content="", tool_calls=[tool_call()])
+        )
+
+    class State(TypedDict):
+        response: str
+        receipts: list
+
+    async def agent(state):
+        result, receipts = await invoke_agent_loop(
+            None, None, [HumanMessage(content="run")], [tool], model, allow, 1
+        )
+        return {"response": result.content, "receipts": receipts}
+
+    builder = StateGraph(State)
+    builder.add_node("agent", agent)
+    builder.add_edge(START, "agent")
+    builder.add_edge("agent", END)
+    graph = builder.compile(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "tool-interrupt"}}
+    paused = await graph.ainvoke({}, config)
+    assert paused.get("__interrupt__"), paused
+    assert writes == []
+    resumed = await graph.ainvoke(Command(resume=approved), config)
+    assert resumed["response"] == "done"
+    assert writes == ([1] if approved else [])
+    assert resumed["receipts"][0]["result"] == ({"value": 1} if approved else "not approved")
+
+
+@pytest.mark.asyncio
 async def test_existing_agent_gate_rejects_invalid_uid_before_toolnode(monkeypatch):
     from langboard_graph.core.graph.default import nodes
 

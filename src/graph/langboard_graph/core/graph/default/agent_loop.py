@@ -6,6 +6,7 @@ from operator import add
 from typing import Annotated, Any, Awaitable, Callable, TypedDict
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import StructuredTool
+from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -38,6 +39,9 @@ async def invoke_agent_loop(
         async def invoke(**args):
             try:
                 result = await tool.ainvoke(args)
+            except GraphBubbleUp:
+                # Preserve ToolNode's interrupt and graph control propagation contract.
+                raise
             except Exception as exc:
                 result = f"Tool {tool.name} failed: {exc}"
             return str(result), result
