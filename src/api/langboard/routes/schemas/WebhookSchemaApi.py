@@ -103,7 +103,7 @@ def webhook_openapi() -> JsonResponse:
             data_schema["properties"]["source_revision"] = {
                 "type": "string",
                 "format": "date-time",
-                "description": "Card.updated_at from the delivery-time point-read that produced this payload; "
+                "description": "Card.updated_at from the producer commit-time persisted snapshot; "
                 "provenance only. Fence on execution_generation plus point-read readiness, not on this revision.",
             }
             schemas[schema_name] = {
