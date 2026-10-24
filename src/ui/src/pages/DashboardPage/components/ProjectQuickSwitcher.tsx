@@ -389,7 +389,7 @@ const ProjectQuickSwitcher = memo((): React.JSX.Element => {
             </Command.List>
             <Flex items="center" justify="between" className="hidden border-t px-3 py-2 text-xs text-muted-foreground sm:flex">
                 <span>{t("dashboard.Search projects, cards and commands")}</span>
-                <span className="rounded border bg-muted px-1.5 py-0.5 font-mono">⌘K / Ctrl K</span>
+                <span className="rounded border bg-muted px-1.5 py-0.5 font-mono">{t("dashboard.Command palette shortcut")}</span>
             </Flex>
         </Command.Dialog>
     );

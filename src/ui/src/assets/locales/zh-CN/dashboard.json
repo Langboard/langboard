@@ -29,6 +29,7 @@
   "Switch project...": "切换项目...",
   "Type to filter projects": "输入内容以筛选项目",
   "Command palette": "命令面板",
+  "Command palette shortcut": "⌘K / Ctrl K",
   "Search": "搜索",
   "Search projects, cards and commands": "搜索项目、卡片和命令...",
   "No commands found": "未找到命令",

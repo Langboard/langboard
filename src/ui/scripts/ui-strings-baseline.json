@@ -36,12 +36,6 @@
     "text": "x"
   },
   {
-    "file": "src/pages/DashboardPage/components/ProjectQuickSwitcher.tsx",
-    "line": 345,
-    "kind": "jsx-text",
-    "text": "⌘K / Ctrl K"
-  },
-  {
     "file": "src/pages/SettingsPage/GlobalLabelsPage.tsx",
     "line": 220,
     "kind": "attribute:placeholder",
