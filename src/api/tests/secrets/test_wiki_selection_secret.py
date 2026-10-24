@@ -1438,3 +1438,211 @@ def test_wiki_bot_consumer_rehydrates_current_scope_and_rejects_old_generation(c
         db.update(current)
     asyncio.run(_run_wiki_event(DomainEventType.ProjectWikiUpdated, *current_args))
     assert not dispatched
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_bot_mention_native_broker_never_contains_wiki_or_credentials(conversion, monkeypatch):
+    from langboard_shared.core.broker.TaskParameters import TaskParameters
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    from langboard_shared.tasks.bots import BotDefaultTask
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    queued = []
+    with DbSession.use(readonly=False) as db:
+        bot = Bot(
+            name="Mentioned",
+            bot_uname="mention-fixture",
+            app_api_token="fixture-bot-credential",
+            api_key="fixture-api-credential",
+            platform=BotPlatform.Default,
+            platform_running_type=BotPlatformRunningType.Default,
+        )
+        db.insert(bot)
+        wiki.content = EditorContentModel(content=source + f"\n[**@Mentioned**]({bot.get_uid()})")
+        db.update(wiki)
+    service = NotificationService(lambda _: None, lambda _: None, None)
+    monkeypatch.setattr(service, "_NotificationService__notify", lambda *a: False)
+    monkeypatch.setattr(BotDefaultTask, "bot_mentioned", lambda *a: queued.append(a))
+    service.notify_mentioned_in_wiki(board[1], board[2], wiki)
+    assert len(queued) == 1
+    packed = json.dumps(TaskParameters(*queued[0]).pack(), default=str)
+    for marker in ("fixture-sensitive-value", "fixture-bot-credential", "fixture-api-credential", '"password"'):
+        assert marker not in packed
+    assert all(type(value) in (str, int, list, type(None)) for value in queued[0])
+
+
+@pytest.fixture
+def mention_scope(conversion):
+    from langboard_shared.domain.models import BotDefaultScopeBranch, Card, CardComment, ProjectBotScope
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+
+    engine = DbEngine.get_main_engine()
+    for model in (BotDefaultScopeBranch, ProjectBotScope, Card, CardComment):
+        model.__table__.create(engine, checkfirst=True)
+    _, board, _, wiki, _, _, _, _ = conversion
+    with DbSession.atomic() as db:
+        bot = Bot(
+            name="Mentioned",
+            bot_uname="scope-fixture",
+            app_api_token="fixture-bot-credential",
+            platform=BotPlatform.Default,
+            platform_running_type=BotPlatformRunningType.Default,
+        )
+        db.insert(bot)
+        hook = ProjectBotScope(bot_id=bot.id, project_id=board[2].id, conditions=[], default_scope_branch_id=None)
+        db.insert(hook)
+        card = Card(
+            project_id=board[2].id,
+            project_column_id=board[5][0].id,
+            title="Fixture card",
+            description=EditorContentModel(content="fixture-card-body"),
+            visibility="SHARED",
+        )
+        db.insert(card)
+        comment = CardComment(
+            card_id=card.id, user_id=board[1].id, content=EditorContentModel(content="fixture-comment-body")
+        )
+        db.insert(comment)
+    return conversion, bot, hook, card, comment
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("mentioned_in", ["card", "comment", "project_wiki"])
+def test_bot_mention_current_card_comment_wiki_dispatch(mention_scope, monkeypatch, mentioned_in):
+    import asyncio
+    from langboard_shared.tasks.bots.BotDefaultTask import bot_mentioned, mention_event_args
+    from langboard_shared.tasks.bots.utils import BotTaskHelper
+
+    conversion, bot, _, card, comment = mention_scope
+    _, board, _, wiki, _, _, _, _ = conversion
+    models = [board[2], wiki] if mentioned_in == "project_wiki" else [board[2], board[5][0], card]
+    if mentioned_in == "comment":
+        models.append(comment)
+    dispatched = []
+
+    async def run(target, event, data, project, scope):
+        dispatched.append((target.get_uid(), data, scope.get_uid()))
+
+    monkeypatch.setattr(BotTaskHelper, "run", run)
+    args = mention_event_args(board[1], bot, mentioned_in, models)
+    asyncio.run(bot_mentioned.__wrapped__(*args))
+    assert len(dispatched) == 1 and dispatched[0][0] == bot.get_uid()
+    assert dispatched[0][1]["mentioned_in"] == mentioned_in
+    assert dispatched[0][1]["project_uid"] == board[2].get_uid()
+    if mentioned_in == "comment":
+        assert dispatched[0][1]["comment_uid"] == comment.get_uid()
+    for marker in ("fixture-sensitive-value", "fixture-bot-credential", "fixture-card-body", "fixture-comment-body"):
+        assert marker not in json.dumps(dispatched, default=str)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize(
+    "denied",
+    [
+        "hook_removed",
+        "actor_removed",
+        "private_wiki",
+        "old_generation",
+        "wrong_project",
+        "private_card",
+        "wrong_comment",
+        "deleted_source",
+    ],
+)
+def test_bot_mention_rechecks_current_scope_before_dispatch(mention_scope, monkeypatch, denied):
+    import asyncio
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import CardComment
+    from langboard_shared.tasks.bots.BotDefaultTask import bot_mentioned, mention_event_args
+    from langboard_shared.tasks.bots.utils import BotTaskHelper
+
+    conversion, bot, hook, card, comment = mention_scope
+    _, board, _, wiki, _, _, _, _ = conversion
+    mentioned_in = "project_wiki" if denied in {"private_wiki", "old_generation", "wrong_project"} else "card"
+    if denied == "wrong_comment":
+        mentioned_in = "comment"
+    models = [board[2], wiki] if mentioned_in == "project_wiki" else [board[2], card]
+    if mentioned_in == "comment":
+        models.append(comment)
+    args = mention_event_args(board[1], bot, mentioned_in, models)
+    with DbSession.atomic() as db:
+        if denied == "hook_removed":
+            db.delete(hook)
+        elif denied == "actor_removed":
+            db.delete(board[3])
+        elif denied == "private_wiki":
+            wiki.is_public = False
+            db.update(wiki)
+        elif denied == "old_generation":
+            wiki.editor_generation += 1
+            db.update(wiki)
+        elif denied == "wrong_project":
+            wiki.project_id = 11
+            db.update(wiki)
+        elif denied == "private_card":
+            from langboard_shared.domain.models import Card
+
+            private = Card(
+                project_id=board[2].id,
+                project_column_id=board[5][0].id,
+                title="Private",
+                visibility="PRIVATE",
+                owner_user_id=board[1].id,
+                created_by_user_id=board[1].id,
+            )
+            db.insert(private)
+            args = (
+                *args[:4],
+                [(table, private.get_uid() if table == "card" else uid) for table, uid in args[4]],
+                args[5],
+            )
+        elif denied == "wrong_comment":
+            wrong = CardComment(card_id=card.id + 1, user_id=board[1].id)
+            # Use an existing foreign-project card so the native FK stays meaningful.
+            from langboard_shared.domain.models import Card
+
+            foreign = Card(project_id=11, project_column_id=board[5][0].id, title="Other")
+            db.insert(foreign)
+            wrong.card_id = foreign.id
+            db.insert(wrong)
+            args = (
+                *args[:4],
+                [(table, wrong.get_uid() if table == "card_comment" else uid) for table, uid in args[4]],
+                args[5],
+            )
+        elif denied == "deleted_source":
+            card.deleted_at = SafeDateTime.now()
+            db.update(card)
+    dispatched = []
+
+    async def run(*args):
+        dispatched.append(args)
+
+    monkeypatch.setattr(BotTaskHelper, "run", run)
+    asyncio.run(bot_mentioned.__wrapped__(*args))
+    assert not dispatched
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_assigned_bot_manual_scope_run_queues_only_native_references(mention_scope, monkeypatch):
+    from langboard_shared.core.broker.TaskParameters import TaskParameters
+    from langboard_shared.domain.services.factory.OrchestrationTaskService import OrchestrationTaskService
+    from langboard_shared.tasks.bots import BotDefaultTask
+
+    conversion, bot, _, card, _ = mention_scope
+    board = conversion[1]
+    queued = []
+    monkeypatch.setattr(BotDefaultTask, "bot_mentioned", lambda *args: queued.append(args))
+    service = OrchestrationTaskService(lambda _: None, lambda _: None, None)
+    with DbSession.atomic():
+        service._OrchestrationTaskService__dispatch_assigned_bot(
+            board[1],
+            board[2],
+            card,
+            {"assigned_bot_uid": bot.get_uid()},
+        )
+    assert len(queued) == 1 and queued[0][3] == "card"
+    packed = json.dumps(TaskParameters(*queued[0]).pack())
+    assert "fixture-card-body" not in packed and "fixture-bot-credential" not in packed
+    assert queued[0][4] == [("project", board[2].get_uid()), ("card", card.get_uid())]

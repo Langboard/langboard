@@ -829,10 +829,10 @@ class NotificationService(BaseDomainService):
                 continue
 
             models = [*scope_models, *other_models]
-            dumped_models: list[tuple[str, dict[str, Any]]] = []
-            for model in models:
-                dumped_models.append((type(model).__tablename__, model.model_dump()))
-            dispatch_after_commit(BotDefaultTask.bot_mentioned, notifier, target_bot, mentioned_in, dumped_models)
+            dispatch_after_commit(
+                BotDefaultTask.bot_mentioned,
+                *BotDefaultTask.mention_event_args(notifier, target_bot, mentioned_in, models),
+            )
 
     def get_dispatch_context(self, user: User, notification_id: int) -> dict[str, Any] | None:
         """Return current recipient facts only for their authorized durable notification."""
