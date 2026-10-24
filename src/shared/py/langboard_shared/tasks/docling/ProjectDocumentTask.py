@@ -14,7 +14,11 @@ from ...Env import Env
 from .DoclingMetadataTask import _BoundedDownload, _convert_to_markdown, _current_vision_config
 from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
 from .DocumentEmbeddingCache import CHUNK_VERSION, cached_document_embeddings
-from .DocumentExtractionCache import cached_document_extraction
+from .DocumentExtractionCache import (
+    PublishedExtractionUnavailable,
+    cached_document_extraction,
+    published_extraction_identity,
+)
 from .DocumentKeywords import keyword_languages, normalize_keywords
 from .DocumentVectorGeneration import embedding_fingerprint
 from .DocumentVectorStore import (
@@ -187,6 +191,7 @@ async def _embed_project_attachment(service, attachment_uid, generation, *, docu
     snapshot = document.embedding_config
     old = deepcopy(document.embedding or {})
     try:
+        extraction_identity = published_extraction_identity(documents.source_type, attachment_uid, generation)
 
         def fence():
             current = _source_fence(
@@ -236,6 +241,7 @@ async def _embed_project_attachment(service, attachment_uid, generation, *, docu
             FencedEmbeddings(),
             binding_uid=snapshot["binding_uid"],
             content_hash=attachment.content_sha256,
+            extraction_identity=extraction_identity,
             fingerprint=fingerprint,
             dimensions=settings.dimensions,
             timeout_seconds=settings.timeout_seconds,
@@ -315,6 +321,10 @@ async def _embed_project_attachment(service, attachment_uid, generation, *, docu
             embedding={
                 **old,
                 "status": "failed",
-                "error": "Document embedding failed; request processing again",
+                "error": (
+                    "Published extraction identity unavailable; explicitly reprocess this attachment"
+                    if isinstance(error, PublishedExtractionUnavailable)
+                    else "Document embedding failed; request processing again"
+                ),
             },
         )

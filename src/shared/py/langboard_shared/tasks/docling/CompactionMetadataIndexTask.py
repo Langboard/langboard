@@ -145,7 +145,11 @@ def _context(service, db, row):
     snapshot = snapshot_embedding_config(embedding.value, embedding.get_uid())
     if snapshot is None:
         raise ValueError("Embedding disabled")
-    return data, project, card, block, embedding, snapshot
+    # Domain-separated lineage comes only from the validated completed producer.
+    extraction_identity = sha256(json.dumps([
+        "comment-compaction-terms-v1", record.provider_revision, record.policy_version,
+    ], separators=(",", ":")).encode()).hexdigest()
+    return data, project, card, block, embedding, snapshot, extraction_identity
 
 
 def _text(block):
@@ -181,7 +185,7 @@ async def index_metadata(service, metadata_id):
         if old.get("status") == "running" and old.get("expires_at", "") > SafeDateTime.now().isoformat():
             return False
         try:
-            data, project, card, block, binding, snapshot = _context(service, db, row)
+            data, project, card, block, binding, snapshot, extraction_identity = _context(service, db, row)
         except Exception:
             _retire(db, row, data)
             return False
@@ -205,6 +209,7 @@ async def index_metadata(service, metadata_id):
         embeddings = create_document_embeddings(private, set(Env.get_from_env("MODEL_PROVIDER_ALLOWED_BASE_URLS", "").split(",")))
         content_hash = sha256(text.encode()).hexdigest()
         with cached_document_embeddings(embeddings, binding_uid=binding.get_uid(), content_hash=content_hash,
+            extraction_identity=extraction_identity,
             fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
             splitter=settings.splitter) as cache:
             with open_document_vector_store(settings, cache, fingerprint, Env.DATA_DIR / "document-retrieval",
@@ -234,9 +239,10 @@ async def index_metadata(service, metadata_id):
                     if ((current.get("index") or {}).get("token") != token
                         or (current.get("index") or {}).get("expires_at", "") <= SafeDateTime.now().isoformat()):
                         raise ValueError("Index claim replaced")
-                    fresh, fresh_project, fresh_card, fresh_block, fresh_binding, fresh_snapshot = _context(service, db, row)
+                    fresh, fresh_project, fresh_card, fresh_block, fresh_binding, fresh_snapshot, fresh_identity = _context(service, db, row)
                     if (provider_revision(fresh_binding) != revision or snapshot != fresh_snapshot
                         or project.id != fresh_project.id or card.id != fresh_card.id or _text(fresh_block) != text
+                        or fresh_identity != extraction_identity
                         or current["index"]["expires_at"] <= SafeDateTime.now().isoformat()):
                         raise ValueError("Index source changed")
                     if not _cas(db, row, {**fresh, "index": {"status": "indexed", "pointer": pointer,
@@ -415,7 +421,7 @@ def search_board_metadata(service, user, project, query, *, channel, card=None, 
                     CardMetadata.card_id == InfraHelper.convert_id(source["card_uid"]),
                     CardMetadata.key == f"{PREFIX}{source['compaction_uid']}.search",
                 ).execution_options(populate_existing=True).with_for_update()).first()
-                data, fresh_project, card, block, current_binding, current_snapshot = _context(service, db, row)
+                data, fresh_project, card, block, current_binding, current_snapshot, _ = _context(service, db, row)
                 service.card_comment_compaction._authorize(user, fresh_project, card, channel)
                 state = data.get("index") or {}
                 if (fresh_project.id != project.id or (requested_card_id is not None and card.id != requested_card_id)
@@ -456,7 +462,7 @@ def validate_metadata_hits(service, user, project, card, hits, *, channel):
                 row = db.exec(SqlBuilder.select.table(CardMetadata).where(CardMetadata.card_id == card.id,
                     CardMetadata.key == f"{PREFIX}{uid}.search").execution_options(populate_existing=True)
                     .with_for_update()).first()
-                data, fresh_project, fresh_card, block, binding, snapshot = _context(service, db, row)
+                data, fresh_project, fresh_card, block, binding, snapshot, _ = _context(service, db, row)
                 service.card_comment_compaction._authorize(user, fresh_project, fresh_card, channel)
                 state = data.get("index") or {}
                 source = hit.get("source") or {}

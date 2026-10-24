@@ -31,6 +31,10 @@ class ExtractionCacheUnavailable(RuntimeError):
     pass
 
 
+class PublishedExtractionUnavailable(ValueError):
+    pass
+
+
 def _token(value):
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{32}", value):
         raise ValueError("Invalid server-owned extraction reference")
@@ -119,6 +123,30 @@ def activate_extraction_reference(db, token, *, source_type, source_uid, generat
     )
     _remove_unreferenced(db, [ref.cache_id for ref in old])
     return True
+
+
+def published_extraction_identity(source_type, source_uid, generation):
+    """Read the exact committed conversion identity, never today's parser settings."""
+    _source(source_type, source_uid, generation)
+    if generation is None:
+        raise ValueError("An authoritative extraction generation is required")
+    with DbSession.use(readonly=False) as db:
+        entries = db.exec(
+            SqlBuilder.select.table(Cache)
+            .join(Reference, Reference.cache_id == Cache.id)
+            .where(
+                Reference.source_type == source_type,
+                Reference.source_uid == source_uid,
+                Reference.generation == generation,
+                Reference.expires_at.is_(None),
+                Cache.markdown.is_not(None),
+            )
+        ).all()
+        if len(entries) != 1:
+            raise PublishedExtractionUnavailable(
+                "Published extraction identity unavailable; explicitly reprocess this attachment"
+            )
+        return entries[0].cache_key
 
 
 def release_extraction_source(db, source_type, source_uid):

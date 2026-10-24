@@ -25,7 +25,11 @@ from langboard_shared.domain.models.DocumentExtractionCache import (
     DocumentExtractionCacheReference as Reference,
 )
 from langboard_shared.tasks.docling.DocumentCleanupTask import recover_cleanup
-from langboard_shared.tasks.docling.DocumentExtractionCache import cached_document_extraction
+from langboard_shared.tasks.docling.DocumentExtractionCache import (
+    PublishedExtractionUnavailable,
+    cached_document_extraction,
+    published_extraction_identity,
+)
 from sqlalchemy import delete, update
 
 
@@ -77,6 +81,33 @@ def publish(b, attachment, cache):
     )
     cache.retain()
     return generation
+
+
+def test_embedding_identity_requires_exact_committed_extraction(lifecycle, monkeypatch):
+    b = lifecycle
+    upload(b)
+    attachment = source(b)
+    uid = attachment.get_uid()
+    generation = b.documents.load_source(uid)[2].generation
+    with extraction(attachment) as cache:
+        cache.get_or_convert(converted)
+        with pytest.raises(PublishedExtractionUnavailable, match="explicitly reprocess"):
+            published_extraction_identity("project_attachment", uid, generation)
+        publish(b, attachment, cache)
+        identity = cache.key
+    # Runtime changes after publication must never rewrite the original identity.
+    monkeypatch.setattr(
+        "langboard_shared.tasks.docling.DocumentExtractionCache.metadata.version", lambda *_: "future-runtime"
+    )
+    assert published_extraction_identity("project_attachment", uid, generation) == identity
+    with pytest.raises(PublishedExtractionUnavailable):
+        published_extraction_identity("wiki_attachment", uid, generation)
+    with pytest.raises(PublishedExtractionUnavailable):
+        published_extraction_identity("project_attachment", uid, uuid4().hex)
+    newer = b.documents.request(b.actor, b.source_board, attachment, force=True)["generation"]
+    with pytest.raises(PublishedExtractionUnavailable):
+        published_extraction_identity("project_attachment", uid, newer)
+    assert published_extraction_identity("project_attachment", uid, generation) == identity
 
 
 def test_shared_card_project_ownership_and_final_selected_deletion(lifecycle):
@@ -235,8 +266,14 @@ def test_card_stale_generation_missing_source_and_scope_cleanup(lifecycle):
     assert card.mark_document_indexed(*args, content={"markdown": result["markdown"]}, generation=generation)
     assert len(rows(Reference)) == 1
     # Card moves fence generations but preserve conversion ownership.
+    identity = published_extraction_identity("card_attachment", selected.get_uid(), generation)
     card.invalidate_card_location(b.source_board, b.source)
     assert len(rows(Reference)) == 1
+    relocated = card.get_document_by_attachment_uid(CardMetadata, b.source, selected.get_uid())["generation"]
+    assert relocated != generation
+    assert published_extraction_identity("card_attachment", selected.get_uid(), relocated) == identity
+    with pytest.raises(PublishedExtractionUnavailable):
+        published_extraction_identity("card_attachment", selected.get_uid(), generation)
     card.record_scope_embedding_cleanup(b.source_board, b.source)
     assert not rows(Reference) and not rows(Cache)
 

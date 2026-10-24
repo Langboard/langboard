@@ -114,15 +114,16 @@ def recover_expired_cache_references(*, limit=100):
 
 class CachedDocumentEmbeddings:
     def __init__(
-        self, embeddings, *, binding_uid, content_hash, fingerprint, dimensions, timeout_seconds,
+        self, embeddings, *, binding_uid, content_hash, extraction_identity, fingerprint, dimensions, timeout_seconds,
         splitter=None, chunk_version=CHUNK_VERSION,
     ):
         if not isinstance(binding_uid, str) or not binding_uid:
             raise ValueError("An authoritative embedding binding is required")
         if not all(
-            isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) for value in (content_hash, fingerprint)
+            isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+            for value in (content_hash, extraction_identity, fingerprint)
         ):
-            raise ValueError("Authoritative content and model hashes are required")
+            raise ValueError("Authoritative content, extraction and model hashes are required")
         if type(timeout_seconds) not in (int, float) or not isfinite(timeout_seconds) or not 1 <= timeout_seconds <= 30:
             raise ValueError("Embedding timeout must be finite and between 1 and 30 seconds")
         self.embeddings = validated_embeddings(embeddings, dimensions)
@@ -130,7 +131,7 @@ class CachedDocumentEmbeddings:
             raise ValueError("An authoritative chunk version is required")
         splitter = DocumentSplitterSettings.model_validate(splitter or {})
         self.namespace = [
-            "v2", binding_uid, content_hash, fingerprint, chunk_version,
+            "v3", binding_uid, content_hash, extraction_identity, fingerprint, chunk_version,
             splitter.model_dump(mode="json"), dimensions,
         ]
         self.timeout_seconds = timeout_seconds

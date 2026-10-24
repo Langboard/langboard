@@ -15,6 +15,7 @@ from .DocumentEmbeddingCache import (
     cached_document_embeddings,
     release_cache_references,
 )
+from .DocumentExtractionCache import PublishedExtractionUnavailable, published_extraction_identity
 from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrievalSettings
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
@@ -120,6 +121,7 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
     if request_uid is not None and old.get("request_uid") != request_uid:
         return
     try:
+        extraction_identity = published_extraction_identity("card_attachment", attachment_uid, generation)
         if not binding or binding.bot_type != InternalBotType.DocumentEmbedding:
             raise ValueError("Embedding binding is unavailable")
         private = resolve_embedding_snapshot(snapshot, binding.value)
@@ -155,6 +157,7 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
         vector_allowed = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
         with cached_document_embeddings(
             embeddings, binding_uid=snapshot["binding_uid"], content_hash=content_hash,
+            extraction_identity=extraction_identity,
             fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
             splitter=settings.splitter,
         ) as cache:
@@ -232,7 +235,10 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
             {
                 **old, "status": "failed",
                 "error": (
-                    "Inference dispatched or outcome uncertain; automatic resend disabled; reconciliation required. "
+                    "Published extraction identity unavailable; explicitly reprocess this attachment. "
+                    "The previous searchable generation is retained"
+                    if isinstance(error, PublishedExtractionUnavailable)
+                    else "Inference dispatched or outcome uncertain; automatic resend disabled; reconciliation required. "
                     "The previous searchable generation is retained"
                     if isinstance(error, EmbeddingInferenceUncertain)
                     else "Embedding failed; the previous searchable generation is retained"

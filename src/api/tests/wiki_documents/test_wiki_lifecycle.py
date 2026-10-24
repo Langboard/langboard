@@ -211,6 +211,66 @@ def test_new_embedding_settings_partition_paid_work_without_reupload_or_automati
     assert len(rows(DocumentExtractionCacheReference)) == len(rows(DocumentEmbeddingCacheReference)) == 2
 
 
+@pytest.mark.parametrize("change", ["vision", "runtime"])
+def test_changed_extraction_settings_partition_identical_chunks_and_keep_published_search(wiki, monkeypatch, change):
+    b = wiki
+    first = upload(b)
+    original = indexed(b, first)
+    second = upload(b)
+    indexed(b, second)
+    assert b.convert.call_count == b.provider.calls == 1
+    # A global change schedules nothing and leaves published generations readable.
+    sent = b.sent.call_count
+    if change == "vision":
+        b.vision.value = dumps({"model_name": "fixture", "top_p": 0.4})
+    else:
+        monkeypatch.setattr(
+            "langboard_shared.tasks.docling.DocumentExtractionCache.metadata.version", lambda *_: "future-runtime"
+        )
+    assert b.sent.call_count == sent
+    assert b.docs.load_source(first.get_uid())[2].embedding == original.embedding
+    third = upload(b)
+    changed = indexed(b, third)
+    assert changed.markdown == original.markdown
+    assert b.convert.call_count == b.provider.calls == 2
+    assert len(rows(DocumentExtractionCache)) == len(rows(DocumentEmbeddingCache)) == 2
+    assert len(rows(DocumentEmbeddingCacheReference)) == 3
+    assert b.docs.load_source(first.get_uid())[2].embedding == original.embedding
+    for attachment in (first, second, third):
+        assert query.search_wiki_document(
+            b.domain, b.actor, b.source_board.get_uid(), b.wiki.get_uid(), attachment.get_uid(), "alpha"
+        ).matches
+    with DbSession.atomic() as db:
+        b.docs.invalidate(db, third)
+        db.delete(third)
+    for event in rows(DocumentVectorCleanup):
+        assert process_cleanup(int(event.id))
+    assert len(rows(DocumentExtractionCache)) == len(rows(DocumentEmbeddingCache)) == 1
+    assert len(rows(DocumentEmbeddingCacheReference)) == 2
+    assert query.search_wiki_document(
+        b.domain, b.actor, b.source_board.get_uid(), b.wiki.get_uid(), first.get_uid(), "alpha"
+    ).matches
+
+
+def test_queued_embedding_without_committed_lineage_requires_reprocess_and_retains_search(wiki):
+    b = wiki
+    attachment = upload(b)
+    published = indexed(b, attachment)
+    with DbSession.atomic() as db:
+        db.exec(delete(DocumentExtractionCacheReference))
+    asyncio.run(task._embed_project_attachment(
+        b.domain, attachment.get_uid(), published.generation, documents=b.docs, source_factory=b.docs.vector_source,
+    ))
+    current = b.docs.load_source(attachment.get_uid())[2]
+    assert current.embedding["status"] == "failed"
+    assert "explicitly reprocess" in current.embedding["error"]
+    assert current.embedding["pointer"] == published.embedding["pointer"]
+    assert b.provider.calls == 1
+    assert query.search_wiki_document(
+        b.domain, b.actor, b.source_board.get_uid(), b.wiki.get_uid(), attachment.get_uid(), "alpha"
+    ).matches
+
+
 def test_metadata_default_legacy_lazy_hash_and_exact_wiki_scope(wiki):
     b = wiki
     b.enabled = False

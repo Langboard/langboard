@@ -220,7 +220,10 @@ async def test_legacy_metadata_queue_loss_recovery_and_stale_claim_cannot_publis
     assert await index.index_metadata(DomainService(), row.id) is False
     assert json.loads(metadata(card).value)["index"]["token"] == "new-owner"
     # Expired replacement is recoverable; persisted inference cache is reused safely.
+    calls_before_retry = provider.document_calls
+    assert calls_before_retry == 1
     assert await index.index_metadata(DomainService(), row.id)
+    assert provider.document_calls == calls_before_retry
     assert index.search_metadata(DomainService(), actor, project, card, "availability interrupted",
                                  channel=CollaborationChannel.Api)
 

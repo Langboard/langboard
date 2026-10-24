@@ -471,6 +471,7 @@ def test_additional_same_content_uses_native_config_bound_embedding_cache(upload
             provider,
             binding_uid="native-binding",
             content_hash=attachment.content_sha256,
+            extraction_identity=sha256(b"committed-extraction").hexdigest(),
             fingerprint=sha256(b"same provider configuration").hexdigest(),
             dimensions=3,
             timeout_seconds=1,

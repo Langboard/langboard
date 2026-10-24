@@ -58,6 +58,7 @@ def cache_store(monkeypatch, request):
 
 def settings(**changes):
     return dict(binding_uid="private-binding", content_hash=sha256(b"file").hexdigest(),
+                extraction_identity=sha256(b"committed-extraction").hexdigest(),
                 fingerprint=sha256(b"model").hexdigest(), dimensions=3, timeout_seconds=1, **changes)
 
 

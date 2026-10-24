@@ -41,6 +41,7 @@ def config(**overrides):
     return {
         "binding_uid": "private-binding",
         "content_hash": sha256(b"file").hexdigest(),
+        "extraction_identity": sha256(b"committed-extraction").hexdigest(),
         "fingerprint": sha256(b"model").hexdigest(),
         "dimensions": 3,
         "timeout_seconds": 1,
@@ -78,7 +79,7 @@ def test_identical_uploads_call_once_and_release_only_last_reference(binding_sto
     release_cache_references(second.token)
 
 
-@pytest.mark.parametrize("change", ["binding_uid", "content_hash", "fingerprint"])
+@pytest.mark.parametrize("change", ["binding_uid", "content_hash", "extraction_identity", "fingerprint"])
 def test_file_or_provider_changes_never_reuse_old_vectors(binding_store, change):  # noqa: F811
     provider = Provider()
     original = config()
@@ -94,6 +95,14 @@ def test_rejected_publication_releases_unpublished_results(binding_store):  # no
     with cached_document_embeddings(Provider(), **config()) as cache:
         cache.embed_documents(["discarded"])
     assert rows() == [] and rows(DocumentEmbeddingCacheReference) == []
+
+
+@pytest.mark.parametrize("identity", [None, "", "current-parser", "0" * 63])
+def test_embedding_requires_authoritative_extraction_identity_before_inference(identity):
+    provider = Provider()
+    with pytest.raises(ValueError, match="Authoritative content, extraction and model hashes"):
+        CachedDocumentEmbeddings(provider, **config(extraction_identity=identity))
+    assert provider.calls == []
 
 
 def test_expired_undispatched_claim_allows_retry_and_fences_old_worker(binding_store):  # noqa: F811
@@ -268,10 +277,20 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
 ):
     from copy import deepcopy
     from types import SimpleNamespace
+    from uuid import uuid4
+    from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.domain.models import Card, CardAttachment, CardMetadata
+    from langboard_shared.domain.models.DocumentExtractionCache import (
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+    )
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.domain.services import DomainService
     from langboard_shared.tasks.docling import DocumentEmbeddingTask as task
+    from langboard_shared.tasks.docling.DocumentExtractionCache import (
+        activate_extraction_reference,
+        cached_document_extraction,
+    )
     from langboard_shared.tasks.docling.DocumentRetrievalSettings import DocumentRetrievalSettings
     from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
     from langboard_shared.tasks.docling.DocumentVectorStore import astage_vector_generation as stage_vector_generation
@@ -279,6 +298,9 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
 
     metadata, card, attachment, document = document_source
     native = DomainService()
+    for model in (DocumentExtractionCache, DocumentExtractionCacheReference):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    generation = uuid4().hex
 
     class AsyncOnlyProvider(Provider):
         def embed_documents(self, texts):
@@ -302,12 +324,24 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
     for source_card, source_attachment in ((card, attachment), (other_card, other)):
         doc = {
             **deepcopy(document),
+            "generation": generation,
             "attachment_uid": source_attachment.get_uid(),
             "content_hash": config()["content_hash"],
             "embedding_config": snapshot,
             "embedding": {"status": "pending"},
         }
         metadata.save_documents(CardMetadata, source_card, [doc])
+        with cached_document_extraction(
+            binding_uid="vision-fixture", content_hash=config()["content_hash"],
+            vision_config={"binding_uid": "vision-fixture"}, filename="report.pdf", timeout_seconds=1,
+        ) as extraction:
+            extraction.get_or_convert(lambda: {"markdown": "Shared extraction"})
+            with DbSession.atomic() as db:
+                assert activate_extraction_reference(
+                    db, extraction.token, source_type="card_attachment",
+                    source_uid=source_attachment.get_uid(), generation=generation,
+                )
+            extraction.retain()
     settings = DocumentRetrievalSettings(store="sqlite", dimensions=3, timeout_seconds=1.0)
     monkeypatch.setattr(
         task, "Env", SimpleNamespace(DATA_DIR=tmp_path, get_from_env=lambda *_: "https://fixture.invalid")
@@ -336,7 +370,7 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
     try:
         pointers = []
         for source_card, source_attachment in ((card, attachment), (other_card, other)):
-            asyncio.run(task.embed_transcription(service, source_attachment.get_uid(), "current"))
+            asyncio.run(task.embed_transcription(service, source_attachment.get_uid(), generation))
             saved = metadata.get_document_by_attachment_uid(CardMetadata, source_card, source_attachment.get_uid())
             assert saved["embedding"]["status"] == "indexed", saved["embedding"]
             pointers.append(saved["embedding"]["pointer"])
@@ -344,6 +378,17 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
         assert pointers[0]["chunk_ids"] != pointers[1]["chunk_ids"]
         assert pointers[0]["card_uid"] != pointers[1]["card_uid"]
         assert all(ref.expires_at is None for ref in rows(DocumentEmbeddingCacheReference))
+        # Legacy queued work cannot infer lineage from current settings or destroy published vectors.
+        from sqlalchemy import delete
+
+        with DbSession.atomic() as db:
+            db.exec(delete(DocumentExtractionCacheReference).where(
+                DocumentExtractionCacheReference.source_uid == attachment.get_uid(),
+            ))
+        asyncio.run(task.embed_transcription(service, attachment.get_uid(), generation))
+        failed = metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())["embedding"]
+        assert failed["status"] == "failed" and "explicitly reprocess" in failed["error"]
+        assert failed["pointer"] == pointers[0] and len(provider.calls) == 1
         path = tmp_path / "document-retrieval" / (pointers[0]["embedding_fingerprint"] + ".sqlite")
         task.remove_recorded_embedding(pointers[0])
         with open_sqlite_vector_store(path, provider, dimensions=3) as store:

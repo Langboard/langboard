@@ -629,6 +629,7 @@ class DoclingMetadataService(BaseDomainService):
         Converted content and attachment provenance survive. Location invalidation
         never schedules another conversion or model inference.
         """
+        from ....domain.models.DocumentExtractionCache import DocumentExtractionCacheReference
         from ....tasks.docling.DocumentKeywordTask import record_scope_removal
 
         with DbSession.atomic() as db:
@@ -648,7 +649,16 @@ class DoclingMetadataService(BaseDomainService):
             record_scope_removal(db, project, current)
             documents = self.load_documents(CardMetadata, current)
             for document in documents:
+                previous_generation = document.get("generation")
                 document["generation"] = uuid4().hex
+                if document.get("status") == DoclingIndexStatus.Indexed.value and previous_generation is not None:
+                    # A location fence preserves the exact published conversion lineage.
+                    db.exec(update(DocumentExtractionCacheReference).where(
+                        DocumentExtractionCacheReference.source_type == "card_attachment",
+                        DocumentExtractionCacheReference.source_uid == document["attachment_uid"],
+                        DocumentExtractionCacheReference.generation == previous_generation,
+                        DocumentExtractionCacheReference.expires_at.is_(None),
+                    ).values(generation=document["generation"]))
                 # Retain indexed text for native search; pending work is explicitly
                 # invalidated, preventing legacy no-generation tasks from restarting it.
                 if document.get("status") in {
