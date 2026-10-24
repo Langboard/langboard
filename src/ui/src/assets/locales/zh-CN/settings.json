@@ -519,5 +519,16 @@
   "Confirm group destructive change": "此更改无法撤销，请确认。",
   "Review group change": "保存前请检查此更改。",
   "Saving group change": "正在保存群组更改…",
-  "Other group change": "其他群组更改"
+  "Other group change": "其他群组更改",
+  "imageGenerationOptions": {
+    "quality": {
+      "auto": "自动",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "standard": "标准",
+      "hd": "高清 (HD)"
+    },
+    "base64Json": "Base64 编码的 JSON"
+  }
 }

@@ -519,5 +519,16 @@
   "Confirm group destructive change": "되돌릴 수 없는 변경입니다. 계속하려면 확인하세요.",
   "Review group change": "저장하기 전에 변경 내용을 검토하세요.",
   "Saving group change": "그룹 변경 저장 중…",
-  "Other group change": "기타 그룹 변경"
+  "Other group change": "기타 그룹 변경",
+  "imageGenerationOptions": {
+    "quality": {
+      "auto": "자동",
+      "low": "낮음",
+      "medium": "보통",
+      "high": "높음",
+      "standard": "표준",
+      "hd": "고화질 (HD)"
+    },
+    "base64Json": "Base64로 인코딩된 JSON"
+  }
 }

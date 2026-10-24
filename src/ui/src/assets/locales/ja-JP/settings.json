@@ -519,5 +519,16 @@
   "Confirm group destructive change": "この変更は元に戻せません。確認してください。",
   "Review group change": "保存する前に変更内容を確認してください。",
   "Saving group change": "グループの変更を保存中…",
-  "Other group change": "その他のグループ変更"
+  "Other group change": "その他のグループ変更",
+  "imageGenerationOptions": {
+    "quality": {
+      "auto": "自動",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "standard": "標準",
+      "hd": "高精細 (HD)"
+    },
+    "base64Json": "Base64 エンコードされた JSON"
+  }
 }

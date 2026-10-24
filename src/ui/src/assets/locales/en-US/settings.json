@@ -519,5 +519,16 @@
   "Confirm group destructive change": "Confirm this destructive change. It cannot be undone.",
   "Review group change": "Review this change before saving.",
   "Saving group change": "Saving group change…",
-  "Other group change": "Other group change"
+  "Other group change": "Other group change",
+  "imageGenerationOptions": {
+    "quality": {
+      "auto": "Automatic",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "standard": "Standard",
+      "hd": "High definition (HD)"
+    },
+    "base64Json": "Base64-encoded JSON"
+  }
 }
