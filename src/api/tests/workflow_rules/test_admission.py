@@ -18,6 +18,35 @@ def producer():
     pass
 
 
+@pytest.mark.parametrize("ineligible", ["private", "linked", "stale_residency"])
+def test_interval_budget_reaches_eligible_card_after_rejected_candidate(bots, ineligible):
+    from langboard_shared.tasks.WorkflowRuleTask import _admit_intervals
+
+    f = bots
+    _fixtures.configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    with DbSession.atomic() as db:
+        f.card.workflow_stage_entered_at = f.now - timedelta(minutes=5)
+        if ineligible == "private":
+            f.card.visibility = "PRIVATE"
+            f.card.owner_user_id = f.actor.id
+            f.card.created_by_user_id = f.actor.id
+        elif ineligible == "linked":
+            f.card.source_type, f.card.source_uid = "wiki", "linked-source"
+        else:
+            f.card.workflow_stage_entered_key = "old"
+        db.update(f.card)
+        f.other_card.project_column_id = f.column.id
+        f.other_card.workflow_stage_entered_key = f.stage.key
+        f.other_card.workflow_stage_entered_at = f.now - timedelta(minutes=5)
+        db.update(f.other_card)
+    assert f.card.id < f.other_card.id
+    assert _admit_intervals(f.now, 1) == 1
+    with DbSession.use(readonly=False) as db:
+        assert [run.card_id for run in rows(db, WorkflowRuleRun)] == [f.other_card.id]
+        assert len(rows(db, WorkflowActionRun)) == 1
+    assert _admit_intervals(f.now, 1) == 0
+
+
 producer.__module__ = "langboard_shared.tasks.bots.CardCommentBotTask"
 producer.__name__ = "card_comment_added"
 

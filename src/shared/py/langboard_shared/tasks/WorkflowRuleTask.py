@@ -397,8 +397,7 @@ def _admit_intervals(now, limit):
                               residency=utc(card.workflow_stage_entered_at).isoformat())
                 if before:
                     continue
-                admit(db, None, card, "interval", event_id=event_id, occurred_at=due, rule_id=rule.id)
-                admitted += 1
+                admitted += len(admit(db, None, card, "interval", event_id=event_id, occurred_at=due, rule_id=rule.id))
                 if admitted >= limit:
                     return admitted
     return admitted
