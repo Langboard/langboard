@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 import uvicorn
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 from langboard.mcp_integration.Server import _create_fastmcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 
@@ -32,6 +33,8 @@ async def test_stateless_http_negotiation_discovery_and_write(mode):
 
     @server.tool
     def record(value: int) -> dict[str, int]:
+        if value < 0:
+            raise ValueError("private-transport-error-detail")
         writes.append(value)
         return {"value": value}
 
@@ -61,6 +64,16 @@ async def test_stateless_http_negotiation_discovery_and_write(mode):
             assert [tool.name for tool in await client.list_tools()] == ["record"]
             assert [str(resource.uri) for resource in await client.list_resources()] == ["fixture://example"]
             assert [prompt.name for prompt in await client.list_prompts()] == ["example_prompt"]
+            # Numeric strings must not be coerced by either HTTP protocol mode.
+            with pytest.raises(ToolError):
+                await client.call_tool("record", {"value": "7"})
+            assert writes == []
+            # Handler exceptions must be masked in the actual wire response.
+            failure = await client.call_tool("record", {"value": -1}, raise_on_error=False)
+            assert failure.is_error
+            assert failure.content
+            assert "private-transport-error-detail" not in str(failure.content)
+            assert writes == []
             result = await client.call_tool("record", {"value": 7})
             assert result.structured_content == {"value": 7}
             assert writes == [7]
