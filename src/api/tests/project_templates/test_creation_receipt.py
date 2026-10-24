@@ -332,3 +332,78 @@ def test_receipt_replay_outlives_removed_template_without_recreating_it(native):
             is None
         )
     assert effects == ["project", "column"]
+
+
+@pytest.mark.parametrize("handler_name", ["create_project", "create_project_board"])
+def test_mcp_handlers_reuse_native_receipt_and_survive_removed_template(native, handler_name):
+    from langboard.mcp_integration.BoardOutputs import BOARD_OUTPUTS
+    from langboard.mcp_tools import ProjectMcp
+    from langboard_shared.domain.services.factory.ProjectTemplateService import ProjectCreationConflict
+
+    engine, actor, _, service, effects, _ = native
+    handler = getattr(ProjectMcp, handler_name)
+    payload = dict(
+        title="Exact source title",
+        description="Exact source body",
+        template_name="Receipt template",
+        user=actor,
+        service=service,
+        request_uuid=str(uuid4()),
+    )
+    if handler_name == "create_project":
+        payload["project_type"] = "Other"
+    original = handler(**payload)
+    before = snapshot(engine)
+    repeated = handler(**payload)
+    assert repeated.get("project_uid", repeated.get("project")) == original.get("project_uid", original.get("project"))
+    if handler_name == "create_project_board":
+        assert [column["uid"] for column in repeated["columns"]] == [column["uid"] for column in original["columns"]]
+    assert len(before["project"]) == 1
+    with pytest.raises(ProjectCreationConflict):
+        handler(**{**payload, "description": "Changed payload"})
+    assert snapshot(engine) == before
+    with engine.begin() as connection:
+        connection.execute(delete(models.ProjectTemplate).where(models.ProjectTemplate.name == "Receipt template"))
+    replayed = handler(**payload)
+    if handler_name == "create_project_board":
+        assert replayed["project"] == {**original["project"], "template": ""}
+        assert BOARD_OUTPUTS[handler_name].model_validate(replayed).project.template == ""
+    else:
+        assert replayed == original
+    assert snapshot(engine) == before
+    assert effects == ["project", "column"]
+
+
+@pytest.mark.parametrize("revocation", ["deleted_account", "inactive_account", "read_role", "membership"])
+def test_mcp_receipt_does_not_disclose_after_native_authority_revocation(native, revocation):
+    from langboard.mcp_tools import ProjectMcp
+
+    engine, actor, other, service, effects, _ = native
+    payload = dict(
+        title="Board", template_name="Receipt template", user=actor, service=service, request_uuid=str(uuid4())
+    )
+    ProjectMcp.create_project_board(**payload)
+    with engine.begin() as connection:
+        if revocation in ("deleted_account", "inactive_account"):
+            connection.execute(
+                update(models.User)
+                .where(models.User.id == actor.id)
+                .values(
+                    **(
+                        {"deleted_at": SafeDateTime.now()}
+                        if revocation == "deleted_account"
+                        else {"activated_at": None}
+                    )
+                )
+            )
+        else:
+            connection.execute(update(models.Project).values(owner_id=other.id))
+            if revocation == "membership":
+                connection.execute(delete(models.ProjectAssignedUser))
+            else:
+                connection.execute(update(models.ProjectRole).values(actions=[]))
+    before = snapshot(engine)
+    with pytest.raises(ProjectCreationUnavailable):
+        ProjectMcp.create_project_board(**payload)
+    assert snapshot(engine) == before
+    assert effects == ["project", "column"]

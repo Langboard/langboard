@@ -1,12 +1,13 @@
 from re import fullmatch
 from typing import Annotated
+from uuid import UUID
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
-from pydantic import StringConstraints
+from pydantic import Field, StringConstraints
 from ..mcp_integration import McpRoleFilter, McpTool
 
 
@@ -63,6 +64,7 @@ def create_template_project(
     service: DomainService,
     template_name: str | None = None,
     infer_template_prefix: bool = False,
+    request_uuid: Annotated[str, Field(json_schema_extra={"format": "uuid"})] | None = None,
 ) -> dict:
     """Use the project owner service and return the public template projection."""
 
@@ -72,23 +74,32 @@ def create_template_project(
         if not isinstance(template_name, str) or not template_name.strip():
             raise ValueError("Template name is required")
         template_name = template_name.strip()
+    receipt = {}
+    if request_uuid is not None:
+        receipt["request_uuid"] = str(UUID(str(request_uuid)))
     project, columns, template = service.project_template.create_project(
-        user, title.strip(), description, project_type, template_name, infer_template_prefix
+        user, title.strip(), description, project_type, template_name, infer_template_prefix, **receipt
     )
     uid = project.get_uid()
+    # Receipts retain template identity, but deleted templates have no canonical name.
+    # Preserve the string output contract with an empty unavailable projection.
     return {
         "project": {
             "uid": uid,
             "title": project.title,
             "project_type": project.project_type,
             "url": f"{Env.PUBLIC_UI_URL}/board/{uid}",
-            "template": template.name,
+            "template": template.name if template is not None else "",
         },
         "columns": [{**column.api_response(), "count": 0} for column in columns],
     }
 
 
-@McpTool.add("user", description="Create a new project with an optional named workflow template.")
+@McpTool.add(
+    "user",
+    description="Create a new project with an optional named workflow template.",
+    modern_only=("request_uuid",),
+)
 def create_project(
     title: str,
     description: str | None,
@@ -97,15 +108,27 @@ def create_project(
     service: DomainService,
     template_name: str | None = None,
     infer_template_prefix: bool = False,
+    request_uuid: Annotated[str, Field(json_schema_extra={"format": "uuid"})] | None = None,
 ) -> dict:
     result = create_template_project(
-        title, description, project_type, user, service, template_name, infer_template_prefix
+        title,
+        description,
+        project_type,
+        user,
+        service,
+        template_name,
+        infer_template_prefix,
+        **({"request_uuid": request_uuid} if request_uuid is not None else {}),
     )
     project = result["project"]
     return {"project_uid": project["uid"]}
 
 
-@McpTool.add("user", description="Compatibility entry for template-backed board creation.")
+@McpTool.add(
+    "user",
+    description="Compatibility entry for template-backed board creation.",
+    modern_only=("request_uuid",),
+)
 def create_project_board(
     title: str,
     user: User,
@@ -113,8 +136,18 @@ def create_project_board(
     description: str | None = None,
     template_name: str | None = None,
     infer_template_prefix: bool = False,
+    request_uuid: Annotated[str, Field(json_schema_extra={"format": "uuid"})] | None = None,
 ) -> dict:
-    return create_template_project(title, description, "Other", user, service, template_name, infer_template_prefix)
+    return create_template_project(
+        title,
+        description,
+        "Other",
+        user,
+        service,
+        template_name,
+        infer_template_prefix,
+        **({"request_uuid": request_uuid} if request_uuid is not None else {}),
+    )
 
 
 @McpTool.add(description="Check if the project is available.")
