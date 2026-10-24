@@ -3,8 +3,9 @@
 import hashlib
 import json
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from uuid import UUID
-from sqlalchemy import delete, or_, text
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from ...core.db import DbSession, SqlBuilder
 from ...core.db.DbEngine import DbEngine
@@ -12,6 +13,8 @@ from ...domain.models import (
     BoardTeam,
     BoardTeamCommand,
     BoardTeamMember,
+    Card,
+    DecisionCase,
     Organization,
     Project,
     ProjectAssignedUser,
@@ -37,7 +40,7 @@ class TeamConflict(Exception):
     pass
 
 
-DECISION_IMPACT = {"status": "unavailable", "reason": "team_decision_binding_not_implemented"}
+DECISION_IMPACT = {"status": "unavailable", "reason": "reload_required"}
 
 
 class BoardTeams:
@@ -202,13 +205,60 @@ class BoardTeams:
                 "abilities": {"manage": manage, "import_group": group},
             }
 
+    def _decision_impact(self, db, actor, project, team):
+        # Local imports avoid the actor resolver's existing BoardTeams dependency.
+        from ...core.security.CollaborationChannel import CollaborationChannel
+        from .CardVisibilityPolicy import card_visibility_scope
+        from .DecisionFlow import DecisionFlow, card_target_revision
+        from .DomainService import DomainService
+
+        service = DomainService()
+        channel = CollaborationChannel.Api
+        resolved = service.card.resolve_visibility_context(project.id, actor, channel)
+        if resolved is None or not resolved[1].project_member:
+            return {"status": "unavailable", "reason": "current_access_unavailable"}
+        # Filter visibility in SQL before inspecting provenance. Team management
+        # grants no access to private cards, counts, or Decision details.
+        cases = db.exec(
+            select(DecisionCase, Card)
+            .join(Card, (Card.id == DecisionCase.card_id) & (Card.project_id == DecisionCase.project_id))
+            .where(
+                DecisionCase.project_id == project.id,
+                DecisionCase.state == "pending",
+                Card.deleted_at.is_(None),
+                card_visibility_scope(resolved[1]),
+            )
+        ).all()
+        flow = DecisionFlow(service)
+        now = datetime.now(timezone.utc)
+        for case, card in cases:
+            snapshot = case.actor_snapshot
+            if (
+                not snapshot
+                or snapshot.get("project_uid") != project.get_uid()
+                or not any(
+                    source.get("kind") == "team" and source.get("uid") == team.get_uid()
+                    for source in snapshot.get("sources", [])
+                )
+                or card.is_linked_resource
+                or case.target_revision != card_target_revision(card)
+            ):
+                continue
+            if case.source_kind == "poll":
+                state = flow._poll_data(db, case, card, channel, now)[3].state
+            else:
+                state = flow._evaluation(db, case, card, channel, now).state
+            if state == "pending":
+                return {"status": "available", "ongoing": True, "scope": "readable_cards"}
+        return {"status": "available", "ongoing": False, "scope": "readable_cards"}
+
     def get(self, actor_id, project_uid, team_uid):
         with self._transaction() as db:
-            _, project = self._authorized(db, actor_id, project_uid)
+            actor, project = self._authorized(db, actor_id, project_uid)
             team = self._team(db, project, team_uid)
             return {
                 "team": self._payload(db, team, self._participants(db, project)),
-                "decision_impact": DECISION_IMPACT.copy(),
+                "decision_impact": self._decision_impact(db, actor, project, team),
             }
 
     def candidates(self, actor_id, project_uid, *, query="", page=1, limit=15):

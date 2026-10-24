@@ -215,8 +215,11 @@
     "target": "추가 대상: {{count}}명",
     "Confirm count": "참여자 {{count}}명 추가를 확인합니다",
     "Import count": "참여자 {{count}}명 가져오기",
-    "Decision impact unavailable": "Decision 영향을 확인할 수 없습니다. 팀 삭제는 진행 중인 Decision에 영향을 줄 수 있습니다.",
-    "Confirm deletion": "Decision 영향을 확인할 수 없음을 이해하고 삭제를 확인합니다",
-    "Delete team": "팀 삭제"
+    "Decision impact unavailable": "Decision 영향을 확인하지 못했습니다. 계속하려면 삭제 영향을 다시 확인하세요.",
+    "Confirm deletion": "현재 Decision 영향을 확인했으며 삭제에 동의합니다",
+    "Delete team": "팀 삭제",
+    "Review deletion": "삭제 영향 확인",
+    "Decision impact ongoing": "읽을 수 있는 카드의 진행 중 Decision이 이 팀을 참조합니다. 삭제하면 현재 응답 자격의 팀 출처가 제거됩니다. 확정된 Decision 이력은 보존됩니다.",
+    "Decision impact none": "현재 읽을 수 있는 카드에서 이 팀을 참조하는 진행 중 Decision이 없습니다. 다른 카드는 포함되지 않습니다."
   }
 }

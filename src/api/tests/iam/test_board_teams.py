@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models as m
@@ -55,6 +55,12 @@ def native(request, tmp_path, monkeypatch):
             m.BoardTeam,
             m.BoardTeamMember,
             m.BoardTeamCommand,
+            m.Card,
+            m.DecisionCase,
+            m.DecisionOption,
+            m.DecisionResponse,
+            m.EmployeeMembershipPolicy,
+            m.UserIdentityLink,
         )
     }
     pending = list(required)
@@ -489,3 +495,182 @@ def test_sqlite_fk_parity_purge_and_soft_delete(native, schema_source):
         assert not db.execute(select(m.BoardTeamMember)).all()
         assert db.execute(select(m.BoardTeamCommand.__table__).order_by(m.BoardTeamCommand.id)).all() == history
         assert db.execute(text("PRAGMA foreign_key_check")).all() == []
+
+
+def decision_fixture(f, *, kind="proposal"):
+    """Persist real source resolution; no mock authorization or evaluation."""
+    from datetime import datetime, timedelta, timezone
+    from langboard.routes.board.forms.Decision import CreateDecisionForm
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.domain.services.DecisionActors import DecisionActors
+    from langboard_shared.domain.services.DecisionFlow import DecisionFlow, card_target_revision
+
+    uid = command(f, "create", name="Decision source")["team_uid"]
+    command(f, "add_members", team_uid=uid, expected_revision=1, user_uids=[f[2][2].get_uid()])
+    with DbSession.atomic() as db:
+        role = db.exec(SqlBuilder.select.table(m.ProjectRole).where(m.ProjectRole.user_id == f[2][2].id)).first()
+        role.actions = ["read", "update", "card_update"]
+        db.update(role)
+        column = m.ProjectColumn(project_id=f[3][0].id, name="Decision")
+        db.insert(column)
+        card = m.Card(project_id=f[3][0].id, project_column_id=column.id, title="Visible", visibility="SHARED")
+        db.insert(card)
+    service = DomainService()
+    sources = [{"kind": "team", "uid": uid}]
+    resolved = DecisionActors(service).preview(f[2][2], f[3][0].get_uid(), card.get_uid(), sources, source_kind=kind)
+    data = dict(
+        request_id=str(uuid4()),
+        source_kind=kind,
+        source_ref=card.get_uid(),
+        question="Team decision",
+        target_revision=card_target_revision(card),
+        participant_uids=resolved["actor_uids"],
+        actor_sources=sources,
+        expected_actor_snapshot=resolved["snapshot"],
+        policy={"actor_uid": f[2][2].get_uid()} if kind == "proposal" else None,
+    )
+    if kind == "poll":
+        data.update(
+            deadline=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            poll=dict(
+                options=[dict(key="a", label="A"), dict(key="b", label="B")],
+                participation_quorum=1,
+                participation_policy="vote_only",
+                winner_policy="plurality",
+                tie_policy="needs_info",
+                no_quorum_policy="expired",
+                no_winner_policy="needs_info",
+                needs_info_policy="record",
+                allow_change=True,
+                tally_visibility="after_close",
+            ),
+        )
+    DecisionFlow(service).create(f[2][2], f[3][0].get_uid(), card.get_uid(), CreateDecisionForm(**data))
+    service.close()
+    return uid, card
+
+
+@pytest.mark.parametrize("kind", ["proposal", "poll"])
+@pytest.mark.parametrize(
+    "variation",
+    [
+        "pending",
+        "terminal",
+        "expired",
+        "stale",
+        "absent",
+        "foreign_snapshot",
+        "foreign_case",
+        "other_team",
+        "private",
+        "deleted",
+    ],
+)
+def test_current_readable_pending_decision_impact(native, kind, variation):
+    from copy import deepcopy
+    from datetime import timedelta
+
+    f = native
+    uid, card = decision_fixture(f, kind=kind)
+    with DbSession.atomic() as db:
+        case = db.exec(SqlBuilder.select.table(m.DecisionCase)).first()
+        if variation == "terminal":
+            case.state = "passed"
+        elif variation == "expired":
+            case.deadline = SafeDateTime.now() - timedelta(hours=1)
+        elif variation == "stale":
+            case.target_revision = "stale"
+        elif variation == "absent":
+            case.actor_snapshot = None
+        elif variation in ("foreign_snapshot", "other_team"):
+            snapshot = deepcopy(case.actor_snapshot)
+            if variation == "foreign_snapshot":
+                snapshot["project_uid"] = f[3][1].get_uid()
+            else:
+                snapshot["sources"] = [{"kind": "team", "uid": f[2][5].get_uid()}]
+            case.actor_snapshot = snapshot
+        elif variation == "foreign_case":
+            case.project_id = f[3][1].id
+        elif variation == "private":
+            card.visibility = "PRIVATE"
+            card.owner_user_id = f[2][1].id
+            card.created_by_user_id = f[2][1].id
+            db.update(card)
+        elif variation == "deleted":
+            card.deleted_at = SafeDateTime.now()
+            db.update(card)
+        db.update(case)
+    # Managers and board owners must see the same safe empty result for private cards.
+    for actor in (1, 2):
+        impact = f[1].get(f[2][actor].id, f[3][0].get_uid(), uid)["decision_impact"]
+        assert impact == {"status": "available", "ongoing": variation == "pending", "scope": "readable_cards"}
+    with f[0].connect() as db:
+        before = db.execute(select(m.DecisionCase.__table__)).all()
+    command(f, "delete", team_uid=uid, expected_revision=2)
+    with f[0].connect() as db:
+        assert db.execute(select(m.DecisionCase.__table__)).all() == before
+
+
+def test_current_impact_permission_change_fails_closed(native):
+    f = native
+    uid, _ = decision_fixture(f)
+    assert f[1].get(f[2][2].id, f[3][0].get_uid(), uid)["decision_impact"]["ongoing"]
+    with f[0].begin() as db:
+        db.execute(delete(m.ProjectAssignedUser).where(m.ProjectAssignedUser.user_id == f[2][2].id))
+    with pytest.raises(TeamDenied):
+        f[1].get(f[2][2].id, f[3][0].get_uid(), uid)
+    with pytest.raises(TeamDenied):
+        command(f, "delete", actor=2, team_uid=uid, expected_revision=2)
+
+
+def test_authenticated_http_current_pending_impact_and_private_non_disclosure(native, monkeypatch, tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard.middlewares.RoleMiddleware import RoleMiddleware
+    from langboard.routes.board import BoardTeamApi  # noqa: F401
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.services.DecisionFlow import card_target_revision
+
+    f = native
+    uid, card = decision_fixture(f)
+    monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
+    monkeypatch.setattr(type(Env), "JWT_SECRET_KEY", property(lambda _: "board-team-http-key-minimum-32-bytes-value"))
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(f[2][2].id)
+    headers = {"Authorization": f"Bearer {access}"}
+    path = f"/board/{f[3][0].get_uid()}/teams/{uid}"
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["decision_impact"] == {"status": "available", "ongoing": True, "scope": "readable_cards"}
+        with DbSession.atomic() as db:
+            card.visibility = "PRIVATE"
+            card.owner_user_id = f[2][1].id
+            card.created_by_user_id = f[2][1].id
+            db.update(card)
+            case = db.exec(SqlBuilder.select.table(m.DecisionCase)).first()
+            case.target_revision = card_target_revision(card)
+            db.update(case)
+        response = client.get(path, headers=headers)
+        assert response.json()["decision_impact"] == {
+            "status": "available",
+            "ongoing": False,
+            "scope": "readable_cards",
+        }
+        # No hidden-card titles, identifiers, counts or global-none implication.
+        assert set(response.json()["decision_impact"]) == {"status", "ongoing", "scope"}
+        with f[0].begin() as db:
+            db.execute(delete(m.ProjectAssignedUser).where(m.ProjectAssignedUser.user_id == f[2][2].id))
+        assert client.get(path, headers=headers).status_code == 403
+        assert (
+            client.request(
+                "DELETE", path, headers=headers, json={"request_id": str(uuid4()), "expected_revision": 2}
+            ).status_code
+            == 403
+        )

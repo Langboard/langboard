@@ -3,10 +3,21 @@ const fixture = "/src/pages/BoardPage/components/settings/BoardSettingsTeams.fix
 const member = { uid: "Member00001", firstname: "Ada", lastname: "Member", username: "ada" };
 const candidate = { uid: "Member00002", firstname: "Grace", lastname: "Candidate", username: "grace" };
 const teamUID = "Team0000001";
-async function transport(page: Page, options: { manage?: boolean; importGroup?: boolean; ambiguous?: boolean; conflict?: number } = {}) {
+async function transport(
+    page: Page,
+    options: {
+        manage?: boolean;
+        importGroup?: boolean;
+        ambiguous?: boolean;
+        conflict?: number;
+        impact?: "ongoing" | "none" | "unavailable";
+        reviewError?: number;
+    } = {}
+) {
     let team = { uid: teamUID, name: "Engineering", revision: 1, member_uids: [member.uid], members: [member], member_count: 1 };
     const requests: { method: string; path: string; data: Record<string, unknown>; query: string }[] = [];
     let failed = false;
+    let detailReads = 0;
     await page.route(/\/board\/Board[0-9]+\/teams(?:[/?]|$)/, async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -28,7 +39,19 @@ async function transport(page: Page, options: { manage?: boolean; importGroup?: 
                         records: [candidate],
                     },
                 });
-            if (url.pathname.endsWith(`/${teamUID}`)) return route.fulfill({ json: { team, decision_impact: { status: "unavailable" } } });
+            if (url.pathname.endsWith(`/${teamUID}`)) {
+                detailReads++;
+                if (options.reviewError && detailReads > 1) return route.fulfill({ status: options.reviewError, json: {} });
+                return route.fulfill({
+                    json: {
+                        team,
+                        decision_impact:
+                            options.impact === "unavailable"
+                                ? { status: "unavailable" }
+                                : { status: "available", ongoing: options.impact === "ongoing", scope: "readable_cards" },
+                    },
+                });
+            }
             return route.fulfill({
                 json: {
                     records: [team],
@@ -112,10 +135,11 @@ test("inactive is silent; keyboard CRUD, partial candidates, snapshot and 320px 
             )
         )
         .toBe(true);
-    await expect(page.getByText("Decision impact unavailable.", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Review deletion", exact: true }).click();
+    await expect(page.getByText("No ongoing Decisions referencing this team", { exact: false })).toBeVisible();
     await expect(page.getByRole("button", { name: "Delete team", exact: true })).toBeDisabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.getByLabel("I understand the unavailable Decision impact and confirm deletion").check();
+    await page.getByLabel("I have reviewed the current Decision impact and confirm deletion").check();
     await page.getByRole("button", { name: "Delete team", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Renamed", exact: true })).toHaveCount(0);
     await page.getByLabel("New team name", { exact: true }).fill("New team");
@@ -225,3 +249,38 @@ test("manage without import ability never searches canonical groups", async ({ p
     await page.waitForTimeout(350);
     expect(groups).toHaveLength(0);
 });
+
+for (const impact of ["ongoing", "none", "unavailable"] as const)
+    test(`fresh deletion review: ${impact}`, async ({ page }) => {
+        const requests = await transport(page, { impact });
+        await openTeam(page);
+        const confirm = page.getByLabel("I have reviewed the current Decision impact and confirm deletion");
+        await expect(confirm).toBeDisabled();
+        await page.getByRole("button", { name: "Review deletion", exact: true }).click();
+        await expect.poll(() => requests.filter((r) => r.method === "GET" && r.path.endsWith(`/${teamUID}`)).length).toBe(2);
+        const alert = page.getByRole("alert");
+        if (impact === "unavailable") {
+            await expect(alert).toContainText("Decision impact could not be checked");
+            await expect(confirm).toBeDisabled();
+            await expect(page.getByRole("button", { name: "Delete team", exact: true })).toBeDisabled();
+        } else {
+            await expect(alert).toContainText(
+                impact === "ongoing" ? "Ongoing Decisions on cards you can read reference this team" : "No ongoing Decisions referencing this team"
+            );
+            await confirm.check();
+            await page.getByRole("button", { name: "Delete team", exact: true }).click();
+            await expect.poll(() => requests.some((r) => r.method === "DELETE" && r.data.expected_revision === 1)).toBe(true);
+        }
+    });
+
+for (const status of [403, 409, 500])
+    test(`failed deletion review ${status} cannot authorize deletion`, async ({ page }) => {
+        const requests = await transport(page, { reviewError: status });
+        await openTeam(page);
+        await page.getByRole("button", { name: "Review deletion", exact: true }).click();
+        await expect(page.getByRole("status")).toContainText(status === 500 ? "Request failed" : "Reload before continuing");
+        expect(requests.some((r) => r.method === "DELETE")).toBe(false);
+        const confirm = page.getByLabel("I have reviewed the current Decision impact and confirm deletion");
+        if (status === 500) await expect(confirm).toBeDisabled();
+        else await expect(confirm).toHaveCount(0);
+    });

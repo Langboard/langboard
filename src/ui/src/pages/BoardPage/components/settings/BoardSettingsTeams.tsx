@@ -19,6 +19,7 @@ type Preview = {
     target_count: number;
     records: Person[];
 };
+type DecisionImpact = { status: "available"; ongoing: boolean; scope: "readable_cards" } | { status: "unavailable" };
 type Command = { method: "POST" | "PATCH" | "DELETE"; url: string; data: Record<string, unknown> };
 const personName = (person: Person) => `${person.firstname} ${person.lastname}`.trim() || person.username || person.uid;
 
@@ -47,6 +48,7 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
     const [groupUID, setGroupUID] = useState("");
     const [preview, setPreview] = useState<Preview>();
     const [confirmed, setConfirmed] = useState(false);
+    const [decisionImpact, setDecisionImpact] = useState<DecisionImpact>();
     const [deleting, setDeleting] = useState(false);
     const [stale, setStale] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -61,6 +63,7 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
         setPreview(undefined);
         setConfirmed(false);
         setDeleting(false);
+        setDecisionImpact(undefined);
     };
     const fail = (error: unknown) => {
         const status = (error as { response?: { status?: number } }).response?.status;
@@ -204,6 +207,31 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
         try {
             const { data } = await api.get(`${base}/${selected}/group-preview`, { params: { group_uid: groupUID } });
             if (epoch === generation.current && latest.current.active && session === getAuthStore().getSessionVersion()) setPreview(data);
+        } catch (error) {
+            if (epoch === generation.current) fail(session === getAuthStore().getSessionVersion() ? error : { response: { status: 401 } });
+        } finally {
+            if (epoch === generation.current) setBusy(false);
+        }
+    };
+    const reviewDeletion = async () => {
+        const epoch = generation.current;
+        const session = getAuthStore().getSessionVersion();
+        setBusy(true);
+        resetSnapshot();
+        try {
+            const { data } = await api.get(`${base}/${selected}`);
+            if (epoch !== generation.current || !latest.current.active) return;
+            if (session !== getAuthStore().getSessionVersion()) {
+                fail({ response: { status: 401 } });
+                return;
+            }
+            setTeam(data.team);
+            const impact = data.decision_impact;
+            setDecisionImpact(
+                impact?.status === "available" && typeof impact.ongoing === "boolean" && impact.scope === "readable_cards"
+                    ? impact
+                    : { status: "unavailable" }
+            );
         } catch (error) {
             if (epoch === generation.current) fail(session === getAuthStore().getSessionVersion() ? error : { response: { status: 401 } });
         } finally {
@@ -452,14 +480,32 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
                                     )}
                                 </fieldset>
                             )}
-                            <p>{label("Decision impact unavailable")}</p>
+                            <Button disabled={locked} onClick={() => void reviewDeletion()}>
+                                {label("Review deletion")}
+                            </Button>
+                            {decisionImpact && (
+                                <p role="alert">
+                                    {label(
+                                        decisionImpact.status !== "available"
+                                            ? "Decision impact unavailable"
+                                            : decisionImpact.ongoing
+                                              ? "Decision impact ongoing"
+                                              : "Decision impact none"
+                                    )}
+                                </p>
+                            )}
                             <label className="flex items-start gap-2">
-                                <input type="checkbox" disabled={locked} checked={deleting} onChange={(event) => setDeleting(event.target.checked)} />
+                                <input
+                                    type="checkbox"
+                                    disabled={locked || decisionImpact?.status !== "available"}
+                                    checked={deleting}
+                                    onChange={(event) => setDeleting(event.target.checked)}
+                                />
                                 {label("Confirm deletion")}
                             </label>
                             <Button
                                 variant="destructive"
-                                disabled={locked || !deleting}
+                                disabled={locked || !deleting || decisionImpact?.status !== "available"}
                                 onClick={() => command("DELETE", `/${team.uid}`, { expected_revision: team.revision })}
                             >
                                 {label("Delete team")}

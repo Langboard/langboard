@@ -215,8 +215,11 @@
     "target": "将添加：{{count}}人",
     "Confirm count": "我确认添加{{count}}名参与者",
     "Import count": "导入{{count}}名参与者",
-    "Decision impact unavailable": "无法获取Decision影响。删除团队可能影响正在进行的Decision。",
-    "Confirm deletion": "我理解无法确认Decision影响并确认删除",
-    "Delete team": "删除团队"
+    "Decision impact unavailable": "无法检查Decision影响。请重新查看删除影响后继续。",
+    "Confirm deletion": "我已查看当前Decision影响并确认删除",
+    "Delete team": "删除团队",
+    "Review deletion": "查看删除影响",
+    "Decision impact ongoing": "可读卡片中正在进行的Decision引用了此团队。删除会移除当前答复资格的团队来源。已冻结的Decision历史将保留。",
+    "Decision impact none": "当前可读卡片中没有引用此团队的进行中Decision。其他卡片不在检查范围内。"
   }
 }

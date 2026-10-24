@@ -215,8 +215,11 @@
     "target": "Will be added: {{count}}",
     "Confirm count": "I confirm adding {{count}} participants",
     "Import count": "Import {{count}} participants",
-    "Decision impact unavailable": "Decision impact unavailable. Ongoing Decisions may be affected by deleting this team.",
-    "Confirm deletion": "I understand the unavailable Decision impact and confirm deletion",
-    "Delete team": "Delete team"
+    "Decision impact unavailable": "Decision impact could not be checked. Review deletion again before continuing.",
+    "Confirm deletion": "I have reviewed the current Decision impact and confirm deletion",
+    "Delete team": "Delete team",
+    "Review deletion": "Review deletion",
+    "Decision impact ongoing": "Ongoing Decisions on cards you can read reference this team. Deleting it removes this team as a source of current response eligibility. Frozen Decision history is preserved.",
+    "Decision impact none": "No ongoing Decisions referencing this team were found on cards you can currently read. Other cards are not included."
   }
 }

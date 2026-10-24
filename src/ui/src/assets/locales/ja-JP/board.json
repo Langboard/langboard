@@ -215,8 +215,11 @@
     "target": "追加予定: {{count}}人",
     "Confirm count": "参加者{{count}}人の追加を確認します",
     "Import count": "参加者{{count}}人をインポート",
-    "Decision impact unavailable": "Decisionへの影響は確認できません。チーム削除は進行中のDecisionに影響する可能性があります。",
-    "Confirm deletion": "Decisionへの影響が不明なことを理解し削除を確認します",
-    "Delete team": "チーム削除"
+    "Decision impact unavailable": "Decisionへの影響を確認できませんでした。削除の影響を再確認してください。",
+    "Confirm deletion": "現在のDecisionへの影響を確認し、削除に同意します",
+    "Delete team": "チーム削除",
+    "Review deletion": "削除の影響を確認",
+    "Decision impact ongoing": "閲覧可能なカードの進行中Decisionがこのチームを参照しています。削除すると現在の回答資格のチーム参照が失われます。確定したDecision履歴は保持されます。",
+    "Decision impact none": "現在閲覧可能なカードには、このチームを参照する進行中Decisionはありません。他のカードは対象外です。"
   }
 }
