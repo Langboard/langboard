@@ -44,8 +44,12 @@ on:
       - src/ui/src/pages/DashboardPage/PersonalSignalInbox*
       - src/ui/src/pages/BoardPage/components/board/SignalInboxPanel*
       - src/ui/src/pages/SettingsPage/components/users/UserList*
+      - src/ui/src/pages/SettingsPage/components/users/UserDetails.tsx
+      - src/ui/src/pages/SettingsPage/components/users/UserBusinessActivity.tsx
+      - src/ui/src/controllers/api/settings/users/useUserBusinessActivity.ts
       - src/ui/src/pages/SettingsPage/components/users/userLoginRange.ts
       - src/ui/src/pages/SettingsPage/components/users/user-login-range.spec.ts
+      - src/ui/src/pages/SettingsPage/components/users/user-business-activity.spec.ts
       - src/ui/src/pages/DashboardPage/index.tsx
       - src/ui/src/pages/DashboardPage/Route.tsx
       - src/ui/src/core/routing/constants.ts
@@ -137,7 +141,7 @@ jobs:
         env:
           CI: "true"
         working-directory: src/ui
-      - name: Verify latest successful login range controls
+      - name: Verify user login range and business activity controls
         run: yarn playwright test -c playwright.user-login-range.config.ts
         env:
           CI: "true"

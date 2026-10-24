@@ -1,6 +1,8 @@
 """Administrator metadata feed exercises native HTTP authorization and database scopes."""
 
+import os
 from datetime import timedelta
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
@@ -18,6 +20,7 @@ from langboard_shared.domain.models import (
     Project,
     ProjectActivity,
     ProjectAssignedUser,
+    ProjectColumn,
     ProjectRole,
     ProjectWiki,
     ProjectWikiActivity,
@@ -30,20 +33,46 @@ from langboard_shared.Env import Env
 from sqlalchemy import create_engine, delete, event, update
 
 
-def test_business_activity_http_scope_pagination_and_filters(tmp_path, monkeypatch):
-    engine = create_engine(f"sqlite:///{tmp_path / 'activity.sqlite'}")
-    for model in (
+@pytest.fixture(params=["sqlite", "postgresql"])
+def business_activity_engine(request, tmp_path):
+    database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if request.param == "postgresql" and not database_url:
+        pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
+    engine = create_engine(
+        database_url if request.param == "postgresql" else f"sqlite:///{tmp_path / 'activity.sqlite'}"
+    )
+    models = (
         User,
         SettingRole,
         Project,
         ProjectAssignedUser,
         ProjectRole,
+        ProjectColumn,
         Card,
         ProjectWiki,
         ProjectActivity,
         ProjectWikiActivity,
-    ):
-        model.__table__.create(engine)
+    )
+    tables = {model.__table__ for model in models}
+    if engine.dialect.name == "postgresql":
+        pending = list(tables)
+        while pending:
+            for foreign_key in pending.pop().foreign_keys:
+                referenced = foreign_key.column.table
+                if referenced not in tables:
+                    tables.add(referenced)
+                    pending.append(referenced)
+    metadata = User.__table__.metadata
+    metadata.create_all(engine, tables=list(tables))
+    try:
+        yield engine
+    finally:
+        metadata.drop_all(engine, tables=list(tables))
+        engine.dispose()
+
+
+def test_business_activity_http_scope_pagination_and_filters(tmp_path, monkeypatch, business_activity_engine):
+    engine = business_activity_engine
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(Cache, "_cache", InMemoryCache())
@@ -89,9 +118,12 @@ def test_business_activity_http_scope_pagination_and_filters(tmp_path, monkeypat
         hidden = Project(owner_id=target.id, title="Hidden board")
         db.insert_all([project, hidden])
         db.insert(ProjectAssignedUser(project_id=project.id, user_id=admin.id))
-        card = Card(project_id=project.id, title="Readable card", visibility="SHARED")
+        column = ProjectColumn(project_id=project.id, name="Activity column")
+        db.insert(column)
+        card = Card(project_id=project.id, project_column_id=column.id, title="Readable card", visibility="SHARED")
         private = Card(
             project_id=project.id,
+            project_column_id=column.id,
             title="Secret private title",
             visibility="PRIVATE",
             owner_user_id=target.id,

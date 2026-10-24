@@ -70,6 +70,8 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
             });
         if (url.pathname.endsWith("/settings/employee-membership"))
             return route.fulfill({ json: { issuer: "", configured: false, group_uids: [], groups: [] }, headers });
+        if (url.pathname.endsWith("/business-activity"))
+            return route.fulfill({ json: { records: [], page: 1, limit: 20, has_more: false }, headers });
         return route.fulfill({ json: {}, headers });
     });
     await page.goto(fixture);
