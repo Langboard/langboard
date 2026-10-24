@@ -7,6 +7,7 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_signal_inbox.py::test_registered_external_signal_policy_drives_inbox_and_card_evidence \
   src/api/tests/apps/test_app_package.py \
   src/api/tests/apps/test_app_package_http.py \
+  src/api/tests/apps/test_app_installation_requests.py \
   src/api/tests/apps/test_workflow_api.py \
   src/api/tests/apps/test_workflow_http.py \
   src/api/tests/apps/test_external_provider_signal_contracts.py \

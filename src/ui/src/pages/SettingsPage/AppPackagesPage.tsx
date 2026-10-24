@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import Input from "@/components/base/Input";
 import AppPackageIcon, { packageAsset, type PackageInstallation } from "@/components/AppPackageIcon";
 import SettingsLoadState from "./SettingsLoadState";
+import AppInstallationRequests from "./AppInstallationRequests";
 
 interface InstalledApp {
     declaration: { key: string; name: string; version: string; description: string; capabilities?: string[] };
@@ -25,7 +26,15 @@ interface OfficialApp {
 }
 const root = "/settings/apps/packages";
 
-export default function AppPackagesPage({ currentUser, onInstalled }: { currentUser: AuthUser.TModel; onInstalled?: () => Promise<unknown> }) {
+export default function AppPackagesPage({
+    currentUser,
+    onInstalled,
+    projectUid,
+}: {
+    currentUser: AuthUser.TModel;
+    onInstalled?: () => Promise<unknown>;
+    projectUid?: string;
+}) {
     const [t] = useTranslation();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<"official" | "installed" | "manual">("official");
@@ -83,7 +92,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
             setPending(false);
         }
     };
-    if (!currentUser.is_admin) return <p className="p-4 text-sm text-muted-foreground">{t("settings.App installation requires administrator")}</p>;
+    if (!currentUser.is_admin) return <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />;
     if (!query.data) return <SettingsLoadState error={query.isError} isFetching={query.isFetching} retry={() => void query.refetch()} />;
     const installed = query.data.installed;
     const catalog =
@@ -127,6 +136,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
     );
     return (
         <section className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6" aria-label={t("settings.App store")}>
+            <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />
             {detail ? (
                 <>
                     <Button className="text-foreground" variant="ghost" size="sm" onClick={() => setSelectedKey(null)}>

@@ -19,6 +19,7 @@ from .AppExecutionRequest import AppExecutionRequest
 from .AppExecutionReview import AppExecutionReview
 from .AppExecutionStart import AppExecutionStart
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppInstallationRequest import AppInstallationRequest
 from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
@@ -179,6 +180,7 @@ __all__ = [
     'GitHubHealthJob',
     'AppDefinition',
     'AppGovernancePolicy',
+    'AppInstallationRequest',
     'AppEventDestination',
     'AppExecutionOutbox',
     'AppExecutionRequest',
