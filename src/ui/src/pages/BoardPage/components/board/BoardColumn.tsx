@@ -3,6 +3,7 @@
 import WikiCardDrop from "./WikiCardDrop";
 import CrossBoardDrop from "./crossBoard/CrossBoardDrop";
 import { useTranslation } from "react-i18next";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 
 import useColumnCardSort from "./useColumnCardSort";
 import { sortColumnCards } from "./columnCardSort";
@@ -364,9 +365,19 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         return () => document.removeEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
     }, [cardGroupIndices, column, scrollableRef, virtualizer, revealCardAncestors]);
 
+    const routeLocation = usePageLocation();
+    const focusFrameRef = useRef(0);
+    const highlightTimeoutRef = useRef(0);
+    const highlightedCardRef = useRef<HTMLElement | null>(null);
+    useEffect(
+        () => () => {
+            cancelAnimationFrame(focusFrameRef.current);
+            window.clearTimeout(highlightTimeoutRef.current);
+            highlightedCardRef.current?.removeAttribute("data-relationship-drop-target");
+        },
+        [routeLocation.pathname]
+    );
     useEffect(() => {
-        let focusFrame = 0;
-        let highlightTimeout = 0;
         const focusCard = (event: Event) => {
             const { cardUID, columnUID, focus } = (event as CustomEvent<IBoardCardFocusEventDetail>).detail;
             if (columnUID !== column.uid) {
@@ -377,6 +388,9 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
             if (!indices?.length) {
                 return;
             }
+            cancelAnimationFrame(focusFrameRef.current);
+            window.clearTimeout(highlightTimeoutRef.current);
+            highlightedCardRef.current?.removeAttribute("data-relationship-drop-target");
             const groupIndex = indices.reduce((nearest, index) => {
                 const offset = (candidate: number) =>
                     Math.abs((virtualizer.getOffsetForIndex(candidate, "start")?.[0] ?? 0) - (scrollableRef.current?.scrollTop ?? 0));
@@ -391,7 +405,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
                     `[data-index="${groupIndex}"] [${BOARD_CARD_TOUCH_DND_ATTR}="${CSS.escape(cardUID)}"]`
                 );
                 if (!cardElement && attempts++ < 30) {
-                    focusFrame = requestAnimationFrame(highlightWhenMounted);
+                    focusFrameRef.current = requestAnimationFrame(highlightWhenMounted);
                     return;
                 }
                 if (!cardElement) {
@@ -401,19 +415,41 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
                 const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
                 cardElement.scrollIntoView({ behavior, block: "center", inline: "center" });
                 if (focus) cardElement.querySelector<HTMLButtonElement>("[data-board-card-open]")?.focus({ preventScroll: true });
+                highlightedCardRef.current = cardElement;
                 cardElement.setAttribute("data-relationship-drop-target", "true");
-                highlightTimeout = window.setTimeout(() => cardElement.removeAttribute("data-relationship-drop-target"), 1200);
+                highlightTimeoutRef.current = window.setTimeout(() => cardElement.removeAttribute("data-relationship-drop-target"), 1200);
             };
-            focusFrame = requestAnimationFrame(highlightWhenMounted);
+            focusFrameRef.current = requestAnimationFrame(highlightWhenMounted);
         };
 
         document.addEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
         return () => {
-            cancelAnimationFrame(focusFrame);
-            window.clearTimeout(highlightTimeout);
             document.removeEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
         };
     }, [column, cardGroupIndices, scrollableRef, virtualizer, revealCardAncestors]);
+
+    const revealedRouteRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const [, routeKind, routeProjectUID, routeCardUID] = routeLocation.pathname.split("/");
+        if (routeKind !== "board" || routeProjectUID !== project.uid || routeProjectUID !== column.project_uid || !routeCardUID) {
+            revealedRouteRef.current = undefined;
+            return;
+        }
+        if (revealedRouteRef.current === routeLocation.pathname) return;
+        revealedRouteRef.current = undefined;
+        if (!cardGroupIndices.has(routeCardUID)) return;
+        // The hierarchy and native focus listener are ready. Locate the routed card
+        // without taking keyboard focus from its viewer or persisting a collapse change.
+        const frame = requestAnimationFrame(() => {
+            revealedRouteRef.current = routeLocation.pathname;
+            document.dispatchEvent(
+                new CustomEvent<IBoardCardFocusEventDetail>(BOARD_CARD_FOCUS_EVENT, {
+                    detail: { cardUID: routeCardUID, columnUID: column.uid, focus: false },
+                })
+            );
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [routeLocation.pathname, project.uid, column.uid, column.project_uid, cardGroupIndices]);
 
     return (
         <Box className="relative w-full flex-shrink-0" style={{ height: `${totalSize}px` }}>

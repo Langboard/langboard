@@ -1,11 +1,13 @@
 import "@/core/injection";
 import i18n from "@/i18n";
 import "@/assets/styles/main.css";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { Link, MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, Project, ProjectCard, ProjectColumn } from "@/core/models";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
+import { PageNavigationScope } from "@/core/providers/PageNavigationScope";
 import { AuthProvider, useAuth } from "@/core/providers/AuthProvider";
 import { BoardProvider } from "@/core/providers/BoardProvider";
 import useAuthStore from "@/core/stores/AuthStore";
@@ -140,13 +142,21 @@ document.addEventListener("dragend", () => {
 });
 Object.assign(window, { collapseInteractions: interactions });
 function List() {
-    const location = useLocation();
+    const location = usePageLocation();
     const scrollableRef = useRef<HTMLDivElement>(null);
     const [count, setCount] = useState(0);
     const { mode, setMode } = useColumnCardSort(boardUID, column.uid);
     const updateBoard = useCallback(() => {}, []);
+    const viewerInputRef = useRef<HTMLInputElement>(null);
+    const isViewerOpen = location.pathname === `/board/${boardUID}/grandchild`;
+    useEffect(() => {
+        if (isViewerOpen) viewerInputRef.current?.focus();
+    }, [isViewerOpen, location.key]);
     return (
         <>
+            <Link to={`/board/${boardUID}/grandchild`}>Search grandchild result</Link>
+            <Link to="/board/different/grandchild">Other project card result</Link>
+            {isViewerOpen && <input ref={viewerInputRef} aria-label="Viewer focus sentinel" />}
             <output data-testid="location">{location.pathname + location.search}</output>
             <p data-testid="count">{count}</p>
             <select aria-label="Sort cards" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
@@ -202,12 +212,15 @@ function Fixture() {
     );
 }
 await i18n.changeLanguage(params.get("lang") ?? "en-US");
+const initialEntry = `/board/${boardUID}${params.has("route") ? "/grandchild" : ""}${params.has("filtered") ? "?filters=keyword%3Akeep" : ""}`;
 createRoot(document.getElementById("root")!).render(
-    <MemoryRouter initialEntries={[`/board/${boardUID}${params.has("filtered") ? "?filters=keyword%3Akeep" : ""}`]}>
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-            <AuthProvider>
-                <Fixture />
-            </AuthProvider>
-        </QueryClientProvider>
+    <MemoryRouter initialEntries={[initialEntry]}>
+        <PageNavigationScope initialEntry={initialEntry} basePath={`/board/${boardUID}`} syncNative>
+            <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+                <AuthProvider>
+                    <Fixture />
+                </AuthProvider>
+            </QueryClientProvider>
+        </PageNavigationScope>
     </MemoryRouter>
 );

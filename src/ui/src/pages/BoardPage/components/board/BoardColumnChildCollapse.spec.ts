@@ -12,7 +12,7 @@ test("native nested collapse persists, isolates scopes, reveals only target ance
     await page.goto(fixture);
     await expect(control(page, "root")).toHaveText("4");
     await expect(control(page, "child")).toHaveText("1");
-    const group = page.locator('[data-index="0"]');
+    const group = page.locator("[data-index]").first();
     const initialHeight = await group.evaluate((node) => node.getBoundingClientRect().height);
     const initialScrollHeight = await page.getByTestId("scrollport").evaluate((node) => node.scrollHeight);
     const parentHeight = await page.locator("#board-card-root").evaluate((node) => node.getBoundingClientRect().height);
@@ -117,7 +117,7 @@ test("native order converters move cards away and back while preserving nested c
     };
     await move("child", "column", "other-column");
     await expect(control(page, "root")).toHaveText("2");
-    await expect(page.getByTestId("other-scrollport").locator('[data-board-card-touch-dnd-uid="child"]')).toHaveCount(1);
+    await expect(page.getByTestId("other-scrollport").locator("[data-board-card-touch-dnd-uid=child]")).toHaveCount(1);
     await expect(row(page, "grandchild")).toHaveCount(1);
     await move("grandchild", "column", "other-column");
     await expect(control(page, "child")).toHaveText("1");
@@ -255,3 +255,67 @@ test("native physical drag remains available on the card and is suppressed on it
     expect(await snapshot(page)).toEqual(initialModels);
     await expect(page.getByTestId("location")).toHaveText("/board/board");
 });
+
+for (const entry of ["deep link", "search result", "delayed hierarchy"]) {
+    test(`actual ${entry} route reveals hidden ancestors without changing preferences or viewer focus`, async ({ page }) => {
+        await page.addInitScript(() => {
+            const highlights: string[] = [];
+            Object.assign(window, { routeHighlights: highlights });
+            new MutationObserver((records) => {
+                for (const { target } of records) {
+                    if (target instanceof HTMLElement && target.dataset.relationshipDropTarget === "true") {
+                        highlights.push(target.dataset.boardCardTouchDndUid ?? "");
+                    }
+                }
+            }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-relationship-drop-target"] });
+        });
+        await page.goto(fixture);
+        await control(page, "sibling").click();
+        await control(page, "child").click();
+        await control(page, "root").click();
+        await expect.poll(() => saved(page)).toEqual({ "user:board:root": true, "user:board:child": true, "user:board:sibling": true });
+        const before = await saved(page);
+        await page.getByRole("link", { name: "Other project card result" }).click();
+        await expect(page.getByTestId("location")).toHaveText("/board/different/grandchild");
+        await expect(row(page, "grandchild")).toHaveCount(0);
+        expect(await saved(page)).toEqual(before);
+        if (entry === "deep link") await page.goto(`${fixture}?route`);
+        else {
+            if (entry === "delayed hierarchy") {
+                await page.goto(`${fixture}?route&filtered`);
+                await expect(control(page, "root")).toHaveText("2");
+                await expect(row(page, "grandchild")).toHaveCount(0);
+            }
+            await page.getByRole("link", { name: "Search grandchild result" }).click();
+        }
+        await expect(page.getByTestId("location")).toHaveText("/board/board/grandchild");
+        await expect(page.getByRole("textbox", { name: "Viewer focus sentinel" })).toBeFocused();
+        await expect(row(page, "grandchild")).toHaveCount(1);
+        await expect.poll(() => page.evaluate(() => (window as unknown as { routeHighlights: string[] }).routeHighlights)).toContain("grandchild");
+        await expect(row(page, "cousin")).toHaveCount(0);
+        expect(await saved(page)).toEqual(before);
+        await expect(page.getByRole("textbox", { name: "Viewer focus sentinel" })).toBeFocused();
+        // Ordinary hierarchy updates must not replay route reveal after an explicit collapse.
+        await control(page, "root").click();
+        await relationEvent(page, { card_uid: "root", relationships: [edge("root", "child")] });
+        await expect(control(page, "root")).toHaveText("2");
+        await expect(row(page, "grandchild")).toHaveCount(0);
+        expect(await saved(page)).toEqual(before);
+        // A route switch supersedes a pending native focus request before its frame runs.
+        await page.evaluate(async () => {
+            (window as unknown as { routeHighlights: string[] }).routeHighlights.length = 0;
+            document.dispatchEvent(new CustomEvent("board-card-focus", { detail: { cardUID: "grandchild", columnUID: "column", focus: true } }));
+            Array.from(document.links)
+                .find((link) => link.pathname === "/board/different/grandchild")!
+                .click();
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+        await expect(page.getByTestId("location")).toHaveText("/board/different/grandchild");
+        await expect(row(page, "grandchild")).not.toHaveAttribute("data-relationship-drop-target", "true");
+        const otherProjectLink = page.getByRole("link", { name: "Other project card result" });
+        await otherProjectLink.focus();
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await expect(otherProjectLink).toBeFocused();
+        await expect(row(page, "grandchild")).not.toHaveAttribute("data-relationship-drop-target", "true");
+    });
+}
