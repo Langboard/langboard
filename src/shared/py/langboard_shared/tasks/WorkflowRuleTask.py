@@ -381,10 +381,14 @@ def _admit_intervals(now, limit):
                 due = utc(card.workflow_stage_entered_at) + timedelta(seconds=slot * rule.interval_seconds)
                 event_id = f"interval:{rule.id}:{card.id}:{utc(card.workflow_stage_entered_at).isoformat()}:{due.isoformat()}"
                 # One current slot only. No unbounded catch-up after downtime.
+                # Accepted closes the local transport dispatch, not remote execution.
+                # Native recurring schedules have no execution-completion receipt;
+                # later slots remain eligible while the accepted slot stays immutable.
+                # Queued/running dispatches and ambiguous outcomes still block admission.
                 outstanding = db.exec(SqlBuilder.select.table(WorkflowRuleRun).where(
                     WorkflowRuleRun.rule_id == rule.id, WorkflowRuleRun.card_id == card.id,
                     WorkflowRuleRun.residency == utc(card.workflow_stage_entered_at).isoformat(),
-                    WorkflowRuleRun.status.in_(["queued", "running", "accepted", "uncertain"]))).first()
+                    WorkflowRuleRun.status.in_(["queued", "running", "uncertain"]))).first()
                 exhausted = db.exec(SqlBuilder.select.table(WorkflowActionRun)
                     .join(WorkflowRuleRun, WorkflowRuleRun.id == WorkflowActionRun.rule_run_id).where(
                         WorkflowRuleRun.rule_id == rule.id, WorkflowRuleRun.rule_revision == rule.revision,

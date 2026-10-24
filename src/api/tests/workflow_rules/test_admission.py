@@ -141,3 +141,74 @@ def test_distinct_reactions_have_distinct_stable_identity_without_comment_text(b
         runs = rows(db, WorkflowRuleRun)
         assert {run.event_context["metadata"]["reaction_type"] for run in runs} == {"thumbsup", "heart"}
         assert all("Private text" not in str(run.model_dump()) for run in runs)
+
+
+@pytest.mark.asyncio
+async def test_accepted_interval_dispatch_allows_next_slot_without_replaying_same_slot(bots):
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
+
+    f = bots
+    _fixtures.configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    for seconds in (120, 240, 360):
+        due = f.now + timedelta(seconds=seconds)
+        assert await run_due_rules(now=due) == 1
+        assert await run_due_rules(now=due) == 0
+    assert f.execute.await_count == 3
+    with DbSession.use(readonly=False) as db:
+        runs, claims = rows(db, WorkflowRuleRun), rows(db, WorkflowActionRun)
+        assert len(runs) == len(claims) == 3
+        assert {run.status for run in runs} == {"accepted"}
+        assert {claim.status for claim in claims} == {"accepted"}
+        assert len({claim.idempotency_key for claim in claims}) == 3
+        assert all(claim.finished_at and claim.lease_expires_at is None and claim.attempt == 1 for claim in claims)
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "uncertain"])
+def test_interval_dispatch_still_blocks_outstanding_local_or_ambiguous_work(bots, status):
+    from langboard_shared.tasks.WorkflowRuleTask import _admit_intervals
+
+    f = bots
+    _fixtures.configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    assert _admit_intervals(f.now + timedelta(seconds=120), 5) == 1
+    with DbSession.atomic() as db:
+        run = rows(db, WorkflowRuleRun)[0]
+        run.status = status
+        db.update(run)
+    assert _admit_intervals(f.now + timedelta(seconds=240), 5) == 0
+    with DbSession.use(readonly=False) as db:
+        assert len(rows(db, WorkflowRuleRun)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["revision", "residency", "schedule_stopped"])
+async def test_next_interval_after_acceptance_rechecks_current_context(bots, boundary):
+    from langboard_shared.domain.models.BotSchedule import BotScheduleStatus
+    from langboard_shared.domain.services.factory.WorkflowRuleService import replace_rules, stage_rules, utc
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
+
+    f = bots
+    _fixtures.configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 1
+    with DbSession.atomic() as db:
+        first = rows(db, WorkflowRuleRun)[0]
+        original_revision, original_residency = first.rule_revision, first.residency
+        if boundary == "revision":
+            definition = stage_rules(f.stage.id)[0]
+            replace_rules(db, f.stage, [{**definition, "name": "Revised interval"}])
+        elif boundary == "residency":
+            f.card.workflow_stage_entered_at = f.now + timedelta(seconds=120)
+            db.update(f.card)
+        else:
+            f.schedule.status = BotScheduleStatus.Stopped
+            db.update(f.schedule)
+    # A settings edit cannot replay the already accepted occurrence.
+    assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 0
+    assert await run_due_rules(now=f.now + timedelta(seconds=240)) == 1
+    assert f.execute.await_count == (1 if boundary == "schedule_stopped" else 2)
+    with DbSession.use(readonly=False) as db:
+        runs = sorted(rows(db, WorkflowRuleRun), key=lambda run: run.id)
+        assert runs[0].status == "accepted"
+        assert runs[0].rule_revision == original_revision and runs[0].residency == original_residency
+        assert runs[1].status == ("skipped" if boundary == "schedule_stopped" else "accepted")
+        assert runs[1].rule_revision == original_revision + (boundary == "revision")
+        assert runs[1].residency == (utc(f.card.workflow_stage_entered_at).isoformat() if boundary == "residency" else original_residency)

@@ -354,10 +354,13 @@ async def test_interval_native_cron_and_rule_cron_share_stable_due_identity(bots
     assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 1
     assert await run_due_rules(now=f.now + timedelta(seconds=120)) == 0
     assert await run_due_rules(now=f.now + timedelta(seconds=239)) == 0
-    # Acceptance is unresolved execution, so a later slot cannot bypass it.
-    assert await run_due_rules(now=f.now + timedelta(seconds=240)) == 0
-    assert f.execute.await_count == 1
-    assert len({claim.idempotency_key for claim in history()}) == 1
+    # Accepted is a dispatch receipt; native recurring schedules allow the next slot.
+    # An ambiguous transport result remains suppressed to avoid blind resubmission.
+    expected_count = 2 if outcome == BotRequestOutcome.Accepted else 1
+    assert await run_due_rules(now=f.now + timedelta(seconds=240)) == expected_count - 1
+    assert f.execute.await_count == expected_count
+    assert len({claim.idempotency_key for claim in history()}) == expected_count
+    assert {claim.status for claim in history()} == {outcome.value}
 
 
 @pytest.mark.asyncio
