@@ -160,5 +160,23 @@
   "Review": "검토 필요",
   "Blocked": "차단됨",
   "Unknown work state": "작업 상태를 알 수 없음",
-  "Snapshot cards missing": "불러오지 못한 카드"
+  "Snapshot cards missing": "불러오지 못한 카드",
+  "groupInvite": {
+    "Canonical groups": "전역 그룹",
+    "Personal address books remain in the member picker": "개인 주소록은 참여자 선택기에서 이용할 수 있습니다. 전역 그룹 초대는 기존 참여자를 유지합니다.",
+    "Search groups": "전역 그룹 검색",
+    "Canonical group": "전역 그룹",
+    "Select group": "전역 그룹 선택",
+    "Preview": "구성원 미리보기",
+    "Target count": "신규 초대 대상: {{count}}명",
+    "Confirm count": "기존 참여자와 초대 대기자를 유지하며 신규 {{count}}명 추가를 확인합니다.",
+    "Invite count": "{{count}}명 초대",
+    "new": "신규",
+    "existing": "기존 참여자",
+    "inactive": "비활성 또는 삭제됨",
+    "pending": "초대 대기",
+    "Unavailable": "불러오거나 적용할 수 없습니다. 접근 권한을 확인하고 재시도하세요.",
+    "Refresh": "그룹, 보드 또는 권한이 변경되었습니다. 미리보기를 다시 불러오세요.",
+    "Applied": "그룹 초대가 적용되었습니다. 기존 참여자는 유지됩니다."
+  }
 }

@@ -726,3 +726,189 @@ class ProjectService(BaseDomainService):
         ProjectBotTask.project_deleted(user, project)
 
         return True
+
+    def group_invitation(
+        self, actor_id, project_uid, group_uid, *, snapshot=None, request_id=None, confirmed_count=None
+    ):
+        """Preview or atomically apply a canonical group invitation with current authority."""
+        from hashlib import sha256
+        from json import dumps
+        from uuid import UUID
+        from sqlalchemy import text
+        from ....core.db.DbEngine import DbEngine
+        from ...models import (
+            GroupDirectoryAudit,
+            Organization,
+            ProjectInvitation,
+            ScimGroup,
+            ScimGroupMember,
+            SettingRole,
+            UserEmail,
+        )
+        from ...models.SettingRole import SettingRoleAction
+        from .GroupDirectoryService import GroupDirectoryConflict, GroupDirectoryDenied, GroupDirectoryMissing
+
+        directory = self._get_service_by_name("group_directory")
+        project_id, group_id = directory._uid(project_uid), directory._uid(group_uid)
+        applying = request_id is not None
+        if applying:
+            request_id = str(UUID(request_id))
+            if not isinstance(snapshot, str) or len(snapshot) != 64 or type(confirmed_count) is not int:
+                raise ValueError("Explicit snapshot and target count required")
+        with DbSession.atomic() as db:
+            dialect = DbEngine.get_main_engine().dialect.name
+            # Preview needs one coherent read snapshot, without blocking writers.
+            # Apply matches canonical directory writer order. Table locks also cover
+            # absent roles/membership/invitations; native writers share no row mutex.
+            # ponytail: narrow apply locks once every native writer shares a tenant mutex.
+            if dialect == "sqlite":
+                db.exec(text("BEGIN IMMEDIATE" if applying else "BEGIN"))
+            elif dialect == "postgresql":
+                if applying:
+                    db.exec(text("SET LOCAL lock_timeout = '3s'"))
+                    db.exec(text("SET LOCAL statement_timeout = '10s'"))
+                    db.exec(
+                        text(
+                            'LOCK TABLE organization, "user", setting_role, scim_group, scim_group_member, project, project_role, project_assigned_user, project_invitation, user_email, group_directory_audit IN SHARE ROW EXCLUSIVE MODE'
+                        )
+                    )
+                else:
+                    db.exec(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            else:
+                raise ValueError("Group invitations require SQLite or PostgreSQL")
+            actor = directory._authorized(db, actor_id, SettingRoleAction.GroupRead)
+            directory._tenant(db)
+            organization = db.exec(SqlBuilder.select.table(Organization)).first()
+            project = db.exec(SqlBuilder.select.table(Project).where(Project.id == project_id)).first()
+            group = db.exec(SqlBuilder.select.table(ScimGroup).where(ScimGroup.id == group_id)).first()
+            if project is None or group is None:
+                raise GroupDirectoryMissing()
+            if project.organization_id != organization.id:
+                raise GroupDirectoryDenied()
+            roles = db.exec(SqlBuilder.select.table(ProjectRole).where(ProjectRole.project_id == project.id)).all()
+            actor_roles = [role for role in roles if role.user_id == actor.id]
+            if not (
+                actor.is_admin
+                or project.owner_id == actor.id
+                or any(r.is_granted(ProjectRoleAction.Update) for r in actor_roles)
+            ):
+                raise GroupDirectoryDenied()
+            fingerprint = sha256(
+                dumps([str(actor.id), project_uid, group_uid, request_id, snapshot, confirmed_count]).encode()
+            ).hexdigest()
+            if applying:
+                receipt = db.exec(
+                    SqlBuilder.select.table(GroupDirectoryAudit).where(
+                        GroupDirectoryAudit.actor_uid == actor.get_uid(),
+                        GroupDirectoryAudit.action == "board_invitation",
+                        GroupDirectoryAudit.change_facts["request_id"].as_string() == request_id,
+                    )
+                ).first()
+                if receipt:
+                    if receipt.change_facts["fingerprint"] != fingerprint:
+                        raise GroupDirectoryConflict()
+                    return {**receipt.change_facts["result"], "replayed": True}
+            assignments = db.exec(
+                SqlBuilder.select.table(ProjectAssignedUser).where(ProjectAssignedUser.project_id == project.id)
+            ).all()
+            invitations = db.exec(
+                SqlBuilder.select.table(ProjectInvitation).where(ProjectInvitation.project_id == project.id)
+            ).all()
+            members = db.exec(
+                SqlBuilder.select.table(ScimGroupMember)
+                .where(ScimGroupMember.group_id == group.id)
+                .order_by(ScimGroupMember.user_id)
+            ).all()
+            ids = {member.user_id for member in members}
+            users = (
+                db.exec(
+                    SqlBuilder.select.table(User, with_deleted=True).where(User.id.in_(ids)).order_by(User.id)
+                ).all()
+                if ids
+                else []
+            )
+            aliases = db.exec(SqlBuilder.select.table(UserEmail).where(UserEmail.user_id.in_(ids))).all() if ids else []
+            assigned_ids = {a.user_id for a in assignments} | {project.owner_id}
+            pending_emails = {i.email.casefold() for i in invitations}
+            aliases_by_id = {}
+            for alias in aliases:
+                aliases_by_id.setdefault(alias.user_id, set()).add(alias.email.casefold())
+            classified = {key: [] for key in ("new", "existing", "inactive", "pending")}
+            targets = []
+            users_by_id = {u.id: u for u in users}
+            for member in members:
+                target = users_by_id.get(member.user_id)
+                if target is None or target.deleted_at or not target.activated_at:
+                    kind = "inactive"
+                elif target.id in assigned_ids:
+                    kind = "existing"
+                elif ({target.email.casefold()} | aliases_by_id.get(target.id, set())) & pending_emails:
+                    kind = "pending"
+                else:
+                    kind = "new"
+                    targets.append(target)
+                classified[kind].append(
+                    {
+                        "uid": member.user_id.to_short_code(),
+                        "name": target.get_fullname() if target and not target.deleted_at else "",
+                    }
+                )
+            facts = [
+                actor.model_dump(mode="json"),
+                organization.model_dump(mode="json"),
+                project.model_dump(mode="json"),
+                group.model_dump(mode="json"),
+                [m.model_dump(mode="json") for m in members],
+                [u.model_dump(mode="json") for u in users],
+                [a.model_dump(mode="json") for a in assignments],
+                [i.model_dump(mode="json") for i in invitations],
+                [r.model_dump(mode="json") for r in roles],
+                [
+                    r.model_dump(mode="json")
+                    for r in db.exec(SqlBuilder.select.table(SettingRole).where(SettingRole.user_id == actor.id)).all()
+                ],
+                [a.model_dump(mode="json") for a in aliases],
+                Env.SCIM_ISSUER,
+                list(Env.FULL_ADMIN_ACCESS_EMAILS),
+            ]
+            current_snapshot = sha256(dumps(facts, sort_keys=True, default=str).encode()).hexdigest()
+            result = {
+                "group_uid": group_uid,
+                "group_name": group.display_name,
+                "snapshot": current_snapshot,
+                "target_count": len(targets),
+                "member_count": len(members),
+                "counts": {key: len(value) for key, value in classified.items()},
+                "members": classified,
+            }
+            if not applying:
+                return result
+            if snapshot != current_snapshot or confirmed_count != len(targets):
+                raise GroupDirectoryConflict()
+            invitation_service = self._get_service_by_name("project_invitation")
+            data = invitation_service.get_additive_invitation_related_data(
+                project, [target.email for target in targets]
+            )
+            invitation_service.invite_emails(actor, project, data, defer_assignment_effects=True)
+            result = {
+                "group_uid": group_uid,
+                "target_count": len(targets),
+                "changed_count": len(data.emails_should_invite),
+                "replayed": False,
+            }
+            db.insert(
+                GroupDirectoryAudit(
+                    actor_uid=actor.get_uid(),
+                    group_uid=group_uid,
+                    action="board_invitation",
+                    revision=group.revision,
+                    change_facts={
+                        "request_id": request_id,
+                        "fingerprint": fingerprint,
+                        "project_uid": project_uid,
+                        "target_count": len(targets),
+                        "result": result,
+                    },
+                )
+            )
+            return result

@@ -1,9 +1,11 @@
 from json import dumps as json_dumps
 from typing import Any, Literal
 from urllib.parse import urlparse
+from ....core.db import DbSession
 from ....core.domain import BaseDomainService
 from ....core.types import SnowflakeID
 from ....core.types.ParamTypes import TProjectParam
+from ....core.utils.Converter import json_default
 from ....core.utils.String import concat, generate_random_string
 from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
@@ -134,10 +136,20 @@ class ProjectInvitationService(BaseDomainService):
         project: TProjectParam | None,
         invitation_result: InvitationRelatedResult,
         direct_user_ids: set[SnowflakeID] | None = None,
+        *,
+        defer_assignment_effects: bool = False,
     ) -> bool:
         project = InfraHelper.get_by_id_like(Project, project)
         if not project:
             return False
+
+        if defer_assignment_effects and (
+            not DbSession.has_active_transaction()
+            or not user.is_admin
+            or invitation_result.emails_should_remove
+            or any(email not in invitation_result.users_by_email for email in invitation_result.emails_should_invite)
+        ):
+            raise ValueError("Deferred assignment requires an atomic admin invitation of existing accounts")
 
         for email in invitation_result.emails_should_remove:
             invitation, target_user = invitation_result.emails_should_remove[email]
@@ -155,7 +167,10 @@ class ProjectInvitationService(BaseDomainService):
                 or (direct_user_ids is not None and target_user.id in direct_user_ids)
                 or self._is_federated_active_user(target_user)
             ):
-                self.__assign_project_user(project, target_user)
+                if defer_assignment_effects:
+                    self.__assign_project_user(project, target_user, defer_effects=True)
+                else:
+                    self.__assign_project_user(project, target_user)
                 continue
 
             invitation = ProjectInvitation(project_id=project.id, email=email, token=generate_random_string(32))
@@ -289,7 +304,9 @@ class ProjectInvitationService(BaseDomainService):
 
         return invitation
 
-    def __assign_project_user(self, project: Project, user: User, invitation: ProjectInvitation | None = None):
+    def __assign_project_user(
+        self, project: Project, user: User, invitation: ProjectInvitation | None = None, *, defer_effects: bool = False
+    ):
         if invitation:
             self.__delete_notification(user, project, invitation)
 
@@ -310,21 +327,35 @@ class ProjectInvitationService(BaseDomainService):
                 user_id=user.id,
                 project_id=project.id,
             )
-        ProjectPublisher.assigned_to_users(project, [user])
-
         project_service = self._get_service(ProjectService)
-
         model: dict[str, Any] = {
             "assigned_members": project_service.get_api_assigned_user_list(project),
             "invited_members": self.get_api_invited_user_list_by_project(project),
         }
-
         if invitation:
             model["invitation_uid"] = invitation.get_uid()
+        if defer_effects:
+            # Freeze primitive snapshots; callbacks never retain a transaction/session/model.
+            project_id, user_id = int(project.id), int(user.id)
+            payload_json = json_dumps(model, default=json_default)
 
-        ProjectInvitationPublisher.accepted(project, model)
+            def dispatch(project_id=project_id, user_id=user_id, payload_json=payload_json):
+                from json import loads
 
-        ProjectActivityTask.project_invited_user_accepted(user, project)
+                committed_project = InfraHelper.get_by_id_like(Project, project_id)
+                committed_user = InfraHelper.get_by_id_like(User, user_id)
+                if committed_project is None or committed_user is None:
+                    return
+                ProjectPublisher.assigned_to_users(committed_project, [committed_user])
+                ProjectInvitationPublisher.accepted(committed_project, loads(payload_json))
+                ProjectActivityTask.project_invited_user_accepted(committed_user, committed_project)
+
+            with DbSession.use(readonly=False) as db:
+                db.after_commit(dispatch)
+        else:
+            ProjectPublisher.assigned_to_users(project, [user])
+            ProjectInvitationPublisher.accepted(project, model)
+            ProjectActivityTask.project_invited_user_accepted(user, project)
 
     def __delete_notification(self, user: User, project: Project, invitation: ProjectInvitation):
         notification_service = self._get_service(NotificationService)

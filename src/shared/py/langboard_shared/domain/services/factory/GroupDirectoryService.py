@@ -336,7 +336,11 @@ class GroupDirectoryService(BaseDomainService):
                         "group_uid": record.group_uid,
                         "action": record.action,
                         "revision": record.revision,
-                        "changes": record.change_facts,
+                        "changes": (
+                            {"target_count": record.change_facts.get("target_count", 0)}
+                            if record.action == "board_invitation"
+                            else record.change_facts
+                        ),
                         "created_at": record.created_at.isoformat(),
                     }
                     for record in records

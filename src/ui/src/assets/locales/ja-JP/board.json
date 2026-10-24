@@ -160,5 +160,23 @@
   "Review": "レビュー待ち",
   "Blocked": "ブロック中",
   "Unknown work state": "作業状態不明",
-  "Snapshot cards missing": "未読み込みのカード"
+  "Snapshot cards missing": "未読み込みのカード",
+  "groupInvite": {
+    "Canonical groups": "全体グループ",
+    "Personal address books remain in the member picker": "個人のアドレス帳はメンバー選択画面で利用できます。全体グループからの招待は既存メンバーを維持します。",
+    "Search groups": "全体グループを検索",
+    "Canonical group": "全体グループ",
+    "Select group": "全体グループを選択",
+    "Preview": "メンバーをプレビュー",
+    "Target count": "新規招待対象: {{count}}人",
+    "Confirm count": "既存メンバーと招待待ちのユーザーを維持し、新たに{{count}}人を追加することを確認します。",
+    "Invite count": "{{count}}人を招待",
+    "new": "新規",
+    "existing": "既存メンバー",
+    "inactive": "無効または削除済み",
+    "pending": "招待待ち",
+    "Unavailable": "読み込みまたは適用できません。権限を確認して再試行してください。",
+    "Refresh": "グループ、ボード、または権限が変更されました。プレビューを再読み込みしてください。",
+    "Applied": "グループの招待を適用しました。既存メンバーは維持されます。"
+  }
 }

@@ -160,5 +160,23 @@
   "Review": "待审核",
   "Blocked": "已阻塞",
   "Unknown work state": "工作状态未知",
-  "Snapshot cards missing": "未加载的卡片"
+  "Snapshot cards missing": "未加载的卡片",
+  "groupInvite": {
+    "Canonical groups": "全局群组",
+    "Personal address books remain in the member picker": "个人通讯录可在成员选择器中使用。全局群组邀请将保留现有成员。",
+    "Search groups": "搜索全局群组",
+    "Canonical group": "全局群组",
+    "Select group": "选择全局群组",
+    "Preview": "预览成员",
+    "Target count": "新增邀请对象：{{count}}人",
+    "Confirm count": "我确认新增{{count}}名成员，并保留现有成员及待处理邀请。",
+    "Invite count": "邀请{{count}}人",
+    "new": "新增",
+    "existing": "现有成员",
+    "inactive": "未激活或已删除",
+    "pending": "邀请待处理",
+    "Unavailable": "无法加载或应用。请检查权限后重试。",
+    "Refresh": "群组、看板或权限已更改。请重新加载预览。",
+    "Applied": "群组邀请已应用。现有成员已保留。"
+  }
 }
