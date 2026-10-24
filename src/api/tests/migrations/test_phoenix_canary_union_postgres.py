@@ -66,10 +66,13 @@ def migration_engine():
     try:
         yield engine, schemas
     finally:
-        with engine.begin() as db:
+        try:
             for schema in schemas:
-                db.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
-        engine.dispose()
+                # Release each schema's DDL locks before dropping the next one.
+                with engine.begin() as db:
+                    db.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        finally:
+            engine.dispose()
 
 
 def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_engine):
@@ -104,7 +107,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             ),
             Project(id=102, owner_id=101, title="Retained Board"),
             ProjectColumn(id=103, project_id=102, name="Ready", workflow_stage="ready"),
-            Card(id=104, project_id=102, project_column_id=103, title="Retained task"),
+            Card(id=104, project_id=102, project_column_id=103, title="Retained task", last_change_seq=41),
             AppDefinition(
                 id=105,
                 key="example-app",
@@ -234,6 +237,8 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         command.upgrade(config, "head")
         after = snapshot(db, tables)
         # Validate every additive value before comparing all retained columns.
+        for row in after["card"]:
+            assert row.pop("change_count_since_seq") == row["last_change_seq"], "Card change-count backfill drifted"
         additive_defaults = {
             "board_app_binding": {"resource_selection_revision": 0},
             "app_resource_binding": {"identity_hash": ""},
