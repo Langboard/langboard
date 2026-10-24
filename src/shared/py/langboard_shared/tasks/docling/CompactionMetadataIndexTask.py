@@ -101,7 +101,13 @@ def _context(service, db, row):
         raise ValueError("Compaction unavailable")
     compactor = service.card_comment_compaction
     if record.user_id is None:
-        project, binding, card, _ = compactor._automatic_context(db, project.id, record.internal_bot_id, card.id)
+        authority = data.get("automatic_authority")
+        if not isinstance(authority, dict) or not authority.get("rule_uid"):
+            raise ValueError("Automatic compaction authority unavailable")
+        project, binding, card, current_authority = compactor._automatic_context(
+            db, project.id, record.internal_bot_id, card.id, rule_id=InfraHelper.convert_id(authority["rule_uid"]))
+        if current_authority != authority:
+            raise ValueError("Automatic compaction authority changed")
     else:
         actor = db.exec(SqlBuilder.select.table(User).where(User.id == record.user_id)
                         .execution_options(populate_existing=True).with_for_update()).first()

@@ -26,6 +26,7 @@ from langboard_shared.Env import Env
 from langboard_shared.tasks.docling.DocumentEmbeddingTask import remove_recorded_embedding
 from langchain_core.embeddings import Embeddings
 from test_comment_compaction_command import automatic_command, command, compact_command  # noqa: F401
+from workflow_rule_fixtures import rule_id
 
 
 index = importlib.import_module("langboard_shared.tasks.docling.CompactionMetadataIndexTask")
@@ -289,7 +290,7 @@ async def test_revoked_automatic_compactor_grant_cannot_publish(semantic, automa
     service, actor, project, card, _, _, provider = semantic
     # The automatic fixture adds enough current comments to cross its threshold.
     binding = service._get_service_by_name("internal_bot").get_comment_compaction_binding()
-    result = await service.generate_automatic(project, binding, card)
+    result = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     assert result["status"] == "completed"
     row = metadata(card)
     from langboard_shared.domain.models.CompactorBoardGrant import CompactorBoardGrant
@@ -581,3 +582,60 @@ def test_periodic_recovery_imports_and_runs_without_optional_retrieval_dependenc
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "base recovery completed" in result.stdout
+
+
+async def test_automatic_compaction_indexes_with_exact_authority(semantic, automatic_command):  # noqa: F811
+    service, actor, project, card, *_ = semantic
+    binding = service._get_service_by_name("internal_bot").get_comment_compaction_binding()
+    assert (await service.generate_automatic(project, binding, card,
+        rule_id=rule_id(automatic_command[2])))["status"] == "completed"
+    row = metadata(card)
+    authority = json.loads(row.value)["automatic_authority"]
+    assert authority["rule_uid"]
+    assert authority["rule_revision"] == 1
+    assert await index.index_metadata(DomainService(), row.id)
+    assert DomainService().card.search_context_by_project(project, "availability interrupted", user=actor)
+    assert index.search_metadata(DomainService(), actor, project, card, "availability interrupted", channel=CollaborationChannel.Api)
+
+
+@pytest.mark.parametrize("change", ["retired_rule", "changed_rule", "residency", "missing_provenance"])
+@pytest.mark.parametrize("phase", ["index", "query"])
+async def test_automatic_index_revalidates_original_authority(semantic, automatic_command, change, phase):  # noqa: F811
+    from datetime import timedelta
+    from langboard_shared.domain.models import WorkflowRule
+
+    service, actor, project, card, _, _, provider = semantic
+    binding = service._get_service_by_name("internal_bot").get_comment_compaction_binding()
+    original_rule_id = rule_id(automatic_command[2])
+    assert (await service.generate_automatic(project, binding, card, rule_id=original_rule_id))["status"] == "completed"
+    row = metadata(card)
+
+    def invalidate():
+        with DbSession.atomic() as db:
+            if change in {"retired_rule", "changed_rule"}:
+                rule = db.exec(SqlBuilder.select.table(WorkflowRule).where(WorkflowRule.id == original_rule_id)).first()
+                if change == "retired_rule":
+                    rule.retired = True
+                else:
+                    rule.revision += 1
+                db.update(rule)
+            elif change == "residency":
+                current = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+                current.workflow_stage_entered_at += timedelta(seconds=1)
+                db.update(current)
+            else:
+                current = db.exec(SqlBuilder.select.table(CardMetadata).where(CardMetadata.id == row.id)).first()
+                data = json.loads(current.value)
+                del data["automatic_authority"]
+                current.value = json.dumps(data)
+                db.update(current)
+
+    if phase == "query":
+        assert await index.index_metadata(DomainService(), row.id)
+        provider.query_hook = invalidate
+        assert DomainService().card.search_context_by_project(project, "availability interrupted", user=actor) == []
+        assert index.search_metadata(DomainService(), actor, project, card, "availability interrupted", channel=CollaborationChannel.Api) == []
+    else:
+        invalidate()
+        assert await index.index_metadata(DomainService(), row.id) is False
+        assert provider.document_calls == 0

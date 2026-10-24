@@ -22,6 +22,7 @@ from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.infrastructure.repositories.factory.CardCommentCompactionRepository import (
     CardCommentCompactionRepository,
 )
+from workflow_rule_fixtures import create_rule_tables
 
 
 @pytest.fixture
@@ -30,6 +31,7 @@ def compactions(board):
     engine = DbEngine.get_main_engine()
     for model in (Bot, Card, CardComment, CardMetadata, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
         model.__table__.create(engine, checkfirst=True)
+    create_rule_tables()
     path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021020000-c4a8f16d3092.py"
     spec = importlib.util.spec_from_file_location("compaction_migration", path)
     migration = importlib.util.module_from_spec(spec)

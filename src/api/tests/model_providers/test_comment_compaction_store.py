@@ -18,7 +18,10 @@ from sqlalchemy.exc import IntegrityError
 
 def test_reservation_coalesces_only_the_same_actor_source_and_provider(compactions):
     repo, actor, card, binding, comment, snapshot, *_ = compactions
-    original = comment.model_dump(mode="json")
+    # Compare two persisted projections: PostgreSQL may return the same instant
+    # in the session timezone rather than the constructor's UTC representation.
+    with DbSession.use(readonly=False) as db:
+        original = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.id == comment.id)).first().model_dump(mode="json")
     first = repo.reserve(card, actor, binding, snapshot)
     assert repo.reserve(card, actor, binding, snapshot).id == first.id
     with DbSession.use(readonly=False) as db:

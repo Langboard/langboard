@@ -113,7 +113,8 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             return current
 
     def complete(self, record: CardCommentCompaction, attempt: int, snapshot: CommentCompactionSnapshot,
-                 binding: InternalBot, draft: CompactionDraft, *, now: SafeDateTime | None = None) -> bool:
+                 binding: InternalBot, draft: CompactionDraft, *, now: SafeDateTime | None = None,
+                 automatic_authority: dict | None = None) -> bool:
         """Called only inside the application's current-authority transaction.
 
         Snapshot and binding must be re-read on the primary by that application;
@@ -140,6 +141,7 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
                     value=json.dumps({"source": "comment_compaction", "derived": True,
                         "compaction_uid": current.get_uid(), "source_revision": current.source_revision,
                         "policy_version": current.policy_version,
+                        **({"automatic_authority": automatic_authority} if current.user_id is None and automatic_authority is not None else {}),
                         "keywords": [item.model_dump(mode="json") for item in validated.keywords],
                         "entities": [item.model_dump(mode="json") for item in validated.entities],
                         "index": {"status": "pending"}}, ensure_ascii=False))

@@ -642,14 +642,19 @@ class CardCommentCompactionService(BaseDomainService):
             WorkflowStageDefinition.key == column.workflow_stage,
         ).execution_options(populate_existing=True).with_for_update()).first()
         from .WorkflowRuleService import action_policy
-        if (stage is None or not stage.is_active or action_policy(db, stage, rule_id, "comments.compact" if effect == "compact" else "card.archive") is None
+        policy = action_policy(db, stage, rule_id, "comments.compact" if effect == "compact" else "card.archive") if stage else None
+        if (stage is None or not stage.is_active or policy is None
                 or (effect == "archive" and not stage.counts_as_completed)):
             raise CommentCompactionError("policy_changed")
         # A return to the same column starts a new residency. Do not publish an
         # asynchronous result authorized by the earlier stay in this stage.
         residency = (card.workflow_stage_entered_key,
                      _utc(card.workflow_stage_entered_at) if card.workflow_stage_entered_at else None)
-        return project, binding, card, (column.id, stage.id, stage.edit_revision(), residency)
+        return project, binding, card, {
+            "rule_uid": policy[0].get_uid(), "rule_revision": policy[0].revision,
+            "column_uid": column.get_uid(), "stage_uid": stage.get_uid(), "stage_revision": stage.edit_revision(),
+            "residency_key": residency[0], "residency_entered_at": residency[1].isoformat() if residency[1] else None,
+        }
 
     async def generate_automatic(self, project, profile, card, *, rule_id, retry=False):
         """Internal continuous command; no user impersonation or public draft."""
@@ -703,7 +708,8 @@ class CardCommentCompactionService(BaseDomainService):
                         fresh_snapshot = self._fresh_cumulative_snapshot(fresh_project, fresh_card, snapshot)
                         if fresh_snapshot.source_revision() != snapshot.source_revision():
                             raise CommentCompactionError("source_changed")
-                        self.repo.card_comment_compaction.complete(record, claimed.attempt, fresh_snapshot, fresh_binding, draft)
+                        self.repo.card_comment_compaction.complete(record, claimed.attempt, fresh_snapshot, fresh_binding, draft,
+                            automatic_authority=fresh_policy)
                 except CommentCompactionError as error:
                     code = error.code if error.code in {"source_changed", "provider_changed"} else "permission_changed"
                     self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
