@@ -40,10 +40,10 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
-from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAgentExecution import card_agent_execution
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution
