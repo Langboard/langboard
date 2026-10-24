@@ -120,6 +120,15 @@ async def test_signed_bearer_http_checks_identity_scope_and_revocation(monkeypat
     service = SimpleNamespace(identity_link=SimpleNamespace(get_user_by_provider_external_id=lookup), close=Mock())
     monkeypatch.setattr(OAuth, "DomainService", lambda: service)
     monkeypatch.setattr(Server, "create_oauth_provider", lambda: provider)
+    from langboard_shared.domain.services import NativeMcpConsent
+    connection_calls = []
+
+    def connect(actor, client_id):
+        assert actor is user and client_id == "native-client"
+        connection_calls.append(client_id)
+        return SimpleNamespace(id=19)
+
+    monkeypatch.setattr(NativeMcpConsent, "connect_native_client", connect)
     calls = []
 
     async def probe() -> dict:
@@ -152,6 +161,7 @@ async def test_signed_bearer_http_checks_identity_scope_and_revocation(monkeypat
             payload = json.loads(next(line[6:] for line in response.text.splitlines() if line.startswith("data: ")))
             assert payload["result"]["structuredContent"] == {"applied": True}
             assert calls == [True]
+            assert connection_calls == ["native-client"]
             assert lookup.call_args.args[1:] == ("linked-sub", "https://id.example")
             user.activated_at = None
             revoked = client.post(

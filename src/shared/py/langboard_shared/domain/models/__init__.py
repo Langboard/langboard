@@ -1,3 +1,5 @@
+from .NativeMcpConnection import NativeMcpConnection
+from .NativeMcpBoardConsent import NativeMcpBoardConsent
 from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
@@ -158,6 +160,8 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    'NativeMcpConnection',
+    'NativeMcpBoardConsent',
     "BoardTeam",
     "BoardTeamMember",
     "BoardTeamCommand",

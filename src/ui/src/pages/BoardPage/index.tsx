@@ -94,6 +94,7 @@ const MyWorkSidebar = lazy(() => import("@/pages/DashboardPage/MyWorkPage"));
 const BoardRelationsSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardRelationsSidebar"));
 const BoardOutlineSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardOutlineSidebar"));
 const BoardCloud = lazy(() => import("@/pages/BoardPage/components/cloud/BoardCloud"));
+const BoardMcpConnection = lazy(() => import("./components/mcp/BoardMcpConnection"));
 const BoardCloudPage = lazy(() => import("@/pages/BoardPage/BoardCloudPage"));
 const BoardScheduleSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardScheduleSidebar"));
 const BoardWikiSidebar = lazy(() => import("@/pages/BoardPage/components/board/BoardWikiSidebar"));
@@ -128,6 +129,7 @@ type TWorkbenchContext =
     | "wiki"
     | "schedule"
     | "cloud"
+    | "mcp"
     | "chat"
     | "app";
 
@@ -312,6 +314,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         wiki: t("board.Wiki"),
         schedule: t("dashboard.Schedule"),
         cloud: t("cloud.Cloud"),
+        mcp: t("mcp.Langboard connection"),
         chat: t("project.Chat with AI"),
         app: selectedApp?.panel?.name ?? t("project.App panel"),
     }[workbenchContextMode];
@@ -860,6 +863,13 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         active: isWorkbenchContextVisible && workbenchContextMode === "cloud",
                         hidden: !!selectCardViewType,
                     },
+                    {
+                        icon: "plug",
+                        label: t("mcp.Langboard connection"),
+                        onClick: () => toggleWorkbenchContext("mcp"),
+                        active: isWorkbenchContextVisible && workbenchContextMode === "mcp",
+                        hidden: !!selectCardViewType,
+                    },
                     ...pinnedApps.items.map((item) => ({ ...item, hidden: !!selectCardViewType })),
                     {
                         icon: "store",
@@ -986,6 +996,13 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                         <BoardRelationsSidebar projectUID={project.uid} cardUID={activeCard?.uid} />
                                     ) : workbenchContextMode === "cloud" ? (
                                         <BoardCloud key={project.uid} projectUID={project.uid} panel />
+                                    ) : workbenchContextMode === "mcp" && currentUser ? (
+                                        <BoardMcpConnection
+                                            key={`${currentUser.uid}:${project.uid}`}
+                                            projectUID={project.uid}
+                                            projectTitle={project.title}
+                                            userUID={currentUser.uid}
+                                        />
                                     ) : workbenchContextMode === "outline" ? (
                                         <BoardOutlineSidebar
                                             cardUID={activeCard?.uid}
@@ -1019,6 +1036,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                         wiki: "notebook-pen",
                                         schedule: "calendar",
                                         cloud: "cloud",
+                                        mcp: "plug",
                                         chat: "message-circle",
                                         app: "puzzle",
                                     }[workbenchContextMode],

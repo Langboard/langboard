@@ -23,6 +23,10 @@ class DbEngine:
         return self.__main_engine
 
     def get_readonly_engine(self) -> Engine:
+        from ...domain.services.NativeMcpBoundary import native_mcp_boundary
+
+        if native_mcp_boundary.get() is not None:
+            return self.get_main_engine()
         if self.__readonly_engine:
             return self.__readonly_engine
 
