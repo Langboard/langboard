@@ -7,6 +7,7 @@ on:
       - .github/workflows/check-mcp-legacy.yaml
       - scripts/mcp_contracts/**
       - src/api/tests/mcp_integration/**
+      - src/api/tests/identity/**
       - src/api/tests/scim/test_group_identity.py
       - src/api/tests/scim/test_instance_directory_audit.py
       - src/api/langboard/commands/AuditInstanceDirectoryCommand.py

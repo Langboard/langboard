@@ -105,34 +105,19 @@ class Auth:
     def get_bot_by_api_token(api_token: str) -> Bot | None:
         """Gets the bot from the given API token.
 
-        If the bot is cached, it will return the cached bot.
-
-        Otherwise, it will get the bot from the database.
+        Recheck current primary bot state; cached profiles cannot authorize.
 
         :param api_token: The API token to get the bot from.
 
         :return Bot: The bot if the bot exists.
         :return None: If the bot does not exist.
         """
-        cache_key = f"auth-bot-{api_token}"
-        try:
-            cached_bot = Cache.get(cache_key, Bot.model_validate)
-            if cached_bot:
-                return cached_bot
-        except Exception:
-            pass
-
         try:
             bot = Auth.__get_model_by_columns(Bot, Bot.column("app_api_token") == api_token)
             if not bot:
                 return None
         except Exception:
             return None
-
-        try:
-            Cache.set(cache_key, bot, 60 * 5)
-        except Exception:
-            pass
 
         return bot
 
