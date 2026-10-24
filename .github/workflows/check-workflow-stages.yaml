@@ -33,6 +33,8 @@ on:
       - src/api/langboard/migrations/versions/20261002234000-7be934f2a6c1.py
       - src/shared/py/langboard_shared/domain/models/WorkflowStageDefinition.py
       - src/shared/py/langboard_shared/domain/services/CardWorkState.py
+      - src/shared/py/langboard_shared/domain/services/DecisionPolicy.py
+      - src/shared/py/langboard_shared/domain/services/DecisionPolicy_test.py
       - src/shared/py/langboard_shared/domain/services/factory/WorkflowStageService.py
       - src/shared/py/langboard_shared/domain/services/factory/WorkflowStagePolicyService.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
@@ -96,6 +98,8 @@ jobs:
       - name: Verify Python standard library database runtime
         run: python -c "import sqlite3; assert sqlite3.connect(':memory:').execute('SELECT 1').fetchone() == (1,)"
       - run: uv sync --frozen
+      - name: Verify recursive Decision policy contract
+        run: uv run --no-sync python src/shared/py/langboard_shared/domain/services/DecisionPolicy_test.py -v
       - name: Verify PostgreSQL service connection
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
