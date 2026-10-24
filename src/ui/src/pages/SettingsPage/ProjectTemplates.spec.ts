@@ -103,6 +103,66 @@ test("failed bot choices preserve saved selection during unrelated edits", async
     expect(saved).toBe(true);
 });
 
+for (const action of ["replace", "clear", "unrelated"] as const)
+    test(`template draft bot roles remain owned by edited template after list selection: ${action}`, async ({ page }) => {
+        await page.route("**/settings/global-labels", (route) => route.fulfill({ json: { labels: [] } }));
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [] } }));
+        await page.route("**/settings/project-template-bots", (route) =>
+            route.fulfill({ json: { bots: [{ uid: "replacement", bot_type: "project_chat", display_name: "Replacement" }] } })
+        );
+        const templates = [
+            {
+                uid: "a",
+                name: "Template A",
+                columns: ["Queue A"],
+                is_default: true,
+                internal_bot_selections: [
+                    { internal_bot_uid: "old-a", bot_type: "project_chat" },
+                    { internal_bot_uid: "historical-editor-a", bot_type: "editor_chat" },
+                ],
+            },
+            {
+                uid: "b",
+                name: "Template B",
+                columns: ["Queue B"],
+                is_default: false,
+                internal_bot_selections: [{ internal_bot_uid: "old-b", bot_type: "project_chat" }],
+            },
+        ];
+        const writes: { url: string; body: { description: string; internal_bot_uids?: string[] } }[] = [];
+        await page.route("**/settings/project-templates**", (route) => {
+            if (route.request().method() === "GET") return route.fulfill({ json: { templates } });
+            const body = route.request().postDataJSON();
+            writes.push({ url: route.request().url(), body });
+            return route.fulfill({ json: { template: { ...templates[0], ...body } } });
+        });
+        await page.goto("/src/pages/SettingsPage/ProjectTemplates.fixture.html");
+        await page.getByRole("button", { name: "Edit", exact: true }).click();
+        await page.getByLabel("Board template description", { exact: true }).fill("Unsaved A description");
+        await page.getByLabel("Column name", { exact: true }).fill("Unsaved A queue");
+        await page.getByRole("combobox").first().click();
+        await page.getByRole("option", { name: "Template B · Queue B", exact: true }).click();
+        await expect(page.getByRole("combobox").first()).toHaveText("Template B · Queue B");
+        await expect(page.getByLabel("Board template name", { exact: true })).toHaveValue("Template A");
+        await expect(page.getByLabel("Column name", { exact: true })).toHaveValue("Unsaved A queue");
+        if (action !== "unrelated") {
+            const chat = page.getByRole("combobox", { name: "Project chat", exact: true });
+            await chat.selectOption(action === "replace" ? "replacement" : "");
+            if (action === "replace") {
+                await chat.selectOption("");
+                await chat.selectOption("replacement");
+            }
+        }
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(page.locator("form")).toHaveCount(0);
+        expect(writes).toHaveLength(1);
+        expect(writes[0].url).toMatch(/\/project-templates\/a$/);
+        expect(writes[0].body.description).toBe("Unsaved A description");
+        if (action === "unrelated") expect(writes[0].body).not.toHaveProperty("internal_bot_uids");
+        else
+            expect(writes[0].body.internal_bot_uids).toEqual(action === "replace" ? ["historical-editor-a", "replacement"] : ["historical-editor-a"]);
+    });
+
 for (const width of [1280, 390])
     test(`long template menus stay within the viewport and remain selectable at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });

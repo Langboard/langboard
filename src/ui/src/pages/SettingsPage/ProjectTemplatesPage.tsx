@@ -63,6 +63,7 @@ function ProjectTemplatesPage() {
     const [templatesLoading, setTemplatesLoading] = useState(true);
     const [templatesFailed, setTemplatesFailed] = useState(false);
     const selectedTemplate = templates.find((template) => template.name === selected);
+    const editedTemplate = templates.find((template) => template.uid === draft?.uid);
 
     const loadTemplates = async () => {
         setTemplatesLoading(true);
@@ -277,7 +278,7 @@ function ProjectTemplatesPage() {
                             const selectedBot = (draft.internal_bot_uids ?? []).find(
                                 (uid) =>
                                     bots.some((bot) => bot.uid === uid && bot.bot_type === role) ||
-                                    selectedTemplate?.internal_bot_selections?.some((bot) => bot.internal_bot_uid === uid && bot.bot_type === role)
+                                    editedTemplate?.internal_bot_selections?.some((bot) => bot.internal_bot_uid === uid && bot.bot_type === role)
                             );
                             return (
                                 <label key={role} className="grid gap-1 text-sm sm:grid-cols-2 sm:items-center">
@@ -288,7 +289,7 @@ function ProjectTemplatesPage() {
                                         onChange={(event) => {
                                             const roleUids = new Set([
                                                 ...bots.filter((bot) => bot.bot_type === role).map((bot) => bot.uid),
-                                                ...(selectedTemplate?.internal_bot_selections ?? [])
+                                                ...(editedTemplate?.internal_bot_selections ?? [])
                                                     .filter((bot) => bot.bot_type === role)
                                                     .map((bot) => bot.internal_bot_uid),
                                             ]);
