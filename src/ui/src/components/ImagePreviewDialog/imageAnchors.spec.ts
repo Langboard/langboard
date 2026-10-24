@@ -379,3 +379,45 @@ test("wheel during rectangle drag preserves its coordinate frame and resumes zoo
     expect.soft(anchor.width).toBeCloseTo(600, 0);
     expect.soft(anchor.height).toBeCloseTo(400, 0);
 });
+
+for (const cancellation of ["Escape", "Cancel", "mode switch", "lost capture"] as const) {
+    test(`${cancellation} during pointer capture cancels selection and immediately unlocks zoom`, async ({ page }) => {
+        await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
+        await page.getByRole("button", { name: "Native evidence" }).click();
+        await page.getByRole("button", { name: "Image region", exact: true }).click();
+        const surface = page.getByRole("button", { name: "Place image annotation" });
+        const box = (await surface.boundingBox())!;
+        await surface.focus();
+        await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
+        await expect(page.locator("[data-pending-image-anchor]")).toHaveCount(1);
+        const pointerId = await surface.evaluate((element) => {
+            for (let id = 1; id < 10; id++) if (element.hasPointerCapture(id)) return id;
+            return null;
+        });
+        expect(pointerId).not.toBeNull();
+        if (cancellation === "Escape") await page.keyboard.press("Escape");
+        else if (cancellation === "lost capture") {
+            await surface.evaluate((element, id) => element.releasePointerCapture(id!), pointerId);
+            await page.mouse.move(box.x + box.width * 0.65, box.y + box.height * 0.65);
+        } else {
+            await page.getByRole("button", { name: cancellation === "Cancel" ? "Cancel" : "Image point", exact: true }).focus();
+            await page.keyboard.press("Enter");
+        }
+        await expect.soft(page.locator("[data-pending-image-anchor]")).toHaveCount(0);
+        const zoom = page.getByRole("spinbutton").last();
+        await page.mouse.wheel(0, -100);
+        await expect.soft(zoom).toHaveValue("110");
+        await page.mouse.up();
+        await expect(page.locator("[data-pending-image-anchor]")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Comment", exact: true })).toHaveCount(0);
+        await page.getByRole("button", { name: "Image region", exact: true }).click();
+        const nextBox = (await surface.boundingBox())!;
+        await page.mouse.move(nextBox.x + nextBox.width * 0.2, nextBox.y + nextBox.height * 0.2);
+        await page.mouse.down();
+        await page.mouse.move(nextBox.x + nextBox.width * 0.5, nextBox.y + nextBox.height * 0.5);
+        await page.mouse.up();
+        await expect(page.getByRole("button", { name: "Comment", exact: true })).toBeEnabled();
+    });
+}

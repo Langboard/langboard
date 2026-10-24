@@ -274,3 +274,110 @@ async def test_runner_rejects_project_selector_without_matching_resolved_project
     runner = GraphRunner(request, raw_project=project.model_dump())
     with pytest.raises(ValueError, match="resolved runtime project"):
         await runner.run()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history_db", ["postgres"], indirect=True)
+@pytest.mark.parametrize("case", ["current", "other_user", "project_revoked"])
+async def test_durable_postgres_scope_survives_pool_reconnect(history_db, monkeypatch, case):  # noqa: F811
+    """Use production pools/saver, including recovery after a complete disconnect."""
+    import os
+    from fastapi import HTTPException
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from langboard_graph.core.graph import checkpoint
+    from langboard_graph.routes import RunApi
+
+    for model in (Organization, Project, ProjectAssignedUser, ProjectRole):
+        model.__table__.create(history_db)
+    with Session(history_db) as db:
+        db.add(Project(id=30, owner_id=1, title="Checkpoint scope"))
+        db.commit()
+    url = os.environ["LANGBOARD_FILE_TEST_DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://")
+    await checkpoint.close_graph_checkpointer()
+    monkeypatch.setattr(type(Env), "MAIN_DATABASE_URL", property(lambda self: url))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda self: "project_members"))
+    monkeypatch.setattr(history, "collect_langboard_history_messages", lambda *args: [])
+    monkeypatch.setattr(nodes, "create_default_chat_model", lambda *args: object())
+    invocations = []
+
+    async def invoke(*args, **kwargs):
+        invocations.append(deepcopy(kwargs["tweaks"]))
+        return SimpleNamespace(content="Durably resumed"), []
+
+    async def tools(*args):
+        return [], {}
+
+    monkeypatch.setattr(nodes, "_invoke_agent", invoke)
+    monkeypatch.setattr(nodes, "create_langboard_api_tool_context", tools)
+    thread = "durable-scope-" + uuid4().hex
+    config = {"configurable": {"thread_id": thread}}
+    tweaks = user_tweaks()
+    fixture_secret = "durable-model-secret-not-real"
+    tweaks["Graph"]["settings"] = {"api_key": fixture_secret}
+    original_token = tweaks["LangboardCalledVariablesComponent"]["app_api_token"]
+    decision = {"approved": True, "app_api_token": AuthSecurity.create_bot_one_time_token(1)}
+    try:
+        interrupted = await graph.run_default_graph("run", tweaks, thread, thread)
+        assert interrupted.interrupts
+        assert invocations == []
+        async with checkpoint.open_graph_checkpointer() as saver:
+            assert isinstance(saver, AsyncPostgresSaver)
+            before = await saver.aget_tuple(config)
+            assert before is not None
+            scope = before.checkpoint["channel_values"]["execution_scope"]
+            assert scope == {"user_id": 1, "project_uid": SnowflakeID(30).to_short_code(), "chat_session_id": None}
+            retained_before = [entry async for entry in saver.alist(config)]
+        old_pool = checkpoint._checkpoint_pool
+        await checkpoint.close_graph_checkpointer()
+        assert old_pool is not None and old_pool.closed
+        assert checkpoint._checkpoint_pool is None
+        async with checkpoint.open_graph_checkpointer() as saver:
+            assert isinstance(saver, AsyncPostgresSaver)
+            assert checkpoint._checkpoint_pool is not old_pool
+            assert await saver.aget_tuple(config) == before
+        if case == "other_user":
+            decision["app_api_token"] = AuthSecurity.create_bot_one_time_token(2)
+        elif case == "project_revoked":
+            with history_db.begin() as db:
+                db.execute(update(Project).where(Project.id == 30).values(owner_id=2))
+        if case == "current":
+            resumed = await RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=decision))
+            assert resumed.message == "Durably resumed"
+            assert invocations[0]["LangboardCalledVariablesComponent"]["app_api_token"] == decision["app_api_token"]
+            # Completed-result recovery must enforce the same durable scope.
+            await checkpoint.close_graph_checkpointer()
+            recovered = await RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=decision))
+            assert recovered.message == "Durably resumed"
+            assert len(invocations) == 1
+            async with checkpoint.open_graph_checkpointer() as saver:
+                completed = await saver.aget_tuple(config)
+            await checkpoint.close_graph_checkpointer()
+            foreign_decision = {"approved": True, "app_api_token": AuthSecurity.create_bot_one_time_token(2)}
+            with pytest.raises(HTTPException) as exc:
+                await RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=foreign_decision))
+            assert exc.value.status_code == 400
+            with history_db.begin() as db:
+                db.execute(update(Project).where(Project.id == 30).values(owner_id=2))
+            with pytest.raises(HTTPException) as exc:
+                await RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=decision))
+            assert exc.value.status_code == 400
+            assert len(invocations) == 1
+            async with checkpoint.open_graph_checkpointer() as saver:
+                assert await saver.aget_tuple(config) == completed
+        else:
+            with pytest.raises(HTTPException) as exc:
+                await RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=decision))
+            assert exc.value.status_code == 400
+            assert invocations == []
+            async with checkpoint.open_graph_checkpointer() as saver:
+                assert await saver.aget_tuple(config) == before
+                assert [entry async for entry in saver.alist(config)] == retained_before
+        async with checkpoint.open_graph_checkpointer() as saver:
+            async for retained in saver.alist(config):
+                for secret in (original_token, decision["app_api_token"], fixture_secret):
+                    assert secret not in str(retained.checkpoint)
+                    assert secret not in str(retained.pending_writes)
+    finally:
+        async with checkpoint.open_graph_checkpointer() as saver:
+            await saver.adelete_thread(thread)
+        await checkpoint.close_graph_checkpointer()

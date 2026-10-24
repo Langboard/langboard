@@ -26,8 +26,18 @@ export default function ImageAnnotations({
     const [t] = useTranslation();
     const [mode, setMode] = useState<"point" | "rectangle" | null>(null);
     const [pending, setPending] = useState<ICardCommentImageAnchor | null>(null);
-    const start = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+    const start = useRef<{ x: number; y: number; pointerId: number; target: HTMLDivElement } | null>(null);
     useEffect(() => () => onGestureChange(false), [onGestureChange]);
+    const endGesture = () => {
+        const gesture = start.current;
+        start.current = null;
+        onGestureChange(false);
+        if (gesture?.target.hasPointerCapture(gesture.pointerId)) gesture.target.releasePointerCapture(gesture.pointerId);
+    };
+    const cancelGesture = () => {
+        endGesture();
+        setPending(null);
+    };
     const coordinates = (x: number, y: number) => {
         const rect = image.getBoundingClientRect();
         return {
@@ -69,7 +79,7 @@ export default function ImageAnnotations({
                     e.preventDefault();
                     e.stopPropagation();
                     e.currentTarget.setPointerCapture(e.pointerId);
-                    start.current = { ...coordinates(e.clientX, e.clientY), pointerId: e.pointerId };
+                    start.current = { ...coordinates(e.clientX, e.clientY), pointerId: e.pointerId, target: e.currentTarget };
                     onGestureChange(true);
                     select(start.current);
                 }}
@@ -79,22 +89,21 @@ export default function ImageAnnotations({
                 onPointerUp={(e) => {
                     if (start.current?.pointerId !== e.pointerId) return;
                     select(start.current, mode === "rectangle" ? coordinates(e.clientX, e.clientY) : start.current);
-                    start.current = null;
-                    onGestureChange(false);
-                    e.currentTarget.releasePointerCapture(e.pointerId);
+                    endGesture();
                 }}
                 onPointerCancel={(e) => {
                     if (start.current?.pointerId !== e.pointerId) return;
-                    start.current = null;
-                    onGestureChange(false);
-                    setPending(null);
+                    cancelGesture();
+                }}
+                onLostPointerCapture={(e) => {
+                    if (start.current?.pointerId === e.pointerId) cancelGesture();
                 }}
                 onKeyDown={(e) => {
                     if (!mode) return;
                     if (e.key === "Escape") {
                         e.stopPropagation();
+                        cancelGesture();
                         setMode(null);
-                        setPending(null);
                     }
                     if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
@@ -184,8 +193,8 @@ export default function ImageAnnotations({
                     variant="secondary"
                     aria-pressed={mode === "point"}
                     onClick={() => {
+                        cancelGesture();
                         setMode("point");
-                        setPending(null);
                     }}
                 >
                     {t("card.Image point")}
@@ -195,8 +204,8 @@ export default function ImageAnnotations({
                     variant="secondary"
                     aria-pressed={mode === "rectangle"}
                     onClick={() => {
+                        cancelGesture();
                         setMode("rectangle");
-                        setPending(null);
                     }}
                 >
                     {t("card.Image region")}
@@ -206,8 +215,8 @@ export default function ImageAnnotations({
                         size="sm"
                         variant="secondary"
                         onClick={() => {
+                            cancelGesture();
                             setMode(null);
-                            setPending(null);
                         }}
                     >
                         {t("common.Cancel")}
