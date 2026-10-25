@@ -69,3 +69,36 @@ for (const [language, message] of [
         await expect(page.getByRole("alert").getByRole("button")).toBeVisible();
     });
 }
+
+for (const width of [390, 1280]) {
+    test(`long tracking titles stay inside their cells at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`${fixture}?mode=long-titles`);
+        const task = page.getByRole("button", { name: "VeryLongUnbrokenTrackedTaskTitle1", exact: true });
+        const card = page.getByRole("button", { name: "VeryLongUnbrokenAuthorizedCardTitle", exact: true }).first();
+        await expect(task).toBeVisible();
+        for (const link of [task, card]) {
+            const bounds = await link.evaluate((node) => {
+                const button = node.getBoundingClientRect();
+                const cell = node.parentElement!.getBoundingClientRect();
+                return {
+                    left: button.left,
+                    right: button.right,
+                    cellLeft: cell.left,
+                    cellRight: cell.right,
+                    contentWidth: node.scrollWidth,
+                    visibleWidth: node.clientWidth,
+                };
+            });
+            expect(bounds.left).toBeGreaterThanOrEqual(bounds.cellLeft);
+            expect(bounds.right).toBeLessThanOrEqual(bounds.cellRight);
+            expect(bounds.contentWidth).toBeLessThanOrEqual(bounds.visibleWidth);
+        }
+        await page.screenshot({ path: `../../.verification/wave17-tracking/long-titles-${width}.png` });
+        await task.click();
+        await expect(page).toHaveURL(/\/board\/tracking-project\/tracking-card$/);
+        expect(errors).toEqual([]);
+    });
+}

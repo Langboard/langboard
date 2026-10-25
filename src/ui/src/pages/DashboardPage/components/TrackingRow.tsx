@@ -56,7 +56,11 @@ function TrackingRowWithCard({ checkitem, card, className, ...props }: ITracking
         >
             <ModelRegistry.ProjectCheckitem.Provider model={checkitem}>
                 <Table.FlexCell className="w-1/4 text-center">
-                    <Button variant="link" className="size-auto p-0" onClick={() => navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid))}>
+                    <Button
+                        variant="link"
+                        className="size-auto max-w-full whitespace-normal p-0 [overflow-wrap:anywhere]"
+                        onClick={() => navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid))}
+                    >
                         {title}
                     </Button>
                 </Table.FlexCell>
@@ -78,7 +82,11 @@ function TrackingRowCardTitle({ card }: { card: ProjectCard.TModel }) {
     const title = card.useField("title");
 
     return (
-        <Button variant="link" className="size-auto p-0" onClick={() => navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid))}>
+        <Button
+            variant="link"
+            className="size-auto max-w-full whitespace-normal p-0 [overflow-wrap:anywhere]"
+            onClick={() => navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid))}
+        >
             {title}
         </Button>
     );
