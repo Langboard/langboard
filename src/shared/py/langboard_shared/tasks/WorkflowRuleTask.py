@@ -122,11 +122,19 @@ def _finish_action(db, claim, status, result=None, error=None):
     db.update(claim)
 
 
-def _native(service, action, context):
+def _native(db, service, action, context):
     _, stage, project, card, column, actor = context
     if actor is None:
         raise ValueError("workflow_actor_missing")
     if action.kind in {"checkitems.complete", "timers.stop"}:
+        from ..domain.models import ProjectRole
+        from ..domain.models.ProjectRole import ProjectRoleAction
+        if not actor.is_admin and project.owner_id != actor.id:
+            role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id,
+            ).execution_options(populate_existing=True).with_for_update()).first()
+            if role is None or not role.is_granted(ProjectRoleAction.CardUpdate):
+                raise ValueError("workflow_actor_revoked")
         return service.checkitem.complete_unchecked_by_card(actor, project, card, complete=action.kind == "checkitems.complete")
     if action.kind == "author.notify":
         return {"notified": int(service.notification.notify_workflow_stage_entered(actor, project, card, column, stage.key))}
@@ -151,7 +159,7 @@ def execute_atomic_prefix(db, run, service):
         elif claim.status == "queued":
             claim.attempt += 1
             claim.started_at = SafeDateTime.now()
-            _finish_action(db, claim, "succeeded", _native(service, action, context))
+            _finish_action(db, claim, "succeeded", _native(db, service, action, context))
         previous = claim
     if not matched or all(c.status == "succeeded" for c in claims.values()):
         run.status, run.finished_at = ("succeeded" if matched else "skipped"), SafeDateTime.now()
@@ -314,7 +322,7 @@ async def run_rule(run_id, *, now=None):
                 if action.kind in NATIVE_ACTIONS:
                     token = CAUSE_RUN.set(run.id)
                     try:
-                        _finish_action(db, claim, "succeeded", _native(service, action, context))
+                        _finish_action(db, claim, "succeeded", _native(db, service, action, context))
                     finally:
                         CAUSE_RUN.reset(token)
                     previous_status = claim.status
