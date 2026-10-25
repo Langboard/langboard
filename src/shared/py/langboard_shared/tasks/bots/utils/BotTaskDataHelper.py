@@ -56,6 +56,8 @@ class BotTaskDataHelper:
 
     @staticmethod
     def create_card_relationship_context(card: Card) -> dict[str, list[dict[str, Any]]]:
+        if card.visibility == "PRIVATE":
+            return {"parents": [], "children": []}
         return {
             "parents": BotTaskDataHelper.__create_related_card_list(card, "parent"),
             "children": BotTaskDataHelper.__create_related_card_list(card, "child"),
@@ -79,6 +81,7 @@ class BotTaskDataHelper:
                 .where(
                     (CardRelationship.column("card_id_child" if is_parent else "card_id_parent") == card.id)
                     & (Card.column("id") != card.id)
+                    & (Card.column("visibility") != "PRIVATE")
                 )
                 .order_by(Card.column("created_at").asc(), Card.column("id").asc())
             ).all()
