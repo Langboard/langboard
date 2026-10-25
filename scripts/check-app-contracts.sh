@@ -39,6 +39,8 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_app_execution_control.py \
   src/api/tests/webhooks/test_execution_readiness_uow_postgres.py \
   src/api/tests/apps/test_app_governance.py \
+  src/api/tests/apps/test_project_collections_http.py \
+  src/api/tests/apps/test_user_app_preferences_http.py \
   src/api/tests/apps/test_sdk_app_registry_http.py \
   src/api/tests/apps/test_app_composition.py \
   src/api/tests/apps/test_binding_storage.py \
