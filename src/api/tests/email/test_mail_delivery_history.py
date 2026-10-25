@@ -96,6 +96,7 @@ def test_sql_cursor_order_filters_and_no_side_effects(history_store):
     assert all(
         "status =" in statement and "created_at >=" in statement and "created_at <" in statement
         for statement, _ in statements
+        if "GROUP BY" not in statement
     )
 
 
@@ -282,7 +283,7 @@ def test_actual_attempt_view_is_bounded_separate_and_safe(history_store):
     statements.clear()
     page = History.page(view="attempts", limit=2)
     assert len(page["items"]) == 2
-    assert len(statements) == 1 and "LIMIT" in statements[0][0]
+    assert len(statements) == 2 and all("LIMIT" in statement for statement, _ in statements)
     assert page["coverage"]["view"] == "attempts"
     more = History.page(view="attempts", limit=2, cursor=page["next_cursor"])
     assert more["next_cursor"] is None
@@ -290,6 +291,7 @@ def test_actual_attempt_view_is_bounded_separate_and_safe(history_store):
     assert len({item["key"] for item in items}) == 4
     assert {item["source"] for item in items} == {"smtp_attempt"}
     assert all(item["record_kind"] == "smtp_attempt" for item in items)
+    assert all(item["recorded_attempt_count"] == 4 for item in items)
     assert all(item["outbox_key"] == f"notification:{SnowflakeID(10).to_short_code()}" for item in items)
     assert all(item["subject"] == "Langboard SMTP test message" for item in items)
     assert all(item["retry_history"] is None and item["linked_ids"] is None for item in items)
@@ -300,6 +302,7 @@ def test_actual_attempt_view_is_bounded_separate_and_safe(history_store):
         )
         assert len(filtered["items"]) == count
         assert all(item["status"] == status for item in filtered["items"])
+        assert all(item["recorded_attempt_count"] == 4 for item in filtered["items"])
     for item in items:
         assert History.detail("smtp_attempt", item["uid"]) == item
     assert len(History.page(view="legacy")["items"]) == 18
@@ -321,3 +324,95 @@ def test_actual_attempt_view_is_bounded_separate_and_safe(history_store):
     unsafe = History.page(view="attempts")
     assert "secret" not in json.dumps(unsafe)
     assert all(item["subject"] is None and item["outbox_key"] is None for item in unsafe["items"])
+
+
+@pytest.mark.parametrize("trigger", ["signup", "project_invitation", "direct", "smtp_test"])
+def test_native_sender_trigger_survives_sql_projection(history_store, trigger, monkeypatch):
+    from langboard_shared.domain.services.factory.EmailService import EmailService
+
+    engine, at, _ = history_store
+    if trigger in ("signup", "project_invitation"):
+        monkeypatch.setattr(EmailService, "_EmailService__get_template", lambda *args: ("Private", "Private"))
+        message = EmailService.__new__(EmailService).prepare_template_message(
+            "en-US",
+            "private@example.test",
+            trigger,
+            {
+                "firstname": "Private",
+                "lastname": "User",
+                "email": "private@example.test",
+                "url": "https://example.test",
+                "project_name": "Private",
+                "inviter_name": "Private",
+            },
+        )
+        metadata = message._langboard_attempt_metadata
+    else:
+        metadata = {"trigger": trigger}
+    with engine.begin() as connection:
+        connection.execute(
+            MailDeliveryAttempt.__table__.insert().values(
+                id=SnowflakeID(2000),
+                created_at=at,
+                started_at=at,
+                outcome="unknown",
+                recipient_masked="***@***",
+                **metadata,
+            )
+        )
+    item = History.page(view="attempts")["items"][0]
+    assert item["trigger"] == trigger
+    assert History.detail("smtp_attempt", item["uid"])["trigger"] == trigger
+
+
+def test_recorded_associations_never_infer_original_retry_intent(history_store):
+    engine, at, statements = history_store
+    uid = SnowflakeID(10).to_short_code()
+    with engine.begin() as connection:
+        for i, (source, source_uid) in enumerate(
+            [
+                ("notification", uid),
+                ("notification", uid),
+                ("project_activity", uid),
+                (None, None),
+                (None, None),
+                ("notification", "bad"),
+            ]
+        ):
+            connection.execute(
+                MailDeliveryAttempt.__table__.insert().values(
+                    id=SnowflakeID(2000 + i),
+                    created_at=at,
+                    started_at=at,
+                    outcome="unknown",
+                    trigger="direct",
+                    recipient_masked="***",
+                    source=source,
+                    source_uid=source_uid,
+                )
+            )
+    statements.clear()
+    unassociated = History.page(view="attempts", limit=3)
+    assert all(item["recorded_attempt_count"] is None for item in unassociated["items"])
+    assert len(statements) == 1
+    statements.clear()
+    page = History.page(view="attempts", limit=4)
+    assert len(page["items"]) == 4
+    assert len(statements) == 2
+    assert all("LIMIT" in statement.upper() for statement, _ in statements)
+    assert "GROUP BY" in statements[-1][0].upper()
+    items = History.page(view="attempts")["items"]
+    for item in items:
+        expected = {"notification": 2, "project_activity": 1}.get((item.get("outbox_key") or "").split(":")[0])
+        assert item["recorded_attempt_count"] == expected
+        assert item["retry_history"] is None
+        assert History.detail("smtp_attempt", item["uid"]) == item
+    assert History.detail("notification", uid)["recorded_attempt_count"] == 2
+    assert History.detail("project_activity", uid)["recorded_attempt_count"] == 1
+    unseen = History.detail("notification", SnowflakeID(11).to_short_code())
+    assert unseen["recorded_attempt_count"] == 0
+    assert unseen["retry_history"] is None
+    statements.clear()
+    assert len(History.page()["items"]) == 18
+    assert len(statements) == 3
+    assert all("LIMIT" in statement.upper() for statement, _ in statements)

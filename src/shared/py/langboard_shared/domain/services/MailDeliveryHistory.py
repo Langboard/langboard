@@ -5,7 +5,7 @@ Pending is queued intent;
 sent means SMTP acceptance; confirmed_sent is an operator decision. Direct signup,
 recovery, invitation and explicit test sends are recorded after migration.
 Attempt subjects use fixed native labels. Legacy subjects, SMTP replies, retry
-counts and inbox receipts are not stored.
+intent and inbox receipts are not stored. Recorded attempt associations are counted.
 No resource links are emitted: mail configuration authority grants no board access.
 """
 
@@ -15,7 +15,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import get_args
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_, select, tuple_
 from ...core.db import DbSession, SqlBuilder
 from ...core.resources.locales.EmailTemplateNames import TEmailTemplateName
 from ...core.types import SnowflakeID
@@ -33,7 +33,7 @@ class MailDeliveryHistory:
     COVERAGE = {
         "sources": list(SOURCES),
         "subject": "native_labels_for_attempts_legacy_not_persisted",
-        "retry_history": "not_persisted",
+        "retry_history": "original_intent_unknown_recorded_associations_only",
         "inbox_delivery": "unavailable",
         "direct_email_paths": "recorded_after_migration",
         "legacy_backfill": "unavailable",
@@ -142,14 +142,15 @@ class MailDeliveryHistory:
                     )
                     for row in rows
                 )
-        found.sort(key=lambda row: row[:3], reverse=True)
-        selected = found[:limit]
+            found.sort(key=lambda row: row[:3], reverse=True)
+            selected = found[:limit]
+            items = cls._recorded_counts(db, [cls._project(source, row) for _, _, _, source, row in selected])
         next_cursor = None
         if len(found) > limit:
             at, rank, identifier, _, _ = selected[-1]
             next_cursor = base64.urlsafe_b64encode(json.dumps([2, fingerprint, at, rank, identifier]).encode()).decode()
         return {
-            "items": [cls._project(source, row) for _, _, _, source, row in selected],
+            "items": items,
             "next_cursor": next_cursor,
             "coverage": {**cls.COVERAGE, "view": view},
         }
@@ -164,7 +165,32 @@ class MailDeliveryHistory:
             return None
         with DbSession.use(readonly=False, sensitive=True) as db:
             row = db.exec(SqlBuilder.select.table(model).where(model.column("id") == identifier).limit(1)).first()
-        return cls._project(source, row) if row is not None else None
+            return cls._recorded_counts(db, [cls._project(source, row)])[0] if row is not None else None
+
+    @staticmethod
+    def _recorded_counts(db, items: list[dict]) -> list[dict]:
+        # Bound aggregate keys to the selected page; direct sends have no shared identity.
+        keys = {
+            tuple(key.split(":", 1))
+            for item in items
+            if (key := item.get("outbox_key") if item["source"] == "smtp_attempt" else item["key"])
+        }
+        counts = {}
+        if keys:
+            model = MailDeliveryAttempt
+            source, uid = model.column("source"), model.column("source_uid")
+            query = (
+                select(source, uid, func.count(model.column("id")))
+                .where(tuple_(source, uid).in_(keys))
+                .group_by(source, uid)
+                .limit(len(keys))
+            )
+            counts = {(source, uid): count for source, uid, count in db.exec(query).all()}
+        for item in items:
+            key = item.get("outbox_key") if item["source"] == "smtp_attempt" else item["key"]
+            item["recorded_attempt_count"] = counts.get(tuple(key.split(":", 1)), 0) if key else None
+            # Multiple recorded invocations prove neither original retry intent nor old history.
+        return items
 
     @classmethod
     def _project(cls, source: str, row) -> dict:
@@ -202,7 +228,9 @@ class MailDeliveryHistory:
                 "sent_at": None,
                 "status": {"accepted": "sent", "rejected": "failed"}.get(row.outcome, "uncertain"),
                 "recipient_masked": "***@***" if row.recipient_masked == "***@***" else "***",
-                "trigger": row.trigger if row.trigger in ("direct", "template", "smtp_test") else "direct",
+                "trigger": row.trigger
+                if row.trigger in (*get_args(TEmailTemplateName), "direct", "template", "smtp_test")
+                else "direct",
                 "template": template,
                 "template_provenance": "persisted",
                 "subject": row.subject if row.subject in subjects else None,
