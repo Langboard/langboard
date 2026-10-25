@@ -292,6 +292,80 @@ def get_user_business_activity_in_settings(
 
 
 @AppRouter.api.get(
+    "/settings/users/{user_uid}/effective-permissions",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema().suc({"inspection": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_user_effective_permissions_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    project_uid: Annotated[str, Query(pattern=r"^[0-9A-Za-z]{11}$")],
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    """Inspect the native board read scope without authenticating as the target."""
+    from langboard_shared.core.db import DbSession, SqlBuilder
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.models import Project, ProjectAssignedUser, ProjectRole
+    from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+
+    project_id = SnowflakeID.from_short_code(project_uid)
+    # Resolve caller scope before looking up target grants or resource metadata.
+    if project_id not in service.card.resolve_work_visibility_contexts(
+        user, CollaborationChannel.Api, project_ids={project_id}
+    ):
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    with DbSession.use(readonly=False) as db:
+        target = db.exec(
+            SqlBuilder.select.table(User)
+            .where(User.id == SnowflakeID.from_short_code(user_uid), User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+        ).first()
+        project = db.exec(
+            SqlBuilder.select.table(Project).where(Project.id == project_id, Project.deleted_at.is_(None))
+        ).first()
+        if target is None or project is None:
+            raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+        member = db.exec(
+            SqlBuilder.select.table(ProjectAssignedUser).where(
+                ProjectAssignedUser.project_id == project_id, ProjectAssignedUser.user_id == target.id
+            )
+        ).first()
+        role = db.exec(
+            SqlBuilder.select.table(ProjectRole)
+            .where(ProjectRole.project_id == project_id, ProjectRole.user_id == target.id)
+            .execution_options(populate_existing=True)
+        ).first()
+    allowed = project_id in service.card.resolve_work_visibility_contexts(
+        target, CollaborationChannel.Api, project_ids={project_id}
+    )
+    sources = []
+    if allowed:
+        if project.owner_id == target.id:
+            sources.append({"type": "project_owner"})
+        if member and target.is_admin:
+            sources.append({"type": "administrator_project_membership"})
+        if member and role and role.is_granted(ProjectRoleAction.Read):
+            sources.append({"type": "direct_project_role", "uid": role.get_uid()})
+    return JsonResponse(
+        content={
+            "inspection": {
+                "user_uid": target.get_uid(),
+                "resource": {"type": "project", "uid": project.get_uid()},
+                "action": "read",
+                "allowed": allowed,
+                "sources": sources,
+                "reason": None if allowed else "native_project_read_scope_denied",
+                "channel": CollaborationChannel.Api.value,
+            }
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@AppRouter.api.get(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
     responses=OpenApiSchema().suc({"user": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),

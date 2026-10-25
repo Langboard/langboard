@@ -13,6 +13,8 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
             "access-control-allow-headers": "*",
         };
         if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+        if (url.pathname.endsWith("/dashboard/projects"))
+            return route.fulfill({ json: { projects: [], columns: [] }, headers });
         if (url.pathname.endsWith("/settings/roles"))
             return route.fulfill({ json: { setting_role_actions: ["user_read"], api_key_role_actions: [], mcp_role_actions: [] }, headers });
         if (url.pathname.endsWith("/settings/users/page")) {

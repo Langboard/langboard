@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/pages/SettingsPage/components/users",
-    testMatch: ["user-login-range.spec.ts", "user-business-activity.spec.ts"],
+    testMatch: ["user-login-range.spec.ts", "user-business-activity.spec.ts", "user-effective-permissions.spec.ts"],
     outputDir: "/private/tmp/langboard-user-login-range-results",
     retries: 0,
     workers: 1,

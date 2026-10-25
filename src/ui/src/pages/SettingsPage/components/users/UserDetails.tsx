@@ -1,4 +1,5 @@
 import UserBusinessActivity from "./UserBusinessActivity";
+import UserEffectivePermissions from "./UserEffectivePermissions";
 import Button from "@/components/base/Button";
 import DateDistance from "@/components/DateDistance";
 import MoreMenu from "@/components/MoreMenu";
@@ -120,6 +121,7 @@ function UserDetailsContent({ uid }: { uid: string }) {
                         </dd>
                     </dl>
                     <UserBusinessActivity key={uid} uid={uid} />
+                    <UserEffectivePermissions key={`permissions:${uid}`} uid={uid} />
                     <section className="space-y-2 border-t pt-4">
                         <h3 className="font-semibold">{t("settings.Configured permissions")}</h3>
                         <p className="text-sm text-muted-foreground">{t("settings.Configured permissions description")}</p>
