@@ -53,12 +53,17 @@ export default function CloudUpload({ projectUID, folder, enabled }: { projectUI
                                         ? `${conflict.name} (${conflict.uid})`
                                         : conflict.name;
                                 return (
-                                    <li key={conflict.uid} className="space-y-1 break-words">
+                                    <li key={`${conflict.source?.kind ?? "project"}:${conflict.uid}`} className="space-y-1 break-words">
                                         <div>{targetName}</div>
+                                        {conflict.source && (
+                                            <div className="text-sm">
+                                                {t(`cloud.Source ${conflict.source.kind}`)}: {conflict.source.title}
+                                            </div>
+                                        )}
                                         {conflict.same_name && <div className="text-sm">{t("card.Same file name")}</div>}
                                         {conflict.same_content && <div className="text-sm">{t("card.Same file content")}</div>}
                                         {conflict.can_replace && (
-                                            <Button variant="outline" onClick={() => upload.decide("replace", conflict.uid)}>
+                                            <Button variant="outline" onClick={() => upload.decide("replace", conflict.uid, conflict.source?.kind)}>
                                                 {t("card.Replace this attachment", { name: targetName })}
                                             </Button>
                                         )}

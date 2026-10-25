@@ -59,5 +59,8 @@
   "Document pages": "페이지: {{pages}}",
   "Read mixed sources": "프로젝트 파일, 열람 가능한 카드·위키 첨부와 저장된 링크입니다. 업로드는 인박스 또는 선택한 기본 폴더에 저장됩니다.",
   "Loaded items": "불러온 항목 {{count}}개",
-  "Cloud items": "클라우드 항목"
+  "Cloud items": "클라우드 항목",
+  "Source project": "보드",
+  "Source card": "카드",
+  "Source wiki": "위키"
 }

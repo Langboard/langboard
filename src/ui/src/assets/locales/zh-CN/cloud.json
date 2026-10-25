@@ -59,5 +59,8 @@
   "Document pages": "页码：{{pages}}",
   "Read mixed sources": "项目文件、可读卡片和维基附件以及保存的链接。上传到收件箱或所选默认文件夹。",
   "Loaded items": "已加载 {{count}} 个项目",
-  "Cloud items": "云项目"
+  "Cloud items": "云项目",
+  "Source project": "看板",
+  "Source card": "卡片",
+  "Source wiki": "Wiki"
 }

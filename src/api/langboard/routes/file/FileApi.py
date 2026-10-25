@@ -72,7 +72,8 @@ def get_file(
     media_type, _ = guess_type(
         source.filename
         if source is not None
-        and storage_name in {StorageName.CardAttachment.value, StorageName.ProjectAttachment.value}
+        and storage_name
+        in {StorageName.CardAttachment.value, StorageName.ProjectAttachment.value, StorageName.Wiki.value}
         else filename
     )
 
@@ -81,7 +82,8 @@ def get_file(
         downloaded = (
             Storage.download_file(source.file, _BoundedDownload(file))
             if source is not None
-            and storage_name in {StorageName.CardAttachment.value, StorageName.ProjectAttachment.value}
+            and storage_name
+            in {StorageName.CardAttachment.value, StorageName.ProjectAttachment.value, StorageName.Wiki.value}
             else Storage.download(storage_type, storage_name, filename, _BoundedDownload(file) if protected else file)
         )
         if not downloaded:

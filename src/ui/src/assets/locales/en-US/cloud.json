@@ -59,5 +59,8 @@
   "Document pages": "Pages: {{pages}}",
   "Read mixed sources": "Project files, readable card and wiki attachments, and saved links. Upload to Inbox or the selected default folder.",
   "Loaded items": "{{count}} loaded items",
-  "Cloud items": "Cloud items"
+  "Cloud items": "Cloud items",
+  "Source project": "Board",
+  "Source card": "Card",
+  "Source wiki": "Wiki"
 }

@@ -894,3 +894,56 @@ for (const category of ["All", "Recent"]) {
         await expect(list).toHaveAttribute("data-layout", "grid");
     });
 }
+
+for (const kind of ["card", "wiki"] as const) {
+    test(`source-aware ${kind} duplicate sends explicit native target and accepts its receipt`, async ({ page }) => {
+        const reads = await uploadCatalog(page);
+        const calls: (ReturnType<typeof parseUpload> & { source?: string })[] = [];
+        const source = {
+            kind,
+            project_uid: "cloud-board",
+            title: `Native ${kind} source`,
+            url: `/board/cloud-board/${kind}/native-parent`,
+            ...(kind === "card" ? { card_uid: "native-parent" } : { wiki_uid: "native-parent" }),
+        };
+        await page.route(uploadRoute, (route) => {
+            const body = route.request().postData()!;
+            const upload = { ...parseUpload(body), source: field(body, "replacement_source") };
+            calls.push(upload);
+            if (!upload.action)
+                return route.fulfill({
+                    status: 409,
+                    json: {
+                        ...conflictResponse(upload.uid!),
+                        conflicts: [
+                            { uid: "native-file", name: "report.pdf", same_name: true, same_content: true, can_replace: true, source },
+                            {
+                                uid: "direct-asset",
+                                name: "report.pdf",
+                                same_name: true,
+                                same_content: true,
+                                can_replace: true,
+                                source: { kind: "project", project_uid: "cloud-board", title: "Board source", url: "/board/cloud-board" },
+                            },
+                        ],
+                    },
+                });
+            return route.fulfill({
+                json: receipt(upload, { uid: "native-file", source, ...(kind === "card" ? { card_uid: "native-parent" } : {}) }),
+            });
+        });
+        await page.goto(fixture);
+        await page
+            .getByLabel("Upload files", { exact: true })
+            .setInputFiles({ name: "report.pdf", mimeType: "application/pdf", buffer: Buffer.from("same bytes") });
+        await expect(page.getByText(`Native ${kind} source`, { exact: false })).toBeVisible();
+        const before = reads();
+        await page.getByRole("button", { name: "Replace report.pdf (native-file)", exact: true }).click();
+        await expect(page.getByRole("dialog")).toBeHidden();
+        await expect.poll(() => calls.length).toBe(2);
+        expect(calls[1].source).toBe(kind);
+        expect(calls[1].target).toBe("native-file");
+        await expect.poll(() => reads()).toBeGreaterThan(before);
+        await expect(page.getByRole("alert")).toBeHidden();
+    });
+}

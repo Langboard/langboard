@@ -242,6 +242,25 @@ class ProjectWikiService(BaseDomainService):
                 return None
             attachment = matches[0]
             if attachment.deleted_at is not None:
+                if attachment.replaced_by_id is None or attachment.replaced_by_id == attachment.id:
+                    return None
+                original = attachment
+                attachment = db.exec(SqlBuilder.select.table(ProjectWikiAttachment).where(
+                    ProjectWikiAttachment.id == original.replaced_by_id,
+                    ProjectWikiAttachment.project_wiki_id == original.project_wiki_id,
+                    ProjectWikiAttachment.user_id == original.user_id,
+                    ProjectWikiAttachment.replaced_by_id.is_(None),
+                ).execution_options(populate_existing=True)).first()
+                if attachment is None:
+                    return None
+                # The active locator must have unique provenance, including historical rows.
+                from .ProjectWikiAttachmentService import wiki_file_identity
+                owners = db.exec(SqlBuilder.select.table(ProjectWikiAttachment, with_deleted=True).where(
+                    *wiki_file_identity(attachment.file)
+                ).limit(2)).all()
+                if len(owners) != 1 or owners[0].id != attachment.id:
+                    return None
+            elif attachment.replaced_by_id is not None:
                 return None
             query = (
                 select(ProjectWiki, Project, User)

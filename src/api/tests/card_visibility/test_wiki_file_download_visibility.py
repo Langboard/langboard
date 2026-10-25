@@ -42,7 +42,7 @@ def fixture(monkeypatch):
         args[-1].write(b"wiki secret")
         return True
     reader = Mock(side_effect=download)
-    monkeypatch.setattr(FileApi.Storage, "download", reader)
+    monkeypatch.setattr(FileApi.Storage, "download_file", reader)
     yield SimpleNamespace(**locals())
     engine.dispose()
 

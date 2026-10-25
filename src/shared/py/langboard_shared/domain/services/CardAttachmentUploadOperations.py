@@ -175,7 +175,6 @@ def upload_attachment(
             ):
                 return None
             from .factory.CardService import CardService
-            from .factory.DoclingMetadataService import DoclingMetadataService
 
             cards = service._get_service(CardService)
             if cards.resolve_readable_card(current_project, current_card, user, channel) is None:
@@ -300,34 +299,9 @@ def upload_attachment(
                     stored = None
                     raise RuntimeError("Attachment storage did not allocate an independent object")
             if duplicate_action == "replace":
-                # Reject ambiguous original provenance before changing either bytes or pointers.
-                owner = service.resolve_file_owner(*_key(target.file))
-                if owner is None or owner.id != target.id or target.replaced_by_id is not None:
-                    raise ValueError("Attachment provenance is missing or ambiguous")
-                if not same_content:
-                    old_file = target.file
-                    historical = CardAttachment(
-                        user_id=target.user_id,
-                        card_id=target.card_id,
-                        filename=target.filename,
-                        file=old_file,
-                        content_sha256=target.content_sha256,
-                        replaced_by_id=target.id,
-                        order=target.order,
-                    )
-                    db.insert(historical)
-                    db.delete(historical)
-                    # Native API fences old processing generations and records derived-index cleanup.
-                    service._get_service(DoclingMetadataService).delete_document_by_attachment_uid(
-                        CardMetadata, current_card, target.get_uid()
-                    )
-                    target.file = stored
-                    # Historical native embed URLs retain their own logical reference.
-                target.content_sha256 = content_hash
-                target.filename = filename
-                db.update(target)
-                result = target
-                service._mark_card_changed_for_unread(current_card, "attachment", target.id)
+                result = replace_attachment(
+                    db, service, current_card, target, filename, content_hash, stored, same_content=same_content
+                )
             else:
                 result = service.create(
                     user,
@@ -374,3 +348,37 @@ def upload_attachment(
     finally:
         if stored is not None and not committed:
             Storage.delete(stored)
+
+
+def replace_attachment(db, service, current_card, target, filename, content_hash, stored, *, same_content):
+    """Replace a locked, authorized native attachment; caller owns storage rollback."""
+    from .factory.DoclingMetadataService import DoclingMetadataService
+
+    # Reject ambiguous original provenance before changing either bytes or pointers.
+    owner = service.resolve_file_owner(*_key(target.file))
+    if owner is None or owner.id != target.id or target.replaced_by_id is not None:
+        raise ValueError("Attachment provenance is missing or ambiguous")
+    if not same_content:
+        old_file = target.file
+        historical = CardAttachment(
+            user_id=target.user_id,
+            card_id=target.card_id,
+            filename=target.filename,
+            file=old_file,
+            content_sha256=target.content_sha256,
+            replaced_by_id=target.id,
+            order=target.order,
+        )
+        db.insert(historical)
+        db.delete(historical)
+        # Native API fences old processing generations and records derived-index cleanup.
+        service._get_service(DoclingMetadataService).delete_document_by_attachment_uid(
+            CardMetadata, current_card, target.get_uid()
+        )
+        target.file = stored
+        # Historical native embed URLs retain their own logical reference.
+    target.content_sha256 = content_hash
+    target.filename = filename
+    db.update(target)
+    service._mark_card_changed_for_unread(current_card, "attachment", target.id)
+    return target

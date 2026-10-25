@@ -25,6 +25,7 @@ def upload_project_attachment(
     duplicate_action: Annotated[str | None, Form(max_length=7)] = None,
     confirmation_token: Annotated[str | None, Form(max_length=64)] = None,
     replacement_uid: Annotated[str | None, Form(max_length=64)] = None,
+    replacement_source: Annotated[str | None, Form(max_length=7)] = None,
     folder_id: Annotated[str, Form(max_length=16)] = "inbox",
 ) -> JsonResponse:
     try:
@@ -37,6 +38,7 @@ def upload_project_attachment(
             duplicate_action=duplicate_action,
             confirmation_token=confirmation_token,
             replacement_uid=replacement_uid,
+            replacement_source=replacement_source,
             folder_id=folder_id,
         )
     except PermissionError:

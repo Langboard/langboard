@@ -15,14 +15,19 @@ from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
     AttachmentStorageObject,
     AttachmentStorageReference,
+    CardAttachment,
     DocumentExtractionCache,
     DocumentExtractionCacheReference,
+    EmployeeMembershipPolicy,
     InternalBot,
     ProjectAssignedUser,
     ProjectAttachment,
     ProjectAttachmentDocument,
     ProjectAttachmentUploadReceipt,
     ProjectRole,
+    ProjectWiki,
+    ProjectWikiAssignedUser,
+    ProjectWikiAttachment,
     User,
 )
 from langboard_shared.domain.services import DomainService
@@ -37,6 +42,8 @@ pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test
 def cloud(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
     for model in (AttachmentStorageObject, AttachmentStorageReference):
+        model.__table__.create(b.engine, checkfirst=True)
+    for model in (CardAttachment, EmployeeMembershipPolicy, ProjectWiki, ProjectWikiAttachment, ProjectWikiAssignedUser):
         model.__table__.create(b.engine, checkfirst=True)
     ProjectAttachment.__table__.create(b.engine)
     ProjectAttachmentUploadReceipt.__table__.create(b.engine)

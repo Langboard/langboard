@@ -4,7 +4,16 @@ import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
 
 export type CloudFolder = "inbox" | "documents" | "media";
+export interface CloudSource {
+    kind: "project" | "card" | "wiki";
+    project_uid: string;
+    title: string;
+    url: string;
+    card_uid?: string;
+    wiki_uid?: string;
+}
 export interface CloudConflict {
+    source?: CloudSource;
     uid: string;
     name: string;
     same_name: boolean;
@@ -23,6 +32,8 @@ interface Attempt {
     folder: CloudFolder;
     action?: "add" | "replace" | "cancel";
     replacementUID?: string;
+    replacementSource?: CloudSource["kind"];
+    replacementParentUID?: string;
     token?: string;
 }
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
@@ -42,7 +53,13 @@ function confirmation(value: unknown, uid: string): value is Confirmation {
                 typeof item.name === "string" &&
                 typeof item.same_name === "boolean" &&
                 typeof item.same_content === "boolean" &&
-                typeof item.can_replace === "boolean"
+                typeof item.can_replace === "boolean" &&
+                (item.source === undefined ||
+                    (record(item.source) &&
+                        ["project", "card", "wiki"].includes(item.source.kind as string) &&
+                        nonempty(item.source.project_uid) &&
+                        typeof item.source.title === "string" &&
+                        nonempty(item.source.url)))
         )
     );
 }
@@ -98,6 +115,7 @@ export default function useCloudUpload(projectUID: string) {
                 if (attempt.action) form.append("duplicate_action", attempt.action);
                 if (attempt.token) form.append("confirmation_token", attempt.token);
                 if (attempt.replacementUID) form.append("replacement_uid", attempt.replacementUID);
+                if (attempt.replacementSource) form.append("replacement_source", attempt.replacementSource);
                 const response = await api.post<unknown>(`/board/${encodeURIComponent(projectUID)}/cloud/attachment`, form, {
                     signal: controller.current.signal,
                     env: { interceptToast: true } as never,
@@ -108,6 +126,8 @@ export default function useCloudUpload(projectUID: string) {
                     if (!confirmation(response.data, attempt.requestUID)) throw new Error("Invalid Cloud confirmation");
                     attempt.action = undefined;
                     attempt.replacementUID = undefined;
+                    attempt.replacementSource = undefined;
+                    attempt.replacementParentUID = undefined;
                     attempt.token = response.data.confirmation_token;
                     setPrompt(response.data);
                     return;
@@ -130,8 +150,19 @@ export default function useCloudUpload(projectUID: string) {
                         !Number.isFinite(Date.parse(data.updated_at)) ||
                         data.cancelled === true ||
                         data.confirmation_required === true ||
-                        data.card_uid ||
-                        data.wiki_uid
+                        (attempt.replacementSource === "card"
+                            ? !record(data.source) ||
+                              data.source.kind !== "card" ||
+                              !nonempty(data.card_uid) ||
+                              data.card_uid !== data.source.card_uid ||
+                              data.source.card_uid !== attempt.replacementParentUID
+                            : attempt.replacementSource === "wiki"
+                              ? !record(data.source) ||
+                                data.source.kind !== "wiki" ||
+                                !nonempty(data.source.wiki_uid) ||
+                                data.source.wiki_uid !== attempt.replacementParentUID
+                              : data.card_uid || data.wiki_uid) ||
+                        (attempt.action === "replace" && data.uid !== attempt.replacementUID)
                     )
                         throw new Error("Invalid Cloud attachment");
                     void client.invalidateQueries({ queryKey: ["board-cloud", actor, identity, projectUID] });
@@ -151,17 +182,21 @@ export default function useCloudUpload(projectUID: string) {
         queue.current = files.map((file) => ({ file, folder, requestUID: crypto.randomUUID() }));
         void run();
     }
-    function decide(action: "add" | "replace" | "cancel", replacementUID?: string) {
+    function decide(action: "add" | "replace" | "cancel", replacementUID?: string, replacementSource?: CloudSource["kind"]) {
         const attempt = queue.current[0];
         if (
             !attempt ||
             !prompt ||
             !current() ||
-            (action === "replace" && !prompt.conflicts.some((item) => item.uid === replacementUID && item.can_replace))
+            (action === "replace" &&
+                !prompt.conflicts.some((item) => item.uid === replacementUID && item.source?.kind === replacementSource && item.can_replace))
         )
             return;
         attempt.action = action;
         attempt.replacementUID = action === "replace" ? replacementUID : undefined;
+        attempt.replacementSource = action === "replace" ? replacementSource : undefined;
+        const selected = prompt.conflicts.find((item) => item.uid === replacementUID && item.source?.kind === replacementSource);
+        attempt.replacementParentUID = action === "replace" ? (selected?.source?.card_uid ?? selected?.source?.wiki_uid) : undefined;
         setPrompt(undefined);
         void run();
     }
