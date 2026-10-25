@@ -7,10 +7,15 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const statuses = ["pending", "preparing", "sending", "sent", "failed", "uncertain", "suppressed", "confirmed_sent", "closed"];
-const evidence = ["not_attempted", "claimed", "smtp_accepted", "operator_confirmed", "unknown"];
+const evidence = ["not_attempted", "claimed", "smtp_accepted", "operator_confirmed", "smtp_rejected", "unknown"];
 interface IDelivery {
     key: string;
-    source: "notification" | "project_activity";
+    source: "notification" | "project_activity" | "smtp_attempt";
+    record_kind?: "smtp_attempt" | "outbox_latest";
+    started_at?: string | null;
+    completed_at?: string | null;
+    subject?: string | null;
+    outbox_key?: string | null;
     uid: string;
     created_at: string;
     claimed_at: string | null;
@@ -29,6 +34,7 @@ interface IHistory {
 
 export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: { isCurrent: () => boolean; onPermissionDenied: () => void }) {
     const [t] = useTranslation();
+    const [view, setView] = useState("attempts");
     const [status, setStatus] = useState("");
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
@@ -60,6 +66,7 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
         if (kind === "filter") {
             applied.current = {
                 limit: 25,
+                view,
                 ...(status ? { status } : {}),
                 ...(from ? { created_from: `${from}T00:00:00.000Z` } : {}),
                 ...(to ? { created_to: `${to}T00:00:00.000Z` } : {}),
@@ -108,8 +115,22 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
         }
     };
     const errorCode = detail?.safe_error_code;
-    const safeError = errorCode && ["worker_outcome_unknown", "error_detail_unavailable"].includes(errorCode) ? errorCode : "unknownError";
+    const safeError =
+        errorCode &&
+        [
+            "worker_outcome_unknown",
+            "error_detail_unavailable",
+            "smtp_rejected",
+            "authentication_failed",
+            "connection_failed",
+            "tls_failed",
+            "timeout",
+            "transport_error",
+        ].includes(errorCode)
+            ? errorCode
+            : "unknownError";
     const attempt = detail && evidence.includes(detail.attempt_evidence) ? detail.attempt_evidence : "unknown";
+    const actualAttempt = detail?.source === "smtp_attempt";
     const stateLabel = (value: string) => t(`settings.mail.status_${statuses.includes(value) ? value : "unknown"}`);
     return (
         <Card.Root>
@@ -127,6 +148,13 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
                     }}
                 >
                     <fieldset disabled={busy} className="grid min-w-0 gap-3 sm:grid-cols-3">
+                        <label className="block min-w-0 space-y-1">
+                            <span>{t("settings.mail.historyView")}</span>
+                            <select className={InputVariants()} value={view} onChange={(event) => setView(event.target.value)}>
+                                <option value="attempts">{t("settings.mail.attemptView")}</option>
+                                <option value="legacy">{t("settings.mail.legacyView")}</option>
+                            </select>
+                        </label>
                         <label className="block min-w-0 space-y-1">
                             <span>{t("settings.mail.statusFilter")}</span>
                             <select className={InputVariants()} value={status} onChange={(event) => setStatus(event.target.value)}>
@@ -163,7 +191,7 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
                                     {item.recipient_masked} · {stateLabel(item.status)}
                                 </p>
                                 <p>
-                                    {item.created_at} · {t(`settings.mail.source_${item.source}`)}
+                                    {item.started_at || item.created_at} · {t(`settings.mail.source_${item.source}`)}
                                 </p>
                                 <Button disabled={busy} onClick={() => void request("detail", item)}>
                                     {t("settings.mail.viewDelivery", { id: item.uid })}
@@ -188,12 +216,26 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
                                     ["statusFilter", stateLabel(detail.status)],
                                     ["source", t(`settings.mail.source_${detail.source}`)],
                                     ["createdAt", detail.created_at],
-                                    ["claimedAt", detail.claimed_at || t("settings.mail.notRecorded")],
-                                    ["sentAt", detail.sent_at || t("settings.mail.notRecorded")],
+                                    ...(actualAttempt
+                                        ? [
+                                              ["startedAt", detail.started_at || t("settings.mail.notRecorded")],
+                                              ["completedAt", detail.completed_at || t("settings.mail.notRecorded")],
+                                              ["subject", detail.subject || t("settings.mail.notRecorded")],
+                                              ["outboxKey", detail.outbox_key || t("settings.mail.notRecorded")],
+                                          ]
+                                        : [
+                                              ["claimedAt", detail.claimed_at || t("settings.mail.notRecorded")],
+                                              ["sentAt", detail.sent_at || t("settings.mail.notRecorded")],
+                                          ]),
                                     ["trigger", detail.trigger],
                                     ["template", detail.template || t("settings.mail.notRecorded")],
                                     ["attemptEvidence", t(`settings.mail.evidence_${attempt}`)],
-                                    ["safeError", detail.safe_error_code ? t(`settings.mail.${safeError}`) : t("settings.mail.notRecorded")],
+                                    [
+                                        "safeError",
+                                        detail.safe_error_code
+                                            ? t(`settings.mail.${safeError === "timeout" ? "attemptTimeout" : safeError}`)
+                                            : t("settings.mail.notRecorded"),
+                                    ],
                                 ].map(([label, value]) => (
                                     <div key={label}>
                                         <dt className="font-medium">{t(`settings.mail.${label}`)}</dt>

@@ -661,8 +661,8 @@
     "smtp_rejected": "SMTPサーバーが拒否しました。",
     "transport_error": "メール転送失敗。",
     "history": "既存メール送信履歴",
-    "historyCoverage": "対象は通知とプロジェクト活動のアウトボックスのみ。直接送信の登録・復旧・招待・テストメールは含みません。",
-    "historyUnknown": "過去の件名・SMTP応答原文・再試行履歴・関連リンクは未記録または利用不可。最新状態は全試行ログではありません。",
+    "historyCoverage": "移行後の登録・復旧・招待・テンプレート・テストメールのSMTP試行を記録します。以前の直接送信履歴は利用不可で、既存アウトボックスの補完は行いません。",
+    "historyUnknown": "既存行の過去の件名と再試行履歴は未記録です。SMTP応答原文と受信トレイ到達証拠は利用不可。試行と既存アウトボックスは別表示で、件数を合算しないでください。",
     "statusFilter": "状態",
     "allStatuses": "すべての状態",
     "createdFrom": "作成開始日 (UTC)",
@@ -743,6 +743,16 @@
     "unknownError": "接続検査に失敗しました。",
     "loadError": "SMTP 設定を読み込めませんでした。再試行してください。",
     "diagnoseError": "接続検査を実行できませんでした。再試行してください。",
-    "permissionError": "アクセスが期限切れ、または拒否されました。メール設定と検査結果を消去しました。"
+    "permissionError": "アクセスが期限切れ、または拒否されました。メール設定と検査結果を消去しました。",
+    "historyView": "履歴表示",
+    "attemptView": "記録済みSMTP試行",
+    "legacyView": "既存アウトボックスの最新状態",
+    "source_smtp_attempt": "記録済みSMTP試行",
+    "startedAt": "開始日時",
+    "completedAt": "完了日時",
+    "subject": "件名（標準ラベル）",
+    "outboxKey": "関連アウトボックスキー",
+    "evidence_smtp_rejected": "SMTPサーバーが試行を拒否",
+    "attemptTimeout": "SMTP試行がタイムアウトしました。結果は不明です。"
   }
 }

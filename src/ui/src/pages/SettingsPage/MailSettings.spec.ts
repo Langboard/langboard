@@ -305,6 +305,7 @@ for (const width of [1280, 390]) {
         await expect(page.getByRole("button", { name: /View delivery/ })).toHaveCount(2);
         expect(Object.fromEntries(queries[0])).toEqual({
             limit: "25",
+            view: "attempts",
             status: "uncertain",
             created_from: "2026-10-24T00:00:00.000Z",
             created_to: "2026-10-26T00:00:00.000Z",
@@ -492,3 +493,51 @@ test("failed and unknown SMTP responses expose only safe error categories", asyn
     await expect(page.getByText("private-token-error")).toHaveCount(0);
     expect(calls).toBe(2);
 });
+
+for (const [locale, historyLabel, viewLabel, legacyLabel] of [
+    ["en-US", "Load history", "History view", "Legacy outbox latest state"],
+    ["ko-KR", "이력 조회", "이력 보기", "기존 아웃박스 최신 상태"],
+    ["ja-JP", "履歴を読み込む", "履歴表示", "既存アウトボックスの最新状態"],
+    ["zh-CN", "加载历史", "历史视图", "旧发件箱最新状态"],
+]) {
+    test(`actual attempt detail and distinct legacy view at 390px in ${locale}`, async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.addInitScript((language) => localStorage.setItem("lang", language), locale);
+        await page.route("**/settings/mail/configuration", (r) => r.fulfill({ headers, json: configuration }));
+        const attempt = {
+            ...delivery,
+            key: "smtp_attempt:01234567890",
+            source: "smtp_attempt",
+            record_kind: "smtp_attempt",
+            started_at: "2026-10-25T10:00:00+00:00",
+            completed_at: "2026-10-25T10:00:01+00:00",
+            status: "failed",
+            safe_error_code: "smtp_rejected",
+            attempt_evidence: "smtp_rejected",
+            subject: "Langboard SMTP test message",
+            trigger: "smtp_test",
+            outbox_key: "notification:01234567890",
+        };
+        const queries: URLSearchParams[] = [];
+        await page.route("**/settings/mail/deliveries?*", (r) => {
+            const query = new URL(r.request().url()).searchParams;
+            queries.push(query);
+            return r.fulfill({ headers, json: { coverage, items: [query.get("view") === "legacy" ? delivery : attempt], next_cursor: null } });
+        });
+        await page.route("**/settings/mail/deliveries/smtp_attempt/*", (r) => r.fulfill({ headers, json: attempt }));
+        await page.goto(fixture);
+        await page.getByRole("button", { name: historyLabel, exact: true }).click();
+        await page.getByRole("button", { name: /01234567890/ }).click();
+        await expect(page.getByText("Langboard SMTP test message", { exact: true })).toBeVisible();
+        await expect(page.getByText("smtp_test", { exact: true })).toBeVisible();
+        await expect(page.getByText(attempt.completed_at, { exact: true })).toBeVisible();
+        await expect(page.getByText(attempt.outbox_key, { exact: true })).toBeVisible();
+        await page.getByRole("combobox", { name: viewLabel, exact: true }).selectOption({ label: legacyLabel });
+        await page.getByRole("button", { name: historyLabel, exact: true }).click();
+        expect(queries.map((query) => query.get("view"))).toEqual(["attempts", "legacy"]);
+        expect(queries[1].get("cursor")).toBeNull();
+        await expect(page.getByText("Langboard SMTP test message", { exact: true })).toHaveCount(0);
+        await expect(page.getByText(/settings\.mail\./)).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}

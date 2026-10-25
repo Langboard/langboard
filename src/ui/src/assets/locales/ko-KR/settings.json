@@ -661,8 +661,8 @@
     "smtp_rejected": "SMTP 서버가 메일을 거부했습니다.",
     "transport_error": "메일 전송 실패.",
     "history": "기존 메일 발송 이력",
-    "historyCoverage": "조회 범위: 알림 및 프로젝트 활동 아웃박스만 포함. 직접 발송하는 가입·복구·초대·테스트 메일은 제외합니다.",
-    "historyUnknown": "과거 제목·SMTP 응답 원문·재시도 이력·관련 리소스 링크는 미기록 또는 제공 불가입니다. 최신 행 상태는 전체 시도 기록이 아닙니다.",
+    "historyCoverage": "마이그레이션 이후 직접 발송하는 가입·복구·초대·템플릿·테스트 메일의 SMTP 시도를 기록합니다. 이전 직접 발송 이력은 조회할 수 없으며 기존 아웃박스는 소급 생성하지 않습니다.",
+    "historyUnknown": "기존 행의 과거 제목·재시도 이력은 미기록입니다. SMTP 응답 원문과 수신함 도착 증거는 제공되지 않습니다. 시도와 기존 아웃박스는 별도 보기이며 건수를 합산하지 마세요.",
     "statusFilter": "상태",
     "allStatuses": "모든 상태",
     "createdFrom": "생성 시작일 (UTC)",
@@ -743,6 +743,16 @@
     "unknownError": "연결 검사에 실패했습니다.",
     "loadError": "SMTP 설정을 불러오지 못했습니다. 다시 시도하세요.",
     "diagnoseError": "연결 검사를 실행하지 못했습니다. 다시 시도하세요.",
-    "permissionError": "접근 권한이 만료되었거나 거부되었습니다. 메일 설정과 검사 결과를 지웠습니다."
+    "permissionError": "접근 권한이 만료되었거나 거부되었습니다. 메일 설정과 검사 결과를 지웠습니다.",
+    "historyView": "이력 보기",
+    "attemptView": "기록된 SMTP 시도",
+    "legacyView": "기존 아웃박스 최신 상태",
+    "source_smtp_attempt": "기록된 SMTP 시도",
+    "startedAt": "시작 시각",
+    "completedAt": "완료 시각",
+    "subject": "제목 (기본 레이블)",
+    "outboxKey": "연결된 아웃박스 키",
+    "evidence_smtp_rejected": "SMTP 서버가 시도를 거부함",
+    "attemptTimeout": "SMTP 시도가 시간 초과되었습니다. 결과는 확인되지 않았습니다."
   }
 }

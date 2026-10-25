@@ -13,6 +13,7 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import NotificationEmailDelivery, ProjectActivityEmailDelivery, User
+from langboard_shared.domain.models.MailDeliveryAttempt import MailDeliveryAttempt
 from langboard_shared.domain.models.NotificationEmailDelivery import NotificationEmailDeliveryStatus as Status
 from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.MailDeliveryHistory import MailDeliveryHistory as History
@@ -26,6 +27,7 @@ def history_store(board):
     engine = DbEngine.get_main_engine()
     NotificationEmailDelivery.__table__.create(engine)
     ProjectActivityEmailDelivery.__table__.create(engine)
+    MailDeliveryAttempt.__table__.create(engine)
     at = SafeDateTime(2026, 10, 25, 0, 0)
     statements = []
 
@@ -35,6 +37,8 @@ def history_store(board):
     event.listen(engine, "before_cursor_execute", record)
     with engine.begin() as connection:
         for source, model in History.SOURCES.items():
+            if source == "smtp_attempt":
+                continue
             for i, state in enumerate(Status):
                 values = dict(
                     id=SnowflakeID(i + 10),
@@ -100,7 +104,7 @@ def test_safe_projection_and_honest_evidence(history_store):
     serialized = json.dumps(page)
     assert "secret" not in serialized
     assert "formats" not in serialized and "failure_reason" not in serialized and "review_note" not in serialized
-    assert page["coverage"]["direct_email_paths"] == "not_covered"
+    assert page["coverage"]["direct_email_paths"] == "recorded_after_migration"
     by_status = {item["status"]: item for item in page["items"]}
     assert by_status["pending"]["attempt_evidence"] == "not_attempted"
     assert by_status["sent"]["attempt_evidence"] == "smtp_accepted"
@@ -152,6 +156,18 @@ def test_unknown_detail_is_uniform(history_store):
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_current_native_admin_middleware_and_http_filters(history_store, monkeypatch):
+    engine, at, _ = history_store
+    with engine.begin() as connection:
+        connection.execute(
+            MailDeliveryAttempt.__table__.insert().values(
+                id=SnowflakeID(1000),
+                created_at=at,
+                started_at=at,
+                outcome="unknown",
+                recipient_masked="***",
+                trigger="direct",
+            )
+        )
     actor = User.model_construct(id=1, is_admin=True)
 
     def validate(scope, **kwargs):
@@ -180,10 +196,19 @@ def test_current_native_admin_middleware_and_http_filters(history_store, monkeyp
             response = client.get("/settings/mail/deliveries/notification/" + uid)
             assert response.status_code == 404
             assert response.json() == missing.json()
+        attempts = client.get("/settings/mail/deliveries?view=attempts")
+        assert attempts.status_code == 200
+        attempt = attempts.json()["items"][0]
+        attempt_path = f"/settings/mail/deliveries/smtp_attempt/{attempt['uid']}"
+        assert client.get(attempt_path).json() == attempt
+        assert client.get("/settings/mail/deliveries?view=combined").status_code == 400
         actor.is_admin = False
+        assert client.get("/settings/mail/deliveries?view=attempts").status_code == 403
+        assert client.get(attempt_path).status_code == 403
         assert client.get("/settings/mail/deliveries").status_code == 403
         assert client.get(path).status_code == 403
         actor = 401
+        assert client.get(attempt_path).status_code == 401
         assert client.get("/settings/mail/deliveries").status_code == 401
         assert client.get(path).status_code == 401
 
@@ -232,3 +257,67 @@ def test_date_offsets_and_malformed_cursor_shapes(history_store):
             History.page(cursor=cursor, **filters)
     with pytest.raises(ValueError):
         History.page(created_from="9999-12-31T23:59:59-23:00")
+
+
+def test_actual_attempt_view_is_bounded_separate_and_safe(history_store):
+    engine, at, statements = history_store
+    with engine.begin() as connection:
+        for i, outcome in enumerate(("accepted", "rejected", "unknown", "accepted")):
+            connection.execute(
+                MailDeliveryAttempt.__table__.insert().values(
+                    id=SnowflakeID(1000 + i),
+                    created_at=at,
+                    started_at=at,
+                    completed_at=at if outcome != "unknown" else None,
+                    outcome=outcome,
+                    recipient_masked="***@***",
+                    subject="Langboard SMTP test message",
+                    trigger="smtp_test",
+                    safe_error_code="smtp_rejected" if outcome == "rejected" else None,
+                    source="notification",
+                    source_uid=SnowflakeID(10).to_short_code(),
+                    linked_ids={"card_id": 99, "secret": "secret-token"},
+                )
+            )
+    statements.clear()
+    page = History.page(view="attempts", limit=2)
+    assert len(page["items"]) == 2
+    assert len(statements) == 1 and "LIMIT" in statements[0][0]
+    assert page["coverage"]["view"] == "attempts"
+    more = History.page(view="attempts", limit=2, cursor=page["next_cursor"])
+    assert more["next_cursor"] is None
+    items = page["items"] + more["items"]
+    assert len({item["key"] for item in items}) == 4
+    assert {item["source"] for item in items} == {"smtp_attempt"}
+    assert all(item["record_kind"] == "smtp_attempt" for item in items)
+    assert all(item["outbox_key"] == f"notification:{SnowflakeID(10).to_short_code()}" for item in items)
+    assert all(item["subject"] == "Langboard SMTP test message" for item in items)
+    assert all(item["retry_history"] is None and item["linked_ids"] is None for item in items)
+    assert "secret" not in json.dumps(items)
+    for status, count in (("sent", 2), ("failed", 1), ("uncertain", 1), ("pending", 0), ("suppressed", 0)):
+        filtered = History.page(
+            view="attempts", status=status, created_from="2026-10-25T00:00:00Z", created_to="2026-10-26T00:00:00Z"
+        )
+        assert len(filtered["items"]) == count
+        assert all(item["status"] == status for item in filtered["items"])
+    for item in items:
+        assert History.detail("smtp_attempt", item["uid"]) == item
+    assert len(History.page(view="legacy")["items"]) == 18
+    with pytest.raises(ValueError):
+        History.page(view="legacy", cursor=page["next_cursor"])
+    with pytest.raises(ValueError):
+        History.page(view="combined")
+    with engine.begin() as connection:
+        connection.execute(
+            MailDeliveryAttempt.__table__.update().values(
+                subject="secret-subject",
+                safe_error_code="secret-code",
+                recipient_masked="secret-email",
+                trigger="secret-trigger",
+                template_name="secret-template",
+                source_uid="bad",
+            )
+        )
+    unsafe = History.page(view="attempts")
+    assert "secret" not in json.dumps(unsafe)
+    assert all(item["subject"] is None and item["outbox_key"] is None for item in unsafe["items"])

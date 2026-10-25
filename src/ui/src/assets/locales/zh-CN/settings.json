@@ -661,8 +661,8 @@
     "smtp_rejected": "SMTP 服务器拒绝了邮件。",
     "transport_error": "邮件传输失败。",
     "history": "原生邮件发送历史",
-    "historyCoverage": "仅覆盖通知和项目活动发件箱，不包含直接发送的注册、恢复、邀请及测试邮件。",
-    "historyUnknown": "历史主题、原始 SMTP 回复、重试历史及关联链接未保存或不可用。最新状态并非完整尝试日志。",
+    "historyCoverage": "迁移后记录注册、恢复、邀请、模板及测试邮件的实际 SMTP 尝试。迁移前的直接发送历史不可用，旧发件箱不会补录。",
+    "historyUnknown": "旧记录的历史主题和重试历史未保存。SMTP 原始回复和收件箱送达凭证不可用。尝试与旧发件箱分别显示，请勿合计数量。",
     "statusFilter": "状态",
     "allStatuses": "所有状态",
     "createdFrom": "创建起始日 (UTC)",
@@ -743,6 +743,16 @@
     "unknownError": "连接检查失败。",
     "loadError": "无法加载 SMTP 配置。请重试。",
     "diagnoseError": "无法运行连接检查。请重试。",
-    "permissionError": "访问已过期或被拒绝。邮件配置和检查结果已清除。"
+    "permissionError": "访问已过期或被拒绝。邮件配置和检查结果已清除。",
+    "historyView": "历史视图",
+    "attemptView": "已记录 SMTP 尝试",
+    "legacyView": "旧发件箱最新状态",
+    "source_smtp_attempt": "已记录 SMTP 尝试",
+    "startedAt": "开始时间",
+    "completedAt": "完成时间",
+    "subject": "主题（标准标签）",
+    "outboxKey": "关联发件箱键",
+    "evidence_smtp_rejected": "SMTP 服务器拒绝了该尝试",
+    "attemptTimeout": "SMTP 尝试超时；结果未知。"
   }
 }

@@ -661,8 +661,8 @@
     "smtp_rejected": "SMTP server rejected the message.",
     "transport_error": "Mail transport failed.",
     "history": "Native mail delivery history",
-    "historyCoverage": "Coverage: notification and project activity outboxes only. Direct signup, recovery, invitation and test messages are not included.",
-    "historyUnknown": "Historical subjects, raw SMTP replies, retry history and related resource links are not stored or available here. Latest row state is not a full attempt log.",
+    "historyCoverage": "Recorded SMTP attempts after migration include direct signup, recovery, invitation, template and test messages. Earlier direct sends are unavailable; legacy outboxes are not backfilled.",
+    "historyUnknown": "Historical subjects and retry history for legacy rows are not recorded. Raw SMTP replies and inbox receipts are unavailable. Attempt and legacy views are separate; do not add their counts.",
     "statusFilter": "Status",
     "allStatuses": "All statuses",
     "createdFrom": "Created from (UTC)",
@@ -743,6 +743,16 @@
     "unknownError": "Connection check failed.",
     "loadError": "Could not load SMTP configuration. Retry to load it again.",
     "diagnoseError": "Could not run the connection check. Try again.",
-    "permissionError": "Access expired or was denied. Mail configuration and diagnostics have been cleared."
+    "permissionError": "Access expired or was denied. Mail configuration and diagnostics have been cleared.",
+    "historyView": "History view",
+    "attemptView": "Recorded SMTP attempts",
+    "legacyView": "Legacy outbox latest state",
+    "source_smtp_attempt": "Recorded SMTP attempt",
+    "startedAt": "Started at",
+    "completedAt": "Completed at",
+    "subject": "Subject (native label)",
+    "outboxKey": "Associated outbox key",
+    "evidence_smtp_rejected": "SMTP server rejected the attempt",
+    "attemptTimeout": "SMTP attempt timed out; outcome is unknown."
   }
 }

@@ -9,6 +9,7 @@ from langboard_shared.domain.services.MailDeliveryHistory import MailDeliveryHis
 @AuthFilter.add("admin")
 def get_mail_deliveries(
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    view: Annotated[str, Query(max_length=12)] = "legacy",
     status: Annotated[str | None, Query(max_length=20)] = None,
     created_from: Annotated[str | None, Query(max_length=40)] = None,
     created_to: Annotated[str | None, Query(max_length=40)] = None,
@@ -16,7 +17,7 @@ def get_mail_deliveries(
 ) -> JsonResponse:
     try:
         page = MailDeliveryHistory.page(
-            limit=limit, status=status, created_from=created_from, created_to=created_to, cursor=cursor
+            limit=limit, view=view, status=status, created_from=created_from, created_to=created_to, cursor=cursor
         )
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid mail history filters or cursor") from None
