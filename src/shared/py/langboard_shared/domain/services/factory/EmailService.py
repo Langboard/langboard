@@ -166,7 +166,6 @@ class EmailService(BaseDomainService):
         return await aiosmtplib.send(
             message,
             hostname=Env.MAIL_SERVER,
-            local_hostname="localhost",
             port=int(Env.MAIL_PORT),
             username=Env.MAIL_USERNAME or None,
             password=Env.MAIL_PASSWORD or None,

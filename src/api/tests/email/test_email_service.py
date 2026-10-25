@@ -43,6 +43,7 @@ def test_send_template_preserves_smtp_contract(monkeypatch: pytest.MonkeyPatch) 
     assert message["Reply-To"] == "reply@example.test"
     assert sent["hostname"] == "smtp.example.test"
     assert sent["start_tls"] is True
+    assert "local_hostname" not in sent
 
 
 @pytest.mark.parametrize("language", ["ko-KR", "ja-JP", "zh-CN"])

@@ -24,6 +24,12 @@ settings = test_mail_diagnostics.settings
 tls_context = test_mail_diagnostics.tls_context
 
 
+@pytest.fixture(autouse=True)
+def local_smtp_hostname(monkeypatch):
+    # Keep machine DNS outside loopback tests while exercising the native default.
+    monkeypatch.setattr("socket.getfqdn", lambda: "smtp-client.example.test")
+
+
 async def submit(settings, *, reject=None, stall=None, tls=None, implicit=False, auth=False, app=None):
     commands, messages, tasks = [], [], set()
 
