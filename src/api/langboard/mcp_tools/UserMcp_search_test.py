@@ -129,7 +129,11 @@ def test_document_search_tool_returns_sources_with_aggregate_excerpt_budget():
         {
             "uid": str(index),
             "title": "hit",
-            "document_matches": [{"attachment_uid": "a", "filename": "report.pdf", "snippet": "한" * 2000}] * 4,
+            "document_matches": [{
+                "attachment_uid": "a", "filename": "report.pdf", "snippet": "한" * 2000,
+                "chunk_id": "chunk-current", "generation": "generation-current", "content_hash": "b" * 64,
+                "page": 3, "pages": [3, 4], "provenance_scope": "page", "url": "https://untrusted.invalid",
+            }] * 4,
         }
         for index in range(20)
     ]
@@ -148,6 +152,12 @@ def test_document_search_tool_returns_sources_with_aggregate_excerpt_budget():
     assert sum(len(match["snippet"]) for match in matches) == 4000
     assert all(len(match["snippet"]) <= 500 and match["attachment_uid"] == "a" for match in matches)
     assert all(len(card.get("document_matches", [])) <= 2 for card in response["cards"])
+    assert all(
+        match["chunk_id"] == "chunk-current" and match["generation"] == "generation-current"
+        and match["content_hash"] == "b" * 64 and match["page"] == 3 and match["pages"] == [3, 4]
+        and match["provenance_scope"] == "page" and "url" not in match
+        for match in matches
+    )
 
 
 SEARCH_USER = SimpleNamespace(id=1)

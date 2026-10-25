@@ -187,6 +187,11 @@ def search_project_cards(
                     "attachment_uid": match.get("attachment_uid"),
                     "filename": str(match.get("filename", ""))[:200],
                     "snippet": snippet,
+                    **pick(
+                        match,
+                        ("chunk_id", "generation", "content_hash", "page", "pages", "provenance_scope"),
+                        max_field_chars=120,
+                    ),
                 }
             )
         if matches:
