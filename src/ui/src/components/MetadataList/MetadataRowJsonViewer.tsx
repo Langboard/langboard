@@ -38,7 +38,7 @@ function MetadataRowJsonViewer({
         Utils.String.isJsonString(currentValue) ? JSON.stringify(currentObject, undefined, "    ") : currentValue
     );
     const [isOpened, setIsOpened] = useState(false);
-    const [error, setError] = useState<string>("");
+    const [hasError, setHasError] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const onChange = useCallback(() => {
         if (!textareaRef.current?.value) {
@@ -53,7 +53,7 @@ function MetadataRowJsonViewer({
             textareaRef.current.value[0] !== "[" &&
             textareaRef.current.value[0] !== "]"
         ) {
-            setError(t("metadata.errors.Invalid JSON format."));
+            setHasError(true);
             return;
         }
 
@@ -61,14 +61,14 @@ function MetadataRowJsonViewer({
             const newObject = JSON.parse(textareaRef.current.value);
             setCurrentObject(newObject);
             setCurrentJSON(JSON.stringify(newObject, undefined, "    "));
-            setError("");
+            setHasError(false);
         } catch {
-            setError(t("metadata.errors.Invalid JSON format."));
+            setHasError(true);
             return;
         }
 
-        setError("");
-    }, [setCurrentJSON, setCurrentObject, t]);
+        setHasError(false);
+    }, [setCurrentJSON, setCurrentObject]);
     const update = useCallback(() => {
         if (!canEdit() || !valueInputRef.current || !textareaRef.current) {
             return;
@@ -131,9 +131,9 @@ function MetadataRowJsonViewer({
                                 />
                             </div>
                         )}
-                        {error.length ? (
+                        {hasError ? (
                             <Textarea
-                                value={error}
+                                value={t("metadata.errors.Invalid JSON format.")}
                                 readOnly
                                 className="border-none p-0 font-bold text-destructive focus-visible:ring-0"
                                 resize="none"
