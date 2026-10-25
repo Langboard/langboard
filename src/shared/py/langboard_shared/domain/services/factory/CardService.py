@@ -1502,8 +1502,12 @@ class CardService(BaseDomainService):
                 if candidates is not None:
                     external_candidates[project_id] = candidates
                 vector_candidates[project_id] = search_board_documents(
-                    SimpleNamespace(internal_bot=self._get_service(InternalBotService)), self.repo.card,
-                    scoped_project, input_value, context=scoped_context, request=semantic_request,
+                    SimpleNamespace(internal_bot=self._get_service(InternalBotService)),
+                    self.repo.card,
+                    scoped_project,
+                    input_value,
+                    context=scoped_context,
+                    request=semantic_request,
                 )
                 semantic_matches.update(
                     self._get_service(CardCommentCompactionService).search_metadata_candidates(
@@ -1582,10 +1586,15 @@ class CardService(BaseDomainService):
             return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
         vector_matches = {}
         for project_id, scoped_context in final_scopes.items():
-            vector_matches.update(validate_board_document_hits(
-                SimpleNamespace(internal_bot=self._get_service(InternalBotService)), self.repo.card,
-                project_id, vector_candidates.get(project_id, []), context=scoped_context,
-            ))
+            vector_matches.update(
+                validate_board_document_hits(
+                    SimpleNamespace(internal_bot=self._get_service(InternalBotService)),
+                    self.repo.card,
+                    project_id,
+                    vector_candidates.get(project_id, []),
+                    context=scoped_context,
+                )
+            )
         cards = []
         records = self.repo.card.search_context_by_project(
             project,
@@ -1641,9 +1650,10 @@ class CardService(BaseDomainService):
             vector = vector_matches.get(card.id, [])
             if vector:
                 existing = {match["attachment_uid"] for match in vector}
-                document_matches[card.id] = (vector + [
-                    match for match in document_matches.get(card.id, []) if match["attachment_uid"] not in existing
-                ])[:2]
+                document_matches[card.id] = (
+                    vector
+                    + [match for match in document_matches.get(card.id, []) if match["attachment_uid"] not in existing]
+                )[:2]
         states = self.get_work_states([card for card, _ in records], context=context) if include_work_state else {}
         for card, column in records:
             description = card.description.content
