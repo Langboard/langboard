@@ -38,8 +38,15 @@ class UserService(BaseDomainService):
         return "user"
 
     def get_by_id_like(self, user: TUserParam | None) -> User | None:
-        project = InfraHelper.get_by_id_like(User, user)
-        return project
+        if not user:
+            return None
+        # Account lifecycle must be current before settings or role mutations.
+        with DbSession.use(readonly=False) as db:
+            return db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.id == InfraHelper.convert_id(user))
+                .execution_options(populate_existing=True)
+            ).first()
 
     def get_business_activity_in_settings(
         self,

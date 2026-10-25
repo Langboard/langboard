@@ -138,7 +138,8 @@ class BaseRoleRepository(Generic[_TRoleModel], BaseRepository[_TRoleModel]):
                 query = query.where(model_cls.column(arg) == value)
 
         role = None
-        with DbSession.use(readonly=True) as db:
+        # A prior grant may not have reached a replica yet. Mutation lookup must use primary.
+        with DbSession.use(readonly=False) as db:
             result = db.exec(query.limit(1))
             role = result.first()
         return model_cls(**kwargs) if not role else role
