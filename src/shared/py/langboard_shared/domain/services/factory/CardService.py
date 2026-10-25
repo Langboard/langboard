@@ -462,7 +462,13 @@ class CardService(BaseDomainService):
         return project, current, context
 
     def resolve_canonical_card(
-        self, requested_project, card, user, channel=CollaborationChannel.Api, *, metadata_only: bool = False,
+        self,
+        requested_project,
+        card,
+        user,
+        channel=CollaborationChannel.Api,
+        *,
+        metadata_only: bool = False,
     ):
         """Authorize current location before returning a historical URL redirect."""
         from ..CardCrossBoardOperations import _grant
@@ -745,7 +751,11 @@ class CardService(BaseDomainService):
         include_description: bool = True,
     ) -> dict[str, Any] | None:
         resolved = self.resolve_readable_card(
-            project, card, user_or_bot, channel, metadata_only=not include_description,
+            project,
+            card,
+            user_or_bot,
+            channel,
+            metadata_only=not include_description,
         )
         if resolved is None:
             return None
@@ -808,8 +818,12 @@ class CardService(BaseDomainService):
 
     @card_change_snapshot
     def get_unread_card_summaries(
-        self, project: TProjectParam, user_or_bot: User | None = None, *,
-        channel: CollaborationChannel = CollaborationChannel.Api, limit: int = 50,
+        self,
+        project: TProjectParam,
+        user_or_bot: User | None = None,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+        limit: int = 50,
         cursor: str | None = None,
     ) -> dict | None:
         """Project unread summaries in the native authority/read snapshot."""
@@ -829,28 +843,50 @@ class CardService(BaseDomainService):
                     raise ValueError()
                 fields = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
                 before = fields["before"]
-                if (fields.get("context") != binding or not isinstance(before, list) or len(before) != 2
-                        or any(type(value) is not int or value < 0 or value > 2**63 - 1 for value in before)
-                        or before[1] == 0):
+                if (
+                    fields.get("context") != binding
+                    or not isinstance(before, list)
+                    or len(before) != 2
+                    or any(type(value) is not int or value < 0 or value > 2**63 - 1 for value in before)
+                    or before[1] == 0
+                ):
                     raise ValueError()
             except (ValueError, TypeError, KeyError, AttributeError, Base64Error, UnicodeDecodeError) as exc:
                 raise ValueError("Invalid unread summary cursor") from exc
         rows = self.repo.user_card_read_state.get_unread_summary_page(
-            user_or_bot.id, project.id, context=context, limit=limit, before=before,
+            user_or_bot.id,
+            project.id,
+            context=context,
+            limit=limit,
+            before=before,
             archive_visible_since=SafeDateTime.now() - timedelta(days=project.archive_visible_days),
         )
         page = rows[:limit]
         states = self.repo.user_card_read_state.get_change_state_map(
-            user_or_bot.id, [row[0] for row in page], context=context,
+            user_or_bot.id,
+            [row[0] for row in page],
+            context=context,
         )
-        items = [{"uid": card_id.to_short_code(), "project_uid": project.get_uid(), "title": title,
-                  **states[card_id]} for card_id, title, _ in page if card_id in states]
+        items = [
+            {"uid": card_id.to_short_code(), "project_uid": project.get_uid(), "title": title, **states[card_id]}
+            for card_id, title, _ in page
+            if card_id in states
+        ]
         next_cursor = None
         if len(rows) > limit and page:
             card_id, _, seq = page[-1]
-            next_cursor = base64.urlsafe_b64encode(json.dumps({
-                "context": binding, "before": [seq, int(card_id)],
-            }).encode()).decode().rstrip("=")
+            next_cursor = (
+                base64.urlsafe_b64encode(
+                    json.dumps(
+                        {
+                            "context": binding,
+                            "before": [seq, int(card_id)],
+                        }
+                    ).encode()
+                )
+                .decode()
+                .rstrip("=")
+            )
         return {"items": items, "next_cursor": next_cursor, "limit": limit}
 
     @card_change_snapshot
@@ -1441,15 +1477,19 @@ class CardService(BaseDomainService):
         from .CardCommentCompactionService import CardCommentCompactionService, CommentCompactionError
 
         board_candidates = (
-            search_document_candidates_many([SnowflakeID(project_id).to_short_code() for project_id in scopes], input_value)
-            if project is None else None
+            search_document_candidates_many(
+                [SnowflakeID(project_id).to_short_code() for project_id in scopes], input_value
+            )
+            if project is None
+            else None
         )
         with SemanticSearchRequest() as semantic_request:
             for project_id, scoped_context in scopes.items():
                 project_code = SnowflakeID(project_id).to_short_code()
                 candidates = (
                     (board_candidates or {}).get(project_code)
-                    if project is None else search_document_candidates(project_code, input_value)
+                    if project is None
+                    else search_document_candidates(project_code, input_value)
                 )
                 # External requests and inference can outlive source or audience grants.
                 current = self.resolve_visibility_context(project_id, user, channel)
@@ -1469,9 +1509,7 @@ class CardService(BaseDomainService):
         else:
             current = self.resolve_visibility_context(project, user, channel)
             context = current[1] if current else None
-            if paginated and not self.resolve_work_visibility_contexts(
-                user, channel, project_ids={int(project.id)}
-            ):
+            if paginated and not self.resolve_work_visibility_contexts(user, channel, project_ids={int(project.id)}):
                 context = None
         if context is None or not context.active or not context.project_member:
             return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
@@ -1484,25 +1522,37 @@ class CardService(BaseDomainService):
         final_scopes = contexts if project is None else {int(project.id): context}
         external_matches = {}
         for project_id, scoped_context in final_scopes.items():
-            external_matches.update(self.repo.card.validate_document_candidates(
-                project_id, external_candidates.get(project_id, []), context=scoped_context
-            ))
+            external_matches.update(
+                self.repo.card.validate_document_candidates(
+                    project_id, external_candidates.get(project_id, []), context=scoped_context
+                )
+            )
         compactions = self._get_service(CardCommentCompactionService)
-        facade = SimpleNamespace(card_comment_compaction=compactions, card=self,
-                                 internal_bot=self._get_service(InternalBotService))
+        facade = SimpleNamespace(
+            card_comment_compaction=compactions, card=self, internal_bot=self._get_service(InternalBotService)
+        )
         for card_id, matched in list(semantic_matches.items()):
             with DbSession.use(readonly=False) as db:
-                current_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card_id)
-                    .execution_options(populate_existing=True)).first()
-                scoped_project = db.exec(SqlBuilder.select.table(Project).where(Project.id == current_card.project_id)
-                    .execution_options(populate_existing=True)).first() if current_card else None
+                current_card = db.exec(
+                    SqlBuilder.select.table(Card).where(Card.id == card_id).execution_options(populate_existing=True)
+                ).first()
+                scoped_project = (
+                    db.exec(
+                        SqlBuilder.select.table(Project)
+                        .where(Project.id == current_card.project_id)
+                        .execution_options(populate_existing=True)
+                    ).first()
+                    if current_card
+                    else None
+                )
             if scoped_project is None or int(scoped_project.id) not in final_scopes:
                 del semantic_matches[card_id]
                 continue
             try:
                 fresh = compactions.get_search_metadata(user, scoped_project, current_card, channel=channel)
-                similarity = validate_metadata_hits(facade, user, scoped_project, current_card,
-                    matched.get("similarity", []), channel=channel)
+                similarity = validate_metadata_hits(
+                    facade, user, scoped_project, current_card, matched.get("similarity", []), channel=channel
+                )
                 terms = [item["value"] for item in fresh["keywords"]]
                 terms.extend(term for item in fresh["entities"] for term in [item["name"], *item.get("aliases", [])])
                 if similarity or any(input_value.casefold() in term.casefold() for term in terms):
@@ -2129,7 +2179,9 @@ class CardService(BaseDomainService):
                 else:
                     stripped = func.regexp_replace(content, f"^[{whitespace}]+|[{whitespace}]+$", "")
                 with DbSession.use(readonly=False) as db:
-                    has_description = db.exec(SqlBuilder.select.column(stripped != "").where(Card.id == card.id)).first()
+                    has_description = db.exec(
+                        SqlBuilder.select.column(stripped != "").where(Card.id == card.id)
+                    ).first()
                 if has_description:
                     return False
         elif card.description.content.strip() and not card.deadline_at:
@@ -2960,7 +3012,9 @@ class CardService(BaseDomainService):
                             )
                         ).first()
                         last = last[0] if isinstance(last, tuple) else last
-                        if not self._change_order(user_or_bot, project, child, (last or 0) + 1, new_column, **move_options):
+                        if not self._change_order(
+                            user_or_bot, project, child, (last or 0) + 1, new_column, **move_options
+                        ):
                             raise ValueError("Card family movement failed")
                 return result
             return self._change_order(user_or_bot, project, card, order, new_column, **move_options)
@@ -3349,14 +3403,10 @@ class CardService(BaseDomainService):
                 if column
                 else None
             )
-            if (
-                stage is None
-                or not stage.is_active
-                or not stage.counts_as_completed
-
-            ):
+            if stage is None or not stage.is_active or not stage.counts_as_completed:
                 return {"status": "skipped", "reason": "policy_changed"}
             from .WorkflowRuleService import action_policy
+
             policy = action_policy(db, stage, rule_id, "card.archive")
             if policy is None:
                 return {"status": "skipped", "reason": "policy_changed"}
@@ -3400,23 +3450,23 @@ class CardService(BaseDomainService):
             if not self._change_order(profile, project, card, 0, archive):
                 raise ValueError("Automatic archive movement failed")
             effect_run = WorkflowEffectRun(
-                    stage_id=stage.id,
-                    stage_key=stage.key,
-                    stage_revision=stage.edit_revision(),
-                    project_id=project.id,
-                    card_id=card.id,
-                    actor_id=profile.id,
-                    actor_type="profile",
-                    profile_id=profile.id,
-                    profile_name=profile.display_name,
-                    source="continuous",
-                    status="succeeded",
-                    effects=["auto_archive"],
-                    started_at=started_at,
-                    finished_at=SafeDateTime.now(),
-                    duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000),
-                    result={"archived": 1},
-                )
+                stage_id=stage.id,
+                stage_key=stage.key,
+                stage_revision=stage.edit_revision(),
+                project_id=project.id,
+                card_id=card.id,
+                actor_id=profile.id,
+                actor_type="profile",
+                profile_id=profile.id,
+                profile_name=profile.display_name,
+                source="continuous",
+                status="succeeded",
+                effects=["auto_archive"],
+                started_at=started_at,
+                finished_at=SafeDateTime.now(),
+                duration_ms=max(0, (monotonic_ns() - started_clock) // 1_000_000),
+                result={"archived": 1},
+            )
             db.insert(effect_run)
             return {"status": "completed", "legacy_effect_run_uid": effect_run.get_uid()}
 
