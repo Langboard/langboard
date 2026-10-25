@@ -411,6 +411,7 @@ def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, 
 @pytest.mark.parametrize("failure", ["stage", "rejected", "publication-error"])
 def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_store, monkeypatch, tmp_path, failure):
     from contextlib import nullcontext
+    from langboard_shared.domain.models import DocumentExtractionCache, DocumentExtractionCacheReference
     from langboard_shared.tasks.docling.DocumentEmbeddingTask_test import fixture
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
     from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
@@ -419,6 +420,21 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
     from langboard_shared.tasks.docling.DocumentVectorStore import delete_vector_generation, stage_vector_generation
 
     service, document, _ = fixture(monkeypatch, tmp_path)
+    generation = "c" * 32
+    document["generation"] = generation
+    # Embedding requires the exact committed extraction identity before staging.
+    with DbSession.atomic() as db:
+        extraction = DocumentExtractionCache(cache_key="e" * 64, markdown=document["content"]["markdown"])
+        db.insert(extraction)
+        db.insert(
+            DocumentExtractionCacheReference(
+                cache_id=extraction.id,
+                use_token="d" * 32,
+                source_type="card_attachment",
+                source_uid="attachment",
+                generation=generation,
+            )
+        )
     config, settings = embedding.validate_embedding_config.return_value
     settings.splitter = DocumentSplitterSettings()
     fingerprint = embedding_fingerprint(
@@ -460,10 +476,11 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
                 RuntimeError("publication failed"),
                 False,
             ]
-        asyncio.run(embedding.embed_transcription(service, "attachment", "current"))
+        asyncio.run(embedding.embed_transcription(service, "attachment", generation))
         events = pending()
         assert len(events) == 1
         staged = events[0].pointer
+        store.delete.assert_called_once_with(ids=staged["chunk_ids"])
         assert staged["chunk_ids"] != survivor["chunk_ids"]
         assert store.get_by_ids(staged["chunk_ids"])
         assert store.get_by_ids(survivor["chunk_ids"])
