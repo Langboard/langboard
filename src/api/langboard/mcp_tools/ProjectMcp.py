@@ -274,13 +274,14 @@ def get_project_labels(project_uid: str, service: DomainService) -> list[dict]:
     return service.project_label.get_api_list_by_project(p)
 
 
-@McpTool.add(description="Get project checklists.")
+@McpTool.add("user", description="Get checklists on cards readable by the current user.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_project_checklists(project_uid: str, service: DomainService) -> dict:
-    p = service.project.get_by_id_like(project_uid)
-    if not p:
+def get_project_checklists(project_uid: str, user: User, service: DomainService) -> dict:
+    resolved = service.card.resolve_visibility_context(project_uid, user, CollaborationChannel.Mcp)
+    if resolved is None:
         raise ValueError("Project not found")
-    checklists = service.checklist.get_api_list_only_by_project(p)
+    project, context = resolved
+    checklists = service.checklist.get_api_list_only_by_project(project, context=context)
     return {"checklists": checklists}
 
 

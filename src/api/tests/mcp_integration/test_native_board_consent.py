@@ -13,12 +13,13 @@ from langboard.mcp_integration import OAuth
 from langboard.mcp_integration.NativeConsent import native_call_boundary
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     Bot,
     Card,
     CardComment,
     CardRelationship,
+    Checklist,
     DocumentKeywordIndex,
     EmployeeMembershipPolicy,
     GlobalCardRelationshipType,
@@ -94,6 +95,7 @@ def native(monkeypatch, native_engine):
         ProjectRole,
         ProjectColumn,
         Card,
+        Checklist,
         CardComment,
         ProjectWiki,
         GlobalCardRelationshipType,
@@ -150,6 +152,76 @@ def native(monkeypatch, native_engine):
         db.add(CardRelationship(id=610, card_id_parent=210, card_id_child=220, relationship_type_id=600))
         db.commit()
     yield engine, user, other, boards
+
+
+@pytest.mark.parametrize("internal_access", ["project_members", "oidc_issuers"])
+async def test_actual_project_checklists_respect_private_ownership_and_deleted_cards(native, monkeypatch, internal_access):
+    from fastmcp import Client, FastMCP
+    from langboard.mcp_integration.Providers import create_native_agent_provider
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_integration.Tool import McpTool
+    from langboard.mcp_tools.ProjectMcp import get_project_checklists
+
+    engine, user, _, boards = native
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: internal_access))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: []))
+    with Session(engine) as db:
+        db.add_all([
+            Card(id=230, project_id=10, project_column_id=110, title="Own private", visibility="PRIVATE", owner_user_id=1, created_by_user_id=1),
+            Card(id=231, project_id=10, project_column_id=110, title="Other private", visibility="PRIVATE", owner_user_id=2, created_by_user_id=2),
+            Card(id=232, project_id=10, project_column_id=110, title="Deleted shared", visibility="SHARED", deleted_at=SafeDateTime.now()),
+            Card(id=233, project_id=10, project_column_id=110, title="Internal", visibility="INTERNAL"),
+        ])
+        db.flush()
+        db.add_all([
+            Checklist(id=700 + index, card_id=card_id, title=title)
+            for index, (card_id, title) in enumerate([
+                (210, "Visible shared"), (230, "Visible own private"), (231, "Hidden other private"),
+                (232, "Hidden deleted"), (220, "Hidden unconsented board"),
+                (233, "Internal checklist"),
+            ])
+        ])
+        db.commit()
+    connection = connect_native_client(user, "native-checklist-reader")
+    save_native_board_consent(user, connection.id, 10, ["read"], None)
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
+    try:
+        wrapped = McpServer._wrap_tool("get_project_checklists", get_project_checklists)
+        result = await wrapped(project_uid=boards[0].get_uid())
+        expected_titles = {"Visible shared", "Visible own private"}
+        expected_ids = {210, 230}
+        if internal_access == "project_members":
+            expected_titles.add("Internal checklist")
+            expected_ids.add(233)
+        assert {item["title"] for item in result["checklists"]} == expected_titles
+        assert {item["card_uid"] for item in result["checklists"]} == {SnowflakeID(value).to_short_code() for value in expected_ids}
+
+        metadata = McpTool.get_tool("get_project_checklists")
+        assert metadata["accessible_type"] == "user"
+        assert "user" not in metadata["input_schema"]["properties"]
+        monkeypatch.setattr(McpTool, "get_tools", lambda: {"get_project_checklists": metadata})
+        monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata if name == "get_project_checklists" else None)
+        server = FastMCP("Native checklist visibility")
+        server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
+        async with Client(server) as client:
+            raw = await client.call_tool("call_raw_tool", {
+                "name": "get_project_checklists", "arguments": {"project_uid": boards[0].get_uid()},
+            })
+            rendered = str(raw)
+            for title in expected_titles:
+                assert title in rendered
+            for title in ("Hidden other private", "Hidden deleted", "Hidden unconsented board"):
+                assert title not in rendered
+            if internal_access == "oidc_issuers":
+                assert "Internal checklist" not in rendered
+        bot_token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": Bot(id=90, name="Scoped bot", bot_uname="scoped", platform="default", platform_running_type="default", app_api_token="fixture-token")})
+        try:
+            with pytest.raises(AuthorizationError):
+                await wrapped(project_uid=boards[0].get_uid())
+        finally:
+            mcp_auth_context.reset(bot_token)
+    finally:
+        mcp_auth_context.reset(token)
 
 
 def test_persistent_own_connections_cas_role_and_membership_revocation(native):
