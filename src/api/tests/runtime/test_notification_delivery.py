@@ -1,6 +1,7 @@
 import runpy
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from importlib import import_module
 from unittest.mock import Mock, call
 import pytest
@@ -80,7 +81,10 @@ def test_notification_email_titles_render_all_templates(
     card = Card.model_construct(title="Card <two>", description=None)
     comment = CardComment.model_construct(user_id=SnowflakeID(2), content=None)
     wiki = ProjectWiki.model_construct(
-        title="Wiki <three>", content=EditorContentModel(), project_id=project.id, editor_generation=0,
+        title="Wiki <three>",
+        content=EditorContentModel(),
+        project_id=project.id,
+        editor_generation=0,
     )
     checklist = Checklist.model_construct(title="Checklist <four>")
     notifier = _user(1)
@@ -1055,6 +1059,7 @@ def test_email_recovery_records_smtp_outcome(
     settings = Mock()
     settings.has_unsubscription.return_value = False
     email_service = Mock()
+    email_service.prepare_template_message.return_value = EmailMessage()
     email_service.send_message.return_value = smtp_accepted
     services = {UserNotificationSettingService: settings, EmailService: email_service}
     service = NotificationService(lambda service_type: services[service_type], lambda name: None, repository)
@@ -1066,6 +1071,10 @@ def test_email_recovery_records_smtp_outcome(
 
     email_service.prepare_template_message.assert_called_once_with("en-US", recipient.email, "assigned_to_card", {})
     repository.notification_email_delivery.begin_sending.assert_called_once_with(delivery)
+    assert (
+        email_service.prepare_template_message.return_value._langboard_attempt_metadata["source_uid"]
+        == delivery.get_uid()
+    )
     email_service.send_message.assert_called_once_with(email_service.prepare_template_message.return_value, strict=True)
     assert repository.notification_email_delivery.complete_sending.call_args.args[:2] == (
         delivery,
@@ -1104,6 +1113,7 @@ def test_email_recovery_does_not_send_before_sending_transition(monkeypatch: Mon
     settings = Mock()
     settings.has_unsubscription.return_value = False
     email_service = Mock()
+    email_service.prepare_template_message.return_value = EmailMessage()
     if failure == "template_render":
         email_service.prepare_template_message.side_effect = ValueError("broken template")
     services = {UserNotificationSettingService: settings, EmailService: email_service}

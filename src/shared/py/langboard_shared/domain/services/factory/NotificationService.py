@@ -330,6 +330,7 @@ class NotificationService(BaseDomainService):
                     delivery.template_name,
                     delivery.formats,
                 )
+                EmailService.attach_attempt_metadata(message, source="notification", source_uid=delivery.get_uid())
             except Exception:
                 _logger.exception("Cannot render notification email %s", delivery.id)
                 self.repo.notification_email_delivery.complete_preparing(

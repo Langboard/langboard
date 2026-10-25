@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from langboard_shared.domain.services.factory.EmailService import EmailService
 from langboard_shared.Env import Env
+from src.api.tests.email import test_mail_attempt_log
 
 
 def test_send_template_preserves_smtp_contract(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,3 +102,7 @@ def test_send_message_native_failure_contract(monkeypatch, environment, strict, 
     message = EmailMessage()
     assert service.send_message(message, strict=strict) is expected
     assert calls == [message]
+
+
+mail_audit_db = test_mail_attempt_log.mail_audit_db
+pytestmark = pytest.mark.usefixtures("mail_audit_db")

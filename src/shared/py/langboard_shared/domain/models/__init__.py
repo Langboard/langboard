@@ -93,6 +93,7 @@ from .McpRole import McpRole
 from .McpToolExecution import McpToolExecution
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
+from .MailDeliveryAttempt import MailDeliveryAttempt
 from .NotificationEmailDelivery import NotificationEmailDelivery
 from .NotificationScheduleRule import NotificationScheduleRule
 from .OllamaModelPull import OllamaModelPull
@@ -330,6 +331,7 @@ __all__ = [
     'CardExecutionGeneration',
     'CardExecutionIntent',
     'InternalBotRun',
+    'MailDeliveryAttempt',
     'NotificationEmailDelivery',
     'OllamaModelPull',
     'ProjectActivityEmailDelivery',

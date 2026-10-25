@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from json import loads as json_loads
+from typing import get_args
 import aiosmtplib
 from ....core.domain import BaseDomainService
 from ....core.resources import get_resource_path
 from ....core.resources.locales.EmailTemplateNames import TEmailTemplateName
 from ....Env import Env
+from ..MailDeliveryAttemptLog import MailAuditUnavailable, MailDeliveryAttemptLog
 
 
 class EmailService(BaseDomainService):
@@ -158,21 +160,102 @@ class EmailService(BaseDomainService):
         if reply_to:
             message["Reply-To"] = reply_to
         message.set_content(template, subtype="html")
+        if template_name in get_args(TEmailTemplateName):
+            # Historical subject is an owned label, never formatted user input.
+            message._langboard_attempt_metadata = {
+                "template_name": template_name,
+                "trigger": template_name,
+                "subject": f"Langboard: {template_name.replace('_', ' ')}",
+            }
         return message
 
     @staticmethod
+    def attach_attempt_metadata(
+        message: EmailMessage, *, source: str, source_uid: str, linked_ids: dict | None = None
+    ) -> None:
+        """Attach bounded native provenance without transmitting extra headers."""
+        from ....core.types import SnowflakeID
+
+        if source not in {"notification", "project_activity"}:
+            raise ValueError("Invalid mail attempt source")
+        if (
+            not isinstance(source_uid, str)
+            or len(source_uid) != 11
+            or not source_uid.isascii()
+            or not source_uid.isalnum()
+            or SnowflakeID.from_short_code(source_uid) <= 0
+        ):
+            raise ValueError("Invalid mail attempt source UID")
+        allowed = {"notification_id", "project_activity_id", "project_id", "receiver_id", "user_id", "card_id"}
+        safe_ids = {
+            key: value
+            for key, value in (linked_ids or {}).items()
+            if key in allowed and type(value) is int and 0 < value <= SnowflakeID.MAX_VALUE
+        }
+        metadata = dict(getattr(message, "_langboard_attempt_metadata", {}))
+        metadata.update(source=source, source_uid=source_uid, linked_ids=safe_ids or None)
+        message._langboard_attempt_metadata = metadata
+
+    @staticmethod
+    def _attempt_error(error: BaseException) -> tuple[str, str]:
+        if isinstance(error, aiosmtplib.errors.SMTPAuthenticationError):
+            return "rejected", "authentication_failed"
+        if isinstance(
+            error,
+            (
+                aiosmtplib.errors.SMTPDataError,
+                aiosmtplib.errors.SMTPRecipientsRefused,
+                aiosmtplib.errors.SMTPSenderRefused,
+                aiosmtplib.errors.SMTPHeloError,
+            ),
+        ):
+            return "rejected", "smtp_rejected"
+        if isinstance(error, ssl.SSLError):
+            return "rejected", "tls_failed"
+        if isinstance(error, aiosmtplib.errors.SMTPConnectError):
+            cause = error
+            for _ in range(8):
+                if isinstance(cause, ssl.SSLError):
+                    return "rejected", "tls_failed"
+                cause = cause.__cause__ or cause.__context__
+                if cause is None:
+                    break
+            return "rejected", "connection_failed"
+        if isinstance(error, (TimeoutError, aiosmtplib.errors.SMTPTimeoutError)):
+            return "unknown", "timeout"
+        return "unknown", "transport_error"
+
+    @staticmethod
     async def _send_native(message: EmailMessage):
-        """One native transport shared by template callers and the explicit test."""
-        return await aiosmtplib.send(
-            message,
-            hostname=Env.MAIL_SERVER,
-            port=int(Env.MAIL_PORT),
-            username=Env.MAIL_USERNAME or None,
-            password=Env.MAIL_PASSWORD or None,
-            start_tls=Env.MAIL_STARTTLS,
-            use_tls=Env.MAIL_SSL_TLS,
-            timeout=5,
-        )
+        """Commit start before the single native invocation; never retry it.
+
+        Missing audit storage prevents sending. Completion write failure leaves
+        the started row unknown and preserves the authoritative SMTP result.
+        """
+        row = MailDeliveryAttemptLog.start(message)
+        outcome, code = "unknown", "transport_error"
+        try:
+            result = await aiosmtplib.send(
+                message,
+                hostname=Env.MAIL_SERVER,
+                port=int(Env.MAIL_PORT),
+                username=Env.MAIL_USERNAME or None,
+                password=Env.MAIL_PASSWORD or None,
+                start_tls=Env.MAIL_STARTTLS,
+                use_tls=Env.MAIL_SSL_TLS,
+                timeout=5,
+            )
+            outcome, code = ("rejected", "smtp_rejected") if result and result[0] else ("accepted", None)
+            return result
+        except BaseException as error:
+            outcome, code = EmailService._attempt_error(error)
+            raise
+        finally:
+            try:
+                MailDeliveryAttemptLog.finish(row, outcome, code)
+            except Exception:
+                # A second send would risk duplicating an accepted message.
+                pass
 
     def send_message(self, message: EmailMessage, *, strict: bool = False) -> bool:
         try:
@@ -214,12 +297,15 @@ class EmailService(BaseDomainService):
                 "This test message was explicitly requested by a Langboard administrator. "
                 "No action is required. SMTP acceptance does not confirm inbox delivery."
             )
+            message._langboard_attempt_metadata = {"trigger": "smtp_test", "subject": "Langboard SMTP test message"}
             # One total deadline also bounds multi-stage SMTP stalls.
             submission_started = True
             async with asyncio.timeout(15):
                 refused, _ = await EmailService._send_native(message)
             result["smtp_send_acceptance"] = "failed" if refused else "accepted"
             result["code"] = "smtp_rejected" if refused else None
+        except MailAuditUnavailable:
+            result["code"] = "audit_storage_unavailable"
         except aiosmtplib.errors.SMTPAuthenticationError:
             result["code"] = "authentication_failed"
         except (

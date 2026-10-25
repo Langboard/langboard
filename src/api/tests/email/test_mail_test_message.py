@@ -17,7 +17,7 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.factory.EmailService import EmailService
 from langboard_shared.helpers import MiddlewareHelper
-from src.api.tests.email import test_mail_diagnostics
+from src.api.tests.email import test_mail_attempt_log, test_mail_diagnostics
 
 
 settings = test_mail_diagnostics.settings
@@ -115,6 +115,19 @@ async def submit(settings, *, reject=None, stall=None, tls=None, implicit=False,
         secret not in json.dumps(result) for secret in ("secret-user", "secret-password", "sensitive-server-content")
     )
     assert commands.count("DATA") <= 1
+    rows = test_mail_attempt_log.attempts(test_mail_attempt_log.DbEngine.get_main_engine())
+    assert len(rows) == 1
+    row = rows[0]
+    assert (
+        row.outcome
+        == {"accepted": "accepted", "failed": "rejected", "unknown": "unknown"}[result["smtp_send_acceptance"]]
+    )
+    assert row.safe_error_code == result["code"]
+    assert row.completed_at is not None and row.started_at <= row.completed_at
+    assert row.subject == "Langboard SMTP test message" and row.trigger == "smtp_test"
+    assert row.recipient_masked == "***@***"
+    stored = json.dumps({key: str(getattr(row, key)) for key in row.model_fields})
+    assert all(secret not in stored for secret in ("secret-user", "secret-password", "sensitive-server-content"))
     return result, commands, messages
 
 
@@ -267,3 +280,7 @@ async def test_unexpected_value_error_during_send_stays_unknown(settings, monkey
     assert result["code"] == "transport_error"
     assert len(calls) == 1
     assert "secret" not in json.dumps(result)
+
+
+mail_audit_db = test_mail_attempt_log.mail_audit_db
+pytestmark = pytest.mark.usefixtures("mail_audit_db")

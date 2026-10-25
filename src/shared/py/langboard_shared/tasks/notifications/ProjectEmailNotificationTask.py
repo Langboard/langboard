@@ -6,6 +6,7 @@ from ...core.types import SnowflakeID
 from ...domain.models import ProjectActivity, ProjectActivityEmailDelivery, ProjectWikiActivity
 from ...domain.models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
 from ...domain.services import DomainService
+from ...domain.services.factory.EmailService import EmailService
 from ...Env import Env
 from ...helpers import InfraHelper
 from .ProjectEmailNotificationQueue import register_project_activity_email_task
@@ -112,6 +113,7 @@ def _deliver_claimed(service: DomainService, delivery: ProjectActivityEmailDeliv
         return False
 
     try:
+        EmailService.attach_attempt_metadata(message, source="project_activity", source_uid=delivery.id.to_short_code())
         accepted = service.email.send_message(message, strict=True)
     except Exception:
         logger.exception("Cannot confirm board activity SMTP outcome %s", delivery.id)
