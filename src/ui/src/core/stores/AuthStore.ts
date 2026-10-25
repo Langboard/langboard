@@ -51,6 +51,8 @@ const useAuthStore = create(
                 accessToken = token;
                 tokenUpdateVersion += 1;
                 const sessionVersion = tokenUpdateVersion;
+                // Notify session selectors before identity hydration can leave prior privileged data visible.
+                set((state) => ({ ...state }));
 
                 const tryGetUser = async () => {
                     const MAX_ATTEMPTS = 5;

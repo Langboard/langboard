@@ -6,6 +6,7 @@ import MoreMenu from "@/components/MoreMenu";
 import { api } from "@/core/helpers/Api";
 import { User } from "@/core/models";
 import { ROLE_ALL_GRANTED } from "@/core/models/roles/base";
+import useAuthStore from "@/core/stores/AuthStore";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -45,28 +46,33 @@ function UserDetails({ user }: { user: User.TModel }) {
 
 function UserDetailsContent({ uid }: { uid: string }) {
     const [t] = useTranslation();
-    const [data, setData] = useState<IUserDetails | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(false);
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    const sessionVersion = useAuthStore((state) => state.getSessionVersion());
     const [revision, setRevision] = useState(0);
+    const identity = JSON.stringify([actorUID, sessionVersion, uid, revision]);
+    const [result, setResult] = useState<{ identity: string; data?: IUserDetails; error?: boolean }>();
 
     useEffect(() => {
+        if (!actorUID) return;
         const abort = new AbortController();
-        setData(null);
-        setLoading(true);
-        setError(false);
-        api.get<{ user: IUserDetails }>(`/settings/users/${uid}`, { signal: abort.signal })
+        const current = () =>
+            !abort.signal.aborted &&
+            actorUID === useAuthStore.getState().currentUser?.uid &&
+            sessionVersion === useAuthStore.getState().getSessionVersion();
+        api.get<{ user: IUserDetails }>(`/settings/users/${uid}`, { signal: abort.signal, env: { interceptToast: true } as never })
             .then(({ data }) => {
-                if (!abort.signal.aborted) setData(data.user);
+                if (current()) setResult({ identity, data: data.user });
             })
             .catch(() => {
-                if (!abort.signal.aborted) setError(true);
-            })
-            .finally(() => {
-                if (!abort.signal.aborted) setLoading(false);
+                if (current()) setResult({ identity, error: true });
             });
         return () => abort.abort();
-    }, [uid, revision]);
+    }, [actorUID, sessionVersion, uid, identity]);
+
+    const current = actorUID && result?.identity === identity ? result : undefined;
+    const data = current?.data;
+    const loading = !!actorUID && !current;
+    const error = !actorUID || current?.error;
 
     const fields = data
         ? [

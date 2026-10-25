@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Real Chrome UI against the existing native fixture; HTTP responses are contract fixtures.
 const fixture = "/src/pages/SettingsPage/components/users/group-directory.fixture.html?mode=user";
-async function setup(page: Page, baseURL: string | undefined) {
+async function setup(page: Page, baseURL: string | undefined, detailOnly = false) {
     if (!baseURL) throw new Error("Business activity fixture requires a Playwright baseURL");
     const frontendOrigin = new URL(baseURL).origin;
     const reads: URL[] = [];
@@ -10,6 +10,18 @@ async function setup(page: Page, baseURL: string | undefined) {
     let empty = false;
     let delay = false;
     let release: (() => void) | undefined;
+    const detail = {
+        reads: 0,
+        title: "Privileged original detail",
+        failure: 0,
+        delay: false,
+        release: () => {},
+        authUID: "fixture-admin",
+        authAdmin: true,
+        authDelay: false,
+        authRelease: () => {},
+        authReads: 0,
+    };
     const user = (uid: string) => ({
         uid,
         type: "user",
@@ -38,8 +50,23 @@ async function setup(page: Page, baseURL: string | undefined) {
             "access-control-allow-headers": "*",
         };
         if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
-        if (url.pathname.endsWith("/dashboard/projects"))
-            return route.fulfill({ json: { projects: [], columns: [] }, headers });
+        if (url.pathname.endsWith("/auth/me")) {
+            detail.authReads += 1;
+            if (detail.authDelay) {
+                detail.authDelay = false;
+                await new Promise<void>((resolve) => {
+                    detail.authRelease = resolve;
+                });
+            }
+            return route.fulfill({
+                headers,
+                json: {
+                    user: { ...user(detail.authUID), is_admin: detail.authAdmin, setting_role_actions: detail.authAdmin ? ["user_read"] : [] },
+                    bots: [],
+                },
+            });
+        }
+        if (url.pathname.endsWith("/dashboard/projects")) return route.fulfill({ json: { projects: [], columns: [] }, headers });
         if (url.pathname.endsWith("/settings/roles"))
             return route.fulfill({ json: { setting_role_actions: ["user_read"], api_key_role_actions: [], mcp_role_actions: [] }, headers });
         if (url.pathname.endsWith("/settings/users/page"))
@@ -91,12 +118,25 @@ async function setup(page: Page, baseURL: string | undefined) {
         if (url.pathname.endsWith("/settings/employee-membership"))
             return route.fulfill({ json: { issuer: "", configured: false, group_uids: [], groups: [] }, headers });
         const target = url.pathname.match(/\/settings\/users\/(\w+)$/)?.[1];
-        if (target) return route.fulfill({ json: { user: user(target) }, headers });
+        if (target) {
+            detail.reads += 1;
+            const title = detail.title;
+            const status = detail.failure || 200;
+            if (detail.delay) {
+                detail.delay = false;
+                await new Promise<void>((resolve) => {
+                    detail.release = resolve;
+                });
+            }
+            return route.fulfill({ status, json: { user: { ...user(target), affiliation: title } }, headers }).catch(() => {});
+        }
         return route.fulfill({ json: {}, headers });
     });
-    await page.goto(fixture);
-    await expect(page.getByText("00000000001@example.invalid", { exact: true })).toBeVisible();
+    await page.goto(detailOnly ? "/src/pages/SettingsPage/components/users/user-detail-session.fixture.html" : fixture);
+    if (detailOnly) await expect(page.getByRole("button", { name: "More", exact: true })).toBeVisible();
+    else await expect(page.getByText("00000000001@example.invalid", { exact: true })).toBeVisible();
     return {
+        detail,
         reads,
         fail: (status: number) => {
             failure = status;
@@ -178,4 +218,102 @@ test("denied and failed requests hide prior metadata; explicit retry can show th
     await feed.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(feed.getByText("No activities", { exact: true })).toBeVisible();
     await expect(feed.getByRole("button", { name: "Next Page", exact: true })).toBeDisabled();
+});
+
+async function replaceSession(page: Page) {
+    await page.evaluate(async () => {
+        const authPath = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const [{ default: auth }, { api }] = await Promise.all([import(authPath), import(apiPath)]);
+        await auth.getState().updateToken("fixture-next-session", api);
+    });
+}
+
+for (const transition of ["account", "session"] as const) {
+    test(`user detail clears a retained response on ${transition} replacement`, async ({ page, baseURL }) => {
+        const { detail } = await setup(page, baseURL, true);
+        if (transition === "session") await replaceSession(page);
+        await open(page);
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.getByText(detail.title, { exact: true })).toBeVisible();
+        detail.title = "Current session detail";
+        if (transition === "account") detail.authUID = "other-admin";
+        await replaceSession(page);
+        await expect(dialog.getByText("Privileged original detail", { exact: true })).toHaveCount(0);
+        await expect(dialog.getByText("Current session detail", { exact: true })).toBeVisible();
+        expect(detail.reads).toBeGreaterThanOrEqual(2);
+    });
+
+    test(`user detail rejects a pending response on ${transition} replacement`, async ({ page, baseURL }) => {
+        const { detail } = await setup(page, baseURL, true);
+        if (transition === "session") await replaceSession(page);
+        detail.delay = true;
+        await open(page);
+        await expect.poll(() => detail.reads).toBe(1);
+        detail.title = "Current session detail";
+        if (transition === "account") detail.authUID = "other-admin";
+        await replaceSession(page);
+        detail.release();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.getByText("Current session detail", { exact: true })).toBeVisible();
+        await expect(dialog.getByText("Privileged original detail", { exact: true })).toHaveCount(0);
+        expect(detail.reads).toBeGreaterThanOrEqual(2);
+    });
+}
+
+for (const status of [401, 403]) {
+    test(`user detail clears sensitive content after ${status}`, async ({ page, baseURL }) => {
+        const { detail } = await setup(page, baseURL, true);
+        await open(page);
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.getByText(detail.title, { exact: true })).toBeVisible();
+        detail.failure = status;
+        await dialog.getByRole("button", { name: "Refresh", exact: true }).first().click();
+        await expect(dialog.getByText("Privileged original detail", { exact: true })).toHaveCount(0);
+        await expect(dialog.getByRole("region", { name: "Business activity", exact: true })).toHaveCount(0);
+        await expect(dialog.getByRole("alert")).toBeVisible();
+        if (status === 403) {
+            detail.failure = 0;
+            detail.title = "Authorized refreshed detail";
+            await dialog.getByRole("button", { name: "Refresh", exact: true }).first().click();
+            await expect(dialog.getByText(detail.title, { exact: true })).toBeVisible();
+        }
+    });
+}
+
+test("user detail invalidates when token replacement begins before identity hydration", async ({ page, baseURL }) => {
+    const { detail } = await setup(page, baseURL, true);
+    await replaceSession(page);
+    await open(page);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText(detail.title, { exact: true })).toBeVisible();
+    detail.authDelay = true;
+    detail.title = "Current session detail";
+    await page.evaluate(async () => {
+        const authPath = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const [{ default: auth }, { api }] = await Promise.all([import(authPath), import(apiPath)]);
+        void auth.getState().updateToken("fixture-next-session", api);
+    });
+    await expect.poll(() => detail.authReads).toBe(2);
+    await expect(dialog.getByText("Privileged original detail", { exact: true })).toHaveCount(0);
+    detail.authRelease();
+    await expect(dialog.getByText("Current session detail", { exact: true })).toBeVisible();
+});
+
+test("identity hydration with revoked administration closes details and rejects the late response", async ({ page, baseURL }) => {
+    const { detail } = await setup(page, baseURL);
+    await open(page);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText(detail.title, { exact: true })).toBeVisible();
+    detail.delay = true;
+    await dialog.getByRole("button", { name: "Refresh", exact: true }).first().click();
+    await expect.poll(() => detail.reads).toBe(2);
+    detail.authAdmin = false;
+    detail.failure = 403;
+    await replaceSession(page);
+    await expect(dialog).toHaveCount(0);
+    detail.release();
+    await expect(page.getByText("Privileged original detail", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("alert")).toContainText("Directory access denied");
 });

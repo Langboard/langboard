@@ -45,6 +45,7 @@ on:
       - src/ui/src/pages/BoardPage/components/board/SignalInboxPanel*
       - src/ui/src/pages/SettingsPage/components/users/UserList*
       - src/ui/src/pages/SettingsPage/components/users/UserDetails.tsx
+      - src/ui/src/pages/SettingsPage/components/users/user-detail-session.fixture.*
       - src/ui/src/pages/SettingsPage/components/users/UserBusinessActivity.tsx
       - src/ui/src/pages/SettingsPage/components/users/UserEffectivePermissions.tsx
       - src/ui/src/controllers/api/settings/users/useUserEffectivePermissions.ts
