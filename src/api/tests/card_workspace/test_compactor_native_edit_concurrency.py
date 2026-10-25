@@ -134,6 +134,7 @@ def test_collection_save_and_grant_change_both_commit(compactor_edit_board):
     actor_locked, grant_actor_requested = threading.Event(), threading.Event()
     worker = threading.local()
     collection = {"uid": str(uuid4()), "name": "Personal", "board_uids": [f.project.get_uid()]}
+    expected = {"revision": 1, "collections": [{**collection, "starred": False}]}
 
     def before_sql(_connection, _cursor, statement, _parameters, _context, _many):
         if getattr(worker, "role", None) == "grant" and 'FROM "user"' in statement and "FOR UPDATE" in statement:
@@ -161,11 +162,11 @@ def test_collection_save_and_grant_change_both_commit(compactor_edit_board):
             saved = pool.submit(save_collection)
             assert actor_locked.wait(5), "Collection save never acquired its actor guard"
             changed = pool.submit(change_grant)
-            assert saved.result(timeout=15) == {"revision": 1, "collections": [collection]}
+            assert saved.result(timeout=15) == expected
             assert changed.result(timeout=15)["can_archive"] is False
     finally:
         event.remove(f.engine, "before_cursor_execute", before_sql)
         event.remove(f.engine, "after_cursor_execute", after_sql)
-    assert project_collections(f.other) == {"revision": 1, "collections": [collection]}
+    assert project_collections(f.other) == expected
     with f.engine.connect() as db:
         assert db.execute(select(CompactorBoardGrant.can_archive)).scalar_one() is False
