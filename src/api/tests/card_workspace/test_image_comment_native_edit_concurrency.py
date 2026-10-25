@@ -5,8 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from uuid import uuid4
 import pytest
-from langboard_shared.core.db import DbSession, EditorContentModel
+from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.storage import FileModel, Storage
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Card, CardAttachment, CardChangeReceipt, CardComment, ProjectRole
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
 from langboard_shared.domain.services.factory.CardService import CardService
@@ -130,4 +131,41 @@ def test_image_replay_rechecks_native_authority_and_version(image_edit_board, mu
     assert create(f) is None
     with f.engine.connect() as db:
         assert db.execute(select(func.count()).select_from(CardComment)).scalar_one() == 1
+        assert db.execute(select(func.count()).select_from(CardChangeReceipt)).scalar_one() == 1
+
+
+@pytest.mark.parametrize("shape", ["point", "rectangle"])
+@pytest.mark.parametrize("mutation", ["source", "alias", "comment_deleted", "role"])
+def test_image_replay_refreshes_rows_cached_by_outer_transaction(image_edit_board, shape, mutation):
+    f = image_edit_board
+    if shape == "rectangle":
+        f.anchor.update(shape="rectangle", width=15, height=5)
+    assert create(f)["replayed"] is False
+    with DbSession.atomic() as db:
+        # Keep strong references: the native session identity map can retain rows
+        # read by the caller before another transaction commits a replacement.
+        image = db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == f.image.id)).first()
+        comment = db.exec(SqlBuilder.select.table(CardComment)).first()
+        role = db.exec(SqlBuilder.select.table(ProjectRole).where(ProjectRole.user_id == f.user.id)).first()
+        with f.engine.begin() as concurrent:
+            if mutation == "source":
+                concurrent.execute(
+                    update(CardAttachment).where(CardAttachment.id == image.id).values(
+                        file=image.file.model_copy(update={"filename": "replacement-image"})
+                    )
+                )
+            elif mutation == "alias":
+                concurrent.execute(
+                    update(CardAttachment).where(CardAttachment.id == image.id).values(replaced_by_id=image.id)
+                )
+            elif mutation == "comment_deleted":
+                concurrent.execute(
+                    update(CardComment).where(CardComment.id == comment.id).values(deleted_at=SafeDateTime.now())
+                )
+            else:
+                concurrent.execute(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=[]))
+        assert create(f) is None
+    with f.engine.connect() as db:
+        assert db.execute(select(func.count()).select_from(CardComment)).scalar_one() == 1
+        assert db.execute(select(CardComment.anchor)).scalar_one() == f.anchor
         assert db.execute(select(func.count()).select_from(CardChangeReceipt)).scalar_one() == 1

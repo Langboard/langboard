@@ -125,6 +125,7 @@ def create_image_comment(
             SqlBuilder.select.table(CardComment, with_deleted=True)
             .where(CardComment.image_request_uid == request_uid)
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
         if receipt is not None:
             if receipt.image_request_fingerprint != fingerprint:
@@ -138,6 +139,7 @@ def create_image_comment(
                 CardAttachment.card_id == card.id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
         if (
             attachment is None
