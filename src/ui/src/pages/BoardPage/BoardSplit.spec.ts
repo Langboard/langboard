@@ -250,6 +250,53 @@ test("native explorer navigation and browser Back focus existing boards without 
     await expect(panes.nth(1)).toHaveAttribute("data-native-retained", "right");
 });
 
+test("desktop split suspends on mobile without losing either composer, focus or retained DOM", async ({ page }) => {
+    let submissions = 0;
+    page.on("request", (request) => {
+        if (request.method() === "POST" && /\/board\/[^/]+\/card$/.test(new URL(request.url()).pathname)) submissions++;
+    });
+    await setup(page);
+    const transfer = await page.evaluateHandle(() => {
+        const data = new DataTransfer();
+        data.setData("application/x-langboard-board-reference", "right");
+        return data;
+    });
+    await page.locator("[data-board-pane]").first().dispatchEvent("drop", { dataTransfer: transfer });
+    const panes = page.locator("[data-board-pane]");
+    await expect(panes.nth(1).locator("[data-board-pane-footer]")).toContainText("right board");
+    for (const index of [0, 1]) {
+        const pane = panes.nth(index);
+        await pane.getByRole("button", { name: "Add a card", exact: true }).first().click();
+        const composer = pane.getByPlaceholder("Enter a title", { exact: true });
+        await composer.fill(`Pane ${index} unsaved draft`);
+        await pane.evaluate((element, id) => element.setAttribute("data-mobile-retained", String(id)), index);
+        await composer.evaluate((element, id) => element.setAttribute("data-mobile-retained", String(id)), index);
+    }
+    for (const focusedIndex of [0, 1]) {
+        const focused = panes.nth(focusedIndex);
+        const composer = focused.getByPlaceholder("Enter a title", { exact: true });
+        await composer.focus();
+        await expect(focused).toHaveAttribute("data-board-pane-focused", "true");
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(page.locator("[data-board-pane]:visible")).toHaveCount(1);
+        await expect(focused).toBeVisible();
+        await expect(composer).toBeFocused();
+        await expect(page.locator("[data-board-pane-footer]:visible")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: /in split view/ })).toHaveCount(0);
+        await expect(page.getByRole("navigation", { name: "Workspace", exact: true })).toHaveCount(1);
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await expect(page.locator("[data-board-pane]:visible")).toHaveCount(2);
+        await expect(composer).toBeFocused();
+        for (const index of [0, 1]) {
+            await expect(panes.nth(index)).toHaveAttribute("data-mobile-retained", String(index));
+            const draft = panes.nth(index).getByPlaceholder("Enter a title", { exact: true });
+            await expect(draft).toHaveAttribute("data-mobile-retained", String(index));
+            await expect(draft).toHaveValue(`Pane ${index} unsaved draft`);
+        }
+        expect(submissions).toBe(0);
+    }
+});
+
 test("two board composers retain independent drafts and opposite-pane close never submits", async ({ page }) => {
     let submissions = 0;
     page.on("request", (request) => {
