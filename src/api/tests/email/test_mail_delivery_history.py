@@ -12,11 +12,19 @@ from langboard.routes.settings import MailDeliveryHistoryApi
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import NotificationEmailDelivery, ProjectActivityEmailDelivery, User
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    NotificationEmailDelivery,
+    ProjectActivity,
+    ProjectActivityEmailDelivery,
+    User,
+)
 from langboard_shared.domain.models.MailDeliveryAttempt import MailDeliveryAttempt
 from langboard_shared.domain.models.NotificationEmailDelivery import NotificationEmailDeliveryStatus as Status
 from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.MailDeliveryHistory import MailDeliveryHistory as History
+from langboard_shared.Env import Env
 from langboard_shared.helpers import MiddlewareHelper
 from sqlalchemy import event
 
@@ -28,6 +36,9 @@ def history_store(board):
     NotificationEmailDelivery.__table__.create(engine)
     ProjectActivityEmailDelivery.__table__.create(engine)
     MailDeliveryAttempt.__table__.create(engine)
+    # Detail resource resolution follows real native activity references.
+    for model in (Card, Bot, ProjectActivity):
+        model.__table__.create(engine, checkfirst=True)
     at = SafeDateTime(2026, 10, 25, 0, 0)
     statements = []
 
@@ -185,9 +196,10 @@ def test_current_native_admin_middleware_and_http_filters(history_store, monkeyp
     with TestClient(app) as client:
         response = client.get("/settings/mail/deliveries?limit=1")
         assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
         item = response.json()["items"][0]
         path = f"/settings/mail/deliveries/{item['source']}/{item['uid']}"
-        assert client.get(path).json() == item
+        assert client.get(path).json() == {**item, "resources": []}
         for query in ("limit=101", "limit=0", "cursor=" + "x" * 513):
             assert client.get("/settings/mail/deliveries?" + query).status_code == 400
         assert client.get("/settings/mail/deliveries?status=madeup").status_code == 400
@@ -201,7 +213,7 @@ def test_current_native_admin_middleware_and_http_filters(history_store, monkeyp
         assert attempts.status_code == 200
         attempt = attempts.json()["items"][0]
         attempt_path = f"/settings/mail/deliveries/smtp_attempt/{attempt['uid']}"
-        assert client.get(attempt_path).json() == attempt
+        assert client.get(attempt_path).json() == {**attempt, "resources": []}
         assert client.get("/settings/mail/deliveries?view=combined").status_code == 400
         actor.is_admin = False
         assert client.get("/settings/mail/deliveries?view=attempts").status_code == 403
@@ -333,6 +345,7 @@ def test_native_sender_trigger_survives_sql_projection(history_store, trigger, m
     engine, at, _ = history_store
     if trigger in ("signup", "project_invitation"):
         monkeypatch.setattr(EmailService, "_EmailService__get_template", lambda *args: ("Private", "Private"))
+        monkeypatch.setattr(type(Env), "MAIL_FROM", property(lambda _: "sender@example.invalid"))
         message = EmailService.__new__(EmailService).prepare_template_message(
             "en-US",
             "private@example.test",

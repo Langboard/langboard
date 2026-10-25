@@ -1,3 +1,4 @@
+import { ROUTES } from "@/core/routing/constants";
 import Button from "@/components/base/Button";
 import Card from "@/components/base/Card";
 import Input from "@/components/base/Input";
@@ -9,6 +10,7 @@ import { useTranslation } from "react-i18next";
 const statuses = ["pending", "preparing", "sending", "sent", "failed", "uncertain", "suppressed", "confirmed_sent", "closed"];
 const evidence = ["not_attempted", "claimed", "smtp_accepted", "operator_confirmed", "smtp_rejected", "unknown"];
 interface IDelivery {
+    resources?: { kind: "board" | "card"; project_uid: string; card_uid?: string }[];
     key: string;
     source: "notification" | "project_activity" | "smtp_attempt";
     record_kind?: "smtp_attempt" | "outbox_latest";
@@ -16,6 +18,7 @@ interface IDelivery {
     completed_at?: string | null;
     subject?: string | null;
     outbox_key?: string | null;
+    recorded_attempt_count?: number | null;
     uid: string;
     created_at: string;
     claimed_at: string | null;
@@ -230,6 +233,21 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
                                     ["trigger", detail.trigger],
                                     ["template", detail.template || t("settings.mail.notRecorded")],
                                     ["attemptEvidence", t(`settings.mail.evidence_${attempt}`)],
+                                    ["recordedAttemptCount", detail.recorded_attempt_count?.toString() ?? t("settings.mail.notRecorded")],
+                                    [
+                                        "retryProvenance",
+                                        t(
+                                            `settings.mail.${
+                                                detail.recorded_attempt_count == null
+                                                    ? "retryUnknown"
+                                                    : detail.recorded_attempt_count === 0
+                                                      ? "noRecordedAttempts"
+                                                      : detail.recorded_attempt_count === 1
+                                                        ? "oneRecordedAttempt"
+                                                        : "multipleRecordedAttempts"
+                                            }`
+                                        ),
+                                    ],
                                     [
                                         "safeError",
                                         detail.safe_error_code
@@ -243,6 +261,26 @@ export default function MailDeliveryHistory({ isCurrent, onPermissionDenied }: {
                                     </div>
                                 ))}
                             </dl>
+                            {!!detail.resources?.length && (
+                                <nav aria-label={t("settings.mail.relatedResources")}>
+                                    {detail.resources.map((resource) => (
+                                        <a
+                                            key={`${resource.kind}:${resource.project_uid}:${resource.card_uid ?? ""}`}
+                                            className="underline"
+                                            href={
+                                                resource.kind === "card" && resource.card_uid
+                                                    ? ROUTES.BOARD.CARD(
+                                                          encodeURIComponent(resource.project_uid),
+                                                          encodeURIComponent(resource.card_uid)
+                                                      )
+                                                    : ROUTES.BOARD.MAIN(encodeURIComponent(resource.project_uid))
+                                            }
+                                        >
+                                            {t(`settings.mail.${resource.kind === "card" ? "relatedCard" : "relatedBoard"}`)}
+                                        </a>
+                                    ))}
+                                </nav>
+                            )}
                             <p>{t("settings.mail.historyUnknown")}</p>
                             <p>{t("settings.mail.inboxUnverified")}</p>
                         </section>

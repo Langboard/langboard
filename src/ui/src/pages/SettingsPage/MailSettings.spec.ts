@@ -517,6 +517,7 @@ for (const [locale, historyLabel, viewLabel, legacyLabel] of [
             subject: "Langboard SMTP test message",
             trigger: "smtp_test",
             outbox_key: "notification:01234567890",
+            recorded_attempt_count: 3,
         };
         const queries: URLSearchParams[] = [];
         await page.route("**/settings/mail/deliveries?*", (r) => {
@@ -532,6 +533,13 @@ for (const [locale, historyLabel, viewLabel, legacyLabel] of [
         await expect(page.getByText("smtp_test", { exact: true })).toBeVisible();
         await expect(page.getByText(attempt.completed_at, { exact: true })).toBeVisible();
         await expect(page.getByText(attempt.outbox_key, { exact: true })).toBeVisible();
+        const provenance = {
+            "en-US": "Multiple associated SMTP attempts recorded.",
+            "ko-KR": "연결된 SMTP 시도가 여러 건 기록되었습니다.",
+            "ja-JP": "関連するSMTP試行が複数記録されています。",
+            "zh-CN": "已记录多次关联的SMTP尝试。",
+        };
+        await expect(page.getByText(provenance[locale as keyof typeof provenance], { exact: false })).toBeVisible();
         await page.getByRole("combobox", { name: viewLabel, exact: true }).selectOption({ label: legacyLabel });
         await page.getByRole("button", { name: historyLabel, exact: true }).click();
         expect(queries.map((query) => query.get("view"))).toEqual(["attempts", "legacy"]);
@@ -540,4 +548,70 @@ for (const [locale, historyLabel, viewLabel, legacyLabel] of [
         await expect(page.getByText(/settings\.mail\./)).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
+}
+
+for (const [count, message] of [
+    [null, "No shared outbox identity."],
+    [0, "No associated SMTP attempts recorded."],
+    [1, "One associated SMTP attempt recorded."],
+    [3, "Multiple associated SMTP attempts recorded."],
+] as const) {
+    test(`recorded attempt count ${count} preserves unknown retry intent`, async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.route("**/settings/mail/configuration", (r) => r.fulfill({ headers, json: configuration }));
+        const item = { ...delivery, recorded_attempt_count: count, trigger: "signup", retry_history: null };
+        await page.route("**/settings/mail/deliveries?*", (r) => r.fulfill({ headers, json: { items: [item], next_cursor: null } }));
+        await page.route("**/settings/mail/deliveries/notification/*", (r) => r.fulfill({ headers, json: item }));
+        await page.goto(fixture);
+        await page.getByRole("button", { name: "Load history", exact: true }).click();
+        await page.getByRole("button", { name: /01234567890/ }).click();
+        await expect(page.getByText(message, { exact: false })).toBeVisible();
+        const countRow = page.locator("dl > div").filter({ has: page.getByText("Recorded SMTP attempt count", { exact: true }) });
+        await expect(countRow.locator("dd")).toHaveText(count === null ? "Not recorded / unavailable" : String(count));
+        await expect(page.getByText("signup", { exact: true })).toBeVisible();
+        await expect(page.getByText(/settings\.mail\./)).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        if (count === 3)
+            await page.screenshot({ path: "../../.verification/mail-attempt-provenance-20261025/recorded-count-mobile.png", fullPage: true });
+    });
+}
+
+for (const width of [1280, 390]) {
+    for (const kind of ["board", "card", "denied"] as const) {
+        test(`native related ${kind} detail reference at ${width}px`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 844 });
+            await page.route("**/settings/mail/configuration", (r) => r.fulfill({ headers, json: configuration }));
+            await page.route("**/settings/mail/deliveries?*", (r) => r.fulfill({ headers, json: { items: [delivery], next_cursor: null } }));
+            await page.route("**/settings/mail/deliveries/notification/*", (r) =>
+                r.fulfill({
+                    headers,
+                    json: {
+                        ...delivery,
+                        linked_ids: { card_id: "untrusted-id" },
+                        resources:
+                            kind === "denied"
+                                ? []
+                                : [{ kind, project_uid: "board/encoded", ...(kind === "card" ? { card_uid: "card?encoded" } : {}) }],
+                    },
+                })
+            );
+            await page.goto(fixture);
+            await page.getByRole("button", { name: "Load history", exact: true }).click();
+            await expect(page.getByRole("navigation", { name: "Related resources" })).toHaveCount(0);
+            await page.getByRole("button", { name: "View delivery 01234567890", exact: true }).click();
+            if (kind === "denied") {
+                await expect(page.getByRole("region", { name: "Delivery detail" })).toBeVisible();
+                await expect(page.getByRole("navigation", { name: "Related resources" })).toHaveCount(0);
+            } else {
+                const link = page.getByRole("link", { name: kind === "card" ? "Open card" : "Open board", exact: true });
+                await expect(link).toHaveAttribute("href", kind === "card" ? "/board/board%2Fencoded/card%3Fencoded" : "/board/board%2Fencoded");
+                await link.focus();
+                await expect(link).toBeFocused();
+            }
+            await expect(page.getByText("untrusted-id")).toHaveCount(0);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            if (kind === "card" && width === 390)
+                await page.screenshot({ path: "../../.verification/mail-resource-authority-20261025/resources-mobile.png", fullPage: true });
+        });
+    }
 }
