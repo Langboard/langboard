@@ -38,6 +38,9 @@ on:
       - src/ui/playwright.card-decision.config.ts
       - src/ui/playwright.personal-signal-inbox.config.ts
       - src/ui/playwright.user-login-range.config.ts
+      - src/ui/playwright.settings-mail.config.ts
+      - src/ui/src/pages/SettingsPage/MailSettings*
+      - src/ui/src/assets/locales/*/settings.json
       - src/ui/playwright.filter.config.ts
       - src/ui/src/pages/BoardPage/components/board/BoardFilter*
       - src/ui/src/pages/BoardPage/components/board/useBoardFilterPreferences.ts
@@ -148,6 +151,11 @@ jobs:
         working-directory: src/ui
       - name: Verify user login range and business activity controls
         run: yarn playwright test -c playwright.user-login-range.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify administrator SMTP diagnostics
+        run: yarn playwright test -c playwright.settings-mail.config.ts
         env:
           CI: "true"
         working-directory: src/ui

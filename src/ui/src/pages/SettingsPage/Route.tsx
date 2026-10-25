@@ -26,6 +26,7 @@ const routes: RouteObject[] = [
             </AuthGuard>
         ),
         children: [
+            { path: ROUTES.SETTINGS.MAIL, element: <></> },
             {
                 index: true,
                 element: <Navigate to={ROUTES.SETTINGS.API_KEYS} replace />,

@@ -66,6 +66,7 @@ export const ROUTES = {
     APPS: { ROUTE: "/apps", DETAIL: (key: string) => `/apps/${encodeURIComponent(key)}` },
     SETTINGS: {
         ROUTE: "/settings",
+        MAIL: "/settings/mail",
         API_KEYS: "/settings/api-keys",
         APPS: "/settings/apps",
         APP_GROUPS: "/settings/app-groups",
