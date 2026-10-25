@@ -313,7 +313,11 @@ class CardCommentCompactionService(BaseDomainService):
             if record.status != "completed":
                 return {**result, "error_code": record.error_code}
             binding = self._get_service(InternalBotService).get_comment_compaction_binding()
-            return self._completed_block(db, project, card, record, binding, result)
+            block = self._completed_block(db, project, card, record, binding, result)
+            if block["status"] == "completed":
+                blocks = self._current_blocks(db, project, card, binding)
+                block["has_more_sources"] = self._has_uncovered_sources(db, project, card, blocks)
+            return block
 
     def _completed_block(self, db, project, card, record, binding, result):
         """Internal projection; callers must first authorize the current reader or profile."""
@@ -332,17 +336,19 @@ class CardCommentCompactionService(BaseDomainService):
             draft = validate_compaction_draft(json.dumps(record.draft), set(refs)).model_dump(mode="json")
         except (ValueError, TypeError):
             return {**result, "status": "invalidated", "reason": "invalid_result"}
-        kind, uid = self._identity(last.evidence_ref)
-        events = self._events(project, card)
-        has_more = db.exec(select(events.c.id).where(events.c.active, or_(
-            events.c.created_at > last.created_at,
-            and_(events.c.created_at == last.created_at, events.c.id > uid),
-            and_(events.c.created_at == last.created_at, events.c.id == uid, events.c.kind > kind),
-        )).limit(1)).first() is not None
         return {**result, "draft": draft, "evidence_refs": refs, "range_end": last.evidence_ref,
                 "generated_by": {"uid": binding.get_uid(), "display_name": binding.display_name},
-                "source_revision": record.source_revision, "has_more_sources": has_more,
+                "source_revision": record.source_revision,
                 "covered_from": first.created_at.isoformat(), "covered_through": last.created_at.isoformat()}
+
+    def _has_uncovered_sources(self, db, project, card, blocks):
+        """Continuation depends on current disjoint coverage, never event age."""
+        covered = {ref for block in blocks for ref in block["evidence_refs"]}
+        events = self._events(project, card)
+        query = select(events.c.id).where(events.c.active)
+        if covered:
+            query = query.where(tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered]))
+        return db.exec(query.limit(1)).first() is not None
 
     @staticmethod
     def _comment_characters(events):
@@ -459,15 +465,26 @@ class CardCommentCompactionService(BaseDomainService):
 
     def _valid_blocks(self, user, project, card, *, channel):
         """Choose current disjoint ranges; superseded summaries never hide sources."""
-        with DbSession.use(readonly=False) as db:
-            rows = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
-                CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
-            ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
+        with DbSession.atomic() as db:
+            project, card, _ = self._authorize(user, project, card, channel)
+            binding = self._get_service(InternalBotService).get_comment_compaction_binding()
+            blocks = self._current_blocks(db, project, card, binding, user=user)
+            has_more = self._has_uncovered_sources(db, project, card, blocks)
+            return [{**block, "has_more_sources": has_more} for block in blocks]
+
+    def _current_blocks(self, db, project, card, binding, *, user=None):
+        """Internal selection; the caller must authorize the human or profile."""
+        rows = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
+            CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
+        ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
         blocks, covered = [], set()
         for record in rows:
             if covered.intersection(source["evidence_ref"] for source in record.source_manifest):
                 continue
-            block = self.get(user, project, card, record.id, channel=channel)
+            result = {"status": "completed", "uid": record.get_uid()}
+            if user is not None and record.user_id == user.id:
+                result["request_key"] = record.request_key
+            block = self._completed_block(db, project, card, record, binding, result)
             if block["status"] != "completed" or covered.intersection(block["evidence_refs"]):
                 continue
             covered.update(block["evidence_refs"])
@@ -710,17 +727,8 @@ class CardCommentCompactionService(BaseDomainService):
         with DbSession.atomic() as db:
             project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id, rule_id=rule_id)
             binding_revision = provider_revision(binding)
-            covered, blocks = set(), []
-            rows = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
-                CardCommentCompaction.card_id == card.id, CardCommentCompaction.status == "completed",
-            ).order_by(CardCommentCompaction.created_at.desc(), CardCommentCompaction.id.desc())).all()
-            for row in rows:
-                if covered.intersection(source["evidence_ref"] for source in row.source_manifest):
-                    continue
-                block = self._completed_block(db, project, card, row, binding, {"status": "completed", "uid": row.get_uid()})
-                if block["status"] == "completed" and not covered.intersection(block["evidence_refs"]):
-                    covered.update(block["evidence_refs"])
-                    blocks.append(block)
+            blocks = self._current_blocks(db, project, card, binding)
+            covered = {ref for block in blocks for ref in block["evidence_refs"]}
             volume = self._uncovered_comment_volume(db, project, card, covered)
             threshold = self._configured_threshold(db, card, rule_id=rule_id)
             if threshold is None:
@@ -772,12 +780,24 @@ class CardCommentCompactionService(BaseDomainService):
                     code = error.code if error.code in {"source_changed", "provider_changed"} else "permission_changed"
                     self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
         # Only a receipt leaves the worker. Readers use the existing authorized projection.
-        with DbSession.use(readonly=False) as db:
+        with DbSession.atomic() as db:
             current = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(CardCommentCompaction.id == record.id)
                               .execution_options(populate_existing=True)).first()
             from ...models import WorkflowEffectRun
             effect = db.exec(SqlBuilder.select.table(WorkflowEffectRun).where(
                 WorkflowEffectRun.execution_key == f"comment_compaction:{current.get_uid()}:{current.attempt}")).first()
+            # Inference may have admitted new originals, or failed without
+            # publishing coverage. Inspect only under the profile's current
+            # authority; lost authority makes continuation unknown.
+            has_more = None
+            try:
+                fresh_project, fresh_binding, fresh_card, _ = self._automatic_context(
+                    db, project_id, profile_id, card_id, rule_id=rule_id)
+            except CommentCompactionError:
+                pass
+            else:
+                current_blocks = self._current_blocks(db, fresh_project, fresh_card, fresh_binding)
+                has_more = self._has_uncovered_sources(db, fresh_project, fresh_card, current_blocks)
             return {"uid": current.get_uid(), "status": current.status,
                     "error_code": current.error_code, "has_more_sources": has_more,
                     "legacy_effect_run_uid": effect.get_uid() if effect else None}
@@ -852,13 +872,11 @@ class CardCommentCompactionService(BaseDomainService):
                     self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
         # Recheck visibility and source validity before returning any derived text.
         result = self.get(user, project_id, card_id, record.id, channel=channel)
-        # Recheck continuation after inference: newly arrived originals were
-        # not in the snapshot, while omitted valid summaries remain covered.
-        events = self._events(project, card)
-        covered = {ref for block in blocks for ref in block["evidence_refs"]}
-        covered.update(entry["evidence_ref"] for entry in snapshot.evidence_manifest())
-        with DbSession.use(readonly=False) as db:
-            has_more = db.exec(select(events.c.id).where(events.c.active,
-                tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered])
-            ).limit(1)).first() is not None
-        return {**result, "has_more_sources": has_more}
+        if result["status"] == "completed":
+            return result
+        # Failed or in-flight snapshots have not covered any new sources.
+        with DbSession.atomic() as db:
+            project, card, _ = self._authorize(user, project_id, card_id, channel)
+            binding = self._get_service(InternalBotService).get_comment_compaction_binding()
+            blocks = self._current_blocks(db, project, card, binding)
+            return {**result, "has_more_sources": self._has_uncovered_sources(db, project, card, blocks)}

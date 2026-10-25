@@ -161,6 +161,32 @@ async def test_automatic_command_uses_profile_and_reuses_valid_coverage(automati
     assert (run.actor_type, run.actor_id, run.source, run.status) == ("profile", binding.id, "continuous", "succeeded")
 
 
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+async def test_automatic_receipt_rechecks_actual_uncovered_sources_after_inference(automatic_command, monkeypatch, outcome):
+    (service, actor, project, card, binding, *_), _, stage = automatic_command
+
+    async def generate(_, snapshot):
+        with DbSession.atomic() as db:
+            db.insert(CardComment(card_id=card.id, user_id=actor.id,
+                                  content=EditorContentModel(content="New evidence during automatic inference")))
+            if outcome == "cancelled":
+                record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+                assert service.repo.card_comment_compaction.cancel(record)
+        if outcome == "failed":
+            raise RuntimeError("Controlled provider failure")
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    receipt = await service.generate_automatic(project, binding, card, rule_id=rule_id(stage))
+    assert receipt["status"] == outcome and receipt["has_more_sources"] is True
+    if outcome == "completed":
+        assert service.get(actor, project, card, receipt["uid"])["has_more_sources"] is True
+    else:
+        with DbSession.use(readonly=False) as db:
+            record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+        assert record.draft is None
+
+
 @pytest.mark.parametrize("mutation", ["revoke", "policy", "inactive", "column", "archive", "source", "provider"])
 async def test_automatic_command_rechecks_authority_policy_and_sources(automatic_command, monkeypatch, mutation):
     from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
@@ -197,6 +223,7 @@ async def test_automatic_command_rechecks_authority_policy_and_sources(automatic
     receipt = await service.generate_automatic(project, binding, card, rule_id=rule_id(automatic_command[2]))
     expected = "source_changed" if mutation == "source" else "provider_changed" if mutation == "provider" else "permission_changed"
     assert receipt["status"] == "failed" and receipt["error_code"] == expected
+    assert receipt["has_more_sources"] is (True if mutation == "source" else None)
     with DbSession.use(readonly=False) as db:
         record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
     assert record.draft is None
@@ -1575,6 +1602,10 @@ async def test_cumulative_selects_bounded_prior_blocks_preserving_unselected_evi
     monkeypatch.setattr(command, "request_compaction_draft", summarize)
     result = await service.generate(actor, project, card)
     assert result["status"] == "completed" and not result["has_more_sources"]
+    assert not service.get(actor, project, card, result["uid"])["has_more_sources"]
+    assert not (await service.generate(actor, project, card, expected_request_key=result["request_key"]))["has_more_sources"]
+    assert not next(row for row in service.get_page(actor, project, card)["records"]
+                    if row["uid"] == result["uid"])["has_more_sources"]
     assert len(inputs) == 1
     assert len(result["evidence_refs"]) == 22  # 20 priors, original comment, movement.
     blocks = service._valid_blocks(actor, project, card, channel=command.CollaborationChannel.Api)
@@ -1615,6 +1646,50 @@ async def test_cumulative_prior_character_budget_and_required_refs_retry(compact
     assert inputs[0].evidence_manifest() == inputs[1].evidence_manifest()
     assert inputs[0].prior_summaries == inputs[1].prior_summaries
     assert f"comment:{unrelated.get_uid()}" not in retried["evidence_refs"]
+
+
+@pytest.mark.parametrize("kind", ["comment", "activity"])
+async def test_completed_readback_finds_uncovered_older_events(compact_command, monkeypatch, kind):
+    service, actor, project, card, _, comment, *_ = compact_command
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    result = await service.generate(actor, project, card)
+    older = comment.created_at - timedelta(days=1)
+    with DbSession.atomic() as db:
+        if kind == "comment":
+            db.insert(CardComment(card_id=card.id, user_id=actor.id, created_at=older,
+                                  content=EditorContentModel(content="Earlier original not yet compressed")))
+        else:
+            db.insert(ProjectActivity(project_id=project.id, card_id=card.id, user_id=actor.id, created_at=older,
+                activity_type=ProjectActivityType.CardMoved,
+                activity_history={"from_column": {"name": "Backlog"}, "column": {"name": "Request"}}))
+    assert service.get(actor, project, card, result["uid"])["has_more_sources"]
+    assert (await service.generate(actor, project, card, expected_request_key=result["request_key"]))["has_more_sources"]
+    assert service.get_page(actor, project, card)["records"][0]["has_more_sources"]
+
+
+async def test_readback_coverage_excludes_invalid_blocks_and_superseded_overlap(compact_command, monkeypatch):
+    service, actor, project, card, binding, comment, move, _ = compact_command
+    repository = service.repo.card_comment_compaction
+    refs = [f"comment:{comment.get_uid()}", f"activity:{move.get_uid()}"]
+    # A valid old block covers both events. A newer overlapping block covers
+    # only the movement, leaving the comment visible under latest-wins rules.
+    whole, _ = service._snapshot(project, card, refs=refs)
+    old = repository.claim(repository.reserve(card, actor, binding, whole))
+    assert repository.complete(old, old.attempt, whole, binding, draft(whole))
+    movement, _ = service._snapshot(project, card, refs=[refs[1]])
+    new = repository.claim(repository.reserve(card, actor, binding, movement))
+    assert repository.complete(new, new.attempt, movement, binding, draft(movement))
+    assert service.get(actor, project, card, new.id)["has_more_sources"]
+    monkeypatch.setattr(command, "request_compaction_draft", AsyncMock(side_effect=lambda _, snapshot: draft(snapshot)))
+    latest = await service.generate(actor, project, card)
+    assert not latest["has_more_sources"]
+    # Invalidating the newest whole block must restore its changed source;
+    # stale manifests and superseded older blocks cannot cover it.
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(
+            content=EditorContentModel(content="Changed original after compression")))
+    assert service.get(actor, project, card, latest["uid"])["status"] == "invalidated"
+    assert service.get(actor, project, card, new.id)["has_more_sources"]
 
 
 @pytest.mark.parametrize("size", [120_001, 510_001])
