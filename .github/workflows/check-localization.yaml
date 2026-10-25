@@ -148,7 +148,7 @@ jobs:
         working-directory: src/ui
       - run: yarn test:schedule-admission
         working-directory: src/ui
-      - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts
+      - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts src/core/helpers/setupApiErrorHandler.test.ts src/components/Editor/useChat.test.ts
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
         working-directory: src/ui

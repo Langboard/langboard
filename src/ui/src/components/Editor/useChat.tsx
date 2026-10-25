@@ -2,6 +2,8 @@
 "use client";
 
 import * as React from "react";
+import { t } from "i18next";
+import Toast from "@/components/base/Toast";
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { ISocketContext } from "@/core/providers/SocketProvider";
 import { useChat as useBaseChat, UseChatHelpers } from "@ai-sdk/react";
@@ -484,6 +486,7 @@ export const useChat = (props: IUseChat): IUseEditorChat => {
         id: `editor:${eventKey}`,
         transport,
         resume: true,
+        onError: () => Toast.Add.error(t("errors.Internal server error")),
     });
 
     const abort = React.useCallback(() => {
