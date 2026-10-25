@@ -337,6 +337,47 @@ def test_persistent_own_connections_cas_role_and_membership_revocation(native):
             migration.downgrade()
 
 
+async def test_new_membership_never_expands_connection_and_read_only_guest_cannot_write(native):
+    engine, user, other, boards = native
+    with engine.begin() as db:
+        db.execute(ProjectAssignedUser.__table__.delete().where(ProjectAssignedUser.project_id == 20))
+        db.execute(update(ProjectRole).where(ProjectRole.project_id == 20).values(actions=["read"]))
+    connection = connect_native_client(user, "shared-client")
+    other_connection = connect_native_client(other, "shared-client")
+    assert other_connection.id != connection.id
+    assert connect_native_client(user, "shared-client").id == connection.id
+    save_native_board_consent(user, connection.id, 10, ["read"], None)
+    with pytest.raises(AppGovernanceDenied):
+        save_native_board_consent(user, connection.id, 20, ["read"], None)
+    # Persist the result of accepting an invitation. Membership alone is no grant.
+    with Session(engine) as db:
+        db.add(ProjectAssignedUser(id=50, project_id=20, user_id=user.id))
+        db.commit()
+    assert effective_board_ids(user, connection.id, "read") == {10}
+    assert effective_board_ids(other, other_connection.id, "read") == set()
+    with pytest.raises(AppGovernanceDenied):
+        save_native_board_consent(user, connection.id, 20, ["read", "write"], None)
+    save_native_board_consent(user, connection.id, 20, ["read"], None)
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user,
+                                 "native_connection_id": connection.id})
+    try:
+        async with native_call_boundary("get_card", {"project_uid": boards[1].get_uid()}):
+            with Session(engine) as db:
+                assert [card.id for card in db.scalars(select(Card).where(Card.id == 220))] == [220]
+        with pytest.raises(AuthorizationError):
+            async with native_call_boundary("update_wiki", {"project_uid": boards[1].get_uid()}):
+                pytest.fail("read-only external member obtained write authority")
+        with engine.begin() as db:
+            db.execute(ProjectAssignedUser.__table__.delete().where(ProjectAssignedUser.project_id == 20))
+        with pytest.raises(AuthorizationError):
+            async with native_call_boundary("get_card", {"project_uid": boards[1].get_uid()}):
+                pytest.fail("removed external member retained board access")
+        assert effective_board_ids(user, connection.id, "read") == {10}
+        assert list_native_connections(user) == [{"uid": connection.get_uid(), "client_id": "shared-client"}]
+    finally:
+        mcp_auth_context.reset(token)
+
+
 @pytest.mark.parametrize("authority_loss", ["membership", "read_role", "deleted_board"])
 def test_connection_owner_can_revoke_existing_consent_after_board_authority_loss(native, authority_loss):
     engine, user, other, _ = native

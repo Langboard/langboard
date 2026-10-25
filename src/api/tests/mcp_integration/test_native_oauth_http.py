@@ -200,7 +200,7 @@ async def test_signed_bearer_http_checks_identity_scope_and_revocation(monkeypat
 
 
 @pytest.mark.parametrize("name,offset", [("get_card", 200), ("read_wiki_content", 400)])
-@pytest.mark.parametrize("revocation", ["consent", "membership"])
+@pytest.mark.parametrize("revocation", ["consent", "membership", "inactive_user", "deleted_user"])
 async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
     native, monkeypatch, tmp_path, revocation, name, offset,  # noqa: F811 - imported pytest fixture
 ):
@@ -214,6 +214,7 @@ async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
         CardExecutionGeneration,
         ProjectAssignedUser,
         ProjectWiki,
+        User,
         UserIdentityLink,
     )
     from langboard_shared.domain.models.UserIdentityLink import IdentityProvider
@@ -353,17 +354,27 @@ async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
         # Both boards are now consented; a forged project/resource pair still fails.
         call(name, boards[0].get_uid(), SnowflakeID(20 + offset).to_short_code(), allowed=False)
 
+        # Revoke B after granting A and B; the same bearer must preserve A.
         if revocation == "consent":
-            grant = read_native_board_consent(user, connection.id, 10)
-            save_native_board_consent(user, connection.id, 10, [], grant["revision"])
+            grant = read_native_board_consent(user, connection.id, 20)
+            save_native_board_consent(user, connection.id, 20, [], grant["revision"])
         else:
+            from langboard_shared.core.types import SafeDateTime
+
             with Session(engine) as db:
-                db.execute(delete(ProjectAssignedUser).where(
-                    ProjectAssignedUser.project_id == 10, ProjectAssignedUser.user_id == user.id,
-                ))
+                if revocation == "membership":
+                    db.execute(delete(ProjectAssignedUser).where(
+                        ProjectAssignedUser.project_id == 20, ProjectAssignedUser.user_id == user.id,
+                    ))
+                else:
+                    values = ({"activated_at": None} if revocation == "inactive_user"
+                              else {"deleted_at": SafeDateTime.now()})
+                    db.execute(update(User).where(User.id == user.id).values(**values))
                 db.commit()
-        call(name, boards[0].get_uid(), SnowflakeID(10 + offset).to_short_code(), allowed=False)
-        call(name, boards[1].get_uid(), SnowflakeID(20 + offset).to_short_code(), allowed=True)
-        connections = list_native_connections(user)
-        assert connections == [{"uid": connection.get_uid(), "client_id": "native-client"}]
+        user_revoked = revocation in {"inactive_user", "deleted_user"}
+        call(name, boards[0].get_uid(), SnowflakeID(10 + offset).to_short_code(), allowed=not user_revoked)
+        call(name, boards[1].get_uid(), SnowflakeID(20 + offset).to_short_code(), allowed=False)
+        if not user_revoked:
+            connections = list_native_connections(user)
+            assert connections == [{"uid": connection.get_uid(), "client_id": "native-client"}]
     assert mcp_auth_context.get() is before
