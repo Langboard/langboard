@@ -11,6 +11,7 @@ const useGetTrackingList = (limit: number = 30, options?: TMutationOptions) => {
     const isFetchingRef = useRef(false);
     const lastCurrentDateRef = useRef(new Date());
     const pageRef = useRef(0);
+    const mountedRef = useRef(false);
 
     const getTrackingList = async () => {
         if ((isLastPage && pageRef.current) || isFetchingRef.current) {
@@ -32,6 +33,8 @@ const useGetTrackingList = (limit: number = 30, options?: TMutationOptions) => {
                 } as never,
             });
 
+            if (!mountedRef.current) return {};
+
             Project.Model.fromArray(res.data.projects, true);
             ProjectCard.Model.fromArray(res.data.cards, true);
             ProjectCheckitem.Model.fromArray(res.data.checkitems, true);
@@ -49,26 +52,26 @@ const useGetTrackingList = (limit: number = 30, options?: TMutationOptions) => {
         }
     };
 
-    useEffect(() => {
-        if (pageRef.current) {
-            return;
-        }
-
-        lastCurrentDateRef.current = new Date();
-        const initialLoad = setTimeout(() => {
-            void getTrackingList().catch(() => {});
-        }, 0);
-
-        return () => {
-            clearTimeout(initialLoad);
-            pageRef.current = 0;
-        };
-    }, []);
-
     const result = mutate(["get-dashboard-tracking-list"], getTrackingList, {
         ...options,
         retry: 0,
     });
+    const { mutateAsync } = result;
+
+    useEffect(() => {
+        mountedRef.current = true;
+        lastCurrentDateRef.current = new Date();
+        const initialLoad = setTimeout(() => {
+            // Initial and subsequent requests share observable mutation state.
+            void mutateAsync({}).catch(() => {});
+        }, 0);
+
+        return () => {
+            clearTimeout(initialLoad);
+            mountedRef.current = false;
+        };
+    }, [mutateAsync]);
+
     return { ...result, isLastPage, checkitemUIDs, isFetchingRef };
 };
 
