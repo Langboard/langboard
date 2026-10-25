@@ -166,12 +166,19 @@ const BoardProxy = memo((): React.JSX.Element => {
         navigate(`${ROUTES.BOARD.CARD(canonicalProjectUID, pageRoute)}${location.search}${location.hash}`, { replace: true, state: location.state });
     }, [canonicalProjectUID, isCardRoute, projectUID, pageRoute, locationLoop, location.search, location.hash, location.state, navigate]);
 
+    const session = useAuthStore((state) => state.getSessionVersion());
+    const projectScope = JSON.stringify([projectUID, currentUser?.uid, session]);
+    const acceptedProjectScope = useRef<string | undefined>(undefined);
+    // Resolving a card must not disable the already authorized board query or
+    // unmount its realtime owners. A different board or session still starts cold.
+    const retainBoard = acceptedProjectScope.current === projectScope;
     const { data, isFetching, error, refetch } = useGetProject(
         { uid: projectUID },
-        { enabled: locationReady, placeholderData: isCardRoute ? undefined : keepPreviousData }
+        { enabled: locationReady || retainBoard, placeholderData: isCardRoute ? undefined : keepPreviousData }
     );
     const { send: sendBoardBotStatusMap } = useBoardBotStatusMapHandlers({ projectUID });
-    const hasCurrentProject = locationReady && !!data && data.project.uid === projectUID;
+    const hasCurrentProject = (locationReady || retainBoard) && !!data && data.project.uid === projectUID;
+    if (hasCurrentProject && !error) acceptedProjectScope.current = projectScope;
 
     useEffect(() => {
         if (!error || !locationReady) {
@@ -224,7 +231,7 @@ const BoardProxy = memo((): React.JSX.Element => {
         };
     }, [hasCurrentProject, projectUID]);
 
-    if (!locationReady) {
+    if (!locationReady && (!hasCurrentProject || cardLocation.error || locationLoop)) {
         return cardLocation.error || locationLoop ? (
             <BoardLoadError isFetching={cardLocation.isFetching} retry={() => void cardLocation.refetch()} />
         ) : (
@@ -237,7 +244,12 @@ const BoardProxy = memo((): React.JSX.Element => {
     }
 
     return (
-        <BoardProxyDisplay project={data.project} pageRoute={pageRoute} isFetching={isFetching} isProjectLoading={data.project.uid !== projectUID} />
+        <BoardProxyDisplay
+            project={data.project}
+            pageRoute={locationReady ? pageRoute : ""}
+            isFetching={isFetching}
+            isProjectLoading={data.project.uid !== projectUID}
+        />
     );
 });
 

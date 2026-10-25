@@ -2010,7 +2010,7 @@ test("sidebar transitions respect reduced motion and keep ordinary dragging imme
     await expect.poll(async () => (await transitions()).property).toBe("none");
 });
 
-test("native dashboard-to-board pending split registration preserves physical chrome and blocks stale controls", async ({ page }) => {
+async function nativeWorkbenchFixture(page: Page, holdBoard = false) {
     const now = new Date().toISOString();
     const user = {
         uid: "measure-user",
@@ -2065,6 +2065,8 @@ test("native dashboard-to-board pending split registration preserves physical ch
         project_members: [],
         labels: [],
         relationships: [],
+        last_change_seq: 1,
+        has_unread_change: false,
         has_description: true,
         description: { content: "Measured native card body" },
         visibility: "SHARED",
@@ -2080,13 +2082,13 @@ test("native dashboard-to-board pending split registration preserves physical ch
     });
     const http: { method: string; path: string; startMs: number; endMs?: number }[] = [];
     const errors: string[] = [];
-    const socket: unknown[] = [];
+    let sendSocket: ((message: string) => void) | undefined;
     page.on("pageerror", (e) => errors.push(e.message));
     await page.routeWebSocket(/.*/, (ws) =>
         ws.onMessage((raw) => {
             if (!String(raw).startsWith("{")) return;
             const m = JSON.parse(String(raw));
-            socket.push(m);
+            if (["subscribe", "unsubscribe"].includes(m.event)) sendSocket = (message) => ws.send(message);
             if (["subscribe", "unsubscribe"].includes(m.event))
                 ws.send(JSON.stringify({ ...m, event: m.event === "subscribe" ? "subscribed" : "unsubscribed" }));
         })
@@ -2107,11 +2109,13 @@ test("native dashboard-to-board pending split registration preserves physical ch
             const uid = path.split("/")[2];
             let json: unknown = { records: [], next_cursor: null, items: [], executions: [], decisions: [], comments: [] };
             if (new URL(request.url()).searchParams.has("location_only")) json = { canonical_project_uid: uid, card_uid: path.split("/")[4] };
+            else if (path.endsWith("/seen")) json = { card_uid: path.split("/")[4], seen_change_seq: 1 };
             else if (path.startsWith("/auth/")) json = { access_token: "fixture-measurement-session", user, bots: [] };
             else if (path === `/board/${uid}`) {
-                await new Promise<void>((resolve) => {
-                    releaseBoard = resolve;
-                });
+                if (holdBoard)
+                    await new Promise<void>((resolve) => {
+                        releaseBoard = resolve;
+                    });
                 json = { project: projects.find((p) => p.uid === uid), project_bot_scopes: [], project_bot_schedules: [] };
             } else if (path === `/board/${uid}/cards`)
                 json = { cards: [card(uid)], columns: [column(uid)], checklists: [], global_relationships: [] };
@@ -2143,6 +2147,22 @@ test("native dashboard-to-board pending split registration preserves physical ch
         }
     );
 
+    return {
+        http,
+        errors,
+        boardPending: () => !!releaseBoard,
+        releaseBoard: () => releaseBoard!(),
+        revoke: (projectUID: string) => {
+            expect(sendSocket).toBeDefined();
+            sendSocket!(
+                JSON.stringify({ topic: ESocketTopic.Board, topic_id: projectUID, event: SocketEvents.SERVER.SUBSCRIPTION_REVOKED, data: {} })
+            );
+        },
+    };
+}
+
+test("native dashboard-to-board pending split registration preserves physical chrome and blocks stale controls", async ({ page }) => {
+    const { http, errors, boardPending, releaseBoard } = await nativeWorkbenchFixture(page, true);
     await page.goto("/src/components/Layout/workbench-shell.fixture.html?measure-native=1");
     const explorer = page.locator("[data-workbench-explorer]");
     await expect(explorer.getByRole("button", { name: "left0000001 board", exact: true }).first()).toBeVisible({ timeout: 45_000 });
@@ -2152,14 +2172,68 @@ test("native dashboard-to-board pending split registration preserves physical ch
     const notificationReads = () => http.filter((request) => request.path === "/notifications").length;
     const before = notificationReads();
     await explorer.getByRole("button", { name: "left0000001 board", exact: true }).first().click();
-    await expect.poll(() => !!releaseBoard).toBe(true);
+    await expect.poll(boardPending).toBe(true);
     // The focused board is still pending; old controls must remain mounted and inert.
     await expect(page.locator("[inert][aria-busy=true]")).toHaveCount(1);
     for (const node of [header, rail, sidebar]) expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
-    releaseBoard!();
+    releaseBoard();
     await expect(page.getByText("left0000001 measured card", { exact: true }).first()).toBeVisible();
     await expect(page.locator("[inert]")).toHaveCount(0);
     for (const node of [header, rail, sidebar]) expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
     expect(notificationReads()).toBe(before);
+    expect(errors).toEqual([]);
+});
+
+test("native card navigation retains board reads while project, session and revocation stay fresh", async ({ page }) => {
+    const { http, errors, revoke } = await nativeWorkbenchFixture(page);
+    const reads = (uid: string, from = 0) =>
+        http
+            .slice(from)
+            .filter(
+                ({ method, path }) => method === "GET" && [`/board/${uid}`, `/board/${uid}/cards`, `/metadata/project/${uid}/cards`].includes(path)
+            )
+            .map(({ path }) => path);
+    const freshReads = (uid: string) => [`/board/${uid}`, `/board/${uid}/cards`, `/metadata/project/${uid}/cards`];
+    const openBoard = async (uid: string) => {
+        await page
+            .locator("[data-workbench-explorer]")
+            .getByRole("button", { name: `${uid} board`, exact: true })
+            .first()
+            .click();
+        await expect(page.getByText(`${uid} measured card`, { exact: true }).first()).toBeVisible();
+    };
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?measure-native=1");
+    await openBoard("left0000001");
+    await expect.poll(() => reads("left0000001")).toEqual(freshReads("left0000001"));
+    const column = await page.getByText("left0000001 column", { exact: true }).first().elementHandle();
+    let from = http.length;
+    await page.getByText("left0000001 measured card", { exact: true }).first().click();
+    await expect(page.locator("[data-card-surface]").last()).toContainText("Measured native card body");
+    await expect.poll(() => http.slice(from).some(({ method, path }) => method === "POST" && path.endsWith("/seen"))).toBe(true);
+    // Opening an unchanged card still records its seen cursor, without replacing
+    // the authorized board snapshot or the mounted realtime owners.
+    expect(reads("left0000001", from)).toEqual([]);
+    expect(await column!.evaluate((element) => element.isConnected)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-card-surface]")).toHaveCount(0);
+    expect(reads("left0000001", from)).toEqual([]);
+    expect(await column!.evaluate((element) => element.isConnected)).toBe(true);
+
+    from = http.length;
+    await openBoard("right000001");
+    await expect.poll(() => reads("right000001", from)).toEqual(freshReads("right000001"));
+    from = http.length;
+    await page.evaluate(async () => {
+        const storePath = "/src/core/stores/AuthStore.ts";
+        const apiPath = "/src/core/helpers/Api.ts";
+        const { default: store } = await import(storePath);
+        const { api } = await import(apiPath);
+        await store.getState().updateToken("fixture-next-session", api);
+    });
+    await expect.poll(() => reads("right000001", from)).toEqual(freshReads("right000001"));
+    await expect(page.getByText("right000001 measured card", { exact: true }).first()).toBeVisible();
+    revoke("right000001");
+    await expect(page).toHaveURL(/dashboard\/projects\/all/);
+    await expect(page.getByText("right000001 column", { exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
 });
