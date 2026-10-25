@@ -330,3 +330,34 @@ def test_additive_migration_retains_plan_and_rejects_loss(native):
         with Operations.context(MigrationContext.configure(connection)):
             with pytest.raises(RuntimeError, match="Cannot discard"):
                 migration.downgrade()
+
+
+@pytest.mark.parametrize("origin", ["editor", "chat"])
+@pytest.mark.parametrize("deadline", ["not-a-deadline", "", 0, False, {}, [], "2026-13-01T00:00:00Z"])
+def test_malformed_deadline_cannot_create_unlimited_approval(native, deadline, origin):
+    _, repo, run, _, _, _, interrupt = native
+    changed = deepcopy(interrupt)
+    changed["value"]["expires_at"] = deadline
+    service = GraphApprovalRequestService(lambda _: None, lambda _: None, SimpleNamespace())
+    if origin == "chat":
+        changed["value"]["origin_type"] = "chat"
+        run = deepcopy(run)
+        run.chat_session_id = run.user_id
+        run.ai_chat_history_id = run.user_id
+    prepare = service.prepare_board_chat_interrupt if origin == "chat" else service.prepare_editor_interrupt
+    with pytest.raises(ValueError, match="approval expiry"):
+        prepare(run, changed)
+    assert repo.get_by_id(run.id).status == InternalBotRunStatus.AwaitingApproval
+
+
+@pytest.mark.parametrize("deadline", [None, "2027-01-02T03:04:05Z", "2027-01-02T12:04:05+09:00"])
+def test_approval_deadline_preserves_optional_and_utc_semantics(native, deadline):
+    from datetime import datetime, timezone
+
+    _, _, run, _, _, _, interrupt = native
+    changed = deepcopy(interrupt)
+    changed["value"]["expires_at"] = deadline
+    service = GraphApprovalRequestService(lambda _: None, lambda _: None, SimpleNamespace())
+    approval = service.prepare_editor_interrupt(run, changed)
+    expected = None if deadline is None else datetime(2027, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    assert approval.expires_at == expected

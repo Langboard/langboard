@@ -544,15 +544,18 @@ class GraphApprovalRequestService(BaseDomainService):
 
     @staticmethod
     def __parse_expires_at(value: SafeDateTime | datetime | str | None) -> SafeDateTime | None:
-        if isinstance(value, datetime):
-            return GraphApprovalRequestService.__to_safe_datetime(value)
-        if not value:
+        if value is None:
             return None
         try:
+            if isinstance(value, datetime):
+                return GraphApprovalRequestService.__to_safe_datetime(value)
+            if not isinstance(value, str) or not value:
+                raise ValueError("Invalid approval expiry")
             expires_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
             return GraphApprovalRequestService.__to_safe_datetime(expires_at)
-        except ValueError:
-            return None
+        except (ValueError, OverflowError, OSError) as error:
+            # A supplied invalid deadline must never become an unlimited approval.
+            raise ValueError("Invalid approval expiry") from error
 
     @staticmethod
     def __to_safe_datetime(value: datetime) -> SafeDateTime:
