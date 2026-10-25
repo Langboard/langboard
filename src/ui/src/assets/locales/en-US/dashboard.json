@@ -231,5 +231,6 @@
   "Go to attachment source pages": "Go to attachment source pages",
   "PDF source pages": "Search source: p. {{pages}}. PDF pages open in supported browser viewers.",
   "PDF inline unavailable": "This browser cannot display PDF pages inline. Download the PDF and open the requested page in a PDF viewer.",
-  "Download PDF": "Download PDF"
+  "Download PDF": "Download PDF",
+  "PDF document preview": "PDF document preview"
 }

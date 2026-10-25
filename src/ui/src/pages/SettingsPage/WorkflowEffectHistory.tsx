@@ -1,4 +1,4 @@
-import { workflowActionLabels } from "./WorkflowRuleEditor";
+import { workflowActionLabels, workflowConditionLabels, workflowEventLabel } from "./WorkflowRuleEditor";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -202,7 +202,7 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                 {t("settings.Revision")}: {run.rule_revision}
                             </p>
                             <p className="break-all">
-                                {t("settings.Trigger")}: {run.event_type} · {run.event_id}
+                                {t("settings.Trigger")}: {workflowEventLabel(run.event_type, t)} · {run.event_id}
                             </p>
                             <p className="break-all">
                                 {t("settings.Actor")}: {run.actor_type} {run.actor_uid}
@@ -225,7 +225,10 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
                                 <ul>
                                     {run.condition_results.map((condition, index) => (
                                         <li key={index}>
-                                            {condition.kind}: {t(condition.matched ? "settings.Matched" : "settings.Not matched")}
+                                            {workflowConditionLabels[condition.kind as keyof typeof workflowConditionLabels]
+                                                ? t(`settings.${workflowConditionLabels[condition.kind as keyof typeof workflowConditionLabels]}`)
+                                                : condition.kind}
+                                            : {t(condition.matched ? "settings.Matched" : "settings.Not matched")}
                                         </li>
                                     ))}
                                 </ul>

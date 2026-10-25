@@ -231,5 +231,6 @@
   "Go to attachment source pages": "첨부파일 출처 페이지로 이동",
   "PDF source pages": "검색 출처: {{pages}}쪽. 지원되는 브라우저 뷰어에서 PDF 페이지를 엽니다.",
   "PDF inline unavailable": "이 브라우저는 PDF 페이지의 인라인 표시를 지원하지 않습니다. PDF를 내려받아 PDF 뷰어에서 해당 페이지를 여세요.",
-  "Download PDF": "PDF 내려받기"
+  "Download PDF": "PDF 내려받기",
+  "PDF document preview": "PDF 문서 미리보기"
 }

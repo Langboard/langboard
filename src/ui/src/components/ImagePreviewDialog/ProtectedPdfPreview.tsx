@@ -36,7 +36,12 @@ export default function ProtectedPdfPreview({
                         )
                 )}
             {src && inlineSupported && (
-                <iframe key={`${src}-${page}`} title={name ?? "PDF"} src={`${src}#page=${page}`} className="h-[calc(100dvh-12rem)] w-full border-0" />
+                <iframe
+                    key={`${src}-${page}`}
+                    title={name ?? t("dashboard.PDF document preview")}
+                    src={`${src}#page=${page}`}
+                    className="h-[calc(100dvh-12rem)] w-full border-0"
+                />
             )}
             {!inlineSupported && <p>{t("dashboard.PDF inline unavailable")}</p>}
             {src && (

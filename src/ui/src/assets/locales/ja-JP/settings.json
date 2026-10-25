@@ -763,5 +763,6 @@
     "outboxKey": "関連アウトボックスキー",
     "evidence_smtp_rejected": "SMTPサーバーが試行を拒否",
     "attemptTimeout": "SMTP試行がタイムアウトしました。結果は不明です。"
-  }
+  },
+  "Workflow event label": "{{category}}：{{event}}"
 }

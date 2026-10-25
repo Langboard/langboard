@@ -763,5 +763,6 @@
     "outboxKey": "关联发件箱键",
     "evidence_smtp_rejected": "SMTP 服务器拒绝了该尝试",
     "attemptTimeout": "SMTP 尝试超时；结果未知。"
-  }
+  },
+  "Workflow event label": "{{category}}：{{event}}"
 }

@@ -763,5 +763,6 @@
     "outboxKey": "Associated outbox key",
     "evidence_smtp_rejected": "SMTP server rejected the attempt",
     "attemptTimeout": "SMTP attempt timed out; outcome is unknown."
-  }
+  },
+  "Workflow event label": "{{category}}: {{event}}"
 }

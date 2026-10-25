@@ -231,5 +231,6 @@
   "Go to attachment source pages": "添付ファイルの参照ページへ移動",
   "PDF source pages": "検索元: {{pages}}ページ。対応ブラウザーのビューアーでPDFページを開きます。",
   "PDF inline unavailable": "このブラウザーはPDFのインライン表示に対応していません。PDFをダウンロードし、PDFビューアーで該当ページを開いてください。",
-  "Download PDF": "PDFをダウンロード"
+  "Download PDF": "PDFをダウンロード",
+  "PDF document preview": "PDF ドキュメントのプレビュー"
 }

@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
-import { DomainEventType } from "@/core/events/DomainEventType";
+import type { TFunction } from "i18next";
+import { CARD_CATEGORIZED_EVENT_TYPES, DomainEventType } from "@/core/events/DomainEventType";
 import {
     IWorkflowBotOptions,
     IWorkflowRule,
@@ -15,7 +16,7 @@ import {
 
 const workflowEventTypes = Object.values(DomainEventType).filter((event) => event.startsWith("card_") && event !== DomainEventType.CardDeleted);
 
-const conditions: Record<TConditionKind, string> = {
+export const workflowConditionLabels: Record<TConditionKind, string> = {
     stage_residency_seconds: "Stage residency seconds",
     uncompacted_characters: "Compact after characters",
     uncompacted_comments: "Compact after comments",
@@ -33,6 +34,19 @@ export const workflowActionLabels: Record<TActionKind, string> = {
     "checkitems.complete": "Complete unchecked items",
     "timers.stop": "Stop running timers",
     "author.notify": "Notify the author when someone else enters this stage",
+};
+export const workflowEventLabel = (event: string, t: TFunction) => {
+    if (event === "stage_entered") return t("settings.Stage entered");
+    if (event === "interval") return t("settings.Interval elapsed");
+    const category =
+        event === DomainEventType.CardCreated
+            ? "card"
+            : Object.entries(CARD_CATEGORIZED_EVENT_TYPES).find(([, events]) => events.includes(event as DomainEventType))?.[0];
+    if (!category) return event;
+    return t("settings.Workflow event label", {
+        category: t(`botTriggerCondition.${category}.Category`),
+        event: t(`botTriggerCondition.${category}.conditions.${event}`),
+    });
 };
 const numeric = (kind: TConditionKind): kind is TNumericConditionKind => kind === "stage_residency_seconds" || kind.startsWith("uncompacted_");
 const compact = (kind: TConditionKind) => kind.startsWith("uncompacted_");
@@ -155,7 +169,7 @@ export default function WorkflowRuleEditor({
                                 >
                                     {workflowEventTypes.map((value) => (
                                         <option key={value} value={value}>
-                                            {value}
+                                            {workflowEventLabel(value, t)}
                                         </option>
                                     ))}
                                 </select>
@@ -214,7 +228,7 @@ export default function WorkflowRuleEditor({
                                             update(ri, { conditions: rule.conditions.map((item, i) => (i === ci ? next : item)) });
                                         }}
                                     >
-                                        {Object.entries(conditions).map(([kind, text]) => (
+                                        {Object.entries(workflowConditionLabels).map(([kind, text]) => (
                                             <option key={kind} value={kind} disabled={hasCompaction && !compact(kind as TConditionKind)}>
                                                 {label(text)}
                                             </option>
