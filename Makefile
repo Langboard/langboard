@@ -175,6 +175,8 @@ dev_socket_phoenix: ## run the Phoenix socket migration runtime on port 5691
 test_socket_phoenix: check_socket_phoenix_python ## verify the isolated Phoenix migration runtime and shared contract
 
 check_socket_phoenix_python: ## run Python static checks before installing Node dependencies
+	uv run ruff check scripts/check-first-install.py $(API_DIR)/tests/runtime/test_first_install_bootstrap.py
+	uv run ruff format --check scripts/check-first-install.py $(API_DIR)/tests/runtime/test_first_install_bootstrap.py
 	uv run ruff check src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff format --check src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run ruff check src/socket/test/integration/test-phoenix-config.py
@@ -209,6 +211,7 @@ test_socket_phoenix test_socket_phoenix_runtime:
 	uv run pytest -q $(API_DIR)/tests/runtime/test_order_repository.py
 	uv run pytest -q $(API_DIR)/tests/mcp_integration/test_card_mcp_contract.py
 	uv run python -m pytest -q src/socket/test/unit/test_phoenix_cutover.py
+	uv run python -m pytest -q $(API_DIR)/tests/runtime/test_first_install_bootstrap.py
 	bash -n src/socket/test/browser/test-phoenix-browser-cluster.sh
 	$(SHELL) -n src/socket/test/integration/delete-consumer-group.sh
 	@if $(SHELL) src/socket/test/integration/delete-consumer-group.sh langboard langboard-socket-node-fanout >/dev/null 2>&1; then echo "Probe cleanup accepted an operational consumer group." >&2; exit 1; fi
@@ -421,6 +424,12 @@ prepare_socket_phoenix_owner: ## validate Phoenix deployment prerequisites befor
 	if [ -z "$$group_id" ]; then \
 		echo "$(RED)BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP is required before Phoenix ownership.$(NC)"; \
 		exit 1; \
+	fi; \
+	if uv run --no-sync python scripts/check-first-install.py -- $(COMPOSE_ARGS); then \
+		exit 0; \
+	else \
+		bootstrap_status=$$?; \
+		if [ "$$bootstrap_status" -ne 10 ]; then exit "$$bootstrap_status"; fi; \
 	fi; \
 	$(MAKE) check_socket_phoenix_cutover || exit $$?; \
 	$(MAKE) require_socket_phoenix_group GROUP_ID="$$group_id" || exit $$?; \
