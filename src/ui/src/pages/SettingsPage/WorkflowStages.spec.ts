@@ -1029,3 +1029,49 @@ for (const width of [1440, 390]) {
         });
     }
 }
+
+for (const eventType of [DomainEventType.CardDeleted, DomainEventType.BotCreated, DomainEventType.ProjectUpdated]) {
+    test(`workflow event catalog refuses loaded unsupported ${eventType} until repaired`, async ({ page }) => {
+        let writes = 0;
+        let saved: IWorkflowStage | undefined;
+        const stage: IWorkflowStage = {
+            ...existing(),
+            rules: [
+                {
+                    ...botRule("unused"),
+                    trigger: { kind: "event", event_type: eventType },
+                    actions: [{ kind: "timers.stop", executor: { kind: "event_actor" }, config: {}, requires_previous_success: false }],
+                },
+            ],
+        };
+        await page.route("**/settings/workflow-stages**", (route) => {
+            if (route.request().method() === "PUT") {
+                writes++;
+                saved = { ...stage, ...requestJSON(route.request()) };
+                return route.fulfill({ json: { stage: saved } });
+            }
+            return route.fulfill({ json: { stages: [stage] } });
+        });
+        await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+        await page.getByRole("button", { name: /^Closed/ }).click();
+        const eventSelect = page.getByLabel("Event type", { exact: true });
+        for (const unsupported of Object.values(DomainEventType).filter(
+            (value) => !value.startsWith("card_") || value === DomainEventType.CardDeleted
+        )) {
+            await expect(eventSelect.locator(`option[value="${unsupported}"]`)).toHaveCount(0);
+        }
+        for (const supported of [DomainEventType.CardUpdated, DomainEventType.CardCommentDeleted, DomainEventType.CardCheckitemDeleted]) {
+            await expect(eventSelect.locator(`option[value="${supported}"]`)).toHaveCount(1);
+        }
+        await page.getByLabel("Rule name", { exact: true }).fill("Repaired event rule");
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+        await expect(page.getByRole("alert")).toContainText("Each rule requires");
+        await page.locator("form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+        expect(writes).toBe(0);
+        await eventSelect.selectOption(DomainEventType.CardUpdated);
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => writes).toBe(1);
+        expect(saved?.rules[0].trigger).toEqual({ kind: "event", event_type: DomainEventType.CardUpdated });
+    });
+}

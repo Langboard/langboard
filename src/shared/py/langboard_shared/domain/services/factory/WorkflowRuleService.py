@@ -32,6 +32,7 @@ BOOLEAN_CONDITIONS = {"actor_is_not_author", "has_unfinished_items", "timers_sto
 COMPACTION_CONDITIONS = {"uncompacted_characters", "uncompacted_comments", "uncompacted_turns"}
 NATIVE_ACTIONS = {"checkitems.complete", "timers.stop", "author.notify"}
 ACTION_KINDS = NATIVE_ACTIONS | {"bot.invoke", "comments.compact", "card.archive"}
+SUPPORTED_CARD_EVENTS = {event.value for event in DomainEventType if event.value.startswith("card_") and event != DomainEventType.CardDeleted}
 UID = re.compile(r"^[A-Za-z0-9]{11}$")
 
 
@@ -70,8 +71,10 @@ def validate_rules(value):
         trigger = rule["trigger"]
         _keys(trigger, {"kind", "event_type", "interval_seconds"}, {"kind"})
         if trigger["kind"] == "event":
-            if set(trigger) != {"kind", "event_type"} or trigger["event_type"] not in {event.value for event in DomainEventType if event.value.startswith("card_")}:
-                raise ValueError("An event trigger requires a canonical card event")
+            if set(trigger) != {"kind", "event_type"}:
+                raise ValueError("An event trigger requires a supported card event")
+            if trigger["event_type"] not in SUPPORTED_CARD_EVENTS:
+                raise ValueError(f"Unsupported workflow event: {trigger['event_type']}")
         elif trigger["kind"] == "interval":
             if set(trigger) != {"kind", "interval_seconds"} or type(trigger["interval_seconds"]) is not int or not 60 <= trigger["interval_seconds"] <= 86400:
                 raise ValueError("Invalid workflow interval")

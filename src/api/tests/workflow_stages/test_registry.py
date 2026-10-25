@@ -181,6 +181,50 @@ def native_rule(kinds):
         "config": {}, "requires_previous_success": False} for kind in kinds]}
 
 
+@pytest.mark.parametrize("event_type", ["card_moved", "card_comment_deleted", "card_checkitem_deleted"])
+def test_supported_card_event_rule_roundtrips(registry, event_type):
+    service, _ = registry
+    trigger = {"kind": "event", "event_type": event_type}
+    service.save(form(rules=[{**native_rule(["timers.stop"]), "trigger": trigger}]))
+    assert service.get_api_list()[0]["rules"][0]["trigger"] == trigger
+
+
+def test_deleted_card_event_has_explicit_validation_error():
+    rule = {**native_rule(["timers.stop"]), "trigger": {"kind": "event", "event_type": "card_deleted"}}
+    with pytest.raises(ValueError, match="Unsupported workflow event: card_deleted"):
+        form(rules=[rule])
+
+
+@pytest.mark.parametrize("update", [False, True])
+def test_deleted_card_event_save_does_not_write_or_publish(registry, update):
+    from sqlalchemy import event
+
+    service, engine = registry
+    stage = service.save(form(rules=[native_rule(["timers.stop"])]))
+    before = service.get_api_list()
+    publisher = AppSettingPublisher.workflow_stages_changed
+    publisher.reset_mock()
+    statements = []
+
+    def record_write(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE"}:
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_write)
+    try:
+        fields = {**form(), "name": "Must not save", "rules": [
+            {**native_rule(["author.notify"]), "trigger": {"kind": "event", "event_type": "card_deleted"}}
+        ]}
+        with pytest.raises(ValueError, match="Unsupported workflow event: card_deleted"):
+            service.save(fields, stage.get_uid() if update else None)
+        assert service.get_api_list() == before
+        assert statements == []
+        publisher.assert_not_called()
+        service._publish_work_states.assert_not_called()
+    finally:
+        event.remove(engine, "before_cursor_execute", record_write)
+
+
 @pytest.mark.parametrize("kinds", [["checkitems.complete"], ["timers.stop"], ["author.notify"], ["checkitems.complete", "timers.stop", "author.notify"]])
 def test_common_entry_actions_roundtrip_without_retired_fields(registry, kinds):
     service, _ = registry

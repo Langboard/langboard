@@ -62,6 +62,7 @@ on:
       - src/api/langboard/migrations/versions/20261024120000-8abc901d2345.py
       - src/api/langboard/migrations/versions/20261024130000-9bcd012e3456.py
       - src/api/langboard/migrations/versions/20261024140000-acde123f4567.py
+      - src/api/langboard/migrations/versions/20261025030000-acde789f0123.py
       - src/shared/py/langboard_shared/domain/models/CardDecisionGate.py
       - src/shared/py/langboard_shared/domain/models/GraphApprovalRequest.py
       - src/shared/py/langboard_shared/domain/services/factory/GraphApprovalRequestService.py

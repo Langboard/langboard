@@ -13,6 +13,8 @@ import {
     TWorkflowTrigger,
 } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
 
+const workflowEventTypes = Object.values(DomainEventType).filter((event) => event.startsWith("card_") && event !== DomainEventType.CardDeleted);
+
 const conditions: Record<TConditionKind, string> = {
     stage_residency_seconds: "Stage residency seconds",
     uncompacted_characters: "Compact after characters",
@@ -63,6 +65,7 @@ export const workflowRulesValid = (rules: IWorkflowRule[]) =>
         return (
             rule.name.trim().length > 0 &&
             rule.actions.length > 0 &&
+            (rule.trigger.kind !== "event" || workflowEventTypes.includes(rule.trigger.event_type)) &&
             (rule.trigger.kind !== "interval" ||
                 (Number.isInteger(rule.trigger.interval_seconds) && rule.trigger.interval_seconds >= 60 && rule.trigger.interval_seconds <= 86400)) &&
             rule.conditions.every((condition) =>
@@ -150,7 +153,7 @@ export default function WorkflowRuleEditor({
                                         update(ri, { trigger: { kind: "event", event_type: event.target.value as DomainEventType } })
                                     }
                                 >
-                                    {Object.values(DomainEventType).map((value) => (
+                                    {workflowEventTypes.map((value) => (
                                         <option key={value} value={value}>
                                             {value}
                                         </option>
@@ -282,12 +285,14 @@ export default function WorkflowRuleEditor({
                             <div className="space-y-2 text-xs text-muted-foreground">
                                 <p>
                                     {label(
-                                        "Compaction thresholds use OR. Remove a threshold to disable it; at least one positive threshold is required. Unrelated conditions belong in a separate rule."
+                                        "Compaction thresholds use OR. Remove a threshold to disable it; " +
+                                            "at least one positive threshold is required. Unrelated conditions belong in a separate rule."
                                     )}
                                 </p>
                                 <p>
                                     {label(
-                                        "A conversation turn is a consecutive run of comments by the same actor in creation order. Activity events and previous summaries do not count."
+                                        "A conversation turn is a consecutive run of comments by the same actor in creation order. " +
+                                            "Activity events and previous summaries do not count."
                                     )}
                                 </p>
                             </div>
@@ -318,7 +323,8 @@ export default function WorkflowRuleEditor({
                                     {action.executor.kind === "compactor" && (
                                         <p className="text-xs text-muted-foreground">
                                             {label(
-                                                "Uses the currently configured dedicated compactor profile and an explicit current board grant. Linking a rule grants no permission."
+                                                "Uses the currently configured dedicated compactor profile and an explicit current board grant. " +
+                                                    "Linking a rule grants no permission."
                                             )}
                                         </p>
                                     )}
@@ -326,7 +332,8 @@ export default function WorkflowRuleEditor({
                                         <>
                                             <p className="text-xs text-muted-foreground">
                                                 {label(
-                                                    "Native bot conditions, scope, active state and frozen state remain independent eligibility checks. Interval actions also require an available card schedule."
+                                                    "Native bot conditions, scope, active state and frozen state remain independent " +
+                                                        "eligibility checks. Interval actions also require an available card schedule."
                                                 )}
                                             </p>
                                             <label className="block space-y-1 text-sm">
