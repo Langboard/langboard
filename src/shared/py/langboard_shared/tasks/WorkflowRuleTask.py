@@ -44,7 +44,8 @@ def _current(db, run):
                    .execution_options(populate_existing=True).with_for_update()).first()
     project = db.exec(SqlBuilder.select.table(Project).where(Project.id == run.project_id)
                       .execution_options(populate_existing=True)).first()
-    column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)).first() if card else None
+    column = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)
+                     .execution_options(populate_existing=True)).first() if card else None
     if (card is None or card.deleted_at or card.archived_at or card.is_linked_resource
             or card.visibility not in {"INTERNAL", "SHARED"} or project is None or project.deleted_at
             or card.project_id != project.id or column is None or column.deleted_at or column.is_archive
@@ -66,8 +67,10 @@ def _current(db, run):
             raise ValueError("workflow_actor_revoked")
         if not actor.is_admin and project.owner_id != actor.id:
             member = rows(db, ProjectAssignedUser, project_id=project.id, user_id=actor.id)
-            role = rows(db, ProjectRole, project_id=project.id, user_id=actor.id)
-            if not member or not role or not role[0].is_granted(ProjectRoleAction.Read):
+            role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id,
+            ).execution_options(populate_existing=True)).first()
+            if not member or role is None or not role.is_granted(ProjectRoleAction.Read):
                 raise ValueError("workflow_actor_revoked")
     return rule, stage, project, card, column, actor
 
