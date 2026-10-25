@@ -81,6 +81,15 @@ function BoardCommentFooterEditButtons() {
             return;
         }
 
+        const submittedScope = { userUID: currentUser.uid, projectUID, kind: "comment-edit" as const, scopeUID: comment.uid };
+        // Capture a durable revision even when an unchanged restored draft has no cached copy.
+        getCardDraftStore().saveDraft(submittedScope, content.content, {
+            base_content: editBaseRef.current.content.content,
+            base_revision: editBaseRef.current.revision,
+            base_updated_at: editBaseRef.current.updatedAt.toISOString(),
+        });
+        const submittedDraft = getCardDraftStore().getDraft(submittedScope);
+
         updateCommentMutate(
             {
                 project_uid: projectUID,
@@ -118,8 +127,14 @@ function BoardCommentFooterEditButtons() {
                             }
                         );
                     }
+                    // Acknowledge the submitted revision after navigation, but preserve a reopened editor session.
+                    const isSubmittedDraft =
+                        submittedDraft !== null &&
+                        getCardDraftStore().getDraft(submittedScope) === submittedDraft &&
+                        (saveSessionRef.current === saveSession || getEditorStore().currentEditor !== params.editorName);
+                    if (isSubmittedDraft) getCardDraftStore().clearDraft(submittedScope);
                     Toast.Add.success(t("successes.Comment updated successfully."));
-                    if (saveSessionRef.current === saveSession && valueRef.current === submittedValue) {
+                    if (isSubmittedDraft && saveSessionRef.current === saveSession && valueRef.current === submittedValue) {
                         cancelEditing();
                     }
                 },

@@ -168,8 +168,8 @@ for (const mode of ["panel", "mobile", "edit"]) {
                 await expect(editor).toHaveValue("Draft A");
             } else if (outcome === "other editor") {
                 expect(state.currentEditor).toBe("other-editor");
+                expect(state.draft).toBe("");
                 if (mode !== "edit") {
-                    expect(state.draft).toBe("");
                     await page.getByRole("button", { name: "Remount composer" }).click();
                     await page.getByRole("button", { name: /card.Add a comment/ }).click();
                     await expect(editor).toHaveValue("");
@@ -341,5 +341,36 @@ for (const outcome of ["success", "failure"]) {
             await page.getByRole("button", { name: "card.Restore draft", exact: true }).click();
         }
         await expect(editor).toHaveValue("");
+    });
+}
+
+for (const outcome of ["success", "failure"]) {
+    test(`comment draft save: restored unchanged edit survives navigation until ${outcome}`, async ({ page }) => {
+        const key = "lb-draft-v1:user:project:comment-edit:comment";
+        await page.addInitScript((draftKey) => {
+            localStorage.setItem(
+                draftKey,
+                JSON.stringify({
+                    content: "Restored work",
+                    base_content: "Saved original",
+                    base_revision: "revision-1",
+                    base_updated_at: new Date(0).toISOString(),
+                    savedAt: Date.now(),
+                })
+            );
+        }, key);
+        await page.goto(`${baseURL}/?mode=edit`);
+        await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+        await expect(page.getByRole("textbox", { name: "Comment content" })).toHaveValue("Restored work");
+        await page.getByRole("button", { name: "common.Save", exact: true }).click();
+        await page.getByRole("button", { name: "Switch editor", exact: true }).click();
+        await page.getByRole("button", { name: `Resolve ${outcome}`, exact: true }).click();
+        await page.getByRole("button", { name: "Inspect draft", exact: true }).click();
+        const state = JSON.parse(await page.locator("output").innerText());
+        expect(state.submitted).toBe("Restored work");
+        expect(state.currentEditor).toBe("other-editor");
+        expect(state.draft).toBe(outcome === "success" ? "" : "Restored work");
+        const persisted = await page.evaluate((draftKey) => JSON.parse(localStorage.getItem(draftKey) ?? "null"), key);
+        expect(persisted?.content ?? null).toBe(outcome === "success" ? null : "Restored work");
     });
 }
