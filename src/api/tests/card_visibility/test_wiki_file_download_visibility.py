@@ -1,21 +1,45 @@
 """Wiki bytes require committed provenance and current board and wiki grants."""
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock
+from uuid import uuid4
 import pytest
-from sqlalchemy import create_engine, delete, update
 from langboard.routes.file import FileApi
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException
 from langboard_shared.core.storage import FileModel
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Project, ProjectAssignedUser, ProjectRole, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, User
+from langboard_shared.domain.models import (
+    Project,
+    ProjectAssignedUser,
+    ProjectRole,
+    ProjectWiki,
+    ProjectWikiAssignedUser,
+    ProjectWikiAttachment,
+    User,
+)
 from langboard_shared.domain.services.factory.ProjectWikiService import ProjectWikiService
+from sqlalchemy import create_engine, delete, select, text, update
 
 
-@pytest.fixture
-def fixture(monkeypatch):
-    engine = create_engine("sqlite://")
+@pytest.fixture(params=["sqlite://", "postgresql-test"])
+def fixture(monkeypatch, request):
+    database_url = request.param
+    if database_url == "postgresql-test":
+        database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+        if not database_url:
+            pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
+    engine = create_engine(database_url)
+    schema = None
+    if engine.dialect.name == "postgresql":
+        schema = "wiki_file_test_" + uuid4().hex
+        with engine.begin() as db:
+            db.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine.dispose()
+        engine = create_engine(database_url, connect_args={"options": f"-csearch_path={schema}"})
+        with engine.begin() as db:
+            db.execute(text('CREATE TABLE organization (id BIGINT PRIMARY KEY)'))
     for model in (User, Project, ProjectAssignedUser, ProjectRole, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -23,8 +47,12 @@ def fixture(monkeypatch):
     actor = User(firstname="Member", lastname="Fixture", email="fixture@example.invalid", password="fixture", activated_at=SafeDateTime.now())
     with DbSession.use(readonly=False) as db:
         db.insert(actor)
-        project = Project(owner_id=actor.id + 1, title="Fixture")
+        owner = User(firstname="Owner", lastname="Fixture", email="owner@example.invalid", password="fixture", activated_at=SafeDateTime.now())
+        db.insert(owner)
+        project = Project(owner_id=owner.id, title="Fixture")
         db.insert(project)
+        foreign_project = Project(owner_id=owner.id, title="Foreign")
+        db.insert(foreign_project)
         member = ProjectAssignedUser(project_id=project.id, user_id=actor.id)
         db.insert(member)
         role = ProjectRole(project_id=project.id, user_id=actor.id, actions=["read"])
@@ -43,8 +71,13 @@ def fixture(monkeypatch):
         return True
     reader = Mock(side_effect=download)
     monkeypatch.setattr(FileApi.Storage, "download_file", reader)
-    yield SimpleNamespace(**locals())
-    engine.dispose()
+    try:
+        yield SimpleNamespace(**locals())
+    finally:
+        if schema:
+            with engine.begin() as db:
+                db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        engine.dispose()
 
 
 def mutate(f, denial):
@@ -54,13 +87,14 @@ def mutate(f, denial):
         elif denial == "unassigned":
             db.execute(delete(ProjectWikiAssignedUser))
         elif denial == "membership":
+            db.execute(delete(ProjectWikiAssignedUser))
             db.execute(delete(ProjectAssignedUser))
         elif denial == "role":
             db.execute(update(ProjectRole).values(actions=[]))
         elif denial == "orphan":
             db.execute(delete(ProjectWikiAttachment))
         elif denial == "foreign":
-            db.execute(update(ProjectWiki).values(project_id=f.project.id + 100))
+            db.execute(update(ProjectWiki).values(project_id=f.foreign_project.id))
         elif denial == "private":
             db.execute(delete(ProjectWikiAssignedUser))
             db.execute(update(ProjectWiki).values(is_public=False))
@@ -149,3 +183,41 @@ def test_cached_admin_actor_cannot_survive_current_demotion(fixture):
     with pytest.raises(ApiException.NotFound_404):
         read(fixture)
     fixture.reader.assert_not_called()
+
+
+@pytest.mark.parametrize("boundary", ["resolver", "before_storage", "after_spool"])
+@pytest.mark.parametrize("denial", ["role", "membership", "unassigned", "user_deleted"])
+def test_retained_authority_cannot_survive_committed_revocation(fixture, boundary, denial):
+    f = fixture
+    with DbSession.atomic() as db:
+        # Keep identities alive across the independent committed authority change.
+        retained_role = db.exec(select(ProjectRole).where(ProjectRole.id == f.role.id)).first()[0]
+        retained_member = db.exec(select(ProjectAssignedUser).where(ProjectAssignedUser.id == f.member.id)).first()[0]
+        retained_actor = db.exec(select(User).where(User.id == f.actor.id)).first()[0]
+        assert retained_role.actions == ["read"]
+        assert retained_member.id == f.member.id and retained_actor.activated_at
+        assert f.service.project_wiki.resolve_readable_file(f.actor, "local", "wiki", "proof.pdf") is not None
+
+        if boundary == "after_spool":
+            def download(*args):
+                args[-1].write(b"wiki secret")
+                mutate(f, denial)
+                return True
+            f.reader.side_effect = download
+        else:
+            mutate(f, denial)
+
+        with f.engine.connect() as committed:
+            if boundary != "after_spool" and denial == "role":
+                assert committed.execute(select(ProjectRole.actions)).scalar_one() == []
+                assert retained_role.actions == ["read"]
+        if boundary == "resolver":
+            assert f.service.project_wiki.resolve_readable_file(f.actor, "local", "wiki", "proof.pdf") is None
+        else:
+            with pytest.raises(ApiException.NotFound_404):
+                response = read(f)
+                response.background.func.__self__.close()
+        if boundary == "after_spool":
+            f.reader.assert_called_once()
+        else:
+            f.reader.assert_not_called()

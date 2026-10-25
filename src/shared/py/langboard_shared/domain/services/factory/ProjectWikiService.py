@@ -294,7 +294,7 @@ class ProjectWikiService(BaseDomainService):
                 SqlBuilder.select.table(ProjectRole).where(
                     ProjectRole.project_id == project.id,
                     ProjectRole.user_id == user.id,
-                )
+                ).execution_options(populate_existing=True)
             ).first()
             if not user.is_admin and (role is None or not role.is_granted(ProjectRoleAction.Read)):
                 return None
