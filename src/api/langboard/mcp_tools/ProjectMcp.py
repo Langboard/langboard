@@ -172,10 +172,6 @@ def get_project(project_uid: str, user_or_bot: User | Bot, service: DomainServic
     project, response = result
     bot_scopes = service.project.get_api_bot_scope_list(project)
     bot_schedules = service.project.get_api_bot_schedule_list(project)
-    from langboard_shared.domain.services.NativeMcpBoundary import native_mcp_boundary
-
-    if isinstance(user_or_bot, User) and native_mcp_boundary.get() is None:
-        service.project.set_last_view(user_or_bot, project)
     return {"project": response, "project_bot_scopes": bot_scopes, "project_bot_schedules": bot_schedules}
 
 
