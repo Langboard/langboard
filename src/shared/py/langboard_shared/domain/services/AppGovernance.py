@@ -118,7 +118,9 @@ def _row(db, organization_id, *, for_update=True):
     )
     if for_update:
         statement = statement.with_for_update()
-    return db.exec(statement).first()
+    # A composed operation may already retain this policy in its identity map.
+    # Requerying the primary alone does not refresh a committed revocation.
+    return db.exec(statement, execution_options={"populate_existing": True}).first()
 
 
 def _revision(key, mode, generation, ceiling=None):
