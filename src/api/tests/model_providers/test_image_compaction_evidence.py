@@ -11,7 +11,9 @@ from langboard.mcp_tools import CardImagesMcp
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.storage import FileModel, Storage
+from langboard_shared.core.utils.Encryptor import Encryptor
 from langboard_shared.domain.models import Card, CardAttachment, CardComment, ProjectRole
+from langboard_shared.domain.models.AttachmentStorageObject import AttachmentStorageObject, AttachmentStorageReference
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
 from PIL import Image
@@ -23,7 +25,10 @@ from test_comment_compaction_command import compact_command, draft  # noqa: F401
 def image_compaction(compact_command, monkeypatch):  # noqa: F811
     compaction, actor, project, card, binding, *_ = compact_command
     native = DomainService()
-    CardAttachment.__table__.create(DbEngine.get_main_engine())
+    engine = DbEngine.get_main_engine()
+    for model in (CardAttachment, AttachmentStorageObject, AttachmentStorageReference):
+        model.__table__.create(engine)
+    token = Encryptor.encrypt("local", "storage_type")
     with DbSession.atomic() as db:
         attachment = CardAttachment(
             card_id=card.id,
@@ -34,15 +39,20 @@ def image_compaction(compact_command, monkeypatch):  # noqa: F811
                 storage_name="card_attachment",
                 filename="original.png",
                 original_filename="image.png",
-                path="/file/local/card_attachment/original.png",
+                path=f"/file/{token}/card_attachment/original.png",
             ),
         )
         db.insert(attachment)
     output = BytesIO()
     Image.new("RGB", (40, 30)).save(output, format="PNG")
     payload = output.getvalue()
-    downloads = Mock(side_effect=lambda _storage, _name, _file, destination: bool(destination.write(payload)))
-    monkeypatch.setattr(Storage, "download", downloads)
+    # Native comment creation reads FileModel locators through the real storage
+    # resolver. Stub only provider bytes on that path, preserving provenance.
+    monkeypatch.setattr(
+        Storage._storages["local"], "download", lambda _name, _file, destination: bool(destination.write(payload))
+    )
+    downloads = Mock(wraps=Storage.download_file)
+    monkeypatch.setattr(Storage, "download_file", downloads)
     monkeypatch.setattr(
         CardImagesMcp,
         "Env",
@@ -132,7 +142,10 @@ def test_image_evidence_survives_compaction_with_current_source_and_acl(image_co
     with DbSession.atomic() as db:
         if mutation == "replaced":
             file = b.attachment.file.model_copy(
-                update={"filename": "replacement.png", "path": "/file/local/card_attachment/replacement.png"}
+                update={
+                    "filename": "replacement.png",
+                    "path": b.attachment.file.path.replace("original.png", "replacement.png"),
+                }
             )
             db.exec(update(CardAttachment).where(CardAttachment.id == b.attachment.id).values(file=file))
         elif mutation == "deleted":
@@ -180,11 +193,11 @@ def test_image_evidence_survives_compaction_with_current_source_and_acl(image_co
             # evidence selector retains the original immutable revision.
             assert len(included) == 1
             assert included[0]["image_revision"] != b.anchor["source"]["revision"]
-            assert b.downloads.call_args.args[2] == "replacement.png"
+            assert b.downloads.call_args.args[0].filename == "replacement.png"
         else:
             assert len(included) == 1
             assert included[0]["image_revision"] == b.anchor["source"]["revision"]
-            assert b.downloads.call_args.args[2] == "original.png"
+            assert b.downloads.call_args.args[0].filename == "original.png"
     # Neither compaction nor evidence reads rewrite original comments or remove
     # attachment rows. Only the explicit fixture mutation may change attachment.
     with DbSession.use(readonly=False) as db:

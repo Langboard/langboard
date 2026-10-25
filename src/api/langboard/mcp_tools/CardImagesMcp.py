@@ -8,6 +8,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 from fastmcp.tools import ToolResult
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.storage import Storage
+from langboard_shared.core.storage.BaseStorage import BaseStorage
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
@@ -95,7 +96,13 @@ def _stored_image_path(url):
         return None
     if not parts[2] or parts[4] in {"", ".", ".."} or "\\" in path:
         return None
-    return parts[2], parts[3], parts[4]
+    try:
+        storage_type = BaseStorage.decrypt_storage_type(parts[2])
+    except (ValueError, UnicodeError):
+        return None
+    if not storage_type:
+        return None
+    return storage_type, parts[3], parts[4]
 
 
 @McpTool.add(
@@ -166,7 +173,7 @@ def read_card_images(
             seen.add(stored)
             with _BoundedBuffer(MAX_TOTAL_BYTES - total) as buffer:
                 try:
-                    found = Storage.download(*stored, buffer)
+                    found = Storage.download_file(owner.file, buffer)
                 except OSError:
                     found = False
                 payload = buffer.getvalue()
