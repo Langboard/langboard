@@ -54,7 +54,9 @@ def _current(db, model, identifier, *, for_update=True):
     statement = SqlBuilder.select.table(model).where(model.id == identifier)
     if for_update:
         statement = statement.with_for_update()
-    return db.exec(statement).first()
+    # An enclosing atomic unit may already hold this identity before revocation.
+    # Row locks serialize writes, but do not refresh SQLAlchemy's identity map.
+    return db.exec(statement, execution_options={"populate_existing": True}).first()
 
 
 def _actor(db, actor, *, for_update=True):
@@ -75,8 +77,14 @@ def _authorized_board(db, actor, project_id, *, for_update=True, action=ProjectR
         role_statement = SqlBuilder.select.table(ProjectRole).where(
             ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id
         )
-        member = db.exec(member_statement.with_for_update() if for_update else member_statement).first()
-        role = db.exec(role_statement.with_for_update() if for_update else role_statement).first()
+        member = db.exec(
+            member_statement.with_for_update() if for_update else member_statement,
+            execution_options={"populate_existing": True},
+        ).first()
+        role = db.exec(
+            role_statement.with_for_update() if for_update else role_statement,
+            execution_options={"populate_existing": True},
+        ).first()
         if member is None or role is None or not role.is_granted(action):
             raise AppGovernanceDenied()
     return project

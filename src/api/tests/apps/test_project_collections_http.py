@@ -273,3 +273,63 @@ def test_collection_favorite_normalizes_history_without_rewrite_and_is_independe
         assert snapshot(Project) == boards
         assert client.get(endpoint, headers=headers).json() == unfavorited.json()
         assert snapshot(ProjectAssignedUser)[0].starred is True
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("revoked", ["role", "actor", "project", "membership"])
+def test_native_collection_save_refreshes_preloaded_authority_after_separate_commit(board, revoked):
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import User, UserProjectCollection
+    from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+    from langboard_shared.domain.services.ProjectCollections import project_collections
+    from sqlalchemy import delete, update
+
+    _, actor, project, member, role, *_ = board
+    engine = DbEngine.get_main_engine()
+    UserProjectCollection.__table__.create(engine)
+    collection = {"uid": str(uuid4()), "name": "Current authority", "board_uids": [project.get_uid()]}
+    mutations = {
+        "role": update(ProjectRole).where(ProjectRole.id == role.id).values(actions=[]),
+        "actor": update(User).where(User.id == actor.id).values(activated_at=None),
+        "project": update(Project).where(Project.id == project.id).values(deleted_at=SafeDateTime.now()),
+        "membership": delete(ProjectAssignedUser).where(ProjectAssignedUser.id == member.id),
+    }
+    with DbSession.atomic() as db:
+        # Keep strong references: SQLAlchemy's identity map holds objects weakly.
+        preloaded = [
+            db.exec(SqlBuilder.select.table(model).where(model.id == row.id)).first()
+            for model, row in ((User, actor), (Project, project), (ProjectAssignedUser, member), (ProjectRole, role))
+        ]
+        assert all(row is not None for row in preloaded)
+        assert project_collections(actor) == {"revision": 0, "collections": []}
+        with engine.begin() as connection:
+            connection.execute(mutations[revoked])
+        with pytest.raises(AppGovernanceDenied):
+            project_collections(actor, collections=[collection], expected_revision=0)
+    with engine.connect() as connection:
+        assert connection.execute(select(UserProjectCollection.__table__)).all() == []
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("write", [False, True])
+def test_shared_preferences_recheck_preloaded_actor_after_separate_commit(board, write):
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.domain.models import User
+    from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+    from langboard_shared.domain.services.UserAppPreferences import app_preferences
+    from sqlalchemy import update
+
+    _, actor, *_ = board
+    engine = DbEngine.get_main_engine()
+    UserAppPreference.__table__.create(engine)
+    with DbSession.atomic() as db:
+        current = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id)).first()
+        assert current.activated_at is not None
+        assert app_preferences(actor) == {"revision": 0, "pinned_apps": []}
+        with engine.begin() as connection:
+            connection.execute(update(User).where(User.id == actor.id).values(activated_at=None))
+        with pytest.raises(AppGovernanceDenied):
+            app_preferences(actor, **({"pinned_apps": [], "expected_revision": 0} if write else {}))
+    with engine.connect() as connection:
+        assert connection.execute(select(UserAppPreference.__table__)).all() == []
