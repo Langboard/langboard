@@ -1777,3 +1777,28 @@ def test_assigned_bot_manual_scope_run_queues_only_native_references(mention_sco
     packed = json.dumps(TaskParameters(*queued[0]).pack())
     assert "fixture-card-body" not in packed and "fixture-bot-credential" not in packed
     assert queued[0][4] == [("project", board[2].get_uid()), ("card", card.get_uid())]
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize(
+    "name", ["fixture-sensitive-value", "wiki/fixture-sensitive-value", "fixture-sensitive-value-copy"]
+)
+def test_secret_selection_cannot_be_exposed_as_public_reference_name(conversion, name, monkeypatch):
+    storage_attempts = []
+    monkeypatch.setattr(KeyVault.provider, "store_secret", lambda *args: storage_attempts.append(True))
+    with pytest.raises(WikiSecretSelectionError, match="invalid_name"):
+        call(conversion, name=name)
+    stored, refs, audits = state(conversion)
+    assert stored == conversion[4] and not refs and not audits
+    assert not storage_attempts and not conversion[6] and not conversion[7]
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_secret_selection_allows_unrelated_public_reference_name(conversion):
+    result = call(conversion, name="wiki/database-password")
+    stored, refs, audits = state(conversion)
+    assert result["reference"]["name"] == "wiki/database-password"
+    assert len(refs) == len(audits) == 1
+    assert "fixture-sensitive-value" not in json.dumps(result)
+    assert "fixture-sensitive-value" not in stored
+    assert list(conversion[6].values()) == ["fixture-sensitive-value"]

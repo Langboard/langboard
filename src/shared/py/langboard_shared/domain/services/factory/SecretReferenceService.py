@@ -251,6 +251,11 @@ class SecretReferenceService(BaseDomainService):
                         raise WikiSecretSelectionError("collaboration_unavailable")
                     collaboration_check(wiki.editor_generation)
                     before = wiki.content.content
+                    selected = before[start:end]
+                    # Logical names are public metadata, including in conversion results.
+                    # Never copy the selected secret into that ordinary read boundary.
+                    if selected in name:
+                        raise WikiSecretSelectionError("invalid_name")
                     reference = SecretReference(
                         scope="project",
                         scope_id=project.id,
@@ -260,7 +265,7 @@ class SecretReferenceService(BaseDomainService):
                         locator="",
                     )
                     try:
-                        locator = provider.store_secret(uuid4().hex, before[start:end])
+                        locator = provider.store_secret(uuid4().hex, selected)
                     except Exception:
                         # A failed response does not prove that remote storage did not write.
                         raise WikiSecretSelectionError("storage_outcome_unknown") from None
@@ -269,7 +274,7 @@ class SecretReferenceService(BaseDomainService):
                     self._audit(db, current, reference, "created", SecretAuditSource("wiki", wiki.get_uid()))
                     metadata = reference.metadata()
                     after = before[:start] + "[••••](" + metadata["uri"] + ")" + before[end:]
-                    wiki_service.persist_secret_selection(db, current, project, wiki, before, after, before[start:end])
+                    wiki_service.persist_secret_selection(db, current, project, wiki, before, after, selected)
                     result = {
                         "wiki_uid": wiki.get_uid(),
                         "editor_generation": wiki.editor_generation,
