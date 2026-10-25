@@ -5,7 +5,7 @@ from asyncio import run as run_async
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
-from sqlalchemy import case, column, func, or_, select, table, text, update
+from sqlalchemy import case, column, func, or_, select, table, text, tuple_, update
 from ...core.db import DbSession
 from ...core.types import SnowflakeID
 from ...helpers import InfraHelper
@@ -36,6 +36,7 @@ MAX_DELIVERY_ATTEMPTS = 4
 # Covers the claim-to-terminal window so a crashed worker loses its claim
 # instead of stranding the row. Retries re-claim through 'pending'.
 DELIVERY_LEASE_SECONDS = 300
+RECOVERY_BATCH_SIZE = 100
 
 
 class ExecutionDeliveryFailed(RuntimeError):
@@ -232,10 +233,43 @@ async def drain_one(event_id: UUID | None = None) -> bool:
 
 
 async def drain_pending() -> int:
+    """Recover a finite keyset pass with bounded memory and isolated HTTP failures."""
+    eligible = or_(
+        OUTBOX.c.state == "pending",
+        (OUTBOX.c.state == "delivering") & (OUTBOX.c.lease_until < func.now()),
+    )
+    position = tuple_(OUTBOX.c.occurred_at, OUTBOX.c.id)
+    with DbSession.use(readonly=True) as db:
+        boundary = db.exec(
+            select(OUTBOX.c.occurred_at, OUTBOX.c.id)
+            .where(eligible)
+            .order_by(OUTBOX.c.occurred_at.desc(), OUTBOX.c.id.desc())
+            .limit(1)
+        ).first()
+    if boundary is None:
+        return 0
     count = 0
-    while await drain_one():
-        count += 1
-    return count
+    cursor = None
+    while True:
+        query = (
+            select(OUTBOX.c.occurred_at, OUTBOX.c.id)
+            .where(eligible, position <= boundary)
+            .order_by(OUTBOX.c.occurred_at, OUTBOX.c.id)
+            .limit(RECOVERY_BATCH_SIZE)
+        )
+        if cursor is not None:
+            query = query.where(position > cursor)
+        with DbSession.use(readonly=True) as db:
+            events = db.exec(query).all()
+        if not events:
+            return count
+        cursor = events[-1]
+        for _, event_id in events:
+            try:
+                count += int(await drain_one(event_id))
+            except ExecutionDeliveryFailed:
+                # Persisted failure stays behind the cursor for a later pass.
+                continue
 
 
 def reconcile(project_uid: str) -> int:

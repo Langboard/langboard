@@ -457,6 +457,100 @@ def test_delivery_lifecycle_reaches_terminal_states_and_recovers(monkeypatch: py
             assert payload == frozen_payload
             assert len(posted_webhooks) == posts_before
             assert not asyncio_run(worker.drain_one())
+
+        # A failed destination cannot stop cron recovery of later committed events.
+        # Each event gets at most one HTTP attempt in this recovery invocation.
+        with engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE project_execution_binding SET id = 8, "
+                "updated_at = '2026-09-24T00:00:00+00:00', webhook_uid = 'hook-40'"
+            ))
+            connection.execute(text(
+                "UPDATE execution_outbox SET state = 'pending', last_error = NULL, "
+                "attempt_count = 0, lease_until = NULL, occurred_at = now() - interval '1 minute'"
+            ))
+            connection.execute(text(
+                "INSERT INTO card SELECT 101, project_id, project_column_id, deleted_at, "
+                "archived_at, source_type, title, updated_at FROM card WHERE id = 100"
+            ))
+            connection.execute(text("INSERT INTO card_execution_generation VALUES (101, 3)"))
+            connection.execute(text(
+                "INSERT INTO execution_outbox(project_id, card_id, execution_generation, event_type, payload_json) "
+                "SELECT project_id, 101, execution_generation, event_type, payload_json FROM execution_outbox"
+            ))
+        outcomes.append(RuntimeError("first destination unavailable"))
+        posts_before = len(posted_webhooks)
+        assert asyncio_run(worker.drain_pending()) == 1
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT card_id, state, attempt_count FROM execution_outbox ORDER BY card_id"
+            )).all() == [(100, "pending", 1), (101, "delivered", 1)]
+        assert len(posted_webhooks) == posts_before + 2
+        assert asyncio_run(worker.drain_pending()) == 1
+        assert not asyncio_run(worker.drain_pending())
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT card_id, state, attempt_count FROM execution_outbox ORDER BY card_id"
+            )).all() == [(100, "delivered", 2), (101, "delivered", 1)]
+
+        # Tied timestamps span multiple bounded pages. Failures in earlier pages
+        # must neither repeat nor prevent delivery beyond the first page.
+        from uuid import UUID
+        from sqlalchemy import event
+
+        monkeypatch.setattr(worker, "RECOVERY_BATCH_SIZE", 2, raising=False)
+
+        def insert_recovery_event(card_id, occurred_at):
+            with engine.begin() as connection:
+                connection.execute(text(
+                    "INSERT INTO card SELECT :card_id, project_id, project_column_id, deleted_at, "
+                    "archived_at, source_type, title, updated_at FROM card WHERE id = 100"
+                ), {"card_id": card_id})
+                connection.execute(text("INSERT INTO card_execution_generation VALUES (:card_id, 3)"),
+                                   {"card_id": card_id})
+                connection.execute(text(
+                    "INSERT INTO execution_outbox(id, project_id, card_id, execution_generation, "
+                    "occurred_at, event_type, payload_json) SELECT :id, project_id, :card_id, "
+                    "execution_generation, CAST(:occurred_at AS timestamptz), event_type, payload_json "
+                    "FROM execution_outbox WHERE card_id = 100"
+                ), {"id": UUID(int=card_id), "card_id": card_id, "occurred_at": occurred_at})
+
+        for card_id in range(102, 107):
+            insert_recovery_event(card_id, "2026-09-24T00:00:00+00:00")
+        recovery_queries = []
+
+        def capture_recovery_query(connection, cursor, statement, parameters, context, executemany):
+            if statement.startswith("SELECT execution_outbox.") and "FOR UPDATE" not in statement:
+                recovery_queries.append(statement)
+
+        attempted = []
+
+        async def mixed_post(model, webhook_uid):
+            attempted.append(model.event_id)
+            if len(attempted) == 1:
+                # A new event belongs to the next invocation, keeping this pass finite.
+                insert_recovery_event(107, "2026-09-25T00:00:00+00:00")
+            if model.event_id in {str(UUID(int=card_id)) for card_id in range(102, 105)}:
+                raise RuntimeError("destination unavailable")
+
+        monkeypatch.setattr(worker, "post_signed_webhook", mixed_post)
+        event.listen(engine, "before_cursor_execute", capture_recovery_query)
+        try:
+            assert asyncio_run(worker.drain_pending()) == 2
+        finally:
+            event.remove(engine, "before_cursor_execute", capture_recovery_query)
+        assert len(recovery_queries) >= 4 and all("LIMIT" in query for query in recovery_queries)
+        assert attempted == [str(UUID(int=card_id)) for card_id in range(102, 107)]
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT card_id, state, attempt_count FROM execution_outbox WHERE card_id >= 102 ORDER BY card_id"
+            )).all() == [
+                (102, "pending", 1), (103, "pending", 1), (104, "pending", 1),
+                (105, "delivered", 1), (106, "delivered", 1), (107, "pending", 0),
+            ]
+        monkeypatch.setattr(worker, "post_signed_webhook", fake_post)
+        assert asyncio_run(worker.drain_pending()) == 4
+        assert not asyncio_run(worker.drain_pending())
     finally:
         engine.dispose()
         with admin.begin() as connection:
