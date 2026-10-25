@@ -126,7 +126,7 @@ class NativeWikiRepository(WikiRepository):
             # Native ModelColumnType stores a JSON string containing the model JSON.
             # Decode that wrapper before searching; do not search escaped serialization.
             content_column = ProjectWiki.column("content")
-            if DbEngine.get_readonly_engine().dialect.name == "sqlite":
+            if DbEngine.get_main_engine().dialect.name == "sqlite":
                 content_text = func.json_extract(func.json_extract(content_column, "$"), "$.content")
             else:
                 content_text = cast(cast(content_column, JSON)[()].as_string(), JSON)["content"].as_string()
@@ -136,7 +136,9 @@ class NativeWikiRepository(WikiRepository):
                     content_text.contains(query, autoescape=True),
                 )
             )
-        with DbSession.use(readonly=True) as db:
+        # Body searches and snippets must observe the committed secrecy fence.
+        # Metadata-only enumeration may continue to use the readonly engine.
+        with DbSession.use(readonly=not bool(query)) as db:
             rows = db.exec(statement.order_by(ProjectWiki.column("id").asc()).limit(limit + 1)).all()
         items = []
         for row in rows[:limit]:

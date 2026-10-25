@@ -6,7 +6,7 @@ import { ProjectWiki } from "@/core/models";
 import { ESocketTopic } from "@langboard/core/enums";
 
 export interface IBoardWikiCreatedRawResponse {
-    wiki: ProjectWiki.IStore;
+    wiki: Omit<ProjectWiki.IStore, "content" | "editor_generation">;
 }
 
 export interface IUseBoardWikiCreatedHandlersProps extends IBaseUseSocketHandlersProps<{}> {
@@ -24,7 +24,17 @@ const useBoardWikiCreatedHandlers = ({ callback, projectUID }: IUseBoardWikiCrea
             callback,
             responseConverter: (data) => {
                 resetWorkspaceSummaryQueries(queryClient, "wiki-summaries", projectUID, data);
-                ProjectWiki.Model.fromOne(data.wiki, true);
+                // Register creation metadata without replaying a queued editor snapshot.
+                const { uid, project_uid, title, order, is_public, forbidden, assigned_members, created_at, updated_at } = data.wiki;
+                if (!ProjectWiki.Model.getModel(uid)) {
+                    ProjectWiki.Model.fromOne(
+                        { uid, project_uid, title, order, is_public, forbidden, assigned_members, created_at, updated_at },
+                        true
+                    );
+                }
+                const query = { queryKey: [`get-wikis-${projectUID}`], exact: true };
+                void queryClient.cancelQueries(query);
+                void queryClient.invalidateQueries(query);
                 return {};
             },
         },

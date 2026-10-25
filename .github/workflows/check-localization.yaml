@@ -8,6 +8,7 @@ on:
       - src/ui/src/**/*.ts
       - src/ui/src/**/*.tsx
       - src/ui/src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs
+      - src/ui/src/controllers/socket/wiki/wikiDerivedReads.test.mjs
       - src/ui/src/assets/locales/**
       - src/ui/src/i18n.ts
       - src/ui/src/constants.ts
@@ -173,7 +174,7 @@ jobs:
         working-directory: src/ui
       - name: Verify summary invalidation and native relationship sequencing
         run: |
-          node --experimental-strip-types --test src/controllers/api/WorkspaceSummaryInvalidation.test.ts src/controllers/socket/card/useCardRelationshipsUpdatedHandlers.test.mjs src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs
+          node --experimental-strip-types --test src/controllers/api/WorkspaceSummaryInvalidation.test.ts src/controllers/socket/card/useCardRelationshipsUpdatedHandlers.test.mjs src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs src/controllers/socket/wiki/wikiDerivedReads.test.mjs
         working-directory: src/ui
       - run: yarn playwright install --with-deps chrome
         working-directory: src/ui

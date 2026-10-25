@@ -21,7 +21,12 @@ class ProjectWikiRepository(BaseOrderRepository[ProjectWiki, Project]):
         return "project_wiki"
 
     def get_by_id_like(self, wiki: TWikiParam | None) -> ProjectWiki | None:
-        return InfraHelper.get_by_id_like(ProjectWiki, wiki)
+        if not wiki:
+            return None
+        with DbSession.use(readonly=False) as db:
+            return db.exec(
+                SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == InfraHelper.convert_id(wiki))
+            ).first()
 
     def update_content_if_current(
         self,
@@ -65,7 +70,7 @@ class ProjectWikiRepository(BaseOrderRepository[ProjectWiki, Project]):
     def get_all_by_project(self, project: TProjectParam):
         project_id = InfraHelper.convert_id(project)
         wikis = []
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             result = db.exec(
                 SqlBuilder.select.table(ProjectWiki)
                 .where(ProjectWiki.column("project_id") == project_id)
@@ -79,7 +84,7 @@ class ProjectWikiRepository(BaseOrderRepository[ProjectWiki, Project]):
             return []
         project_id = InfraHelper.convert_id(project)
         wiki_ids = [InfraHelper.convert_id(wiki_uid) for wiki_uid in wiki_uids]
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             return db.exec(
                 SqlBuilder.select.table(ProjectWiki)
                 .where(ProjectWiki.column("project_id") == project_id)

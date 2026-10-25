@@ -31,7 +31,7 @@ for (const [handler, data] of [
             useSocketOutsideProvider: () => ({ isSubscribed: () => true }),
             ESocketTopic: { BoardWiki: "board_wiki", BoardWikiPrivate: "board_wiki_private" },
             SocketEvents: { SERVER: { BOARD: { WIKI: {} } } },
-            ProjectWiki: { Model: { fromOne: (value) => mutations.push(value), deleteModel: (uid) => mutations.push(uid) } },
+            ProjectWiki: { Model: { getModel: () => undefined, fromOne: (value) => mutations.push(value), deleteModel: (uid) => mutations.push(uid) } },
         };
         const name = `useBoardWiki${handler}Handlers`;
         const source = fs
@@ -97,6 +97,7 @@ for (const legacy of [false, true]) {
                 .replace(/export interface /g, "interface ")
                 .replace("export default useGetWikis;", "return useGetWikis;");
             const readerDependencies = {
+                useAuthStore: {getState: () => ({})}, workspaceSummaryAuthScope: () => "actor:1:1",
                 Routing: {API: {BOARD: {WIKI: {GET_ALL: "/board/{uid}/wikis"}}}},
                 Utils: {String: {format: () => "/board/board/wikis"}},
                 api: {get: async () => ({data: {wikis: [{uid: "wiki", content: {content: "[masked]"},
@@ -105,7 +106,7 @@ for (const legacy of [false, true]) {
                     assert.deepEqual(key, reads[0].queryKey);
                     return fn({signal: new AbortController().signal});
                 }}),
-                ProjectWiki: {Model: {fromArray: items => items.map(item => Object.assign(wiki, item))}},
+                ProjectWiki: {Model: {getModel: () => wiki, fromArray: items => items.map(item => Object.assign(wiki, item))}},
                 User: {Model: {fromArray: items => items}}
             };
             const reader = new Function(...Object.keys(readerDependencies), ts.transpileModule(readerSource, {

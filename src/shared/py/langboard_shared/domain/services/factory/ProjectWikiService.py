@@ -203,8 +203,7 @@ class ProjectWikiService(BaseDomainService):
         db.after_commit(publish)
 
     def get_by_id_like(self, wiki: TWikiParam | None) -> ProjectWiki | None:
-        wiki = InfraHelper.get_by_id_like(ProjectWiki, wiki)
-        return wiki
+        return self.repo.project_wiki.get_by_id_like(wiki)
 
     def resolve_readable_file(
         self, actor: User, storage_type: str, storage_name: str, filename: str, *, metadata_only: bool = False
