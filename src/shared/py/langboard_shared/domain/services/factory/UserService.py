@@ -406,10 +406,8 @@ class UserService(BaseDomainService):
         if not profile:
             profile = UserProfile(
                 user_id=user.id,
-                industry=str(form.get("industry", "") or ""),
-                purpose=str(form.get("purpose", "") or ""),
-                affiliation=form.get("affiliation"),
-                position=form.get("position"),
+                industry="",
+                purpose="",
             )
 
         validators: TMutableValidatorMap = {
@@ -470,11 +468,16 @@ class UserService(BaseDomainService):
             model["avatar"] = user.avatar.path if user.avatar else None
             model["avatar_revision"] = user.avatar_revision
 
+        setting_model = {
+            **model,
+            **{key: convert_python_data(getattr(profile, key)) for key in profile_validators if key in old_record},
+        }
+
         def publish():
             Auth.reset_user(user)
             UserPublisher.updated(user, model)
-            if from_setting and model:
-                AppSettingPublisher.user_updated(user.get_uid(), model)
+            if from_setting and setting_model:
+                AppSettingPublisher.user_updated(user.get_uid(), setting_model)
             if from_setting and "activated_at" in form and not user.activated_at:
                 UserPublisher.deactivated(user)
 
