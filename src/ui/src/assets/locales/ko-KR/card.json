@@ -1,4 +1,10 @@
 {
+  "Reload saved comment": "저장된 댓글 새로고침",
+  "This draft was based on a different saved comment. Review the current comment before restoring it.": "이 초안은 현재 저장된 댓글과 기준이 다릅니다. 현재 댓글을 확인한 뒤 초안을 복원하세요.",
+  "Restore draft": "초안 복원",
+  "Discard draft": "초안 버리기",
+  "This comment changed elsewhere. Your draft is preserved. Reload before saving.": "다른 곳에서 댓글이 변경되었습니다. 초안은 보존됩니다. 저장된 댓글을 확인한 뒤 다시 편집하세요.",
+  "Show saved comment": "저장된 댓글 보기",
   "Latest history": "최근 이력",
   "Older history": "이전 이력",
   "Card editing restricted by board role": "현재 보드 역할로는 카드 제목과 본문을 수정할 수 없습니다.",

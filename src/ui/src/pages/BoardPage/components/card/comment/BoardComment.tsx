@@ -1,6 +1,7 @@
 import { useNativeImageComments } from "@/components/ImagePreviewDialog/NativeImageCommentContext";
 import { isImageCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
 import { useBoardCardPanel } from "@/core/providers/BoardCardProvider";
+import Button from "@/components/base/Button";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import Skeleton from "@/components/base/Skeleton";
@@ -14,13 +15,13 @@ import { BotModel, ProjectCard, ProjectCardComment, User } from "@/core/models";
 import { IEditorContent } from "@/core/models/Base";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
-import { getCardDraftStore, type IDraftScope } from "@/core/stores/CardDraftStore";
-import { useIsCurrentEditor } from "@/core/stores/EditorStore";
+import { getCardDraftStore, type IDraftPayload, type IDraftScope } from "@/core/stores/CardDraftStore";
+import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import BoardCommentFooter from "@/pages/BoardPage/components/card/comment/BoardCommentFooter";
 import { IBoardCommentContextParams } from "@/pages/BoardPage/components/card/comment/types";
 import { EEditorType } from "@langboard/core/constants";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { resolveCardCommentAnchorElement } from "@/pages/BoardPage/components/card/comment/commentAnchor";
 
@@ -60,14 +61,28 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
     const content = comment.useField("content");
     const anchor = comment.useField("anchor");
     const updatedAt = comment.useField("updated_at");
+    const revision = comment.useField("content_revision");
     const commentUser = comment.useForeignFieldOne("user");
     const commentBot = comment.useForeignFieldOne("bot");
     const commentAuthor = commentUser || commentBot;
     const editDraft = isCurrentEditor
         ? getCardDraftStore().getDraft({ userUID: currentUser.uid, projectUID, kind: "comment-edit", scopeUID: comment.uid })
         : null;
-    const valueRef = useRef<IEditorContent>(editDraft ? { content: editDraft.content } : content);
-    const pendingDraftRef = useRef<{ scope: IDraftScope; content: string } | null>(null);
+    const editBaseRef = useRef({
+        content: editDraft?.base_content !== undefined ? { content: editDraft.base_content } : content,
+        revision: editDraft?.base_revision ?? revision,
+        updatedAt: editDraft?.base_updated_at ? new Date(editDraft.base_updated_at) : updatedAt,
+    });
+    const valueRef = useRef<IEditorContent>(editDraft?.base_content !== undefined ? { content: editDraft.content } : content);
+    const [recoveryDraft, setRecoveryDraft] = useState<IDraftPayload | null>(editDraft && editDraft.base_content === undefined ? editDraft : null);
+    const [saveConflict, setSaveConflict] = useState(false);
+    const pendingDraftRef = useRef<{ scope: IDraftScope; content: string; base: typeof editBaseRef.current } | null>(null);
+    const hasServerConflict =
+        isCurrentEditor &&
+        (saveConflict ||
+            editBaseRef.current.content.content !== content.content ||
+            editBaseRef.current.revision !== revision ||
+            editBaseRef.current.updatedAt.getTime() !== updatedAt.getTime());
     const currentUserUIDRef = useRef(currentUser.uid);
     currentUserUIDRef.current = currentUser.uid;
     const commentEditDraftScope = (): IDraftScope | null =>
@@ -83,7 +98,11 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
         if (currentUserUIDRef.current !== pending.scope.userUID) {
             return;
         }
-        getCardDraftStore().saveDraft(pending.scope, pending.content);
+        getCardDraftStore().saveDraft(pending.scope, pending.content, {
+            base_content: pending.base.content.content,
+            base_revision: pending.base.revision,
+            base_updated_at: pending.base.updatedAt.toISOString(),
+        });
     };
 
     const cancelDraftAutosave = () => {
@@ -100,12 +119,37 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
         if (!scope || !isCurrentEditor) {
             return;
         }
-        pendingDraftRef.current = { scope, content: value.content };
+        pendingDraftRef.current = { scope, content: value.content, base: editBaseRef.current };
         // Layout changes can remount the list before a debounce fires. Capture the
         // scoped draft immediately, as the new-comment composer already does.
         flushDraftAutosave();
     };
     const editorValue = isCurrentEditor ? valueRef.current : content;
+    const openEditor = (value = content) => {
+        setSaveConflict(false);
+        editBaseRef.current = { content, revision, updatedAt };
+        valueRef.current = value;
+        setRecoveryDraft(null);
+        getEditorStore().setCurrentEditor(editorName);
+    };
+    const beginEditing = () => {
+        const scope = commentEditDraftScope();
+        const draft = scope ? getCardDraftStore().getDraft(scope) : null;
+        if (
+            draft &&
+            draft.content !== content.content &&
+            (draft.base_content !== content.content ||
+                draft.base_revision !== revision ||
+                (draft.base_updated_at !== undefined && new Date(draft.base_updated_at).getTime() !== updatedAt.getTime()))
+        ) {
+            setRecoveryDraft(draft);
+            return;
+        }
+        openEditor(draft ? { content: draft.content } : content);
+    };
+    useEffect(() => {
+        if (recoveryDraft && isCurrentEditor) getEditorStore().setCurrentEditor(null);
+    }, [recoveryDraft, isCurrentEditor]);
 
     useEffect(() => {
         const onPageHide = () => flushDraftAutosave();
@@ -125,6 +169,10 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                 deletedComment,
                 valueRef,
                 editorName,
+                beginEditing,
+                editBaseRef,
+                hasServerConflict,
+                markSaveConflict: () => setSaveConflict(true),
                 isCurrentEditor,
                 editorRef,
                 flushDraftAutosave,
@@ -137,6 +185,37 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                 </Box>
                 <Flex direction="col" gap="2" className="min-w-0 max-w-full">
                     <BoardCommentHeader />
+                    {recoveryDraft && (
+                        <div role="alert" className="alert alert-vertical sm:alert-horizontal">
+                            <span>
+                                {t("card.This draft was based on a different saved comment. Review the current comment before restoring it.")}
+                            </span>
+                            <Button onClick={() => openEditor({ content: recoveryDraft.content })}>{t("card.Restore draft")}</Button>
+                            <Button
+                                onClick={() => {
+                                    cancelDraftAutosave();
+                                    openEditor();
+                                }}
+                            >
+                                {t("card.Discard draft")}
+                            </Button>
+                            <Button onClick={() => setRecoveryDraft(null)}>{t("common.Cancel")}</Button>
+                        </div>
+                    )}
+                    {hasServerConflict && (
+                        <div role="alert" className="alert alert-vertical sm:alert-horizontal">
+                            <span>{t("card.This comment changed elsewhere. Your draft is preserved. Reload before saving.")}</span>
+                            <Button
+                                onClick={() => {
+                                    flushDraftAutosave();
+                                    if (saveConflict) window.location.reload();
+                                    else getEditorStore().setCurrentEditor(null);
+                                }}
+                            >
+                                {t(saveConflict ? "card.Reload saved comment" : "card.Show saved comment")}
+                            </Button>
+                        </div>
+                    )}
                     {anchor && (
                         <button
                             type="button"

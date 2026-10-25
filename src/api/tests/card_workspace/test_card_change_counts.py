@@ -15,6 +15,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.exceptions.CardCommentConflict import CardCommentConflict
 from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescriptionConflict
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
@@ -326,7 +327,7 @@ def test_native_notifications_remain_transactional(
     if operation in {"create", "assignment"}:
         with DbSession.atomic() as db:
             db.insert(ProjectAssignedUser(project_id=f.project.id, user_id=f.other.id))
-    monkeypatch.setattr(f.cards, "default_creation_visibility", lambda *_: CardVisibility.Shared)
+    monkeypatch.setattr(f.cards, "default_creation_visibility", lambda *_, app_owned=False: CardVisibility.Shared)
 
     def mutate():
         if operation == "comment":
@@ -723,7 +724,7 @@ def test_card_creation_labels_assignment_relationship_and_column_move(counts, mo
     monkeypatch.setattr(module, "CardBotTask", Mock())
     monkeypatch.setattr(relation_module, "CardRelationshipActivityTask", Mock())
     monkeypatch.setattr(relation_module, "CardBotTask", Mock())
-    monkeypatch.setattr(f.cards, "default_creation_visibility", lambda *_: CardVisibility.Shared)
+    monkeypatch.setattr(f.cards, "default_creation_visibility", lambda *_, app_owned=False: CardVisibility.Shared)
     monkeypatch.setattr(f.cards, "_apply_title_labels", lambda _actor, _project, _card, title: title)
     monkeypatch.setattr(f.cards, "publish_work_states", Mock())
     monkeypatch.setattr(f.cards, "notify_order_changed", Mock())
@@ -833,3 +834,111 @@ def test_stale_deleted_card_cannot_commit_a_receiptless_comment(counts):
     with f.engine.connect() as db:
         assert db.execute(select(func.count()).select_from(CardComment)).scalar_one() == 0
     assert not f.published.called
+
+
+def test_comment_conditional_edit_preserves_current_content_and_effects(counts, native_delivery):
+    f, observed = counts, native_delivery
+    service = f.get(CardCommentService)
+    comment = service.create(f.user, f.project, f.card, EditorContentModel(content="Original"), dispatch_effects=False)
+    baseline = reread(f, CardComment, comment.id).api_response()["content_revision"]
+    stale = comment.model_copy(deep=True)
+    saved = service.update(f.user, f.project, f.card, comment, EditorContentModel(content="New server content"),
+                           expected_revision=baseline)
+    assert reread(f, CardComment, comment.id).content.content == "New server content"
+    assert saved.api_response()["content_revision"] != baseline
+    receipts, effects = receipt_count(f), len(observed)
+    with pytest.raises(CardCommentConflict):
+        service.update(f.user, f.project, f.card, stale, EditorContentModel(content="Old local draft"),
+                       expected_revision=baseline)
+    assert reread(f, CardComment, comment.id).content.content == "New server content"
+    assert receipt_count(f) == receipts and len(observed) == effects
+    assert service.update(f.user, f.project, f.card, saved, EditorContentModel(content="Next edit"),
+                          expected_revision=saved.content_revision()) is not None
+    assert reread(f, CardComment, comment.id).content.content == "Next edit"
+
+
+def test_comment_revision_keeps_timezone_identity_and_anchor_changes(counts):
+    from datetime import timedelta, timezone
+
+    f = counts
+    comment = f.get(CardCommentService).create(f.user, f.project, f.card,
+        EditorContentModel(content="Original"), dispatch_effects=False)
+    current = reread(f, CardComment, comment.id)
+    baseline = current.content_revision()
+    shifted = current.model_copy(deep=True)
+    stamp = current.updated_at.replace(tzinfo=timezone.utc) if current.updated_at.tzinfo is None else current.updated_at
+    shifted.updated_at = stamp.astimezone(timezone(timedelta(hours=9)))
+    assert shifted.content_revision() == baseline
+    shifted.anchor = {"type": "TextQuoteSelector", "version": 1, "exact": "Changed anchor"}
+    assert shifted.content_revision() != baseline
+    shifted.anchor = current.anchor
+    shifted.updated_at = stamp + timedelta(microseconds=1)
+    assert shifted.content_revision() != baseline
+
+
+def test_comment_conditional_edit_rejects_deleted_or_foreign_comment(counts, native_delivery):
+    f = counts
+    service = f.get(CardCommentService)
+    comment = service.create(f.user, f.project, f.card, EditorContentModel(content="Original"), dispatch_effects=False)
+    baseline = comment.content_revision()
+    assert service.update(f.other, f.project, f.card, comment, EditorContentModel(content="Unauthorized"),
+                          expected_revision=baseline) is None
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(deleted_at=SafeDateTime.now()))
+    before = receipt_count(f)
+    with pytest.raises(CardCommentConflict):
+        service.update(f.user, f.project, f.card, comment, EditorContentModel(content="Revived old draft"),
+                       expected_revision=baseline)
+    assert receipt_count(f) == before
+
+
+def test_concurrent_comment_edit_has_one_winner_and_one_receipt(counts, monkeypatch):
+    if counts.engine.dialect.name != "postgresql":
+        pytest.skip("Concurrent row locking requires PostgreSQL")
+    f = counts
+    service = f.get(CardCommentService)
+    comment = service.create(f.user, f.project, f.card, EditorContentModel(content="Original"), dispatch_effects=False)
+    baseline, before = comment.content_revision(), receipt_count(f)
+    gate = Barrier(2)
+    monkeypatch.setattr(import_module(CardCommentService.__module__), "dispatch_after_commit", lambda *a, **k: None)
+
+    def edit(text):
+        independent = comment.model_copy(deep=True)
+        gate.wait(timeout=5)
+        try:
+            service.update(f.user, f.project, f.card, independent, EditorContentModel(content=text),
+                           expected_revision=baseline)
+            return "saved"
+        except CardCommentConflict:
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(edit, text) for text in ("First edit", "Second edit")]
+        assert sorted(future.result(timeout=15) for future in futures) == ["conflict", "saved"]
+    assert reread(f, CardComment, comment.id).content.content in {"First edit", "Second edit"}
+    assert receipt_count(f) == before + 1
+
+
+def test_comment_edit_route_returns_revision_and_conflict(counts, native_delivery, monkeypatch):
+    import json
+    from inspect import unwrap
+    from fastapi import Request
+    from langboard.routes.board import BoardCardCommentApi
+    from langboard.routes.board.forms import UpdateCardCommentForm
+    from langboard_shared.core.routing import ApiException
+
+    f = counts
+    comments = f.get(CardCommentService)
+    comment = comments.create(f.user, f.project, f.card, EditorContentModel(content="Original"), dispatch_effects=False)
+    baseline = comment.content_revision()
+    monkeypatch.setattr(BoardCardCommentApi, "require_visible_card", lambda *a: f.card)
+    monkeypatch.setattr(BoardCardCommentApi, "require_card_child", lambda *a: None)
+    endpoint = unwrap(BoardCardCommentApi.update_card_comment)
+    args = dict(project_uid=f.project.get_uid(), card_uid=f.card.get_uid(), request=Request({"type": "http"}),
+                comment_uid=comment.get_uid(), user_or_bot=f.user, service=SimpleNamespace(card_comment=comments))
+    response = endpoint(**args, comment=UpdateCardCommentForm(content="First route edit", expected_revision=baseline))
+    payload = json.loads(response.body)
+    assert payload["content_revision"] != baseline and payload["updated_at"]
+    with pytest.raises(ApiException.Conflict_409):
+        endpoint(**args, comment=UpdateCardCommentForm(content="Stale route edit", expected_revision=baseline))
+    assert reread(f, CardComment, comment.id).content.content == "First route edit"

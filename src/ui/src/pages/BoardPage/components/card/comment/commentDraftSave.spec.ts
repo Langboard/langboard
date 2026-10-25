@@ -209,3 +209,110 @@ for (const visibility of ["PRIVATE", "INTERNAL", "SHARED"]) {
         expect(state.currentEditor).toBeNull();
     });
 }
+
+for (const kind of ["matching", "stale", "stale revision", "legacy"]) {
+    test(`comment draft save: edit ${kind} draft respects saved baseline`, async ({ page }) => {
+        await page.addInitScript((draftKind) => {
+            localStorage.setItem(
+                "lb-draft-v1:user:project:comment-edit:comment",
+                JSON.stringify({
+                    content: "Recovered local draft",
+                    savedAt: Date.now(),
+                    ...(draftKind === "legacy"
+                        ? {}
+                        : {
+                              base_content: draftKind === "matching" || draftKind === "stale revision" ? "Saved original" : "Old saved comment",
+                              base_revision: draftKind === "matching" ? "revision-1" : "revision-old",
+                              base_updated_at: new Date(0).toISOString(),
+                          }),
+                })
+            );
+        }, kind);
+        await page.goto(`${baseURL}/?mode=edit`);
+        await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+        const editor = page.getByRole("textbox", { name: "Comment content" });
+        if (kind === "matching") {
+            await expect(editor).toHaveValue("Recovered local draft");
+            await expect(page.getByRole("alert")).toHaveCount(0);
+        } else {
+            await expect(editor).toHaveValue("Saved original");
+            await expect(editor).toHaveAttribute("readonly", "");
+            await expect(page.getByRole("alert")).toBeVisible();
+            await page.getByRole("button", { name: "Inspect draft" }).click();
+            expect(JSON.parse(await page.locator("output").innerText()).draft).toBe("Recovered local draft");
+            await page.getByRole("button", { name: "card.Restore draft", exact: true }).click();
+            await expect(editor).toHaveValue("Recovered local draft");
+        }
+        await page.getByRole("button", { name: "common.Save", exact: true }).click();
+        await page.getByRole("button", { name: "Inspect draft" }).click();
+        const state = JSON.parse(await page.locator("output").innerText());
+        expect(state.submitted).toBe("Recovered local draft");
+        expect(state.submittedRevision).toBe("revision-1");
+    });
+}
+
+test("comment draft save: discard stale draft starts from saved comment", async ({ page }) => {
+    await page.addInitScript(() =>
+        localStorage.setItem("lb-draft-v1:user:project:comment-edit:comment", JSON.stringify({ content: "Old draft", savedAt: Date.now() }))
+    );
+    await page.goto(`${baseURL}/?mode=edit`);
+    await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+    await page.getByRole("button", { name: "card.Discard draft", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Comment content" })).toHaveValue("Saved original");
+    await page.getByRole("button", { name: "Inspect draft" }).click();
+    expect(JSON.parse(await page.locator("output").innerText()).draft).toBe("");
+});
+
+test("comment draft save: remote edit fences save and preserves local draft", async ({ page }) => {
+    await page.goto(`${baseURL}/?mode=edit`);
+    await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+    const editor = page.getByRole("textbox", { name: "Comment content" });
+    await editor.fill("Local pending work");
+    await page.getByRole("button", { name: "Remote update", exact: true }).click();
+    await expect(editor).toHaveValue("Local pending work");
+    await expect(page.getByRole("button", { name: "common.Save", exact: true })).toBeDisabled();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.getByRole("button", { name: "card.Show saved comment", exact: true }).click();
+    await expect(editor).toHaveValue("Saved remote update");
+    await page.getByRole("button", { name: "Inspect draft" }).click();
+    const state = JSON.parse(await page.locator("output").innerText());
+    expect(state.draft).toBe("Local pending work");
+    expect(state.serverContent).toBe("Saved remote update");
+    expect(state.submitted).toBe("");
+    await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+    await expect(editor).toHaveValue("Saved remote update");
+    await expect(page.getByRole("button", { name: "card.Restore draft", exact: true })).toBeVisible();
+});
+
+test("comment draft save: stale revision response preserves draft and requires reload", async ({ page }) => {
+    await page.goto(`${baseURL}/?mode=edit`);
+    await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+    const editor = page.getByRole("textbox", { name: "Comment content" });
+    await editor.fill("Local stale-revision work");
+    await page.getByRole("button", { name: "common.Save", exact: true }).click();
+    await page.getByRole("button", { name: "Resolve conflict", exact: true }).click();
+    await expect(editor).toHaveValue("Local stale-revision work");
+    await expect(page.getByRole("button", { name: "common.Save", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "card.Reload saved comment", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Inspect draft" }).click();
+    const state = JSON.parse(await page.locator("output").innerText());
+    expect(state.draft).toBe("Local stale-revision work");
+    expect(state.serverContent).toBe("Saved original");
+    expect(state.submittedRevision).toBe("revision-1");
+});
+
+test("comment draft save: late success never replaces a newer server projection", async ({ page }) => {
+    await page.goto(`${baseURL}/?mode=edit`);
+    await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+    const editor = page.getByRole("textbox", { name: "Comment content" });
+    await editor.fill("Submitted local work");
+    await page.getByRole("button", { name: "common.Save", exact: true }).click();
+    await page.getByRole("button", { name: "Remote update", exact: true }).click();
+    await page.getByRole("button", { name: "Resolve success", exact: true }).click();
+    await page.getByRole("button", { name: "Inspect draft" }).click();
+    const state = JSON.parse(await page.locator("output").innerText());
+    expect(state.serverContent).toBe("Saved remote update");
+    expect(state.draft).toBe("Submitted local work");
+    await expect(editor).toHaveValue("Submitted local work");
+    await expect(page.getByRole("button", { name: "common.Save", exact: true })).toBeDisabled();
+});

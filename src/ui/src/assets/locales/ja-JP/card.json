@@ -1,4 +1,10 @@
 {
+  "Reload saved comment": "保存済みコメントを再読み込み",
+  "This draft was based on a different saved comment. Review the current comment before restoring it.": "この下書きは現在の保存済みコメントと異なる内容を基にしています。現在のコメントを確認してから復元してください。",
+  "Restore draft": "下書きを復元",
+  "Discard draft": "下書きを破棄",
+  "This comment changed elsewhere. Your draft is preserved. Reload before saving.": "コメントが他の場所で変更されました。下書きは保持されています。保存済みコメントを確認してから編集し直してください。",
+  "Show saved comment": "保存済みコメントを表示",
   "Latest history": "最新の履歴",
   "Older history": "以前の履歴",
   "Card editing restricted by board role": "現在のボードのロールでは、カードのタイトルや本文を編集できません。",

@@ -86,13 +86,19 @@ export function PlateEditor({
         />
     );
 }
-type Callbacks = { onSuccess: () => void; onError: (error: Error) => void; onSettled: () => void };
+type Callbacks = {
+    onSuccess: (data?: { updated_at: Date; content_revision: string }) => void;
+    onError: (error: Error) => void;
+    onSettled: () => void;
+};
 let pending: Callbacks | undefined;
 let submitted = "";
+let submittedRevision: string | undefined;
 let submittedRequestUID: string | undefined;
 export const useMutation = () => ({
-    mutate: (data: { content: IEditorContent; request_uid?: string }, callbacks: Callbacks) => {
+    mutate: (data: { content: IEditorContent; request_uid?: string; expected_revision?: string }, callbacks: Callbacks) => {
         submitted = data.content.content;
+        submittedRevision = data.expected_revision;
         submittedRequestUID = data.request_uid;
         pending = callbacks;
     },
@@ -113,13 +119,27 @@ const card = {
         ),
     useForeignFieldArray: () => projectMembers,
 };
+const commentListeners = new Set<() => void>();
 const comment = {
     uid: "comment",
     content: { content: "Saved original" },
+    updated_at: new Date(0),
+    content_revision: "revision-1",
     useField(field: string): unknown {
-        if (field === "content") return this.content;
-        if (field === "updated_at") return new Date(0);
-        return null;
+        return useSyncExternalStore(
+            (listener) => {
+                commentListeners.add(listener);
+                return () => commentListeners.delete(listener);
+            },
+            () =>
+                field === "content"
+                    ? this.content
+                    : field === "updated_at"
+                      ? this.updated_at
+                      : field === "content_revision"
+                        ? this.content_revision
+                        : null
+        );
     },
     useForeignFieldOne: () => user,
 };
@@ -172,7 +192,8 @@ function Fixture() {
                 onClick={() => {
                     const callbacks = pending;
                     pending = undefined;
-                    callbacks?.onSuccess();
+                    callbacks?.onSuccess({ updated_at: new Date(1), content_revision: "revision-saved" });
+                    commentListeners.forEach((listener) => listener());
                     callbacks?.onSettled();
                 }}
             >
@@ -188,6 +209,26 @@ function Fixture() {
             >
                 Resolve failure
             </button>
+            <button
+                onClick={() => {
+                    comment.content = { content: "Saved remote update" };
+                    comment.updated_at = new Date(2);
+                    comment.content_revision = "revision-remote";
+                    commentListeners.forEach((listener) => listener());
+                }}
+            >
+                Remote update
+            </button>
+            <button
+                onClick={() => {
+                    const callbacks = pending;
+                    pending = undefined;
+                    callbacks?.onError(Object.assign(new Error("Conflict"), { response: { status: 409 } }));
+                    callbacks?.onSettled();
+                }}
+            >
+                Resolve conflict
+            </button>
             <button onClick={() => getEditorStore().setCurrentEditor("other-editor")}>Switch editor</button>
             <button
                 onClick={() => {
@@ -202,6 +243,8 @@ function Fixture() {
                 onClick={() => {
                     document.querySelector("output")!.textContent = JSON.stringify({
                         submitted,
+                        submittedRevision,
+                        serverContent: comment.content.content,
                         submittedRequestUID,
                         snapshot: getCardCommentDraftStore().getSnapshot("user", "project", "card"),
                         currentEditor: getEditorStore().currentEditor,

@@ -1,4 +1,10 @@
 {
+  "Reload saved comment": "重新加载已保存评论",
+  "This draft was based on a different saved comment. Review the current comment before restoring it.": "此草稿基于不同的已保存评论。恢复前请先查看当前评论。",
+  "Restore draft": "恢复草稿",
+  "Discard draft": "丢弃草稿",
+  "This comment changed elsewhere. Your draft is preserved. Reload before saving.": "评论已在其他位置更改。草稿已保留。请查看已保存评论后重新编辑。",
+  "Show saved comment": "查看已保存评论",
   "Latest history": "最新记录",
   "Older history": "更早记录",
   "Card editing restricted by board role": "您当前的看板角色不允许编辑卡片标题或正文。",

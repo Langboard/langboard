@@ -7,6 +7,7 @@ from sqlalchemy import func, select, update
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
+from ....core.exceptions.CardCommentConflict import CardCommentConflict
 from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TCommentParam, TProjectParam, TUserOrBot
@@ -362,6 +363,8 @@ class CardCommentService(BaseDomainService):
         card: TCardParam | None,
         comment: TCommentParam | None,
         content: EditorContentModel | dict[str, Any],
+        *,
+        expected_revision: str | None = None,
     ) -> CardComment | None:
         params = InfraHelper.get_records_with_foreign_by_params(
             (Project, project), (Card, card), (CardComment, comment)
@@ -377,7 +380,10 @@ class CardCommentService(BaseDomainService):
 
         old_content = comment.content
         comment.content = content
-        self.repo.card_comment.update(comment)
+        if expected_revision is None:
+            self.repo.card_comment.update(comment)
+        elif not self.repo.card_comment.update_if_current(comment, expected_revision):
+            raise CardCommentConflict("Comment changed after editing began")
 
         card_service = self._get_service(CardService)
         card_service.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)

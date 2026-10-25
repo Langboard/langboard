@@ -1,3 +1,6 @@
+from datetime import timezone
+from hashlib import sha256
+from json import dumps
 from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, model_validator
 from pydantic import Field as PydanticField
@@ -91,6 +94,7 @@ class CardComment(SoftDeleteModel, table=True):
         return super().api_schema(
             {
                 "is_edited": "bool",
+                "content_revision": "string",
                 **(schema or {}),
             }
         )
@@ -99,7 +103,17 @@ class CardComment(SoftDeleteModel, table=True):
         return {
             **super().api_response(),
             "is_edited": self.created_at.timestamp() != self.updated_at.timestamp(),
+            "content_revision": self.content_revision(),
         }
+
+    def content_revision(self) -> str:
+        """Opaque edit baseline; preserve sub-millisecond identity across clients."""
+        updated = self.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        payload = [str(self.id), updated.astimezone(timezone.utc).isoformat(),
+                   self.content.model_dump(mode="json"), self.anchor]
+        return sha256(dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
     def notification_data(self) -> dict[str, Any]:
         return {

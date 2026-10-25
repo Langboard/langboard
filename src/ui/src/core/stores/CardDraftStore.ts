@@ -30,6 +30,10 @@ export interface IDraftPayload {
     description?: string;
     anchor?: ICardCommentAnchor | null;
     request_uid?: string;
+    /** Saved comment this edit was based on; absent on legacy drafts. */
+    base_content?: string;
+    base_revision?: string;
+    base_updated_at?: string;
     /** Epoch ms of the last autosave. */
     savedAt: number;
     /** Retained for native comment migration so an old session copy cannot return. */
@@ -38,7 +42,11 @@ export interface IDraftPayload {
 
 interface ICardDraftStore {
     cache: Record<string, IDraftPayload | undefined>;
-    saveDraft: (scope: IDraftScope, content: string, metadata?: Pick<IDraftPayload, "anchor" | "request_uid" | "description">) => void;
+    saveDraft: (
+        scope: IDraftScope,
+        content: string,
+        metadata?: Pick<IDraftPayload, "anchor" | "request_uid" | "description" | "base_content" | "base_revision" | "base_updated_at">
+    ) => void;
     getDraft: (scope: IDraftScope) => IDraftPayload | null;
     clearDraft: (scope: IDraftScope, retainTombstone?: boolean) => void;
 }
@@ -76,6 +84,11 @@ const readStoredDraft = (key: string): IDraftPayload | null => {
         return {
             content: parsed.content,
             savedAt: parsed.savedAt,
+            ...(typeof parsed.base_content === "string" ? { base_content: parsed.base_content } : {}),
+            ...(typeof parsed.base_revision === "string" ? { base_revision: parsed.base_revision } : {}),
+            ...(typeof parsed.base_updated_at === "string" && Number.isFinite(Date.parse(parsed.base_updated_at))
+                ? { base_updated_at: parsed.base_updated_at }
+                : {}),
             ...(parsed.cleared === true ? { cleared: true as const } : {}),
             ...(parsed.anchor === null || (typeof parsed.anchor === "object" && !Array.isArray(parsed.anchor)) ? { anchor: parsed.anchor } : {}),
             ...(typeof parsed.description === "string" ? { description: parsed.description } : {}),

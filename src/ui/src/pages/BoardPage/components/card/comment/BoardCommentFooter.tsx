@@ -34,7 +34,7 @@ function BoardCommentFooterEditButtons() {
     const { projectUID, card, currentUser } = useBoardCard();
     const [t] = useTranslation();
     const { model: comment, params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
-    const { valueRef, flushDraftAutosave, cancelDraftAutosave } = params;
+    const { valueRef, flushDraftAutosave, cancelDraftAutosave, editBaseRef, hasServerConflict, markSaveConflict } = params;
     const saveSessionRef = useRef(0);
     useEffect(() => {
         saveSessionRef.current++;
@@ -55,7 +55,7 @@ function BoardCommentFooterEditButtons() {
     };
 
     const saveComment = () => {
-        if (isValidating) {
+        if (isValidating || hasServerConflict) {
             return;
         }
 
@@ -87,16 +87,44 @@ function BoardCommentFooterEditButtons() {
                 card_uid: card.uid,
                 comment_uid: comment.uid,
                 content,
+                expected_revision: editBaseRef.current.revision,
             },
             {
-                onSuccess: () => {
+                onSuccess: (saved) => {
+                    // A newer socket update can arrive after this write committed
+                    // but before its response. Never replace that newer projection.
+                    if (
+                        (comment.content_revision &&
+                            editBaseRef.current.revision &&
+                            comment.content_revision !== editBaseRef.current.revision &&
+                            comment.content_revision !== saved?.content_revision) ||
+                        (comment.content.content !== editBaseRef.current.content.content && comment.content.content !== content.content)
+                    ) {
+                        markSaveConflict();
+                        return;
+                    }
                     comment.content = content;
+                    if (saved?.updated_at) comment.updated_at = saved.updated_at;
+                    comment.content_revision = saved?.content_revision;
+                    editBaseRef.current = { content, revision: saved?.content_revision, updatedAt: comment.updated_at };
+                    if (valueRef.current !== submittedValue) {
+                        getCardDraftStore().saveDraft(
+                            { userUID: currentUser.uid, projectUID, kind: "comment-edit", scopeUID: comment.uid },
+                            valueRef.current.content,
+                            {
+                                base_content: content.content,
+                                base_revision: saved?.content_revision,
+                                base_updated_at: comment.updated_at.toISOString(),
+                            }
+                        );
+                    }
                     Toast.Add.success(t("successes.Comment updated successfully."));
                     if (saveSessionRef.current === saveSession && valueRef.current === submittedValue) {
                         cancelEditing();
                     }
                 },
                 onError: (error) => {
+                    if ((error as { response?: { status?: number } }).response?.status === 409) markSaveConflict();
                     const { handle } = setupApiErrorHandler({});
 
                     handle(error);
@@ -113,7 +141,7 @@ function BoardCommentFooterEditButtons() {
             <Button variant="secondary" onClick={cancelEditing} disabled={isValidating}>
                 {t("common.Cancel")}
             </Button>
-            <SubmitButton type="button" onClick={saveComment} isValidating={isValidating}>
+            <SubmitButton type="button" onClick={saveComment} isValidating={isValidating} disabled={hasServerConflict}>
                 {t("common.Save")}
             </SubmitButton>
         </>
@@ -124,21 +152,13 @@ function BoardCommentFooterActions() {
     const { projectUID, card, currentUser, hasRoleAction, replyRef } = useBoardCard();
     const [t] = useTranslation();
     const { model: comment, params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
-    const { author, deletedComment, editorName, valueRef } = params;
+    const { author, deletedComment, beginEditing } = params;
     const isAdmin = currentUser.useField("is_admin");
     const [isValidating, setIsValidating] = useState(false);
     const canEdit = currentUser.uid === author.uid || isAdmin;
     const visibility = card.useField("visibility");
     const canReply = !isModel(author, "User") || author.isValidUser();
     const { mutateAsync: deleteCommentMutateAsync } = useDeleteCardComment({ interceptToast: true });
-    const startEditing = () => {
-        // Restore an unsaved comment-edit draft (survives refresh/tab close) when
-        // one exists for this comment; otherwise start from the saved content.
-        const draftScope = { userUID: currentUser.uid, projectUID, kind: "comment-edit" as const, scopeUID: comment.uid };
-        const draft = getCardDraftStore().getDraft(draftScope);
-        valueRef.current = draft?.content && draft.content !== comment.content.content ? { content: draft.content } : comment.content;
-        getEditorStore().setCurrentEditor(editorName);
-    };
 
     const deleteComment = () => {
         if (isValidating) {
@@ -202,7 +222,7 @@ function BoardCommentFooterActions() {
                         size="sm"
                         className="h-5 p-0 text-accent-foreground/50"
                         data-comment-edit
-                        onClick={startEditing}
+                        onClick={beginEditing}
                         disabled={isValidating}
                     >
                         {t("common.Edit")}

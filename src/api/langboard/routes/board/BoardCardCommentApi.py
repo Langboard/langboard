@@ -1,5 +1,6 @@
 from fastapi import Request, status
 from langboard_shared.core.db import EditorContentModel
+from langboard_shared.core.exceptions.CardCommentConflict import CardCommentConflict
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -21,7 +22,7 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from .CardAccess import require_card_child, require_visible_card
-from .forms import CreateCardCommentForm, ToggleCardCommentReactionForm
+from .forms import CreateCardCommentForm, ToggleCardCommentReactionForm, UpdateCardCommentForm
 
 
 @AppRouter.schema(form=CreateCardCommentForm, permission=ApiPermission.Create)
@@ -114,12 +115,12 @@ def get_card_comment(
         "content",
     )
 )
-@AppRouter.schema(form=EditorContentModel, permission=ApiPermission.Edit)
+@AppRouter.schema(form=UpdateCardCommentForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/comment/{comment_uid}",
     tags=["Board.Card.Comment"],
-    description="Update a comment.",
-    responses=OpenApiSchema().auth().forbidden().err(403, ApiErrorCode.PE2004).err(404, ApiErrorCode.NF2012).get(),
+    description="Update a comment. A stale expected_revision returns 409 without changing the comment.",
+    responses=OpenApiSchema().auth().forbidden().err(403, ApiErrorCode.PE2004).err(404, ApiErrorCode.NF2012).err(409).get(),
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
@@ -128,7 +129,7 @@ def update_card_comment(
     card_uid: str,
     request: Request,
     comment_uid: str,
-    comment: EditorContentModel,
+    comment: UpdateCardCommentForm,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
@@ -139,11 +140,18 @@ def update_card_comment(
         raise ApiException.NotFound_404(ApiErrorCode.NF2012)
     if not service.card_comment.can_mutate(user_or_bot, card_comment):
         raise ApiException.Forbidden_403(ApiErrorCode.PE2004)
-    result = service.card_comment.update(user_or_bot, project_uid, card_uid, card_comment, comment)
+    try:
+        result = service.card_comment.update(
+            user_or_bot, project_uid, card_uid, card_comment,
+            EditorContentModel(content=comment.content), expected_revision=comment.expected_revision,
+        )
+    except CardCommentConflict:
+        raise ApiException.Conflict_409() from None
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2012)
 
-    return JsonResponse()
+    payload = result.api_response()
+    return JsonResponse(content={"updated_at": payload["updated_at"], "content_revision": payload["content_revision"]})
 
 
 @collaborative_edit(

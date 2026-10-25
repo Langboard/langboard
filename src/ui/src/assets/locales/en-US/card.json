@@ -1,4 +1,10 @@
 {
+  "Reload saved comment": "Reload saved comment",
+  "This draft was based on a different saved comment. Review the current comment before restoring it.": "This draft was based on a different saved comment. Review the current comment before restoring it.",
+  "Restore draft": "Restore draft",
+  "Discard draft": "Discard draft",
+  "This comment changed elsewhere. Your draft is preserved. Reload before saving.": "This comment changed elsewhere. Your draft is preserved. Reload before saving.",
+  "Show saved comment": "Show saved comment",
   "Latest history": "Latest history",
   "Older history": "Older history",
   "Card editing restricted by board role": "Your board role does not allow editing the card title or description.",
