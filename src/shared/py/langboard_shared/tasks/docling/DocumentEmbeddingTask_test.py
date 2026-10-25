@@ -42,6 +42,7 @@ def fixture(monkeypatch, tmp_path):
     monkeypatch.setattr(
         task, "Env", SimpleNamespace(DATA_DIR=tmp_path, get_from_env=lambda *_: "https://fixture.invalid")
     )
+    monkeypatch.setattr(task, "published_extraction_identity", Mock(return_value="a" * 64))
     monkeypatch.setattr(task, "resolve_embedding_snapshot", Mock(return_value="resolved"))
     monkeypatch.setattr(
         task,
@@ -495,3 +496,40 @@ def test_explicit_splitter_reindex_applies_snapshot_in_persistent_store(monkeypa
     assert pointers[0]["embedding_fingerprint"] == pointers[1]["embedding_fingerprint"]
     assert pointers[1]["chunk_count"] > pointers[0]["chunk_count"]
     assert document["content"]["markdown"] == text
+
+
+@pytest.mark.parametrize("status", ["indexed", "pending"])
+def test_duplicate_completed_generation_needs_no_extraction_lease(monkeypatch, tmp_path, status):
+    """Completed broker redelivery must not downgrade an existing searchable index."""
+    from copy import deepcopy
+    from langboard_shared.tasks.docling.DocumentExtractionCache import PublishedExtractionUnavailable
+    from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+
+    service, document, _ = fixture(monkeypatch, tmp_path)
+    config, settings = task.validate_embedding_config.return_value
+    document["embedding_config"]["retrieval"] = {"splitter": {"type": "recursive"}}
+    pointer = {
+        "embedding_fingerprint": embedding_fingerprint(
+            provider=config["base_url"], model=config["model_name"], dimensions=settings.dimensions, version="v1"
+        ),
+        "storage": {"type": "sqlite"},
+    }
+    document["embedding"] = {
+        "status": status,
+        "source_generation": "current",
+        "config": deepcopy(document["embedding_config"]),
+        "pointer": pointer,
+    }
+    task.published_extraction_identity.side_effect = PublishedExtractionUnavailable()
+    asyncio.run(task.embed_transcription(service, "attachment", "current"))
+    task.stage_vector_generation.assert_not_called()
+    if status == "indexed":
+        # No generation is being created, so conversion lineage is unnecessary.
+        task.published_extraction_identity.assert_not_called()
+        service.docling_metadata.publish_document_embedding.assert_not_called()
+    else:
+        task.published_extraction_identity.assert_called_once()
+        failure = service.docling_metadata.publish_document_embedding.call_args.args[-1]
+        assert failure["status"] == "failed"
+        assert failure["pointer"] == pointer
+        assert "Published extraction identity unavailable" in failure["error"]

@@ -121,7 +121,6 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
     if request_uid is not None and old.get("request_uid") != request_uid:
         return
     try:
-        extraction_identity = published_extraction_identity("card_attachment", attachment_uid, generation)
         if not binding or binding.bot_type != InternalBotType.DocumentEmbedding:
             raise ValueError("Embedding binding is unavailable")
         private = resolve_embedding_snapshot(snapshot, binding.value)
@@ -152,6 +151,9 @@ async def embed_transcription(service, attachment_uid: str, generation: str, req
             )
         ):
             return
+        # A completed redelivery creates no vectors and must preserve its index
+        # even when conversion lineage is unavailable for a future generation.
+        extraction_identity = published_extraction_identity("card_attachment", attachment_uid, generation)
         directory = Env.DATA_DIR / "document-retrieval"
         # No PostgreSQL row lock is held during remote inference.
         vector_allowed = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
