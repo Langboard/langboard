@@ -116,7 +116,7 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
             });
         }
 
-        if (config) {
+        if (config || DEFAULT_CONFIGS[status]) {
             return convertHandler(error, status);
         }
 

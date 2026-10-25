@@ -44,6 +44,15 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
             assert.equal(redirects, 1);
             assert.deepEqual(toasts, []);
         });
+        await context.test("code-free forbidden without overrides uses status default", async () => {
+            const error = new AxiosError("Private denial detail");
+            error.response = { status: 403, data: {} } as AxiosError["response"];
+            const ref = { message: "" };
+            module.exports.default({}, ref).handle(error);
+            assert.equal(ref.message, errors.Forbidden);
+            await module.exports.default({}).handleAsync(error);
+            assert.equal(toasts.pop(), errors.Forbidden);
+        });
         await context.test("async messages become visible before resolved after callback", async () => {
             const error = new AxiosError("Private server detail");
             const validationErrors = { title: { invalid: ["Private validation detail"] } };
