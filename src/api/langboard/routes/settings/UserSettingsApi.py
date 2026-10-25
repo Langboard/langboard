@@ -469,7 +469,7 @@ def update_user_in_settings(
     if not target_user:
         raise ApiException.NotFound_404(ApiErrorCode.NF1004)
 
-    if user.id == target_user.id and form.is_admin is False:
+    if user.id == target_user.id and (form.is_admin is False or form.activate is False):
         raise ApiException.Conflict_409(ApiErrorCode.OP1005)
 
     form_dict = form.model_dump(exclude_unset=True)
