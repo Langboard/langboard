@@ -260,8 +260,18 @@ class NativeWikiRepository(WikiRepository):
         wiki = self._wiki(project_uid, wiki_uid)
         if side not in ("before", "after"):
             raise ValueError("side must be before or after")
-        activity = InfraHelper.get_by_id_like(ProjectWikiActivity, revision_uid)
-        if activity is None or activity.project_id != wiki.project_id or activity.project_wiki_id != wiki.id:
+        # Historical bodies must observe redaction committed on primary, just like the current body.
+        with DbSession.use(readonly=False) as db:
+            activity = db.exec(
+                SqlBuilder.select.table(ProjectWikiActivity)
+                .where(
+                    (ProjectWikiActivity.column("id") == InfraHelper.convert_id(revision_uid))
+                    & (ProjectWikiActivity.column("project_id") == wiki.project_id)
+                    & (ProjectWikiActivity.column("project_wiki_id") == wiki.id)
+                )
+                .limit(1)
+            ).first()
+        if activity is None:
             raise ValueError("Revision not found in this wiki")
         content = activity.activity_history.get("changes", {}).get(side, {}).get("content")
         if not isinstance(content, dict) or not isinstance(content.get("content"), str):

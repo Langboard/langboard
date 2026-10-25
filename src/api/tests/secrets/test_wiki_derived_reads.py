@@ -153,3 +153,44 @@ def test_metadata_only_reads_keep_readonly_projection(divergent_wiki_engines):
     assert len(native.list_wikis("board", "", None, 10)["items"]) == 1
     assert len(queries) == 2 and all(engine == "replica" for engine, _ in queries)
     assert all("project_wiki.content" not in sql for _, sql in queries)
+
+
+@pytest.mark.parametrize("side", ["before", "after"])
+def test_revision_pages_use_primary_redaction_with_lagging_replica(divergent_wiki_engines, side):
+    from types import SimpleNamespace
+    from langboard.wiki_workspace.infrastructure import NativeWikiRepository
+    from langboard_shared.domain.models import ProjectWikiActivity
+    from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
+    from langboard_shared.infrastructure.repositories.factory.ProjectWikiRepository import ProjectWikiRepository
+    from sqlalchemy.orm import Session
+
+    primary, replica = divergent_wiki_engines
+    for engine, body in ((primary, "[masked]"), (replica, "fixture-sensitive-value")):
+        ProjectWikiActivity.__table__.create(engine)
+        with Session(engine) as db:
+            db.add(
+                ProjectWikiActivity(
+                    id=12,
+                    project_id=10,
+                    project_wiki_id=11,
+                    activity_type=ProjectWikiActivityType.WikiUpdated,
+                    activity_history={"changes": {key: {"content": {"content": body}} for key in ("before", "after")}},
+                )
+            )
+            db.commit()
+    wiki_repository = ProjectWikiRepository(lambda _: None, lambda _: None)
+    service = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=lambda _: Project(id=10, owner_id=1, title="Board")),
+        project_wiki=SimpleNamespace(
+            get_by_id_like=wiki_repository.get_by_id_like,
+            convert_to_api_response=lambda *args: {"forbidden": False},
+        ),
+    )
+    repository = NativeWikiRepository(SimpleNamespace(id=1, is_admin=True), service)
+    wiki_uid = ProjectWiki(id=11, project_id=10, title="Wiki", order=0).get_uid()
+    revision_uid = ProjectWikiActivity(id=12, activity_type=ProjectWikiActivityType.WikiUpdated).get_uid()
+    # Current body already comes from primary. Historical snapshots need the same fence.
+    assert repository.snapshot("board", wiki_uid).content == "[masked]"
+    page = repository.revision_page("board", wiki_uid, revision_uid, side, None, 100)
+    assert page["content"] == "[masked]"
+    assert "fixture-sensitive-value" not in json.dumps(page)
