@@ -160,26 +160,100 @@ class EmailService(BaseDomainService):
         message.set_content(template, subtype="html")
         return message
 
+    @staticmethod
+    async def _send_native(message: EmailMessage):
+        """One native transport shared by template callers and the explicit test."""
+        return await aiosmtplib.send(
+            message,
+            hostname=Env.MAIL_SERVER,
+            local_hostname="localhost",
+            port=int(Env.MAIL_PORT),
+            username=Env.MAIL_USERNAME or None,
+            password=Env.MAIL_PASSWORD or None,
+            start_tls=Env.MAIL_STARTTLS,
+            use_tls=Env.MAIL_SSL_TLS,
+            timeout=5,
+        )
+
     def send_message(self, message: EmailMessage, *, strict: bool = False) -> bool:
         try:
-            asyncio.run(
-                aiosmtplib.send(
-                    message,
-                    hostname=Env.MAIL_SERVER,
-                    port=int(Env.MAIL_PORT),
-                    username=Env.MAIL_USERNAME or None,
-                    password=Env.MAIL_PASSWORD or None,
-                    start_tls=Env.MAIL_STARTTLS,
-                    use_tls=Env.MAIL_SSL_TLS,
-                    timeout=5,
-                )
-            )
+            asyncio.run(self._send_native(message))
         except Exception:
             if Env.ENVIRONMENT == "development" and not strict:
                 return True
             return False
-
         return True
+
+    @staticmethod
+    async def send_test_message(recipient: str) -> dict:
+        """Submit exactly once; SMTP acceptance never proves inbox delivery.
+
+        Native send includes session cleanup. A lost response (including during
+        cleanup) cannot establish rejection, so uncertain results must not retry.
+        """
+        result = {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "smtp_send_acceptance": "failed",
+            "inbox_delivery": "not_checked",
+            "code": None,
+        }
+        submission_started = False
+        try:
+            if (
+                not Env.MAIL_SERVER
+                or not Env.MAIL_FROM
+                or not 1 <= int(Env.MAIL_PORT) <= 65535
+                or (Env.MAIL_STARTTLS and Env.MAIL_SSL_TLS)
+            ):
+                result["code"] = "configuration_invalid"
+                return result
+            message = EmailMessage()
+            message["From"] = formataddr((Env.MAIL_FROM_NAME, Env.MAIL_FROM))
+            message["To"] = recipient
+            message["Subject"] = "Langboard SMTP test message"
+            message.set_content(
+                "This test message was explicitly requested by a Langboard administrator. "
+                "No action is required. SMTP acceptance does not confirm inbox delivery."
+            )
+            # One total deadline also bounds multi-stage SMTP stalls.
+            submission_started = True
+            async with asyncio.timeout(15):
+                refused, _ = await EmailService._send_native(message)
+            result["smtp_send_acceptance"] = "failed" if refused else "accepted"
+            result["code"] = "smtp_rejected" if refused else None
+        except aiosmtplib.errors.SMTPAuthenticationError:
+            result["code"] = "authentication_failed"
+        except (
+            aiosmtplib.errors.SMTPDataError,
+            aiosmtplib.errors.SMTPRecipientsRefused,
+            aiosmtplib.errors.SMTPSenderRefused,
+            aiosmtplib.errors.SMTPHeloError,
+        ):
+            result["code"] = "smtp_rejected"
+        except ssl.SSLError:
+            result["code"] = "tls_failed"
+        except aiosmtplib.errors.SMTPConnectError as error:
+            cause = error
+            tls_failure = False
+            for _ in range(8):
+                if isinstance(cause, ssl.SSLError):
+                    tls_failure = True
+                    break
+                cause = cause.__cause__ or cause.__context__
+                if cause is None:
+                    break
+            result["code"] = "tls_failed" if tls_failure else "connection_failed"
+        except ValueError:
+            result["smtp_send_acceptance"] = "unknown" if submission_started else "failed"
+            result["code"] = "transport_error" if submission_started else "configuration_invalid"
+        except Exception as error:
+            result["smtp_send_acceptance"] = "unknown"
+            result["code"] = (
+                "timeout"
+                if isinstance(error, (TimeoutError, aiosmtplib.errors.SMTPTimeoutError))
+                else "transport_error"
+            )
+        return result
 
     def __get_template(self, lang: str, template_name: TEmailTemplateName, formats: dict[str, str]) -> tuple[str, str]:
         locale_path = get_resource_path("locales", lang)
