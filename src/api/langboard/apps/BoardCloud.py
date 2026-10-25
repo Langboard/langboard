@@ -204,11 +204,13 @@ def _resolve_cloud_context(service, actor, project_uid, channel):
         raise ApiException.NotFound_404()
     project, context = resolved
     with DbSession.use(readonly=False) as db:
-        current_actor = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id)).first()
+        current_actor = db.exec(
+            SqlBuilder.select.table(User).where(User.id == actor.id).execution_options(populate_existing=True)
+        ).first()
         role = db.exec(
             SqlBuilder.select.table(ProjectRole).where(
                 ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id
-            )
+            ).execution_options(populate_existing=True)
         ).first()
         if (
             current_actor is None
@@ -268,6 +270,7 @@ def _read_attachment_item(service, current_actor, project, attachment, source, k
             source = db.exec(
                 SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == owner.project_wiki_id)
                 .options(defer(ProjectWiki.content, raiseload=True))
+                .execution_options(populate_existing=True)
             ).first()
         if source is None or source.project_id != project.id:
             return None

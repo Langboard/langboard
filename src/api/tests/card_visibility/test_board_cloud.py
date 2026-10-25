@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 import pytest
 from langboard.apps.BoardCloud import read_board_cloud
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -115,6 +115,68 @@ def cloud(current_card):
 
 def read(f, **kwargs):
     return read_board_cloud(f.service, f.actor, f.project.get_uid(), channel=CollaborationChannel.HumanUI, **kwargs)
+
+
+@pytest.mark.parametrize("view", ["all", "files", "links"])
+@pytest.mark.parametrize("revoked", ["role", "actor", "membership"])
+def test_enclosing_transaction_rejects_cached_revoked_authority(cloud, view, revoked):
+    with DbSession.atomic() as db:
+        # Retain strong references: SQLAlchemy's identity map otherwise releases
+        # unreferenced models and conceals the enclosing-transaction regression.
+        cached_actor = db.exec(SqlBuilder.select.table(User).where(User.id == cloud.actor.id)).first()
+        cached_role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+            ProjectRole.project_id == cloud.project.id, ProjectRole.user_id == cloud.actor.id
+        )).first()
+        cached_member = db.exec(SqlBuilder.select.table(ProjectAssignedUser).where(
+            ProjectAssignedUser.project_id == cloud.project.id, ProjectAssignedUser.user_id == cloud.actor.id
+        )).first()
+        assert cached_actor.activated_at and cached_role.is_granted("read") and cached_member
+        with cloud.engine.begin() as concurrent:
+            if revoked == "role":
+                concurrent.execute(update(ProjectRole).where(ProjectRole.id == cached_role.id).values(actions=[]))
+            elif revoked == "actor":
+                concurrent.execute(update(User).where(User.id == cached_actor.id).values(activated_at=None))
+            else:
+                concurrent.execute(delete(ProjectAssignedUser).where(ProjectAssignedUser.id == cached_member.id))
+        with pytest.raises(ApiException.NotFound_404):
+            read(cloud, view=view)
+
+
+def test_enclosing_transaction_rejects_cached_wiki_privacy(cloud):
+    with cloud.engine.begin() as concurrent:
+        concurrent.execute(update(ProjectWiki).where(ProjectWiki.id == cloud.wiki.id).values(is_public=True))
+        concurrent.execute(delete(ProjectWikiAssignedUser))
+    with DbSession.atomic() as db:
+        cached_wiki = db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == cloud.wiki.id)).first()
+        assert cached_wiki.is_public
+        assert len(read(cloud)["items"]) == 4
+        with cloud.engine.begin() as concurrent:
+            concurrent.execute(update(ProjectWiki).where(ProjectWiki.id == cloud.wiki.id).values(is_public=False))
+        items = read(cloud)["items"]
+        assert len(items) == 3
+        assert all("wiki_uid" not in item["source"] for item in items)
+
+
+def test_enclosing_transaction_refreshes_wiki_after_native_resolution(cloud, monkeypatch):
+    resolver = cloud.service.project_wiki.resolve_readable_file
+    resolutions = 0
+
+    def renamed(*args, **kwargs):
+        nonlocal resolutions
+        attachment = resolver(*args, **kwargs)
+        resolutions += 1
+        with cloud.engine.begin() as concurrent:
+            concurrent.execute(update(ProjectWiki).where(ProjectWiki.id == cloud.wiki.id).values(
+                title=f"Current title {resolutions}"
+            ))
+        return attachment
+
+    monkeypatch.setattr(cloud.service.project_wiki, "resolve_readable_file", renamed)
+    with DbSession.atomic() as db:
+        cached_wiki = db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == cloud.wiki.id)).first()
+        assert cached_wiki.title == "Restricted wiki"
+        wiki = next(item for item in read(cloud, view="files")["items"] if "wiki_uid" in item["source"])
+        assert wiki["source"]["title"] == f"Current title {resolutions}"
 
 
 def test_same_name_independent_sources_and_virtual_folders(cloud):
