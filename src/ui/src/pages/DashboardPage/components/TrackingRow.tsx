@@ -8,17 +8,22 @@ import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
 import { Utils } from "@langboard/core/utils";
 import { useTimerDuration } from "@/core/hooks/useTimerDuration";
-import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface ITrackingRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
     checkitem: ProjectCheckitem.TModel;
 }
 
-function TrackingRow({ checkitem, className, ...props }: ITrackingRowProps): React.JSX.Element | null {
+function TrackingRow({ checkitem, ...props }: ITrackingRowProps): React.JSX.Element | null {
+    const cardUID = checkitem.useField("card_uid");
+    const card = ProjectCard.Model.useModel(cardUID, [cardUID]);
+
+    return card ? <TrackingRowWithCard {...props} checkitem={checkitem} card={card} /> : null;
+}
+
+function TrackingRowWithCard({ checkitem, card, className, ...props }: ITrackingRowProps & { card: ProjectCard.TModel }): React.JSX.Element {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
-    const projectUIDRef = useRef("");
     const title = checkitem.useField("title");
     const rawStatus = checkitem.useField("status");
     const startedAt = checkitem.useField("initial_timer_started_at");
@@ -51,16 +56,12 @@ function TrackingRow({ checkitem, className, ...props }: ITrackingRowProps): Rea
         >
             <ModelRegistry.ProjectCheckitem.Provider model={checkitem}>
                 <Table.FlexCell className="w-1/4 text-center">
-                    <Button
-                        variant="link"
-                        className="size-auto p-0"
-                        onClick={() => navigate(ROUTES.BOARD.CARD(projectUIDRef.current, checkitem.card_uid))}
-                    >
+                    <Button variant="link" className="size-auto p-0" onClick={() => navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid))}>
                         {title}
                     </Button>
                 </Table.FlexCell>
                 <Table.FlexCell className="w-1/4 text-center">
-                    <TrackingRowCardTitle projectUIDRef={projectUIDRef} />
+                    <TrackingRowCardTitle card={card} />
                 </Table.FlexCell>
                 <Table.FlexCell className="w-1/6 text-center">{status}</Table.FlexCell>
                 <Table.FlexCell className="w-1/6 text-center">{startedAt && <DateDistance date={startedAt} />}</Table.FlexCell>
@@ -72,17 +73,9 @@ function TrackingRow({ checkitem, className, ...props }: ITrackingRowProps): Rea
     );
 }
 
-interface ITrackingRowCardTitleProps {
-    projectUIDRef: React.RefObject<string>;
-}
-
-function TrackingRowCardTitle({ projectUIDRef }: ITrackingRowCardTitleProps) {
+function TrackingRowCardTitle({ card }: { card: ProjectCard.TModel }) {
     const navigate = usePageNavigateRef();
-    const { model: checkitem } = ModelRegistry.ProjectCheckitem.useContext();
-    const card = ProjectCard.Model.getModel(checkitem.card_uid)!;
     const title = card.useField("title");
-
-    projectUIDRef.current = card.project_uid;
 
     return (
         <Button variant="link" className="size-auto p-0" onClick={() => navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid))}>
