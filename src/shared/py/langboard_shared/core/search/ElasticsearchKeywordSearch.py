@@ -1,6 +1,7 @@
 """Optional official-client keyword reads; callers revalidate source data and ACL."""
 
 import re
+from importlib.util import find_spec
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -147,10 +148,16 @@ def check_elasticsearch_connection(
 
 def search_document_candidates(project_uid: str, query: str) -> list[dict[str, str]] | None:
     """Optional, bounded supplemental candidates. Never trust their text or authority."""
-    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
-
     if not query.strip() or len(query) > 1000:
         return []
+    try:
+        if not all(find_spec(name) is not None for name in ("elasticsearch", "elastic_transport")):
+            return None
+    except ImportError:
+        # An absent optional client must not initialize database or vault services.
+        return None
+    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
+
     config = None
     try:
         config = configuration(operation="read")
@@ -217,15 +224,20 @@ DOCUMENT_CANDIDATE_BATCH_SIZE = 50
 def search_document_candidates_many(project_uids: list[str], query: str) -> dict[str, list[dict[str, str]]] | None:
     """Supplement each distinct board with up to 20 candidates, using bounded native msearch.
 
-    None means no optional provider configuration; failures yield empty lists only
+    None means the optional client or provider configuration is unavailable; failures yield empty lists only
     for affected boards. Callers must always preserve native SQL search coverage.
     """
-    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
-
     boards = list(dict.fromkeys(project_uids))
     result: dict[str, list[dict[str, str]]] = {board: [] for board in boards}
     if not boards or not query.strip() or len(query) > 1000:
         return result
+    try:
+        if not all(find_spec(name) is not None for name in ("elasticsearch", "elastic_transport")):
+            return None
+    except ImportError:
+        return None
+    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
+
     config = None
     try:
         config = configuration(operation="read")

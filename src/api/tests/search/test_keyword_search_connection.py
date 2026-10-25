@@ -321,14 +321,43 @@ class Absent(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, *args):
         if fullname.split(".")[0] in {"elasticsearch", "elastic_transport"}:
             raise ImportError("optional dependency absent")
+        if fullname in {"langboard_shared.domain.services", "langboard_shared.core.db"}:
+            raise AssertionError("Missing optional client must not initialize database services")
 sys.meta_path.insert(0, Absent())
 from langboard.commands.CheckKeywordSearchCommand import check_elasticsearch_connection
 assert "elasticsearch" not in sys.modules
-from langboard_shared.core.search.ElasticsearchKeywordSearch import search_document_candidates
+from langboard_shared.core.search.ElasticsearchKeywordSearch import (
+    search_document_candidates, search_document_candidates_many,
+)
 assert search_document_candidates("fixture", "query") is None
+assert search_document_candidates_many(["fixture"], "query") is None
 assert "elasticsearch" not in sys.modules
 result = check_elasticsearch_connection("https://example.invalid", "instance-keywords", "fixture")
 assert result["code"] == "keyword_search_extra_required", result
+"""
+    subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
+
+
+def test_installed_client_stays_unimported_when_native_and_legacy_reads_are_disabled():
+    pytest.importorskip("elasticsearch")
+    env = {
+        **os.environ,
+        "PROJECT_NAME": "langboard",
+        "MAIN_DATABASE_URL": "sqlite://",
+        "DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED": "false",
+    }
+    script = """
+import sys
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.domain.models import KeywordSearchConfiguration
+KeywordSearchConfiguration.__table__.create(DbEngine.get_main_engine())
+from langboard_shared.core.search.ElasticsearchKeywordSearch import (
+    search_document_candidates, search_document_candidates_many,
+)
+assert "elasticsearch" not in sys.modules
+assert search_document_candidates("fixture", "query") is None
+assert search_document_candidates_many(["fixture"], "query") is None
+assert "elasticsearch" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
 
@@ -371,6 +400,36 @@ def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(document_b
     monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false")
     assert search_document_candidates(board, "billing") is None
     assert len(calls) == 1
+
+
+def test_native_read_configuration_overrides_disabled_legacy_flag(document_board, secrets, endpoint, monkeypatch):
+    from types import SimpleNamespace
+    from langboard_shared.domain.services import KeywordSearchSettings as settings
+    from pydantic import SecretStr
+
+    secret_service, board, _ = secrets
+    actor = board[1]
+    with DbSession.use(readonly=False) as db:
+        actor.is_admin = True
+        db.update(actor)
+    reference = secret_service.create(actor, "instance", "instance", "keyword/native-read", SecretStr(SECRET))
+    url, cert, calls, _ = endpoint
+    settings.save(
+        actor,
+        SimpleNamespace(secret_reference=secret_service),
+        expected_revision=0,
+        endpoint=url,
+        index=INDEX,
+        secret_ref=reference["uri"],
+        secret_revision=0,
+        reads_enabled=True,
+        indexing_enabled=False,
+    )
+    monkeypatch.setattr(DomainService, "secret_reference", property(lambda _: secret_service))
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false")
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS", str(cert))
+    assert search_document_candidates("fixture", "query") == []
+    assert len(calls) == 1 and calls[0][1].startswith(f"/{INDEX}/_search")
 
 
 @pytest.fixture
