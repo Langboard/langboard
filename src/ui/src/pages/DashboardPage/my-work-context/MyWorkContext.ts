@@ -62,6 +62,7 @@ export function validateMyWorkPage(value: MyWorkPageResult, filter: MyWorkFilter
                     (value) => typeof value === "string"
                 ) ||
                 !Number.isFinite(Date.parse(card.updated_at)) ||
+                (card.deadline_at !== null && (typeof card.deadline_at !== "string" || !Number.isFinite(Date.parse(card.deadline_at)))) ||
                 !isMyWorkGroup(card.group) ||
                 (filter.group && card.group !== filter.group) ||
                 (filter.projectUID && card.project_uid !== filter.projectUID)

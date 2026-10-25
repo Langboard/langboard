@@ -197,6 +197,8 @@ api.defaults.adapter = async (request) => {
         return { ...response, data: { project: projects.find((project) => project.uid === uid), project_bot_scopes: [], project_bot_schedules: [] } };
     if (path === `/board/${uid}/cards`)
         return { ...response, data: { cards: [card(`BoardCard-${uid}`, uid)], columns: columns(uid), checklists: [], global_relationships: [] } };
+    if (request.method === "get" && /^\/board\/[^/]+\/card\/[^/]+\/decisions$/.test(path))
+        return { ...response, data: { items: [], next_cursor: null, target_revision: "fixture" } };
     if (path.startsWith(`/board/${uid}/card/`)) {
         const cardUID = path.split("/")[4];
         if (request.params?.location_only) return { ...response, data: { canonical_project_uid: uid, card_uid: cardUID } };

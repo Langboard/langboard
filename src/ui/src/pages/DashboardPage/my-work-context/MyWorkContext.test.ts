@@ -29,7 +29,18 @@ test("summary contract accepts authoritative totals beyond the page and rejects 
     };
     const filter = { projectUID: "project", group: "assigned" as const };
     assert.equal(validateMyWorkPage(page, filter), page);
+    for (const deadline_at of [null, "2026-10-25T23:15:00+09:00"]) {
+        const valid = { ...page, cards: [{ ...card, deadline_at }] };
+        assert.equal(validateMyWorkPage(valid, filter), valid);
+    }
     for (const invalid of [
+        ...[undefined, "", "invalid", 0, {}, "2026-99-25T00:00:00Z"].map(
+            (deadline_at) =>
+                ({
+                    ...page,
+                    cards: [{ ...card, deadline_at }],
+                }) as unknown as MyWorkPageResult
+        ),
         { ...page, project_uid: "prior-project" },
         { ...page, total: 1 },
         { ...page, cards: Array(51).fill(card) },

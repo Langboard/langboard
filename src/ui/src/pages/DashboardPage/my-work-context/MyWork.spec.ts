@@ -294,3 +294,72 @@ test("selected split pane owns filter and native navigation, other pane remains 
     await expect(focused.locator("[data-card-viewer]")).toBeVisible();
     await expect(background.locator("[data-card-viewer]")).toHaveCount(0);
 });
+
+const deadline = "2026-11-03T16:45:00+09:00";
+async function injectDeadline(page: Page, value: unknown) {
+    await page.route("http://127.0.0.1:5392/dashboard/work/my?**", async (route) => {
+        const response = await route.fetch();
+        const data: MyWorkPageResult = await response.json();
+        data.cards[0].deadline_at = value as string;
+        data.cards[1].deadline_at = null;
+        await route.fulfill({ response, json: data });
+    });
+}
+
+test("row deadlines and updated times remain distinct, exact and localized after language changes at mobile and desktop widths", async ({
+    page,
+}, testInfo) => {
+    await page.addInitScript(() => localStorage.setItem("lang", "en-US"));
+    await injectDeadline(page, deadline);
+    await page.goto(`${fixture}?entry=/dashboard`);
+    const row = page.getByRole("button", { name: /^Foreign project task / });
+    const noDeadlineRow = page.getByRole("button", { name: /^Overdue task / });
+    const originalTitle = await row.locator("span").first().textContent();
+    const labels = [
+        ["en-US", "Deadline", "No deadline", "Updated"],
+        ["ko-KR", "마감일", "마감일 없음", "수정일"],
+        ["ja-JP", "期限", "期限なし", "更新日時"],
+        ["zh-CN", "截止日期", "无截止日期", "更新时间"],
+    ];
+    for (const [locale, dueLabel, noneLabel, updatedLabel] of labels) {
+        await page.evaluate(async (locale) => {
+            const url = "/src/i18n.ts";
+            await (await import(/* @vite-ignore */ url)).default.changeLanguage(locale);
+        }, locale);
+        const expected = await page.evaluate(
+            ({ deadline, locale }) => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(deadline)),
+            { deadline, locale }
+        );
+        const dueTime = row.locator(`time[aria-label="${dueLabel}"]`);
+        await expect(dueTime).toHaveAttribute("datetime", deadline);
+        await expect(dueTime).toHaveText(expected);
+        await expect(row).toContainText(`${dueLabel}:`);
+        await expect(noDeadlineRow).toContainText(noneLabel);
+        await expect(noDeadlineRow.locator("time")).toHaveCount(1);
+        const updatedTime = row.locator(`time[aria-label="${updatedLabel}"]`);
+        await expect(updatedTime).toBeVisible();
+        expect(await updatedTime.getAttribute("datetime")).not.toBe(deadline);
+        for (const width of [390, 1440]) {
+            await page.setViewportSize({ width, height: 900 });
+            const bounds = await row.boundingBox();
+            expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+            expect(await row.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await expect(dueTime).toBeVisible();
+        }
+    }
+    await page.screenshot({ path: testInfo.outputPath("deadline-desktop-zh.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: testInfo.outputPath("deadline-mobile-zh.png") });
+    expect(await row.locator("span").first().textContent()).toBe(originalTitle);
+    await row.click();
+    await expect(page.locator("[data-card-viewer]")).toBeVisible();
+});
+
+test("malformed deadline response renders retry state without crashing or exposing invalid rows", async ({ page }) => {
+    await injectDeadline(page, "invalid date");
+    await page.goto(`${fixture}?entry=/dashboard`);
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(workRows(page)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+});

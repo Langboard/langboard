@@ -8,6 +8,7 @@ import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import Button from "@/components/base/Button";
 import DateDistance from "@/components/DateDistance";
 import { cn } from "@/core/utils/ComponentUtils";
+import { formatDateTime } from "@/core/utils/LocaleFormat";
 import useAuthStore from "@/core/stores/AuthStore";
 import useMyWorkContext from "./my-work-context/useMyWorkContext";
 import { isMyWorkGroup, MY_WORK_GROUPS, MY_WORK_LABELS, type MyWorkFilter } from "./my-work-context/MyWorkContext";
@@ -27,7 +28,7 @@ export default function MyWorkPage({
     onClear?: () => void;
     onNavigate?: () => void;
 } = {}) {
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
     const panelRef = useRef<HTMLElement>(null);
     useEffect(() => {
         if (compact) panelRef.current?.focus({ preventScroll: true });
@@ -183,14 +184,19 @@ export default function MyWorkPage({
                                             type="button"
                                             className={cn(
                                                 "flex w-full gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:outline-primary",
-                                                compact ? "flex-col items-start" : "items-center"
+                                                compact ? "flex-col items-start" : "flex-col items-start sm:flex-row sm:items-center"
                                             )}
                                             onClick={() => {
                                                 navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid));
                                                 onNavigate?.();
                                             }}
                                         >
-                                            <span className={cn("min-w-0 font-medium", compact ? "w-full break-words text-sm" : "flex-1 truncate")}>
+                                            <span
+                                                className={cn(
+                                                    "min-w-0 font-medium",
+                                                    compact ? "w-full break-words text-sm" : "w-full break-words sm:w-auto sm:flex-1 sm:truncate"
+                                                )}
+                                            >
                                                 {card.title}
                                             </span>
                                             <span
@@ -201,8 +207,23 @@ export default function MyWorkPage({
                                             >
                                                 {card.project_title} · {card.project_column_name}
                                             </span>
-                                            <span className="shrink-0 text-xs text-muted-foreground">
-                                                <DateDistance date={new Date(card.updated_at)} />
+                                            <span className="min-w-0 max-w-full space-y-1 break-words text-xs text-muted-foreground">
+                                                <span className="block">
+                                                    {t("card.Deadline")}:{" "}
+                                                    {card.deadline_at ? (
+                                                        <time dateTime={card.deadline_at} aria-label={t("card.Deadline")}>
+                                                            {formatDateTime(new Date(card.deadline_at), i18n.language)}
+                                                        </time>
+                                                    ) : (
+                                                        t("card.No deadline")
+                                                    )}
+                                                </span>
+                                                <span className="block">
+                                                    {t("card.Updated")}:{" "}
+                                                    <time dateTime={card.updated_at} aria-label={t("card.Updated")}>
+                                                        <DateDistance date={new Date(card.updated_at)} />
+                                                    </time>
+                                                </span>
                                             </span>
                                         </button>
                                     ))}
