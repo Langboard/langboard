@@ -36,7 +36,6 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
 from langboard_shared.Env import Env
 from sqlalchemy import delete, event, update
-
 from src.api.tests.model_providers.workflow_rule_fixtures import configure_rule, create_rule_tables, rule_id
 
 
@@ -274,7 +273,7 @@ def scheduled_command(automatic_command):
 
 
 def common_runs():
-    from langboard_shared.domain.models import WorkflowRuleRun, WorkflowActionRun
+    from langboard_shared.domain.models import WorkflowActionRun, WorkflowRuleRun
     with DbSession.use(readonly=False) as db:
         return (db.exec(SqlBuilder.select.table(WorkflowRuleRun).order_by(WorkflowRuleRun.id)).all(),
                 db.exec(SqlBuilder.select.table(WorkflowActionRun).order_by(WorkflowActionRun.id)).all())
@@ -1535,3 +1534,84 @@ def test_comment_volume_aggregates_beyond_snapshot_limit_in_one_query(automatic_
     assert volume == {"comments": 102, "characters": 102, "turns": 2}
     assert len(statements) == 1
     assert "lag(" in statements[0].lower() and "count(" in statements[0].lower()
+
+
+def disjoint_prior_blocks(compact_command, *, large=False):
+    service, actor, project, card, binding, *_ = compact_command
+    records = []
+    repository = service.repo.card_comment_compaction
+    for index in range(21):
+        with DbSession.atomic() as db:
+            comment = CardComment(card_id=card.id, user_id=actor.id,
+                                  content=EditorContentModel(content=f"Covered original {index}"))
+            db.insert(comment)
+        snapshot, _ = service._snapshot(project, card, refs=[f"comment:{comment.get_uid()}"])
+        prior = draft(snapshot)
+        data = prior.model_dump()
+        data["keywords"] = [{"value": f"retained-keyword-{index}", "evidence_refs": [snapshot.sources[0].evidence_ref]}]
+        prior = CompactionDraft.model_validate(data)
+        if large:
+            prior.claims = [prior.claims[0].model_copy(update={"text": "x" * 1000}) for _ in range(12)]
+            data = prior.model_dump()
+            data["entities"] = [{"name": "n" * 120, "kind": "other", "aliases": ["a" * 80] * 5,
+                               "evidence_refs": [snapshot.sources[0].evidence_ref]} for _ in range(20)]
+            prior = CompactionDraft.model_validate(data)
+        record = repository.claim(repository.reserve(card, actor, binding, snapshot))
+        assert repository.complete(record, record.attempt, snapshot, binding, prior)
+        records.append(record)
+    return records
+
+
+async def test_cumulative_selects_bounded_prior_blocks_preserving_unselected_evidence(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    records = disjoint_prior_blocks(compact_command)
+    originals = {record.id: record.source_manifest for record in records}
+    inputs = []
+    async def summarize(_, snapshot):
+        inputs.append(snapshot)
+        assert len(snapshot.prior_summaries) == 20
+        assert "Covered original" not in snapshot.model_dump_json()
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", summarize)
+    result = await service.generate(actor, project, card)
+    assert result["status"] == "completed" and not result["has_more_sources"]
+    assert len(inputs) == 1
+    assert len(result["evidence_refs"]) == 22  # 20 priors, original comment, movement.
+    blocks = service._valid_blocks(actor, project, card, channel=command.CollaborationChannel.Api)
+    assert len(blocks) == 2 and set().union(*(set(block["evidence_refs"]) for block in blocks)) == {
+        *result["evidence_refs"], records[-1].source_manifest[0]["evidence_ref"]}
+    assert any(item["value"] == "retained-keyword-20" for item in service.get_search_metadata(actor, project, card)["keywords"])
+    for record in records:
+        assert service.get(actor, project, card, record.id)["status"] == "completed"
+        with DbSession.use(readonly=False) as db:
+            saved = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(CardCommentCompaction.id == record.id)).first()
+        assert saved.source_manifest == originals[record.id]
+
+
+async def test_cumulative_prior_character_budget_and_required_refs_retry(compact_command, monkeypatch):
+    service, actor, project, card, *_ = compact_command
+    disjoint_prior_blocks(compact_command, large=True)
+    with DbSession.atomic() as db:
+        for _ in range(6):
+            db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="z" * 96000)))
+    inputs = []
+    async def summarize(_, snapshot):
+        inputs.append(snapshot)
+        assert 0 < len(snapshot.prior_summaries) < 20
+        assert sum(len(source.text) for source in snapshot.sources) + sum(
+            len(previous.draft.model_dump_json()) for previous in snapshot.prior_summaries) <= 500000
+        if len(inputs) == 1:
+            raise RuntimeError("Transient provider failure")
+        return draft(snapshot)
+    monkeypatch.setattr(command, "request_compaction_draft", summarize)
+    failed = await service.generate(actor, project, card)
+    assert failed["status"] == "failed" and failed["error_code"] == "provider_error"
+    # A retry must retain the reserved manifest despite newly arrived evidence.
+    with DbSession.atomic() as db:
+        unrelated = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="Arrived after failure"))
+        db.insert(unrelated)
+    retried = await service.generate(actor, project, card, retry=True, expected_request_key=failed["request_key"])
+    assert retried["status"] == "completed" and retried["has_more_sources"]
+    assert inputs[0].evidence_manifest() == inputs[1].evidence_manifest()
+    assert inputs[0].prior_summaries == inputs[1].prior_summaries
+    assert f"comment:{unrelated.get_uid()}" not in retried["evidence_refs"]

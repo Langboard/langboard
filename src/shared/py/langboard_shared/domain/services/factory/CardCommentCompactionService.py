@@ -205,9 +205,23 @@ class CardCommentCompactionService(BaseDomainService):
 
     def _cumulative_snapshot(self, project, card, blocks, *, after=None, required_refs=None):
         """Only prior derived drafts plus uncovered originals reach the model."""
-        previous, covered = [], set()
-        for block in sorted(blocks, key=lambda item: (item["covered_from"], item["uid"])):
-            if required_refs is not None and not set(block["evidence_refs"]).issubset(required_refs):
+        # Coverage belongs to every valid block, including summaries omitted
+        # from this bounded request. Never resend their original text.
+        covered = {ref for block in blocks for ref in block["evidence_refs"]}
+        eligible = [block for block in sorted(blocks, key=lambda item: (item["covered_from"], item["uid"]))
+                    if required_refs is None or set(block["evidence_refs"]).issubset(required_refs)]
+        prior_refs = {ref for block in eligible for ref in block["evidence_refs"]}
+        source_refs = list(required_refs - prior_refs) if required_refs is not None else None
+        snapshot, more = self._snapshot(project, card, after=after, refs=source_refs, omit_refs=covered)
+        # Reserve enough space for at least the first whole uncovered source.
+        # Remaining sources continue in a later request alongside valid blocks.
+        character_budget = 500_000
+        previous = []
+        for block in eligible:
+            size = len(CompactionDraft.model_validate(block["draft"]).model_dump_json())
+            if len(previous) == 20 or size + len(snapshot.sources[0].text) > character_budget:
+                if required_refs is not None:
+                    raise CommentCompactionError("source_changed")
                 continue
             with DbSession.use(readonly=False) as db:
                 record = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
@@ -217,12 +231,10 @@ class CardCommentCompactionService(BaseDomainService):
             if record is None:
                 raise CommentCompactionError("source_changed")
             previous.append({"draft": block["draft"], "evidence_manifest": record.source_manifest})
-            covered.update(block["evidence_refs"])
-        character_budget = 500_000 - sum(len(CompactionDraft.model_validate(item["draft"]).model_dump_json())
-                                        for item in previous)
-        snapshot, more = self._snapshot(project, card, after=after,
-            refs=list(required_refs - covered) if required_refs is not None else None, omit_refs=covered,
-            character_budget=character_budget)
+            character_budget -= size
+        if sum(len(source.text) for source in snapshot.sources) > character_budget:
+            snapshot, more = self._snapshot(project, card, after=after, refs=source_refs,
+                omit_refs=covered, character_budget=character_budget)
         try:
             return CommentCompactionSnapshot(sources=snapshot.sources, prior_summaries=previous), more
         except ValueError:
@@ -783,4 +795,13 @@ class CardCommentCompactionService(BaseDomainService):
                     self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
         # Recheck visibility and source validity before returning any derived text.
         result = self.get(user, project_id, card_id, record.id, channel=channel)
-        return {"has_more_sources": has_more, **result}
+        # Recheck continuation after inference: newly arrived originals were
+        # not in the snapshot, while omitted valid summaries remain covered.
+        events = self._events(project, card)
+        covered = {ref for block in blocks for ref in block["evidence_refs"]}
+        covered.update(entry["evidence_ref"] for entry in snapshot.evidence_manifest())
+        with DbSession.use(readonly=False) as db:
+            has_more = db.exec(select(events.c.id).where(events.c.active,
+                tuple_(events.c.kind, events.c.id).not_in([self._identity(ref) for ref in covered])
+            ).limit(1)).first() is not None
+        return {**result, "has_more_sources": has_more}
