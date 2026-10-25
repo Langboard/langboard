@@ -195,6 +195,7 @@ for (const mode of ["denied", "wrong-mime", "unsafe-url"]) {
     test(`PDF source rejects ${mode}`, async ({ page }) => {
         await openPdfSource(page, mode);
         await expect(page.locator("#attachment-paged-attachment")).toBeFocused();
+        if (mode !== "unsafe-url") await expect(page.locator("html")).toHaveAttribute("data-pdf-request-state", "settled");
         await expect(page.locator("iframe")).toHaveCount(0);
         await expect(page.getByRole("link", { name: "Download PDF" })).toHaveCount(0);
     });
@@ -224,12 +225,15 @@ test("session change removes and revokes a displayed protected PDF", async ({ pa
 
 test("session change rejects an outstanding PDF response", async ({ page }) => {
     await openPdfSource(page, "slow");
+    // The click can resolve before React commits the source navigation. Revoke
+    // the session only after a PDF request actually belongs to that session.
+    await expect(page.locator("html")).toHaveAttribute("data-pdf-request-state", "pending");
     await page.evaluate(() =>
         document.querySelectorAll("button").forEach((button) => {
             if (button.textContent === "Change account session") button.click();
         })
     );
-    await page.waitForTimeout(1000);
+    await expect(page.locator("html")).toHaveAttribute("data-pdf-request-state", "settled");
     await expect(page.locator("iframe")).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
 });

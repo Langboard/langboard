@@ -44,15 +44,20 @@ const PendingContent = lazy(() => new Promise<{ default: () => null }>(() => {})
 api.defaults.adapter = async (config) => {
     if (config.url?.includes("/file/")) {
         const mode = new URLSearchParams(window.location.search).get("pdf");
-        if (mode === "denied") throw new Error("Unauthorized fixture attachment");
-        if (mode === "slow") await new Promise((resolve) => setTimeout(resolve, 800));
-        return {
-            status: 200,
-            statusText: "OK",
-            headers: {},
-            config,
-            data: mode === "wrong-mime" ? new Blob(["invalid"], { type: "text/html" }) : twoPagePdf(),
-        };
+        document.documentElement.dataset.pdfRequestState = "pending";
+        try {
+            if (mode === "denied") throw new Error("Unauthorized fixture attachment");
+            if (mode === "slow") await new Promise((resolve) => setTimeout(resolve, 800));
+            return {
+                status: 200,
+                statusText: "OK",
+                headers: {},
+                config,
+                data: mode === "wrong-mime" ? new Blob(["invalid"], { type: "text/html" }) : twoPagePdf(),
+            };
+        } finally {
+            document.documentElement.dataset.pdfRequestState = "settled";
+        }
     }
     const search = config.url?.includes("/cards/context");
     const session = useAuthStore.getState().getSessionVersion();
