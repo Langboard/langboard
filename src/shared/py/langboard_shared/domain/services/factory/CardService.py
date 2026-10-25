@@ -1472,9 +1472,12 @@ class CardService(BaseDomainService):
             scopes = {int(project.id): context}
         else:
             scopes = contexts
-        external_candidates, semantic_matches = {}, {}
+        external_candidates, semantic_matches, vector_candidates = {}, {}, {}
+        from types import SimpleNamespace
         from ....tasks.docling.CompactionMetadataIndexTask import SemanticSearchRequest
+        from ....tasks.docling.DocumentVectorQuery import search_board_documents, validate_board_document_hits
         from .CardCommentCompactionService import CardCommentCompactionService, CommentCompactionError
+        from .InternalBotService import InternalBotService
 
         board_candidates = (
             search_document_candidates_many(
@@ -1498,6 +1501,10 @@ class CardService(BaseDomainService):
                 scoped_project, scoped_context = current
                 if candidates is not None:
                     external_candidates[project_id] = candidates
+                vector_candidates[project_id] = search_board_documents(
+                    SimpleNamespace(internal_bot=self._get_service(InternalBotService)), self.repo.card,
+                    scoped_project, input_value, context=scoped_context, request=semantic_request,
+                )
                 semantic_matches.update(
                     self._get_service(CardCommentCompactionService).search_metadata_candidates(
                         user, scoped_project, scoped_context, input_value, channel=channel, request=semantic_request
@@ -1515,9 +1522,7 @@ class CardService(BaseDomainService):
             return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
         # All board providers have completed. Revalidate source identities locally
         # before source-only candidates influence SQL counts/pages or projections.
-        from types import SimpleNamespace
         from ....tasks.docling.CompactionMetadataIndexTask import validate_metadata_hits
-        from .InternalBotService import InternalBotService
 
         final_scopes = contexts if project is None else {int(project.id): context}
         external_matches = {}
@@ -1561,6 +1566,26 @@ class CardService(BaseDomainService):
                     del semantic_matches[card_id]
             except CommentCompactionError:
                 del semantic_matches[card_id]
+        # Metadata validation can itself outlive grants. Refresh again before
+        # attachment vectors influence the final count, page or snippets.
+        if project is None:
+            contexts = self.resolve_work_visibility_contexts(user, channel)
+            context = next(iter(contexts.values()), None)
+            final_scopes = contexts
+        else:
+            current = self.resolve_visibility_context(project, user, channel)
+            context = current[1] if current else None
+            if paginated and not self.resolve_work_visibility_contexts(user, channel, project_ids={int(project.id)}):
+                context = None
+            final_scopes = {int(project.id): context} if context else {}
+        if context is None or not context.active or not context.project_member:
+            return {"cards": [], "total_count": 0, "next_fields": None} if paginated else []
+        vector_matches = {}
+        for project_id, scoped_context in final_scopes.items():
+            vector_matches.update(validate_board_document_hits(
+                SimpleNamespace(internal_bot=self._get_service(InternalBotService)), self.repo.card,
+                project_id, vector_candidates.get(project_id, []), context=scoped_context,
+            ))
         cards = []
         records = self.repo.card.search_context_by_project(
             project,
@@ -1580,8 +1605,8 @@ class CardService(BaseDomainService):
             contexts=contexts,
             context=context,
             **(
-                {"additional_card_ids": list(dict.fromkeys([*external_matches, *semantic_matches]))}
-                if external_matches or semantic_matches
+                {"additional_card_ids": list(dict.fromkeys([*external_matches, *semantic_matches, *vector_matches]))}
+                if external_matches or semantic_matches or vector_matches
                 else {}
             ),
         )
@@ -1612,6 +1637,13 @@ class CardService(BaseDomainService):
                 match for match in external_matches.get(card.id, []) if match["attachment_uid"] not in existing
             )
             document_matches[card.id] = matches[:2]
+        for card, _ in records:
+            vector = vector_matches.get(card.id, [])
+            if vector:
+                existing = {match["attachment_uid"] for match in vector}
+                document_matches[card.id] = (vector + [
+                    match for match in document_matches.get(card.id, []) if match["attachment_uid"] not in existing
+                ])[:2]
         states = self.get_work_states([card for card, _ in records], context=context) if include_work_state else {}
         for card, column in records:
             description = card.description.content

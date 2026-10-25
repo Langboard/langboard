@@ -443,9 +443,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             .where(Card.column("source_type") == None)  # noqa: E711
             .where(
                 or_(
-                    # Cross-board lookups contribute at most 20 validated candidates per board.
-                    # Apply the global page limit after matching every readable board.
-                    Card.id.in_(additional_card_ids if contexts is not None else additional_card_ids[:20])
+                    # Each of the three providers contributes at most 20 validated cards per board.
+                    # Apply the global page limit after merging the bounded candidates.
+                    Card.id.in_(additional_card_ids if contexts is not None else additional_card_ids[:60])
                     if additional_card_ids else false(),
                     title.ilike(pattern, escape="\\"),
                     _editor_search_text(Card.column("description"), dialect).ilike(pattern, escape="\\"),
@@ -518,6 +518,61 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     matches.append(
                         {"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": body[:500]}
                     )
+        return result
+
+    def vector_document_sources(self, project, attachment_uids, *, context):
+        """Read only current authorized attachment generations from the primary database."""
+        import json
+        from ....domain.models import CardMetadata
+        from ....domain.services.factory.DoclingMetadataService import DOCLING_DOCUMENTS_METADATA_KEY
+
+        identifiers = []
+        for uid in attachment_uids[:100]:
+            try:
+                identifiers.append(InfraHelper.convert_id(uid))
+            except (ValueError, TypeError):
+                continue
+        if not identifiers:
+            return {}
+        statement = (
+            select(CardAttachment, CardMetadata.value)
+            .join(Card, Card.id == CardAttachment.card_id)
+            .join(Project, Project.id == Card.project_id)
+            .join(ProjectColumn, (ProjectColumn.id == Card.project_column_id)
+                  & (ProjectColumn.project_id == Card.project_id))
+            .join(CardMetadata, (CardMetadata.card_id == Card.id)
+                  & (CardMetadata.key == DOCLING_DOCUMENTS_METADATA_KEY))
+            .where(Card.project_id == InfraHelper.convert_id(project), card_visibility_scope(context))
+            .where(Card.deleted_at.is_(None), Card.source_type.is_(None), Project.deleted_at.is_(None),
+                   ProjectColumn.deleted_at.is_(None), CardAttachment.deleted_at.is_(None),
+                   CardAttachment.id.in_(identifiers))
+            .execution_options(populate_existing=True)
+        )
+        result = {}
+        with DbSession.use(readonly=False) as db:
+            for attachment, value in db.exec(statement).all():
+                try:
+                    documents = json.loads(value)
+                    document = next(item for item in documents if isinstance(item, dict)
+                                    and item.get("attachment_uid") == attachment.get_uid())
+                    embedding = document.get("embedding") or {}
+                    pointer = embedding.get("pointer") or {}
+                    if (document.get("status") != "indexed" or embedding.get("status") != "indexed"
+                        or embedding.get("source_generation") != document.get("generation")
+                        or pointer.get("board_uid") != SnowflakeID(InfraHelper.convert_id(project)).to_short_code()
+                        or pointer.get("card_uid") != attachment.card_id.to_short_code()
+                        or pointer.get("attachment_uid") != attachment.get_uid()
+                        or pointer.get("source_type", "card_attachment") != "card_attachment"
+                        or not attachment.content_sha256
+                        or pointer.get("content_hash") != attachment.content_sha256
+                        or document.get("content_hash") != attachment.content_sha256):
+                        continue
+                    result[attachment.get_uid()] = {
+                        "card_id": attachment.card_id, "filename": attachment.filename,
+                        "document": document,
+                    }
+                except (ValueError, TypeError, StopIteration, AttributeError):
+                    continue
         return result
 
     def search_document_matches(
