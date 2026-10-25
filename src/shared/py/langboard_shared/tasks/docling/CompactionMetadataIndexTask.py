@@ -114,6 +114,10 @@ def _context(service, db, row):
         db.exec(SqlBuilder.select.table(ProjectRole).where(ProjectRole.user_id == record.user_id,
             ProjectRole.project_id == project.id).with_for_update()).first()
         project, card, _ = compactor._authorize(actor, project, card, CollaborationChannel.Api, write=True)
+        # Manual producers need the same provider fence as automatic authority:
+        # settings/default changes must wait until pointer publication commits.
+        db.exec(SqlBuilder.select.table(InternalBot).where(InternalBot.id == record.internal_bot_id)
+                .execution_options(populate_existing=True).with_for_update()).first()
         binding = service.internal_bot.get_comment_compaction_binding()
     # Fence cited edit/delete writers until publication or query validation commits.
     for model, kind in ((CardComment, "comment"), (ProjectActivity, "activity")):

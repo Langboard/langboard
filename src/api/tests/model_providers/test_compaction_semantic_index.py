@@ -164,6 +164,48 @@ async def test_inference_revalidates_every_mutable_authority(semantic, change):
                                  channel=CollaborationChannel.Api) == []
 
 
+async def test_manual_compactor_change_is_serialized_with_pointer_publication(semantic, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import text, update
+    from sqlalchemy.exc import OperationalError
+
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Concurrent row-lock proof requires PostgreSQL")
+    _, actor, project, card, *_ = semantic
+    row = await generate(semantic)
+    compactor = DomainService().internal_bot.get_comment_compaction_binding()
+    outcomes = []
+    original = index._cas
+
+    def change_binding():
+        try:
+            with engine.begin() as connection:
+                connection.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                connection.execute(update(InternalBot).where(InternalBot.id == compactor.id).values(is_default=False))
+            return "committed"
+        except OperationalError as error:
+            assert error.orig.sqlstate == "55P03"
+            return "blocked"
+
+    def publish(db, current, data):
+        if data["index"]["status"] == "indexed":
+            # Separate native connection attempts revocation after the final
+            # producer check, immediately before publishing the current pointer.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                outcomes.append(executor.submit(change_binding).result(timeout=3))
+        return original(db, current, data)
+
+    monkeypatch.setattr(index, "_cas", publish)
+    assert await index.index_metadata(DomainService(), row.id)
+    assert outcomes == ["blocked"]
+    assert index.search_metadata(DomainService(), actor, project, card, "availability interrupted",
+                                 channel=CollaborationChannel.Api)
+    assert change_binding() == "committed"
+    assert index.search_metadata(DomainService(), actor, project, card, "availability interrupted",
+                                 channel=CollaborationChannel.Api) == []
+
+
 @pytest.mark.parametrize("change", ["edit", "provider", "compactor", "permission"])
 @pytest.mark.parametrize("mode", ["card", "board"])
 async def test_query_rechecks_after_embedding_provider_returns(semantic, change, mode):
