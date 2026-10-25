@@ -172,10 +172,12 @@ for (const width of [390, 1440]) {
 
 for (const scenario of [
     "generated multipart",
+    "create retry",
     "manual edit",
     "close reopen",
     "actor change",
     "authority change",
+    "same-model authority change",
     "text failure",
     "text only",
 ] as const) {
@@ -228,6 +230,12 @@ for (const scenario of [
                     )
                     .catch(() => undefined);
             }
+            if (
+                path.endsWith("/settings/bot") &&
+                scenario === "create retry" &&
+                calls.filter((call) => call.path.endsWith("/settings/bot")).length === 1
+            )
+                return route.fulfill({ status: 409, json: { message: "Name already used" } });
             if (path.endsWith("/settings/bot"))
                 return route.fulfill({
                     status: 201,
@@ -274,22 +282,113 @@ for (const scenario of [
             await page
                 .getByRole("button", { name: "Revoke authority", exact: true, includeHidden: true })
                 .evaluate((element: HTMLButtonElement) => element.click());
+        if (scenario === "same-model authority change")
+            await page
+                .getByRole("button", { name: "Mutate authority", exact: true, includeHidden: true })
+                .evaluate((element: HTMLButtonElement) => element.click());
         release?.();
         await expect(page.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
-        if (scenario === "generated multipart") {
+        if (scenario === "generated multipart" || scenario === "create retry") {
             await expect(botName).toHaveValue("AI result");
             await page.getByRole("button", { name: "Create", exact: true }).click();
             await expect
                 .poll(() => calls.find((call) => call.path.endsWith("/settings/bot"))?.body ?? "")
                 .toMatch(/filename="generated-avatar\.png"/);
             expect(calls.find((call) => call.path.endsWith("/settings/bot"))?.body).toContain("Content-Type: image/png");
+            if (scenario === "create retry") {
+                await expect(page.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
+                await expect(page.locator("img[src^='data:image/png']")).toHaveCount(1);
+                await page.getByRole("button", { name: "Create", exact: true }).click();
+                await expect.poll(() => calls.filter((call) => call.path.endsWith("/settings/bot")).length).toBe(2);
+                expect(calls.filter((call) => call.path.endsWith("/settings/bot"))[1].body).toMatch(/filename="generated-avatar\.png"/);
+            }
         } else if (scenario === "manual edit") await expect(botName).toHaveValue("Manual choice");
         else if (scenario === "close reopen") await expect(botName).toHaveValue("New session");
-        else if (scenario === "actor change" || scenario === "authority change" || scenario === "text failure")
+        else if (scenario === "actor change" || scenario === "authority change" || scenario === "same-model authority change") {
             await expect(botName).toHaveValue("Original");
-        else {
+            await expect.soft(page.locator("img[src^='data:image/png']")).toHaveCount(0);
+            await page.getByRole("textbox", { name: "Bot Unique Name*", exact: true }).fill("new-owner");
+            await page.getByRole("textbox", { name: "Model*", exact: true }).fill("fixture-model");
+            await page.getByRole("textbox", { name: "API key*", exact: true }).fill("fixture-secret");
+            await page.getByRole("button", { name: "Create", exact: true }).click();
+            await expect.poll(() => calls.find((call) => call.path.endsWith("/settings/bot"))?.body ?? "").toContain("new-owner");
+            expect(calls.find((call) => call.path.endsWith("/settings/bot"))?.body).not.toContain("filename=");
+        } else if (scenario === "text failure") {
+            await expect(botName).toHaveValue("Original");
+            await expect(page.locator("img[src^='data:image/png']")).toHaveCount(1);
+        } else {
             await expect(botName).toHaveValue("AI result");
             expect(calls.some((call) => call.path.endsWith("/avatar/preview"))).toBe(false);
         }
     });
+}
+
+for (const change of ["Change actor", "Revoke authority", "Mutate authority"]) {
+    for (const selection of ["manual", "pending generation"]) {
+        test(`avatar authority isolation: ${selection} / ${change}`, async ({ page }) => {
+            const bodies: string[] = [];
+            let release: (() => void) | undefined;
+            const pending = new Promise<void>((resolve) => (release = resolve));
+            await page.route("**/bot-avatar-fixture.html", (route) =>
+                route.fulfill({
+                    contentType: "text/html",
+                    body: `<!doctype html><html><body><div id="root"></div><script type="module">
+                        import RefreshRuntime from "/@react-refresh";
+                        RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;
+                        window.__vite_plugin_react_preamble_installed__=true;</script>
+                        <script type="module" src="/src/pages/SettingsPage/components/bots/bot-avatar.fixture.tsx"></script></body></html>`,
+                })
+            );
+            await page.route("**/*", async (route) => {
+                const req = route.request();
+                if (!["fetch", "xhr"].includes(req.resourceType())) return route.fallback();
+                const path = new URL(req.url()).pathname;
+                if (path.endsWith("/image-profiles"))
+                    return route.fulfill({ json: { profiles: [{ uid: "image-profile", display_name: "Icons", model_name: "images" }] } });
+                if (path.endsWith("/avatar/preview")) {
+                    await pending;
+                    return route.fulfill({ json: { preview_data_url: png } }).catch(() => undefined);
+                }
+                if (path.endsWith("/settings/bot") && req.method() === "POST") {
+                    bodies.push(req.postData() ?? "");
+                    return route.fulfill({ status: 409, json: { message: "Retry allowed" } });
+                }
+                return route.fulfill({
+                    json: { providers: [], tools: [], api_routes: [], comfort_tools: [], mcp_tools: [], mcp_tool_groups: [], oidc_enabled: false },
+                });
+            });
+            await page.goto("/bot-avatar-fixture.html");
+            await page.getByRole("textbox", { name: "Bot name*", exact: true }).fill("New owner");
+            await page.getByRole("textbox", { name: "Bot Unique Name*", exact: true }).fill("new-owner");
+            await page.getByRole("textbox", { name: "Model*", exact: true }).fill("fixture-model");
+            await page.getByRole("textbox", { name: "API key*", exact: true }).fill("fixture-secret");
+            if (selection === "manual") {
+                await page.locator("input[type=file]").setInputFiles({
+                    name: "previous-owner.png",
+                    mimeType: "image/png",
+                    buffer: Buffer.from(png.split(",")[1], "base64"),
+                });
+                await expect(page.locator("img[src^='data:image/png']")).toHaveCount(1);
+            } else {
+                await page.getByRole("button", { name: "Generate with AI", exact: true }).click();
+                const avatar = page.getByRole("dialog", { name: "Generate avatar", exact: true });
+                await avatar.getByRole("combobox").selectOption("image-profile");
+                await avatar.getByRole("checkbox").check();
+                await Promise.all([
+                    page.waitForRequest((req) => new URL(req.url()).pathname.endsWith("/avatar/preview")),
+                    avatar.getByRole("button", { name: "Generate with AI", exact: true }).click(),
+                ]);
+            }
+            await page.getByRole("button", { name: change, exact: true, includeHidden: true }).evaluate((el: HTMLButtonElement) => el.click());
+            release?.();
+            if (selection === "pending generation") {
+                const avatar = page.getByRole("dialog", { name: "Generate avatar", exact: true });
+                await expect(avatar).toHaveCount(0);
+            }
+            await expect.soft(page.locator("img[src^='data:image/png']")).toHaveCount(0);
+            await page.getByRole("button", { name: "Create", exact: true }).click();
+            await expect.poll(() => bodies.length).toBe(1);
+            expect(bodies[0]).not.toContain("filename=");
+        });
+    }
 }

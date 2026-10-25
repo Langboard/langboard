@@ -50,6 +50,14 @@ function Fixture() {
             >
                 Revoke authority
             </button>
+            <button
+                onClick={() => {
+                    currentUser.is_admin = false;
+                    currentUser.setting_role_actions = [];
+                }}
+            >
+                Mutate authority
+            </button>
             <BotCreateFormDialog opened={opened} setOpened={setOpened} currentUser={currentUser} />
         </>
     );

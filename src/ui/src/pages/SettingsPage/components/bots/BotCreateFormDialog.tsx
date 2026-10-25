@@ -18,6 +18,7 @@ import FormErrorMessage from "@/components/FormErrorMessage";
 import AvatarUploader from "@/components/AvatarUploader";
 import AvatarGeneration from "@/components/AvatarGeneration";
 import { BotModel } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import { Utils } from "@langboard/core/utils";
 import { EHttpStatus } from "@langboard/core/enums";
 import CopyInput from "@/components/CopyInput";
@@ -38,6 +39,9 @@ import type { IBotActionSuggestion } from "@/controllers/api/settings/bots/useSu
 
 function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettingsModalProps): React.JSX.Element {
     const [t] = useTranslation();
+    const actor = useAuthStore((state) => state.currentUser);
+    const identityVersion = useAuthStore((state) => state.getIdentityVersion());
+    const [avatarScope, setAvatarScope] = useState(0);
     const navigate = usePageNavigateRef();
     const [isValidating, setIsValidating] = useState(false);
     const [textPending, setTextPending] = useState(false);
@@ -54,6 +58,17 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
     const [draftActionSuggestions, setDraftActionSuggestions] = useState<IBotActionSuggestion[]>([]);
     const dialogContentRef = useRef<HTMLDivElement | null>(null);
     const dataTransferRef = useRef(new DataTransfer());
+    useEffect(() => {
+        const clearAvatarDraft = () => {
+            ++formRevision.current;
+            dataTransferRef.current.items.clear();
+            setGeneratedAvatar(undefined);
+            setAvatarRequest(undefined);
+            setAvatarScope((scope) => scope + 1);
+        };
+        clearAvatarDraft();
+        return actor?.subscribeFields(["is_admin", "setting_role_actions"], clearAvatarDraft);
+    }, [actor, identityVersion]);
     const inputsRef = useRef({
         name: null as HTMLInputElement | null,
         uname: null as HTMLInputElement | null,
@@ -268,6 +283,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                         <Box mb="4" data-bot-assistant>
                             {opened && (
                                 <BotCreateAssistantPanel
+                                    key={avatarScope}
                                     disabled={isValidating}
                                     getCurrentValue={getCurrentBotValue}
                                     onApplyDraft={applyBotDraft}
@@ -278,6 +294,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                             )}
                         </Box>
                         <AvatarUploader
+                            key={avatarScope}
                             isBot
                             dataTransferRef={dataTransferRef}
                             isValidating={isValidating}
@@ -289,7 +306,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                         />
                         <Flex justify="center" mt="3">
                             <AvatarGeneration
-                                key={String(opened)}
+                                key={`${opened}:${avatarScope}`}
                                 base="/settings/bot/avatar"
                                 canUpdate={opened}
                                 disabled={isValidating}
