@@ -134,24 +134,35 @@ def upload(storage, source, storage_name, stored_filename, original_filename):
                 size_bytes=size,
                 allocation_token=uuid4().hex,
             )
-            candidate.id = SnowflakeID()
-            db.exec(
-                insert(AttachmentStorageObject.__table__)
-                .values({column.name: getattr(candidate, column.name) for column in AttachmentStorageObject.__table__.columns})
-                .on_conflict_do_nothing()
-            )
-            physical = db.exec(
-                SqlBuilder.select.table(AttachmentStorageObject)
-                .where(
-                    AttachmentStorageObject.storage_type == storage.storage_type,
-                    AttachmentStorageObject.content_sha256 == content_hash,
-                    AttachmentStorageObject.size_bytes == size,
+            for _ in range(32):
+                candidate.id = SnowflakeID()
+                db.exec(
+                    insert(AttachmentStorageObject.__table__)
+                    .values(
+                        {
+                            column.name: getattr(candidate, column.name)
+                            for column in AttachmentStorageObject.__table__.columns
+                        }
+                    )
+                    .on_conflict_do_nothing()
                 )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            ).first()
-            if physical is None:
-                raise RuntimeError("Attachment object identity allocation failed")
+                physical = db.exec(
+                    SqlBuilder.select.table(AttachmentStorageObject)
+                    .where(
+                        AttachmentStorageObject.storage_type == storage.storage_type,
+                        AttachmentStorageObject.content_sha256 == content_hash,
+                        AttachmentStorageObject.size_bytes == size,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).first()
+                if physical is not None:
+                    break
+                # No matching content means the suppressed conflict was an ID
+                # collision. Preserve the winner and skip its sequence range.
+                SnowflakeID.advance_after_collision(candidate.id)
+            else:
+                raise RuntimeError("Attachment object identity allocation exhausted")
             reference = _select_reference(db, storage.storage_type, storage_name.value, stored_filename, lock=True)
             if reference is not None:
                 if reference.object_id != physical.id or reference.released:
