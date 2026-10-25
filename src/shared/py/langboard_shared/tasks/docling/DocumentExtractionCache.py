@@ -231,7 +231,7 @@ class CachedDocumentExtraction:
         self.suffix = PurePath(filename).suffix.lower()
         self.languages = keyword_languages(vision_config)
         versions = []
-        for distribution in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2"):
+        for distribution in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2", "lxml"):
             try:
                 versions.append(metadata.version(distribution))
             except metadata.PackageNotFoundError:

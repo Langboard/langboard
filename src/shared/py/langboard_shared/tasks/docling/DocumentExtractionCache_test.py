@@ -141,9 +141,9 @@ def test_identity_separates_bindings_format_settings_hash_and_parser(store, monk
     assert len(rows(Cache)) == 7
 
 
-@pytest.mark.parametrize("renderer", ["pillow", "pypdfium2"])
-def test_renderer_version_alone_invalidates_identical_content_and_settings(store, monkeypatch, renderer):
-    versions = {name: "1.0" for name in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2")}
+@pytest.mark.parametrize("runtime", ["pillow", "pypdfium2", "lxml"])
+def test_parser_or_renderer_version_alone_invalidates_identical_content_and_settings(store, monkeypatch, runtime):
+    versions = {name: "1.0" for name in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2", "lxml")}
     monkeypatch.setattr(module.metadata, "version", versions.__getitem__)
     convert = Mock(side_effect=converted)
     original_key = None
@@ -153,7 +153,7 @@ def test_renderer_version_alone_invalidates_identical_content_and_settings(store
             cache.retain()
             original_key = cache.key
     assert convert.call_count == 1
-    versions[renderer] = "2.0"
+    versions[runtime] = "2.0"
     assert all(versions[name] == "1.0" for name in ("docling", "docling-core", "docling-slim"))
     for _ in range(2):
         with cached_document_extraction(**settings()) as cache:
