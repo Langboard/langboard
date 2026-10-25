@@ -125,6 +125,7 @@ case "$profile" in
     export LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_FILE_TEST_DATABASE_URL"
     export LANGBOARD_MIRROR_TEST_DATABASE_URL="$LANGBOARD_FILE_TEST_DATABASE_URL"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
+      src/api/tests/apps/test_app_connection_auth_postgres.py \
       src/api/tests/identity/test_user_owner_postgres.py \
       src/api/tests/scim/test_project_role_projection_database.py \
       src/api/tests/scim/test_instance_directory_audit.py \
