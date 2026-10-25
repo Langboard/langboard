@@ -2009,3 +2009,157 @@ test("sidebar transitions respect reduced motion and keep ordinary dragging imme
     await expect(sidebar).toHaveAttribute("data-collapsed", "false");
     await expect.poll(async () => (await transitions()).property).toBe("none");
 });
+
+test("native dashboard-to-board pending split registration preserves physical chrome and blocks stale controls", async ({ page }) => {
+    const now = new Date().toISOString();
+    const user = {
+        uid: "measure-user",
+        created_at: now,
+        updated_at: now,
+        type: "user",
+        firstname: "Fixture",
+        lastname: "Reader",
+        email: "fixture@example.com",
+        username: "measure",
+        api_key_role_actions: ["*"],
+        setting_role_actions: ["*"],
+        mcp_role_actions: ["*"],
+        user_groups: [],
+        subemails: [],
+        preferred_lang: "en",
+        notification_unsubs: {},
+        industry: "",
+        purpose: "",
+    };
+    const projects = ["left0000001", "right000001"].map((uid) => ({
+        uid,
+        title: `${uid} board`,
+        created_at: now,
+        updated_at: now,
+        owner_uid: user.uid,
+        project_type: "default",
+        archive_visible_days: 30,
+        all_members: [user],
+        invited_member_uids: [],
+        starred: false,
+        internal_bots: [],
+        internal_bot_settings: {},
+        current_auth_role_actions: ["*"],
+        labels: [],
+        description: "",
+        last_viewed_at: now,
+        view_count: 0,
+    }));
+    const card = (uid: string) => ({
+        uid: uid,
+        project_uid: uid,
+        project_column_uid: `${uid}-column`,
+        project_column_name: `${uid} column`,
+        title: `${uid} measured card`,
+        created_at: now,
+        updated_at: now,
+        order: 0,
+        count_comment: 0,
+        member_uids: [],
+        current_auth_role_actions: ["*"],
+        project_members: [],
+        labels: [],
+        relationships: [],
+        has_description: true,
+        description: { content: "Measured native card body" },
+        visibility: "SHARED",
+    });
+    const column = (uid: string) => ({
+        uid: `${uid}-column`,
+        project_uid: uid,
+        name: `${uid} column`,
+        order: 0,
+        created_at: now,
+        updated_at: now,
+        color: "#444444",
+    });
+    const http: { method: string; path: string; startMs: number; endMs?: number }[] = [];
+    const errors: string[] = [];
+    const socket: unknown[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.routeWebSocket(/.*/, (ws) =>
+        ws.onMessage((raw) => {
+            if (!String(raw).startsWith("{")) return;
+            const m = JSON.parse(String(raw));
+            socket.push(m);
+            if (["subscribe", "unsubscribe"].includes(m.event))
+                ws.send(JSON.stringify({ ...m, event: m.event === "subscribe" ? "subscribed" : "unsubscribed" }));
+        })
+    );
+    let releaseBoard: (() => void) | undefined;
+    await page.route(
+        (url) => url.port === "5381",
+        async (route) => {
+            const request = route.request();
+            const path = new URL(request.url()).pathname;
+            const row = { method: request.method(), path, startMs: Date.now(), endMs: undefined as number | undefined };
+            http.push(row);
+            if (row.method === "OPTIONS") {
+                await route.fulfill({ status: 204 });
+                row.endMs = Date.now();
+                return;
+            }
+            const uid = path.split("/")[2];
+            let json: unknown = { records: [], next_cursor: null, items: [], executions: [], decisions: [], comments: [] };
+            if (new URL(request.url()).searchParams.has("location_only")) json = { canonical_project_uid: uid, card_uid: path.split("/")[4] };
+            else if (path.startsWith("/auth/")) json = { access_token: "fixture-measurement-session", user, bots: [] };
+            else if (path === `/board/${uid}`) {
+                await new Promise<void>((resolve) => {
+                    releaseBoard = resolve;
+                });
+                json = { project: projects.find((p) => p.uid === uid), project_bot_scopes: [], project_bot_schedules: [] };
+            } else if (path === `/board/${uid}/cards`)
+                json = { cards: [card(uid)], columns: [column(uid)], checklists: [], global_relationships: [] };
+            else if (path === `/board/${uid}/card/${uid}`)
+                json = {
+                    card: card(uid),
+                    project: projects.find((p) => p.uid === uid),
+                    members: [],
+                    checklists: [],
+                    comments: [],
+                    activities: [],
+                    files: [],
+                    attachments: [],
+                    linked_wikis: [],
+                    global_relationships: [],
+                    project_columns: [],
+                    project_labels: [],
+                    bot_scopes: [],
+                };
+            else if (path.includes("/column/dock")) json = { column_uids: [] };
+            else if (path.includes("/cards/available")) json = { card_uids: [] };
+            else if (path === "/account/project-collections") json = { revision: 0, collections: [] };
+            else if (path.includes("/search")) json = { items: [], next_cursor: null };
+            else if (path.includes("project")) json = { projects, columns: projects.map((p) => column(p.uid)), records: [], collections: [] };
+            else if (path.includes("apps")) json = { apps: [] };
+            else if (path.includes("timeline")) json = { items: [], next_cursor: null };
+            await route.fulfill({ json });
+            row.endMs = Date.now();
+        }
+    );
+
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?measure-native=1");
+    const explorer = page.locator("[data-workbench-explorer]");
+    await expect(explorer.getByRole("button", { name: "left0000001 board", exact: true }).first()).toBeVisible({ timeout: 45_000 });
+    const header = await page.locator("header").elementHandle();
+    const rail = await page.getByRole("navigation", { name: "Workspace", exact: true }).elementHandle();
+    const sidebar = await page.locator("[data-workbench-sidebar]").elementHandle();
+    const notificationReads = () => http.filter((request) => request.path === "/notifications").length;
+    const before = notificationReads();
+    await explorer.getByRole("button", { name: "left0000001 board", exact: true }).first().click();
+    await expect.poll(() => !!releaseBoard).toBe(true);
+    // The focused board is still pending; old controls must remain mounted and inert.
+    await expect(page.locator("[inert][aria-busy=true]")).toHaveCount(1);
+    for (const node of [header, rail, sidebar]) expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
+    releaseBoard!();
+    await expect(page.getByText("left0000001 measured card", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("[inert]")).toHaveCount(0);
+    for (const node of [header, rail, sidebar]) expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
+    expect(notificationReads()).toBe(before);
+    expect(errors).toEqual([]);
+});

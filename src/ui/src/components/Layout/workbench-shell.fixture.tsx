@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect, useState, useRef, Suspense } from "react";
+import { createContext, useContext, useEffect, useState, useRef, Suspense, Profiler } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { AuthProvider } from "@/core/providers/AuthProvider";
 import { createRoot } from "react-dom/client";
-import { createMemoryRouter, Link, RouterProvider, useLocation, MemoryRouter } from "react-router";
+import { createMemoryRouter, createBrowserRouter, Link, RouterProvider, useLocation, MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import WorkbenchRouteLayout from "./WorkbenchRouteLayout";
 import DashboardStyledLayout from "./DashboardStyledLayout";
@@ -209,12 +209,68 @@ function LensFixture() {
     );
 }
 const params = new URLSearchParams(location.search);
-void i18n.changeLanguage(params.get("lang") ?? "en-US").then(() =>
+async function renderNativeMeasurement() {
+    const [
+        { default: dashboard },
+        { default: board },
+        { toRoutes },
+        { queryClient },
+        { api },
+        { SocketProvider },
+        { PageHeaderProvider },
+        { default: ProjectQuickSwitcher },
+    ] = await Promise.all([
+        import("@/pages/DashboardPage/Route"),
+        import("@/pages/BoardPage/Route"),
+        import("@/core/routing/workbenchRoutes"),
+        import("@/core/helpers/QueryClient"),
+        import("@/core/helpers/Api"),
+        import("@/core/providers/SocketProvider"),
+        import("@/core/providers/PageHeaderProvider"),
+        import("@/pages/DashboardPage/components/ProjectQuickSwitcher"),
+    ]);
+    await useAuthStore.getState().updateToken("fixture-measurement-session", api);
+    window.history.replaceState(null, "", "/dashboard/projects/all");
+    const nativeRouter = createBrowserRouter(
+        toRoutes([dashboard, board]).map((route) => ({
+            ...route,
+            element: (
+                <PageHeaderProvider>
+                    <AuthProvider>
+                        <SocketProvider>
+                            <ProjectQuickSwitcher />
+                            {route.element}
+                        </SocketProvider>
+                    </AuthProvider>
+                </PageHeaderProvider>
+            ),
+        }))
+    );
+    const commits: unknown[] = [];
+    Object.assign(window, { workbenchMeasurementCommits: commits });
     createRoot(document.getElementById("root")!).render(
         <Suspense>
-            <QueryClientProvider client={new QueryClient()}>
-                {params.has("lenses") ? <LensFixture /> : <RouterProvider router={router} />}
+            <QueryClientProvider client={queryClient}>
+                <Profiler
+                    id="native-workbench"
+                    onRender={(id, phase, actualDuration, baseDuration, startTime, commitTime) =>
+                        commits.push({ id, phase, actualDuration, baseDuration, startTime, commitTime })
+                    }
+                >
+                    <RouterProvider router={nativeRouter} />
+                </Profiler>
             </QueryClientProvider>
         </Suspense>
-    )
+    );
+}
+void i18n.changeLanguage(params.get("lang") ?? "en-US").then(() =>
+    params.has("measure-native")
+        ? renderNativeMeasurement()
+        : createRoot(document.getElementById("root")!).render(
+              <Suspense>
+                  <QueryClientProvider client={new QueryClient()}>
+                      {params.has("lenses") ? <LensFixture /> : <RouterProvider router={router} />}
+                  </QueryClientProvider>
+              </Suspense>
+          )
 );
