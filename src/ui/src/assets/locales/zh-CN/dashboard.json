@@ -223,5 +223,9 @@
     "open source": "打开源收件箱",
     "next": "下一页信号",
     "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
-  }
+  },
+  "Source pages": "第 {{pages}} 页",
+  "Go to attachment": "转到附件",
+  "Go to attachment; page navigation unavailable": "转到附件；暂不支持直接跳转到页面",
+  "Search attachment source limitation": "搜索来源：第 {{pages}} 页。已定位到附件；暂不支持直接跳转到页面。"
 }

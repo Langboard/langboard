@@ -223,5 +223,9 @@
     "open source": "원본 수신함 열기",
     "next": "다음 신호",
     "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
-  }
+  },
+  "Source pages": "{{pages}}쪽",
+  "Go to attachment": "첨부파일로 이동",
+  "Go to attachment; page navigation unavailable": "첨부파일로 이동 · 페이지 바로 이동은 지원하지 않습니다",
+  "Search attachment source limitation": "검색 출처: {{pages}}쪽. 해당 첨부파일로 이동했습니다. 페이지 바로 이동은 지원하지 않습니다."
 }

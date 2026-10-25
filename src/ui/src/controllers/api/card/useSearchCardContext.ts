@@ -2,11 +2,23 @@ import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
 import { type TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 
+export interface CardDocumentMatch {
+    attachment_uid: string;
+    filename: string;
+    snippet: string;
+    chunk_id?: string;
+    generation?: string;
+    content_hash?: string;
+    page?: number;
+    pages?: number[];
+    provenance_scope?: string;
+}
+
 export interface CardSearchContext {
     uid: string;
     title: string;
     project_column_name: string;
-    document_matches?: { attachment_uid: string; filename: string; snippet: string }[];
+    document_matches?: CardDocumentMatch[];
 }
 
 export default function useSearchCardContext(

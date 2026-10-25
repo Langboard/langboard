@@ -1,3 +1,4 @@
+import AttachmentSearchTarget from "./AttachmentSearchTarget";
 import { BoardCardAttachmentDocumentProgress } from "./BoardCardAttachmentDocument";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
@@ -83,10 +84,12 @@ function BoardCardAttachment({ attachment, openPreview }: IBoardCardAttachmentPr
     }, [attachment, order]);
 
     return (
-        <Box position="relative" py="1" ref={outerRef}>
-            {state.type === "is-over" && <DropIndicator edge={state.closestEdge} />}
-            <BoardCardAttachmentDisplay attachment={attachment} canReorder={canReorder} openPreview={openPreview} draggableRef={draggableRef} />
-        </Box>
+        <AttachmentSearchTarget attachmentUID={attachment.uid}>
+            <Box position="relative" py="1" ref={outerRef}>
+                {state.type === "is-over" && <DropIndicator edge={state.closestEdge} />}
+                <BoardCardAttachmentDisplay attachment={attachment} canReorder={canReorder} openPreview={openPreview} draggableRef={draggableRef} />
+            </Box>
+        </AttachmentSearchTarget>
     );
 }
 

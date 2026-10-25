@@ -223,5 +223,9 @@
     "open source": "Open source Inbox",
     "next": "Next signals",
     "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
-  }
+  },
+  "Source pages": "p. {{pages}}",
+  "Go to attachment": "Go to attachment",
+  "Go to attachment; page navigation unavailable": "Go to attachment; page navigation unavailable",
+  "Search attachment source limitation": "Search source: p. {{pages}}. Attachment located; page navigation unavailable."
 }

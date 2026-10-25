@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import useSearchWikis from "@/controllers/api/wiki/useSearchWikis";
+import DocumentSearchSource from "./DocumentSearchSource";
 import useSearchCardContext from "@/controllers/api/card/useSearchCardContext";
 import { useDebounce } from "@/core/hooks/useDebounce";
 import Box from "@/components/base/Box";
@@ -306,24 +307,30 @@ const ProjectQuickSwitcher = memo((): React.JSX.Element => {
                 {searchedCards.length ? (
                     <Command.Group heading={t("dashboard.Cards")}>
                         {searchedCards.map((card) => (
-                            <Command.Item
-                                key={card.uid}
-                                value={`search-card:${currentProjectUID}:${card.uid}`}
-                                keywords={[card.title, wikiQuery]}
-                                onSelect={() => selectRoute(ROUTES.BOARD.CARD(currentProjectUID!, card.uid))}
-                                className="gap-3 rounded-lg"
-                            >
-                                <IconComponent icon="file-text" size="4" />
-                                <span className="min-w-0 flex-1">
-                                    <span className="block truncate">{card.title}</span>
-                                    <span className="block truncate text-xs text-muted-foreground">{card.project_column_name}</span>
-                                    {card.document_matches?.map((source) => (
-                                        <span key={source.attachment_uid} className="block truncate text-xs text-muted-foreground">
-                                            {source.filename} · {source.snippet}
-                                        </span>
-                                    ))}
-                                </span>
-                            </Command.Item>
+                            <Fragment key={card.uid}>
+                                <Command.Item
+                                    value={`search-card:${currentProjectUID}:${card.uid}`}
+                                    keywords={[card.title, wikiQuery]}
+                                    onSelect={() => selectRoute(ROUTES.BOARD.CARD(currentProjectUID!, card.uid))}
+                                    className="gap-3 rounded-lg"
+                                >
+                                    <IconComponent icon="file-text" size="4" />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate">{card.title}</span>
+                                        <span className="block truncate text-xs text-muted-foreground">{card.project_column_name}</span>
+                                    </span>
+                                </Command.Item>
+                                {card.document_matches?.map((source, index) => (
+                                    <DocumentSearchSource
+                                        key={`${source.attachment_uid}:${source.chunk_id ?? index}`}
+                                        projectUID={currentProjectUID!}
+                                        cardUID={card.uid}
+                                        cardTitle={card.title}
+                                        source={source}
+                                        onSelect={selectRoute}
+                                    />
+                                ))}
+                            </Fragment>
                         ))}
                     </Command.Group>
                 ) : null}

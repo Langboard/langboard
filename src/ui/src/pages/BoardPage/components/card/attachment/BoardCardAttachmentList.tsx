@@ -1,3 +1,4 @@
+import { useLocation } from "react-router";
 import Button from "@/components/base/Button";
 import Collapsible from "@/components/base/Collapsible";
 import Flex from "@/components/base/Flex";
@@ -50,6 +51,11 @@ function BoardCardAttachmentList(): React.JSX.Element {
         updater,
     });
     const [isOpened, setIsOpened] = useState(false);
+    const location = useLocation();
+    const targetUID = new URLSearchParams(location.search).get("attachment");
+    useEffect(() => {
+        if (attachments.findIndex((attachment) => attachment.uid === targetUID) >= 5) setIsOpened(true);
+    }, [attachments, targetUID, location.key]);
     const [isPreviewOpened, setIsPreviewOpened] = useState(false);
     const initialPreviewIndex = useRef(0);
 
