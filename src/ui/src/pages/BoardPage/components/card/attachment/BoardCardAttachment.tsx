@@ -84,7 +84,7 @@ function BoardCardAttachment({ attachment, openPreview }: IBoardCardAttachmentPr
     }, [attachment, order]);
 
     return (
-        <AttachmentSearchTarget attachmentUID={attachment.uid}>
+        <AttachmentSearchTarget attachmentUID={attachment.uid} file={{ name: attachment.name, url: attachment.url }}>
             <Box position="relative" py="1" ref={outerRef}>
                 {state.type === "is-over" && <DropIndicator edge={state.closestEdge} />}
                 <BoardCardAttachmentDisplay attachment={attachment} canReorder={canReorder} openPreview={openPreview} draggableRef={draggableRef} />

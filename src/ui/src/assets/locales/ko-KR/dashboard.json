@@ -227,5 +227,9 @@
   "Source pages": "{{pages}}쪽",
   "Go to attachment": "첨부파일로 이동",
   "Go to attachment; page navigation unavailable": "첨부파일로 이동 · 페이지 바로 이동은 지원하지 않습니다",
-  "Search attachment source limitation": "검색 출처: {{pages}}쪽. 해당 첨부파일로 이동했습니다. 페이지 바로 이동은 지원하지 않습니다."
+  "Search attachment source limitation": "검색 출처: {{pages}}쪽. 해당 첨부파일로 이동했습니다. 페이지 바로 이동은 지원하지 않습니다.",
+  "Go to attachment source pages": "첨부파일 출처 페이지로 이동",
+  "PDF source pages": "검색 출처: {{pages}}쪽. 지원되는 브라우저 뷰어에서 PDF 페이지를 엽니다.",
+  "PDF inline unavailable": "이 브라우저는 PDF 페이지의 인라인 표시를 지원하지 않습니다. PDF를 내려받아 PDF 뷰어에서 해당 페이지를 여세요.",
+  "Download PDF": "PDF 내려받기"
 }

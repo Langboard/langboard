@@ -227,5 +227,9 @@
   "Source pages": "p. {{pages}}",
   "Go to attachment": "Go to attachment",
   "Go to attachment; page navigation unavailable": "Go to attachment; page navigation unavailable",
-  "Search attachment source limitation": "Search source: p. {{pages}}. Attachment located; page navigation unavailable."
+  "Search attachment source limitation": "Search source: p. {{pages}}. Attachment located; page navigation unavailable.",
+  "Go to attachment source pages": "Go to attachment source pages",
+  "PDF source pages": "Search source: p. {{pages}}. PDF pages open in supported browser viewers.",
+  "PDF inline unavailable": "This browser cannot display PDF pages inline. Download the PDF and open the requested page in a PDF viewer.",
+  "Download PDF": "Download PDF"
 }

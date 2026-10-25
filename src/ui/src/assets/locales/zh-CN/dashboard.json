@@ -227,5 +227,9 @@
   "Source pages": "第 {{pages}} 页",
   "Go to attachment": "转到附件",
   "Go to attachment; page navigation unavailable": "转到附件；暂不支持直接跳转到页面",
-  "Search attachment source limitation": "搜索来源：第 {{pages}} 页。已定位到附件；暂不支持直接跳转到页面。"
+  "Search attachment source limitation": "搜索来源：第 {{pages}} 页。已定位到附件；暂不支持直接跳转到页面。",
+  "Go to attachment source pages": "转到附件来源页面",
+  "PDF source pages": "搜索来源：第 {{pages}} 页。在受支持的浏览器查看器中打开 PDF 页面。",
+  "PDF inline unavailable": "此浏览器不支持内嵌显示 PDF 页面。请下载 PDF 并在 PDF 查看器中打开所需页面。",
+  "Download PDF": "下载 PDF"
 }

@@ -227,5 +227,9 @@
   "Source pages": "{{pages}}ページ",
   "Go to attachment": "添付ファイルへ移動",
   "Go to attachment; page navigation unavailable": "添付ファイルへ移動・ページへの直接移動は利用できません",
-  "Search attachment source limitation": "検索元: {{pages}}ページ。該当する添付ファイルへ移動しました。ページへの直接移動は利用できません。"
+  "Search attachment source limitation": "検索元: {{pages}}ページ。該当する添付ファイルへ移動しました。ページへの直接移動は利用できません。",
+  "Go to attachment source pages": "添付ファイルの参照ページへ移動",
+  "PDF source pages": "検索元: {{pages}}ページ。対応ブラウザーのビューアーでPDFページを開きます。",
+  "PDF inline unavailable": "このブラウザーはPDFのインライン表示に対応していません。PDFをダウンロードし、PDFビューアーで該当ページを開いてください。",
+  "Download PDF": "PDFをダウンロード"
 }

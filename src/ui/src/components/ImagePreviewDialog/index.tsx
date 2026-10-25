@@ -1,3 +1,4 @@
+import ProtectedPdfPreview from "./ProtectedPdfPreview";
 import ImageAnnotations, { type ImageAnnotationContext } from "./ImageAnnotations";
 import { useNativeImageComments } from "./NativeImageCommentContext";
 import { formatNumber } from "@/core/utils/LocaleFormat";
@@ -21,11 +22,13 @@ export type FileItem = {
 interface ImagePreviewDialogProps {
     files: { name: string; url: string; type?: string }[];
     initialIndex: number;
+    initialPage?: number;
+    sourcePages?: number[];
     onClose: () => void;
     annotationContext?: ImageAnnotationContext;
 }
 
-const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }: ImagePreviewDialogProps) => {
+const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onClose, annotationContext }: ImagePreviewDialogProps) => {
     const [t, i18n] = useTranslation();
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [zoom, setZoom] = useState(1);
@@ -88,6 +91,7 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
     }, [currentIndex, files]);
 
     const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+        if (mimeType === "application/pdf") return;
         if (e.deltaY < 0) {
             updateZoom("in");
         } else {
@@ -156,7 +160,9 @@ const ImagePreviewDialog = ({ files, initialIndex, onClose, annotationContext }:
                             panStart.current = null;
                         }}
                     >
-                        {!!mimeType && mimeType.startsWith("image/") ? (
+                        {mimeType === "application/pdf" ? (
+                            <ProtectedPdfPreview url={currentFileUrl} name={currentFileName} initialPage={initialPage} pages={sourcePages} />
+                        ) : !!mimeType && mimeType.startsWith("image/") ? (
                             <div className="relative inline-flex" data-image-annotation-layer>
                                 <CachedImage
                                     key={currentFileUrl}

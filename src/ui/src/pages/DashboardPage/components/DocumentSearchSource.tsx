@@ -30,7 +30,7 @@ export default function DocumentSearchSource({
     const route = documentSourceRoute(projectUID, cardUID, source);
     const pages = new URLSearchParams(route.split("?")[1].split("#")[0]).get("source-pages");
     const pageLabel = pages ? t("dashboard.Source pages", { pages }) : "";
-    const actionLabel = t(`dashboard.${pages ? "Go to attachment; page navigation unavailable" : "Go to attachment"}`);
+    const actionLabel = t(`dashboard.${pages ? "Go to attachment source pages" : "Go to attachment"}`);
     return (
         <Command.Item
             value={`search-source:${cardUID}:${source.attachment_uid}:${source.chunk_id ?? ""}`}
