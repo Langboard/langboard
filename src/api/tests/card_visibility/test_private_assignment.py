@@ -31,6 +31,8 @@ from langboard_shared.domain.models import (
     Card,
     CardAssignedProjectLabel,
     CardAssignedUser,
+    NativeMcpBoardConsent,
+    NativeMcpConnection,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectLabel,
@@ -39,6 +41,7 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.services.factory.ProjectLabelService import ProjectLabelService
 from langboard_shared.domain.services.factory.ProjectService import ProjectService
+from langboard_shared.domain.services.NativeMcpConsent import connect_native_client, save_native_board_consent
 from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories.factory.CardAssignedProjectLabelRepository import (
     CardAssignedProjectLabelRepository,
@@ -56,7 +59,14 @@ MODULE = "langboard_shared.domain.services.factory.CardService"
 def assignment_board(current_card, monkeypatch):
     owner, project, _, card_service = current_card
     engine = DbEngine.get_main_engine()
-    for model in (ProjectColumn, CardAssignedUser, ProjectLabel, CardAssignedProjectLabel):
+    for model in (
+        ProjectColumn,
+        CardAssignedUser,
+        ProjectLabel,
+        CardAssignedProjectLabel,
+        NativeMcpConnection,
+        NativeMcpBoardConsent,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     repo = card_service.repo
@@ -149,6 +159,12 @@ def assert_unchanged(b):
         assert effect.mock_calls == []
 
 
+def native_oauth_context(b):
+    connection = connect_native_client(b.owner, "private-assignment-regression")
+    save_native_board_consent(b.owner, connection.id, b.project.id, ["read", "write"], None)
+    return {"transport": "oauth", "user_or_bot": b.owner, "native_connection_id": connection.id}
+
+
 @pytest.mark.parametrize("command", ["replace_other", "replace_self", "replace_empty", "add_other", "add_self", "self"])
 def test_private_service_denies_all_assignment_controls(assignment_board, command):
     b = assignment_board
@@ -226,7 +242,7 @@ async def test_private_registered_mcp_assignment_rejects_without_partial_labels(
             else [getattr(b, "other" if command == "replace_other" else "owner").get_uid()],
             label_uids=[],
         )
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": b.owner})
+    token = mcp_auth_context.set(native_oauth_context(b))
     try:
         async with Client(server) as client:
             result = await client.call_tool(name, arguments, raise_on_error=False)
@@ -324,7 +340,7 @@ async def test_private_initial_assignee_denial_is_structured_and_writes_nothing(
         }
         if transport == "create_card":
             arguments["column_uid"] = b.column.get_uid()
-        token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": b.owner})
+        token = mcp_auth_context.set(native_oauth_context(b))
         try:
             async with Client(server) as client:
                 result = await client.call_tool(transport, arguments, raise_on_error=False)
