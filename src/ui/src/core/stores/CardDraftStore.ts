@@ -60,12 +60,18 @@ const buildScopeKey = (scope: IDraftScope) => `${DRAFT_PREFIX}:${scope.userUID}:
 /** Compose the exact storage/cache key for a draft scope (for reactive cache subscriptions). */
 export const buildDraftScopeKey = buildScopeKey;
 
+// Failed writes have no durable replacement. Other tabs must not invalidate
+// the only remaining copy (including cleared markers) before persistence recovers.
+const unpersistedDrafts = new WeakSet<IDraftPayload>();
+
 /** Persist without notifying subscribers; safe for synchronous legacy restoration. */
 export const persistCardDraft = (scope: IDraftScope, payload: IDraftPayload): boolean => {
     try {
         localStorage.setItem(buildScopeKey(scope), JSON.stringify(payload));
+        unpersistedDrafts.delete(payload);
         return true;
     } catch {
+        unpersistedDrafts.add(payload);
         return false;
     }
 };
@@ -156,18 +162,14 @@ const useCardDraftStore = create(
                 set((state) => {
                     state.cache[key] = tombstone;
                 });
-                try {
-                    localStorage.setItem(key, JSON.stringify(tombstone));
-                } catch {
-                    // Fully denied storage can only retain the tombstone in memory.
-                }
+                persistCardDraft(scope, tombstone);
             }
         },
     }))
 );
 
-// Native storage events carry changes from other tabs. Their committed value
-// supersedes this tab's cached copy when the composer next restores its draft.
+// Native storage events supersede committed cached copies from other tabs.
+// Preserve failed writes, which have no durable copy to restore.
 if (typeof window !== "undefined") {
     const onStorage = (event: StorageEvent) => {
         if (event.key !== null && !event.key.startsWith(`${DRAFT_PREFIX}:`)) return;
@@ -177,12 +179,13 @@ if (typeof window !== "undefined") {
             // A denied storage getter must preserve this tab's in-memory drafts.
             return;
         }
-        useCardDraftStore.setState((state) => {
-            if (event.key === null) return { cache: {} };
-            const cache = { ...state.cache };
-            delete cache[event.key];
-            return { cache };
-        });
+        const cache = { ...useCardDraftStore.getState().cache };
+        for (const [key, payload] of Object.entries(cache)) {
+            if ((event.key === null || event.key === key) && (!payload || !unpersistedDrafts.has(payload))) {
+                delete cache[key];
+            }
+        }
+        useCardDraftStore.setState({ cache });
     };
     window.addEventListener("storage", onStorage);
     import.meta.hot?.dispose(() => window.removeEventListener("storage", onStorage));

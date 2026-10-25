@@ -23,6 +23,8 @@ class MemoryLocalStorage {
     }
 }
 
+const draftWindow = new EventTarget();
+Object.defineProperty(globalThis, "window", { value: draftWindow, configurable: true });
 const storage = new MemoryLocalStorage();
 const session = new MemoryLocalStorage();
 Object.defineProperty(globalThis, "sessionStorage", { value: session, configurable: true });
@@ -150,6 +152,40 @@ describe("CardDraftStore", () => {
         store.saveDraft(scope(), "keep me");
         // Failure path simply does not call clearDraft; the draft must survive.
         assert.equal(getCardDraftStore().getDraft(scope())?.content, "keep me");
+    });
+
+    it("preserves failed-write drafts when another tab clears storage, while committed drafts follow that clear", () => {
+        const pendingScope = scope();
+        const committedScope = scope({ userUID: userB });
+        const store = getCardDraftStore();
+        store.saveDraft(pendingScope, "Older durable content");
+        store.saveDraft(committedScope, "Other account durable content");
+        const originalSet = storage.setItem;
+        storage.setItem = () => {
+            throw new DOMException("Quota exceeded", "QuotaExceededError");
+        };
+        try {
+            store.saveDraft(pendingScope, "Newest unsaved content");
+            assert.equal(store.getDraft(pendingScope)?.content, "Newest unsaved content");
+            storage.clear();
+            draftWindow.dispatchEvent(Object.assign(new Event("storage"), { key: null, storageArea: storage }));
+            assert.equal(store.getDraft(pendingScope)?.content, "Newest unsaved content", "the only remaining copy must survive another tab's clear");
+            assert.equal(store.getDraft(committedScope), null, "committed drafts still follow external clears");
+            draftWindow.dispatchEvent(
+                Object.assign(new Event("storage"), { key: "lb-draft-v1:user-a:project-1:comment-new:card-1", storageArea: storage })
+            );
+            assert.equal(
+                store.getDraft(pendingScope)?.content,
+                "Newest unsaved content",
+                "targeted external events must also preserve failed writes"
+            );
+        } finally {
+            storage.setItem = originalSet;
+        }
+        store.saveDraft(pendingScope, "Persistence recovered");
+        storage.clear();
+        draftWindow.dispatchEvent(Object.assign(new Event("storage"), { key: null, storageArea: storage }));
+        assert.equal(store.getDraft(pendingScope), null, "successful persistence restores ordinary external-clear behavior");
     });
 
     it("discards drafts older than the TTL", () => {
