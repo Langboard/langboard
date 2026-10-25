@@ -28,7 +28,8 @@ export default function BoardPaneLayout({ boardTitle, ...props }: TDashboardStyl
             {split.panes.length > 1 && (
                 <div
                     className={cn(
-                        "absolute bottom-2 right-2 z-40 hidden max-w-[80%] items-center gap-2 rounded-md border",
+                        "absolute bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] right-2 z-40 hidden",
+                        "max-w-[80%] items-center gap-2 rounded-md border",
                         "bg-background/95 px-2 py-1 shadow-sm md:flex"
                     )}
                     data-board-pane-footer=""

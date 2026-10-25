@@ -11,6 +11,7 @@ import { PageHeaderProvider } from "@/core/providers/PageHeaderProvider";
 import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser } from "@/core/models";
 import BoardRoutePage from "./RoutePage";
+import WorkbenchRouteLayout from "@/components/Layout/WorkbenchRouteLayout";
 
 const user = AuthUser.Model.fromOne({
     uid: "fixture-user",
@@ -49,7 +50,9 @@ createRoot(document.getElementById("root")!).render(
                 <AuthProvider>
                     <SocketProvider>
                         <Routes>
-                            <Route path="/board/:projectUID/*" element={<BoardRoutePage />} />
+                            <Route element={<WorkbenchRouteLayout />}>
+                                <Route path="/board/:projectUID/*" element={<BoardRoutePage />} />
+                            </Route>
                         </Routes>
                     </SocketProvider>
                 </AuthProvider>

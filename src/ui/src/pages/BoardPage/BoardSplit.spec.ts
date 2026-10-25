@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page, withCollection = false) {
+async function setup(page: Page, withCollection = false, tallBoard = false) {
     page.on("pageerror", (error) => console.error("Split fixture page error:", error.message));
     const now = new Date().toISOString();
     const user = {
@@ -73,25 +73,23 @@ async function setup(page: Page, withCollection = false) {
                 json = { project: projects.find((project) => project.uid === uid), project_bot_scopes: [], project_bot_schedules: [] };
             else if (path === `/board/${uid}/cards`)
                 json = {
-                    cards: [
-                        {
-                            uid: `${uid}-card`,
-                            project_uid: uid,
-                            project_column_uid: `${uid}-column-9`,
-                            project_column_name: `${uid} column 9`,
-                            title: `${uid} draggable card`,
-                            created_at: now,
-                            updated_at: now,
-                            order: 0,
-                            count_comment: 0,
-                            member_uids: [],
-                            current_auth_role_actions: ["*"],
-                            project_members: [],
-                            labels: [],
-                            relationships: [],
-                            has_description: false,
-                        },
-                    ],
+                    cards: Array.from({ length: tallBoard ? 30 : 1 }, (_, index) => ({
+                        uid: index ? `${uid}-card-${index}` : `${uid}-card`,
+                        project_uid: uid,
+                        project_column_uid: `${uid}-column-9`,
+                        project_column_name: `${uid} column 9`,
+                        title: index ? `${uid} tall card ${index}` : `${uid} draggable card`,
+                        created_at: now,
+                        updated_at: now,
+                        order: 0,
+                        count_comment: 0,
+                        member_uids: [],
+                        current_auth_role_actions: ["*"],
+                        project_members: [],
+                        labels: [],
+                        relationships: [],
+                        has_description: false,
+                    })),
                     columns: Array.from({ length: 10 }, (_, order) => ({
                         uid: `${uid}-column-${order}`,
                         project_uid: uid,
@@ -437,4 +435,63 @@ test("native explorer board drag distinguishes collection copy from board split"
     await expect(explorer.getByRole("treeitem").filter({ hasText: "00000000001 board" })).toHaveCount(1);
     expect(receipt().collectionWrites).toBe(1);
     expect(receipt().savedCollection.collections[0].board_uids).toEqual(["00000000001"]);
+});
+
+test("split pane footers stay above Workbench status with both docks and minimaps", async ({ page }) => {
+    await setup(page, false, true);
+    const status = page.getByRole("contentinfo", { name: "Workbench status" });
+    const assertShellBounds = async () => {
+        await expect(status).toBeVisible();
+        await expect(status).toHaveCount(1);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
+        for (const widget of await page
+            .locator("[data-board-pane-footer]:visible, [data-floating-nav-content]:visible, [data-board-minimap]:visible")
+            .all()) {
+            await expect(widget).toBeVisible();
+            await expect
+                .poll(async () => {
+                    const bounds = await widget.boundingBox();
+                    return bounds!.y + bounds!.height - (await status.boundingBox())!.y;
+                })
+                .toBeLessThanOrEqual(0);
+        }
+    };
+    await assertShellBounds();
+    const transfer = await page.evaluateHandle(() => {
+        const data = new DataTransfer();
+        data.setData("application/x-langboard-board-reference", "right");
+        return data;
+    });
+    await page.locator("[data-board-pane]").first().dispatchEvent("drop", { dataTransfer: transfer });
+    const panes = page.locator("[data-board-pane]");
+    await expect(page.locator("[data-board-pane-footer]")).toHaveCount(2);
+    for (const width of [1440, 1100, 1024]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(page.locator("[data-board-pane]:visible")).toHaveCount(2);
+        await expect(page.locator("[data-floating-nav-content]:visible")).toHaveCount(2);
+        await expect(page.locator("[data-board-minimap]:visible")).toHaveCount(2);
+        await assertShellBounds();
+        for (const pane of await panes.all()) {
+            const bounds = await pane.boundingBox();
+            const footer = pane.locator("[data-board-pane-footer]");
+            await expect(footer).toBeVisible();
+            const footerBounds = await footer.boundingBox();
+            expect(footerBounds!.x).toBeGreaterThanOrEqual(bounds!.x);
+            expect(footerBounds!.x + footerBounds!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
+            await expect(pane.getByRole("button", { name: /Close .* board/, exact: true })).toBeEnabled();
+        }
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator("[data-board-pane]:visible")).toHaveCount(1);
+    await expect(page.locator("[data-board-pane-footer]:visible")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /in split view/ })).toHaveCount(0);
+    await expect(page.locator("[data-floating-nav-content]:visible")).toHaveCount(1);
+    await assertShellBounds();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator("[data-board-pane]:visible")).toHaveCount(2);
+    await panes.nth(1).getByRole("button", { name: "Close right board", exact: true }).click();
+    await expect(panes).toHaveCount(1);
+    await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
+    await expect(page.locator("[data-floating-nav-content]:visible")).toHaveCount(1);
+    await assertShellBounds();
 });
