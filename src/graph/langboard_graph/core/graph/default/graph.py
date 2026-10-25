@@ -47,11 +47,13 @@ async def run_default_graph(
             runtime_tweaks = restore_model_credentials(snapshot.values)
             execution_scope = validate_resume_scope(snapshot.values, runtime_tweaks, resume)
             _apply_approved_api_context(runtime_tweaks, resume)
-            # A paused node may reuse its saved prompt. Recollect history under
-            # current ACLs while retaining the native delta/summary cursor.
+            # The history node advances its cursor before the agent can interrupt.
+            # Replaying that agent rebuilds its messages, so it needs the full
+            # currently visible window, including unchanged history it never saw.
             from .history import create_langboard_history_context_prompt
 
             history_state = deepcopy(snapshot.values)
+            history_state["last_history_sync_at"] = None
             create_langboard_history_context_prompt(runtime_tweaks, history_state)
             history_update = {
                 key: history_state.get(key)

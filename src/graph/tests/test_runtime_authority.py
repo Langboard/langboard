@@ -13,6 +13,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 from test_chat_history_authority import history_db  # noqa: F401
 from langboard_graph.core.graph.default import graph, history, nodes
+from langboard_graph.core.graph.default.history import create_langboard_history_context_prompt
 
 
 def user_tweaks(actor=1, project=30):
@@ -296,11 +297,26 @@ async def test_durable_postgres_scope_survives_pool_reconnect(history_db, monkey
     await checkpoint.close_graph_checkpointer()
     monkeypatch.setattr(type(Env), "MAIN_DATABASE_URL", property(lambda self: url))
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda self: "project_members"))
-    monkeypatch.setattr(history, "collect_langboard_history_messages", lambda *args: [])
+    monkeypatch.setattr(
+        history,
+        "collect_langboard_history_messages",
+        lambda *args: [
+            {
+                "msg_id": "activity:durable-context",
+                "msg_type": "card_action",
+                "source": "project_activity",
+                "change_type": "new",
+                "timestamp": "2026-10-01T00:00:00+00:00",
+                "content": "Visible history survives checkpoint reconnect",
+            }
+        ],
+    )
     monkeypatch.setattr(nodes, "create_default_chat_model", lambda *args: object())
     invocations = []
+    prompts = []
 
     async def invoke(*args, **kwargs):
+        prompts.append("\n".join(str(message.content) for message in args[1]))
         invocations.append(deepcopy(kwargs["tweaks"]))
         return SimpleNamespace(content="Durably resumed"), []
 
@@ -343,6 +359,8 @@ async def test_durable_postgres_scope_survives_pool_reconnect(history_db, monkey
         if case == "current":
             resumed = await RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=decision))
             assert resumed.message == "Durably resumed"
+            assert len(prompts) == 1
+            assert "Visible history survives checkpoint reconnect" in prompts[0]
             assert invocations[0]["LangboardCalledVariablesComponent"]["app_api_token"] == decision["app_api_token"]
             # Completed-result recovery must enforce the same durable scope.
             await checkpoint.close_graph_checkpointer()
@@ -381,3 +399,60 @@ async def test_durable_postgres_scope_survives_pool_reconnect(history_db, monkey
         async with checkpoint.open_graph_checkpointer() as saver:
             await saver.adelete_thread(thread)
         await checkpoint.close_graph_checkpointer()
+
+
+@pytest.mark.asyncio
+async def test_resume_rebuilds_current_history_before_first_model_invocation(authority_graph, monkeypatch):
+    """The history watermark can advance before an approval interrupt runs the model."""
+    # The authority fixture replaces prompt collection; use the actual history boundary here.
+    monkeypatch.setattr(history, "create_langboard_history_context_prompt", create_langboard_history_context_prompt)
+    monkeypatch.setattr(nodes, "create_langboard_history_context_prompt", create_langboard_history_context_prompt)
+    visible = [
+        {
+            "msg_id": "activity:initial",
+            "msg_type": "card_action",
+            "source": "project_activity",
+            "change_type": "new",
+            "timestamp": "2026-10-01T00:00:00+00:00",
+            "content": {"title": "Still visible history", "api_key": "history-secret-not-real"},
+        },
+        {
+            "msg_id": "activity:revoked",
+            "msg_type": "card_action",
+            "source": "project_activity",
+            "change_type": "new",
+            "timestamp": "2026-10-02T00:00:00+00:00",
+            "content": "History later hidden by current ACLs",
+        },
+    ]
+    monkeypatch.setattr(history, "collect_langboard_history_messages", lambda *args: deepcopy(visible))
+    prompts = []
+
+    async def invoke(model, messages, tools, **kwargs):
+        prompts.append("\n".join(str(message.content) for message in messages))
+        return SimpleNamespace(content="Resumed with current history"), []
+
+    monkeypatch.setattr(nodes, "_invoke_agent", invoke)
+    thread = uuid4().hex
+    config = {"configurable": {"thread_id": thread}}
+    interrupted = await graph.run_default_graph("run", user_tweaks(), thread, thread)
+    assert interrupted.interrupts
+    assert prompts == []
+    saved = await authority_graph.aget_tuple(config)
+    assert saved.checkpoint["channel_values"]["last_history_sync_at"] == "2026-10-02T00:00:00+00:00"
+    visible.pop()
+    result = await graph.run_default_graph(
+        None,
+        None,
+        thread,
+        thread,
+        resume={"approved": True, "app_api_token": AuthSecurity.create_bot_one_time_token(1)},
+    )
+    assert result.message == "Resumed with current history"
+    assert len(prompts) == 1
+    assert "Still visible history" in prompts[0]
+    assert "History later hidden" not in prompts[0]
+    assert "history-secret-not-real" not in prompts[0]
+    async for retained in authority_graph.alist(config):
+        assert "history-secret-not-real" not in str(retained.checkpoint)
+        assert "history-secret-not-real" not in str(retained.pending_writes)
