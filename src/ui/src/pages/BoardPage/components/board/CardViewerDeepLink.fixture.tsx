@@ -21,6 +21,7 @@ import { AuthUser } from "@/core/models";
 import ResizableSidebar from "@/components/ResizableSidebar";
 import Floating from "@/components/base/Floating";
 import ActivityRail from "@/components/Layout/ActivityRail";
+import Header from "@/components/Header";
 import { cn } from "@/core/utils/ComponentUtils";
 import CardFlipTray from "@/pages/BoardPage/components/card/CardFlipTray";
 import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
@@ -74,8 +75,8 @@ function LateSuspenseSibling(): React.JSX.Element | null {
     return show ? <LateChunk /> : null;
 }
 
-const PROJECT_UID = "fixture-project";
-const CARD_UID = "fixture-card";
+const PROJECT_UID = "fixtureproj";
+const CARD_UID = "fixturecard";
 
 const fixtureUser = AuthUser.Model.fromOne({
     uid: "fixture-user",
@@ -204,6 +205,7 @@ function BoardRouteFixture(): React.JSX.Element {
                     "[--workbench-bottom-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))] md:[--workbench-bottom-inset:0px]"
             )}
         >
+            {query.has("workspaceHeader") && <Header navs={[]} title="Fixture workspace" compact />}
             {query.has("workspaceRail") && (
                 <ActivityRail
                     items={[

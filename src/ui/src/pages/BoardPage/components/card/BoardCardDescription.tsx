@@ -220,6 +220,14 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
 
     const handleSave = useCallback(() => {
         if (isEditing && !updateCollaborativeDescriptionRef.current) {
+            const original = sanitizeEditorContent(description?.content ?? "");
+            const retained = getCardDraftStore().getDraft(cardEditDraftScope)?.content ?? restoredDraft?.description?.content ?? original;
+            const current = sanitizeEditorContent(editorRef.current?.api.markdown.serialize() ?? original);
+            // Editing another section also mounts this editor. An untouched
+            // description needs no collaboration write; retain every real draft.
+            if (!pendingDraftRef.current && current === original && sanitizeEditorContent(retained) === original) {
+                return null;
+            }
             throw new Error("Description collaboration is not ready");
         }
 
@@ -243,7 +251,7 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                 content: nextContent,
             },
         };
-    }, [description, isEditing, flushDescriptionDraft, cancelDescriptionDraft]);
+    }, [description, isEditing, flushDescriptionDraft, cancelDescriptionDraft, cardEditDraftScope, restoredDraft]);
 
     const handleCancel = useCallback(() => {
         resetCollaborativeDescriptionRef.current?.(description?.content ?? "");
