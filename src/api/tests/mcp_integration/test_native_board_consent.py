@@ -137,14 +137,58 @@ def test_persistent_own_connections_cas_role_and_membership_revocation(native):
     with engine.begin() as db:
         db.execute(ProjectAssignedUser.__table__.delete().where(ProjectAssignedUser.project_id == 10))
     assert effective_board_ids(user, a.id, "read") == set()
-    with pytest.raises(AppGovernanceDenied):
-        read_native_board_consent(user, a.id, 10)
+    retained = read_native_board_consent(user, a.id, 10)
+    assert retained["scopes"] == ["read", "write"] and retained["available_scopes"] == []
     # The production migration retains existing connection consent on downgrade.
     migration = importlib.import_module("langboard.migrations.versions.20261025010000-efbc567d8901")
     with engine.begin() as db:
         migration.op = Operations(MigrationContext.configure(db))
         with pytest.raises(RuntimeError, match="retained"):
             migration.downgrade()
+
+
+@pytest.mark.parametrize("authority_loss", ["membership", "read_role", "deleted_board"])
+def test_connection_owner_can_revoke_existing_consent_after_board_authority_loss(native, authority_loss):
+    engine, user, other, _ = native
+    connection = connect_native_client(user, "revocable-client")
+    save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
+    with engine.begin() as db:
+        if authority_loss == "membership":
+            db.execute(ProjectAssignedUser.__table__.delete().where(ProjectAssignedUser.project_id == 10))
+        elif authority_loss == "read_role":
+            db.execute(update(ProjectRole).where(ProjectRole.project_id == 10).values(actions=[]))
+        else:
+            db.execute(update(Project).where(Project.id == 10).values(deleted_at=SafeDateTime.now()))
+    assert effective_board_ids(user, connection.id, "read") == set()
+    receipt = read_native_board_consent(user, connection.id, 10)
+    assert receipt["revision"] == 1
+    assert receipt["scopes"] == ["read", "write"]
+    assert receipt["available_scopes"] == []
+    with pytest.raises(AppGovernanceDenied):
+        read_native_board_consent(other, connection.id, 10)
+    with pytest.raises(AppGovernanceDenied):
+        read_native_board_consent(user, connection.id, 999)
+    with pytest.raises(AppGovernanceDenied):
+        save_native_board_consent(user, connection.id, 999, [], None)
+    with pytest.raises(AppGovernanceDenied):
+        save_native_board_consent(user, connection.id, 10, ["read"], 1)
+    with pytest.raises(AppGovernanceConflict):
+        save_native_board_consent(user, connection.id, 10, [], 2)
+    revoked = save_native_board_consent(user, connection.id, 10, [], 1)
+    assert revoked["revision"] == 2 and revoked["scopes"] == []
+    with Session(engine) as db:
+        if authority_loss == "membership":
+            db.add(ProjectAssignedUser(id=40, project_id=10, user_id=1))
+        elif authority_loss == "read_role":
+            db.execute(update(ProjectRole).where(ProjectRole.project_id == 10).values(actions=["*"]))
+        else:
+            db.execute(update(Project).where(Project.id == 10).values(deleted_at=None))
+        db.commit()
+    assert effective_board_ids(user, connection.id, "read") == set()
+    assert effective_board_ids(user, connection.id, "write") == set()
+    renewed = save_native_board_consent(user, connection.id, 10, ["read"], 2)
+    assert renewed["revision"] == 3
+    assert effective_board_ids(user, connection.id, "read") == {10}
 
 
 def test_sql_boundary_filters_lists_counts_indirect_public_wiki_aliases_relationships(native):
@@ -306,6 +350,20 @@ def test_human_http_consent_routes_enforce_ownership_channel_and_cas(native, mon
         assert client.get(path).status_code == 403
         assert client.put(path, json={"scopes": ["read", "write"], "expected_revision": 1}).status_code == 403
         assert client.get("/mcp/connections").status_code == 403
+        current["channel"] = CollaborationChannel.HumanUI
+        with engine.begin() as db:
+            db.execute(ProjectAssignedUser.__table__.delete().where(ProjectAssignedUser.project_id == 10))
+        retained = client.get(path)
+        assert retained.status_code == 200
+        assert retained.json()["scopes"] == ["read"] and retained.json()["available_scopes"] == []
+        assert client.put(path, json={"scopes": ["read"], "expected_revision": 1}).status_code == 403
+        revoked = client.put(path, json={"scopes": [], "expected_revision": 1})
+        assert revoked.status_code == 200 and revoked.json()["revision"] == 2
+        assert revoked.json()["scopes"] == []
+        with engine.begin() as db:
+            db.execute(update(User).where(User.id == user.id).values(activated_at=None))
+        assert client.get(path).status_code == 403
+        assert client.put(path, json={"scopes": [], "expected_revision": 2}).status_code == 403
 
 
 async def test_fastmcp_direct_raw_and_public_resource_use_same_boundary(native, monkeypatch):

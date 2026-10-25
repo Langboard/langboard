@@ -113,25 +113,28 @@ def _context(db, actor, connection_id, project_id):
     ).first()
     if connection is None:
         raise AppGovernanceDenied()
-    available = available_board_scopes(db, actor, project_id)
-    if not available:
-        raise AppGovernanceDenied()
     row = db.exec(
         SqlBuilder.select.table(NativeMcpBoardConsent)
         .where(NativeMcpBoardConsent.connection_id == connection.id, NativeMcpBoardConsent.project_id == project_id)
         .with_for_update()
     ).first()
+    available = available_board_scopes(db, actor, project_id)
+    # Owners may inspect and revoke their existing grant even after board access
+    # is removed. New grants still require current board authority below.
+    if not available and row is None:
+        raise AppGovernanceDenied()
     return connection, row, available
 
 
 def _receipt(connection, project_id, row, available):
+    """Report the owner's saved grant separately from current board authority."""
     from ...core.types import SnowflakeID
 
     return {
         "connection_uid": connection.get_uid(),
         "project_uid": SnowflakeID(project_id).to_short_code(),
         "revision": row.revision if row else None,
-        "scopes": [scope for scope in (row.scopes if row else []) if scope in available],
+        "scopes": list(row.scopes) if row else [],
         "available_scopes": available,
     }
 
