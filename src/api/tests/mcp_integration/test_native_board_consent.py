@@ -1,8 +1,10 @@
 """Persistent native client consent intersects primary board authority at SQL boundary."""
 
 import importlib
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -13,12 +15,14 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    Bot,
     Card,
     CardComment,
     CardRelationship,
     DocumentKeywordIndex,
     EmployeeMembershipPolicy,
     GlobalCardRelationshipType,
+    Organization,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
@@ -43,11 +47,48 @@ from sqlalchemy.orm import Session, aliased
 from sqlalchemy.pool import StaticPool
 
 
+@pytest.fixture(params=["sqlite://", "postgresql-test"])
+def native_engine(request):
+    url = request.param
+    if url == "postgresql-test":
+        url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
+    schema = None
+    if url == "sqlite://":
+        engine = create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    else:
+        engine = create_engine(url)
+        if engine.dialect.name != "postgresql":
+            engine.dispose()
+            raise ValueError("Native MCP integration requires a disposable PostgreSQL database")
+        schema = "native_mcp_test_" + uuid4().hex
+        with engine.begin() as db:
+            db.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine.dispose()
+        engine = create_engine(url, connect_args={
+            "options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"
+        })
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        if schema:
+            cleanup = create_engine(url)
+            try:
+                with cleanup.begin() as db:
+                    db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            finally:
+                cleanup.dispose()
+
+
 @pytest.fixture
-def native(monkeypatch):
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+def native(monkeypatch, native_engine):
+    engine = native_engine
     for model in (
         User,
+        Organization,
+        Bot,
         Project,
         ProjectAssignedUser,
         ProjectRole,
@@ -87,23 +128,28 @@ def native(monkeypatch):
             activated_at=SafeDateTime.now(),
         )
         boards = [Project(id=i, title=f"Board {i}", owner_id=2) for i in (10, 20)]
-        db.add_all([user, other, *boards])
+        db.add_all([user, other])
+        db.flush()
+        db.add_all(boards)
+        db.flush()
         db.add_all([ProjectAssignedUser(id=i + 30, project_id=i, user_id=1) for i in (10, 20)])
         db.add_all([ProjectRole(id=i + 60, project_id=i, user_id=1, actions=["*"]) for i in (10, 20)])
         db.add_all([ProjectColumn(id=i + 100, project_id=i, name=f"Column {i}") for i in (10, 20)])
+        db.flush()
         db.add_all(
             [
                 Card(id=i + 200, project_id=i, project_column_id=i + 100, title=f"Card {i}", visibility="SHARED")
                 for i in (10, 20)
             ]
         )
+        db.flush()
         db.add_all([CardComment(id=i + 300, card_id=i + 200, user_id=1, content={}) for i in (10, 20)])
         db.add_all([ProjectWiki(id=i + 400, project_id=i, title=f"Public Wiki {i}", is_public=True) for i in (10, 20)])
         db.add(GlobalCardRelationshipType(id=600, parent_name="parent", child_name="child"))
+        db.flush()
         db.add(CardRelationship(id=610, card_id_parent=210, card_id_child=220, relationship_type_id=600))
         db.commit()
     yield engine, user, other, boards
-    engine.dispose()
 
 
 def test_persistent_own_connections_cas_role_and_membership_revocation(native):
