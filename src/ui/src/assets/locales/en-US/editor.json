@@ -191,5 +191,8 @@
   "Added {properties}": "Added {{properties}}",
   "Removed {properties}": "Removed {{properties}}",
   "Updated {property} from {previous} to {next}": "Updated {{property}} from {{previous}} to {{next}}",
-  "Watch": "Watch"
+  "Watch": "Watch",
+  "Code language": "Code language",
+  "Diagram engine": "Diagram engine",
+  "Diagram view": "Diagram view"
 }

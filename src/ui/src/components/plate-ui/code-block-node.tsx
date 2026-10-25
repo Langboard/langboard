@@ -88,6 +88,7 @@ function CodeBlockCombobox() {
                     size="sm"
                     variant="ghost"
                     className="h-6 select-none justify-between gap-1 px-2 text-xs text-muted-foreground"
+                    aria-label={t("editor.Code language")}
                     aria-expanded={open}
                     role="combobox"
                 >

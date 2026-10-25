@@ -41,7 +41,7 @@ function MarkdownCodeDrawingBlock({ code, language }: IMarkdownCodeDrawingBlockP
     const [t] = useTranslation();
     const [image, setImage] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState("");
+    const [error, setError] = useState(false);
     const [isCopied, setIsCopied] = useState(false);
     const requestIDRef = useRef(0);
     const drawingType = useMemo(() => CODE_DRAWING_LANGUAGE_MAP[language.toLowerCase()], [language]);
@@ -51,7 +51,7 @@ function MarkdownCodeDrawingBlock({ code, language }: IMarkdownCodeDrawingBlockP
     useEffect(() => {
         if (!drawingType || !canRender) {
             setImage("");
-            setError("");
+            setError(false);
             setIsLoading(false);
             return;
         }
@@ -59,7 +59,7 @@ function MarkdownCodeDrawingBlock({ code, language }: IMarkdownCodeDrawingBlockP
         requestIDRef.current += 1;
         const requestID = requestIDRef.current;
         setIsLoading(true);
-        setError("");
+        setError(false);
 
         renderDiagram(drawingType, normalizedCode)
             .then((imageData) => {
@@ -69,13 +69,13 @@ function MarkdownCodeDrawingBlock({ code, language }: IMarkdownCodeDrawingBlockP
 
                 setImage(imageData);
             })
-            .catch((e) => {
+            .catch(() => {
                 if (requestIDRef.current !== requestID) {
                     return;
                 }
 
                 setImage("");
-                setError(e instanceof Error ? e.message : "Rendering failed");
+                setError(true);
             })
             .finally(() => {
                 if (requestIDRef.current === requestID) {
@@ -108,11 +108,14 @@ function MarkdownCodeDrawingBlock({ code, language }: IMarkdownCodeDrawingBlockP
             </Flex>
             <Flex items="center" justify="center" className={cn("min-h-40 overflow-x-auto bg-background p-3", error && "items-stretch")}>
                 {isLoading ? (
-                    <Loading size="4" variant="secondary" spacing="2" animate="pulse" />
+                    <Loading role="status" size="4" variant="secondary" spacing="2" animate="pulse" />
                 ) : image ? (
                     <img src={image} alt={t("editor.Code drawing")} className="h-auto max-h-[50vh] max-w-none object-contain" />
                 ) : error ? (
-                    <MarkdownCodeBlock language={language} code={code} />
+                    <Flex direction="col" w="full">
+                        <span role="status">{t("editor.Rendering failed")}</span>
+                        <MarkdownCodeBlock language={language} code={code} />
+                    </Flex>
                 ) : null}
             </Flex>
         </Flex>

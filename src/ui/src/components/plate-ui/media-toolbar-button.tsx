@@ -90,11 +90,11 @@ export function MediaToolbarButton({ nodeType, ...props }: DropdownMenuProps & {
                 }}
                 pressed={open}
             >
-                <ToolbarSplitButtonPrimary>{currentConfig.icon}</ToolbarSplitButtonPrimary>
+                <ToolbarSplitButtonPrimary aria-label={t(currentConfig.title)}>{currentConfig.icon}</ToolbarSplitButtonPrimary>
 
                 <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false} {...props}>
                     <DropdownMenu.Trigger asChild>
-                        <ToolbarSplitButtonSecondary />
+                        <ToolbarSplitButtonSecondary aria-label={t(currentConfig.tooltip)} />
                     </DropdownMenu.Trigger>
 
                     <DropdownMenu.Content onClick={(e) => e.stopPropagation()} align="start" alignOffset={-32}>
@@ -165,7 +165,7 @@ function MediaUrlDialogContent({
     return (
         <>
             <AlertDialogHeader>
-                <AlertDialogTitle>{currentConfig.title}</AlertDialogTitle>
+                <AlertDialogTitle>{t(currentConfig.title)}</AlertDialogTitle>
             </AlertDialogHeader>
 
             <AlertDialogDescription className="group relative w-full">
@@ -184,7 +184,7 @@ function MediaUrlDialogContent({
                         if (e.key === "Enter") embedMedia();
                     }}
                     label={t("editor.URL")}
-                    placeholder=""
+                    placeholder={t("editor.Paste link")}
                     type="url"
                     ref={inputRef}
                 />
