@@ -115,8 +115,9 @@ def _values(statement, multiparams, params):
         # carry different FK destinations and need a separate reviewed contract.
         if "DO UPDATE" in str(statement._post_values_clause).upper():
             raise NativeMcpDenied("Native MCP cannot authorize conflict-update mutations")
-    retained = {}
-    for column, value in (getattr(statement, "_values", None) or {}).items():
+    retained, bindings = {}, {}
+    assignments = getattr(statement, "_ordered_values", None) or (getattr(statement, "_values", None) or {}).items()
+    for column, value in assignments:
         name = column if isinstance(column, str) else column.name
         if not hasattr(value, "value"):
             # SQLite writer reservations retain each column's exact value.
@@ -145,11 +146,20 @@ def _values(statement, multiparams, params):
             ):
                 continue
             raise NativeMcpDenied("Native MCP cannot authorize expression-valued board mutations")
+        if isinstance(value, BindParameter):
+            if value.callable is not None:
+                raise NativeMcpDenied("Native MCP cannot authorize deferred board mutation values")
+            bindings[name] = value.key
         retained[name] = value.value
     payloads = list(multiparams) if multiparams else [params or {}]
     if any(not isinstance(payload, dict) for payload in payloads):
         raise NativeMcpDenied("Native MCP cannot authorize unclassified batch mutations")
-    return [{**retained, **payload} for payload in payloads]
+    # Named execution parameters override bind defaults even when their keys
+    # differ from target columns. Authorize the values SQLAlchemy will execute.
+    return [
+        {**retained, **payload, **{name: payload[key] for name, key in bindings.items() if key in payload}}
+        for payload in payloads
+    ]
 
 
 class _InsertPayload(dict):

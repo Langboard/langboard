@@ -46,7 +46,7 @@ from langboard_shared.domain.services.NativeMcpConsent import (
     save_native_board_consent,
 )
 from langboard_shared.Env import Env
-from sqlalchemy import create_engine, func, insert, select, text, update
+from sqlalchemy import bindparam, create_engine, func, insert, select, text, update
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.pool import StaticPool
 
@@ -708,6 +708,91 @@ async def test_fastmcp_direct_raw_and_public_resource_use_same_boundary(native, 
         mcp_auth_context.reset(token)
 
 
+@pytest.mark.parametrize("assignment", ["bound", "ordered"])
+@pytest.mark.parametrize("destination", [10, 20])
+@pytest.mark.parametrize("dispatch", ["direct", "raw"])
+async def test_native_mutation_authorizes_effective_fk_assignments(native, monkeypatch, assignment, destination, dispatch):
+    from fastmcp import Client, FastMCP
+    from fastmcp.exceptions import ToolError
+    from langboard.mcp_integration.Providers import create_native_agent_provider
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_integration.Tool import McpTool
+
+    engine, user, _, boards = native
+    connection = connect_native_client(user, "native-mutation-binding")
+    save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
+
+    def update_card(project_uid: str, destination_id: int) -> dict:
+        statement = Card.__table__.update().where(Card.id == 210)
+        if assignment == "bound":
+            # Execution parameters override the bind's otherwise allowed default.
+            statement = statement.values(
+                project_id=bindparam("destination_board", 10),
+                project_column_id=bindparam("destination_column", 110),
+            )
+            parameters = {"destination_board": destination_id, "destination_column": destination_id + 100}
+        else:
+            statement = statement.ordered_values(
+                ("project_id", destination_id), ("project_column_id", destination_id + 100)
+            )
+            parameters = {}
+        with engine.begin() as db:
+            return {"changed": db.execute(statement, parameters).rowcount}
+
+    metadata = {"handler": update_card, "description": "Fixture mutation", "accessible_type": "user", "exclude": []}
+    monkeypatch.setattr(McpTool, "get_tools", lambda: {"update_card": metadata})
+    monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata if name == "update_card" else None)
+    server = FastMCP("Native mutation binding regression")
+    server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
+    try:
+        arguments = {"project_uid": boards[0].get_uid(), "destination_id": destination}
+        name = "update_card"
+        if dispatch == "raw":
+            name, arguments = "call_raw_tool", {"name": name, "arguments": arguments}
+        async with Client(server) as client:
+            if destination == 20:
+                with pytest.raises(ToolError):
+                    await client.call_tool(name, arguments)
+            else:
+                assert "1" in str(await client.call_tool(name, arguments))
+    finally:
+        mcp_auth_context.reset(token)
+    with Session(engine) as db:
+        assert db.get(Card, 210).project_id == 10
+        assert db.get(Card, 210).project_column_id == 110
+    # Ordinary internal database operations retain SQLAlchemy's native behavior.
+    assert update_card(boards[0].get_uid(), 20) == {"changed": 1}
+    with Session(engine) as db:
+        assert db.get(Card, 210).project_id == 20
+
+
+async def test_verified_internal_native_call_retains_existing_board_authority(native, monkeypatch):
+    from langboard_shared.domain.models.UserIdentityLink import IdentityProvider
+
+    engine, user, _, boards = native
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "oidc_issuers"))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: ["https://employee.example.invalid"]))
+    with Session(engine) as db:
+        db.add(UserIdentityLink(
+            user_id=user.id, provider=IdentityProvider.Oidc, external_id="verified-employee",
+            issuer="https://employee.example.invalid",
+        ))
+        db.commit()
+    assert positively_internal(user) is True
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user})
+    try:
+        async with native_call_boundary("update_card", {"project_uid": boards[1].get_uid()}):
+            assert native_mcp_boundary.get() is None
+            with engine.begin() as db:
+                assert db.execute(update(Card).where(Card.id == 220).values(title="Internal edit")).rowcount == 1
+    finally:
+        mcp_auth_context.reset(token)
+    assert list_native_connections(user) == []
+    with Session(engine) as db:
+        assert db.get(Card, 220).title == "Internal edit"
+
+
 def test_writer_reservation_preserves_board_scope_and_denies_other_expressions(native):
     engine, *_ = native
     token = native_mcp_boundary.set({"read": frozenset({10}), "write": frozenset({10})})
@@ -721,6 +806,7 @@ def test_writer_reservation_preserves_board_scope_and_denies_other_expressions(n
             for values in (
                 {"project_id": Card.project_column_id},
                 {"project_id": Card.project_id + 10},
+                {"project_id": bindparam("deferred_board", callable_=lambda: 20)},
                 {"title": func.upper(Card.title)},
                 {"order": Card.order - 2},
                 {"order": Card.project_column_id - 1},
