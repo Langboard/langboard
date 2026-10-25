@@ -105,6 +105,21 @@ describe("CardDraftStore", () => {
         assert.equal(getCardDraftStore().getDraft(scope({ kind: "card-new", scopeUID: "new" }))?.content, "new card draft");
     });
 
+    it("preserves an intentional empty comment edit and its saved baseline across account changes and recreation", () => {
+        const editScope = scope({ kind: "comment-edit", scopeUID: comment1 });
+        const otherScope = { ...editScope, userUID: userB };
+        const baseline = { base_content: "Saved original", base_revision: "revision-1", base_updated_at: new Date(0).toISOString() };
+        getCardDraftStore().saveDraft(editScope, "", baseline);
+        getCardDraftStore().saveDraft(otherScope, "Other account work", baseline);
+        useCardDraftStore.setState({ cache: {} });
+        assert.equal(getCardDraftStore().getDraft(editScope)?.content, "");
+        assert.equal(getCardDraftStore().getDraft(editScope)?.base_revision, "revision-1");
+        assert.equal(getCardDraftStore().getDraft(otherScope)?.content, "Other account work");
+        getCardDraftStore().clearDraft(editScope);
+        assert.equal(getCardDraftStore().getDraft(editScope), null);
+        assert.equal(getCardDraftStore().getDraft(otherScope)?.content, "Other account work");
+    });
+
     it("clears a draft after successful submit", () => {
         const store = getCardDraftStore();
         store.saveDraft(scope(), "to clear");

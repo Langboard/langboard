@@ -103,7 +103,14 @@ const useCardDraftStore = create(
     immer<ICardDraftStore>((set, get) => ({
         cache: {},
         saveDraft: (scope, content, metadata) => {
-            if (content.length === 0 && !metadata?.anchor && !metadata?.request_uid && !metadata?.description && scope.kind !== "card-edit") {
+            if (
+                content.length === 0 &&
+                !metadata?.anchor &&
+                !metadata?.request_uid &&
+                !metadata?.description &&
+                scope.kind !== "card-edit" &&
+                scope.kind !== "comment-edit"
+            ) {
                 get().clearDraft(scope);
                 return;
             }

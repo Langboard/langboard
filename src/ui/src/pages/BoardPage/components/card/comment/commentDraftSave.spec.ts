@@ -316,3 +316,30 @@ test("comment draft save: late success never replaces a newer server projection"
     await expect(editor).toHaveValue("Submitted local work");
     await expect(page.getByRole("button", { name: "common.Save", exact: true })).toBeDisabled();
 });
+
+for (const outcome of ["success", "failure"]) {
+    test(`comment draft save: empty newer edit survives late ${outcome} and remount`, async ({ page }) => {
+        await page.goto(`${baseURL}/?mode=edit`);
+        await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+        const editor = page.getByRole("textbox", { name: "Comment content" });
+        await editor.fill("Submitted local work");
+        await page.getByRole("button", { name: "common.Save", exact: true }).click();
+        await editor.fill("");
+        await page.getByRole("button", { name: `Resolve ${outcome}`, exact: true }).click();
+        const key = "lb-draft-v1:user:project:comment-edit:comment";
+        const draft = await page.evaluate((draftKey) => JSON.parse(localStorage.getItem(draftKey) ?? "null"), key);
+        expect(draft?.content).toBe("");
+        expect(draft?.base_content).toBe(outcome === "success" ? "Submitted local work" : "Saved original");
+        await page.getByRole("button", { name: "Remount composer", exact: true }).click();
+        await expect(editor).toBeEditable();
+        await expect(editor).toHaveValue("");
+        await page.reload();
+        await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+        if (outcome === "success") {
+            // This fixture recreates its server model on reload. Recovery must keep
+            // the empty draft fenced against that deliberately different baseline.
+            await page.getByRole("button", { name: "card.Restore draft", exact: true }).click();
+        }
+        await expect(editor).toHaveValue("");
+    });
+}
