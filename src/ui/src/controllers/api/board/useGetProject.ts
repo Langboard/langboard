@@ -50,6 +50,15 @@ const useGetProject = (form: IGetProjectForm, options?: TQueryOptions<unknown, I
         const project = Project.Model.fromOne(res.data.project);
         project.last_viewed_at = new Date();
 
+        // Record only an accepted board snapshot. Visit failure must not fail or delay the board.
+        void api
+            .post(`${url}/visit`, undefined, {
+                signal,
+                timeout: 15_000,
+                env: { interceptToast: true } as never,
+            })
+            .catch((error) => setupApiErrorHandler({}).handle(error));
+
         // Dock enrichment must not delay the authorized board or turn its failure into a board failure.
         void refreshProjectColumnDock(form.uid).catch((error) => setupApiErrorHandler({}).handle(error));
 

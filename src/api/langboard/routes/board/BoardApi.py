@@ -61,7 +61,7 @@ def is_project_available(project_uid: str, service: DomainService = DomainServic
 @AppRouter.api.get(
     "/board/{project_uid}",
     tags=["Board"],
-    description="Get project details.",
+    description="Get project details without recording a visit. Use the explicit visit endpoint to record recency.",
     responses=(
         OpenApiSchema()
         .suc(
@@ -104,9 +104,6 @@ def get_project(
     project_bot_scopes = service.project.get_api_bot_scope_list(project) if include_automation else []
     project_bot_schedules = service.project.get_api_bot_schedule_list(project) if include_automation else []
     timings.append(perf_counter())
-    if isinstance(user_or_bot, User):
-        service.project.set_last_view(user_or_bot, project)
-    timings.append(perf_counter())
     result = JsonResponse(
         content={
             "project": response,
@@ -118,10 +115,32 @@ def get_project(
     result.headers["Server-Timing"] = ", ".join(
         f"{name};dur={(end - start) * 1000:.3f}"
         for name, start, end in zip(
-            ("project_details", "project_bots", "project_visit", "project_serialize"), timings, timings[1:]
+            ("project_details", "project_bots", "project_serialize"), timings, timings[1:]
         )
     )
     return result
+
+
+@AppRouter.schema(permission=ApiPermission.Edit)
+@AppRouter.api.post(
+    "/board/{project_uid}/visit",
+    tags=["Board"],
+    description="Record an explicit project visit after loading the board. Bot requests do not record visits.",
+    responses=OpenApiSchema().suc({}).auth().forbidden().err(404, ApiErrorCode.NF2001).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def record_project_visit(
+    project_uid: str,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    project = service.project.get_by_id_like(project_uid)
+    if project is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    if isinstance(user_or_bot, User):
+        service.project.set_last_view(user_or_bot, project)
+    return JsonResponse()
 
 
 @AppRouter.schema(permission=ApiPermission.Read)

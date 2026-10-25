@@ -58,7 +58,7 @@ def test_project_default_and_opt_out(include):
     }
     assert service.project.get_api_bot_scope_list.call_count == int(include)
     assert service.project.get_api_bot_schedule_list.call_count == int(include)
-    service.project.set_last_view.assert_called_once_with(actor, project)
+    service.project.set_last_view.assert_not_called()
 
 
 @pytest.mark.parametrize("include", [True, False])
@@ -96,7 +96,8 @@ def test_missing_automation_board_stops_before_scope_queries():
     service.project.set_last_view.assert_not_called()
 
 
-def test_automation_http_real_auth_role_middleware_and_revocation(monkeypatch):
+@pytest.mark.parametrize("visit", [False, True])
+def test_automation_http_real_auth_role_middleware_and_revocation(monkeypatch, visit):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     for model in (User, Project, ProjectRole):
         model.__table__.create(engine)
@@ -124,38 +125,41 @@ def test_automation_http_real_auth_role_middleware_and_revocation(monkeypatch):
 
     monkeypatch.setattr(MiddlewareHelper, "validate_auth", validate)
     app = FastAPI()
-    route = next(
-        route
-        for route in AppRouter.api.routes
-        if isinstance(route, APIRoute) and route.endpoint is board.get_project_automation
-    )
+    endpoint = board.record_project_visit if visit else board.get_project_automation
+    route = next(route for route in AppRouter.api.routes if isinstance(route, APIRoute) and route.endpoint is endpoint)
     app.include_router(AppRouter.api)
     dep = next(dep.call for dep in route.dependant.dependencies if dep.name == "service")
     app.dependency_overrides[dep] = lambda: service
     app.add_middleware(RoleMiddleware, routes=[route])
     app.add_middleware(ApiAuthMiddleware, routes=[route])
     client = TestClient(app)
-    path = f"/board/{project.get_uid()}/automation"
-    assert client.get(path).status_code == 401
-    assert client.get(path, headers={"Authorization": "Bearer outsider"}).status_code == 403
+    request = client.post if visit else client.get
+    suffix = "visit" if visit else "automation"
+    path = f"/board/{project.get_uid()}/{suffix}"
+    assert request(path).status_code == 401
+    assert request(path, headers={"Authorization": "Bearer outsider"}).status_code == 403
     headers = {"Authorization": "Bearer fixture"}
-    assert client.get(f"/board/{other.get_uid()}/automation", headers=headers).status_code == 403
+    assert request(f"/board/{other.get_uid()}/{suffix}", headers=headers).status_code == 403
     service.project.get_by_id_like.assert_not_called()
-    response = client.get(path, headers=headers)
+    response = request(path, headers=headers)
     assert response.status_code == 200
-    assert response.json() == {
-        "project_bot_scopes": [{"uid": "project-scope"}],
-        "project_bot_schedules": [{"uid": "project-schedule"}],
-        "column_bot_scopes": [{"uid": "column-scope"}],
-        "column_bot_schedules": [{"uid": "column-schedule"}],
-    }
+    if not visit:
+        assert response.json() == {
+            "project_bot_scopes": [{"uid": "project-scope"}],
+            "project_bot_schedules": [{"uid": "project-schedule"}],
+            "column_bot_scopes": [{"uid": "column-scope"}],
+            "column_bot_schedules": [{"uid": "column-schedule"}],
+        }
     service.project.get_by_id_like.assert_called_once_with(project.get_uid())
     service.project.get_details.assert_not_called()
-    service.project.set_last_view.assert_not_called()
-    service.project_column.get_api_bot_schedule_list_by_project.assert_called_once_with(project, None)
+    if visit:
+        service.project.set_last_view.assert_called_once_with(actor, project)
+    else:
+        service.project.set_last_view.assert_not_called()
+        service.project_column.get_api_bot_schedule_list_by_project.assert_called_once_with(project, None)
     with DbSession.use(readonly=False) as db:
         db.delete(role)
-    assert client.get(path, headers=headers).status_code == 403
+    assert request(path, headers=headers).status_code == 403
     assert service.project.get_by_id_like.call_count == 1
     engine.dispose()
 
@@ -213,3 +217,69 @@ def test_native_automation_services_are_board_scoped_selects_without_writes(monk
     finally:
         service.close()
         engine.dispose()
+
+
+def test_project_read_survives_unavailable_visit_storage():
+    actor = User(id=1, firstname="Test", lastname="Reader", email="visit@example.invalid", password="test")
+    service = service_for(object())
+    service.project.set_last_view.side_effect = RuntimeError("visit storage unavailable")
+    response = board.get_project("board", user_or_bot=actor, service=service)
+    assert response.status_code == 200
+    service.project.set_last_view.assert_not_called()
+
+
+def test_explicit_visit_missing_bot_and_storage_failure():
+    from langboard_shared.core.routing.ApiException import NotFoundException
+
+    actor = User(id=1, firstname="Test", lastname="Reader", email="visit@example.invalid", password="test")
+    service = service_for(None)
+    with pytest.raises(NotFoundException):
+        board.record_project_visit("missing", user_or_bot=actor, service=service)
+    service.project.set_last_view.assert_not_called()
+    project = object()
+    service.project.get_by_id_like.return_value = project
+    assert board.record_project_visit("board", user_or_bot=object(), service=service).status_code == 200
+    service.project.set_last_view.assert_not_called()
+    service.project.set_last_view.side_effect = RuntimeError("visit storage unavailable")
+    with pytest.raises(RuntimeError, match="visit storage unavailable"):
+        board.record_project_visit("board", user_or_bot=actor, service=service)
+    service.project.set_last_view.assert_called_once_with(actor, project)
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_explicit_visit_updates_only_native_recency_and_frequency(board):
+    from datetime import timedelta
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import ProjectAssignedUser
+    from langboard_shared.infrastructure.repositories.factory.ProjectAssignedUserRepository import (
+        ProjectAssignedUserRepository,
+    )
+
+    _, user, project, member, *_ = board
+    previous = SafeDateTime.now() - timedelta(days=2)
+    with DbSession.use(readonly=False) as db:
+        db.exec(
+            SqlBuilder.update.table(ProjectAssignedUser)
+            .where(ProjectAssignedUser.id == member.id)
+            .values(
+                last_viewed_at=previous,
+                view_count=7,
+                board_seen_seq=42,
+            )
+        )
+    with DbSession.use(readonly=False) as db:
+        previous = (
+            db.exec(SqlBuilder.select.table(ProjectAssignedUser).where(ProjectAssignedUser.id == member.id))
+            .first()
+            .last_viewed_at
+        )
+    service = service_for(project)
+    service.project.set_last_view = ProjectAssignedUserRepository(None, None).set_last_view
+    endpoint = import_module("langboard.routes.board.BoardApi").record_project_visit
+    assert endpoint(project.get_uid(), user_or_bot=user, service=service).status_code == 200
+    with DbSession.use(readonly=False) as db:
+        saved = db.exec(SqlBuilder.select.table(ProjectAssignedUser).where(ProjectAssignedUser.id == member.id)).first()
+    assert saved.last_viewed_at > previous
+    assert saved.view_count == 8
+    assert saved.board_seen_seq == 42
