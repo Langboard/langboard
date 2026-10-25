@@ -499,6 +499,39 @@ async def test_raw_wrapper_and_read_only_write_denial(native):
         mcp_auth_context.reset(token)
 
 
+@pytest.mark.parametrize("operation", ["update", "delete"])
+@pytest.mark.parametrize("referenced_board", [10, 20])
+async def test_mutation_predicate_cannot_probe_unconsented_board(native, operation, referenced_board):
+    engine, user, _, boards = native
+    connection = connect_native_client(user, "native-predicate-client")
+    save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
+    try:
+        async with native_call_boundary("update_card_comment", {"project_uid": boards[0].get_uid()}):
+            # A mutation's result must not reveal whether a public wiki on an
+            # unconsented board matches a supplied identifier or title.
+            probe = select(ProjectWiki.id).where(
+                ProjectWiki.id == referenced_board + 400,
+                ProjectWiki.title == f"Public Wiki {referenced_board}",
+            ).exists()
+            table = CardComment.__table__
+            statement = table.update().values(user_id=2) if operation == "update" else table.delete()
+            with engine.begin() as db:
+                result = db.execute(statement.where(table.c.id == 310, probe))
+                assert result.rowcount == (1 if referenced_board == 10 else 0)
+    finally:
+        mcp_auth_context.reset(token)
+    with Session(engine) as db:
+        assert db.get(CardComment, 320).user_id == 1
+        target = db.get(CardComment, 310)
+        if referenced_board == 20:
+            assert target.user_id == 1
+        elif operation == "update":
+            assert target.user_id == 2
+        else:
+            assert target is None
+
+
 async def test_signed_downstream_identity_overrides_upstream_claims_after_full_validation(monkeypatch):
     from fastmcp.server.auth.auth import AccessToken
     from fastmcp.server.auth.oidc_proxy import OIDCProxy

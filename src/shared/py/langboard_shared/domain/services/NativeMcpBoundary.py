@@ -260,6 +260,9 @@ def _apply_native_boundary(connection, statement, multiparams, params, execution
             "document_keyword_index",
         }:
             raise NativeMcpDenied("Instance-level mutation is unavailable to external native MCP")
+        # Mutation predicates and RETURNING expressions can read other boards.
+        # Restrict their nested SELECTs before adding the target's write scope.
+        statement = _restricted_select(statement, scope["read"])
         if paths:
             ids = scope["write"]
             if not ids:
