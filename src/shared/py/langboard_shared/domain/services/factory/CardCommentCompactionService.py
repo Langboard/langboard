@@ -314,9 +314,10 @@ class CardCommentCompactionService(BaseDomainService):
                 return {**result, "error_code": record.error_code}
             binding = self._get_service(InternalBotService).get_comment_compaction_binding()
             block = self._completed_block(db, project, card, record, binding, result)
-            if block["status"] == "completed":
-                blocks = self._current_blocks(db, project, card, binding)
-                block["has_more_sources"] = self._has_uncovered_sources(db, project, card, blocks)
+            # An invalidated historical block covers no sources. Continuation
+            # must still reflect the current valid blocks and active originals.
+            blocks = self._current_blocks(db, project, card, binding)
+            block["has_more_sources"] = self._has_uncovered_sources(db, project, card, blocks)
             return block
 
     def _completed_block(self, db, project, card, record, binding, result):
@@ -823,7 +824,7 @@ class CardCommentCompactionService(BaseDomainService):
                 if binding.id != record.internal_bot_id or provider_revision(binding) != record.provider_revision:
                     raise CommentCompactionError("provider_changed")
                 if record.status == "completed":
-                    return {"has_more_sources": False, **self.get(user, project, card, record.id, channel=channel)}
+                    return self.get(user, project, card, record.id, channel=channel)
                 snapshot, has_more = self._cumulative_snapshot(project, card, blocks,
                     required_refs={item["evidence_ref"] for item in record.source_manifest})
                 if snapshot.source_revision() != record.source_revision:

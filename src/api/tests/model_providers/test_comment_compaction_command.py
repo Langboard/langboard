@@ -1811,3 +1811,27 @@ async def test_automatic_oversized_generation_stops_after_invalidated_portion(au
     result = await service.generate_automatic(project.id, binding.id, card.id, rule_id=rule_id(automatic_command[2]))
     assert calls == 1 and result["status"] == "failed"
     assert result["error_code"] in {"source_changed", "permission_changed"}
+
+
+@pytest.mark.parametrize("change", ["edit", "delete"])
+async def test_invalidated_completed_replay_reports_current_uncovered_sources(compact_command, monkeypatch, change):
+    service, actor, project, card, _, comment, move, _ = compact_command
+    provider = AsyncMock(side_effect=lambda _, snapshot: draft(snapshot))
+    monkeypatch.setattr(command, "request_compaction_draft", provider)
+    completed = await service.generate(actor, project, card)
+    assert completed["status"] == "completed" and not completed["has_more_sources"]
+    with DbSession.atomic() as db:
+        values = ({"content": EditorContentModel(content="Corrected original evidence")}
+                  if change == "edit" else {"deleted_at": SafeDateTime.now()})
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(**values))
+    replay = await service.generate(actor, project, card, expected_request_key=completed["request_key"])
+    assert replay["status"] == "invalidated" and replay["has_more_sources"]
+    assert "draft" not in replay and provider.await_count == 1
+    assert service.get(actor, project, card, completed["uid"])["has_more_sources"]
+    assert service.get_page(actor, project, card)["records"][0]["has_more_sources"]
+    view = service.get_view(actor, project, card)
+    assert not any(row["kind"] == "compaction" for row in view["records"])
+    assert any(row["evidence_ref"] == f"activity:{move.get_uid()}" for row in view["records"])
+    repaired = await service.generate(actor, project, card)
+    assert repaired["status"] == "completed" and not repaired["has_more_sources"]
+    assert (f"comment:{comment.get_uid()}" in repaired["evidence_refs"]) is (change == "edit")
