@@ -1,6 +1,7 @@
 """Persistent native client consent intersects primary board authority at SQL boundary."""
 
 import importlib
+import json
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -19,6 +20,7 @@ from langboard_shared.domain.models import (
     Card,
     CardComment,
     CardRelationship,
+    Checkitem,
     Checklist,
     DocumentKeywordIndex,
     EmployeeMembershipPolicy,
@@ -31,6 +33,7 @@ from langboard_shared.domain.models import (
     ProjectWiki,
     User,
     UserIdentityLink,
+    WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.domain.services.NativeMcpBoundary import NativeMcpDenied, native_mcp_boundary
@@ -96,6 +99,8 @@ def native(monkeypatch, native_engine):
         ProjectColumn,
         Card,
         Checklist,
+        Checkitem,
+        WorkflowStageDefinition,
         CardComment,
         ProjectWiki,
         GlobalCardRelationshipType,
@@ -214,6 +219,73 @@ async def test_actual_project_checklists_respect_private_ownership_and_deleted_c
                 assert title not in rendered
             if internal_access == "oidc_issuers":
                 assert "Internal checklist" not in rendered
+        bot_token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": Bot(id=90, name="Scoped bot", bot_uname="scoped", platform="default", platform_running_type="default", app_api_token="fixture-token")})
+        try:
+            with pytest.raises(AuthorizationError):
+                await wrapped(project_uid=boards[0].get_uid())
+        finally:
+            mcp_auth_context.reset(bot_token)
+    finally:
+        mcp_auth_context.reset(token)
+
+
+@pytest.mark.parametrize("internal_access", ["project_members", "oidc_issuers"])
+async def test_actual_project_columns_scope_all_counts_to_visible_cards(native, monkeypatch, internal_access):
+    from fastmcp import Client, FastMCP
+    from langboard.mcp_integration.Providers import create_native_agent_provider
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_integration.Tool import McpTool
+    from langboard.mcp_tools.ProjectMcp import get_project_columns
+
+    engine, user, _, boards = native
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: internal_access))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: []))
+    connection = connect_native_client(user, "native-column-reader")
+    save_native_board_consent(user, connection.id, 10, ["read"], None)
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
+    try:
+        wrapped = McpServer._wrap_tool("get_project_columns", get_project_columns)
+
+        def counts(columns):
+            assert len(columns) == 1
+            assert columns[0]["uid"] == SnowflakeID(110).to_short_code()
+            return {key: columns[0][key] for key in ("count", "open_count", "incomplete_count")}
+
+        assert counts(await wrapped(project_uid=boards[0].get_uid())) == {
+            "count": 1, "open_count": 1, "incomplete_count": 1,
+        }
+        with Session(engine) as db:
+            db.add_all([
+                Card(id=230, project_id=10, project_column_id=110, title="Own private", visibility="PRIVATE", owner_user_id=1, created_by_user_id=1),
+                Card(id=231, project_id=10, project_column_id=110, title="Other private", visibility="PRIVATE", owner_user_id=2, created_by_user_id=2),
+                Card(id=232, project_id=10, project_column_id=110, title="Deleted shared", visibility="SHARED", deleted_at=SafeDateTime.now()),
+                Card(id=233, project_id=10, project_column_id=110, title="Internal", visibility="INTERNAL"),
+            ])
+            db.flush()
+            # Completed own work still contributes to physical/open counts.
+            db.add(Checklist(id=700, card_id=230, title="Own checklist"))
+            db.flush()
+            db.add(Checkitem(id=710, checklist_id=700, title="Complete", is_checked=True))
+            db.commit()
+        expected = {"count": 2, "open_count": 2, "incomplete_count": 1}
+        if internal_access == "project_members":
+            expected = {"count": 3, "open_count": 3, "incomplete_count": 2}
+        assert counts(await wrapped(project_uid=boards[0].get_uid())) == expected
+        with pytest.raises(AuthorizationError):
+            await wrapped(project_uid=boards[1].get_uid())
+
+        metadata = McpTool.get_tool("get_project_columns")
+        assert metadata["accessible_type"] == "user"
+        assert "user" not in metadata["input_schema"]["properties"]
+        monkeypatch.setattr(McpTool, "get_tools", lambda: {"get_project_columns": metadata})
+        monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata if name == "get_project_columns" else None)
+        server = FastMCP("Native column visibility")
+        server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
+        async with Client(server) as client:
+            raw = await client.call_tool("call_raw_tool", {
+                "name": "get_project_columns", "arguments": {"project_uid": boards[0].get_uid()},
+            })
+            assert counts(json.loads(raw.content[0].text)) == expected
         bot_token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": Bot(id=90, name="Scoped bot", bot_uname="scoped", platform="default", platform_running_type="default", app_api_token="fixture-token")})
         try:
             with pytest.raises(AuthorizationError):

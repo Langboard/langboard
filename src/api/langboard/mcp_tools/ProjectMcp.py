@@ -188,13 +188,14 @@ def get_project_assigned_users(project_uid: str, service: DomainService) -> list
     return service.project.get_api_assigned_user_list(p)
 
 
-@McpTool.add(description="Get project columns.")
+@McpTool.add("user", description="Get project columns with counts of cards readable by the current user.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_project_columns(project_uid: str, service: DomainService) -> list[dict]:
-    p = service.project.get_by_id_like(project_uid)
-    if not p:
+def get_project_columns(project_uid: str, user: User, service: DomainService) -> list[dict]:
+    resolved = service.card.resolve_visibility_context(project_uid, user, CollaborationChannel.Mcp)
+    if resolved is None:
         raise ValueError("Project not found")
-    return service.project_column.get_api_list_by_project(p)
+    project, context = resolved
+    return service.project_column.get_api_list_by_project(project, context=context)
 
 
 @McpTool.add(description="Get native workflow stage options available to a project.")
