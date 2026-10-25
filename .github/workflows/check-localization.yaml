@@ -28,6 +28,8 @@ on:
       - src/ui/src/pages/BoardPage/components/card/action/label/**
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitemTimer.tsx
       - src/ui/src/pages/DashboardPage/components/TrackingRow.tsx
+      - src/api/langboard/mcp_integration/work_plan.html
+      - src/ui/playwright.mcp-work-plan.config.ts
       - src/ui/playwright.bot-avatar.config.ts
       - src/ui/playwright.editor-ref.config.ts
       - src/ui/playwright.attachment-upload.config.ts
@@ -175,6 +177,9 @@ jobs:
         working-directory: src/ui
       - name: Verify bot avatar consent and actor isolation
         run: yarn playwright test -c playwright.bot-avatar.config.ts
+        working-directory: src/ui
+      - name: Verify reviewed MCP plan creation fields and read-only bridge
+        run: yarn playwright test -c playwright.mcp-work-plan.config.ts
         working-directory: src/ui
       - name: Verify native editor selection and clipboard replacement
         run: yarn playwright test -c playwright.editor-ref.config.ts --workers=1
