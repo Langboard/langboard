@@ -2931,10 +2931,13 @@ class CardService(BaseDomainService):
                         or not (actor[3] or "*" in actions or ProjectRoleAction.CardUpdate.value in actions)
                     ):
                         raise ValueError("Current card update permission is required for a family move")
+                    from ..CardCrossBoardOperations import _grant
+
                     for child in [card, *descendants]:
                         if child.project_id != project.id or child.is_linked_resource:
                             raise ValueError("The complete card family cannot be moved to this column")
-                        if self.resolve_readable_card(project, child, user_or_bot, channel) is None:
+                        resolved = self.resolve_readable_card(project, child, user_or_bot, channel)
+                        if resolved is None or not _grant(db, user_or_bot, resolved[0], ProjectRoleAction.Read):
                             raise ValueError("The complete card family cannot be moved to this column")
                         owner = db.exec(
                             SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == child.id)

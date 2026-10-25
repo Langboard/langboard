@@ -217,6 +217,53 @@ def test_move_denies_current_revocation_and_no_partial_writes(move_board, revoke
     assert rows(Card)[0].project_id == b.source_board.id and rows(ProjectActivity) == []
 
 
+@pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("revoke_read", [False, True])
+def test_family_move_rechecks_read_grant_with_native_visibility(move_board, monkeypatch, revoke_read):
+    b = move_board
+    WorkflowStageDefinition.__table__.create(b.engine)
+    with DbSession.atomic() as db:
+        db.insert(WorkflowStageDefinition(key="family-target", name="Family target", confirm_descendant_move=True))
+        target = ProjectColumn(project_id=b.source_board.id, name="Family target", workflow_stage="family-target")
+        db.insert(target)
+        child = Card(
+            project_id=b.source_board.id,
+            project_column_id=b.source.project_column_id,
+            title="Readable child before revocation",
+            visibility="SHARED",
+        )
+        db.insert(child)
+        kind = GlobalCardRelationshipType(
+            parent_name="Contains", child_name="Part of", machine_semantic="contains", is_system_default=True
+        )
+        db.insert(kind)
+        db.insert(CardRelationship(card_id_parent=b.source.id, card_id_child=child.id, relationship_type_id=kind.id))
+    preview = b.service.change_order(b.actor, b.source_board, b.source, 0, target)
+    assert preview["confirmation_required"]
+    if revoke_read:
+        with DbSession.atomic() as db:
+            db.exec(
+                update(ProjectRole)
+                .where(ProjectRole.project_id == b.source_board.id, ProjectRole.user_id == b.actor.id)
+                .values(actions=["card_update"])
+            )
+    admitted = Mock(return_value=True)
+    monkeypatch.setattr(b.service, "_change_order", admitted)
+    if not revoke_read:
+        assert b.service.change_order(
+            b.actor, b.source_board, b.source, 0, target,
+            move_descendants=True, confirmation_revision=preview["confirmation_revision"],
+        ) is True
+        assert admitted.call_count == 2
+        return
+    with pytest.raises(ValueError, match="permission|complete card family"):
+        b.service.change_order(
+            b.actor, b.source_board, b.source, 0, target,
+            move_descendants=True, confirmation_revision=preview["confirmation_revision"],
+        )
+    admitted.assert_not_called()
+
+
 def test_retry_rechecks_source_rights_and_current_destination_readers(move_board):
     b = move_board
     assert move(b)["moved"]
