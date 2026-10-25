@@ -229,7 +229,7 @@ function BoardRouteFixture(): React.JSX.Element {
         </div>
     );
     return query.has("sidebar") ? (
-        <ResizableSidebar initialWidth={280} defaultCollapsed={false} floatingHidden main={content}>
+        <ResizableSidebar initialWidth={280} defaultCollapsed={query.has("sidebarCollapsed")} floatingHidden main={content}>
             <p>Fixture Explorer</p>
         </ResizableSidebar>
     ) : (

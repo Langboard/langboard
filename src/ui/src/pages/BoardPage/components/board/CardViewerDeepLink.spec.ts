@@ -264,7 +264,14 @@ test("visual blank area dismisses the card while surface and floating actions st
     const nav = await page.locator("[data-floating-nav-content]").locator("button").first().boundingBox();
     expect(surface).not.toBeNull();
     expect(nav).not.toBeNull();
-    await page.mouse.click(surface!.x + 8, (surface!.y + surface!.height + nav!.y) / 2);
+    const background = { x: surface!.x + 8, y: (surface!.y + surface!.height + nav!.y) / 2 };
+    await page.mouse.move(background.x, background.y);
+    await page.mouse.down();
+    await page.mouse.move(background.x + 12, background.y, { steps: 3 });
+    await page.mouse.move(background.x, background.y);
+    await page.mouse.up();
+    await expect(viewer).toBeVisible();
+    await page.mouse.click(background.x, background.y);
     await expect(viewer).toHaveCount(0);
 });
 
@@ -596,6 +603,36 @@ test("sidebar collapse and expansion preserve the open card", async ({ page }) =
     await expect(sidebar).toHaveAttribute("data-collapsed", "true");
     await expect(viewer).toBeVisible();
 });
+
+for (const initiallyCollapsed of [false, true]) {
+    test(`sidebar icon pointer targets preserve the open card from collapsed=${initiallyCollapsed}`, async ({ page }) => {
+        await mockBoardApi(page);
+        await page.setViewportSize({ width: 1024, height: 768 });
+        await page.goto(`${FIXTURE}?sidebar${initiallyCollapsed ? "&sidebarCollapsed" : ""}`);
+        const viewer = page.locator("[data-card-viewer]");
+        const sidebar = page.locator("[data-workbench-sidebar]");
+        await expect(page.locator("[data-card-surface]")).toBeVisible();
+        for (const collapsed of [!initiallyCollapsed, initiallyCollapsed]) {
+            const button = sidebar.getByRole("button", { name: collapsed ? /Collapse|접기/ : /Expand|펼치기/ });
+            await button.evaluate((el) =>
+                el.addEventListener(
+                    "pointerdown",
+                    (event) => {
+                        el.setAttribute("data-pointer-target", (event.target as Element).tagName.toLowerCase());
+                    },
+                    { once: true }
+                )
+            );
+            await button.locator("svg").click();
+            await expect(sidebar.locator("button[data-pointer-target]")).toHaveAttribute("data-pointer-target", /^(svg|path|polyline)$/);
+            await expect(sidebar).toHaveAttribute("data-collapsed", String(collapsed));
+            await expect
+                .poll(() => sidebar.evaluate((el) => el.getAnimations().filter((animation) => animation.playState === "running").length))
+                .toBe(0);
+            await expect(viewer).toBeVisible();
+        }
+    });
+}
 
 test("dashboard deletion removes flipped cards without a loaded model", async ({ page }) => {
     await page.goto("/src/pages/BoardPage/components/board/CardFlipDeletion.fixture.html");

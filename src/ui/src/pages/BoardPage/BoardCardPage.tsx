@@ -38,6 +38,13 @@ interface IBoardCardPageProps {
     setIsExpanded?: React.Dispatch<React.SetStateAction<bool>>;
 }
 
+const isWorkbenchInteraction = (target: EventTarget | null) =>
+    target instanceof Element &&
+    !!target.closest(
+        "[data-workbench-sidebar], [data-workbench-explorer], [data-workbench-context], " +
+            "[data-command-palette], [data-command-palette-trigger], [data-compact-label-preview]"
+    );
+
 const BoardCardPageComponent = ({
     projectUID: projectUIDProp,
     cardUID: cardUIDProp,
@@ -237,7 +244,9 @@ const BoardCardPageComponent = ({
         event.stopPropagation();
         const pointer = "nativeEvent" in event ? event.nativeEvent : event.detail.originalEvent;
         clearBackgroundPressRef.current?.();
-        if (pointer.button !== 0 || pointer.isPrimary === false) return;
+        // Radix also forwards outside control pointers here. Apply the same
+        // exemption before arming a release listener, including SVG icon targets.
+        if (pointer.button !== 0 || pointer.isPrimary === false || isWorkbenchInteraction(pointer.target)) return;
 
         const dismiss = () => {
             if (isNotificationInteraction(event.target)) return;
@@ -426,12 +435,7 @@ const BoardCardPageComponent = ({
                                     event.preventDefault();
                                     return;
                                 }
-                                if (
-                                    (event.detail.originalEvent.target as Element)?.closest?.(
-                                        "[data-workbench-sidebar], [data-workbench-explorer], [data-workbench-context], " +
-                                            "[data-command-palette], [data-command-palette-trigger], [data-compact-label-preview]"
-                                    )
-                                ) {
+                                if (isWorkbenchInteraction(event.detail.originalEvent.target)) {
                                     event.preventDefault();
                                     return;
                                 }
