@@ -63,7 +63,9 @@ def _predicate(table, ids, paths=None):
     parts = []
     for name, target, target_key, nested in paths:
         condition = table.c[name].in_(select(target.c[target_key]).where(_predicate(target, ids, nested)))
-        if source.c[name].nullable:
+        # Lightweight SQL projections have no nullable metadata. Require a
+        # matching board reference rather than allowing an unknown NULL path.
+        if getattr(source.c[name], "nullable", False):
             condition = or_(table.c[name].is_(None), condition)
         parts.append(condition)
     return and_(*parts) if parts else None
