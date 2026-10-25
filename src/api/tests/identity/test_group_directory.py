@@ -158,6 +158,20 @@ def test_directory_members_minimal_status_pagination_and_no_mutations(directory_
         assert len(db.execute(select(UserGroup.id)).all()) == 1
 
 
+def test_deleted_member_identity_cannot_be_recovered_by_search(directory_database):
+    f = directory_database
+    group = f.groups[0]
+    for query in (f.users[2].username, f.users[2].lastname):
+        result = f.service.group_directory.list_members(group.get_uid(), query=query)
+        assert result["total_records"] == 0
+        assert result["records"] == []
+    # Retain inactive-member discovery and the redacted deleted membership row.
+    result = f.service.group_directory.list_members(group.get_uid(), query=f.users[1].username)
+    assert result["total_records"] == 1
+    assert result["records"][0]["account_status"] == "inactive"
+    assert f.service.group_directory.list_members(group.get_uid())["total_records"] == 3
+
+
 @pytest.mark.parametrize(
     "arguments", [{"page": 0}, {"page": 1000001}, {"limit": 0}, {"limit": 101}, {"query": "x" * 201}]
 )

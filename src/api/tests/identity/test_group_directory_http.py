@@ -166,3 +166,35 @@ def test_group_read_does_not_authorize_write_or_candidates(directory_http):
     ):
         assert client.request(method, endpoint, headers=headers, json=body).status_code == 403
     assert client.get("/settings/groups/candidates", headers=headers).status_code == 403
+
+
+def test_deleted_member_search_does_not_disclose_redacted_identity(directory_http):
+    client, engine, _, _, group, headers, refresh = directory_http
+    client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+    with DbSession.atomic() as db:
+        deleted = User(
+            firstname="ErasedFirstname",
+            lastname="ErasedLastname",
+            username="erased-username",
+            email="erased@example.invalid",
+            password="fixture",
+            deleted_at=SafeDateTime.now(),
+        )
+        db.insert(deleted)
+        db.insert(ScimGroupMember(group_id=group.id, user_id=deleted.id))
+    endpoint = f"/settings/groups/{group.get_uid()}/members"
+    response = client.get(endpoint, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["total_records"] == 2
+    row = next(row for row in response.json()["records"] if row["uid"] == deleted.get_uid())
+    assert row["firstname"] == row["lastname"] == row["username"] == ""
+    for query in ("ErasedFirstname", "ErasedLastname", "erased-username", "Erased"):
+        response = client.get(endpoint, headers=headers, params={"query": query})
+        assert response.status_code == 200, response.text
+        assert response.json()["total_records"] == 0
+        assert response.json()["records"] == []
+    response = client.get(endpoint, headers=headers, params={"query": "Directory"})
+    assert response.json()["total_records"] == 1
+    # Searching never removes the persisted membership or retained account.
+    with engine.connect() as db:
+        assert db.execute(text("SELECT count(*) FROM scim_group_member")).scalar_one() == 2

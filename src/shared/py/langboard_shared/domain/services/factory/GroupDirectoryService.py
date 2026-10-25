@@ -90,6 +90,10 @@ class GroupDirectoryService(BaseDomainService):
             ScimGroupMember.group_id == group_id,
             *self._search((User.firstname, User.lastname, User.username), query),
         ]
+        # Deleted identities are redacted below; search must not expose them
+        # through matching rows or counts. Keep their membership on unfiltered reads.
+        if query:
+            filters.append(User.deleted_at.is_(None))
         with DbSession.use(readonly=True) as db:
             group = db.exec(SqlBuilder.select.table(ScimGroup).where(ScimGroup.id == group_id)).first()
             if group is None:
