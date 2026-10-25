@@ -1981,3 +1981,31 @@ test("responsive native comments retain uploaded attachments and reconcile realt
     await expect(page.locator("[data-card-comment-uid='realtime']")).toHaveCount(1);
     expect(fixture.writes).toHaveLength(1);
 });
+
+test("sidebar transitions respect reduced motion and keep ordinary dragging immediate", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html");
+    const sidebar = page.locator("[data-workbench-sidebar]");
+    const transitions = () =>
+        sidebar.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { property: style.transitionProperty, duration: style.transitionDuration };
+        });
+    await expect.poll(transitions).toEqual({ property: "all", duration: "0.2s" });
+    const handle = await sidebar.locator(".resizer").boundingBox();
+    await page.mouse.move(handle!.x + 1, handle!.y + 100);
+    await page.mouse.down();
+    await expect(sidebar).toHaveAttribute("data-resizing", "true");
+    await expect.poll(async () => (await transitions()).property).toBe("none");
+    await page.mouse.up();
+    await expect.poll(transitions).toEqual({ property: "all", duration: "0.2s" });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+    await expect.poll(async () => (await transitions()).property).toBe("none");
+    await sidebar.getByRole("button", { name: /Collapse|접기/ }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await expect.poll(async () => (await transitions()).property).toBe("none");
+    await sidebar.getByRole("button", { name: /Expand|펼치기/ }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await expect.poll(async () => (await transitions()).property).toBe("none");
+});
