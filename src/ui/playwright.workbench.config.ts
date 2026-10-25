@@ -1,8 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-    testDir: "./src/components/Layout",
-    testMatch: "workbench-shell.spec.ts",
+    testDir: "./src/components",
+    testMatch: ["Layout/workbench-shell.spec.ts", "ResizableSidebar/state.spec.ts"],
     grepInvert: /responsive native comments/,
     retries: 0,
     reporter: "line",

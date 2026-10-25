@@ -79,12 +79,12 @@ function ResizableSidebar({
             return;
         }
 
-        document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${defaultCollapsed ? collapsedWidth : initialWidth}px`);
+        document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${isCollapsed ? collapsedWidth : expandedWidthRef.current}px`);
 
         return () => {
             document.documentElement.style.removeProperty(widthCssVariable);
         };
-    }, [defaultCollapsed, hidden, initialWidth, widthCssVariable]);
+    }, [isCollapsed, hidden, widthCssVariable]);
 
     const sidebarIdRef = useRef(`resizable-sidebar-${Utils.String.Token.shortUUID()}`);
     const setCollapsedAttr = (collapsed: bool, sidebar?: HTMLElement, widthSize?: number) => {
