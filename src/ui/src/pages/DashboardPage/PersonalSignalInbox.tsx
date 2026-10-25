@@ -76,7 +76,11 @@ export default function PersonalSignalInbox({ actorScope }: { actorScope: string
                         <div className="min-w-0 space-y-1">
                             <p className="break-words font-semibold">{item.project_title}</p>
                             <p className="break-all text-sm">
-                                {item.resource_name} · GitHub · #{item.external_id} · {item.commit_sha.slice(0, 12)}
+                                {t("dashboard.personalInbox.sourceReference", {
+                                    resource: item.resource_name,
+                                    externalId: item.external_id,
+                                    commit: item.commit_sha.slice(0, 12),
+                                })}
                             </p>
                             <button
                                 className="btn btn-sm"

@@ -220,6 +220,7 @@
     "title": "个人收件箱",
     "hint": "来自您可读取看板的未关联 GitHub 信号。在源看板中关联证据或创建卡片。",
     "open source": "打开源收件箱",
-    "next": "下一页信号"
+    "next": "下一页信号",
+    "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
   }
 }

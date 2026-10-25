@@ -46,5 +46,6 @@
   "Client Cursor": "打开安装链接或复制手动 MCP JSON。",
   "Client VS Code": "打开安装链接或复制 HTTP 服务器配置。",
   "Client Hermes": "将此 YAML 合并到现有 Hermes 配置，然后重启并验证 OAuth 和工具。",
-  "Client OpenClaw": "将安装提示粘贴到智能体，并按提示完成 OAuth。"
+  "Client OpenClaw": "将安装提示粘贴到智能体，并按提示完成 OAuth。",
+  "Configuration file": "配置文件：{{path}}"
 }

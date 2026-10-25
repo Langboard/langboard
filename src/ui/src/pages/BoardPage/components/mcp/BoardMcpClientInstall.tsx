@@ -88,9 +88,7 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
                     {code(snippets[client])}
                     {client === "Hermes" && (
                         <>
-                            <p className="text-xs">
-                                <code>~/.hermes/config.yaml</code>
-                            </p>
+                            <p className="text-xs">{t("mcp.Configuration file", { path: "~/.hermes/config.yaml" })}</p>
                             <Button size="sm" variant="outline" onClick={() => void copy(prompt)}>
                                 {t("mcp.Copy install prompt")}
                             </Button>

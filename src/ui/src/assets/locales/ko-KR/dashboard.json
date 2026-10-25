@@ -220,6 +220,7 @@
     "title": "개인 수신함",
     "hint": "읽을 수 있는 보드의 미연결 GitHub 신호입니다. 원본 보드에서 증거를 연결하거나 카드를 만드세요.",
     "open source": "원본 수신함 열기",
-    "next": "다음 신호"
+    "next": "다음 신호",
+    "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
   }
 }

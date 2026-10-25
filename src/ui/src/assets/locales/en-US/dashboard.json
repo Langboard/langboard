@@ -220,6 +220,7 @@
     "title": "Personal Inbox",
     "hint": "Unlinked GitHub signals from boards you can read. Open the source board to link evidence or create a card.",
     "open source": "Open source Inbox",
-    "next": "Next signals"
+    "next": "Next signals",
+    "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
   }
 }

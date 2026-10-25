@@ -46,5 +46,6 @@
   "Client Cursor": "Open the install link or copy the manual MCP JSON.",
   "Client VS Code": "Open the install link or copy the HTTP server configuration.",
   "Client Hermes": "Merge this YAML into your existing Hermes configuration, then restart Hermes and verify OAuth and tools.",
-  "Client OpenClaw": "Paste this install prompt into your agent and complete OAuth when prompted."
+  "Client OpenClaw": "Paste this install prompt into your agent and complete OAuth when prompted.",
+  "Configuration file": "Configuration file: {{path}}"
 }

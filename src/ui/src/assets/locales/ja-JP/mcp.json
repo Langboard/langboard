@@ -46,5 +46,6 @@
   "Client Cursor": "インストールリンクを開くか、手動MCP JSONをコピーしてください。",
   "Client VS Code": "インストールリンクを開くか、HTTPサーバー設定をコピーしてください。",
   "Client Hermes": "既存のHermes設定にYAMLを追加し、再起動してOAuthとツールを確認してください。",
-  "Client OpenClaw": "エージェントにインストールプロンプトを貼り付け、案内に従ってOAuthを完了してください。"
+  "Client OpenClaw": "エージェントにインストールプロンプトを貼り付け、案内に従ってOAuthを完了してください。",
+  "Configuration file": "設定ファイル: {{path}}"
 }
