@@ -1,3 +1,4 @@
+import BoardMcpClientInstall from "./BoardMcpClientInstall";
 import Button from "@/components/base/Button";
 import Checkbox from "@/components/base/Checkbox";
 import { api } from "@/core/helpers/Api";
@@ -128,21 +129,7 @@ export default function BoardMcpConnection({ projectUID, projectTitle, userUID }
             {catalog && (
                 <>
                     {installURL ? (
-                        <section className="space-y-2 rounded-md border p-3">
-                            <h3 className="text-sm font-semibold">{t("mcp.Manual setup")}</h3>
-                            <p className="text-xs">{t("mcp.Manual setup help")}</p>
-                            <dl className="space-y-1 text-xs">
-                                <dt>{t("mcp.Server name")}</dt>
-                                <dd>
-                                    <code>{server?.name}</code>
-                                </dd>
-                                <dt>{t("mcp.Server URL")}</dt>
-                                <dd className="break-all">
-                                    <code>{installURL}</code>
-                                </dd>
-                            </dl>
-                            <p className="text-xs text-muted-foreground">{t("mcp.Install verification help")}</p>
-                        </section>
+                        <BoardMcpClientInstall key={`${userUID}:${installURL}`} name={server!.name} url={installURL} resource={server!.resource} />
                     ) : (
                         <p role="status" className="text-sm">
                             {t("mcp.Native connection unavailable")}
