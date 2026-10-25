@@ -1,9 +1,9 @@
-# Native board read permission inspection
+# Native board and card read permission inspection
 
 `GET /settings/users/{user_uid}/effective-permissions?project_uid={project_uid}`
 requires the existing administrator authentication and `SettingRoleAction.UserRead`
 checks. It inspects one existing user's current native board work-read scope for
-one board. It does not create a target session, switch the caller's identity,
+one board, optionally narrowed to one caller-readable card. It does not create a target session, switch the caller's identity,
 change grants, or offer hypothetical role overrides.
 
 The caller must currently pass `CardService.resolve_work_visibility_contexts`
@@ -33,7 +33,7 @@ profile, card body, token, or unrelated board information is returned.
 
 This is the existing board work-read scope, not an assertion that every route
 or resource action shares identical authorization. Native card visibility and
-private ownership still govern individual cards. Other actions, cards, wiki,
+private ownership govern the optional card inspection described below. Other actions, wiki,
 attachments, bots, API keys, managed sessions and hypothetical simulations are
 outside this endpoint. It does not supply grant/revoke history, grantor, expiry,
 or an authoritative denial-policy graph because the selected producer does not
@@ -77,3 +77,32 @@ existing fixture and dashboard controller. HTTP responses are fixtures, so this
 is actual component/browser evidence, not authenticated canary evidence. The
 existing `playwright.user-login-range.config.ts` and existing UI contracts CI job
 include the new spec; no job was added.
+
+## Current card read inspection
+
+Add `card_uid={card_uid}` to the same endpoint to inspect `action: "card.read"`
+and resource type `card`. Existing administrator/user-read middleware and current
+caller board scope remain required. Before target lookup,
+`CardService.resolve_readable_card(..., metadata_only=True)` authorizes the
+caller for that exact board/card. Unknown, deleted, unrelated and hidden cards
+return the same 404 without title, body or target grant metadata.
+
+The target must pass both current native board read scope and the same native
+card resolver. Shared cards require current membership; internal cards also
+require the configured internal audience; private cards require ownership and
+a permitted channel. The card channel comes from verified authentication
+middleware: native sessions use `human_ui`, API credentials retain `api`.
+This evaluates the target in that channel without creating a target session.
+Original board responses retain action `read` and channel `api`.
+Allowed card responses include source `native_card_visibility`; denied responses
+contain no sources and reason `native_card_read_scope_denied`. No title, body or
+whisper content is returned. Card read does not imply whisper-content access.
+
+The user-details panel reuses native scoped card-context search with at least
+two search characters and explicit card selection. Board changes clear card
+selection/search. Search is keyed by actor/session and refreshed on mount;
+loading/failure hides cached options. Inspection identity includes card UID,
+so switching cards/boards/users and closing the dialog suppress stale grants.
+Browser fixtures cover card request identity, denial, switches, unavailable
+resources, retry and failed/empty search. Component/browser fixture evidence
+remains separate from native JWT/middleware/database evidence.

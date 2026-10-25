@@ -1,4 +1,6 @@
 import Button from "@/components/base/Button";
+import Input from "@/components/base/Input";
+import useSearchCardContext from "@/controllers/api/card/useSearchCardContext";
 import Select from "@/components/base/Select";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import useUserEffectivePermissions from "@/controllers/api/settings/users/useUserEffectivePermissions";
@@ -9,10 +11,17 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
     const [t] = useTranslation();
     const selectID = useId();
     const [selectedUID, setSelectedUID] = useState("");
+    const [cardQuery, setCardQuery] = useState("");
+    const [selectedCardUID, setSelectedCardUID] = useState("");
+    const cardSelectID = useId();
+    const cardSearchID = useId();
     const catalog = useGetProjects({ staleTime: 0, refetchOnMount: "always", interceptToast: true });
     const projects = !catalog.isFetching && !catalog.isError ? (catalog.data?.projects ?? []) : [];
     const projectUID = projects.some((project) => project.uid === selectedUID) ? selectedUID : "";
-    const { data, loading, error, retry } = useUserEffectivePermissions(uid, projectUID);
+    const cardSearch = useSearchCardContext(projectUID, cardQuery, !!projectUID, { staleTime: 0, refetchOnMount: "always" });
+    const cards = !cardSearch.isFetching && !cardSearch.isError && cardQuery.length >= 2 ? (cardSearch.data?.cards ?? []) : [];
+    const cardUID = cards.some((card) => card.uid === selectedCardUID) ? selectedCardUID : "";
+    const { data, loading, error, retry } = useUserEffectivePermissions(uid, projectUID, cardUID);
     const label = t("settings.Effective board read permission");
     return (
         <section aria-label={label} aria-busy={catalog.isFetching || loading} className="space-y-2 border-t pt-4">
@@ -33,7 +42,14 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
                     <label htmlFor={selectID} className="text-sm font-medium">
                         {t("settings.Select readable board")}
                     </label>
-                    <Select.Root value={projectUID} onValueChange={setSelectedUID}>
+                    <Select.Root
+                        value={projectUID}
+                        onValueChange={(value) => {
+                            setSelectedUID(value);
+                            setCardQuery("");
+                            setSelectedCardUID("");
+                        }}
+                    >
                         <Select.Trigger id={selectID}>
                             <Select.Value placeholder={t("settings.Select readable board")} />
                         </Select.Trigger>
@@ -47,6 +63,44 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
                     </Select.Root>
                     {!projectUID && <p className="text-sm">{t("settings.Select board to inspect")}</p>}
                 </>
+            )}
+            {projectUID && (
+                <div className="space-y-2">
+                    <h4 className="font-medium">{t("settings.Effective card read permission")}</h4>
+                    <p className="text-sm">{t("settings.Effective card read description")}</p>
+                    <label htmlFor={cardSearchID}>{t("settings.Search readable cards")}</label>
+                    <Input
+                        id={cardSearchID}
+                        value={cardQuery}
+                        maxLength={1000}
+                        onChange={(event) => {
+                            setCardQuery(event.target.value);
+                            setSelectedCardUID("");
+                        }}
+                    />
+                    {cardSearch.isFetching && <p role="status">{t("common.Loading...")}</p>}
+                    {cardSearch.isError && <p role="alert">{t("settings.Card search failed")}</p>}
+                    {cardQuery.length >= 2 && !cardSearch.isFetching && !cardSearch.isError && !cards.length && (
+                        <p>{t("settings.No readable cards")}</p>
+                    )}
+                    {!!cards.length && (
+                        <>
+                            <label htmlFor={cardSelectID}>{t("card.Select cards")}</label>
+                            <Select.Root value={cardUID} onValueChange={setSelectedCardUID}>
+                                <Select.Trigger id={cardSelectID}>
+                                    <Select.Value placeholder={t("card.Select cards")} />
+                                </Select.Trigger>
+                                <Select.Content>
+                                    {cards.map((card) => (
+                                        <Select.Item key={card.uid} value={card.uid}>
+                                            {card.title || card.uid}
+                                        </Select.Item>
+                                    ))}
+                                </Select.Content>
+                            </Select.Root>
+                        </>
+                    )}
+                </div>
             )}
             {loading && <p role="status">{t("common.Loading...")}</p>}
             {error && (
@@ -62,8 +116,20 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
             )}
             {data && (
                 <div aria-live="polite" className="space-y-2 text-sm">
-                    <p className="font-medium">{t(data.allowed ? "settings.Board read allowed" : "settings.Board read denied")}</p>
-                    {!data.allowed && <p>{t("settings.Board read denied reason")}</p>}
+                    <p className="font-medium">
+                        {t(
+                            data.resource.type === "card"
+                                ? data.allowed
+                                    ? "settings.Card read allowed"
+                                    : "settings.Card read denied"
+                                : data.allowed
+                                  ? "settings.Board read allowed"
+                                  : "settings.Board read denied"
+                        )}
+                    </p>
+                    {!data.allowed && (
+                        <p>{t(data.resource.type === "card" ? "settings.Card read denied reason" : "settings.Board read denied reason")}</p>
+                    )}
                     {!!data.sources.length && (
                         <ul className="list-inside list-disc">
                             {data.sources.map((source) => (

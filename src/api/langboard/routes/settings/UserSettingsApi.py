@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 from urllib.parse import urlparse
-from fastapi import Path, Query, status
+from fastapi import Path, Query, Request, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -301,10 +301,12 @@ def get_user_business_activity_in_settings(
 def get_user_effective_permissions_in_settings(
     user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
     project_uid: Annotated[str, Query(pattern=r"^[0-9A-Za-z]{11}$")],
+    request: Request,
+    card_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    """Inspect the native board read scope without authenticating as the target."""
+    """Inspect native board or card read access without authenticating as the target."""
     from langboard_shared.core.db import DbSession, SqlBuilder
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.core.types import SnowflakeID
@@ -317,6 +319,14 @@ def get_user_effective_permissions_in_settings(
         user, CollaborationChannel.Api, project_ids={project_id}
     ):
         raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    channel = (
+        request.scope.get("collaboration_channel", CollaborationChannel.Api) if card_uid else CollaborationChannel.Api
+    )
+    readable_card = None
+    if card_uid:
+        readable_card = service.card.resolve_readable_card(project_id, card_uid, user, channel, metadata_only=True)
+        if readable_card is None:
+            raise ApiException.NotFound_404(ApiErrorCode.NF1004)
     with DbSession.use(readonly=False) as db:
         target = db.exec(
             SqlBuilder.select.table(User)
@@ -341,6 +351,12 @@ def get_user_effective_permissions_in_settings(
     allowed = project_id in service.card.resolve_work_visibility_contexts(
         target, CollaborationChannel.Api, project_ids={project_id}
     )
+    if card_uid:
+        allowed = (
+            allowed
+            and service.card.resolve_readable_card(project_id, card_uid, target, channel, metadata_only=True)
+            is not None
+        )
     sources = []
     if allowed:
         if project.owner_id == target.id:
@@ -349,16 +365,22 @@ def get_user_effective_permissions_in_settings(
             sources.append({"type": "administrator_project_membership"})
         if member and role and role.is_granted(ProjectRoleAction.Read):
             sources.append({"type": "direct_project_role", "uid": role.get_uid()})
+        if card_uid:
+            sources.append({"type": "native_card_visibility"})
     return JsonResponse(
         content={
             "inspection": {
                 "user_uid": target.get_uid(),
-                "resource": {"type": "project", "uid": project.get_uid()},
-                "action": "read",
+                "resource": {"type": "card", "uid": readable_card[1].get_uid()}
+                if readable_card
+                else {"type": "project", "uid": project.get_uid()},
+                "action": "card.read" if card_uid else "read",
                 "allowed": allowed,
                 "sources": sources,
-                "reason": None if allowed else "native_project_read_scope_denied",
-                "channel": CollaborationChannel.Api.value,
+                "reason": None
+                if allowed
+                else ("native_card_read_scope_denied" if card_uid else "native_project_read_scope_denied"),
+                "channel": channel.value,
             }
         },
         headers={"Cache-Control": "no-store"},

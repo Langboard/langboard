@@ -5,7 +5,21 @@ async function setup(page: Page, baseURL: string | undefined) {
     const reads: URL[] = [],
         errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    const state = { allowed: true, failure: 0, catalogFailure: 0, empty: false, delay: false, release: () => {} };
+    const searchReads: URL[] = [];
+    const state = {
+        authUID: "fixture-admin",
+        cardTitle: "Readable shared card",
+        searchDelay: false,
+        searchRelease: () => {},
+        allowed: true,
+        failure: 0,
+        catalogFailure: 0,
+        empty: false,
+        delay: false,
+        cardFailure: 0,
+        cardEmpty: false,
+        release: () => {},
+    };
     const user = (uid: string) => ({
         uid,
         type: "user",
@@ -48,6 +62,35 @@ async function setup(page: Page, baseURL: string | undefined) {
                     columns: [],
                 },
             });
+        if (url.pathname.endsWith("/auth/me"))
+            return route.fulfill({
+                headers,
+                json: { user: { ...user(state.authUID), is_admin: true, setting_role_actions: ["user_read"] }, bots: [] },
+            });
+        if (url.pathname.endsWith("/cards/context")) {
+            searchReads.push(url);
+            const title = state.cardTitle;
+            if (state.searchDelay) {
+                state.searchDelay = false;
+                await new Promise<void>((resolve) => {
+                    state.searchRelease = resolve;
+                });
+            }
+            return route
+                .fulfill({
+                    status: state.cardFailure || 200,
+                    headers,
+                    json: {
+                        cards: state.cardEmpty
+                            ? []
+                            : [
+                                  { uid: "00000000006", title, project_column_name: "Doing" },
+                                  { uid: "00000000007", title: "Readable internal card", project_column_name: "Doing" },
+                              ],
+                    },
+                })
+                .catch(() => {});
+        }
         if (url.pathname.endsWith("/settings/roles"))
             return route.fulfill({ json: { setting_role_actions: ["user_read"], api_key_role_actions: [], mcp_role_actions: [] }, headers });
         if (url.pathname.endsWith("/settings/users/page"))
@@ -75,13 +118,18 @@ async function setup(page: Page, baseURL: string | undefined) {
                     json: {
                         inspection: {
                             user_uid: url.pathname.split("/").at(-2),
-                            resource: { type: "project", uid: projectUID },
-                            action: "read",
+                            resource: {
+                                type: url.searchParams.has("card_uid") ? "card" : "project",
+                                uid: url.searchParams.get("card_uid") || projectUID,
+                            },
+                            action: url.searchParams.has("card_uid") ? "card.read" : "read",
                             allowed: grant,
                             sources: grant
-                                ? projectUID.endsWith("3")
-                                    ? [{ type: "direct_project_role", uid: "00000000005" }]
-                                    : [{ type: "project_owner" }, { type: "administrator_project_membership" }]
+                                ? url.searchParams.get("card_uid") === "00000000007"
+                                    ? [{ type: "project_owner" }, { type: "native_card_visibility" }]
+                                    : projectUID.endsWith("3")
+                                      ? [{ type: "direct_project_role", uid: "00000000005" }]
+                                      : [{ type: "project_owner" }, { type: "administrator_project_membership" }]
                                 : [],
                             reason: grant ? null : "native_project_read_scope_denied",
                             channel: "api",
@@ -98,7 +146,7 @@ async function setup(page: Page, baseURL: string | undefined) {
     });
     await page.goto("/src/pages/SettingsPage/components/users/group-directory.fixture.html?mode=user");
     await expect(page.getByText("00000000001@example.invalid", { exact: true })).toBeVisible();
-    return { state, reads, errors };
+    return { state, reads, searchReads, errors };
 }
 async function open(page: Page, index = 0) {
     await page.getByRole("button", { name: "More", exact: true }).nth(index).click();
@@ -176,7 +224,7 @@ for (const status of [403, 404, 500])
             status === 403
                 ? "Directory access denied"
                 : status === 404
-                  ? "This user or board is no longer available to inspect."
+                  ? "This user, board or card is no longer available to inspect."
                   : "Unable to load this user"
         );
         await expect(panel.getByText("Direct board role", { exact: true })).toHaveCount(0);
@@ -199,3 +247,97 @@ test("catalog retry and empty state never inspect a board", async ({ page, baseU
     expect(reads).toHaveLength(0);
     expect(errors).toEqual([]);
 });
+
+async function chooseCard(page: Page, name = "Readable shared card") {
+    await page.getByRole("textbox", { name: "Search readable cards", exact: true }).fill("Readable");
+    await page.getByRole("combobox", { name: "Select cards", exact: true }).click();
+    await page.getByRole("option", { name, exact: true }).click();
+}
+
+test("card selector sends card identity, denial and board reset", async ({ page, baseURL }) => {
+    const { state, reads, errors } = await setup(page, baseURL),
+        panel = await open(page);
+    await choose(page);
+    await chooseCard(page);
+    await expect(panel.getByText("Card read allowed", { exact: true })).toBeVisible();
+    expect(reads.at(-1)?.searchParams.get("card_uid")).toBe("00000000006");
+    state.allowed = false;
+    await panel.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(panel.getByText("Card read denied", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Direct board role", { exact: true })).toHaveCount(0);
+    state.allowed = true;
+    await choose(page, 2);
+    await expect(panel.getByText("Card read denied", { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("textbox", { name: "Search readable cards", exact: true })).toHaveValue("");
+    await expect(panel.getByText("Board read allowed", { exact: true })).toBeVisible();
+    expect(reads.at(-1)?.searchParams.has("card_uid")).toBe(false);
+    expect(errors).toEqual([]);
+});
+
+test("pending card switch and inspection error suppress previous grants", async ({ page, baseURL }) => {
+    const { state, reads, errors } = await setup(page, baseURL),
+        panel = await open(page);
+    await choose(page);
+    state.delay = true;
+    await chooseCard(page);
+    await expect.poll(() => reads.some((url) => url.searchParams.get("card_uid") === "00000000006")).toBe(true);
+    await page.getByRole("combobox", { name: "Select cards", exact: true }).click();
+    await page.getByRole("option", { name: "Readable internal card", exact: true }).click();
+    await expect(panel.getByText("Card read allowed", { exact: true })).toBeVisible();
+    state.release();
+    await expect(panel.getByText("Board ownership", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Direct board role", { exact: true })).toHaveCount(0);
+    expect(reads.at(-1)?.searchParams.get("card_uid")).toBe("00000000007");
+    state.failure = 404;
+    await panel.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(panel.getByRole("alert")).toBeVisible();
+    await expect(panel.getByText("Card read allowed", { exact: true })).toHaveCount(0);
+    state.failure = 0;
+    await panel.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(panel.getByText("Card read allowed", { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+});
+
+test("card search failure and empty results hide stale options", async ({ page, baseURL }) => {
+    const { state, errors } = await setup(page, baseURL),
+        panel = await open(page);
+    await choose(page);
+    state.cardFailure = 500;
+    await page.getByRole("textbox", { name: "Search readable cards", exact: true }).fill("Failed");
+    await expect(panel.getByRole("alert")).toContainText("Unable to search readable cards");
+    await expect(panel.getByRole("combobox", { name: "Select cards", exact: true })).toHaveCount(0);
+    state.cardFailure = 0;
+    state.cardEmpty = true;
+    await page.getByRole("textbox", { name: "Search readable cards", exact: true }).fill("Empty");
+    await expect(panel.getByText("No readable cards found", { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+});
+
+for (const transition of ["account", "session"] as const)
+    test(`card search rejects the old response after ${transition} switch`, async ({ page, baseURL }) => {
+        const { state, searchReads, errors } = await setup(page, baseURL);
+        await open(page);
+        await choose(page);
+        state.searchDelay = true;
+        await page.getByRole("textbox", { name: "Search readable cards", exact: true }).fill("Readable");
+        await expect.poll(() => searchReads.length).toBe(1);
+        state.cardTitle = "Current session card";
+        if (transition === "account") state.authUID = "other-admin";
+        await page.evaluate(async () => {
+            const authPath = "/src/core/stores/AuthStore.ts",
+                apiPath = "/src/core/helpers/Api.ts";
+            const [{ default: auth }, { api }] = await Promise.all([import(authPath), import(apiPath)]);
+            await auth.getState().updateToken("fixture-next-session", api);
+        });
+        // Native identity refresh closes user details; reopen with the same board/query.
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await open(page);
+        await choose(page);
+        await page.getByRole("textbox", { name: "Search readable cards", exact: true }).fill("Readable");
+        await expect.poll(() => searchReads.length).toBe(2);
+        state.searchRelease();
+        await page.getByRole("combobox", { name: "Select cards", exact: true }).click();
+        await expect(page.getByRole("option", { name: "Current session card", exact: true })).toBeVisible();
+        await expect(page.getByRole("option", { name: "Readable shared card", exact: true })).toHaveCount(0);
+        expect(errors).toEqual([]);
+    });

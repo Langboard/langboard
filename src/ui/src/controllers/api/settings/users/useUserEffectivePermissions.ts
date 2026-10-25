@@ -5,18 +5,18 @@ import { useEffect, useState } from "react";
 
 export interface UserEffectivePermissions {
     user_uid: string;
-    resource: { type: "project"; uid: string };
-    action: "read";
+    resource: { type: "project" | "card"; uid: string };
+    action: "read" | "card.read";
     allowed: boolean;
-    sources: { type: "project_owner" | "administrator_project_membership" | "direct_project_role"; uid?: string }[];
+    sources: { type: "project_owner" | "administrator_project_membership" | "direct_project_role" | "native_card_visibility"; uid?: string }[];
     reason: string | null;
     channel: string;
 }
 
-export default function useUserEffectivePermissions(uid: string, projectUID: string) {
+export default function useUserEffectivePermissions(uid: string, projectUID: string, cardUID = "") {
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const [revision, setRevision] = useState(0);
-    const identity = JSON.stringify([actorUID, uid, projectUID, revision]);
+    const identity = JSON.stringify([actorUID, uid, projectUID, cardUID, revision]);
     const [result, setResult] = useState<{ identity: string; data?: UserEffectivePermissions; error?: number }>();
     useEffect(() => {
         if (!projectUID || !actorUID) return;
@@ -25,7 +25,7 @@ export default function useUserEffectivePermissions(uid: string, projectUID: str
         const current = () => !abort.signal.aborted && identityVersion === useAuthStore.getState().getIdentityVersion();
         api.get<{ inspection: UserEffectivePermissions }>(`/settings/users/${uid}/effective-permissions`, {
             signal: abort.signal,
-            params: { project_uid: projectUID },
+            params: { project_uid: projectUID, ...(cardUID ? { card_uid: cardUID } : {}) },
             env: { interceptToast: true } as never,
         })
             .then(({ data }) => {
@@ -35,7 +35,7 @@ export default function useUserEffectivePermissions(uid: string, projectUID: str
                 if (current()) setResult({ identity, error: isAxiosError(error) ? error.response?.status || 500 : 500 });
             });
         return () => abort.abort();
-    }, [actorUID, uid, projectUID, identity]);
+    }, [actorUID, uid, projectUID, cardUID, identity]);
     const current = projectUID && result?.identity === identity ? result : undefined;
     return {
         data: current?.data,
