@@ -162,6 +162,41 @@ def test_native_followup_transaction_and_replay(followup_board, monkeypatch, fai
         b.owner.apply(changed, preview["revision"], "native-followups")
 
 
+@pytest.mark.parametrize("failure", ["child", "receipt"])
+def test_caught_plan_failure_preserves_host_transaction_only(followup_board, monkeypatch, failure):
+    b = followup_board
+    reviewed = b.owner.preview(b.plan)
+    before = row_counts(b.f)
+    host_effects = []
+    if failure == "child":
+        original = b.service.checkitem.create
+        calls = []
+
+        def fail_later(*args, **kwargs):
+            calls.append(1)
+            return None if len(calls) == 4 else original(*args, **kwargs)
+
+        monkeypatch.setattr(b.service.checkitem, "create", fail_later)
+    else:
+        original = b.service.metadata.save
+
+        def fail_receipt(*args, **kwargs):
+            original(*args, **kwargs)
+            return None
+
+        monkeypatch.setattr(b.service.metadata, "save", fail_receipt)
+    with DbSession.atomic() as db:
+        db.after_commit(lambda: host_effects.append("committed"))
+        # The host catches this command's failure and still commits its own work.
+        with pytest.raises(ValueError, match="creation failed|receipt persistence failed"):
+            b.owner.apply(b.plan, reviewed["revision"], "caught-failure")
+        db.insert(CardMetadata(card_id=b.f.card.id, key="host-note", value="preserved"))
+    after = row_counts(b.f)
+    assert after == {**before, "CardMetadata": before["CardMetadata"] + 1}
+    assert host_effects == ["committed"]
+    assert b.observed == []
+
+
 @pytest.mark.parametrize("invalid", ["outsider", "inactive", "deleted", "revoked", "missing"])
 def test_membership_validated_at_preview_and_apply(followup_board, invalid):
     b = followup_board

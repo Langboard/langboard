@@ -399,7 +399,8 @@ class WorkPlanService:
         actor_uid = self.actor.get_uid()
         receipt_key = "internal.work_plan." + sha256((actor_uid + ":" + request_id).encode()).hexdigest()
         payload_digest = sha256(dumps(plan.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()
-        with DbSession.atomic() as db:
+        # Isolate this command even when its caller catches failure inside a host transaction.
+        with DbSession.atomic() as db, db.savepoint():
             project = self.service.project.get_by_id_like(plan.project_uid)
             if (
                 not project
