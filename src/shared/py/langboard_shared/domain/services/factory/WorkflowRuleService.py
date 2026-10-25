@@ -279,7 +279,7 @@ def admit_native_task(function, args, kwargs):
     event_type = "card_relationships_updated" if name == "card_relationship_updated" else name
     if event_type not in {event.value for event in DomainEventType if event.value.startswith("card_")}:
         return []
-    from ...models import Bot, User
+    from ...models import Bot, Project, User
     values = [*args, *kwargs.values()]
     card = next((value for value in values if isinstance(value, Card)), None)
     actor = next((value for value in values if isinstance(value, (User, Bot))), None)
@@ -296,7 +296,13 @@ def admit_native_task(function, args, kwargs):
     for name, key in (("new_card", "cardified_card_uid"), ("old_column", "old_project_column_uid")):
         if hasattr(parameters.get(name), "get_uid"):
             metadata[key] = parameters[name].get_uid()
-    stamps = ":".join(f"{value.__class__.__name__}:{value.get_uid()}:{getattr(value, 'updated_at', '')}" for value in values if hasattr(value, "get_uid"))
+    # Actor and board revisions are context, not mutations of the event source.
+    # Refreshing either between source retries must retain the reservation.
+    stamps = ":".join(
+        f"{value.__class__.__name__}:{value.get_uid()}:"
+        f"{'' if isinstance(value, (User, Bot, Project)) else getattr(value, 'updated_at', '')}"
+        for value in values if hasattr(value, "get_uid")
+    )
     identity = hashlib.sha256(f"{event_type}:{card.id}:{card.last_change_seq}:{stamps}:{json.dumps(metadata, sort_keys=True)}".encode()).hexdigest()
     with DbSession.atomic() as db:
         # Card row serializes admission against stage edits/moves and repeat delivery.
