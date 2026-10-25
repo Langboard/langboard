@@ -7,7 +7,7 @@ import pytest
 import test_card_mirrors as mirrors
 from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.domain.models import Card, CardVisibilityChange, ProjectRole
+from langboard_shared.domain.models import Card, CardChangeReceipt, CardVisibilityChange, ProjectRole
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.publishers import CardPublisher, ProjectPublisher
 from langboard_shared.tasks.activities import CardActivityTask
@@ -21,10 +21,13 @@ mirror_board = mirrors.mirror_board
 @pytest.fixture
 def invalidation_board(mirror_board, monkeypatch):
     b = mirror_board
+    CardChangeReceipt.__table__.create(b.engine)
     b.mirror = mirrors.link(b)[0]
     b.dispatch = Mock()
     monkeypatch.setattr(CardPublisher, "put_dispather", b.dispatch)
     monkeypatch.setattr(CardPublisher, "updated", Mock())
+    b.metadata_updated = Mock()
+    monkeypatch.setattr(CardPublisher, "metadata_changed", b.metadata_updated)
     monkeypatch.setattr(CardPublisher, "deleted", Mock())
     monkeypatch.setattr(ProjectPublisher, "updated", Mock())
     monkeypatch.setattr(CardActivityTask, "card_updated", Mock())
@@ -67,7 +70,9 @@ def test_source_edit_invalidates_only_references_after_commit(invalidation_board
             b.outsider, b.source_board, b.source, {"description": EditorContentModel(content="Changed protected body")}
         )
         b.dispatch.assert_not_called()
+        b.metadata_updated.assert_not_called()
     assert_scoped(b)
+    b.metadata_updated.assert_called_once()
     assert mirrors.project(b, b.mirror)["content"]["content"] == "Changed protected body"
 
 
@@ -80,6 +85,7 @@ def test_source_edit_rollback_does_not_invalidate(invalidation_board):
             )
             raise RuntimeError("rollback")
     b.dispatch.assert_not_called()
+    b.metadata_updated.assert_not_called()
     assert mirrors.project(b, b.mirror)["content"]["content"] == "Original private body"
 
 

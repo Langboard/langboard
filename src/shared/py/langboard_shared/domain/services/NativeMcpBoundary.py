@@ -7,11 +7,12 @@ sessions used by domain services. Both ends of cross-board foreign keys intersec
 
 from contextvars import ContextVar
 from functools import lru_cache
+from operator import add, sub
 from sqlalchemy import and_, event, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.dml import Delete, Insert, Update
-from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.sql.elements import BinaryExpression, BindParameter, ColumnClause, TextClause
 from sqlalchemy.sql.selectable import Alias, Join, Select, TableClause
 
 
@@ -116,6 +117,31 @@ def _values(statement, multiparams, params):
     for column, value in (getattr(statement, "_values", None) or {}).items():
         name = column if isinstance(column, str) else column.name
         if not hasattr(value, "value"):
+            # SQLite writer reservations retain each column's exact value.
+            # This does not authorize expressions or assignments from other columns.
+            if (
+                isinstance(statement, Update)
+                and isinstance(value, ColumnClause)
+                and name in statement.table.c
+                and value.compare(statement.table.c[name])
+            ):
+                continue
+            # Native removal increments a keyword version and closes a card's
+            # order gap. Only these fixed steps are safe; reference values stay literal.
+            if (
+                isinstance(statement, Update)
+                and isinstance(value, BinaryExpression)
+                and (statement.table.name, name, value.operator) in {
+                    ("document_keyword_index", "version", add),
+                    ("card", "order", add),
+                    ("card", "order", sub),
+                }
+                and value.left.compare(statement.table.c[name])
+                and isinstance(value.right, BindParameter)
+                and type(value.right.value) is int
+                and value.right.value == 1
+            ):
+                continue
             raise NativeMcpDenied("Native MCP cannot authorize expression-valued board mutations")
         retained[name] = value.value
     payloads = list(multiparams) if multiparams else [params or {}]

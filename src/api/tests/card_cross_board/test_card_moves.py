@@ -19,9 +19,11 @@ from langboard_shared.domain.models import (
     CardAttachment,
     CardComment,
     CardDecisionGate,
-    DecisionCase,
     CardMetadata,
     CardRelationship,
+    DecisionCase,
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
     DocumentKeywordIndex,
     DocumentVectorCleanup,
     GlobalCardRelationshipType,
@@ -33,6 +35,7 @@ from langboard_shared.domain.models import (
     ProjectLabel,
     ProjectRole,
     WhisperThread,
+    WorkflowRule,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
@@ -55,7 +58,16 @@ def move_board(clone_board, monkeypatch):  # noqa: F811
     b = clone_board
     for model in (DecisionCase, CardDecisionGate):
         model.__table__.create(b.engine)
-    for model in (CardMetadata, DocumentKeywordIndex, DocumentVectorCleanup, WhisperThread, KeywordSearchConfiguration):
+    for model in (
+        CardMetadata,
+        DocumentKeywordIndex,
+        DocumentVectorCleanup,
+        WhisperThread,
+        KeywordSearchConfiguration,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+        WorkflowRule,
+    ):
         model.__table__.create(b.engine)
     b.service.repo.metadata = MetadataRepository(None, None)
     b.service.repo.card_relationship = CardRelationshipRepository(None, None)
@@ -542,6 +554,7 @@ def test_move_recovery_reuses_native_vectors_and_releases_old_pointer_after_publ
 ):
     import asyncio
     from hashlib import sha256
+    from uuid import uuid4
     from langboard_shared.core.broker import Broker
     from langboard_shared.domain.models import (
         CardDocumentArtifact,
@@ -551,6 +564,7 @@ def test_move_recovery_reuses_native_vectors_and_releases_old_pointer_after_publ
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.helpers import InfraHelper
     from langboard_shared.tasks.docling import DocumentEmbeddingTask as task
+    from langboard_shared.tasks.docling.DocumentExtractionCache import cached_document_extraction
     from langboard_shared.tasks.docling.DocumentRetrievalSettings import DocumentRetrievalSettings
     from langboard_shared.tasks.docling.DocumentVectorStore import open_document_vector_store
     from langchain_core.embeddings import Embeddings
@@ -577,15 +591,35 @@ def test_move_recovery_reuses_native_vectors_and_releases_old_pointer_after_publ
     provider = Provider()
     settings = DocumentRetrievalSettings(enabled=True, store="sqlite", dimensions=3)
     snapshot = {"binding_uid": "server-binding", "retrieval": settings.model_dump(mode="json")}
+    generation = uuid4().hex
     document = {
         "attachment_uid": attachment.get_uid(),
         "status": "indexed",
-        "generation": "original",
+        "generation": generation,
         "content_hash": sha256(text.encode()).hexdigest(),
         "content": {"markdown": text},
         "embedding_config": snapshot,
     }
     b.metadata.save_documents(CardMetadata, b.source, [document])
+    with cached_document_extraction(
+        binding_uid="fixture-vision",
+        content_hash=document["content_hash"],
+        vision_config={},
+        filename=attachment.filename,
+        timeout_seconds=1,
+    ) as extraction:
+        content = extraction.get_or_convert(lambda: {"markdown": text})
+        assert b.metadata.mark_document_indexed(
+            CardMetadata,
+            b.source,
+            attachment.get_uid(),
+            "markdown",
+            content_hash=document["content_hash"],
+            content=content,
+            generation=generation,
+            extraction_cache_token=extraction.token,
+        )
+        extraction.retain()
     service = SimpleNamespace(
         card=b.service,
         docling_metadata=b.metadata,
@@ -616,8 +650,9 @@ def test_move_recovery_reuses_native_vectors_and_releases_old_pointer_after_publ
     monkeypatch.setattr(b.metadata, "publish_update", Mock())
     send = Mock()
     monkeypatch.setattr(Broker.celery, "send_task", send)
-    asyncio.run(task.embed_transcription(service, attachment.get_uid(), "original"))
+    asyncio.run(task.embed_transcription(service, attachment.get_uid(), generation))
     original = b.metadata.load_documents(CardMetadata, b.source)[0]
+    assert original["embedding"]["status"] == "indexed", original["embedding"]
     old_pointer = original["embedding"]["pointer"]
     assert provider.calls == 1 and old_pointer["board_uid"] == b.source_board.get_uid()
     assert all(ref.expires_at is None for ref in rows(DocumentEmbeddingCacheReference))
@@ -632,7 +667,7 @@ def test_move_recovery_reuses_native_vectors_and_releases_old_pointer_after_publ
     assert not b.metadata.publish_document_embedding(
         b.source,
         attachment.get_uid(),
-        "original",
+        generation,
         original["content_hash"],
         {"status": "indexed", "pointer": old_pointer},
     )
@@ -710,8 +745,6 @@ def test_move_recovers_inflight_conversion_at_current_location(move_board, monke
     from langboard_shared.core.broker import Broker
     from langboard_shared.domain.models import (
         CardDocumentArtifact,
-        DocumentExtractionCache,
-        DocumentExtractionCacheReference,
     )
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.helpers import InfraHelper
@@ -719,8 +752,6 @@ def test_move_recovers_inflight_conversion_at_current_location(move_board, monke
 
     b = move_board
     CardDocumentArtifact.__table__.create(b.engine)
-    DocumentExtractionCache.__table__.create(b.engine)
-    DocumentExtractionCacheReference.__table__.create(b.engine)
     file = Storage.upload_named(BytesIO(b"pending bytes"), StorageName.CardAttachment, "pending.pdf", "pending.pdf")
     with DbSession.use(readonly=False) as db:
         attachment = CardAttachment(card_id=b.source.id, user_id=b.actor.id, filename="pending.pdf", file=file)

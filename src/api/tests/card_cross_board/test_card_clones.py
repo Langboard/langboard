@@ -475,6 +475,10 @@ def test_native_clone_processing_reuses_embedding_cache_with_distinct_search_pro
         DocumentEmbeddingCacheReference,
         KeywordSearchConfiguration,
     )
+    from langboard_shared.domain.models.DocumentExtractionCache import (
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+    )
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
     from langboard_shared.helpers import InfraHelper
@@ -482,6 +486,7 @@ def test_native_clone_processing_reuses_embedding_cache_with_distinct_search_pro
     from langboard_shared.publishers import CardAttachmentPublisher
     from langboard_shared.tasks.activities import CardAttachmentActivityTask
     from langboard_shared.tasks.docling import DocumentEmbeddingTask as embedding_task
+    from langboard_shared.tasks.docling.DocumentExtractionCache import cached_document_extraction
     from langchain_core.embeddings import Embeddings
 
     b = clone_board
@@ -490,6 +495,8 @@ def test_native_clone_processing_reuses_embedding_cache_with_distinct_search_pro
         CardDocumentArtifact,
         DocumentEmbeddingCache,
         DocumentEmbeddingCacheReference,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
         KeywordSearchConfiguration,
     ):
         model.__table__.create(b.engine)
@@ -570,20 +577,31 @@ def test_native_clone_processing_reuses_embedding_cache_with_distinct_search_pro
         # splitting, cache, vector store, generation publication and provenance are native.
         document = metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
         assert document["status"] == "pending"
-        assert metadata.mark_document_indexed(
-            CardMetadata,
-            card,
-            attachment.get_uid(),
-            "markdown",
+        with cached_document_extraction(
+            binding_uid=vision.get_uid(),
             content_hash=sha256(file_bytes).hexdigest(),
-            content={"markdown": "Identical document transcription"},
-            generation=document["generation"],
-        )
+            vision_config=document["vision_config"],
+            filename=attachment.filename,
+            timeout_seconds=1,
+        ) as extraction:
+            content = extraction.get_or_convert(lambda: {"markdown": "Identical document transcription"})
+            assert metadata.mark_document_indexed(
+                CardMetadata,
+                card,
+                attachment.get_uid(),
+                "markdown",
+                content_hash=sha256(file_bytes).hexdigest(),
+                content=content,
+                generation=document["generation"],
+                extraction_cache_token=extraction.token,
+            )
+            extraction.retain()
         asyncio.run(embedding_task.embed_transcription(task_service, attachment.get_uid(), document["generation"]))
         return metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
 
     original_document = transcribe_and_embed(b.source, original)
-    assert original_document["embedding"]["status"] == "indexed" and len(provider.calls) == 1
+    assert original_document["embedding"]["status"] == "indexed", original_document["embedding"]
+    assert len(provider.calls) == 1
     queued.reset_mock()
     result = clone(b)
     assert result["created"]
@@ -591,7 +609,8 @@ def test_native_clone_processing_reuses_embedding_cache_with_distinct_search_pro
     copied_card = current_card(copied.card_id)
     assert queued.call_count == 1 and queued.call_args.args[0].endswith("DoclingMetadataTask.index_card_attachment")
     copied_document = transcribe_and_embed(copied_card, copied)
-    assert copied_document["embedding"]["status"] == "indexed" and len(provider.calls) == 1
+    assert copied_document["embedding"]["status"] == "indexed", copied_document["embedding"]
+    assert len(provider.calls) == 1
     original_pointer = original_document["embedding"]["pointer"]
     copied_pointer = copied_document["embedding"]["pointer"]
     assert original_pointer["board_uid"] == b.source_board.get_uid()

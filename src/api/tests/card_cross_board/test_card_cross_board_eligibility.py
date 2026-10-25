@@ -133,7 +133,7 @@ def test_detail_projection_tracks_current_ownership(mirror_board, monkeypatch):
     b = mirror_board
     snapshot(b, monkeypatch, [b.source])
     b.service.repo.card_comment = SimpleNamespace(count_by_card=lambda card: 0)
-    monkeypatch.setattr(b.service, "is_check_card", lambda card: False)
+    monkeypatch.setattr(b.service, "is_check_card", lambda card, *, metadata_only=False: False)
     monkeypatch.setattr(b.service, "_get_completion_checklist", lambda card: None)
     empty_service = SimpleNamespace(is_employee=lambda *a: False, get_api_assigned_user_list=lambda *a: [], get_api_list_by_card=lambda *a, **kw: [])
     monkeypatch.setattr(b.service, "_get_service", lambda kind: empty_service)

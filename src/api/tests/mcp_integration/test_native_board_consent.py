@@ -16,6 +16,7 @@ from langboard_shared.domain.models import (
     Card,
     CardComment,
     CardRelationship,
+    DocumentKeywordIndex,
     EmployeeMembershipPolicy,
     GlobalCardRelationshipType,
     Project,
@@ -383,6 +384,61 @@ async def test_fastmcp_direct_raw_and_public_resource_use_same_boundary(native, 
                 )
     finally:
         mcp_auth_context.reset(token)
+
+
+def test_writer_reservation_preserves_board_scope_and_denies_other_expressions(native):
+    engine, *_ = native
+    token = native_mcp_boundary.set({"read": frozenset({10}), "write": frozenset({10})})
+    try:
+        with engine.begin() as db:
+            assert db.execute(
+                update(Project).values(owner_id=Project.owner_id, updated_at=Project.updated_at)
+            ).rowcount == 1
+            assert db.execute(update(Project).where(Project.id == 20).values(owner_id=Project.owner_id)).rowcount == 0
+            assert db.execute(update(Card).values(order=Card.order - 1)).rowcount == 1
+            for values in (
+                {"project_id": Card.project_column_id},
+                {"project_id": Card.project_id + 10},
+                {"title": func.upper(Card.title)},
+                {"order": Card.order - 2},
+                {"order": Card.project_column_id - 1},
+            ):
+                with pytest.raises(NativeMcpDenied):
+                    db.execute(update(Card).where(Card.id == 210).values(**values))
+        native_mcp_boundary.set({"read": frozenset({10}), "write": frozenset()})
+        with engine.begin() as db, pytest.raises(NativeMcpDenied):
+            db.execute(update(Project).where(Project.id == 10).values(owner_id=Project.owner_id))
+    finally:
+        native_mcp_boundary.reset(token)
+    with Session(engine) as db:
+        assert db.get(Card, 210).order == -1
+        assert db.get(Card, 220).order == 0
+
+
+def test_keyword_counter_increment_preserves_board_scope(native):
+    engine, *_ = native
+    DocumentKeywordIndex.__table__.create(engine)
+    with Session(engine) as db:
+        for identifier, board_id, card_id in ((710, 10, 210), (720, 20, 220)):
+            db.add(DocumentKeywordIndex(
+                id=identifier, attachment_id=identifier, project_id=board_id, card_id=card_id,
+                destination_fingerprint="fixture", destination={}, source_generation="fixture",
+            ))
+        db.commit()
+    token = native_mcp_boundary.set({"read": frozenset({10}), "write": frozenset({10})})
+    try:
+        with engine.begin() as db:
+            assert db.execute(update(DocumentKeywordIndex).values(version=DocumentKeywordIndex.version + 1)).rowcount == 1
+            for expression in (DocumentKeywordIndex.version + 2, DocumentKeywordIndex.card_id + 1):
+                with pytest.raises(NativeMcpDenied):
+                    db.execute(update(DocumentKeywordIndex).values(version=expression))
+            with pytest.raises(NativeMcpDenied):
+                db.execute(update(DocumentKeywordIndex).values(project_id=DocumentKeywordIndex.project_id + 1))
+    finally:
+        native_mcp_boundary.reset(token)
+    with Session(engine) as db:
+        assert db.get(DocumentKeywordIndex, 710).version == 2
+        assert db.get(DocumentKeywordIndex, 720).version == 1
 
 
 def test_boundary_denies_multirow_select_and_missing_insert_scope(native):

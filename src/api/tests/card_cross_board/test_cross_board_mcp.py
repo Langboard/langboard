@@ -227,12 +227,26 @@ async def test_modern_confirmation_receipt_and_applied_replay(move_board, monkey
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
     monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata.get(name))
     if profile == "oauth":
+        from langboard_shared.domain.models import EmployeeMembershipPolicy, NativeMcpBoardConsent, NativeMcpConnection
+        from langboard_shared.Env import Env
+
+        # External OAuth users require a persisted client connection and current
+        # board consent in addition to the ordinary cross-board role checks.
+        for model in (EmployeeMembershipPolicy, NativeMcpConnection, NativeMcpBoardConsent):
+            model.__table__.create(b.engine)
+        monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+        monkeypatch.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
+        with DbSession.use(readonly=False) as db:
+            connection = NativeMcpConnection(user_id=b.actor.id, client_id="cross-board-replay-test")
+            db.insert(connection)
+            for board in (b.source_board, b.destination):
+                db.insert(NativeMcpBoardConsent(connection_id=connection.id, project_id=board.id, scopes=["read", "write"]))
         server = FastMCP("Native OAuth dispatch fixture", middleware=[MutationReceiptMiddleware()])
         server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
     else:
         _, server = McpServer.get_http_app(profile)
     # Exercise the native OAuth principal path without a legacy tool group.
-    principal = {"transport": "oauth", "user_or_bot": b.actor} if profile == "oauth" else {
+    principal = {"transport": "oauth", "user_or_bot": b.actor, "native_connection_id": connection.id} if profile == "oauth" else {
         "user_or_bot": b.actor,
         "tool_group": SimpleNamespace(activated_at=object(), tools=["cross_board_card"]),
     }
