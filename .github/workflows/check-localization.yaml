@@ -29,6 +29,7 @@ on:
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitemTimer.tsx
       - src/ui/src/pages/DashboardPage/components/TrackingRow.tsx
       - src/ui/playwright.bot-avatar.config.ts
+      - src/ui/playwright.editor-ref.config.ts
       - src/ui/playwright.attachment-upload.config.ts
       - src/ui/src/pages/BoardPage/components/card/action/file/**
       - src/ui/playwright.timer-duration.config.ts
@@ -174,6 +175,9 @@ jobs:
         working-directory: src/ui
       - name: Verify bot avatar consent and actor isolation
         run: yarn playwright test -c playwright.bot-avatar.config.ts
+        working-directory: src/ui
+      - name: Verify native editor selection and clipboard replacement
+        run: yarn playwright test -c playwright.editor-ref.config.ts --workers=1
         working-directory: src/ui
       - name: Verify native new-card title and body draft recovery
         run: yarn playwright test -c playwright.board-add-card-draft.config.ts

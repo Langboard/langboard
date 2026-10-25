@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,10 +21,25 @@ const user = AuthUser.Model.fromOne({
     updated_at: new Date(),
 });
 
+declare global {
+    interface Window {
+        editorFixtureSelection?: TEditor["selection"];
+    }
+}
+
 function Fixture() {
     const editorRef = useRef<TEditor>(null);
     const [external, setExternal] = useState(false);
-    const [content, setContent] = useState("Original content");
+    const [content, setContent] = useState(new URLSearchParams(window.location.search).get("content") ?? "Original content");
+    useEffect(() => {
+        Object.defineProperty(window, "editorFixtureSelection", {
+            configurable: true,
+            get: () => editorRef.current?.selection,
+        });
+        return () => {
+            delete window.editorFixtureSelection;
+        };
+    }, []);
     return (
         <main className="mx-auto max-w-xl p-6">
             <button className="btn" onClick={() => setExternal((current) => !current)}>

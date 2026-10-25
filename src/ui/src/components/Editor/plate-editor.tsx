@@ -11,6 +11,7 @@ import { EditorDataProvider, TEditorDataProviderProps, useEditorData } from "@/c
 import { TEditor } from "@/components/Editor/editor-kit";
 import { useMounted } from "@/core/hooks/useMounted";
 import { YjsPlugin } from "@platejs/yjs/react";
+import { BlockSelectionPlugin } from "@platejs/selection/react";
 import { PlateEditor as TPlateEditor } from "platejs/react";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { useSocket } from "@/core/providers/SocketProvider";
@@ -125,6 +126,11 @@ function EditorWrapper({
         onCollaborativeSyncChange: handleCollaborativeSyncChange,
         ...props,
     } as TUseCreateEditor);
+    useEffect(() => {
+        // Keep native select-all in the text range. Block selection pastes after
+        // selected blocks, leaving the text users intended to replace intact.
+        editor.setOption(BlockSelectionPlugin, "disableSelectAll", true);
+    }, [editor]);
     const mounted = useMounted();
     const { documentID, form } = useEditorData();
     const projectUID = Utils.Type.isString(form?.project_uid) ? form.project_uid : undefined;
@@ -439,6 +445,20 @@ function EditorWrapper({
         focusEditor();
     }, [documentID, focusEditor, focusOnReady, mounted, readOnly]);
 
+    const syncPasteSelection = useCallback(() => {
+        const selection = window.getSelection();
+        const element = internalEditorComponentRef.current;
+        if (!selection?.anchorNode || !selection.focusNode || !element?.contains(selection.anchorNode) || !element.contains(selection.focusNode)) {
+            return;
+        }
+
+        // Native navigation can precede Slate's throttled selectionchange handler.
+        const range = editor.api.toSlateRange(selection, { exactMatch: false, suppressThrow: true });
+        if (range) {
+            editor.tf.select(range);
+        }
+    }, [editor]);
+
     const setEditorComponentRefs = useCallback(
         (node: HTMLDivElement | null) => {
             internalEditorComponentRef.current = node;
@@ -474,6 +494,7 @@ function EditorWrapper({
                             placeholder={placeholder}
                             readOnly={readOnly || isWaitingForCollaborativeReady}
                             ref={setEditorComponentRefs}
+                            onPasteCapture={syncPasteSelection}
                         />
                     </EditorContainer>
                     {isWaitingForCollaborativeReady && (
