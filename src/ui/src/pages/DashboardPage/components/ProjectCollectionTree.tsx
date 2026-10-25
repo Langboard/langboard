@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Tree } from "react-arborist";
 import { useDragDropManager } from "react-dnd";
 import { useTranslation } from "react-i18next";
@@ -37,6 +37,9 @@ export default function ProjectCollectionTree(props: Props) {
 function CollectionTree({ collections, projects, busy, save, navigate, visibleCollectionUIDs }: Props) {
     const [t] = useTranslation();
     const manager = useDragDropManager();
+    const treeDragType = `application/x-langboard-collection-tree-${useId()
+        .replace(/[^a-z0-9]/gi, "")
+        .toLowerCase()}`;
     const [failed, setFailed] = useState(false);
     const projectMap = useMemo(() => new Map(projects.map((project) => [project.uid, project])), [projects]);
     const data = useMemo(
@@ -104,6 +107,27 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
     };
     return (
         <div
+            onDragOverCapture={(event) => {
+                if (!event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE) || event.dataTransfer.types.includes(treeDragType)) return;
+                // Arborist owns ordering inside one tree; its drag state is not shared between trees.
+                event.stopPropagation();
+                if (!busy && (event.target as HTMLElement).closest("[data-collection-uid]")) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                }
+            }}
+            onDropCapture={(event) => {
+                if (!event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE) || event.dataTransfer.types.includes(treeDragType)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (busy) return;
+                const targetUID = (event.target as HTMLElement).closest<HTMLElement>("[data-collection-uid]")?.dataset.collectionUid;
+                const target = collections.find((item) => item.uid === targetUID);
+                const sourceID = event.dataTransfer.getData(COLLECTION_BOARD_DRAG_TYPE);
+                const source = collections.find((item) => item.board_uids.some((uid) => `${item.uid}:${uid}` === sourceID));
+                const boardUID = source?.board_uids.find((uid) => `${source.uid}:${uid}` === sourceID);
+                if (source && target && source !== target && boardUID) moveBoard(source.uid, boardUID, target.uid, target.board_uids.length);
+            }}
             onDragOver={(event) => {
                 if (event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE)) return;
                 if (!busy && event.dataTransfer.types.includes(BOARD_REFERENCE_DRAG_TYPE)) {
@@ -176,6 +200,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                             if (!busy && node.data.boardUID && projectMap.has(node.data.boardUID)) {
                                 event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, node.data.boardUID);
                                 event.dataTransfer.setData(COLLECTION_BOARD_DRAG_TYPE, node.data.id);
+                                event.dataTransfer.setData(treeDragType, "");
                             }
                         }}
                         onClick={(event) => event.stopPropagation()}

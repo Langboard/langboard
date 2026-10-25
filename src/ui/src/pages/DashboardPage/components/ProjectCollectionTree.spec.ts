@@ -440,3 +440,64 @@ for (const touch of [false, true]) {
         });
     });
 }
+
+test("production Explorer moves boards between Favorites and Projects trees atomically", async ({ page }) => {
+    let saved = {
+        revision: 1,
+        collections: [
+            { uid: first, name: "Favorite group", starred: true, board_uids: ["00000000001", "00000000002"] },
+            { uid: second, name: "Project group", starred: false, board_uids: ["00000000002"] },
+        ],
+    };
+    let writes = 0;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/account/project-collections", (route) => {
+        if (route.request().method() === "GET") return route.fulfill({ json: saved });
+        const input = route.request().postDataJSON();
+        expect(input.expected_revision).toBe(saved.revision);
+        writes++;
+        saved = { revision: saved.revision + 1, collections: input.collections };
+        return route.fulfill({ json: saved });
+    });
+    await page.route("**/dashboard/projects", (route) =>
+        route.fulfill({
+            json: {
+                projects: ["Zulu", "Alpha"].map((title, index) => ({
+                    uid: `0000000000${index + 1}`,
+                    title,
+                    starred: false,
+                    project_type: "Other",
+                    owner_uid: "collection-tree",
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    all_members: [],
+                    current_auth_role_actions: [],
+                })),
+                columns: [],
+            },
+        })
+    );
+    await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html?explorer");
+    const explorer = page.getByRole("navigation", { name: "Explorer", exact: true });
+    const favorites = explorer.getByRole("region", { name: "Favorites", exact: true });
+    const projects = explorer.getByRole("region", { name: "Projects", exact: true });
+    const button = (section: import("@playwright/test").Locator, name: string) => section.getByRole("button", { name, exact: true });
+    await button(favorites, "Favorite group").click();
+    await button(projects, "Favorite group").click();
+    await button(projects, "Project group").click();
+    await button(favorites, "Zulu").dragTo(button(projects, "Project group"));
+    await expect.poll(() => saved.collections.map((item) => item.board_uids)).toEqual([["00000000002"], ["00000000002", "00000000001"]]);
+    expect(writes).toBe(1);
+    await projects.getByRole("tree").getByRole("button", { name: "Zulu", exact: true }).dragTo(button(favorites, "Favorite group"));
+    await expect.poll(() => saved.collections.map((item) => item.board_uids)).toEqual([["00000000002", "00000000001"], ["00000000002"]]);
+    expect(writes).toBe(2);
+    await button(favorites, "Alpha").dragTo(button(projects, "Project group"));
+    await expect(button(favorites, "Alpha")).toBeVisible();
+    expect(writes).toBe(2);
+    await page.reload();
+    await button(favorites, "Favorite group").click();
+    await expect(button(favorites, "Zulu")).toBeVisible();
+    expect(saved.revision).toBe(3);
+    expect(errors).toEqual([]);
+});
