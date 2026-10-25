@@ -128,6 +128,8 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
                 assert schema.pop("minimum") == 1
                 assert schema.pop("maximum") == maximum
         modern_fields = {
+            "create_project": ("request_uuid",),
+            "create_project_board": ("request_uuid",),
             "list_project_cards": ("visibility", "created_by", "assigned_to"),
             "add_card_comment": ("anchor", "request_uid"),
             "change_card_order_or_move_column": ("move_descendants", "confirmation_revision"),
@@ -141,6 +143,8 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
                 assert field not in modern[name]["required"]
         for name in ("add_card_comment", "upload_card_attachment"):
             assert modern[name]["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
+        for name in ("create_project", "create_project_board"):
+            assert modern[name]["properties"]["request_uuid"]["anyOf"][0]["format"] == "uuid"
         assert modern["change_card_order_or_move_column"]["properties"]["move_descendants"]["anyOf"][0] == {
             "type": "boolean"
         }
