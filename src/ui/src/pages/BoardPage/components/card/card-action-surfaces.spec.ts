@@ -223,3 +223,83 @@ test("agent authorization snapshot disappears at expiry without renewed requests
     );
     expect(requests).toBe(1);
 });
+
+type PrivateUIWindow = Window & {
+    privateUI: {
+        setMembers: (value: string) => void;
+        setVisibility: (value: string) => void;
+        snapshot: () => { visibility: string };
+    };
+    managerCalls: { method: string; url: string }[];
+};
+async function privateUIFixture(page: Page) {
+    await page.route("**/private-ui-wave6.html*", (route) =>
+        route.fulfill({
+            contentType: "text/html",
+            body: `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+                <body><div id="root"></div><script type="module">
+                import RefreshRuntime from "/@react-refresh";
+                RefreshRuntime.injectIntoGlobalHook(window);
+                window.$RefreshReg$=()=>{}; window.$RefreshSig$=()=>type=>type;
+                window.__vite_plugin_react_preamble_installed__=true;</script>
+                <script type="module" src="/src/pages/BoardPage/components/card/card-action-surfaces.fixture.tsx"></script>
+                </body></html>`,
+        })
+    );
+    await page.goto("/private-ui-wave6.html?private-ui");
+    await expect(page.getByRole("region", { name: "Native action card", exact: true })).toBeVisible();
+    await expect(page.getByText("Native private card body", { exact: true })).toBeVisible();
+}
+async function privateUITransition(page: Page, method: "setMembers" | "setVisibility", value: string) {
+    await page.evaluate(({ method, value }) => (window as unknown as PrivateUIWindow).privateUI[method](value), { method, value });
+}
+for (const width of [390, 1440])
+    test(`native private controls remain hidden through member changes at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        await privateUIFixture(page);
+        await page.getByRole("button", { name: "Edit", exact: true }).click();
+        for (const membership of ["solo", "internal", "external", "solo"]) {
+            await privateUITransition(page, "setMembers", membership);
+            await expect(page.locator("[data-card-presentation='visibility.private']")).toContainText("🔐Private");
+            await expect(page.getByRole("button", { name: "Assign members", exact: true })).toHaveCount(0);
+            await expect(page.getByText("Members", { exact: true })).toHaveCount(0);
+            await expect(page.getByRole("button", { name: "Change card visibility", exact: true })).toHaveCount(0);
+            await expect(page.getByRole("button", { name: "Whispers", exact: true })).toHaveCount(0);
+            expect(await page.evaluate(() => (window as unknown as PrivateUIWindow).privateUI.snapshot())).toEqual({ visibility: "PRIVATE" });
+        }
+        await privateUITransition(page, "setVisibility", "INTERNAL");
+        await expect(page.getByText("Members", { exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Whispers", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Assign members", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Change card visibility", exact: true })).toBeVisible();
+        await privateUITransition(page, "setVisibility", "PRIVATE");
+        await expect(page.getByText("Members", { exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Assign members", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Change card visibility", exact: true })).toHaveCount(0);
+        const writes = await page.evaluate(() =>
+            (window as unknown as PrivateUIWindow).managerCalls.filter((c) => c.method !== "get" && !c.url.endsWith("/seen"))
+        );
+        expect(writes).toEqual([]);
+    });
+
+// Uses the real Plate editor and mention popup; network responses remain local fixtures.
+test("native new-comment mention popup removes other people on current visibility changes", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await privateUIFixture(page);
+    await privateUITransition(page, "setMembers", "external");
+    await page.getByRole("button", { name: "Comments", exact: true }).click();
+    await page.getByRole("button", { name: /Add a comment as/ }).click();
+    const editor = page.locator("[data-slate-editor='true'][contenteditable='true']").first();
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("@");
+    await expect(page.getByRole("combobox", { expanded: true })).toBeVisible();
+    await expect(page.getByRole("option")).toHaveCount(0);
+    await privateUITransition(page, "setVisibility", "INTERNAL");
+    await expect(page.getByRole("option").filter({ hasText: "colleague" })).toBeVisible();
+    await expect(page.getByRole("option").filter({ hasText: "outsider" })).toBeVisible();
+    await privateUITransition(page, "setVisibility", "PRIVATE");
+    await expect(page.getByRole("combobox", { expanded: true })).toBeVisible();
+    await expect(page.getByRole("option")).toHaveCount(0);
+});

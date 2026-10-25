@@ -570,7 +570,7 @@ function BoardTaskCardContent({
                                     <BoardCardTitle key={`board-card-title-${card.uid}`} className={isExpanded ? "mr-28 sm:mr-52" : "mr-28"} />
                                 </Flex>
                                 <Flex gap="3" wrap items="center" className="min-w-0">
-                                    <CardTypeBadges card={card} showVisibility={!(canEditCard && canChangeVisibility)} />
+                                    <CardTypeBadges card={card} showVisibility={visibility === "PRIVATE" || !(canEditCard && canChangeVisibility)} />
                                     <BoardCardVisibility />
                                     {!canEditCard && (
                                         <Box textSize="xs" className="text-muted-foreground">
